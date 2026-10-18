@@ -69,6 +69,8 @@ jobs:
           set -euo pipefail
           grep -Fq 'https://api.github.com/repos/Robko1/LGtv/releases/latest' web/src/services/webosUpdateService.ts
           grep -Fq 'dispatchEvent(new KeyboardEvent' webos/webos.js
+          grep -Fq 'focusSpatially' webos/webos.js
+          grep -Fq 'keyCodes[key]' webos/webos.js
           if grep -RniE 'IPTVNative|Android|WebView|\.apk' web/src web/index.html; then
             echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
             exit 1
@@ -161,7 +163,11 @@ jobs:
               raise SystemExit("HIBA: a csomagolt index.html hiányos vagy nem production build.")
           if "LG webOS TV · FEKVŐ 1920 × 1080" in html:
               raise SystemExit("HIBA: régi, fölösleges indítófelirat maradt.")
-          print("OK: friss HTML, webOS távirányító-kezelő, verzió 2.3.3; nincs csomagolt indítóvideó/kép.")
+          if 'class="boot-spinner"' in html or 'class="boot-text"' in html:
+              raise SystemExit("HIBA: a régi diagnosztikai indítóképernyő maradt a csomagban.")
+          if "focusSpatially" not in html or "dispatchEvent(new KeyboardEvent" not in html:
+              raise SystemExit("HIBA: a távirányító-kezelő nem került bele a csomagolt HTML-be.")
+          print("OK: friss HTML, Magic Remote-kezelő, verzió 2.3.3; nincs csomagolt indítóvideó/kép.")
           PY
           echo "OK: IPK tartalma rendben"
 
