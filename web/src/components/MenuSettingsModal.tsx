@@ -123,7 +123,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       setGithubToken('');
       setGithubStatus('');
     } catch {
-      // Böngészőben vagy régi APK-ban a GitHub beállítás nem érhető el.
+      // Ebben a webOS-környezetben a natív GitHub-beállítás nem érhető el.
     }
   }, [isOpen]);
 
@@ -241,8 +241,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       setDiagnosisProgress({
         phase: 'failed',
         percent: 0,
-        step: 'Ehhez az új frissítési funkcióhoz APK-frissítés szükséges.',
-        message: 'A telepített APK natív hídja még nem tudja elindítani a GitHub Actions diagnózist. Az új APK telepítése után használható.',
+        step: 'Ehhez a funkcióhoz a webOS IPK natív hídjának frissítése szükséges.',
+        message: 'Az LG webOS IPK natív hídja még nem támogatja a GitHub Actions diagnosztika indítását.',
         runUrl: ''
       });
       return;
@@ -273,7 +273,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       try {
         api.clearNativeVideoDiagnostics();
       } catch {
-        /* régi APK-ban nincs clear */
+        /* régi natív hídban nincs clear */
       }
     }
     if (!api?.nativeVideoDiagnostics) {
@@ -334,7 +334,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         copied = true;
       }
     } catch {
-      // Android WebView / file:// esetén az execCommand tartalékot próbáljuk.
+      // file:// környezetben az execCommand tartalékot próbáljuk.
     }
     if (!copied) {
       const field = document.createElement('textarea');
@@ -1041,7 +1041,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* SECTION: ALKALMAZÁS / APK (Screenshot 1) */}
+              {/* SECTION: LG WEBOS ALKALMAZÁS */}
               <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
                 <button
                   type="button"
