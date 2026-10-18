@@ -64,10 +64,10 @@ export function getProvisionUrl(tvId: string, code: string): string {
       base = origin;
     } else {
       // Fallback – a te GitHub Pages URL-ed, vagy iptv-rt.web.app
-      base = 'https://robko1.github.io/teszt-iptv';
+      base = 'https://robko1.github.io/LGtv';
     }
   } catch {
-    base = 'https://robko1.github.io/teszt-iptv';
+    base = 'https://robko1.github.io/LGtv';
   }
   // provision.html a web/public-ban lesz
   return `${base}/provision.html?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}`;
