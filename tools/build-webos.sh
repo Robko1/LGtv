@@ -114,14 +114,14 @@ body.webos-tv, body.lg-webos {{
   overflow: hidden;
 }}
 /* Egyszerű fekvő indítófelirat – videó nélkül */
-.webos-splash {
+.webos-splash {{
   position: fixed; inset: 0; width: 100vw; height: 100vh;
   background: #000; z-index: 99999; display: flex; flex-direction: column;
   align-items: center; justify-content: center; color: #00BFFF;
   font-family: Arial, sans-serif; text-align: center;
-}
-.webos-splash .splash-title { font-size: clamp(64px, 8vw, 140px); font-weight: 800; letter-spacing: 0.08em; }
-.webos-splash .splash-subtitle { margin-top: 22px; font-size: clamp(24px, 3vw, 48px); color: #fff; }
+}}
+.webos-splash .splash-title {{ font-size: clamp(64px, 8vw, 140px); font-weight: 800; letter-spacing: 0.08em; }}
+.webos-splash .splash-subtitle {{ margin-top: 22px; font-size: clamp(24px, 3vw, 48px); color: #fff; }}
 /* Kisebb TV lejátszó - 1280px max, középen */
 .webos-tv .video-player-wrapper {{
   max-width: 1280px;
