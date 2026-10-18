@@ -977,7 +977,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const selectVodAudio = (track: AudioTrack) => {
     // A hangsávlista MPV-azonosítót tartalmaz; a selectTrack indexet várna,
-    // ami eltérhet, ezért a natív MPV-azonosító szerinti API-t használjuk.
+    // ami eltérhet, ezért a HTML5 videó-azonosító szerinti API-t használjuk.
     const mpvId = typeof track.id === 'number' ? track.id : Number(track.id);
     const nativeIndex = Number((track as AudioTrack & { nativeIndex?: number }).nativeIndex);
     const api = nativeApi();
@@ -1015,7 +1015,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       userAudioChoiceRef.current = null;
       api.toast?.('A hangsávváltás nem érhető el ebben a lejátszóban.');
     }
-    appLog(`Élő hangsáv kiválasztva: MPV id=${mpvId}`
+    appLog(`Élő hangsáv kiválasztva: track id=${mpvId}`
       + (Number.isFinite(nativeIndex) ? `, sorszám=${nativeIndex}` : '')
       + `, átadva=${handled !== false}.`);
     setShowTvAudioMenu(false);
