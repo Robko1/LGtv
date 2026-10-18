@@ -49,94 +49,31 @@
       ::-webkit-scrollbar-thumb:hover {
         background: rgba(56, 189, 248, 0.6);
       }
-      /* Induló kép – csak sima CSS, hogy a Tailwind nélkül is működjön. */
+      /* Egyszerű, fekvő webOS indulófelirat – videó, spinner és diagnosztikai szöveg nélkül. */
       #boot-splash {
-        display: none;
         position: fixed;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        left: 0;
+        inset: 0;
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 14px;
-        padding: 28px;
+        padding: 24px;
         text-align: center;
-        background-color: #080d1a;
-        color: #f1f5f9;
+        background: #000;
+        color: #00BFFF;
+        z-index: 99998;
       }
       #boot-splash .boot-title {
-        font-size: 20px;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-      }
-      #boot-splash .boot-text {
-        max-width: 320px;
-        color: #94a3b8;
-        font-size: 12px;
-        line-height: 1.7;
-      }
-      #boot-splash .boot-stage {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 11px;
-        color: #38bdf8;
-        min-height: 18px;
-      }
-      #boot-splash .boot-time {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 10px;
-        color: #64748b;
-      }
-      #boot-splash .boot-error {
-        max-width: 340px;
-        color: #f87171;
-        font-size: 11px;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      #boot-splash .boot-spinner {
-        width: 34px;
-        height: 34px;
-        border: 3px solid rgba(56, 189, 248, 0.25);
-        border-top-color: #38bdf8;
-        border-radius: 50%;
-        animation: boot-spin 1s linear infinite;
-      }
-      @keyframes boot-spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #boot-splash .boot-spinner {
-          animation: none;
-        }
+        font-size: clamp(64px, 8vw, 140px);
+        font-weight: 800;
+        letter-spacing: 0.08em;
       }
     </style>
   </head>
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
-    <!--
-      Induló kép a #root alatt: sima CSS, nem a Tailwind-os felület része. Ha a
-      webes bundle bármiért nem fut le, akkor sem üres/fekete
-      a képernyő, hanem ez a szöveg marad látható. A React az első renderrel
-      törli ezt a tartalmat.
-    -->
+    <!-- Ha a React még nem rajzolt ki, csak a nagy IPTV R.T felirat látszik. -->
     <div id="root">
-      <div id="boot-splash">
-        <div class="boot-spinner"></div>
+      <div id="boot-splash" aria-label="IPTV R.T indulás">
         <div class="boot-title">IPTV R.T</div>
-        <div id="boot-stage" class="boot-stage">1/7 webOS HTML</div>
-        <div id="boot-time" class="boot-time">0 ms</div>
-        <div id="boot-error" class="boot-error"></div>
-        <div class="boot-text">
-          Az alkalmazás betöltése…
-          <br />
-          Ha ez az üzenet marad, a webes felület nem indult el. A pontos okot az
-          alkalmazás a képernyő tetején lévő indítási naplóban írja ki.
-        </div>
       </div>
     </div>
     <script>
