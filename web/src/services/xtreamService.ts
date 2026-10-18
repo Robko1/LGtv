@@ -237,7 +237,7 @@ export const xtreamService = {
       const line = lines[i].trim();
       if ((i & 2047) === 0) {
         onProgress(Math.min(98, Math.max(0, Math.round((i / totalLines) * 100))));
-        // Nagy M3U/M3U8 listáknál ne foglaljuk le folyamatosan a WebView
+        // Nagy M3U/M3U8 listáknál ne foglaljuk le folyamatosan a TV böngésző
         // főszálát; így nem tűnik lefagyottnak a betöltés.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
