@@ -1,0 +1,11 @@
+# Építési melléktermékek
+build/
+node_modules/
+web/node_modules/
+*.log
+dist/
+.DS_Store
+
+# IPK megtartjuk ha kézzel építed, de build/ nem
+!webos/*.ipk
+!apk/*.ipk

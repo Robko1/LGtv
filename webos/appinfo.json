@@ -1,0 +1,27 @@
+{
+  "id": "hu.rt.iptv.webos",
+  "version": "2.3.0",
+  "vendor": "IPTV R.T",
+  "type": "web",
+  "main": "index.html",
+  "title": "IPTV R.T - webOS TV",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#00BFFF",
+  "splashBackground": "assets/splash.png",
+  "bgColor": "#000000",
+  "resolution": "1920x1080",
+  "appDescription": "IPTV R.T - Elő TV, Mozi, Sorozat - LG webOS TV",
+  "disableBackHistoryAPI": true,
+  "requiredPermissions": [
+    "com.webos.media",
+    "com.webos.service.networkinput.getPointerInputSocket"
+  ],
+  "handlesRelaunch": true,
+  "closeOnRotation": false,
+  "supportTouchMode": "virtual",
+  "transparent": false,
+  "uiRevision": 2,
+  "requiredMemory": 100,
+  "supportPortraitMode": false
+}

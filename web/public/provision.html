@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>IPTV R.T – Telefonos beállítás</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#080d1a; color:#e2e8f0; min-height:100dvh; display:flex; flex-direction:column; }
+  .header { padding:16px; background:#0a1835; border-bottom:1px solid rgba(6,182,212,0.3); display:flex; align-items:center; gap:10px; }
+  .header h1 { margin:0; font-size:16px; font-weight:900; color:#22d3ee; letter-spacing:0.05em; }
+  .header .code { margin-left:auto; background:#0d1d3d; border:1px solid #facc15; color:#fde047; padding:6px 12px; border-radius:10px; font-family:monospace; font-weight:900; letter-spacing:0.2em; }
+  .container { flex:1; padding:16px; max-width:600px; width:100%; margin:0 auto; }
+  .card { background:#0a1630; border:1px solid rgba(6,182,212,0.2); border-radius:16px; padding:16px; margin-bottom:16px; }
+  .card h2 { margin:0 0 8px; font-size:14px; font-weight:900; color:#22d3ee; text-transform:uppercase; letter-spacing:0.05em; }
+  .card p { margin:0 0 12px; font-size:12px; color:#94a3b8; line-height:1.5; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .tab { flex:1; padding:10px; border-radius:12px; border:1px solid #1e293b; background:#0f2144; color:#cbd5e1; font-size:13px; font-weight:800; text-align:center; cursor:pointer; }
+  .tab.active { background:#22d3ee; color:#020617; border-color:#22d3ee; }
+  .field { margin-bottom:12px; }
+  .field label { display:block; font-size:12px; font-weight:700; color:#e2e8f0; margin-bottom:6px; }
+  .field input { width:100%; padding:12px; border-radius:12px; border:1px solid rgba(6,182,212,0.3); background:#020617; color:#fff; font-size:14px; outline:none; }
+  .field input:focus { border-color:#22d3ee; box-shadow:0 0 0 2px rgba(34,211,238,0.2); }
+  .btn { width:100%; padding:14px; border-radius:14px; border:none; font-size:14px; font-weight:900; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; }
+  .btn-primary { background:#22d3ee; color:#020617; }
+  .btn-secondary { background:#112347; color:#e2e8f0; border:1px solid #334155; }
+  .btn:disabled { opacity:0.6; cursor:not-allowed; }
+  .status { padding:12px; border-radius:12px; font-size:12px; margin-top:12px; }
+  .status.ok { background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#6ee7b7; }
+  .status.err { background:rgba(244,63,94,0.15); border:1px solid rgba(244,63,94,0.4); color:#fda4af; }
+  .status.info { background:rgba(6,182,212,0.15); border:1px solid rgba(6,182,212,0.4); color:#7dd3fc; }
+  .footer { padding:12px; text-align:center; font-size:10px; color:#475569; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="header">
+  <span style="font-size:20px;">📱</span>
+  <h1>IPTV R.T – Telefonos beállítás</h1>
+  <div class="code" id="codeDisplay">------</div>
+</div>
+
+<div class="container">
+  <div class="card">
+    <h2>📺 TV kód</h2>
+    <p>Ez a kód a TV-n is látszik. Ha nem egyezik, frissítsd a TV-n az oldalt.</p>
+    <div id="tvInfo" style="font-size:12px; color:#7dd3fc; font-family:monospace; word-break:break-all;"></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-type="xtream" onclick="switchTab('xtream')">Xtream Codes</div>
+    <div class="tab" data-type="m3u" onclick="switchTab('m3u')">M3U Lista</div>
+  </div>
+
+  <!-- Xtream form -->
+  <div id="xtreamForm" class="card">
+    <h2>Xtream Codes adatok</h2>
+    <p>A szolgáltatód által adott Xtream / XC API adatok. A telefonon kényelmesen beírod, a TV automatikusan behozza.</p>
+    
+    <div class="field">
+      <label>Host / Szerver (pl. http://example.com vagy example.com)</label>
+      <input id="xt_host" type="text" placeholder="http://pro.hu:8080 vagy pro.hu" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label>Port (opcionális, ha URL-ben benne van, hagyd üresen)</label>
+      <input id="xt_port" type="text" placeholder="8080" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label>Felhasználónév</label>
+      <input id="xt_user" type="text" placeholder="username" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label>Jelszó</label>
+      <input id="xt_pass" type="password" placeholder="password" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label>Lista neve (opcionális)</label>
+      <input id="xt_name" type="text" placeholder="Saját lista" autocomplete="off" />
+    </div>
+  </div>
+
+  <!-- M3U form -->
+  <div id="m3uForm" class="card hidden">
+    <h2>M3U / M3U8 lista</h2>
+    <p>Ha M3U linket kaptál a szolgáltatódtól, itt add meg.</p>
+    <div class="field">
+      <label>M3U URL (http://.../playlist.m3u)</label>
+      <input id="m3u_url" type="url" placeholder="http://example.com/get.php?username=...&password=...&type=m3u_plus" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label>Lista neve (opcionális)</label>
+      <input id="m3u_name" type="text" placeholder="Saját M3U" autocomplete="off" />
+    </div>
+  </div>
+
+  <button id="sendBtn" class="btn btn-primary" onclick="sendToTv()">
+    <span>📤</span> Küldés TV-re
+  </button>
+
+  <div id="status" class="hidden"></div>
+
+  <div class="card" style="margin-top:16px;">
+    <h2>🔒 Adatvédelem</h2>
+    <p>Az adatok 5 percig élnek egy ideiglenes tárolóban (kvdb.io), utána automatikusan törlődnek. A TV csak egyszer olvassa ki, majd törli. Nem tároljuk sehol máshol. A kapcsolat HTTPS titkosított.</p>
+    <p style="margin-top:8px;">Alternatíva: ha nem bízol a felhőben, a TV-n továbbra is beírhatod kézzel: Beállítások → Listák → Új lista.</p>
+  </div>
+</div>
+
+<div class="footer">
+  IPTV R.T – Telefonos QR beállítás v2.3.0 • kvdb.io ideiglenes tároló • 5 perc TTL
+</div>
+
+<script>
+const BUCKET = 'IPTV_RT_QR_8bc03776';
+const KVDB_BASE = 'https://kvdb.io';
+let currentType = 'xtream';
+let tvId = '';
+let code = '';
+
+function getParams() {
+  const url = new URL(window.location.href);
+  tvId = url.searchParams.get('tv') || '';
+  code = url.searchParams.get('code') || '';
+  document.getElementById('codeDisplay').textContent = code || '------';
+  document.getElementById('tvInfo').textContent = 'TV ID: ' + tvId + ' | Kód: ' + code + ' | URL: ' + window.location.href;
+  if (!tvId) {
+    showStatus('Hiányzik TV ID – olvasd be újra a QR kódot a TV-n!', 'err');
+    document.getElementById('sendBtn').disabled = true;
+  }
+}
+
+function switchTab(type) {
+  currentType = type;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
+  document.getElementById('xtreamForm').classList.toggle('hidden', type !== 'xtream');
+  document.getElementById('m3uForm').classList.toggle('hidden', type !== 'm3u');
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+  el.classList.remove('hidden');
+}
+
+function validateXtream() {
+  const host = document.getElementById('xt_host').value.trim();
+  const user = document.getElementById('xt_user').value.trim();
+  const pass = document.getElementById('xt_pass').value.trim();
+  if (!host) return 'Host kötelező';
+  if (!user) return 'Felhasználónév kötelező';
+  if (!pass) return 'Jelszó kötelező';
+  return null;
+}
+
+function validateM3u() {
+  const url = document.getElementById('m3u_url').value.trim();
+  if (!url) return 'M3U URL kötelező';
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return 'http:// vagy https:// kell';
+  return null;
+}
+
+async function sendToTv() {
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Küldés...';
+
+  let payload;
+  if (currentType === 'xtream') {
+    const err = validateXtream();
+    if (err) { showStatus(err, 'err'); btn.disabled=false; btn.innerHTML='<span>📤</span> Küldés TV-re'; return; }
+    payload = {
+      type: 'xtream',
+      host: document.getElementById('xt_host').value.trim(),
+      port: document.getElementById('xt_port').value.trim(),
+      username: document.getElementById('xt_user').value.trim(),
+      password: document.getElementById('xt_pass').value.trim(),
+      name: document.getElementById('xt_name').value.trim() || 'Telefonról',
+      code: code,
+      createdAt: new Date().toISOString()
+    };
+  } else {
+    const err = validateM3u();
+    if (err) { showStatus(err, 'err'); btn.disabled=false; btn.innerHTML='<span>📤</span> Küldés TV-re'; return; }
+    payload = {
+      type: 'm3u',
+      url: document.getElementById('m3u_url').value.trim(),
+      name: document.getElementById('m3u_name').value.trim() || 'Telefonról M3U',
+      code: code,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  try {
+    const url = `${KVDB_BASE}/${BUCKET}/${encodeURIComponent(tvId)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      showStatus('✅ Sikeresen elküldve TV-re! Nézd a TV-t – automatikusan behozza a csatornákat, mozikat, sorozatokat, EPG-t. Ez az oldal bezárható.', 'ok');
+      btn.innerHTML = '✅ Elküldve';
+      // 2mp után próbáljuk bezárni vagy vissza
+      setTimeout(() => {
+        try { window.close(); } catch {}
+      }, 2000);
+    } else {
+      showStatus('❌ Hiba küldéskor: ' + res.status + ' – próbáld újra vagy ellenőrizd az internetet', 'err');
+      btn.disabled = false;
+      btn.innerHTML = '<span>📤</span> Küldés TV-re';
+    }
+  } catch (e) {
+    showStatus('❌ Hálózati hiba: ' + e.message + ' – lehet hogy kvdb.io nem elérhető, próbáld újra', 'err');
+    btn.disabled = false;
+    btn.innerHTML = '<span>📤</span> Küldés TV-re';
+  }
+}
+
+getParams();
+</script>
+</body>
+</html>

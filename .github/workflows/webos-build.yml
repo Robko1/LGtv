@@ -1,0 +1,168 @@
+name: IPTV – webOS TV IPK építése
+
+# LG webOS TV IPK build: KÜLÖN mappában (webos/), nem keverve Androiddal
+# KÉZI INDÍTÁSSAL: nem automatikus, csak te indítod ha webos/ mappában változtatsz
+# Kimenet: webos/IPTV-RT-webOS-*.ipk + apk/ másolat + Release
+# Diagnosztika: webos-diagnosis.yml (külön, kézi)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iptv-webos-build
+  cancel-in-progress: false
+
+env:
+  VERSION: '2.3.0'
+  IPK_FILE_NAME: 'IPTV-RT-webOS-2.3.0.ipk'
+  RELEASE_TAG: 'v2.3.0'
+  RELEASE_TITLE: 'IPTV mindörökre 2.3 – LG webOS TV távirányító fix + külön kinézet + QR telefonos beállítás'
+
+jobs:
+  webos-epites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 1. Forrás letöltése (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 2. Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: 3. Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: 4. Függőségek telepítése
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm ci --prefix web --no-audit --no-fund
+          pip install Pillow --break-system-packages -q || pip install Pillow -q
+
+      - name: 5. Webes felület fordítása webOS-re
+        working-directory: web
+        env:
+          VITE_WEBOS: 'true'
+          VITE_WEBOS_FAST_LOAD: 'true'
+          VITE_WEBOS_SMALL_PLAYER: 'true'
+        run: npm run build
+
+      - name: 6. webOS IPK építése
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x tools/build-webos.sh webos/tools/build-ipk.py
+          # Ikonok generálása ha nincsenek
+          if [[ ! -f webos/icon.png || ! -f webos/largeIcon.png ]]; then
+            python3 - << 'PY'
+          from PIL import Image
+          img = Image.open("icon.jpg").convert('RGBA')
+          img.resize((80,80), Image.LANCZOS).save("webos/icon.png","PNG")
+          img.resize((130,130), Image.LANCZOS).save("webos/largeIcon.png","PNG")
+          splash = Image.new('RGB',(1920,1080),(0,0,0))
+          big = img.resize((400,400), Image.LANCZOS)
+          splash.paste(big, ((1920-400)//2, (1080-400)//2-100), big)
+          splash.save("webos/assets/splash.png","PNG")
+          img.resize((512,512), Image.LANCZOS).save("webos/assets/icon_tv.png","PNG")
+          PY
+          fi
+          # Landscape intro video ha nincs
+          if [[ ! -f webos/assets/intro_landscape.mp4 ]]; then
+            pip install imageio imageio-ffmpeg numpy -q
+            python3 - << 'PY'
+          import imageio
+          from PIL import Image, ImageDraw, ImageFont
+          import numpy as np
+          img = Image.new('RGB',(1920,1080),(0,0,0))
+          draw = ImageDraw.Draw(img)
+          try:
+              font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",120)
+              font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",48)
+          except:
+              font_large = ImageFont.load_default()
+              font_small = ImageFont.load_default()
+          draw.text((760,400),"IPTV R.T",fill=(0,191,255),font=font_large)
+          draw.text((700,550),"LG webOS TV - 1920x1080",fill=(255,255,255),font=font_small)
+          frame = np.array(img)
+          writer = imageio.get_writer('webos/assets/intro_landscape.mp4',fps=30,macro_block_size=1)
+          for _ in range(90):
+              writer.append_data(frame)
+          writer.close()
+          PY
+          fi
+          VERSION="$VERSION" bash tools/build-webos.sh
+          ls -lh webos/*.ipk apk/*.ipk
+          test -s "webos/$IPK_FILE_NAME"
+          test -s "apk/$IPK_FILE_NAME"
+
+      - name: 7. IPK ellenőrzése
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPK="webos/$IPK_FILE_NAME"
+          ar t "$IPK"
+          ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon.png|splash.png|intro_landscape" 
+          echo "OK: IPK tartalma rendben"
+
+      - name: 8. Csak az IPK közzététele main ágra
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "webos/$IPK_FILE_NAME"
+          test -s "apk/$IPK_FILE_NAME"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f "webos/$IPK_FILE_NAME" "apk/$IPK_FILE_NAME" "webos/assets/splash.png" "webos/assets/icon_tv.png" "webos/icon.png" "webos/largeIcon.png" || true
+          # Ne adjuk hozzá a videót ha túl nagy (50MB limit), de most 537KB az IPK, videó kicsi
+          git add -f "webos/assets/intro_landscape.mp4" || true
+          if git diff --cached --quiet; then
+            echo "IPK nem változott"
+          else
+            git commit -m "webOS IPK kiadás: $VERSION"
+            git push origin HEAD:main
+            echo "OK: IPK a main ágra"
+          fi
+
+      - name: 9. Release frissítése IPK-val
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Az IPK ugyanaz a fájl webos/ és apk/ mappában is (másolat), csak egyszer töltjük fel
+          # Az Android APK már a Release-ben van az apk-build workflow-ból
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --clobber
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file release-notes.md
+          else
+            gh release create "$RELEASE_TAG" "webos/$IPK_FILE_NAME" \
+              --title "$RELEASE_TITLE" \
+              --notes-file release-notes.md \
+              --latest
+          fi
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | .name'
+
+      - name: 10. Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPTV-RT-webOS
+          path: |
+            webos/IPTV-RT-webOS-*.ipk
+            apk/IPTV-RT-webOS-*.ipk
+          if-no-files-found: error
+          retention-days: 14
