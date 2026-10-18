@@ -58,12 +58,12 @@ cp "$WEBOS_DIR/appinfo.json" "$BUILD_DIR/appinfo.json"
 cp "$WEBOS_DIR/icon.png" "$BUILD_DIR/icon.png"
 cp "$WEBOS_DIR/largeIcon.png" "$BUILD_DIR/largeIcon.png"
 mkdir -p "$BUILD_DIR/assets"
-cp -r "$WEBOS_DIR/assets/"* "$BUILD_DIR/assets/" 2>/dev/null || true
-# Biztosítsuk hogy a fekvő intro videó is benne legyen
-if [[ -f "$WEBOS_DIR/assets/intro_landscape.mp4" ]]; then
-  cp "$WEBOS_DIR/assets/intro_landscape.mp4" "$BUILD_DIR/assets/intro_landscape.mp4"
-fi
-
+# Az indítóvideót kihagyjuk; a többi webOS asset marad.
+for asset in "$WEBOS_DIR/assets/"*; do
+  [[ -f "$asset" ]] || continue
+  [[ "$(basename "$asset")" == "intro_landscape.mp4" ]] && continue
+  cp "$asset" "$BUILD_DIR/assets/"
+done
 # webOS specifikus JS másolása
 cp "$WEBOS_DIR/webos.js" "$BUILD_DIR/webos.js"
 
@@ -113,33 +113,15 @@ body.webos-tv, body.lg-webos {{
   background: #000;
   overflow: hidden;
 }}
-/* Fekvő splash videó - 1920x1080 */
-.webos-splash {{
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  background: #000 url('assets/splash.png') center/cover no-repeat;
-  z-index: 99999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}}
-.webos-splash video {{
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}}
-.webos-splash img {{
-  display: none;
-  position: relative;
-  z-index: 1;
-  width: 400px;
-  height: 400px;
-  object-fit: contain;
-}}
+/* Egyszerű fekvő indítófelirat – videó nélkül */
+.webos-splash {
+  position: fixed; inset: 0; width: 100vw; height: 100vh;
+  background: #000; z-index: 99999; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; color: #00BFFF;
+  font-family: Arial, sans-serif; text-align: center;
+}
+.webos-splash .splash-title { font-size: clamp(64px, 8vw, 140px); font-weight: 800; letter-spacing: 0.08em; }
+.webos-splash .splash-subtitle { margin-top: 22px; font-size: clamp(24px, 3vw, 48px); color: #fff; }
 /* Kisebb TV lejátszó - 1280px max, középen */
 .webos-tv .video-player-wrapper {{
   max-width: 1280px;
@@ -171,40 +153,22 @@ html = re.sub(r'<body\b[^>]*>', add_webos_body_classes, html, count=1)
 
 # Fekvő splash hozzáadása body elejére
 splash_html = """
-<div id="webos-splash" class="webos-splash">
-  <video id="webos-intro-video" autoplay muted playsinline preload="auto">
-    <source src="assets/intro_landscape.mp4" type="video/mp4" />
-  </video>
-  <img id="webos-intro-fallback" src="assets/icon_tv.png" alt="IPTV R.T" />
+<div id="webos-splash" class="webos-splash" aria-label="IPTV R.T">
+  <div class="splash-title">IPTV R.T</div>
+  <div class="splash-subtitle">LG webOS TV · FEKVŐ 1920 × 1080</div>
 </div>
 <script>
 (function() {
   var splash = document.getElementById('webos-splash');
-  var video = document.getElementById('webos-intro-video');
-  var fallback = document.getElementById('webos-intro-fallback');
-  var finished = false;
-  function finish() {
-    if (finished) return;
-    finished = true;
-    if (splash) {
-      splash.style.transition = 'opacity 0.5s';
-      splash.style.opacity = '0';
-      setTimeout(function() { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 500);
-    }
-  }
-  if (video) {
-    video.addEventListener('ended', finish);
-    video.addEventListener('error', function() {
-      video.style.display = 'none';
-      if (fallback) fallback.style.display = 'block';
-      setTimeout(finish, 1500);
-    });
-  }
-  // Biztonsági tartalék, ha a TV nem küld videóeseményt.
-  setTimeout(finish, 4500);
+  setTimeout(function() {
+    if (!splash) return;
+    splash.style.transition = 'opacity 0.25s';
+    splash.style.opacity = '0';
+    setTimeout(function() { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 260);
+  }, 1600);
 })();
 </script>
-"""
+
 if "<body" in html:
     # body tag után szúrjuk be
     html = re.sub(r'(<body[^>]*>)', r'\1\n' + splash_html, html, count=1)
