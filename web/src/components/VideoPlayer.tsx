@@ -186,7 +186,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!nextUrl || !nextStage) {
       setIsLoading(false);
       setHasError(true);
-      setErrorMessage('Az MPEG-TS és a HLS lejátszási próbája sem sikerült.');
+      setErrorMessage('A TV böngészője nem tudta lejátszani ezt az adatfolyamot.');
       return;
     }
 
