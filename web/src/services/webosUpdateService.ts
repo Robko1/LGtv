@@ -6,7 +6,9 @@ export interface WebOSReleaseInfo {
   ipkUrl: string | null;
 }
 
-const CURRENT_WEBOS_VERSION = '2.3.0';
+import { WEB_VERSION } from '../appVersion';
+
+const CURRENT_WEBOS_VERSION = WEB_VERSION;
 const RELEASE_API = 'https://api.github.com/repos/Robko1/LGtv/releases/latest';
 
 function compareVersions(a: string, b: string): number {
