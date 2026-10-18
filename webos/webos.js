@@ -203,8 +203,8 @@
         return;
       }
     }
-    // OK/Select gomb: ha a távirányító nem Enterként jelenti, normalizáljuk.
-    if ((key === 'OK' || key === 'Select' || key === 'Accept') && !inTextEntry) {
+    // OK/Select/Enter: a távirányító különböző kulcsneveit egységesítjük.
+    if (isConfirm && !inTextEntry) {
       var focused = document.activeElement;
       var listForOk = document.querySelector('[role="listbox"]');
       if (listForOk && (!focused || focused === document.body || focused === document.documentElement || listForOk.contains(focused))) {
