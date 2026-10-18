@@ -80,30 +80,7 @@ jobs:
           img.resize((512,512), Image.LANCZOS).save("webos/assets/icon_tv.png","PNG")
           PY
           fi
-          # Landscape intro video ha nincs
-          if [[ ! -f webos/assets/intro_landscape.mp4 ]]; then
-            pip install imageio imageio-ffmpeg numpy -q
-            python3 - << 'PY'
-          import imageio
-          from PIL import Image, ImageDraw, ImageFont
-          import numpy as np
-          img = Image.new('RGB',(1920,1080),(0,0,0))
-          draw = ImageDraw.Draw(img)
-          try:
-              font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",120)
-              font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",48)
-          except:
-              font_large = ImageFont.load_default()
-              font_small = ImageFont.load_default()
-          draw.text((760,400),"IPTV R.T",fill=(0,191,255),font=font_large)
-          draw.text((700,550),"LG webOS TV - 1920x1080",fill=(255,255,255),font=font_small)
-          frame = np.array(img)
-          writer = imageio.get_writer('webos/assets/intro_landscape.mp4',fps=30,macro_block_size=1)
-          for _ in range(90):
-              writer.append_data(frame)
-          writer.close()
-          PY
-          fi
+          # Nincs indítóvideó generálás vagy csomagolás.
           VERSION="$VERSION" bash tools/build-webos.sh
           ls -lh webos/*.ipk
           test -s "webos/$IPK_FILE_NAME"
@@ -114,7 +91,7 @@ jobs:
           set -euo pipefail
           IPK="webos/$IPK_FILE_NAME"
           ar t "$IPK"
-          ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon.png|splash.png|intro_landscape"
+          ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon.png|splash.png"
           mkdir -p /tmp/ipk-check
           ar p "$IPK" data.tar.gz | tar xzf - -C /tmp/ipk-check ./usr/palm/applications/hu.rt.iptv.webos/index.html ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json
           cmp -s build/webos/index.html /tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html || {
