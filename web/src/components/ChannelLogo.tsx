@@ -67,7 +67,7 @@ const LogoImage: React.FC<Props> = ({ url = '', name, retryKey }) => {
       className="relative z-10 w-full h-full object-contain"
       // FONTOS (memória/fagyás): lusta betöltés. Korábban minden sor logója
       // azonnal letöltődött – 20 000 csatornánál ez több ezer egyidejű kérést
-      // és akkora memóriát jelentett, hogy a rendszer leállította a WebView-t.
+      // és akkora memóriát jelentett, hogy a rendszer leállította a beágyazott böngészőt.
       loading="lazy"
       decoding="async"
       onError={() => {
