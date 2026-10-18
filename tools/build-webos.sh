@@ -11,8 +11,7 @@
 #
 # Kimenet:
 #   webos/IPTV-RT-webOS-<verzió>.ipk
-#   apk/IPTV-RT-webOS-<verzió>.ipk  (ugyanoda mint Android APK)
-#   webos/dist/ (kicsomagolt app)
+#   webos/dist/IPTV-RT-webOS-<verzió>.ipk (másolat)
 
 set -euo pipefail
 
