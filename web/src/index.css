@@ -1,0 +1,261 @@
+@import "tailwindcss";
+
+/* A képernyő érintése vagy hosszan nyomása ne jelöljön ki és ne másoljon
+   véletlenül felületi/diagnosztikai szöveget. A beviteli mezőkben a szöveg
+   kijelölése és a beillesztés továbbra is működik. */
+@layer base {
+  *, *::before, *::after {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Közös reszponzív alap: telefon, tablet, TV és asztali böngésző. */
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+
+html {
+  min-height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+#root,
+#root > div {
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+}
+
+#root > div {
+  box-sizing: border-box;
+}
+
+#root [class~="flex-1"],
+#root [class*="overflow-y-auto"],
+#root [class*="overflow-x-auto"] {
+  min-width: 0;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+img,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Az oldalsó kategória- és beállítási panelek mindig a tényleges
+   látható magassághoz igazodjanak, ne lógjanak ki a kijelzőről. */
+[class*="fixed"][class*="inset-0"][class*="justify-end"] > [class*="h-full"] {
+  width: min(100%, 34rem);
+  max-width: 100%;
+  height: 100%;
+  max-height: 100dvh;
+  min-height: 0;
+}
+
+/* A párbeszédablakok dinamikus viewportot használnak mobil böngészőkön is. */
+[class*="max-h-[90vh]"],
+[class*="max-h-[92vh]"] {
+  max-height: min(92dvh, 900px);
+}
+
+@media (max-width: 480px) {
+  [class*="fixed"][class*="inset-0"][class*="items-center"] {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+  }
+
+  [class*="fixed"][class*="inset-0"][class*="justify-end"] > [class*="h-full"] {
+    width: 100%;
+  }
+
+  #root [class*="grid-cols-2"] {
+    min-width: 0;
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  [class*="max-h-[90vh]"],
+  [class*="max-h-[92vh]"] {
+    max-height: 96dvh;
+  }
+
+  [class*="fixed"][class*="inset-0"][class*="justify-end"] > [class*="h-full"] {
+    max-height: 100dvh;
+  }
+}
+
+/* Tablet, laptop, desktop, TV – reszponzív skálázás */
+@media (min-width: 768px) {
+  #root {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 1024px) {
+  #root {
+    font-size: 16px;
+  }
+  button:hover {
+    filter: brightness(1.08);
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(6, 182, 212, 0.4);
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+  }
+}
+
+@media (min-width: 1280px) {
+  #root {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 1920px) {
+  #root {
+    font-size: 18px;
+  }
+  button, [role="button"], [role="option"] {
+    min-height: 44px;
+  }
+}
+
+@media (pointer: fine) {
+  *, *::before, *::after {
+    -webkit-user-select: auto;
+    user-select: auto;
+  }
+  input, textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .group:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (pointer: coarse) {
+  button {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid rgb(6 182 212);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+[role="option"]:focus-visible {
+  outline: 2px solid rgb(6 182 212);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.2);
+}
+
+@media (min-width: 1920px) {
+  :focus-visible {
+    outline-width: 3px;
+    outline-offset: 3px;
+  }
+}
+
+@media (pointer: fine) {
+  button, a {
+    cursor: pointer;
+  }
+}
+
+/* Laptop/desktop egér hover támogatás – ChannelControls, ChannelList */
+@media (hover: hover) and (pointer: fine) {
+  .hover\:bg-\[\#112347\]:hover {
+    background-color: #112347;
+  }
+}
+
+/* Android TV stick/box – D-pad + egér támogatás, TV nem érintőképernyős */
+[role="listbox"]:focus {
+  outline: 2px solid rgb(6 182 212);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 2px rgba(6, 182, 212, 0.3);
+}
+[role="listbox"]:focus-visible {
+  outline: 3px solid rgb(6 182 212);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.25), inset 0 0 0 2px rgba(6, 182, 212, 0.4);
+}
+/* TV fókusz gyűrű erősebb – távirányítóhoz */
+@media (min-width: 1280px) {
+  [role="option"]:focus,
+  [role="option"]:focus-visible {
+    outline: 3px solid rgb(6 182 212);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 6px rgba(6, 182, 212, 0.3), 0 0 20px rgba(6, 182, 212, 0.2);
+    z-index: 10;
+  }
+}
+/* Egér kurzor láthatóság – ha egér van, mutassuk */
+body.has-mouse [role="option"],
+body.has-mouse button {
+  cursor: pointer;
+}
+body.has-mouse [role="option"]:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+/* TV-n a csatorna sorok nagyobbak, könnyebb távirányítóval */
+@media (min-width: 1920px) and (pointer: coarse) {
+  [role="option"] {
+    min-height: 72px;
+  }
+}
+/* Android TV WebView – biztosítsuk hogy a fókusz látható */
+@media (hover: none) and (pointer: coarse) {
+  [role="listbox"] {
+    -webkit-tap-highlight-color: rgba(6, 182, 212, 0.3);
+  }
+  [role="option"]:focus {
+    background: linear-gradient(to right, rgba(8, 51, 68, 0.9), rgba(14, 39, 82, 0.9), rgba(10, 27, 56, 0.9)) !important;
+    border-color: rgb(34 211 238) !important;
+  }
+}

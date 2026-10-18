@@ -1,0 +1,74 @@
+/* LG webOS TV – külön kinézet, kisebb lejátszó, fekvő splash, Magic Remote */
+body.webos-theme {
+  --tv-focus-color: #00BFFF;
+  --tv-bg: #000000;
+  background: #000;
+}
+
+/* webOS – kisebb TV lejátszó, középen, 1280px max */
+body.webos-theme .video-player-container,
+body.webos-theme .video-player-wrapper {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* webOS – fekvő splash */
+body.webos-theme .intro-video {
+  object-fit: cover;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* webOS – erősebb fókusz gyűrű Magic Remote-hoz */
+body.webos-theme [role="listbox"]:focus {
+  outline: 3px solid var(--tv-focus-color) !important;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 6px rgba(0,191,255,0.3), inset 0 0 0 2px rgba(0,191,255,0.4) !important;
+}
+body.webos-theme [role="option"]:focus,
+body.webos-theme [role="option"]:focus-visible {
+  outline: 3px solid #00BFFF !important;
+  box-shadow: 0 0 0 8px rgba(0,191,255,0.35), 0 0 24px rgba(0,191,255,0.25) !important;
+  transform: scale(1.02);
+  z-index: 10;
+}
+body.webos-theme button:focus-visible {
+  outline: 3px solid #facc15 !important;
+  box-shadow: 0 0 0 4px rgba(250,204,21,0.3);
+}
+
+/* webOS – gyorsabb animációk */
+body.webos-theme * {
+  transition-duration: 0.15s !important;
+  animation-duration: 0.2s !important;
+}
+
+/* webOS – csatornalista max 70vh, hogy látszódjon a lejátszó */
+body.webos-theme .channel-list {
+  max-height: 70vh;
+}
+
+/* webOS – diagnosztika másképp */
+body.webos-theme .webos-only {
+  display: block;
+}
+body.android-theme .webos-only {
+  display: none !important;
+}
+
+/* webOS – Magic Remote pointer (egér) */
+body.webos-theme.has-mouse [role="option"]:hover {
+  background: linear-gradient(to right, rgba(8,51,68,0.9), rgba(14,39,82,0.9)) !important;
+  transform: translateY(-1px);
+}
+
+/* LG TV – 1920x1080 fix felbontás */
+@media (min-width: 1920px) and (min-height: 1080px) {
+  body.webos-theme {
+    font-size: 20px;
+  }
+  body.webos-theme [role="option"] {
+    min-height: 72px;
+    font-size: 18px;
+  }
+}
