@@ -143,7 +143,6 @@ import {
   lastNetErrorHint,
   resetNetworkBreaker,
   setNetworkDiagnosticSink,
-  setNetErrorHint,
   NetworkDiagnosticEvent,
 } from './services/net';
 import { ChannelOrderModal } from './components/ChannelOrderModal';
@@ -295,18 +294,6 @@ export function App() {
     try { const saved = localStorage.getItem('iptv-main-osd-last-audible-volume'); const parsed = saved === null ? 0.7 : Number(saved); return Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : 0.7; }
     catch { return 0.7; }
   })());
-  // Induláskor a rendszer hangerőt olvassuk, ne írjuk felül 0.7-re.
-  // A bejelentkező videó és a csatornák nem változtathatják a telefon hangerőt.
-  useEffect(() => {
-    try {
-      const api = (window as any).IPTVNative;
-      const sys = Number(api?.getSystemVolume?.());
-      if (Number.isFinite(sys) && sys >= 0 && sys <= 1) {
-        setVolume(sys);
-        if (sys > 0) lastAudibleVolumeRef.current = sys;
-      }
-    } catch { /* native may be unavailable */ }
-  }, []);
   const handleVolumeChange = useCallback((value: number) => {
     const next = Math.max(0, Math.min(1, Number(value) || 0));
     if (next > 0) {
@@ -315,7 +302,6 @@ export function App() {
     }
     setVolume(next);
     try { localStorage.setItem('iptv-main-osd-volume', String(next)); } catch { /* storage may be unavailable */ }
-    try { (window as any).IPTVNative?.setSystemVolume?.(next); } catch { /* native may be unavailable */ }
   }, []);
   const handleToggleMute = useCallback(() => {
     if (volume > 0) { lastAudibleVolumeRef.current = volume; handleVolumeChange(0); }
@@ -465,32 +451,13 @@ export function App() {
     };
   }, [activeChannel?.id, activeProvider?.id]);
 
-  /**
-   * A natív WebView hálózati hibakódjainak figyelése (net::ERR_*).
-   *
-   * A böngészőmotor a pontos okot a naplójába írja (pl. ERR_EMPTY_RESPONSE =
-   * a szerver nem küld választ, ERR_NAME_NOT_RESOLVED = DNS-hiba). Az APK
-   * ezt átküldi, mi pedig a hibaüzenetben megmagyarázzuk.
-   */
-  useEffect(() => {
-    const api = (window as any).IPTVNative;
-    if (!api?.on) return;
-    const listener = (event: any) => {
-      if (event?.type === 'net-error' && typeof event.message === 'string') {
-        setNetErrorHint(event.message);
-      }
-    };
-    api.on(listener);
-    return () => api.off?.(listener);
-  }, []);
-
   // A filmek és sorozatok betöltése a mentett tárból – a kezdőképernyő
   // megjelenése után.
   //
   // FONTOS (a telefon lefagyásának javítása): a lista adagonként töltődik be,
   // adagok között a felület visszakapja a vezérlést. Korábban a teljes,
   // több tízezer elemű lista egyetlen, hosszú műveletben készült el, ezért a
-  // WebView ilyenkor látszólag megfagyott.
+  // felület ilyenkor látszólag megfagyott.
   useEffect(() => {
     if (!bootLive.provider) return;
     const provider = bootLive.provider;
@@ -582,19 +549,6 @@ export function App() {
       return updated;
     });
   }, []);
-
-  // Képarány mindig fill – a beállításokból kivettük, de a natív rétegnek mindig fill kell
-  useEffect(() => {
-    const api = (window as { IPTVNative?: { setAspectRatio?: (m: string) => void } }).IPTVNative;
-    api?.setAspectRatio?.('fill');
-    // Ha a natív mégis küldene változást, mindig fill-re állítjuk vissza
-    const handleNativeAspectRatio = () => {
-      api?.setAspectRatio?.('fill');
-      handleUpdateSettings({ aspectRatio: 'fill' });
-    };
-    window.addEventListener('iptv-native-aspect-ratio', handleNativeAspectRatio);
-    return () => window.removeEventListener('iptv-native-aspect-ratio', handleNativeAspectRatio);
-  }, [handleUpdateSettings]);
 
   // Switch Active Channel
   const handleSelectChannel = useCallback((channel: Channel) => {
@@ -1062,7 +1016,7 @@ export function App() {
       }
       setTotalCounts({ ...draft.totals });
 
-      // A mentés előtt visszaadjuk a vezérlést a WebView-nak; a sorozat
+      // A mentés előtt visszaadjuk a vezérlést a felületnek; a sorozat
       // adagjai pedig befejeződnek, mielőtt az import a következő fázisra lép.
       if (partial.channels || partial.movies || partial.series) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
@@ -1164,7 +1118,7 @@ export function App() {
       // ki, hogy valószínűleg az internetszolgáltató blokkolja a szolgáltató
       // szerverét (Wi-Fi-n nem megy, mobilneten igen).
       if (isTransportFailure(message)) {
-        // A WebView pontos hibakódja (ha megkaptuk) sokat elmond az okról.
+        // A böngésző pontos hibakódja (ha megkaptuk) sokat elmond az okról.
         const explanation = explainNetError(lastNetErrorHint());
         if (explanation) setDiagnosticError(`${message} ${explanation}`);
         void checkInternetReachable().then((internetOk) => {
@@ -1458,7 +1412,6 @@ export function App() {
   };
 
   // Global Keyboard Shortcuts – TV remote, laptop, tablet billentyűzet + egér
-  // Android TV stick/box: D-pad fel/le/Enter/Back + egér kattintás kötelező, TV nem érintőképernyős
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger when typing in inputs
@@ -1485,9 +1438,8 @@ export function App() {
           e.preventDefault();
           if (customStreamUrl) {
             // VOD: vissza tekerés laptop/TV-n
-            const api = (window as any).IPTVNative;
-            const pos = Number(api?.position?.() || 0);
-            api?.seekTo?.(Math.max(0, pos - settings.seekStep * 1000));
+            const video = document.querySelector<HTMLVideoElement>('video[data-iptv-player="true"]');
+            if (video) video.currentTime = Math.max(0, video.currentTime - settings.seekStep);
           } else {
             // Élő: hangerő le
             handleVolumeChange(Math.max(0, volume - 0.05));
@@ -1496,10 +1448,11 @@ export function App() {
         case 'ArrowRight':
           e.preventDefault();
           if (customStreamUrl) {
-            const api = (window as any).IPTVNative;
-            const pos = Number(api?.position?.() || 0);
-            const dur = Number(api?.duration?.() || 0);
-            api?.seekTo?.(dur > 0 ? Math.min(dur, pos + settings.seekStep * 1000) : pos + settings.seekStep * 1000);
+            const video = document.querySelector<HTMLVideoElement>('video[data-iptv-player="true"]');
+            if (video) {
+              const target = video.currentTime + settings.seekStep;
+              video.currentTime = Number.isFinite(video.duration) ? Math.min(video.duration, target) : target;
+            }
           } else {
             handleVolumeChange(Math.min(1, volume + 0.05));
           }
@@ -1508,7 +1461,6 @@ export function App() {
           e.preventDefault();
           if (isCategoriesOpen || isSettingsOpen) break;
           setIsPlaying((prev) => !prev);
-          try { (window as any).IPTVNative?.togglePause?.(); } catch {}
           break;
         case 'Enter':
         case 'NumpadEnter':
@@ -1987,13 +1939,7 @@ export function App() {
           if (selector) {
             selector(track);
           } else {
-            // Ha a VideoPlayer regisztrációja még nem érhető el, közvetlenül
-            // a natív MPV-hídon keresztül is küldjük el a hangsávváltást.
-            const native = (window as Window & {
-              IPTVNative?: { selectTrackById?: (type: 'audio', mpvId: number, fallbackIndex?: number) => boolean | void };
-            }).IPTVNative;
-            const mpvId = Number(track.id);
-            if (Number.isFinite(mpvId)) native?.selectTrackById?.('audio', mpvId);
+            appLog('A TV böngészőjében a hangsávváltás nem érhető el natív hangsávlista nélkül.');
           }
         }}
         subtitleTracks={liveSubtitleTracks}
