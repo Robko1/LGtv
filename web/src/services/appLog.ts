@@ -1,10 +1,9 @@
 /**
  * Webes oldali napló a Beállítások → Hibakeresési napló laphoz.
  *
- * Miért külön napló? A telefon „lefagyása” (a WebView renderelő folyamatának
- * megszűnése) után a natív napló csak a natív oldalt mutatta. Ez a napló a
- * webes oldal fontos lépéseit rögzíti (tartalom betöltése, mentés, memória),
- * és a natív tárolóba is kiírja, hogy egy összeomlás után is megmaradjon.
+ * A napló a TV böngészőjének fontos lépéseit rögzíti (tartalom betöltése,
+ * mentés, memória), és a localStorage-ba is kiírja, hogy alkalmazás-újraindítás
+ * után is megmaradjon.
  *
  * A napló szigorúan korlátozott méretű: a legrégebbi sorok automatikusan
  * törlődnek, így hosszú használat után sem növeli a memóriát.
@@ -14,20 +13,6 @@ const MAX_LINES = 400;
 const MAX_CHARS = 60000;
 const STORE_KEY = 'app-log';
 const DEFAULT_APP_VERSION = 'IPTV mindörökre 2';
-
-interface NativeStoreLike {
-  get?: (key: string) => string;
-  put?: (key: string, value: string) => boolean;
-}
-
-function nativeStore(): NativeStoreLike | null {
-  try {
-    const api = (window as unknown as { IPTVNative?: { store?: NativeStoreLike | null } }).IPTVNative;
-    return api?.store ?? null;
-  } catch {
-    return null;
-  }
-}
 
 let lines: string[] = [];
 let chars = 0;
@@ -53,7 +38,7 @@ function restore(): void {
   if (restoreAttempted) return;
   restoreAttempted = true;
   try {
-    const raw = nativeStore()?.get?.(STORE_KEY) || '';
+    const raw = localStorage.getItem(`iptv_rt_${STORE_KEY}`) || '';
     if (!raw) return;
     const previous = String(raw).split('\n').filter(Boolean).slice(-MAX_LINES);
     for (const line of previous) {
@@ -72,12 +57,10 @@ function persistSoon(): void {
   try {
     saveTimer = window.setTimeout(() => {
       saveTimer = null;
-      const store = nativeStore();
-      if (!store?.put) return;
       try {
-        store.put(STORE_KEY, lines.join('\n'));
+        localStorage.setItem(`iptv_rt_${STORE_KEY}`, lines.join('\n'));
       } catch {
-        /* a natív tároló hibája nem akadályozhatja a működést */
+        /* a TV tárhelyhibája nem akadályozhatja a működést */
       }
     }, 1500);
   } catch {
@@ -99,8 +82,7 @@ export function clearAppLog(): void {
   chars = 0;
   restoreAttempted = true;
   try {
-    const store = nativeStore();
-    if (store?.put) store.put(STORE_KEY, '');
+    localStorage.removeItem(`iptv_rt_${STORE_KEY}`);
   } catch {
     /* a naplótár hibája nem akadályozhatja az alkalmazás működését */
   }
@@ -125,9 +107,9 @@ export function appLogError(context: string, error: unknown): void {
 }
 
 /**
- * Memória-pillanatkép. A Chromium WebView pontos JS-halomadatokat ad, ebből
+ * Memória-pillanatkép. A böngészőmotor JS-halomadatai alapján
  * látszik, ha a tartalom betöltése túl sok memóriát használ (ez okozta a
- * telefon lefagyását).
+ * TV böngészőjének lefagyását).
  */
 export function memorySnapshot(): string {
   const parts: string[] = [];
