@@ -68,6 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -Fq 'https://api.github.com/repos/Robko1/LGtv/releases/latest' web/src/services/webosUpdateService.ts
+          grep -Fq 'dispatchEvent(new KeyboardEvent' webos/webos.js
           if grep -RniE 'IPTVNative|Android|WebView|\.apk' web/src; then
             echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
             exit 1
@@ -122,10 +123,6 @@ jobs:
           img = Image.open("icon.jpg").convert('RGBA')
           img.resize((80,80), Image.LANCZOS).save("webos/icon.png","PNG")
           img.resize((130,130), Image.LANCZOS).save("webos/largeIcon.png","PNG")
-          splash = Image.new('RGB',(1920,1080),(0,0,0))
-          big = img.resize((400,400), Image.LANCZOS)
-          splash.paste(big, ((1920-400)//2, (1080-400)//2-100), big)
-          splash.save("webos/assets/splash.png","PNG")
           img.resize((512,512), Image.LANCZOS).save("webos/assets/icon_tv.png","PNG")
           PY
           fi
@@ -140,7 +137,11 @@ jobs:
           set -euo pipefail
           IPK="webos/$IPK_FILE_NAME"
           ar t "$IPK"
-          ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon.png|splash.png"
+          ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon.png"
+          if ar p "$IPK" data.tar.gz | tar tz | grep -Ei 'intro[^/]*\.(mp4|webm|mov)|assets/splash\.png'; then
+            echo "HIBA: indítóvideó vagy indítókép került az IPK-ba." >&2
+            exit 1
+          fi
           mkdir -p /tmp/ipk-check
           ar p "$IPK" data.tar.gz | tar xzf - -C /tmp/ipk-check ./usr/palm/applications/hu.rt.iptv.webos/index.html ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json
           cmp -s build/webos/index.html /tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html || {
@@ -153,10 +154,14 @@ jobs:
           packaged = json.loads(Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/appinfo.json").read_text())
           if packaged.get("version") != "2.3.3":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
+          if "splashBackground" in packaged:
+              raise SystemExit("HIBA: a webOS appinfo.json még indítóképet állít be.")
           html = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html").read_text()
           if 'id="root"' not in html or '/src/main.tsx' in html:
               raise SystemExit("HIBA: a csomagolt index.html hiányos vagy nem production build.")
-          print("OK: az IPK index.html fájlja bájtra pontosan egyezik a friss builddel; verzió 2.3.3.")
+          if "LG webOS TV · FEKVŐ 1920 × 1080" in html:
+              raise SystemExit("HIBA: régi, fölösleges indítófelirat maradt.")
+          print("OK: friss HTML, webOS távirányító-kezelő, verzió 2.3.3; nincs csomagolt indítóvideó/kép.")
           PY
           echo "OK: IPK tartalma rendben"
 
