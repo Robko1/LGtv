@@ -186,13 +186,18 @@ function customProxy(): string {
   }
 }
 
-function hasSensitiveProviderData(rawUrl: string): boolean {
+function hasSensitiveProviderData(rawUrl: string, depth = 0): boolean {
   try {
     const url = new URL(rawUrl);
     if (url.username || url.password) return true;
     const sensitiveKeys = /^(username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)$/i;
     for (const key of url.searchParams.keys()) {
       if (sensitiveKeys.test(key)) return true;
+    }
+    if (depth < 1) {
+      for (const value of url.searchParams.values()) {
+        if (/^https?:\/\//i.test(value) && hasSensitiveProviderData(value, depth + 1)) return true;
+      }
     }
     const parts = url.pathname.split('/').filter(Boolean);
     for (let i = 0; i < parts.length; i += 1) {
