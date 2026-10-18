@@ -30,11 +30,6 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   const handleExitApp = () => {
-    const native = (window as Window & { IPTVNative?: { isAndroid?: boolean; exitApp?: () => void } }).IPTVNative;
-    if (native?.isAndroid && native.exitApp) {
-      native.exitApp();
-      return;
-    }
     window.close();
   };
 
