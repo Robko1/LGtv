@@ -58,10 +58,12 @@ cp "$WEBOS_DIR/appinfo.json" "$BUILD_DIR/appinfo.json"
 cp "$WEBOS_DIR/icon.png" "$BUILD_DIR/icon.png"
 cp "$WEBOS_DIR/largeIcon.png" "$BUILD_DIR/largeIcon.png"
 mkdir -p "$BUILD_DIR/assets"
-# Az indítóvideót kihagyjuk; a többi webOS asset marad.
+# Indítóvideót és indítóképet nem csomagolunk; csak nem induló funkciós assetek maradnak.
 for asset in "$WEBOS_DIR/assets/"*; do
   [[ -f "$asset" ]] || continue
-  [[ "$(basename "$asset")" == "intro_landscape.mp4" ]] && continue
+  case "$(basename "$asset")" in
+    *.mp4|*.webm|*.mov|splash.png) continue ;;
+  esac
   cp "$asset" "$BUILD_DIR/assets/"
 done
 # webOS specifikus JS másolása
@@ -155,7 +157,6 @@ html = re.sub(r'<body\b[^>]*>', add_webos_body_classes, html, count=1)
 splash_html = """
 <div id="webos-splash" class="webos-splash" aria-label="IPTV R.T">
   <div class="splash-title">IPTV R.T</div>
-  <div class="splash-subtitle">LG webOS TV · FEKVŐ 1920 × 1080</div>
 </div>
 <script>
 (function() {
