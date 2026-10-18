@@ -1,7 +1,7 @@
 # QR Telefonos Beállítás – TV-n nem kell pötyögni
 
 ## Probléma
-LG TV-n és Android TV stick-en borzasztó a távirányítóval beírni a szolgáltató host / user / pass / M3U URL-t.
+LG webOS TV-n borzasztó a távirányítóval beírni a szolgáltató host / user / pass / M3U URL-t.
 
 ## Megoldás – QR kód + telefon
 
@@ -9,7 +9,7 @@ LG TV-n és Android TV stick-en borzasztó a távirányítóval beírni a szolg�
 
 1. **TV-n:** Beállítások → Listák → **📱 Telefon** gomb
 2. TV generál egy 6 jegyű kódot (pl. `482917`) + QR kódot
-3. QR kód tartalma: `https://robko1.github.io/teszt-iptv/provision.html?tv=tv_abc123&code=482917`
+3. QR kód tartalma: `https://robko1.github.io/LGtv/provision.html?tv=tv_abc123&code=482917`
 4. **Telefonon:** beolvasod QR-t kamerával → megnyílik egy weboldal
 5. Telefonon beírod kényelmesen:
    - Xtream: host, port, username, password
@@ -27,7 +27,7 @@ LG TV-n és Android TV stick-en borzasztó a távirányítóval beírni a szolg�
 - `web/src/components/QrProvisionModal.tsx` – TV modal: kód kijelző + QRCodeSVG + countdown + polling + auto import
 - `web/public/provision.html` – telefonos oldal: Xtream / M3U tabok, validálás, POST kvdb.io-ra
 - `web/src/App.tsx` – `handleQrProviderReceived()` – bejövő payload → ProviderAccount → `handleAddProvider()`
-- `tools/build-apk.sh` és `tools/build-webos.sh` – `provision.html` másolása assets-be
+- `tools/build-webos.sh` – `provision.html` másolása az IPK-ba
 
 ### Fallback ha nincs internet
 
@@ -45,10 +45,9 @@ Ha kvdb.io nem elérhető:
 
 ### Használat TV-n
 
-- **Android TV / Stick:** Beállítások → Listák → 📱 Telefon gomb, vagy nyomd meg a `Q` gombot távirányítón
-- **LG webOS TV:** ugyanaz, Magic Remote-tal navigálható, Enterrel nyílik
+- **LG webOS TV:** Beállítások → Listák → 📱 Telefon gomb, Magic Remote-tal navigálható, Enterrel nyílik
 
 ### Tesztelés
 
-- `npm run dev` → http://localhost:5173 → Beállítások → Telefon → QR megjelenik
+- `npm run dev --prefix web` → http://localhost:5173 → Beállítások → Telefon → QR megjelenik
 - Telefonon (vagy másik böngésző ablakban) nyisd meg a QR URL-t → írd be teszt adatokat → Küldés TV-re → TV 3mp-en belül behozza
