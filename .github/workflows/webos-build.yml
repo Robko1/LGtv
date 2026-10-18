@@ -2,7 +2,7 @@ name: IPK építés
 
 # Kizárólag LG webOS TV IPK build; minden forrás a jelenlegi repóból származik.
 # Kézi indítás (workflow_dispatch), automatikus futás nincs.
-# Kimenet: kizárólag a v2.3.1 Release-ben lévő IPTV-RT.ipk.
+# Kimenet: az aktuális verziójú Release-ben kizárólag az IPTV-RT.ipk marad.
 # Diagnosztika: webos-manual-diagnosis.yml (külön, kézi)
 
 on:
@@ -18,7 +18,8 @@ concurrency:
 env:
   VERSION: '2.3.3'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TAG: 'v2.3.1'
+  RELEASE_TAG: 'v2.3.3'
+  OLD_RELEASE_TAG: 'v2.3.1'
   RELEASE_TITLE: 'IPTV-RT'
 
 jobs:
