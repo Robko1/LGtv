@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
 import { Play, Pause, Volume2, VolumeX, Rewind, FastForward, PictureInPicture2, Languages, Captions, Cast, Clock, Film, X, Mic2, Check } from 'lucide-react';
 import { appLog } from '../services/appLog';
+import { normalizeTvKey } from '../utils/tvKeys';
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
@@ -482,10 +483,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isLiveLandscapeFullscreen, isVodLandscapeFullscreen, canToggleOsd, showControlsOverlay]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === ' ' || e.key === 'Enter') {
+    // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, OK=13, VISSZA=461) is jöhet.
+    const key = normalizeTvKey(e);
+    if (key === ' ' || key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
-      if (e.key === ' ' && isLive) {
+      if (key === ' ' && isLive) {
         const api = nativeApi();
         const video = htmlVideoRef.current;
         if (api?.togglePause) api.togglePause();
@@ -495,20 +498,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // Enter = OSD vagy dupla logika szerint
         handleSurfaceTap(e);
       }
-    } else if (e.key === 'ArrowUp') {
+    } else if (key === 'ArrowUp') {
       e.preventDefault();
       e.stopPropagation();
       if (isLive) onPrevChannel?.();
-    } else if (e.key === 'ArrowDown') {
+    } else if (key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation();
       if (isLive) onNextChannel?.();
-    } else if (e.key === 'Escape') {
+    } else if (key === 'Escape' || key === 'Backspace') {
       e.preventDefault();
       e.stopPropagation();
       if (isFullscreen) setIsFullscreen(false);
       else if (isVod) onCloseVod?.();
-    } else if (e.key === 'f' || e.key === 'F') {
+    } else if (key === 'f' || key === 'F') {
       e.preventDefault();
       e.stopPropagation();
       if (isLive) {

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { normalizeTvKey } from '../utils/tvKeys';
 
 /**
  * TV / stick / egér támogatás modalokhoz
@@ -40,7 +41,9 @@ export function useTvModalNavigation(isOpen: boolean, onClose: () => void, deps:
   }, [isOpen, ...deps]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37–40, VISSZA=461) is jöhet.
+    const key = normalizeTvKey(e);
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
       try {
         const container = modalRef.current;
         if (!container) return;
@@ -55,7 +58,7 @@ export function useTvModalNavigation(isOpen: boolean, onClose: () => void, deps:
         const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
         e.preventDefault();
         e.stopPropagation();
-        if (e.key === 'ArrowDown') {
+        if (key === 'ArrowDown') {
           const next = focusable[(currentIndex + 1) % focusable.length];
           next?.focus();
           next?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -66,7 +69,7 @@ export function useTvModalNavigation(isOpen: boolean, onClose: () => void, deps:
           prev?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
       } catch {}
-    } else if (e.key === 'Escape' || e.key === 'Backspace') {
+    } else if (key === 'Escape' || key === 'Backspace') {
       e.preventDefault();
       e.stopPropagation();
       onClose();

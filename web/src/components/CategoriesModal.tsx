@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Category, Channel } from '../types/iptv';
 import { X, Search, Layers, ChevronRight } from 'lucide-react';
+import { normalizeTvKey } from '../utils/tvKeys';
 
 interface CategoriesModalProps {
   isOpen: boolean;
@@ -55,7 +56,9 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   }, [isOpen]);
 
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, VISSZA=461) is jöhet.
+    const key = normalizeTvKey(e);
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
       try {
         const container = modalRef.current;
         if (!container) return;
@@ -63,7 +66,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
         if (focusable.length === 0) return;
         const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
         e.preventDefault(); e.stopPropagation();
-        if (e.key === 'ArrowDown') {
+        if (key === 'ArrowDown') {
           const next = focusable[(currentIndex + 1) % focusable.length];
           next?.focus(); next?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         } else {
@@ -71,7 +74,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
           prev?.focus(); prev?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
       } catch {}
-    } else if (e.key === 'Escape' || e.key === 'Backspace') {
+    } else if (key === 'Escape' || key === 'Backspace') {
       e.preventDefault(); e.stopPropagation(); onClose();
     }
   };

@@ -27,6 +27,7 @@ import {
   MousePointerClick
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
+import { normalizeTvKey } from '../utils/tvKeys';
 import { WEB_VERSION, WEB_VERSION_HISTORY } from '../appVersion';
 import { checkLatestWebOSRelease, type WebOSReleaseInfo } from '../services/webosUpdateService';
 
@@ -147,8 +148,10 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   }, [isOpen, activeTab]);
 
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
-    // TV távirányító: D-pad navigáció a modalban
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    // TV távirányító: D-pad navigáció a modalban.
+    // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, VISSZA=461) is jöhet.
+    const key = normalizeTvKey(e);
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
       try {
         const container = modalRef.current;
         if (!container) return;
@@ -157,7 +160,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
         e.preventDefault();
         e.stopPropagation();
-        if (e.key === 'ArrowDown') {
+        if (key === 'ArrowDown') {
           const next = focusable[(currentIndex + 1) % focusable.length];
           next?.focus();
           next?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -167,12 +170,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           prev?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
       } catch {}
-    } else if (e.key === 'Escape' || e.key === 'Backspace') {
+    } else if (key === 'Escape' || key === 'Backspace') {
       // TV Back / Esc: modal bezárás
       e.preventDefault();
       e.stopPropagation();
       onClose();
-    } else if (e.key === 'Enter' && (e.target as HTMLElement)?.tagName !== 'INPUT' && (e.target as HTMLElement)?.tagName !== 'TEXTAREA') {
+    } else if (key === 'Enter' && (e.target as HTMLElement)?.tagName !== 'INPUT' && (e.target as HTMLElement)?.tagName !== 'TEXTAREA') {
       // Enter a fókuszált gombon
       // A natív click már megy, de biztosítjuk
     }

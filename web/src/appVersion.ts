@@ -1,6 +1,17 @@
-export const WEB_VERSION = '2.3.3';
+export const WEB_VERSION = '2.3.4';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.4',
+    date: '2026-10-18',
+    changes: [
+      "TÁVIRÁNYÍTÓ JAVÍTÁS: a TV távirányítója (fel/le/jobbra/balra, OK, VISSZA, CH+/CH-) mostantól minden LG webOS modellen működik.",
+      "A webos.js ES5-re átírva: a régebbi LG TV-k böngészőmotorja a modern szintaxison (catch kapcsos zárójel változó nélkül, template literal) SyntaxError-ral elhasalt, így a teljes távirányító-kezelő meg sem töltődött – az app kinyílt, de egyetlen gombra sem reagált.",
+      "Egységes gombnormalizáló (tvKeys): a régi webOS 'Up'/'Down'/'Left'/'Right' kulcsneveit és a csak keyCode-dal érkező gombokat (nyilak 37–40, OK=13, VISSZA=461, CH+/-=33/34) is felismeri minden gombkezelő.",
+      "CH+ / CH- gomb: csatornaváltás a főképernyőn; lejátszás/szünet és tekerés gombok (415/19/412/417) kezelése.",
+      "Verzió: 2.3.4 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.3',
     date: '2026-10-18',

@@ -14,6 +14,7 @@ import {
   saveVodContent,
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logStartup } from './services/appLog';
+import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { PartialContent, refreshProviderContent } from './services/providerImport';
 import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
 import { xtreamService } from './services/xtreamService';
@@ -1414,6 +1415,11 @@ export function App() {
   // Global Keyboard Shortcuts – TV remote, laptop, tablet billentyűzet + egér
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // LG webOS: a távirányító régi kulcsnevet ('Up') vagy csak keyCode-ot
+      // (37–40, OK=13, VISSZA=461) küldhet – egységesítjük, különben a TV-n
+      // egyetlen gomb sem működne.
+      const key = normalizeTvKey(e);
+
       // Szövegmezőben ne vegyük át a távirányító gombjait.
       const target = e.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
@@ -1421,7 +1427,7 @@ export function App() {
       // LG webOS-en nincs minden modellen automatikus D-pad fókuszléptetés:
       // gomb/hivatkozás fókuszánál a nyilakkal a legközelebbi vezérlőre lépünk.
       if (target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.getAttribute('role') === 'button')) {
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        if (isTvArrowKey(key)) {
           const scope = target.closest('[role="dialog"]') || target.closest('header') || target.parentElement;
           if (scope) {
             const candidates = Array.from(scope.querySelectorAll<HTMLElement>(
@@ -1436,12 +1442,12 @@ export function App() {
               const r = candidate.getBoundingClientRect();
               const dx = r.left + r.width / 2 - fx;
               const dy = r.top + r.height / 2 - fy;
-              const forward = e.key === 'ArrowRight' ? dx > 2
-                : e.key === 'ArrowLeft' ? dx < -2
-                : e.key === 'ArrowDown' ? dy > 2 : dy < -2;
+              const forward = key === 'ArrowRight' ? dx > 2
+                : key === 'ArrowLeft' ? dx < -2
+                : key === 'ArrowDown' ? dy > 2 : dy < -2;
               if (!forward) continue;
-              const primary = e.key === 'ArrowLeft' || e.key === 'ArrowRight' ? Math.abs(dx) : Math.abs(dy);
-              const secondary = e.key === 'ArrowLeft' || e.key === 'ArrowRight' ? Math.abs(dy) : Math.abs(dx);
+              const primary = key === 'ArrowLeft' || key === 'ArrowRight' ? Math.abs(dx) : Math.abs(dy);
+              const secondary = key === 'ArrowLeft' || key === 'ArrowRight' ? Math.abs(dy) : Math.abs(dx);
               const score = primary + secondary * 1.8;
               if (score < bestScore) { best = candidate; bestScore = score; }
             }
@@ -1457,7 +1463,7 @@ export function App() {
       const active = document.activeElement as HTMLElement | null;
       const isInChannelList = !!active?.closest?.('[role="listbox"]') || active?.getAttribute?.('role') === 'option' || !!active?.closest?.('[data-channel-id]');
 
-      switch (e.key) {
+      switch (key) {
         case 'ArrowUp':
           if (isInChannelList) break; // ChannelList kezeli – ne váltson csatornát
           e.preventDefault();
@@ -1493,6 +1499,41 @@ export function App() {
             handleVolumeChange(Math.min(1, volume + 0.05));
           }
           break;
+        case 'PageUp':
+          // LG távirányító CH+ gomb (keyCode 33)
+          e.preventDefault();
+          if (isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) break;
+          handlePrevChannel();
+          break;
+        case 'PageDown':
+          // LG távirányító CH- gomb (keyCode 34)
+          e.preventDefault();
+          if (isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) break;
+          handleNextChannel();
+          break;
+        case 'MediaPlay':
+        case 'MediaPause':
+          // LG távirányító lejátszás/szünet gombok (415/19)
+          e.preventDefault();
+          setIsPlaying((prev) => !prev);
+          break;
+        case 'MediaRewind': {
+          const rewindVideo = document.querySelector<HTMLVideoElement>('video[data-iptv-player="true"]');
+          if (rewindVideo && customStreamUrl) {
+            e.preventDefault();
+            rewindVideo.currentTime = Math.max(0, rewindVideo.currentTime - settings.seekStep);
+          }
+          break;
+        }
+        case 'MediaFastForward': {
+          const ffVideo = document.querySelector<HTMLVideoElement>('video[data-iptv-player="true"]');
+          if (ffVideo && customStreamUrl) {
+            e.preventDefault();
+            const ffTarget = ffVideo.currentTime + settings.seekStep;
+            ffVideo.currentTime = Number.isFinite(ffVideo.duration) ? Math.min(ffVideo.duration, ffTarget) : ffTarget;
+          }
+          break;
+        }
         case ' ':
           e.preventDefault();
           if (isCategoriesOpen || isSettingsOpen) break;

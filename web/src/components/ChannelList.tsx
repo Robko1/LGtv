@@ -4,6 +4,7 @@ import { Star, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
 import { ChannelLogo } from './ChannelLogo';
 import { ProviderRef } from '../services/contentStore';
 import { EpgNowNext, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from '../services/epgService';
+import { normalizeTvKey, isTvArrowKey } from '../utils/tvKeys';
 
 interface ChannelListProps {
   channels: Channel[];
@@ -412,8 +413,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   // Billentyűzet / TV remote támogatás: nyilakkal navigálás, Enter kiválasztás
   const handleListKeyDown = (e: React.KeyboardEvent) => {
     if (visibleChannels.length === 0) return;
+    // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
+    const key = normalizeTvKey(e);
     const currentIndex = visibleChannels.findIndex((c) => c.id === selectedChannelId);
-    if (e.key === 'ArrowDown') {
+    if (key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation();
       const nextIndex = Math.min(visibleChannels.length - 1, (currentIndex < 0 ? 0 : currentIndex + 1));
@@ -426,7 +429,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
           el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         });
       }
-    } else if (e.key === 'ArrowUp') {
+    } else if (key === 'ArrowUp') {
       e.preventDefault();
       e.stopPropagation();
       const prevIndex = Math.max(0, (currentIndex < 0 ? 0 : currentIndex - 1));
@@ -438,7 +441,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
           el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         });
       }
-    } else if (e.key === 'Enter' || e.key === ' ' || e.key === 'NumpadEnter') {
+    } else if (key === 'Enter' || key === ' ') {
       e.preventDefault();
       e.stopPropagation();
       const current = visibleChannels[currentIndex >= 0 ? currentIndex : 0];
@@ -478,7 +481,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       try { document.body.classList.add('has-mouse'); } catch {}
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key.startsWith('Arrow') || e.key === 'Enter') {
+      // FONTOS: régi webOS-en az e.key üres is lehet – a normalizáló keyCode-ból
+      // is felismeri a gombot, és nem dob hibát üres kulcsnévnél.
+      const key = normalizeTvKey(e);
+      if (isTvArrowKey(key) || key === 'Enter') {
         try { document.body.classList.remove('has-mouse'); } catch {}
       }
     };
@@ -625,7 +631,8 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                       onSelectChannel(ch);
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                      const key = normalizeTvKey(e);
+                      if (key === 'Enter' || key === ' ') {
                         e.preventDefault();
                         onSelectChannel(ch);
                       }
