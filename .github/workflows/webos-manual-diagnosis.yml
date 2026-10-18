@@ -64,8 +64,53 @@ jobs:
         run: |
           set -euo pipefail
           grep -Fq 'https://api.github.com/repos/Robko1/LGtv/releases/latest' web/src/services/webosUpdateService.ts
-          if grep -RniE 'IPTVNative|Android|WebView|\.apk' web/src; then
+          grep -Fq 'dispatchEvent(new KeyboardEvent' webos/webos.js
+          if grep -RniE 'IPTVNative|Android|WebView|\.apk' web/src web/index.html; then
             echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
+            exit 1
+          fi
+          if grep -RliE '\.(mp4|webm|mov)
+          python3 -m py_compile webos/tools/build-ipk.py
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          manifest = json.loads(Path("webos/appinfo.json").read_text(encoding="utf-8"))
+          version_source = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
+          match = re.search(r"WEB_VERSION\s*=\s*'([^']+)'", version_source)
+          if not match:
+              raise SystemExit("WEB_VERSION nem található")
+          if manifest.get("version") != match.group(1):
+              raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
+          if "splashBackground" in manifest:
+              raise SystemExit("A webOS manifest még splash képet állít be.")
+          print(f"LG webOS verziók egyeznek: {match.group(1)}; nincs splash kép.")
+          PY
+          echo "OK: webOS-frissítő, távirányító-kezelő, platformtisztaság, indítóvideó-mentesség, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
+
+      - name: Diagnosztikai eredmények mentése
+        uses: actions/upload-artifact@v4
+        with:
+          name: webos-manual-diagnosis
+          path: |
+            build/web/index.html
+            webos/appinfo.json
+            webos/webos.js
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Összefoglaló
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## LG webOS kézi diagnosztika"
+            echo "- Indítás: kizárólag kézzel (workflow_dispatch)."
+            echo "- Ellenőrzés: szükséges fájlok, HTML build, appinfo.json."
+            echo "- Kimenet: webos-manual-diagnosis artifact."
+            echo "- Ez a workflow diagnosztikát és HTML buildet készít; IPK-t nem épít."
+          } >> "$GITHUB_STEP_SUMMARY"
+ webos/assets; then
+            echo "HIBA: indítóvideó maradt a webOS assetek között." >&2
             exit 1
           fi
           bash -n tools/build-webos.sh
