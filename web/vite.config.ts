@@ -18,16 +18,14 @@ export default defineConfig({
       'X-Frame-Options': 'ALLOWALL',
     },
   },
-  // A build egyetlen önálló HTML-fájl, amit az Android burok közvetlenül
-  // beletesz az APK eszközei közé (assets/index.html).
+  // A build egyetlen önálló HTML-fájl, amelyet a webOS IPK csomagoló
+  // beletesz az LG TV alkalmazásba (index.html).
   build: {
     target: "es2015",
     outDir: path.resolve(__dirname, "../build/web"),
     emptyOutDir: true,
-    // Az APK-ban a lap file:///android_asset/index.html címről nyílik meg, ahol
-    // a WebView a type="module" szkriptet nem feltétlenül futtatja (a modul
-    // betöltés CORS-os útnak számít a file:// séma alatt). Ezért klasszikus,
-    // IIFE formátumú, egyetlen szkript készül – ez minden WebView-ban lefut.
+    // A webOS alkalmazás helyi fájlból tölti be az index.html-t; a single-file
+    // build és a klasszikus IIFE kimenet csökkenti a modul/CORS problémákat.
     rollupOptions: {
       output: {
         format: "iife",
