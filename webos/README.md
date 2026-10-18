@@ -1,15 +1,15 @@
-# IPTV R.T – LG webOS TV (külön mappa, nem Android)
+# IPTV R.T – kizárólag LG webOS TV
 
-> **LG webOS TV-re készült változat** – külön mappában (`webos/`), nem keverve az Androiddal. Ugyanaz a kinézet mint az Android app, de kisebb TV lejátszó, gyorsabb betöltés, fekvő splash videó.
+> Ez a repó önálló LG webOS TV-alkalmazás. A forrás, build és csomagolás kizárólag ebben a repóban történik.
 
 ## Mi ez?
 
 - **Forrás mappa:** `webos/` – LG webOS TV app forrása (appinfo.json, icon, index.html, webos.js, splash)
-- **Build kimenet:** `webos/IPTV-RT-webOS-<verzió>.ipk` és `apk/IPTV-RT-webOS-<verzió>.ipk` (ugyanoda mint az Android APK)
-- **Kinézet:** ugyanaz mint az Android app (React + Tailwind), reszponzív TV-re
+- **Build kimenet:** `webos/IPTV-RT-webOS-<verzió>.ipk` és `webos/dist/` másolat
+- **Kinézet:** LG webOS TV-re kialakított (React + Tailwind), reszponzív TV-re
 - **Lejátszó:** kisebb (1280x720 alap, de 1920x1080-ra skálázódik), natív `<video>` + hls.js, webOS natív HLS támogatás is
 - **Betöltés:** gyors mód – csak élő TV először (1 kérés), VOD kategóriák gyorsan, film/sorozat tartalom lusta (csak ha a felhasználó Mozi/Sorozat menübe lép) – így 20k csatorna is 2-3s alatt indul TV-n
-- **Splash videó:** fekvő 1920x1080 `assets/intro_landscape.mp4` és `assets/splash.png`, nem álló mint Androidon (1080x2400)
+- **Splash videó:** fekvő 1920x1080 `assets/intro_landscape.mp4` és `assets/splash.png`, LG TV fekvő képernyőjére tervezve (1080x2400)
 
 ## Fájlok
 
@@ -43,7 +43,6 @@ SKIP_WEB=1 tools/build-webos.sh
 
 Kimenet:
 - `webos/IPTV-RT-webOS-1.25.0.ipk`
-- `apk/IPTV-RT-webOS-1.25.0.ipk` (ugyanoda mint Android APK, hogy egy helyen legyen letölthető)
 - `webos/dist/` másolat
 
 ### Mit csinál a build?
@@ -98,11 +97,8 @@ A webOS TV-kre csak Developer Mode-on keresztül lehet 3rd party appot telepíte
 
 Ugyanoda mint az Android APK:
 
-- **Repo mappa:** `apk/IPTV-RT-webOS-1.25.0.ipk` – https://github.com/Robko1/teszt-iptv/raw/main/apk/IPTV-RT-webOS-1.25.0.ipk
-- **Releases:** https://github.com/Robko1/teszt-iptv/releases/tag/v2.0.0 → `IPTV-RT-webOS-1.25.0.ipk`
-- **webOS mappa:** `webos/IPTV-RT-webOS-1.25.0.ipk`
-
-Android APK továbbra is: `apk/IPTV-mindorokre-2.apk`
+- **IPK a repóban:** `webos/IPTV-RT-webOS-2.3.0.ipk`
+- **GitHub Release:** https://github.com/Robko1/LGtv/releases/tag/v2.3.0 → `IPTV-RT-webOS-2.3.0.ipk`
 
 ## Technikai részletek (fejlesztőknek)
 
