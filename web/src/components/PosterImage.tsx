@@ -70,7 +70,7 @@ function savePoster(key: string, value: string | null): void {
     const stored = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') as Record<string, string | null>;
     stored[key] = value;
     const entries = Object.entries(stored);
-    // Keep the cache bounded on long-lived Android installations.
+    // Keep the cache bounded on long-running TV sessions.
     localStorage.setItem(CACHE_KEY, JSON.stringify(Object.fromEntries(entries.slice(-1500))));
   } catch {
     // In-memory cache still works if storage is unavailable.
