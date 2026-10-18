@@ -9,7 +9,7 @@
 - **Kinézet:** LG webOS TV-re kialakított (React + Tailwind), reszponzív TV-re
 - **Lejátszó:** kisebb (1280x720 alap, de 1920x1080-ra skálázódik), natív `<video>` + hls.js, webOS natív HLS támogatás is
 - **Betöltés:** gyors mód – csak élő TV először (1 kérés), VOD kategóriák gyorsan, film/sorozat tartalom lusta (csak ha a felhasználó Mozi/Sorozat menübe lép) – így 20k csatorna is 2-3s alatt indul TV-n
-- **Splash videó:** fekvő 1920x1080 `assets/intro_landscape.mp4` és `assets/splash.png`, LG TV fekvő képernyőjére tervezve (1080x2400)
+- **Splash videó:** fekvő 1920x1080 `assets/intro_landscape.mp4` és `assets/splash.png`, LG TV fekvő képernyőjére tervezve (1920x1080)
 
 ## Fájlok
 
@@ -95,7 +95,7 @@ LG webOS TV-re külső IPK telepítéshez Developer Mode szükséges.
 
 ## Letöltés
 
-- **IPK a repóban:** `webos/IPTV-RT-webOS-2.3.1.ipk`
+- **IPK buildkimenet:** `webos/IPTV-RT-webOS-2.3.1.ipk` (a kézi build hozza létre; csak sikeres build után létezik a repóban)
 - **GitHub Release:** https://github.com/Robko1/LGtv/releases/tag/v2.3.1
 
 ## Technikai részletek (fejlesztőknek)
