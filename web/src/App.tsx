@@ -1710,6 +1710,7 @@ export function App() {
                   onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
                   onCastToTv={() => mainPlayerCastRef.current?.()}
                   onTogglePip={() => mainPlayerPipRef.current?.()}
+                  showPip={Boolean((document as any).pictureInPictureEnabled)}
                   onOpenEpgModal={() => setIsEpgOpen(true)}
                   onOpenChannelDetails={() => {
                     setSettingsTab('system');
@@ -1740,6 +1741,7 @@ export function App() {
             onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
             onCastToTv={() => mainPlayerCastRef.current?.()}
             onTogglePip={() => mainPlayerPipRef.current?.()}
+                  showPip={Boolean((document as any).pictureInPictureEnabled)}
             onOpenEpgModal={() => setIsEpgOpen(true)}
             onOpenChannelDetails={() => {
               setSettingsTab('system');
