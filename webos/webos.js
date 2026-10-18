@@ -113,6 +113,45 @@
     } catch {}
   }
 
+  // Magic Remote térbeli fókusznavigáció a gombok és menük között.
+  // A csatornalistát külön hagyjuk, mert annak saját fel/le navigációja van.
+  function focusSpatially(active, key) {
+    try {
+      var items = getFocusable(document).filter(function(el) {
+        return !el.closest('[role="dialog"]') && !el.closest('[role="listbox"]');
+      });
+      if (!items.length) return false;
+      if (!active || active === document.body || active === document.documentElement) {
+        items[0].focus({preventScroll:true});
+        return true;
+      }
+      var from = active.getBoundingClientRect();
+      var fx = from.left + from.width / 2;
+      var fy = from.top + from.height / 2;
+      var best = null;
+      var bestScore = Infinity;
+      items.forEach(function(el) {
+        if (el === active) return;
+        var r = el.getBoundingClientRect();
+        var x = r.left + r.width / 2;
+        var y = r.top + r.height / 2;
+        var dx = x - fx;
+        var dy = y - fy;
+        var primary, cross;
+        if (key === 'ArrowLeft') { if (dx >= -2) return; primary = -dx; cross = Math.abs(dy); }
+        else if (key === 'ArrowRight') { if (dx <= 2) return; primary = dx; cross = Math.abs(dy); }
+        else if (key === 'ArrowUp') { if (dy >= -2) return; primary = -dy; cross = Math.abs(dx); }
+        else { if (dy <= 2) return; primary = dy; cross = Math.abs(dx); }
+        var score = primary + cross * 1.8;
+        if (score < bestScore) { best = el; bestScore = score; }
+      });
+      if (!best) return false;
+      best.focus({preventScroll:true});
+      if (best.scrollIntoView) best.scrollIntoView({block:'nearest', inline:'nearest'});
+      return true;
+    } catch { return false; }
+  }
+
   // ---------- Keyboard – Magic Remote + D-pad ----------
   function injectKey(key, keyCode) {
     try {
@@ -132,8 +171,9 @@
   }
 
   document.addEventListener('keydown', function(e) {
-    var kc = e.keyCode;
-    var key = e.key;
+    var key = e.key || '';
+    var keyCodes = {ArrowLeft:37, ArrowUp:38, ArrowRight:39, ArrowDown:40, Enter:13, Escape:27, PageUp:33, PageDown:34};
+    var kc = e.keyCode || keyCodes[key] || ((key === 'Back' || key === 'GoBack') ? 461 : 0);
 
     // A webOS néha a body-n hagyja a fókuszt. Ilyenkor az első gombnyomást
     // közvetlenül a csatornalistának adjuk át, nem veszítjük el fókuszváltáskor.
@@ -160,6 +200,26 @@
         return;
       }
     }
+    // OK/Select gomb: ha a távirányító nem Enterként jelenti, normalizáljuk.
+    if ((key === 'OK' || key === 'Select' || key === 'Accept') && !inTextEntry) {
+      var focused = document.activeElement;
+      var listForOk = document.querySelector('[role="listbox"]');
+      if (listForOk && (!focused || focused === document.body || focused === document.documentElement || listForOk.contains(focused))) {
+        e.preventDefault();
+        e.stopPropagation();
+        listForOk.focus({preventScroll:true});
+        listForOk.dispatchEvent(new KeyboardEvent('keydown', {
+          key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true, cancelable:true
+        }));
+        return;
+      }
+      if (focused && (focused.tagName === 'BUTTON' || focused.tagName === 'A' || focused.getAttribute('role') === 'button')) {
+        e.preventDefault();
+        focused.click();
+        return;
+      }
+    }
+
     // webOS Back (461) → Escape (bezár modal, kilép fullscreen)
     if (kc === 461 || kc === 27) {
       console.log('[webOS] Back → Escape');
@@ -218,6 +278,20 @@
             e.stopPropagation();
             focusNextInModal(dialog, kc === 39 ? 1 : -1);
           }
+        }
+      }
+    }
+
+    // Gombon/menün állva a nyilak a legközelebbi látható vezérlőre lépnek.
+    // A csatornalista és a modal saját nyílkezelése változatlan marad.
+    if (isArrow && !dialogAtStart && !inTextEntry) {
+      var focusedNow = document.activeElement;
+      var insideList = focusedNow && focusedNow.closest && focusedNow.closest('[role="listbox"]');
+      if (!insideList) {
+        if (focusSpatially(focusedNow, key || ({37:'ArrowLeft',38:'ArrowUp',39:'ArrowRight',40:'ArrowDown'}[kc]))) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
         }
       }
     }
