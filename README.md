@@ -1,6 +1,6 @@
 # IPTV R.T – LG webOS TV
 
-> **v2.3.0 – LG webOS TV külön repo, távirányító fix + külön kinézet + QR telefonos beállítás**
+> **v2.3.1 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
 > - Ez a repo **csak LG webOS TV**-re való, külön fejlesztés Android-tól
 > - Android verzió külön repo-ban: https://github.com/Robko1/teszt-iptv (Android-only v2.3.0)
 > - Telepítés: [webos/README.md](webos/README.md)
@@ -35,7 +35,7 @@ LGtv/
 │   └── *.mjs                 # tesztek
 ├── .github/workflows/
 │   ├── webos-build.yml       # IPK építés kézi indítással (workflow_dispatch)
-│   └── webos-diagnosis.yml   # FIX: csak FIGYELMEZTETÉS, nem HIBA + marker keresés webos.js-ben is
+│   └── webos-manual-diagnosis.yml   # FIX: csak FIGYELMEZTETÉS, nem HIBA + marker keresés webos.js-ben is
 ├── provision.html            # QR telefonos beállítás weboldal
 ├── QR-TELEFONOS-BEALLITAS.md # QR flow leírás
 └── icon.jpg
@@ -45,7 +45,7 @@ LGtv/
 
 | Feladat | Fájl | Indítás |
 |---------|------|---------|
-| LG diagnosztika | `webos-diagnosis.yml` | Kézi: Actions → IPTV – LG webOS diagnosztika |
+| LG diagnosztika | `webos-manual-diagnosis.yml` | Kézi: Actions → LG webOS – kézi diagnosztika és web build |
 | IPK építés | `webos-build.yml` | Kézi: Actions → IPTV – webOS TV IPK építése |
 
 Mindkettő **csak kézi** indítással megy, nem automatikus.
@@ -53,7 +53,7 @@ Mindkettő **csak kézi** indítással megy, nem automatikus.
 ### Fix-ek 39110438592 futásból
 
 - **build-webos.sh**: `re.sub` type=module + crossorigin eltávolítás – file:// nem támogatja module-t, CORS hibát okozott
-- **webos-diagnosis.yml**: 6. lépés már csak FIGYELMEZTETÉS, nem exit 1, ha type=module marad (build-webos.sh javítja)
+- **webos-manual-diagnosis.yml**: külön, kézzel indítható LG webOS buildellenőrzés
 - **Marker keresés**: `webOS`, `IS_WEBOS_TV`, `IS_LG_WEBOS` keresése HTML-ben ÉS webos.js-ben is
 
 ## Telepítés LG TV-re
@@ -93,4 +93,3 @@ VERSION=2.3.0 bash ../tools/build-webos.sh
 - IPK: `IPTV-RT-webOS-2.3.0.ipk` (kb. 500-600KB)
 - appinfo.json: `hu.rt.iptv.webos` v2.3.0
 
-Android verzió: https://github.com/Robko1/teszt-iptv (v2.3.0 Android-only)
