@@ -25,8 +25,8 @@ LGtv/
 │   ├── package.json
 │   └── vite.config.ts
 ├── webos/                    # LG webOS TV specifikus
-│   ├── appinfo.json          # v2.3.0, hu.rt.iptv.webos
-│   ├── webos.js              # Magic Remote + D-pad + modal fókusz fix 2.3.0
+│   ├── appinfo.json          # v2.3.1, hu.rt.iptv.webos
+│   ├── webos.js              # Magic Remote + D-pad + modal fókusz fix 2.3.1
 │   ├── icon.png / largeIcon.png
 │   ├── assets/               # splash.png, icon_tv.png, intro_landscape.mp4
 │   └── tools/build-ipk.py    # IPK csomagoló (ar archive)
@@ -61,10 +61,10 @@ Mindkettő **csak kézi** indítással megy, nem automatikus.
 1. **Developer Mode** bekapcsolása TV-n: LG Content Store → Developer Mode → Be
 2. **webOS Dev Manager** telepítése PC-re: https://github.com/webosbrew/dev-manager-desktop
 3. TV és PC egy hálózaton, Dev Managerben TV hozzáadása (IP + passphrase)
-4. **IPK telepítés**: Dev Manager → Install → `IPTV-RT-webOS-2.3.0.ipk` kiválasztása
-   - VAGY parancssorból: `ares-install --device <tv> IPTV-RT-webOS-2.3.0.ipk`
+4. **IPK telepítés**: Dev Manager → Install → `IPTV-RT-webOS-2.3.1.ipk` kiválasztása
+   - VAGY parancssorból: `ares-install --device <tv> IPTV-RT-webOS-2.3.1.ipk`
 
-Az IPK a GitHub Release-ből is letölthető: `v2.3.0` → `IPTV-RT-webOS-2.3.0.ipk`
+Az IPK a GitHub Release-ből is letölthető: `v2.3.1` → `IPTV-RT-webOS-2.3.1.ipk`
 
 ## QR telefonos beállítás
 
@@ -83,13 +83,13 @@ Részletek: [QR-TELEFONOS-BEALLITAS.md](QR-TELEFONOS-BEALLITAS.md) + `provision.
 git clone https://github.com/Robko1/LGtv.git && cd LGtv
 cd web && npm install --no-audit --no-fund && VITE_WEBOS=true npm run build
 # IPK építés
-VERSION=2.3.0 bash ../tools/build-webos.sh
-# Kimenet: webos/IPTV-RT-webOS-2.3.0.ipk
+VERSION=2.3.1 bash ../tools/build-webos.sh
+# Kimenet: webos/IPTV-RT-webOS-2.3.1.ipk
 ```
 
 ## Verzió
 
-- **v2.3.0** – LG külön repo + Android-only szétválasztás + távirányító fix + QR
-- IPK: `IPTV-RT-webOS-2.3.0.ipk` (kb. 500-600KB)
-- appinfo.json: `hu.rt.iptv.webos` v2.3.0
+- **v2.3.1** – LG külön repo + Android-only szétválasztás + távirányító fix + QR
+- IPK: `IPTV-RT-webOS-2.3.1.ipk` (kb. 500-600KB)
+- appinfo.json: `hu.rt.iptv.webos` v2.3.1
 
