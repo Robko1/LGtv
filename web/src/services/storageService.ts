@@ -6,7 +6,7 @@ import { INITIAL_SETTINGS } from '../data/mockData';
  * Kis méretű, felhasználói beállítások tárolása (localStorage).
  *
  * A nagy tartalom (csatornák, filmek, sorozatok) NEM itt van: azt a
- * contentStore kezeli, az APK-ban a natív fájltárban, adagolva.
+ * contentStore kezeli, a TV helyi tárában, adagolva.
  * Az itteni kulcsok ezért szándékosan kicsik maradnak.
  */
 const SETTINGS_KEY = 'iptv_rt_settings_v1';
