@@ -45,7 +45,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 4. Függőségek telepítése
+      - name: 4. Kézi diagnosztika – szükséges forrásfájlok
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s web/package.json
+          test -s web/index.html
+          test -s webos/appinfo.json
+          test -s webos/webos.js
+          echo "OK: a szükséges web és webOS fájlok megvannak."
+
+      - name: 5. Függőségek telepítése
         shell: bash
         run: |
           set -euo pipefail
@@ -53,7 +63,34 @@ jobs:
           npm install --prefix web --no-audit --no-fund
           pip install Pillow --break-system-packages -q || pip install Pillow -q
 
-      - name: 5. Webes felület fordítása webOS-re
+      - name: 6. Kézi diagnosztika – forrás, webOS frissítő és csomagoló
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'https://api.github.com/repos/Robko1/LGtv/releases/latest' web/src/services/webosUpdateService.ts
+          if grep -RniE 'IPTVNative|Android|WebView|\.apk' web/src; then
+            echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
+            exit 1
+          fi
+          bash -n tools/build-webos.sh
+          python3 -m py_compile webos/tools/build-ipk.py
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          manifest = json.loads(Path("webos/appinfo.json").read_text(encoding="utf-8"))
+          version_source = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
+          match = re.search(r"WEB_VERSION\s*=\s*'([^']+)'", version_source)
+          if not match:
+              raise SystemExit("WEB_VERSION nem található")
+          if manifest.get("version") != match.group(1):
+              raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
+          if match.group(1) != "2.3.3":
+              raise SystemExit(f"Eltérő buildverzió: várt 2.3.3, kapott {match.group(1)}")
+          print(f"LG webOS verziók egyeznek: {match.group(1)}")
+          PY
+          echo "OK: webOS-frissítő, platformtisztaság, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
+
+      - name: 7. Webes felület fordítása webOS-re
         working-directory: web
         env:
           VITE_WEBOS: 'true'
@@ -61,7 +98,19 @@ jobs:
           VITE_WEBOS_SMALL_PLAYER: 'true'
         run: npm run build
 
-      - name: 6. webOS IPK építése
+      - name: 8. Kézi diagnosztika – HTML és webOS konfiguráció
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE=build/web/index.html
+          test -s "$FILE"
+          python3 -m json.tool webos/appinfo.json >/dev/null
+          grep -Fq 'id="root"' "$FILE"
+          test -s webos/webos.js
+          echo "HTML méret: $(wc -c < "$FILE") byte"
+          echo "OK: a HTML build és az appinfo.json ellenőrzése sikeres."
+
+      - name: 9. webOS IPK építése
         shell: bash
         run: |
           set -euo pipefail
@@ -85,7 +134,7 @@ jobs:
           ls -lh webos/*.ipk
           test -s "webos/$IPK_FILE_NAME"
 
-      - name: 7. IPK ellenőrzése
+      - name: 10. IPK ellenőrzése
         shell: bash
         run: |
           set -euo pipefail
@@ -111,7 +160,18 @@ jobs:
           PY
           echo "OK: IPK tartalma rendben"
 
-      - name: 9. Release frissítése IPK-val
+      - name: 11. Diagnosztikai eredmények mentése
+        uses: actions/upload-artifact@v4
+        with:
+          name: webos-build-diagnosis
+          path: |
+            build/web/index.html
+            webos/appinfo.json
+            webos/webos.js
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 12. Release frissítése IPK-val
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
