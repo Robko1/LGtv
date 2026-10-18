@@ -509,6 +509,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (isFullscreen) setIsFullscreen(false);
       else if (isVod) onCloseVod?.();
     } else if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      e.stopPropagation();
       if (isLive) {
         if (!isFullscreen) setIsFullscreen(true);
         else setIsFullscreen(false);
