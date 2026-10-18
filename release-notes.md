@@ -1,17 +1,20 @@
 # IPTV-RT – LG webOS TV v{{CURRENT_VERSION}}
 
-**Aktuális build verziója:** {{CURRENT_VERSION}}  
-**Aktuális build dátuma és ideje:** {{RELEASE_DATETIME}}  
+**Legutóbbi build készítése:** {{RELEASE_DATETIME}}  
+**Letölthető IPK legutóbbi feltöltése/frissítése:** {{RELEASE_UPDATED_DATETIME}}  
+**Most feltöltött alkalmazás verziója:** {{CURRENT_VERSION}}  
 
 **Előző IPK verziója:** {{PREVIOUS_VERSION}}  
 **Előző IPK feltöltésének dátuma és ideje:** {{PREVIOUS_DATETIME}}  
 
-## Letöltés és ellenőrzés
+---
 
-- Letölthető fájl: `IPTV-RT.ipk` – ez a legutóbbi sikeres kézi buildből származik.
-- A build a feltöltés után összehasonlítja a kész IPK és a GitHub Release-ben elérhető fájl SHA-256 ellenőrzőösszegét.
-- A Release-ben kizárólag egyetlen `.ipk` fájl maradhat.
+## Letöltés
+
+- **Fájl:** `IPTV-RT.ipk`
+- A build a feltöltés után ellenőrzi az elkészült IPK és a GitHub Release-ben letölthető fájl SHA-256 ellenőrzőösszegét.
+- A Release-ben kizárólag egyetlen IPK maradhat.
 
 Ez a kiadás **kizárólag LG webOS TV-re** készült. Android APK-t ez a repó nem készít, nem tölt le és nem csomagol.
 
-A build kizárólag kézzel indítható, és a `Robko1/LGtv` repó `main` ágának forrásából készül.
+A build kézzel indítható, a `Robko1/LGtv` repó `main` ágából épít. A következő build verziószáma a forrásban beállított alkalmazásverzió lesz; verzióemeléshez a `webos/appinfo.json` és a `web/src/appVersion.ts` verzióját együtt kell módosítani.
