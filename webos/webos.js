@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.4
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.5
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.4 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.5 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -53,6 +53,176 @@
 
   function isArrowKey(key) {
     return key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
+  }
+
+  // ---------- Kompatibilitási polyfillek régi webOS motorokhoz ----------
+  // Element.matches / Element.closest – Chrome 41 előtt nincs (webOS 3.x!)
+  try {
+    var elProto = window.Element && Element.prototype;
+    if (elProto) {
+      if (!elProto.matches) {
+        elProto.matches = elProto.webkitMatchesSelector || elProto.msMatchesSelector ||
+          function(sel) {
+            var all = (this.document || this.ownerDocument).querySelectorAll(sel);
+            for (var i = 0; i < all.length; i++) { if (all[i] === this) return true; }
+            return false;
+          };
+      }
+      if (!elProto.closest) {
+        elProto.closest = function(sel) {
+          var el = this;
+          while (el && el.nodeType === 1) {
+            if (el.matches(sel)) return el;
+            el = el.parentElement || el.parentNode;
+          }
+          return null;
+        };
+      }
+    }
+  } catch (ePoly1) {}
+  // AbortController – Chrome 66 előtt nincs; a hálózati kód (net.ts) enélkül
+  // már a betöltésnél elszállna. Minimál változat: a jelzőt beállítja,
+  // a fetch polyfill (whatwg-fetch) együttműködik vele.
+  try {
+    if (typeof window.AbortController === 'undefined') {
+      var AbortSignalPoly = function() {
+        this.aborted = false;
+        this.onabort = null;
+        this._listeners = [];
+      };
+      AbortSignalPoly.prototype.addEventListener = function(type, fn) {
+        if (type === 'abort') this._listeners.push(fn);
+      };
+      AbortSignalPoly.prototype.removeEventListener = function(type, fn) {
+        if (type !== 'abort') return;
+        var idx = this._listeners.indexOf(fn);
+        if (idx >= 0) this._listeners.splice(idx, 1);
+      };
+      AbortSignalPoly.prototype.dispatchEvent = function(ev) {
+        if (ev && ev.type === 'abort') {
+          this.aborted = true;
+          if (typeof this.onabort === 'function') { try { this.onabort(ev); } catch (eA) {} }
+          for (var i = 0; i < this._listeners.length; i++) { try { this._listeners[i](ev); } catch (eB) {} }
+        }
+        return true;
+      };
+      var AbortControllerPoly = function() { this.signal = new AbortSignalPoly(); };
+      AbortControllerPoly.prototype.abort = function() {
+        if (this.signal.aborted) return;
+        this.signal.dispatchEvent({ type: 'abort' });
+      };
+      window.AbortController = AbortControllerPoly;
+      window.AbortSignal = AbortSignalPoly;
+    }
+  } catch (ePoly2) {}
+  // requestIdleCallback – Chrome 47 előtt nincs
+  try {
+    if (typeof window.requestIdleCallback === 'undefined') {
+      window.requestIdleCallback = function(cb) {
+        return window.setTimeout(function() {
+          cb({ didTimeout: false, timeRemaining: function() { return 16; } });
+        }, 1);
+      };
+      window.cancelIdleCallback = function(id) { window.clearTimeout(id); };
+    }
+  } catch (ePoly3) {}
+
+  // ---------- Képernyős diagnosztika – távirányító teszt a TV-n ----------
+  // Az induláskor 2 percig látható kis sáv megmutatja:
+  //  - a TV böngészőmotorját,
+  //  - betöltődött-e a React felület,
+  //  - az utoljára lenyomott távirányító-gombot (keyCode + név).
+  // A PIROS színes gombbal bármikor elő-/eltüntethető.
+  var diag = {
+    el: null, keyLine: null, uiLine: null, mouseLine: null,
+    keyCount: 0, mouseMoves: 0, clicks: 0, hideTimer: 0, uiLoaded: false, forced: false
+  };
+
+  function chromeVersion() {
+    try {
+      var m = (navigator.userAgent || '').match(/Chr[o0]me\/(\d+)/i);
+      return m ? ('Chrome ' + m[1]) : (navigator.userAgent || 'ismeretlen').slice(0, 60);
+    } catch (e) { return 'ismeretlen'; }
+  }
+
+  function diagEnsure() {
+    if (diag.el || !document.body) return diag.el;
+    try {
+      var box = document.createElement('div');
+      box.id = 'webos-rc-diag';
+      box.setAttribute('style',
+        'position:fixed;left:16px;bottom:16px;z-index:2147483000;max-width:72vw;' +
+        'background:rgba(2,10,25,0.88);border:2px solid #00BFFF;border-radius:10px;' +
+        'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
+        'white-space:pre-wrap;word-break:break-word;');
+      var title = document.createElement('div');
+      title.textContent = 'IPTV R.T diagnosztika 2.3.5 \u2013 ' + chromeVersion();
+      title.setAttribute('style', 'color:#00BFFF;');
+      diag.uiLine = document.createElement('div');
+      diag.uiLine.textContent = 'Felület: betöltés...';
+      diag.keyLine = document.createElement('div');
+      diag.keyLine.textContent = 'Nyomj egy gombot a távirányítón...';
+      diag.mouseLine = document.createElement('div');
+      diag.mouseLine.textContent = 'Egér/kattintás: 0 / 0';
+      box.appendChild(title);
+      box.appendChild(diag.uiLine);
+      box.appendChild(diag.keyLine);
+      box.appendChild(diag.mouseLine);
+      document.body.appendChild(box);
+      diag.el = box;
+    } catch (e) {}
+    return diag.el;
+  }
+
+  function diagShow() {
+    if (!diagEnsure()) return;
+    diag.el.style.display = 'block';
+    if (diag.hideTimer) clearTimeout(diag.hideTimer);
+    // 2 perc után magától eltűnik, HA a felület betöltődött.
+    diag.hideTimer = setTimeout(function() {
+      if (diag.el && diag.uiLoaded && !diag.forced) diag.el.style.display = 'none';
+    }, 120000);
+  }
+
+  function diagToggle() {
+    if (!diagEnsure()) return;
+    diag.forced = diag.el.style.display === 'none';
+    diag.el.style.display = diag.forced ? 'block' : 'none';
+  }
+
+  function diagKey(e, normalized) {
+    try {
+      if (!diagEnsure()) return;
+      diag.keyCount++;
+      var kc = e.keyCode || e.which || 0;
+      diag.keyLine.textContent = 'Gomb #' + diag.keyCount + ': keyCode=' + kc +
+        ' key="' + (e.key || '') + '" \u2192 ' + (normalized || '?');
+    } catch (eD) {}
+  }
+
+  function diagUiCheck() {
+    try {
+      if (!diagEnsure()) return;
+      var splash = document.getElementById('boot-splash');
+      var list = document.querySelector('[role="listbox"], [role="dialog"], header');
+      if (!splash || list) {
+        diag.uiLoaded = true;
+        diag.uiLine.textContent = 'Felület: BET\u00d6LT\u0150D\u00d6TT \u2713';
+        diag.uiLine.style.color = '#4ade80';
+      } else {
+        diag.uiLine.textContent = 'Felület: M\u00c9G NEM t\u00f6lt\u0151d\u00f6tt be...';
+        diag.uiLine.style.color = '#facc15';
+      }
+    } catch (e) {}
+  }
+
+  function diagUiFail() {
+    try {
+      if (!diagEnsure() || diag.uiLoaded) return;
+      diag.uiLine.textContent = 'Felület: NEM t\u00f6lt\u0151d\u00f6tt be \u2013 a TV motorja nem futtatta az appot!';
+      diag.uiLine.style.color = '#f87171';
+      diagShow();
+    } catch (e) {}
   }
 
   function arrayFind(list, fn) {
@@ -262,6 +432,11 @@
     var key = normalizeKey(e);
     var kc = e.keyCode || e.which || KEY_TO_KEYCODE[key] || 0;
 
+    // Diagnosztika: minden gombnyomás látszik a képernyős sávban.
+    diagKey(e, key);
+    // PIROS gomb (403): diagnosztika be/ki
+    if (kc === 403) { diagToggle(); return; }
+
     // Ha a gombot már át kellett nevezni (régi webOS), újraküldjük az egységes
     // névvel, hogy a React kezelők is megkapják érthető formában.
     var rawKey = e.key || '';
@@ -407,7 +582,19 @@
   // ---------- Pointer – Magic Remote egér ----------
   document.addEventListener('mousemove', function() {
     try { document.body.classList.add('has-mouse'); } catch (e) {}
+    try {
+      diag.mouseMoves++;
+      if (diag.mouseLine && diag.mouseMoves % 20 === 1) {
+        diag.mouseLine.textContent = 'Egér/kattintás: ' + diag.mouseMoves + ' / ' + diag.clicks;
+      }
+    } catch (e2) {}
   });
+  document.addEventListener('mousedown', function() {
+    try {
+      diag.clicks++;
+      if (diag.mouseLine) diag.mouseLine.textContent = 'Egér/kattintás: ' + diag.mouseMoves + ' / ' + diag.clicks;
+    } catch (e) {}
+  }, true);
   document.addEventListener('keydown', function(e) {
     var key = normalizeKey(e);
     if (isArrowKey(key) || key === 'Enter') {
@@ -436,6 +623,19 @@
     try {
       document.body.classList.add('webos-tv', 'lg-webos', 'tv-mode');
     } catch (e) {}
+    // Képernyős diagnosztika: induláskor látszik, 2 perc után eltűnik,
+    // a PIROS gombbal bármikor visszahozható. Ha a felület 12 mp alatt sem
+    // töltődik be, piros hibaüzenet marad a képernyőn.
+    diagShow();
+    diagUiCheck();
+    var uiPoll = setInterval(function() {
+      diagUiCheck();
+      if (diag.uiLoaded) clearInterval(uiPoll);
+    }, 1000);
+    setTimeout(function() {
+      clearInterval(uiPoll);
+      if (!diag.uiLoaded) diagUiFail();
+    }, 12000);
     // Többszöri fókusz próbálkozás – lista később töltődik
     setTimeout(focusFirstChannelList, 300);
     setTimeout(focusFirstChannelList, 1000);
@@ -484,5 +684,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.4 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.5 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

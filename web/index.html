@@ -67,13 +67,41 @@
         font-weight: 800;
         letter-spacing: 0.08em;
       }
+      /* Indulási lépés + hibaüzenet: a TV-n is látszik, ha az app elakad. */
+      #boot-splash .boot-stage {
+        margin-top: 20px;
+        font-size: 22px;
+        color: #64748b;
+      }
+      #boot-splash .boot-time {
+        margin-top: 6px;
+        font-size: 18px;
+        color: #475569;
+      }
+      #boot-splash .boot-error {
+        margin-top: 14px;
+        max-width: 80vw;
+        font-size: 20px;
+        line-height: 1.5;
+        color: #f87171;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
     </style>
   </head>
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
     <!-- Ha a React még nem rajzolt ki, csak a nagy IPTV R.T felirat látszik. -->
     <div id="root">
       <div id="boot-splash" aria-label="IPTV R.T indulás">
-        <div class="boot-title">IPTV R.T</div>
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <div class="boot-title">IPTV R.T</div>
+          <!-- A __IPTV_STARTUP_STAGE_SET__ / __IPTV_STARTUP_FAIL__ ide ír:
+               korábban ezek az elemek hiányoztak, ezért az indulási hiba
+               sosem látszott a TV képernyőjén. -->
+          <div id="boot-stage" class="boot-stage"></div>
+          <div id="boot-time" class="boot-time"></div>
+          <div id="boot-error" class="boot-error"></div>
+        </div>
       </div>
     </div>
     <script>
