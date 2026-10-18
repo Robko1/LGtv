@@ -1710,7 +1710,7 @@ export function App() {
                   onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
                   onCastToTv={() => mainPlayerCastRef.current?.()}
                   onTogglePip={() => mainPlayerPipRef.current?.()}
-                  showPip={Boolean((document as any).pictureInPictureEnabled)}
+            showPip={Boolean((document as any).pictureInPictureEnabled && typeof (document.querySelector('video[data-iptv-player="true"]') as any)?.requestPictureInPicture === 'function')}
                   onOpenEpgModal={() => setIsEpgOpen(true)}
                   onOpenChannelDetails={() => {
                     setSettingsTab('system');
@@ -1741,7 +1741,7 @@ export function App() {
             onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
             onCastToTv={() => mainPlayerCastRef.current?.()}
             onTogglePip={() => mainPlayerPipRef.current?.()}
-                  showPip={Boolean((document as any).pictureInPictureEnabled)}
+                  showPip={Boolean((document as any).pictureInPictureEnabled && typeof (document.querySelector('video[data-iptv-player="true"]') as any)?.requestPictureInPicture === 'function')}
             onOpenEpgModal={() => setIsEpgOpen(true)}
             onOpenChannelDetails={() => {
               setSettingsTab('system');
