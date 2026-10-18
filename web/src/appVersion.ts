@@ -11,7 +11,7 @@ export const WEB_VERSION_HISTORY = [
       "Fekvő indítóképernyő LG TV-re: 1920x1080 intro_landscape.mp4 + splash.png",
       "webOS Magic Remote támogatás: Back (461) → Escape, Channel Up/Down, színes gombok, média gombok, Relaunch",
       "IPK csomag: ar archive (debian-binary 2.0, control.tar.gz, data.tar.gz) → /usr/palm/applications/hu.rt.iptv.webos/",
-      "IPK-kimenet kizárólag ebben a repóban: webos/IPTV-RT-webOS-2.3.1.ipk",
+      "IPK-kimenet a sikeres kézi build után: webos/IPTV-RT-webOS-2.3.1.ipk",
       "GitHub Release verzióellenőrzés LG webOS-en; az IPK telepítése webOS fejlesztői eszközzel történik.",
     ],
   },
