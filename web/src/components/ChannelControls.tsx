@@ -32,6 +32,7 @@ interface ChannelControlsProps {
   onOpenSubtitlesModal: () => void;
   onCastToTv: () => void;
   onTogglePip: () => void;
+  showPip?: boolean;
   onOpenEpgModal: () => void;
   volume: number;
   onVolumeChange: (value: number) => void;
@@ -67,6 +68,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
   onOpenSubtitlesModal,
   onCastToTv,
   onTogglePip,
+  showPip = false,
   onOpenEpgModal,
   volume,
   onVolumeChange,
@@ -316,14 +318,16 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         </button>
 
         {/* PiP Button */}
-        <button
-          onClick={onTogglePip}
-          className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
-          title="Kép a képben"
-        >
-          <PictureInPicture2 className="w-3.5 h-3.5 text-slate-300" />
-          <span>PiP</span>
-        </button>
+        {showPip && (
+          <button
+            onClick={onTogglePip}
+            className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
+            title="Kép a képben"
+          >
+            <PictureInPicture2 className="w-3.5 h-3.5 text-slate-300" />
+            <span>PiP</span>
+          </button>
+        )}
 
         {/* Google Cast / TV-re küldés */}
         <button
