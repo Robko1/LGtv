@@ -16,10 +16,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.3.1'
-  IPK_FILE_NAME: 'IPTV-RT-webOS-2.3.1.ipk'
-  RELEASE_TAG: 'v2.3.1'
-  RELEASE_TITLE: 'IPTV mindörökre 2.3 – LG webOS TV távirányító fix + külön kinézet + QR telefonos beállítás'
+  VERSION: '2.3.2'
+  IPK_FILE_NAME: 'IPTV-RT-webOS-2.3.2.ipk'
+  RELEASE_TAG: 'v2.3.2'
+  RELEASE_TITLE: 'IPTV R.T webOS TV 2.3.2 – indítási hiba javítása'
 
 jobs:
   webos-epites:
@@ -115,6 +115,23 @@ jobs:
           IPK="webos/$IPK_FILE_NAME"
           ar t "$IPK"
           ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon.png|splash.png|intro_landscape" 
+          mkdir -p /tmp/ipk-check
+          ar p "$IPK" data.tar.gz | tar xzf - -C /tmp/ipk-check ./usr/palm/applications/hu.rt.iptv.webos/index.html ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json
+          cmp -s build/webos/index.html /tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html || {
+            echo "HIBA: az IPK index.html fájlja nem egyezik a mostani builddel." >&2
+            exit 1
+          }
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          packaged = json.loads(Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/appinfo.json").read_text())
+          if packaged.get("version") != "2.3.2":
+              raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
+          html = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html").read_text()
+          if 'id="root"' not in html or '/src/main.tsx' in html:
+              raise SystemExit("HIBA: a csomagolt index.html hiányos vagy nem production build.")
+          print("OK: az IPK index.html fájlja bájtra pontosan egyezik a friss builddel; verzió 2.3.2.")
+          PY
           echo "OK: IPK tartalma rendben"
 
       - name: 8. Csak az IPK közzététele main ágra
