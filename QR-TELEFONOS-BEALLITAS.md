@@ -40,8 +40,8 @@ Ha kvdb.io nem elérhető:
 1. **Firebase / Supabase** – saját bucket, te kezeled az adatokat, nem kvdb.io
 2. **Saját Node szerver** – `https://your-domain.com/api/provision` – te hostolod
 3. **QR ami magát a providert kódolja** – telefon generál QR-t ami `xtream://...` formátumú, de LG TV-n nincs kamera, ezért nem jó
-4. **USB import** – M3U fájl pendrive-ról (webOS nem engedi file hozzáférést könnyen)
-5. **GitHub Gist sync** – meglévő GitHub tokennel privát gist-be menti a providert, TV onnan húzza (már van GitHub configod APK-ban)
+4. **USB import** – nincs megvalósítva; a webOS fájlhozzáférése korlátozott.
+5. **GitHub Gist sync** – nincs megvalósítva a webOS-verzióban.
 
 ### Használat TV-n
 
