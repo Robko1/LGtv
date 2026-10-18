@@ -154,7 +154,7 @@ export const WEB_VERSION_HISTORY = [
       "Ha a szolgáltató szervere nem válaszol (a kapcsolat létrejön, de válasz nem érkezik), a program ezt érthetően megmondja – és jelzi, hogy nem a telefon vagy a router a hibás",
       "Automatikus újrapróbálkozás: szolgáltatói hiba esetén percenként egyszer magától újrapróbálja (legfeljebb háromszor), így magától helyreáll, amikor a szerver visszatér",
       "Újrapróbálkozás gomb a hibaüzenetnél (azonnali próba)",
-      "Az alkalmazás a WebView pontos hálózati hibakódját is átadja (net::ERR_…), amiből a program megkülönbözteti a DNS-hibát, a nem válaszoló szervert és a blokkolt kapcsolatot",
+      "Az alkalmazás a böngészőmotor pontos hálózati hibakódját is átadja (net::ERR_…), amiből a program megkülönbözteti a DNS-hibát, a nem válaszoló szervert és a blokkolt kapcsolatot",
       "Ha a http:// port nem válaszol gyorsan, a program egyszer a https (titkosított) portot is megpróbálja",
       "Rövidebb időtúllépések: 10 s (bejelentkezés, EPG), 30 s (nagy listák) – egy elakadt kérés nem foglalja sokáig a kapcsolatot",
     ],
@@ -268,7 +268,7 @@ export const WEB_VERSION_HISTORY = [
     changes: [
       "Fix HTTP fallback order for Xtream and tests",
       "Fix HTTP IPTV proxy fallback and keep native direct requests",
-      "Try IPTV HTTP proxies before direct WebView connection",
+      "Try IPTV HTTP proxies before direct böngészőmotor connection",
     ],
   },
   {
