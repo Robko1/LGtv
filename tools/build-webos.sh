@@ -36,7 +36,7 @@ if [[ "${SKIP_WEB:-0}" != "1" ]]; then
   if command -v npm >/dev/null 2>&1; then
     pushd "$PROJECT_DIR/web" >/dev/null
     if [[ ! -d node_modules ]]; then
-      npm ci --no-audit --no-fund
+      npm install --no-audit --no-fund
     fi
     # webOS-re optimalizált build: kisebb player, gyors betöltés
     VITE_WEBOS=true VITE_WEBOS_FAST_LOAD=true VITE_WEBOS_SMALL_PLAYER=true npm run build
