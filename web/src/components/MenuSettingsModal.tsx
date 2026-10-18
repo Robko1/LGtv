@@ -786,6 +786,32 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     ))}
                   </div>
                 </div>
+
+                {/* Megbízható CORS proxy */}
+                <div className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/40 shadow-sm space-y-1.5">
+                  <label className="text-xs font-bold text-white block">
+                    Saját / megbízható CORS proxy (opcionális)
+                  </label>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    Csak saját vagy megbízható proxyt adj meg: az IPTV-belépési adatok ezen a szerveren keresztül is áthaladhatnak. A nyilvános proxykat a bejelentkezési adatokat tartalmazó címekhez nem használjuk.
+                  </p>
+                  <input
+                    type="url"
+                    value={settings.corsProxy || ''}
+                    onChange={(e) => onUpdateSettings({ corsProxy: e.target.value })}
+                    placeholder="https://sajat-proxy.example vagy {url} helyőrző"
+                    className="w-full bg-[#0e1f3f] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-cyan-400"
+                  />
+                  {settings.corsProxy && (
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSettings({ corsProxy: '' })}
+                      className="text-[11px] text-amber-300 underline"
+                    >
+                      Proxy törlése
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* SECTION: LG WEBOS ALKALMAZÁS */}
