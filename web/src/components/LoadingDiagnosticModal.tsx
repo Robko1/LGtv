@@ -331,9 +331,8 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
             </div>
             <div className="p-4">
               {/*
-                Szándékosan NEM textarea: az Android WebView a fókuszálható
-                szövegmező tartalmát a rendszer vágólapjára teheti (hosszú
-                nyomás / rendszereszközök). Ez egy nem kijelölhető előnézet,
+                Szándékosan nem textarea: a TV távirányítójával a hosszú szövegmező
+                nehezen kezelhető. Ez egy nem kijelölhető előnézet,
                 a vágólapra kizárólag a MÁSOLÁS gomb ír.
               */}
               <pre
