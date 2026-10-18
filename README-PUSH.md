@@ -24,13 +24,13 @@ git remote add origin https://github.com/Robko1/LGtv.git
 git push -u origin main
 ```
 
-Ha már van benne valami (pl. README), akkor:
+Ha a távoli repóban már vannak fájlok, először húzd le és egyesítsd őket; ne használj `--force` push-t:
 
 ```bash
 git remote add origin https://github.com/Robko1/LGtv.git
 git fetch origin
-git branch -M main
-git push -u origin main --force
+git pull --rebase origin main
+git push -u origin main
 ```
 
 ### 3. Ellenőrzés
