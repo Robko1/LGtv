@@ -151,6 +151,11 @@ jobs:
               --notes-file release-notes.md \
               --latest
           fi
+          # A Release-ben is kizárólag az LG webOS IPK maradjon.
+          while IFS= read -r asset; do
+            [[ -z "$asset" || "$asset" == "$IPK_FILE_NAME" ]] && continue
+            gh release delete-asset "$RELEASE_TAG" "$asset" --yes
+          done < <(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | .name'
 
       - name: 10. Artifact
