@@ -22,7 +22,7 @@ BUILD_DIR="$PROJECT_DIR/build/webos"
 DIST_DIR="$WEBOS_DIR/dist"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.3.0}"
+VERSION="${VERSION:-2.3.1}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="IPTV R.T webOS"
 
@@ -96,7 +96,7 @@ print(f"FIX: type=module + crossorigin eltávolítva, méret: {len(html)} bytes"
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.0"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.1"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
