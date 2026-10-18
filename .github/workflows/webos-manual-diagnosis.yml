@@ -64,8 +64,8 @@ jobs:
         run: |
           set -euo pipefail
           grep -Fq 'https://api.github.com/repos/Robko1/LGtv/releases/latest' web/src/services/webosUpdateService.ts
-          if grep -q 'IPTVNative' web/src/components/MenuSettingsModal.tsx; then
-            echo "HIBA: Android natív híd maradt a webOS beállításokban." >&2
+          if grep -RniE 'IPTVNative|Android|WebView|\\.apk' web/src; then
+            echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
             exit 1
           fi
           bash -n tools/build-webos.sh
