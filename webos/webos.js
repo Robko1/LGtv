@@ -118,7 +118,7 @@
   function focusSpatially(active, key) {
     try {
       var items = getFocusable(document).filter(function(el) {
-        return !el.closest('[role="dialog"]') && !el.closest('[role="listbox"]');
+        return !el.closest('[role="dialog"]');
       });
       if (!items.length) return false;
       if (!active || active === document.body || active === document.documentElement) {
