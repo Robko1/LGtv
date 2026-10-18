@@ -175,8 +175,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let nextUrl = '';
     let nextStage: 'hls' | 'final-ts' | null = null;
 
-    if (plan.stage === 'primary' && /\\.ts(?=([?#]|$))/i.test(plan.originalUrl)) {
-      nextUrl = plan.originalUrl.replace(/\\.ts(?=([?#]|$))/i, '.m3u8');
+    if (plan.stage === 'primary' && /\.ts(?=([?#]|$))/i.test(plan.originalUrl)) {
+      nextUrl = plan.originalUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
       nextStage = 'hls';
     } else if (plan.stage === 'hls') {
       nextUrl = plan.originalUrl;
@@ -1392,6 +1392,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.pause();
       video.removeAttribute('src');
       video.src = url;
+      video.volume = Math.max(0, Math.min(1, volume));
+      video.muted = volume <= 0;
       video.load();
       const playPromise = video.play();
       setIsPlaying(true);
@@ -1410,7 +1412,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setHasError(true);
       setErrorMessage(error instanceof Error ? error.message : 'A webOS videó indítása sikertelen.');
     }
-  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying]);
+  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying, volume]);
 
   retryStreamRef.current = () => loadStream(pendingStreamUrlRef.current || streamUrl);
 
@@ -1427,13 +1429,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // LG webOS-en HLS (.m3u8) az elsődleges, a TV HTML5 videója ezt támogatja.
     // LG webOS-en a HLS-változat az elsődleges lejátszási forma.
     const primaryUrl = !isVod
-      ? streamUrl.replace(/\\.ts(?=([?#]|$))/i, '.m3u8')
+      ? streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8')
       : streamUrl;
     pendingStreamUrlRef.current = primaryUrl;
     if (!isVod) {
-      const fallbackUrl = /\\.ts(?=([?#]|$))/i.test(streamUrl)
+      const fallbackUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
         ? streamUrl
-        : streamUrl.replace(/\\.m3u8(?=([?#]|$))/i, '.ts');
+        : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
       retryPlanRef.current = { originalUrl: fallbackUrl, stage: 'hls' };
     } else {
       retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
