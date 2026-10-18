@@ -47,11 +47,6 @@ export function cancelNetworkRequests(): void {
   activeControllers.clear();
 }
 
-export function nativeShell(): boolean {
-  const api = (window as { IPTVNative?: { isAndroid?: boolean } }).IPTVNative;
-  return !!(api && api.isAndroid);
-}
-
 /* --------------------------------------------------- kímélő kéréssor */
 
 /**
@@ -103,7 +98,7 @@ let consecutiveTransportFailures = 0;
 let breakerOpenUntil = 0;
 
 /**
- * A WebView utolsó hálózati hibakódja (a natív hidból érkezik, pl.
+ * A böngészőből ismert hálózati hibakód (ha rendelkezésre áll, pl.
  * net::ERR_EMPTY_RESPONSE). Ebből tudjuk megmondani, hogy a szerver nem
  * válaszol, nem található (DNS) vagy az internetszolgáltató blokkolja.
  */
@@ -123,7 +118,7 @@ export function explainNetError(code: string): string {
     return 'A szolgáltató szerverének a címét nem sikerült feloldani (DNS-hiba) – ezen a hálózaton a neve nem érhető el.';
   }
   if (/ERR_EMPTY_RESPONSE|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT/.test(code)) {
-    return 'A szolgáltató szervere fogadja a kapcsolatot, de nem küld választ – ez a szolgáltatónál jelentkező hiba, nem a telefonod vagy a router hibája.';
+    return 'A szolgáltató szervere fogadja a kapcsolatot, de nem küld választ – ez a szolgáltatónál jelentkező hiba, nem feltétlenül a TV vagy a router hibája.';
   }
   if (/ERR_CONNECTION_REFUSED/.test(code)) {
     return 'A szolgáltató szervere elutasítja a kapcsolatot – valószínűleg átmenetileg nem üzemel.';
@@ -297,7 +292,7 @@ const FAST_FAILURE_MS = 5000;
 
 /**
  * Szöveg letöltése. A kérések sorban, egymás után futnak, kis szünettel.
- * Böngészőben (nem az APK-ban) a CORS miatt proxyra is eshetünk vissza.
+ * LG webOS böngészőben a CORS miatt proxyra is eshetünk vissza.
  */
 export async function httpGetText(url: string, options: HttpOptions = {}): Promise<string> {
   const timeoutMs = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
@@ -312,9 +307,9 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
   }
 
   const attempts: string[] = [url];
-  if (!nativeShell()) {
+  {
     // Böngésző: CORS miatt előbb a beállított, majd két nyilvános proxy.
-    // (Az APK-ban erre nincs szükség, ott közvetlenül megy a kérés.)
+    // (A TV böngészője először közvetlenül próbálkozik.)
     const custom = customProxy();
     if (custom) attempts.push(proxyUrl(url, custom));
     attempts.push(proxyUrl(url, 'https://api.allorigins.win'));
