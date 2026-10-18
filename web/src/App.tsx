@@ -1618,6 +1618,19 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep]);
 
+  // TV távirányító: ZÖLD/SÁRGA/KÉK gyorsgombok a webos.js-ből egyedi
+  // eseményként érkeznek (minden fókuszhelyzetben megbízható).
+  useEffect(() => {
+    const onTvAction = (e: Event) => {
+      const action = (e as CustomEvent)?.detail?.action;
+      if (action === 'settings') setIsSettingsOpen((prev) => !prev);
+      else if (action === 'epg') setIsEpgOpen((prev) => !prev);
+      else if (action === 'categories') setIsCategoriesOpen((prev) => !prev);
+    };
+    window.addEventListener('iptv-tv-action', onTvAction);
+    return () => window.removeEventListener('iptv-tv-action', onTvAction);
+  }, []);
+
   // TV stick: induláskor és modal bezárásakor fókusz a csatornalistára, hogy D-pad azonnal működjön
   useEffect(() => {
     const focusChannelList = () => {
@@ -1625,8 +1638,10 @@ export function App() {
         const list = document.querySelector('[role="listbox"]') as HTMLElement | null;
         if (!list) return;
         const active = document.activeElement as HTMLElement | null;
-        if (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA') return;
-        if (active?.closest?.('[role="dialog"]')) return;
+        // FÓKUSZRABLÁS TILTVA: csak akkor fókuszálunk a listára, ha jelenleg
+        // SEMMINEK nincs fókusza. Korábban a menüben navigáló nézőtől is
+        // visszarántotta a fókuszt a csatornalistára ("magától leugrik" hiba).
+        if (active && active !== document.body && active !== document.documentElement) return;
         if (!list.contains(active)) {
           list.focus({ preventScroll: true } as any);
         }
