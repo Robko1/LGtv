@@ -1,14 +1,14 @@
-export const WEB_VERSION = '2.3.2';
+export const WEB_VERSION = '2.3.3';
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.3.2',
+    version: '2.3.3',
     date: '2026-10-18',
     changes: [
-      "Javítva az LG webOS indításánál megálló 2/7 DOM kész képernyő: a csomagoló megőrzi a Vite JavaScript moduljelölését.",
+      "Az LG TV indítóvideója eltávolítva; rövid fekvő IPTV R.T felirat jelenik meg.",
       "A body meglévő CSS-osztályai megmaradnak, a webOS-osztályok hozzáadása nem duplikálja a class attribútumot.",
-      "Az IPK build ellenőrzi, hogy a csomagolt index.html bájtra pontosan egyezik az aktuális builddel.",
-      "Verzió: 2.3.2 – kizárólag LG webOS TV.",
+      "A távirányító kezdeti fókuszának kezelése javítva; az IPK ellenőrzi a csomagolt index.html egyezését.",
+      "Verzió: 2.3.3 – kizárólag LG webOS TV.",
     ],
   },
   {
