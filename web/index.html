@@ -10,8 +10,8 @@
     <meta name="description" content="IPTV R.T - Villámgyors Xtream Codes és M3U IPTV lejátszó Mozi és Sorozat támogatással, több hangsávval és 4-es nézettel." />
     <title>IPTV R.T - Prémium IPTV Lejátszó</title>
     <!-- Google Fonts. Aszinkron töltés: a külső stíluslap nem blokkolhatja az
-         első kirajzolást, mert hálózat nélkül (vagy lassú DNS-sel) az Android
-         WebView addig üres/fekete képet mutatna. Ha nem érhető el, a rendszer
+         első kirajzolást, mert hálózat nélkül (vagy lassú DNS-sel)
+         a felület addig üres/fekete képet mutatna. Ha nem érhető el, a rendszer
          betűtípusai érvényesülnek. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -120,7 +120,7 @@
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
     <!--
       Induló kép a #root alatt: sima CSS, nem a Tailwind-os felület része. Ha a
-      webes bundle bármiért nem fut le (pl. régi WebView), akkor sem üres/fekete
+      webes bundle bármiért nem fut le, akkor sem üres/fekete
       a képernyő, hanem ez a szöveg marad látható. A React az első renderrel
       törli ezt a tartalmat.
     -->
@@ -128,7 +128,7 @@
       <div id="boot-splash">
         <div class="boot-spinner"></div>
         <div class="boot-title">IPTV R.T</div>
-        <div id="boot-stage" class="boot-stage">1/7 WebView + HTML</div>
+        <div id="boot-stage" class="boot-stage">1/7 webOS HTML</div>
         <div id="boot-time" class="boot-time">0 ms</div>
         <div id="boot-error" class="boot-error"></div>
         <div class="boot-text">
@@ -166,7 +166,7 @@
           try { console.error('STARTUP FAIL stage=' + window.__IPTV_STARTUP_STAGE__ + ': ' + String(message)); } catch (e) {}
         };
 
-        show(1, 'WebView + HTML');
+        show(1, 'webOS HTML');
 
         if (document.readyState === 'loading') {
           document.addEventListener('DOMContentLoaded', function () {
