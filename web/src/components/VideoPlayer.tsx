@@ -4,7 +4,6 @@ import { Play, Pause, Volume2, VolumeX, Rewind, FastForward, PictureInPicture2, 
 import { appLog } from '../services/appLog';
 
 interface NativeApi {
-  isAndroid?: boolean;
   play?: (url: string, title?: string) => void;
   stop?: () => void;
   pause?: () => void;
@@ -22,7 +21,7 @@ interface NativeApi {
   setVideoBounds?: (x: number, y: number, width: number, height: number, viewportWidth?: number) => void;
   setAspectRatio?: (mode: 'contain' | 'cover' | 'fill') => void;
   setLiveLandscapeFullscreen?: (enabled: boolean) => void;
-  /** Élő adás vagy film/sorozat fut-e (csak az új APK ismeri). */
+  /** Élő adás vagy film/sorozat fut-e. */
   setLiveStreamHint?: (live: boolean) => void;
   setSubtitleScale?: (scale: number) => void;
   setBufferMode?: (mode: string) => void;
@@ -41,12 +40,12 @@ interface NativeApi {
   selectTrackById?: (type: 'audio', mpvId: number, fallbackIndex?: number) => boolean | void;
   deselectTrack?: (type: 'subtitle', index: number) => void;
   on?: (callback: (event: { type?: string; message?: string; mode?: string; connected?: boolean }) => void) => void;
-  /** A feliratkozás megszüntetése (a natív híd támogatja; régi APK-ban hiányozhat). */
+  /** A natív eseményfigyelő leiratkozása. */
   off?: (callback: (event: { type?: string; message?: string; mode?: string }) => void) => void;
 }
 
 function nativeApi(): NativeApi | null {
-  // Ez a repó kizárólag LG webOS-re készül; a régi Android-híd nem használható.
+  // LG webOS-en a régi natív híd nem használható; a lejátszás HTML5 videón fut.
   return null;
 }
 
@@ -224,7 +223,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [clearBufferWatchdog]);
   const isMuted = volume <= 0;
 
-  // A natív MPV a React-komponens eltűnése után is futhatna, ezért nézetváltáskor
+  // A HTML5 videót a React-komponens eltűnésekor nézetváltáskor
   // ténylegesen leállítjuk, és elrejtjük a natív videófelületet. Visszatéréskor
   // a komponens az App által megőrzött utolsó élő csatornát tölti be újra.
   useEffect(() => {
@@ -616,7 +615,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     ? Math.max(0, osdReserveForNative)
     : 0;
 
-  // PiP-ből visszatéréskor a natív Activity helyreállítja a WebView-t,
+  // PiP-ből visszatéréskor a böngésző helyreállíthatja a lejátszó felületét,
   // de a React teljesképernyő-állapota különben a PiP előtti értéken maradhat.
   // Ez eltüntetheti a teljes képernyő gombot és a dupla koppintást is elronthatja.
   useEffect(() => {
@@ -636,7 +635,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
     api.on(handler);
     return () => {
-      try { api.off?.(handler); } catch { /* régi APK-ban nincs off */ }
+      try { api.off?.(handler); } catch { /* leiratkozás nem támogatott */ }
     };
   }, []);
 
@@ -655,7 +654,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       try {
         api.off?.(handler);
       } catch {
-        /* a régi APK hídjában nincs off */
+        /* leiratkozás nem támogatott */
       }
     };
   }, [canToggleOsd]);
@@ -745,8 +744,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => onRegisterOsdToggle(null);
   }, [onRegisterOsdToggle]);
 
-  // Natív módnál a WebView és az alkalmazás gyökere átlátszó a videóablakban,
-  // így a mögötte futó Android natív videó látható, miközben az OSD fölötte marad.
+  // A webes felület normál hátterű; a HTML5 videó és az OSD ugyanabban a rétegben van.
   useEffect(() => {
     const root = document.getElementById('root');
     const appRoot = root?.firstElementChild as HTMLElement | null;
@@ -985,7 +983,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const api = nativeApi();
     if (nativeHandoff && Number.isFinite(mpvId)) {
       api?.selectTrackById?.('audio', mpvId, Number.isFinite(nativeIndex) ? nativeIndex : undefined);
-      appLog(`Film/sorozat hangsáv kiválasztva: MPV id=${mpvId}`
+      appLog(`Film/sorozat hangsáv kiválasztva: track id=${mpvId}`
         + (Number.isFinite(nativeIndex) ? `, sorszám=${nativeIndex}` : ''));
     }
     setVodTrackMenu(null);
@@ -1427,15 +1425,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     clearAutoRetry();
     setActiveUrlIndex(0);
     // LG webOS-en HLS (.m3u8) az elsődleges, a TV HTML5 videója ezt támogatja.
-    // A natív MPV-s környezetben megmarad a korábbi MPEG-TS sorrend.
-    const webOsHtmlPlayback = !nativeApi()?.play;
+    // LG webOS-en a HLS-változat az elsődleges lejátszási forma.
     const primaryUrl = !isVod
-      ? (webOsHtmlPlayback
-          ? streamUrl.replace(/\\.ts(?=([?#]|$))/i, '.m3u8')
-          : streamUrl.replace(/\\.m3u8(?=([?#]|$))/i, '.ts'))
+      ? streamUrl.replace(/\\.ts(?=([?#]|$))/i, '.m3u8')
       : streamUrl;
     pendingStreamUrlRef.current = primaryUrl;
-    if (!isVod && webOsHtmlPlayback) {
+    if (!isVod) {
       const fallbackUrl = /\\.ts(?=([?#]|$))/i.test(streamUrl)
         ? streamUrl
         : streamUrl.replace(/\\.m3u8(?=([?#]|$))/i, '.ts');
@@ -1542,8 +1537,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
-    // Android natív Surface esetén a böngésző Fullscreen API-ja nem méretezi át
-    // megbízhatóan a WebView mögötti videóréteget. Ilyenkor a webes konténert
+    // LG webOS-en a videó a webes konténerben van, ezért a böngésző Fullscreen API-ja
+    // közvetlenül a videó elrendezését kezeli. A webes konténert
     // méretezzük teljes képernyőre, és a bounds effect követi a natív képet.
     if (nativeHandoff) {
       // Natív kép: a webes konténer lesz teljes képernyős, a natív videó
