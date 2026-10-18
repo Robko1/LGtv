@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.6
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.7
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.6 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.7 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -156,7 +156,7 @@
         'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
         'white-space:pre-wrap;word-break:break-word;');
       var title = document.createElement('div');
-      title.textContent = 'IPTV R.T diagnosztika 2.3.6 \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika 2.3.7 \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -241,6 +241,9 @@
     try {
       var css = [
         'body.webos-tv, body.lg-webos { background:#000; overflow:hidden; }',
+        '/* NAGY TV-KIJELZŐ: a telefonos méretű felület 1.4x nagyítása, hogy a',
+        '   feliratok és a menük messziről is olvashatók legyenek. */',
+        '.webos-tv #root { zoom: 1.4; }',
         '.webos-tv .video-player-container { max-width:1280px; margin:0 auto; }',
         '.webos-tv .channel-list { max-height:70vh; }',
         '/* Erős fókusz gyűrű TV-re – távirányítóhoz */',
@@ -292,6 +295,14 @@
 
   function focusFirstChannelList() {
     try {
+      // FONTOS – fókuszrablás tiltása: korábban ez a függvény akkor is
+      // visszarántotta a fókuszt a csatornalistára/első gombra, ha a néző
+      // épp a menüben vagy egy gombon állt ("magától visszaugrik" hiba).
+      // Csak akkor fókuszálunk, ha jelenleg SENKINÉL sincs a fókusz.
+      var current = document.activeElement;
+      if (current && current !== document.body && current !== document.documentElement) {
+        return false;
+      }
       // Ha modal nyitva van, fókusz a modalra, ne a listára
       var dialog = document.querySelector('[role="dialog"]');
       if (dialog) {
@@ -346,12 +357,20 @@
 
   // Magic Remote térbeli fókusznavigáció a gombok és menük között.
   // A csatornalistát külön hagyjuk, mert annak saját fel/le navigációja van.
-  function focusSpatially(active, key) {
+  // Ha container meg van adva (pl. nyitott modal), CSAK azon belül keresünk –
+  // így a fókusz nem szökhet ki a háttérbe, és irány szerint lép, nem sorban.
+  function focusSpatially(active, key, container) {
     try {
-      var items = getFocusable(document).filter(function(el) {
+      var items = getFocusable(container || document).filter(function(el) {
+        if (container) return true;
         return !(el.closest && el.closest('[role="dialog"]'));
       });
       if (!items.length) return false;
+      if (container && active && !container.contains(active)) {
+        // A fókusz kint ragadt a háttérben: azonnal behúzzuk a modalba.
+        items[0].focus({preventScroll:true});
+        return true;
+      }
       if (!active || active === document.body || active === document.documentElement) {
         items[0].focus({preventScroll:true});
         return true;
@@ -440,6 +459,59 @@
     diagKey(e, key);
     // PIROS gomb (403): diagnosztika be/ki
     if (kc === 403) { diagToggle(); return; }
+    // ZÖLD/SÁRGA/KÉK gomb: közvetlen menük. Itt, a legkorábbi ponton kezeljük
+    // és egyedi eseményként adjuk át a Reactnek – így minden fókuszhelyzetben
+    // megbízhatóan működik (gombon, listán, modalban is).
+    if (kc === 404 || kc === 405 || kc === 406) {
+      e.preventDefault();
+      e.stopPropagation();
+      var tvAction = kc === 404 ? 'settings' : (kc === 405 ? 'epg' : 'categories');
+      var evAction = null;
+      try {
+        evAction = new CustomEvent('iptv-tv-action', { detail: { action: tvAction } });
+      } catch (eCE) {
+        try {
+          evAction = document.createEvent('CustomEvent');
+          evAction.initCustomEvent('iptv-tv-action', true, true, { action: tvAction });
+        } catch (eCE2) { evAction = null; }
+      }
+      if (evAction) window.dispatchEvent(evAction);
+      return;
+    }
+
+    // Szövegmezőben ragadt fókusz (pl. Mozi kereső): VISSZA gomb vagy Escape
+    // kilép a mezőből (lezárja a virtuális billentyűzet utáni beragadást),
+    // FEL/LE nyíl pedig kinavigál a mezőből a környező vezérlőkre.
+    var activeNow = document.activeElement;
+    var inTextNow = activeNow && /^(INPUT|TEXTAREA)$/.test(activeNow.tagName);
+    if (inTextNow && (kc === 461 || (key === 'Escape' && kc !== 8))) {
+      e.preventDefault();
+      e.stopPropagation();
+      activeNow.blur();
+      var dlgOfInput = activeNow.closest ? activeNow.closest('[role="dialog"]') : null;
+      if (dlgOfInput) {
+        var fIn = getFocusable(dlgOfInput);
+        if (fIn.length) fIn[0].focus({preventScroll:true});
+      } else {
+        var hdrBtn = document.querySelector('header button');
+        var lst = document.querySelector('[role="listbox"]');
+        if (hdrBtn) hdrBtn.focus({preventScroll:true});
+        else if (lst) lst.focus({preventScroll:true});
+      }
+      return;
+    }
+    if (inTextNow && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      e.preventDefault();
+      e.stopPropagation();
+      var inputEl = activeNow;
+      inputEl.blur();
+      var dlgOfInput2 = inputEl.closest ? inputEl.closest('[role="dialog"]') : null;
+      if (!focusSpatially(inputEl, key, dlgOfInput2 || undefined)) {
+        if (dlgOfInput2) focusNextInModal(dlgOfInput2, key === 'ArrowDown' ? 1 : -1);
+        else inputEl.focus();
+      }
+      return;
+    }
 
     // Ha a gombot már át kellett nevezni (régi webOS), újraküldjük az egységes
     // névvel, hogy a React kezelők is megkapják érthető formában.
@@ -514,30 +586,24 @@
       }
     }
 
-    // D-pad – biztosítjuk hogy modalban is működjön
+    // D-pad modalban: TÉRBELI navigáció a modalon BELÜL (irány szerint lép,
+    // nem sorban minden gombon), a fókusz nem szökhet ki a háttérbe.
     if (isArrow && dialogAtStart) {
       var dialog = dialogAtStart;
-      // Modalban ArrowUp/Down → fókusz navigáció
-      if (key === 'ArrowUp') {
-        e.preventDefault();
-        e.stopPropagation();
-        focusNextInModal(dialog, -1);
+      var activeInDialog = document.activeElement;
+      var inInput = activeInDialog && /^(INPUT|TEXTAREA|SELECT)$/.test(activeInDialog.tagName);
+      if (inInput && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+        // Szövegmezőben balra/jobbra = kurzor mozgatás, hagyjuk.
         return;
-      } else if (key === 'ArrowDown') {
-        e.preventDefault();
-        e.stopPropagation();
-        focusNextInModal(dialog, 1);
-        return;
-      } else {
-        // Left/Right modalban is fel/le-ként kezeljük ha nincs input fókuszban
-        var activeInDialog = document.activeElement;
-        if (!activeInDialog || activeInDialog.tagName !== 'INPUT') {
-          e.preventDefault();
-          e.stopPropagation();
-          focusNextInModal(dialog, key === 'ArrowRight' ? 1 : -1);
-          return;
-        }
       }
+      e.preventDefault();
+      e.stopPropagation();
+      if (inInput) activeInDialog.blur();
+      if (!focusSpatially(document.activeElement, key, dialog)) {
+        // Nincs elem abban az irányban: lineáris lépés tartalékként.
+        focusNextInModal(dialog, (key === 'ArrowDown' || key === 'ArrowRight') ? 1 : -1);
+      }
+      return;
     }
 
     // Gombon/menün állva a nyilak a legközelebbi látható vezérlőre lépnek.
@@ -688,5 +754,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.6 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.7 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

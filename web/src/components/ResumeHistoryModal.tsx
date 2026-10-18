@@ -21,7 +21,7 @@ export const ResumeHistoryModal: React.FC<ResumeHistoryModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
-      <div className="bg-[#081329] border border-cyan-800/60 rounded-3xl max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl w-full max-h-[85dvh] lg:max-h-[80vh] min-h-0 flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
+      <div role="dialog" aria-modal="true" className="bg-[#081329] border border-cyan-800/60 rounded-3xl max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl w-full max-h-[85dvh] lg:max-h-[80vh] min-h-0 flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
         
         {/* Header */}
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">

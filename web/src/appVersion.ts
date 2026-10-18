@@ -1,6 +1,19 @@
-export const WEB_VERSION = '2.3.6';
+export const WEB_VERSION = '2.3.7';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.7',
+    date: '2026-10-19',
+    changes: [
+      "FÓKUSZRABLÁS JAVÍTVA: a fókusz többé nem ugrik magától vissza a csatornalistára/kategóriákra navigálás közben – az automatikus fókusz csak akkor fut, ha semminek sincs fókusza (eddig 300-4000 ms-onként visszarántotta, ezért tűnt logikátlannak az irányítás).",
+      "Felugró ablakban a navigáció BENT marad: 5 modalnál (pl. Új lista hozzáadása, hangsáv/felirat, csatornasorrend, előzmények, betöltési napló) hiányzott a dialog jelölés, ezért a háttérben ugrált a fókusz. Pótolva + a modalon belül irány szerinti (térbeli) lépkedés a sorban egyesével végigjárás helyett.",
+      "Keresőmezőből kilépés: VISSZA gomb kilép a szövegmezőből (nem ragad be a Mozi kereső), FEL/LE nyíl kinavigál a mezőből.",
+      "ZÖLD/SÁRGA/KÉK gyorsgombok megbízhatóan működnek minden helyzetben (a webos.js legkorábbi pontján kezelve, egyedi eseményként átadva): ZÖLD = Beállítások, SÁRGA = Műsorújság, KÉK = Kategóriák, és ismételt nyomásra be is zárják az ablakot.",
+      "NAGY TV-KIJELZŐ: a teljes felület 1.4x nagyítást kapott webOS-en – a feliratok és menük messziről is olvashatók.",
+      "QR telefonos beállítás: a QR a robko1.github.io/LGtv oldalra mutat – ehhez a GitHub Pages-t be kell kapcsolni a repóban (Settings → Pages → Deploy from a branch → main, / root).",
+      "Verzió: 2.3.7 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.6',
     date: '2026-10-18',

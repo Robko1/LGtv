@@ -78,7 +78,7 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 lg:p-8 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
-      <div className="bg-[#081329] border border-cyan-800/60 rounded-3xl w-full max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl max-h-[90dvh] lg:max-h-[80vh] overflow-y-auto shadow-2xl overflow-x-hidden">
+      <div role="dialog" aria-modal="true" className="bg-[#081329] border border-cyan-800/60 rounded-3xl w-full max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl max-h-[90dvh] lg:max-h-[80vh] overflow-y-auto shadow-2xl overflow-x-hidden">
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FolderPlus className="w-5 h-5 text-amber-400" />

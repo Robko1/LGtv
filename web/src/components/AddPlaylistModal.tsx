@@ -271,7 +271,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
   // A listaűrlap legyen a beállítások (z-50) fölött, de a diagnosztika (z-100) alatt.
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-black/80 backdrop-blur-sm animate-fadeIn select-none">
-      <div ref={modalRef} tabIndex={-1} onKeyDown={handleKeyDown} className="bg-[#081329] border border-cyan-800/60 rounded-3xl max-w-lg w-full max-h-[90dvh] min-h-0 flex flex-col shadow-2xl animate-scaleUp overflow-hidden focus:outline-none">
+      <div ref={modalRef} role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={handleKeyDown} className="bg-[#081329] border border-cyan-800/60 rounded-3xl max-w-lg w-full max-h-[90dvh] min-h-0 flex flex-col shadow-2xl animate-scaleUp overflow-hidden focus:outline-none">
         
         {/* Header */}
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">

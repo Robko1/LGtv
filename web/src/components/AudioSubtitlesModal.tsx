@@ -75,7 +75,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto pointer-events-auto">
-      <div className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl w-full max-h-[85vh] lg:max-h-[80vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
+      <div role="dialog" aria-modal="true" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl w-full max-h-[85vh] lg:max-h-[80vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {mode === 'subtitle'

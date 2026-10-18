@@ -180,7 +180,7 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
         onContextMenu={(event) => event.preventDefault()}
         style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
       >
-        <div className="relative w-full max-w-xl max-h-[calc(100dvh-24px)] overflow-hidden rounded-3xl border border-cyan-400/40 bg-[#060816]/95 shadow-[0_0_60px_rgba(0,240,255,0.18)] text-white">
+        <div role="dialog" aria-modal="true" className="relative w-full max-w-xl max-h-[calc(100dvh-24px)] overflow-hidden rounded-3xl border border-cyan-400/40 bg-[#060816]/95 shadow-[0_0_60px_rgba(0,240,255,0.18)] text-white">
           <div className="absolute inset-0 pointer-events-none opacity-30 bg-[radial-gradient(circle_at_center,transparent_15%,#020208_90%)]" />
           <div className="relative p-3 sm:p-5 overflow-y-auto max-h-[calc(100dvh-24px)]">
             <div className="flex items-center justify-between mb-3">

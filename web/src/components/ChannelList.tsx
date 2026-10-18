@@ -481,11 +481,11 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       try {
         const el = channelScrollRef.current;
         if (!el) return;
-        // Csak akkor fókuszálunk, ha nincs más fókuszban (input, modal)
+        // FÓKUSZRABLÁS TILTVA: csak akkor fókuszálunk, ha jelenleg SEMMINEK
+        // nincs fókusza. Korábban a menüben/gombon álló nézőtől is
+        // visszarántotta a fókuszt a listára ("magától visszaugrik" hiba).
         const active = document.activeElement as HTMLElement | null;
-        const tag = active?.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-        if (active?.closest?.('[role="dialog"]')) return;
+        if (active && active !== document.body && active !== document.documentElement) return;
         el.focus({ preventScroll: true } as any);
         // Ha van kiválasztott csatorna, görgess oda
         if (selectedChannelId) {
