@@ -183,32 +183,44 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: 12. Release frissítése IPK-val
+      - name: 12. Verziózott Release frissítése ír idő szerint
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          # A régi verziót és feltöltési időt MINDIG a régi assetből olvassuk ki, még a clobber előtt.
-          gh release view "$RELEASE_TAG" >/dev/null
-          OLD_VERSION="$(gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -m 1 -E 'Az alkalmazás belső verziója|Aktuális build verziója' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
-          OLD_ASSET_DATE="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .updatedAt' | head -n 1)"
-          if [[ -z "$OLD_VERSION" ]]; then OLD_VERSION="ismeretlen"; fi
-          if [[ -n "$OLD_ASSET_DATE" ]]; then
-            OLD_RELEASE_DATETIME="$(date -u -d "$OLD_ASSET_DATE" '+%Y-%m-%d %H:%M UTC')"
-          else
-            OLD_RELEASE_DATETIME="nincs korábbi feltöltés"
-          fi
-
           CURRENT_VERSION="$(python3 -c 'import json; print(json.load(open("webos/appinfo.json"))["version"])')"
-          RELEASE_DATETIME="$(date -u '+%Y-%m-%d %H:%M UTC')"
+          EXPECTED_TAG="v$CURRENT_VERSION"
+          [[ "$RELEASE_TAG" == "$EXPECTED_TAG" ]] || {
+            echo "HIBA: RELEASE_TAG=$RELEASE_TAG, de az alkalmazás verziója $CURRENT_VERSION; állítsd a tagot $EXPECTED_TAG értékre." >&2
+            exit 1
+          }
+
+          # A korábbi kiadásból olvassuk ki az előző verziót és az IPK feltöltési idejét.
+          OLD_VERSION="ismeretlen"
+          OLD_RELEASE_DATETIME="nincs korábbi feltöltés"
+          if gh release view "$OLD_RELEASE_TAG" >/dev/null 2>&1; then
+            OLD_VERSION="$(gh release view "$OLD_RELEASE_TAG" --json body --jq '.body' | grep -m 1 -E 'Most feltöltött alkalmazás verziója|Az alkalmazás belső verziója|Aktuális build verziója' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+            OLD_ASSET_DATE="$(gh release view "$OLD_RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .updatedAt' | head -n 1)"
+            if [[ -n "$OLD_ASSET_DATE" ]]; then
+              OLD_RELEASE_DATETIME="$(TZ=Europe/Dublin date -d "$OLD_ASSET_DATE" '+%Y-%m-%d %H:%M %Z (Írország)')"
+            fi
+          fi
+          [[ -n "$OLD_VERSION" ]] || OLD_VERSION="ismeretlen"
+
+          RELEASE_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
           LOCAL_SHA="$(sha256sum "webos/$IPK_FILE_NAME" | awk '{print $1}')"
 
-          # A Release ugyanaz marad, csak az IPK és a leírás frissül.
+          # A Release neve az alkalmazás tényleges verziója lesz, nem a régi v2.3.1.
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "LG webOS TV IPK kiadás."
+          fi
           gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --clobber
+
           NEW_ASSET_DATE="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .updatedAt' | head -n 1)"
           [[ -n "$NEW_ASSET_DATE" ]] || { echo "HIBA: nem található a feltöltött IPK időbélyege." >&2; exit 1; }
-          RELEASE_UPDATED_DATETIME="$(date -u -d "$NEW_ASSET_DATE" '+%Y-%m-%d %H:%M UTC')"
+          RELEASE_UPDATED_DATETIME="$(TZ=Europe/Dublin date -d "$NEW_ASSET_DATE" '+%Y-%m-%d %H:%M %Z (Írország)')"
+
           sed \
             -e "s/{{RELEASE_DATETIME}}/$RELEASE_DATETIME/g" \
             -e "s/{{RELEASE_UPDATED_DATETIME}}/$RELEASE_UPDATED_DATETIME/g" \
@@ -218,13 +230,12 @@ jobs:
             release-notes.md > /tmp/release-notes.md
           gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes-file /tmp/release-notes.md
 
-          # A kiadásban kizárólag az IPK maradjon.
+          # Csak az egyetlen IPK maradhat a Release-ben.
           while IFS= read -r asset; do
             [[ -z "$asset" || "$asset" == "$IPK_FILE_NAME" ]] && continue
             gh release delete-asset "$RELEASE_TAG" "$asset" --yes
           done < <(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
 
-          # Ellenőrizzük, hogy a letölthető Release-asset SHA-256 összege egyezik a most épített IPK-val.
           REMOTE_SHA="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .digest' | sed 's/^sha256://')"
           [[ -n "$REMOTE_SHA" && "$REMOTE_SHA" == "$LOCAL_SHA" ]] || {
             echo "HIBA: a Release-ben lévő IPK nem egyezik a most épített fájllal." >&2
@@ -236,4 +247,9 @@ jobs:
             echo "HIBA: a Release-ben $ASSET_COUNT fájl van; pontosan 1 IPK kell." >&2
             exit 1
           }
-          echo "OK: $IPK_FILE_NAME v$CURRENT_VERSION feltöltve; SHA-256 egyezik; előző verzió: $OLD_VERSION ($OLD_RELEASE_DATETIME)."
+
+          # A régi, félrevezető v2.3.1 Release és Git-tag eltávolítása csak az új IPK ellenőrzése után.
+          if [[ "$OLD_RELEASE_TAG" != "$RELEASE_TAG" ]] && gh release view "$OLD_RELEASE_TAG" >/dev/null 2>&1; then
+            gh release delete "$OLD_RELEASE_TAG" --yes --cleanup-tag
+          fi
+          echo "OK: $IPK_FILE_NAME v$CURRENT_VERSION feltöltve; SHA-256 egyezik; ír helyi idő; előző verzió: $OLD_VERSION ($OLD_RELEASE_DATETIME)."
