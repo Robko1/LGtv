@@ -186,6 +186,25 @@ function customProxy(): string {
   }
 }
 
+function hasSensitiveProviderData(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (url.username || url.password) return true;
+    const sensitiveKeys = /^(username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)$/i;
+    for (const key of url.searchParams.keys()) {
+      if (sensitiveKeys.test(key)) return true;
+    }
+    const parts = url.pathname.split('/').filter(Boolean);
+    for (let i = 0; i < parts.length; i += 1) {
+      if (/^(live|movie|series)$/i.test(parts[i]) && parts[i + 1] && parts[i + 2]) return true;
+    }
+    return /(?:get|player_api)\.php$/i.test(url.pathname) && /(?:username|password)=/i.test(url.search);
+  } catch {
+    // Ismeretlen URL-formátumot biztonsági okból nem küldünk nyilvános proxyhoz.
+    return true;
+  }
+}
+
 function proxyUrl(target: string, proxy: string): string {
   if (!proxy) return '';
   if (proxy.includes('{url}')) return proxy.replace('{url}', encodeURIComponent(target));
@@ -310,7 +329,12 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
   // Az IPTV-belépési adatokat nem küldjük nyilvános proxyknak.
   // Közvetlen kapcsolatot vagy a felhasználó által beállított proxyt használunk.
   const custom = customProxy();
-  if (custom) attempts.push(proxyUrl(url, custom));
+  if (custom) {
+    attempts.push(proxyUrl(url, custom));
+  } else if (!hasSensitiveProviderData(url)) {
+    attempts.push(proxyUrl(url, 'https://api.allorigins.win'));
+    attempts.push(proxyUrl(url, 'https://corsproxy.io'));
+  }
 
   let lastError: unknown = null;
   for (let index = 0; index < attempts.length; index++) {
