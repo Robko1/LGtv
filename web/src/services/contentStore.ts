@@ -2,9 +2,8 @@ import { normalizeLogoUrl } from './logoUrl';
 /**
  * A szolgáltatótól letöltött csatorna / film / sorozat lista tárolása.
  *
- * Az APK-ban az adatok az eszköz fájlrendszerére kerülnek (natív híd), mert a
- * localStorage 5 MB-os korlátja kevés a több tízezer elemhez. Böngészőben a
- * localStorage-ot használjuk, ott viszont méretkorlátot tartunk.
+ * LG webOS-en a szolgáltatói adatok a böngésző helyi tárában, adagokban tárolódnak.
+ * Ha a TV tárhelye nem írható, a memória-alapú tartalék tárat használjuk.
  *
  * MEMÓRIA (ez okozta korábban a telefon lefagyását):
  *   - a filmek és a sorozatok adagokban (400 elem) tárolódnak,
@@ -104,53 +103,15 @@ interface ChunkMeta {
 /* --------------------------------------------------------------- backendek */
 
 interface Backend {
-  name: 'native' | 'local' | 'memory';
+  name: 'local' | 'memory';
   get(key: string): string;
   put(key: string, value: string): boolean;
   remove(key: string): void;
 }
 
-interface NativeStore {
-  get(key: string): string;
-  put(key: string, value: string): boolean;
-  remove(key: string): boolean;
-}
-
-function nativeStore(): NativeStore | null {
-  const api = (window as { IPTVNative?: { store?: NativeStore | null } }).IPTVNative;
-  return api && api.store ? api.store : null;
-}
-
 const memory = new Map<string, string>();
 
 const backend: Backend = (() => {
-  const native = nativeStore();
-  if (native) {
-    return {
-      name: 'native',
-      get: (key) => {
-        try {
-          return native.get(key) || '';
-        } catch {
-          return '';
-        }
-      },
-      put: (key, value) => {
-        try {
-          return native.put(key, value);
-        } catch {
-          return false;
-        }
-      },
-      remove: (key) => {
-        try {
-          native.remove(key);
-        } catch {
-          /* nem kritikus */
-        }
-      },
-    };
-  }
   try {
     window.localStorage.setItem('iptv_rt_probe', '1');
     window.localStorage.removeItem('iptv_rt_probe');
@@ -709,7 +670,7 @@ export function loadVod(provider: ProviderRef): { movies: Movie[]; categories: C
  * Filmek betöltése adagonként, a felületnek visszaadott vezérléssel.
  *
  * Ez a hivatalos útvonal induláskor: több tízezer filmnél a egyetlen nagy
- * feldolgozás korábban másodpercekre megfagyasztotta a WebView-t.
+ * feldolgozás korábban másodpercekre megfagyasztotta a böngészőfelületet.
  */
 export async function loadVodAsync(
   provider: ProviderRef,
