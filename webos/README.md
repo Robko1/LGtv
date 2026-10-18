@@ -95,36 +95,20 @@ A webOS TV-kre csak Developer Mode-on keresztül lehet 3rd party appot telepíte
 
 ## Letöltés
 
-Ugyanoda mint az Android APK:
-
 - **IPK a repóban:** `webos/IPTV-RT-webOS-2.3.0.ipk`
-- **GitHub Release:** https://github.com/Robko1/LGtv/releases/tag/v2.3.0 → `IPTV-RT-webOS-2.3.0.ipk`
+- **GitHub Release:** https://github.com/Robko1/LGtv/releases/tag/v2.3.0
 
 ## Technikai részletek (fejlesztőknek)
 
-- **appinfo.json:** id `hu.rt.iptv.webos`, type `web`, main `index.html`, resolution `1920x1080`, icon 80x80, largeIcon 130x130, splash 1920x1080, permissions `com.webos.media`, `disableBackHistoryAPI: true`, `supportPortraitMode: false` (fekvő)
-- **webos.js:** `IS_WEBOS_TV=true`, `WEBOS_FAST_LOAD=true`, `WEBOS_SMALL_PLAYER=true`, `WEBOS_LANDSCAPE_SPLASH=true`, Magic Remote Back (461) → Escape, Channel Up/Down, színes gombok, média gombok, `webOSRelaunch`, `visibilitychange`
-- **index.html injektálás:** webOS script + CSS (kisebb lejátszó 1280px max, fekvő splash 100vw/100vh, fókusz gyűrű 3px #00BFFF, gyorsabb animáció 0.15s), body class `webos-tv lg-webos tv-mode`, splash div `#webos-splash` 2s után eltűnik
-- **Gyors betöltés:** `providerImport.ts` detektálja `WEBOS_FAST_LOAD` vagy `Web0S` UA-t → csak élő TV + VOD/sorozat kategóriák gyorsan, tartalom üres, VOD lusta később (App.tsx-ben Mozi/Sorozat menüre töltődik)
-- **Kisebb lejátszó:** `webos.ts` `getWebOSPlayerSize()` 1280x720, CSS `max-width: 1280px` középen, kevesebb erőforrás, gyorsabb indulás
-- **Fekvő videó:** `assets/intro_landscape.mp4` 1920x1080 3s, `assets/splash.png` 1920x1080, nem álló 1080x2400 mint Androidon
-- **IPK formátum:** ar archive (debian-binary 2.0, control.tar.gz, data.tar.gz), data tartalmazza `/usr/palm/applications/hu.rt.iptv.webos/` – webOS TV-n ide települ
+- **appinfo.json:** id `hu.rt.iptv.webos`, type `web`, main `index.html`, resolution `1920x1080`, webOS TV-hez szükséges engedélyek
+- **webos.js:** Magic Remote, Back (461), Channel Up/Down, színes és média gombok
+- **HTML:** webOS script + TV-s CSS; fekvő splash és TV-re optimalizált megjelenés
+- **Gyors betöltés:** élő TV először, film- és sorozattartalom igény szerinti betöltése
+- **IPK formátum:** ar archívum, benne `control.tar.gz`, `data.tar.gz` és az LG webOS alkalmazás fájljai
 
 ## Verzió
 
-- Web: **1.26.0** (tervezett) – webOS TV támogatás
-- webOS IPK: **v1.25.0** `hu.rt.iptv.webos` – `webos/IPTV-RT-webOS-1.25.0.ipk` + `apk/` másolat + Release v2.0.0
-- Android APK: **v36** `IPTV mindörökre 2` – `apk/IPTV-mindorokre-2.apk`
+- **LG webOS IPK:** `hu.rt.iptv.webos`, v2.3.0
+- **Kimenet:** `webos/IPTV-RT-webOS-2.3.0.ipk`
 
-## Különbség Android vs webOS
-
-|  | Android (APK) | LG webOS (IPK) |
-|---|---|---|
-| Mappa | `android/` + `apk/` | `webos/` + `apk/` (másolat) |
-| Formátum | .apk (aapt2+d8+apksigner) | .ipk (ar+tar.gz) |
-| Telepítés | Downloader/USB/ADB | Dev Mode + Dev Manager / ares-install |
-| Splash | álló 1080x2400 mp4 | fekvő 1920x1080 mp4 + png |
-| Lejátszó | natív libmpv + FFmpeg (UnifiedPlayer) | kisebb <video> + hls.js + webOS natív HLS |
-| Betöltés | bulk VOD 1 kérés + 2 concurrent | gyors: csak élő TV először, VOD lusta |
-| Ikon | app_icon.jpg + app_banner.jpg | icon.png 80x80 + largeIcon.png 130x130 + splash.png 1920x1080 |
-| Távirányító | D-pad + Back + média | Magic Remote + Back (461) + színes + Channel Up/Down |
+Ez a repó kizárólag LG webOS TV-re készül. Android APK-t nem épít, nem tárol és nem tölt le.
