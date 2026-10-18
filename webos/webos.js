@@ -168,7 +168,9 @@
       });
       var target = document.activeElement;
       if (!target || target === document.body || target === document.documentElement) {
-        target = document.querySelector('[role="dialog"]') ||
+        var dialogTarget = document.querySelector('[role="dialog"]');
+        var dialogFocusable = dialogTarget ? getFocusable(dialogTarget) : [];
+        target = (dialogFocusable.length ? dialogFocusable[0] : dialogTarget) ||
           document.querySelector('[role="listbox"]') || document;
       }
       // Egyszer küldjük ki a DOM-fába, így a React és a window/document kezelők
