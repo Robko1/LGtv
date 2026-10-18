@@ -64,7 +64,7 @@ Mindkettő **csak kézi** indítással megy, nem automatikus.
 4. **IPK telepítés**: Dev Manager → Install → `IPTV-RT-webOS-2.3.1.ipk` kiválasztása
    - VAGY parancssorból: `ares-install --device <tv> IPTV-RT-webOS-2.3.1.ipk`
 
-Az IPK a GitHub Release-ből is letölthető: `v2.3.1` → `IPTV-RT-webOS-2.3.1.ipk`
+A sikeres kézi IPK-build után a GitHub Release `v2.3.1` tartalmazza az `IPTV-RT-webOS-2.3.1.ipk` csomagot.
 
 ## QR telefonos beállítás
 
