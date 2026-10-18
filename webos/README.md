@@ -15,7 +15,7 @@
 
 ```
 webos/
-  appinfo.json          – webOS manifest (id: hu.rt.iptv.webos, version: 2.3.0, 1920x1080)
+  appinfo.json          – webOS manifest (id: hu.rt.iptv.webos, version: 2.3.1, 1920x1080)
   icon.png              – 80x80 TV launcher ikon
   largeIcon.png         – 130x130 nagy ikon
   index.html            – buildelt web app (Vite singlefile + webos.js injektálva)
@@ -42,7 +42,7 @@ SKIP_WEB=1 tools/build-webos.sh
 ```
 
 Kimenet:
-- `webos/IPTV-RT-webOS-2.3.0.ipk`
+- `webos/IPTV-RT-webOS-2.3.1.ipk`
 - `webos/dist/` másolat
 
 ### Mit csinál a build?
@@ -54,10 +54,10 @@ Kimenet:
 ### Ellenőrzés
 
 ```bash
-ar t webos/IPTV-RT-webOS-2.3.0.ipk
+ar t webos/IPTV-RT-webOS-2.3.1.ipk
 # debian-binary, control.tar.gz, data.tar.gz
 
-ar p webos/IPTV-RT-webOS-2.3.0.ipk data.tar.gz | tar tz | head -n 20
+ar p webos/IPTV-RT-webOS-2.3.1.ipk data.tar.gz | tar tz | head -n 20
 # ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json
 # ./usr/palm/applications/hu.rt.iptv.webos/index.html
 # ./usr/palm/applications/hu.rt.iptv.webos/icon.png
@@ -85,7 +85,7 @@ ar p webos/IPTV-RT-webOS-2.3.0.ipk data.tar.gz | tar tz | head -n 20
 ```bash
 npm install -g @webosose/ares-cli
 ares-setup-device # add TV
-ares-install --device <tv> IPTV-RT-webOS-2.3.0.ipk
+ares-install --device <tv> IPTV-RT-webOS-2.3.1.ipk
 ares-launch --device <tv> hu.rt.iptv.webos
 ```
 
@@ -95,8 +95,8 @@ LG webOS TV-re külső IPK telepítéshez Developer Mode szükséges.
 
 ## Letöltés
 
-- **IPK a repóban:** `webos/IPTV-RT-webOS-2.3.0.ipk`
-- **GitHub Release:** https://github.com/Robko1/LGtv/releases/tag/v2.3.0
+- **IPK a repóban:** `webos/IPTV-RT-webOS-2.3.1.ipk`
+- **GitHub Release:** https://github.com/Robko1/LGtv/releases/tag/v2.3.1
 
 ## Technikai részletek (fejlesztőknek)
 
@@ -108,7 +108,7 @@ LG webOS TV-re külső IPK telepítéshez Developer Mode szükséges.
 
 ## Verzió
 
-- **LG webOS IPK:** `hu.rt.iptv.webos`, v2.3.0
-- **Kimenet:** `webos/IPTV-RT-webOS-2.3.0.ipk`
+- **LG webOS IPK:** `hu.rt.iptv.webos`, v2.3.1
+- **Kimenet:** `webos/IPTV-RT-webOS-2.3.1.ipk`
 
 Ez a repó kizárólag LG webOS TV-re készül, és csak IPK-csomagot állít elő.
