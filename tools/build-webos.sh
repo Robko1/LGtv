@@ -22,7 +22,7 @@ BUILD_DIR="$PROJECT_DIR/build/webos"
 DIST_DIR="$WEBOS_DIR/dist"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.3.1}"
+VERSION="${VERSION:-2.3.2}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="IPTV R.T webOS"
 
@@ -85,13 +85,11 @@ webos_dir = pathlib.Path("webos")
 
 html = web_build.read_text(encoding="utf-8")
 
-# FIX: viteSingleFile type="module" + crossorigin eltávolítása – file:// nem támogatja module-t, CORS hibát okoz webOS-en
-# Ez okozta a 39110438592 futás hibáját
-html = re.sub(r'\s+type=["\']module["\']', '', html)
-html = re.sub(r'\s+crossorigin(?:=["\'][^"\']*["\'])?', '', html)
-# Biztosíték: ha mégis marad type=module, cseréljük sima script-re
-html = html.replace('type=module', '')
-print(f"FIX: type=module + crossorigin eltávolítva, méret: {len(html)} bytes")
+# FONTOS: a Vite single-file bundle megőrzi a module script típust.
+# A type="module" törlése olyan kódnál, amely import.meta-t használ,
+# szintaktikai hibát okozhat, és a TV a 2/7 DOM kész lépésnél marad.
+# A JavaScript/CSS egyetlen HTML-be van inline-olva, ezért nincs külső modul-CORS kérés.
+print(f"Vite single-file HTML megőrizve, méret: {len(html)} bytes")
 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
@@ -161,8 +159,17 @@ if "</head>" in html:
 else:
     html = injection + html
 
-# webOS body class hozzáadása
-html = html.replace("<body", '<body class="webos-tv lg-webos tv-mode"')
+# webOS body osztályok hozzáadása a meglévő class attribútum megőrzésével.
+def add_webos_body_classes(match):
+    tag = match.group(0)
+    classes = ["webos-tv", "lg-webos", "tv-mode"]
+    class_match = re.search(r'\bclass=["\']([^"\']*)["\']', tag)
+    if class_match:
+        existing = class_match.group(1).split()
+        merged = list(dict.fromkeys(existing + classes))
+        return tag[:class_match.start(1)] + " ".join(merged) + tag[class_match.end(1):]
+    return tag[:-1] + ' class="webos-tv lg-webos tv-mode">'
+html = re.sub(r'<body\b[^>]*>', add_webos_body_classes, html, count=1)
 
 # Fekvő splash hozzáadása body elejére
 splash_html = """
