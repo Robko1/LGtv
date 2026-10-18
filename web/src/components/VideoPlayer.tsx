@@ -46,8 +46,8 @@ interface NativeApi {
 }
 
 function nativeApi(): NativeApi | null {
-  const api = (window as { IPTVNative?: NativeApi }).IPTVNative;
-  return api && api.isAndroid ? api : null;
+  // Ez a repó kizárólag LG webOS-re készül; a régi Android-híd nem használható.
+  return null;
 }
 
 function readNativeMediaTracks(api: NativeApi | null) {
@@ -236,6 +236,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
+  const supportsPictureInPicture = Boolean(
+    (document as any).pictureInPictureEnabled &&
+    htmlVideoRef.current &&
+    typeof (htmlVideoRef.current as any).requestPictureInPicture === 'function'
+  );
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isPortrait, setIsPortrait] = useState<boolean>(false);
   useEffect(() => {
@@ -254,7 +259,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         frame = window.requestAnimationFrame(updateOrientation);
       });
       if (settleTimer !== null) window.clearTimeout(settleTimer);
-      // Android WebView rotation reports its final viewport a little later.
+      // webOS TV viewport-váltás reports its final viewport a little later.
       settleTimer = window.setTimeout(updateOrientation, 180);
     };
     updateOrientation();
@@ -482,7 +487,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       e.preventDefault();
       if (e.key === ' ' && isLive) {
         const api = nativeApi();
-        api?.togglePause?.();
+        const video = htmlVideoRef.current;
+        if (api?.togglePause) api.togglePause();
+        else if (video?.paused) void video.play().catch(() => undefined);
+        else video?.pause();
       } else {
         // Enter = OSD vagy dupla logika szerint
         handleSurfaceTap(e);
@@ -592,7 +600,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isVod, streamUrl, showControlsOverlay, vodTrackMenu]);
 
   /**
-   * A natív videóablak alján szabadon hagyott sáv (film/sorozat nem teljes képernyős nézetében).
+   * A videóablak alján szabadon hagyott sáv (film/sorozat nem teljes képernyős nézetében).
    * Teljes képernyőben (álló és fekvő) az OSD a képen kívülre kerül vagy fölötte úszik,
    * ezért nem méretezzük át a képet – így álló teljes képernyőben is 16:9 keret marad
    * mint élő TV-nél (a felhasználó kérése).
@@ -838,7 +846,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           thirdFrame = window.requestAnimationFrame(() => {
             syncBounds();
           });
-          // Több lépcsőben újra mérjük, mert Android WebView forgatáskor késve adja a végleges viewportot
+          // Több lépcsőben újra mérjük, mert webOS böngésző forgatáskor késve adja a végleges viewportot
           settleTimers.forEach((t) => window.clearTimeout(t));
           settleTimers = [];
           [80, 180, 350, 600].forEach((delay) => {
@@ -1334,7 +1342,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     [channel, customTitle, isVod]
   );
 
-  // A natív MPV az egyetlen lejátszómotor.
+  // A lejátszó LG webOS-en HTML5/HLS videót használ.
   const zapWatchdogRef = useRef<number | null>(null);
 
   const clearZapWatchdog = useCallback(() => {
@@ -1344,7 +1352,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
-  // Egyetlen lejátszómotor: minden adatfolyam az Android natív MPV-lejátszójára kerül.
+  // Egyetlen lejátszómotor: LG webOS-en a TV HTML5/HLS videóeleme játssza le az adatfolyamot.
   const loadStream = useCallback((url: string) => {
     clearZapWatchdog();
     clearBufferWatchdog();
@@ -1502,8 +1510,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Handle Fullscreen
   const togglePictureInPicture = async () => {
     const api = nativeApi();
-    if (api?.pip) api.pip();
-    else api?.toast?.('A natív kép-a-képben funkció nem érhető el ebben az APK-ban.');
+    if (api?.pip) {
+      api.pip();
+      return;
+    }
+    const video = htmlVideoRef.current as (HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }) | null;
+    if (video?.requestPictureInPicture && (document as any).pictureInPictureEnabled) {
+      try { await video.requestPictureInPicture(); } catch { /* a TV böngészője elutasíthatja a PiP-t */ }
+    }
   };
 
   const togglePipRef = useRef(togglePictureInPicture);
@@ -1681,7 +1695,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
       </div>
 
-      {/* A natív videó a WebView mögötti rétegen látható; az OSD fölötte marad. */}
+      {/* A videó a TV HTML5 videóelemében fut; az OSD fölötte marad. */}
       {nativeHandoff && <div className="absolute inset-0 bg-transparent pointer-events-none" />}
 
       {/* Buffering Loading Indicator */}
@@ -1709,10 +1723,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 const api = nativeApi();
                 // A mostani pufferelési beállítás (Stabil) alapján töltse újra
                 // – ez segít, ha többször újra kell pufferelni.
-                try {
-                  api?.setBufferMode?.(settings.bufferMode);
-                  (window as any).IPTVNative?.setBufferMode?.(settings.bufferMode);
-                } catch {}
+                try { api?.setBufferMode?.(settings.bufferMode); } catch {}
                 // Visszaállítjuk az eredeti retry tervet (primary .ts) és
                 // a jelenlegi beállításokkal indítjuk újra.
                 try {
@@ -2090,15 +2101,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   <Captions className="w-3.5 h-3.5 text-cyan-300" />
                   <span>CC</span>
                 </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); togglePictureInPicture(); }}
-                  className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
-                  title="Kép a képben"
-                  aria-label="Kép a képben"
-                >
-                  <PictureInPicture2 className="w-3.5 h-3.5 text-slate-300" />
-                  <span>PiP</span>
-                </button>
+                {supportsPictureInPicture && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void togglePictureInPicture(); }}
+                    className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
+                    title="Kép a képben"
+                    aria-label="Kép a képben"
+                  >
+                    <PictureInPicture2 className="w-3.5 h-3.5 text-slate-300" />
+                    <span>PiP</span>
+                  </button>
+                )}
                 {showCastButton && (
                   <button
                     onClick={(e) => { e.stopPropagation(); void castToTv(); }}
