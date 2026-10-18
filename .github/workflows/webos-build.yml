@@ -191,7 +191,7 @@ jobs:
           set -euo pipefail
           # A régi verziót és feltöltési időt MINDIG a régi assetből olvassuk ki, még a clobber előtt.
           gh release view "$RELEASE_TAG" >/dev/null
-          OLD_VERSION="$(gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -m 1 -E 'Az alkalmazás belső verziója|Aktuális build verziója' | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -n 1)"
+          OLD_VERSION="$(gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -m 1 -E 'Az alkalmazás belső verziója|Aktuális build verziója' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
           OLD_ASSET_DATE="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .updatedAt' | head -n 1)"
           if [[ -z "$OLD_VERSION" ]]; then OLD_VERSION="ismeretlen"; fi
           if [[ -n "$OLD_ASSET_DATE" ]]; then
