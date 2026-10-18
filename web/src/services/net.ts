@@ -307,14 +307,10 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
   }
 
   const attempts: string[] = [url];
-  {
-    // Böngésző: CORS miatt előbb a beállított, majd két nyilvános proxy.
-    // (A TV böngészője először közvetlenül próbálkozik.)
-    const custom = customProxy();
-    if (custom) attempts.push(proxyUrl(url, custom));
-    attempts.push(proxyUrl(url, 'https://api.allorigins.win'));
-    attempts.push(proxyUrl(url, 'https://corsproxy.io'));
-  }
+  // Nie przekazuj danych logowania IPTV publicznym proxy. Używamy wyłącznie
+  // bezpośredniego połączenia albo proxy jawnie skonfigurowanego przez użytkownika.
+  const custom = customProxy();
+  if (custom) attempts.push(proxyUrl(url, custom));
 
   let lastError: unknown = null;
   for (let index = 0; index < attempts.length; index++) {
