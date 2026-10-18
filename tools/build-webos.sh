@@ -194,7 +194,7 @@ log "IPK csomag készítése"
 
 IPK_NAME="IPTV-RT-webOS-${VERSION}.ipk"
 IPK_PATH="$WEBOS_DIR/$IPK_NAME"
-IPK_APK_PATH="$DIST_DIR/$IPK_NAME"
+IPK_DIST_PATH="$DIST_DIR/$IPK_NAME"
 
 python3 "$WEBOS_DIR/tools/build-ipk.py" \
   --app-dir "$BUILD_DIR" \
@@ -202,7 +202,7 @@ python3 "$WEBOS_DIR/tools/build-ipk.py" \
   --id "$APP_ID" \
   --version "$VERSION"
 
-cp "$IPK_PATH" "$IPK_APK_PATH"
+cp "$IPK_PATH" "$IPK_DIST_PATH"
 cp "$IPK_PATH" "$WEBOS_DIR/dist/$IPK_NAME" 2>/dev/null || mkdir -p "$WEBOS_DIR/dist" && cp "$IPK_PATH" "$WEBOS_DIR/dist/$IPK_NAME"
 
 # 6. Ellenőrzés
@@ -218,7 +218,7 @@ fi
 
 SIZE=$(wc -c < "$IPK_PATH")
 log "Kész: $IPK_PATH ($((SIZE / 1024)) KB)"
-log "Másolat: $IPK_APK_PATH"
+log "Másolat: $IPK_DIST_PATH"
 echo ""
 echo "Telepítés LG webOS TV-re:"
 echo "  1) Kapcsold be a Developer Mode-ot TV-n (LG Content Store → Developer Mode)"
