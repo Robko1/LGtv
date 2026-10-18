@@ -12,8 +12,6 @@ import {
   Film,
   Trash2,
   Check,
-  Bug,
-  Copy,
   Edit3,
   Smartphone,
   Heart,
@@ -29,8 +27,8 @@ import {
   MousePointerClick
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
-import { clearAppLog, getAppLogText, logMemory } from '../services/appLog';
 import { WEB_VERSION, WEB_VERSION_HISTORY } from '../appVersion';
+import { checkLatestWebOSRelease, type WebOSReleaseInfo } from '../services/webosUpdateService';
 
 interface MenuSettingsModalProps {
   isOpen: boolean;
@@ -82,21 +80,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   onContinueWatching,
   onRemoveWatchHistoryItem,
 }) => {
-  const [githubTokenName, setGithubTokenName] = useState('');
-  const [githubToken, setGithubToken] = useState('');
-  const [githubConfigured, setGithubConfigured] = useState(false);
-  const [githubStatus, setGithubStatus] = useState('');
-  const [githubUpdating, setGithubUpdating] = useState(false);
-  const [diagnosisOpen, setDiagnosisOpen] = useState(false);
-  const [diagnosisProgress, setDiagnosisProgress] = useState<{
-    phase: string; percent: number; step: string; message?: string; runUrl?: string;
-  } | null>(null);
-  const [diagnosisCountdown, setDiagnosisCountdown] = useState<number | null>(null);
-  const [videoDiagnosticOpen, setVideoDiagnosticOpen] = useState(false);
-  const [videoDiagnosticLogOpen, setVideoDiagnosticLogOpen] = useState(false);
-  const [videoDiagnosticText, setVideoDiagnosticText] = useState('');
-  const [videoDiagnosticStatus, setVideoDiagnosticStatus] = useState('');
-  const [noWebUpdate, setNoWebUpdate] = useState(false);
+  const [releaseInfo, setReleaseInfo] = useState<WebOSReleaseInfo | null>(null);
+  const [releaseCheckLoading, setReleaseCheckLoading] = useState(false);
+  const [releaseCheckStatus, setReleaseCheckStatus] = useState('');
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showApplicationBox, setShowApplicationBox] = useState(false);
   const [expandedFavoriteFolderId, setExpandedFavoriteFolderId] = useState<string | null>(null);
@@ -112,266 +98,29 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const api = (window as any).IPTVNative;
-    if (!api?.githubConfig) return;
+  const checkWebOSUpdate = async () => {
+    setReleaseCheckLoading(true);
+    setReleaseCheckStatus('A nyilvános LG webOS kiadás ellenőrzése…');
     try {
-      const cfg = api.githubConfig();
-      setGithubTokenName(cfg?.tokenName || '');
-      setGithubConfigured(Boolean(cfg?.configured));
-      setGithubToken('');
-      setGithubStatus('');
-    } catch {
-      // Ebben a webOS-környezetben a natív GitHub-beállítás nem érhető el.
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    const api = (window as any).IPTVNative;
-    if (!api?.on) return;
-    const listener = (event: any) => {
-      if (event?.type === 'github-test') {
-        setGithubStatus(event.ok ? 'Kapcsolat rendben.' : (event.message || 'Kapcsolati hiba.'));
-      }
-      if (event?.type === 'github-diagnosis-progress') {
-        const stepText = String(event.step || '');
-        const messageText = String(event.message || '');
-        if (/no source changes|nincs változás|nincs új forrásváltozás|naprakész/i.test(stepText + ' ' + messageText)) {
-          setNoWebUpdate(true);
-          setGithubUpdating(false);
-          setDiagnosisOpen(true);
-          setDiagnosisProgress({
-            phase: 'completed',
-            percent: 100,
-            step: 'Nincs frissítés – az IPTV naprakész.',
-            message: '',
-            runUrl: event.runUrl || ''
-          });
-          setDiagnosisCountdown(3);
-          return;
-        }
-        setDiagnosisOpen(true);
-        setDiagnosisProgress({
-          phase: event.phase || 'running',
-          percent: Math.max(0, Math.min(100, Number(event.percent) || 0)),
-          step: event.step || 'Feldolgozás…',
-          message: event.message || '',
-          runUrl: event.runUrl || ''
-        });
-        if (event.phase === 'failed') {
-          setNoWebUpdate(false);
-          setGithubUpdating(false);
-          setDiagnosisCountdown(null);
-          setGithubStatus(event.message || event.step || 'A webdiagnózis hibával leállt.');
-        }
-      }
-      if (event?.type === 'github-web-update') {
-        setGithubUpdating(false);
-        setGithubStatus(event.ok ? 'GitHub frissítés kész.' : (event.message || 'Frissítési hiba.'));
-        if (event.ok) {
-          const unchanged = /nincs frissítés|naprakész/i.test(String(event.message || ''));
-          setNoWebUpdate(unchanged);
-          setDiagnosisOpen(true);
-          setDiagnosisProgress((current) => ({
-            phase: 'completed',
-            percent: 100,
-            step: unchanged ? 'Nincs frissítés – az IPTV naprakész.' : (event.message || 'A webes felület frissítése sikerült.'),
-            message: '',
-            runUrl: current?.runUrl || ''
-          }));
-          setDiagnosisCountdown(unchanged ? 3 : 5);
-        } else {
-          setNoWebUpdate(false);
-          setDiagnosisOpen(true);
-          setDiagnosisCountdown(null);
-          setDiagnosisProgress((current) => ({
-            phase: 'failed',
-            percent: current?.percent || 0,
-            step: 'A kész webes felület letöltése vagy betöltése nem sikerült.',
-            message: event.message || 'Ismeretlen frissítési hiba.',
-            runUrl: current?.runUrl || ''
-          }));
-        }
-      }
-    };
-    api.on(listener);
-    return () => api.off?.(listener);
-  }, []);
-
-  useEffect(() => {
-    if (diagnosisCountdown === null) return;
-    if (diagnosisCountdown <= 0) {
-      setDiagnosisOpen(false);
-      setDiagnosisCountdown(null);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setDiagnosisCountdown((value) => value === null ? null : value - 1);
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [diagnosisCountdown]);
-
-  const saveGithubSettings = () => {
-    const api = (window as any).IPTVNative;
-    if (!api?.githubSaveConfig) {
-      setGithubStatus('A GitHub-frissítés ezen az LG webOS-verzión nem érhető el; új IPK szükséges.');
-      return;
-    }
-    api.githubSaveConfig(githubTokenName, githubToken, 'Robko1', 'LGtv');
-    setGithubConfigured(Boolean(githubToken) || githubConfigured);
-    setGithubToken('');
-    setGithubStatus('Beállítások mentve.');
-  };
-
-  const updateGithubWeb = () => {
-    const api = (window as any).IPTVNative;
-    setDiagnosisOpen(true);
-    setDiagnosisCountdown(null);
-    setNoWebUpdate(false);
-    setDiagnosisProgress({
-      phase: 'running',
-      percent: 1,
-      step: 'IPTV-tesztek és webfrissítés indítása…',
-      message: '',
-      runUrl: ''
-    });
-    if (!api?.githubRunWebDiagnosis) {
-      setGithubUpdating(false);
-      setDiagnosisProgress({
-        phase: 'failed',
-        percent: 0,
-        step: 'Ehhez a funkcióhoz a webOS IPK natív hídjának frissítése szükséges.',
-        message: 'Az LG webOS IPK natív hídja még nem támogatja a GitHub Actions diagnosztika indítását.',
-        runUrl: ''
-      });
-      return;
-    }
-    setGithubUpdating(true);
-    setGithubStatus('IPTV-tesztek és webfrissítés indítása…');
-    api.githubRunWebDiagnosis();
-  };
-
-  const refreshVideoDiagnostics = (clearOld = false) => {
-    const api = (window as any).IPTVNative as {
-      nativeVideoDiagnostics?: () => string;
-      clearNativeVideoDiagnostics?: () => void;
-    } | undefined;
-    // A webes oldal saját naplója (tartalom betöltése, mentés, memória)
-    // mindig a natív napló után jelenik meg: ez mutatja meg, mi történt a
-    // felületen a lefagyás vagy az üres lista előtt.
-    const webSection = () => {
-      try {
-        logMemory('naplókérés');
-        return '\n\n' + getAppLogText();
-      } catch (error) {
-        return '\n\n--- WEBES NAPLÓ ---\nA webes napló nem érhető el: ' + String(error);
-      }
-    };
-    if (clearOld) clearAppLog();
-    if (clearOld && api?.clearNativeVideoDiagnostics) {
-      try {
-        api.clearNativeVideoDiagnostics();
-      } catch {
-        /* régi natív hídban nincs clear */
-      }
-    }
-    if (!api?.nativeVideoDiagnostics) {
-      setVideoDiagnosticText(
-        'A natív videódiagnosztika ezen az LG webOS-verzión nem érhető el.'
-        + webSection()
-      );
-      setVideoDiagnosticStatus('Diagnosztikai adatforrás nem érhető el.');
-      return;
-    }
-    try {
-      setVideoDiagnosticText(
-        String(api.nativeVideoDiagnostics() || 'A natív diagnosztikai napló üres.') + webSection()
-      );
-      setVideoDiagnosticStatus(
-        clearOld
-          ? 'A régi napló törölve, új naplózás indul – a vágólap még nem változott.'
-          : 'A diagnosztikai adatok frissítve. A vágólap még nem változott.'
-      );
+      const result = await checkLatestWebOSRelease();
+      setReleaseInfo(result);
+      setReleaseCheckStatus(result.updateAvailable
+        ? `Új verzió érhető el: ${result.latestVersion}. Az IPK telepítését webOS fejlesztői eszközzel kell elvégezni.`
+        : result.latestVersion === result.currentVersion
+          ? `Naprakész: ${result.currentVersion}.`
+          : `A legfrissebb kiadás (${result.latestVersion}) nem újabb a telepített ${result.currentVersion} verziónál.`);
     } catch (error) {
-      setVideoDiagnosticText('A napló lekérése sikertelen: ' + String(error) + webSection());
-      setVideoDiagnosticStatus('Lekérési hiba.');
+      setReleaseCheckStatus(error instanceof Error ? error.message : 'A frissítés ellenőrzése sikertelen.');
+    } finally {
+      setReleaseCheckLoading(false);
     }
-  };
-
-  const openVideoDiagnostics = () => {
-    setVideoDiagnosticOpen(true);
-    setVideoDiagnosticLogOpen(false);
-    setVideoDiagnosticStatus('');
-    refreshVideoDiagnostics(false);
-  };
-
-  /**
-   * A napló másolása.
-   *
-   * KIZÁRÓLAG ennek a gombnak a megnyomása írhat a telefon vágólapjára, és
-   * pontosan azt a szöveget másolja, ami a naplómezőben látszik (a videó
-   * naplóját vagy a TV-re küldés teszt eredményét) – semmi mást.
-   */
-  const copyVideoDiagnostics = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    // Csak valódi, felhasználói kattintás indíthat vágólapműveletet;
-    // programozott/szintetikus eseményből soha ne másoljunk diagnosztikát.
-    if (!event.nativeEvent.isTrusted) return;
-    const api = (window as any).IPTVNative;
-    let report = videoDiagnosticText.trim();
-    if (!report && api?.nativeVideoDiagnostics) {
-      report = String(api.nativeVideoDiagnostics() || '').trim();
-      if (report) setVideoDiagnosticText(report);
-    }
-    if (!report) {
-      setVideoDiagnosticStatus('Nincs másolható napló. Nyisd meg a naplót, majd frissítsd az adatokat.');
-      return;
-    }
-    let copied = false;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(report);
-        copied = true;
-      }
-    } catch {
-      // file:// környezetben az execCommand tartalékot próbáljuk.
-    }
-    if (!copied) {
-      const field = document.createElement('textarea');
-      field.value = report;
-      field.setAttribute('readonly', 'true');
-      field.style.position = 'fixed';
-      field.style.left = '-10000px';
-      field.style.top = '0';
-      document.body.appendChild(field);
-      field.focus();
-      field.select();
-      try { copied = document.execCommand('copy'); } catch { copied = false; }
-      document.body.removeChild(field);
-    }
-    setVideoDiagnosticStatus(copied
-      ? 'Kész: csak a naplómezőben látható szöveg került a vágólapra.'
-      : 'A másolás nem sikerült. Próbáld újra a „Napló másolása” gombbal.');
-  };
-
-  const testGithubSettings = () => {
-    const api = (window as any).IPTVNative;
-    if (!api?.githubSaveConfig || !api?.githubTestConnection) {
-      setGithubStatus('A GitHub-kapcsolatteszt ezen az LG webOS-verzión nem érhető el.');
-      return;
-    }
-    api.githubSaveConfig(githubTokenName, githubToken, 'Robko1', 'LGtv');
-    setGithubConfigured(Boolean(githubToken) || githubConfigured);
-    setGithubToken('');
-    setGithubStatus('Kapcsolat tesztelése...');
-    api.githubTestConnection();
   };
 
   // Valós idejű képesség-ellenőrzések: csak akkor jelenik meg zöld pipa,
   // ha az adott lejátszási mód ténylegesen elérhető az aktuális környezetben.
   const pictureInPictureAvailable =
     Boolean((document as any).pictureInPictureEnabled) ||
-    typeof (window as any).IPTVNative?.pip === 'function';
+    false;
 
   // TV / stick / egér: D-pad + egér támogatás a beállítások modalban
   const modalRef = useRef<HTMLDivElement | null>(null);
@@ -1060,82 +809,31 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
 {showApplicationBox && (
                   <>
-                {/* Natív videódiagnosztika: csak a külön másolás gomb ír a vágólapra. */}
-                <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-500/50 space-y-3 shadow-md">
-                  <div className="flex items-center gap-2 text-cyan-300">
-                    <Bug className="w-4 h-4" />
-                    <h3 className="text-xs font-black uppercase tracking-wider">Natív videó hibakeresése</h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={openVideoDiagnostics}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-xs font-black active:scale-95 transition-all"
-                  >
-                    <Bug className="w-4 h-4" />
-                    Hibakeresési napló megnyitása
-                  </button>
-                </div>
-                {/* GitHub web-frissítés */}
+                {/* LG webOS GitHub kiadásellenőrzés */}
                 <div className="space-y-3">
                   <h3 className="text-xs font-black text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>GitHub web-frissítés</span>
+                    <span>LG webOS frissítés</span>
                   </h3>
                   <div className="p-3 rounded-xl bg-[#081329] border border-cyan-900/30 space-y-2.5">
                     <p className="text-[11px] text-slate-400 leading-relaxed">
-                      A „Frissítés most” gomb kézzel elindítja az IPTV-teszteket és webfrissítést, követi a build valódi lépéseit, majd siker esetén letölti a kész webes felületet. IPK-buildet nem indít.
+                      Ez a gomb a Robko1/LGtv nyilvános GitHub Release-ét ellenőrzi. A webOS alkalmazás nem telepíthet csendben IPK-t; az új csomagot a TV-hez csatlakozó webOS fejlesztői eszközzel kell telepíteni.
                     </p>
-                    <input
-                      value={githubToken}
-                      onChange={(e) => setGithubToken(e.target.value)}
-                      placeholder={githubConfigured ? "Mentett token – új tokenhez írd felül" : "Token"}
-                      type="password"
-                      autoComplete="off"
-                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-cyan-900/50 text-sm text-white outline-none focus:border-cyan-400"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        value="Robko1"
-                        readOnly
-                        placeholder="GitHub tulajdonos"
-                        className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-cyan-900/50 text-sm text-white outline-none focus:border-cyan-400"
-                      />
-                      <input
-                        value="LGtv"
-                        readOnly
-                        placeholder="Repository"
-                        className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-cyan-900/50 text-sm text-white outline-none focus:border-cyan-400"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={saveGithubSettings}
-                        className="flex-1 py-2.5 rounded-lg bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 text-xs font-bold active:scale-95 transition-all"
-                      >
-                        Mentés
-                      </button>
-                      <button
-                        onClick={testGithubSettings}
-                        className="flex-1 py-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-bold active:scale-95 transition-all"
-                      >
-                        Kapcsolat tesztelése
-                      </button>
-                    </div>
-                    <button
-                      onClick={updateGithubWeb}
-                      disabled={githubUpdating}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-bold active:scale-95 transition-all disabled:opacity-60"
-                    >
-                      <RefreshCw className={githubUpdating ? "w-3.5 h-3.5 animate-spin" : "w-3.5 h-3.5"} />
-                      {githubUpdating ? 'Frissítés...' : 'Frissítés most'}
+                    <button type="button" onClick={checkWebOSUpdate} disabled={releaseCheckLoading} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-bold active:scale-95 transition-all disabled:opacity-60">
+                      <RefreshCw className={releaseCheckLoading ? "w-3.5 h-3.5 animate-spin" : "w-3.5 h-3.5"} />
+                      {releaseCheckLoading ? 'Ellenőrzés…' : 'Frissítés ellenőrzése'}
                     </button>
-                    {githubStatus && (
-                      <p className="text-[11px] text-slate-300">{githubStatus}</p>
+                    {releaseInfo && (
+                      <div className="rounded-lg border border-cyan-900/40 bg-slate-950/50 p-3 space-y-1">
+                        <p className="text-[11px] text-slate-300">Telepített verzió: <strong>{releaseInfo.currentVersion}</strong></p>
+                        <p className="text-[11px] text-slate-300">Legfrissebb kiadás: <strong>{releaseInfo.latestVersion}</strong></p>
+                        {releaseInfo.ipkUrl ? <p className="text-[11px] text-emerald-300">A kiadás tartalmaz IPK-csomagot.</p> : <p className="text-[11px] text-amber-300">A kiadásban nem található IPK-fájl.</p>}
+                        <a href={releaseInfo.releaseUrl} target="_blank" rel="noreferrer" className="inline-block pt-2 text-xs font-bold text-cyan-300 underline">GitHub Release megnyitása</a>
+                      </div>
                     )}
+                    {releaseCheckStatus && <p role="status" className="text-[11px] text-slate-300">{releaseCheckStatus}</p>}
                   </div>
                 </div>
-                  </>
-                )}
 
                 {/* App Brand Badge */}
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-[#0e1e3e] border border-cyan-800/40">
@@ -2099,128 +1797,6 @@ sOI9cjN0PAqNuryXnd5re4a/2lyy2mT0yPQw9hhHpZmegp2tFmgNG4Cw9S5W
         </div>
       </div>
 
-      {videoDiagnosticOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 backdrop-blur-sm p-3" role="dialog" aria-modal="true" aria-label="Hibakeresési napló">
-          <div className="w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl border-2 border-cyan-500/70 bg-[#071124] p-4 shadow-2xl">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <div className="flex items-center gap-2 text-cyan-300 min-w-0">
-                <Bug className="h-5 w-5 shrink-0" />
-                <h3 className="text-sm font-black">Natív videó hibakereső</h3>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button type="button" onClick={() => setVideoDiagnosticLogOpen((open) => !open)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20" aria-expanded={videoDiagnosticLogOpen}>
-                  {videoDiagnosticLogOpen ? 'Napló elrejtése' : 'Napló megnyitása'}
-                </button>
-                <button type="button" onClick={() => setVideoDiagnosticOpen(false)} className="rounded-lg p-2 text-slate-300 hover:bg-white/10" aria-label="Bezárás">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-            {/*
-              Szándékosan NEM textarea: az Android WebView a fókuszálható
-              szövegmező tartalmát a rendszer szövegkijelölő menüjével a
-              vágólapra tehette. Ez nem kijelölhető előnézet, ezért érintésre
-              semmilyen másolási lehetőség nem jelenik meg.
-            */}
-            {videoDiagnosticLogOpen && (
-              <pre
-                aria-label="Napló tartalma (nem kijelölhető)"
-                className="min-h-0 flex-1 w-full overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-700 bg-black/50 p-3 font-mono text-[10px] leading-relaxed text-slate-200 select-none"
-                style={{ minHeight: '42vh', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
-              >
-                {videoDiagnosticText || 'A napló üres.'}
-              </pre>
-            )}
-            {videoDiagnosticStatus && <p className="mt-2 text-[11px] text-cyan-200">{videoDiagnosticStatus}</p>}
-            <button type="button" onClick={() => refreshVideoDiagnostics(true)} className="mt-3 self-center rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-6 py-3 text-xs font-bold text-cyan-200 active:scale-95" title="Törli a régi naplót és új naplózást kezd, hogy ne legyen tele">
-              Videó napló frissítése (töröl és újraindít)
-            </button>
-            <button type="button" onClick={copyVideoDiagnostics} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/50 bg-emerald-500/15 py-3 text-xs font-black text-emerald-200 active:scale-95">
-              <Copy className="h-4 w-4" />
-              Napló másolása
-            </button>
-          </div>
-        </div>
-      )}
-
-      {diagnosisOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="IPTV-tesztek és webfrissítés állapota">
-          <div className="w-full max-w-md rounded-2xl border border-cyan-800/70 bg-[#071124] p-5 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              {diagnosisProgress?.phase === 'completed' ? (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15 border border-emerald-400/50">
-                  <Check className="h-6 w-6 text-emerald-400 stroke-[3]" />
-                </div>
-              ) : diagnosisProgress?.phase === 'failed' ? (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-500/15 border border-rose-400/50 text-rose-400 font-black text-xl">!</div>
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/15 border border-amber-400/50">
-                  <RefreshCw className="h-5 w-5 animate-spin text-amber-300" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <h3 className="text-base font-black text-white">IPTV frissítés</h3>
-                <p className={diagnosisProgress?.phase === 'completed' ? "text-xs font-bold text-emerald-400" : diagnosisProgress?.phase === 'failed' ? "text-xs font-bold text-rose-400" : "text-xs text-slate-400"}>
-                  {noWebUpdate ? 'Nincs új frissítés' : diagnosisProgress?.phase === 'completed' ? 'Sikeres webfrissítés' : diagnosisProgress?.phase === 'failed' ? 'A frissítés hibával leállt' : 'Frissítés és ellenőrzés folyamatban'}
-                </p>
-              </div>
-              {diagnosisProgress?.phase === 'failed' && (
-                <button type="button" onClick={() => setDiagnosisOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white" aria-label="Bezárás">
-                  <X className="h-5 w-5" />
-                </button>
-              )}
-            </div>
-
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-xs font-semibold text-slate-300">Haladás</span>
-              <span className={diagnosisProgress?.phase === 'completed' ? "font-mono text-sm font-black text-emerald-400" : diagnosisProgress?.phase === 'failed' ? "font-mono text-sm font-black text-rose-400" : "font-mono text-sm font-black text-amber-300"}>
-                {diagnosisProgress?.percent ?? 0}%
-              </span>
-            </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
-              <div
-                className={diagnosisProgress?.phase === 'completed' ? "h-full rounded-full bg-emerald-400 transition-all duration-500" : diagnosisProgress?.phase === 'failed' ? "h-full rounded-full bg-rose-400 transition-all duration-500" : "h-full rounded-full bg-amber-400 transition-all duration-500"}
-                style={{ width: `${diagnosisProgress?.percent ?? 0}%` }}
-              />
-            </div>
-
-            <div className="mt-4 rounded-xl border border-slate-800 bg-[#081329] p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Aktuális lépés</p>
-              <p className="mt-1 break-words text-sm font-semibold text-slate-100">{diagnosisProgress?.step || 'Előkészítés…'}</p>
-              {diagnosisProgress?.phase === 'completed' && diagnosisCountdown !== null && (
-                <p className="mt-3 text-center text-sm font-black text-emerald-400">
-                  {noWebUpdate ? 'Ablak bezárása' : 'Frissítés és ablakbezárás'}: {diagnosisCountdown}
-                </p>
-              )}
-            </div>
-
-            {diagnosisProgress?.phase === 'failed' && (
-              <div className="mt-3 rounded-xl border border-rose-500/40 bg-rose-950/30 p-3">
-                <p className="text-xs font-black text-rose-300">Hiba részletei</p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-rose-100">
-                  {diagnosisProgress.message || diagnosisProgress.step || 'Ismeretlen hiba.'}
-                </p>
-                {diagnosisProgress.runUrl && (
-                  <button
-                    type="button"
-                    onClick={() => (window as any).IPTVNative?.openExternal?.(diagnosisProgress.runUrl)}
-                    className="mt-3 text-xs font-bold text-amber-300 underline"
-                  >
-                    GitHub Actions napló megnyitása
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setDiagnosisOpen(false)}
-                  className="mt-3 w-full rounded-lg border border-rose-400/40 bg-rose-500/10 py-2 text-xs font-bold text-rose-200"
-                >
-                  Bezárás
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
