@@ -151,13 +151,7 @@
           var tm = document.getElementById('boot-time');
           if (el) el.textContent = stage + '/7 ' + label;
           if (tm) tm.textContent = (Date.now() - started) + ' ms';
-          try {
-            if (window.AndroidIP && window.AndroidIP.startupLog) {
-              window.AndroidIP.startupLog('STARTUP ' + stage + '/7 ' + label + ' @ ' + (Date.now() - started) + ' ms');
-            } else {
-              console.log('STARTUP ' + stage + '/7 ' + label + ' @ ' + (Date.now() - started) + ' ms');
-            }
-          } catch (e) {}
+          try { console.log('STARTUP ' + stage + '/7 ' + label + ' @ ' + (Date.now() - started) + ' ms'); } catch (e) {}
         }
 
         window.__IPTV_STARTUP_STAGE_SET__ = show;
@@ -169,11 +163,7 @@
           var err = document.getElementById('boot-error');
           if (el) el.textContent = 'HIBA a(z) ' + (window.__IPTV_STARTUP_STAGE__ || '?') + '/7 lépésnél';
           if (err) err.textContent = String(message || 'Ismeretlen JavaScript hiba');
-          try {
-            if (window.AndroidIP && window.AndroidIP.startupLog) {
-              window.AndroidIP.startupLog('STARTUP FAIL stage=' + window.__IPTV_STARTUP_STAGE__ + ': ' + String(message));
-            }
-          } catch (e) {}
+          try { console.error('STARTUP FAIL stage=' + window.__IPTV_STARTUP_STAGE__ + ': ' + String(message)); } catch (e) {}
         };
 
         show(1, 'WebView + HTML');
