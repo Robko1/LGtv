@@ -13,7 +13,12 @@ Ez a kiadás kizárólag LG webOS TV-re készült. Android APK-t ez a repó nem 
 
 - LG webOS TV-s kezelőfelület és távirányító-támogatás.
 - Élő TV, Mozi, Sorozat, EPG, kedvencek és beállítások.
-- TV-re optimalizált fekvő indítóképernyő.
+- A fekvő indítóvideó tényleges lejátszása, hiba esetén képes tartalék képernyővel.
+- HTML5/HLS lejátszás LG webOS-en, HLS-prioritással élő adásokhoz.
+- GitHub Release verzióellenőrzés; az IPK telepítése továbbra is webOS fejlesztői eszközzel történik.
+- Egységes 2.3.1 verziószám a webes felületen, az app manifestben és az IPK-ban.
+- A hibakeresési napló helyi, újraindítás után is megmaradó tárolása.
+- IPTV-belépési adatokat tartalmazó URL-eket nem küldünk nyilvános CORS proxyknak.
 - QR-kódos telefonos szolgáltatóbeállítás.
 - Kizárólag a jelenlegi `Robko1/LGtv` repó forrásaiból készített IPK.
 
