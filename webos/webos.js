@@ -135,12 +135,31 @@
     var kc = e.keyCode;
     var key = e.key;
 
-    // Ha nincs aktív fókusz, az első nyílgomb fókuszt ad az első vezérelhető elemnek.
-    if (kc >= 37 && kc <= 40 && (!document.activeElement || document.activeElement === document.body || document.activeElement === document.documentElement)) {
-      var first = getFocusable(document).find(function(el) { return !el.closest('[role="dialog"]'); });
-      if (first) { e.preventDefault(); first.focus({preventScroll:true}); return; }
+    // A webOS néha a body-n hagyja a fókuszt. Ilyenkor az első gombnyomást
+    // közvetlenül a csatornalistának adjuk át, nem veszítjük el fókuszváltáskor.
+    var active = document.activeElement;
+    var inTextEntry = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+    var dialogAtStart = document.querySelector('[role="dialog"]');
+    var isArrow = kc >= 37 && kc <= 40 || /^Arrow(Up|Down|Left|Right)$/.test(key || '');
+    var isConfirm = kc === 13 || kc === 13 || key === 'Enter' || key === 'Accept';
+    if (!dialogAtStart && !inTextEntry &&
+        (!active || active === document.body || active === document.documentElement) &&
+        (isArrow || isConfirm)) {
+      var listAtStart = document.querySelector('[role="listbox"]');
+      if (listAtStart) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!listAtStart.hasAttribute('tabindex')) listAtStart.setAttribute('tabindex', '0');
+        listAtStart.focus({preventScroll:true});
+        var normalizedKey = isConfirm ? 'Enter' : (key || ({37:'ArrowLeft',38:'ArrowUp',39:'ArrowRight',40:'ArrowDown'}[kc]));
+        var normalizedCode = isConfirm ? 13 : (kc || ({ArrowLeft:37,ArrowUp:38,ArrowRight:39,ArrowDown:40}[normalizedKey]));
+        listAtStart.dispatchEvent(new KeyboardEvent('keydown', {
+          key: normalizedKey, code: normalizedKey, keyCode: normalizedCode,
+          which: normalizedCode, bubbles: true, cancelable: true
+        }));
+        return;
+      }
     }
-
     // webOS Back (461) → Escape (bezár modal, kilép fullscreen)
     if (kc === 461 || kc === 27) {
       console.log('[webOS] Back → Escape');
@@ -159,15 +178,22 @@
       }
     }
 
-    // Channel Up/Down (33/34) → ArrowUp/Down (csatornaváltás vagy lista navigáció)
-    if (kc === 33) { // Ch Up
+    // Channel Up/Down (33/34): a listára küldjük, mert a documentre
+    // dispatcholt esemény nem jut el a lista React onKeyDown kezelőjéhez.
+    if (kc === 33 || kc === 34 || key === 'PageUp' || key === 'PageDown') {
       e.preventDefault();
-      injectKey('ArrowUp', 38);
-      return;
-    }
-    if (kc === 34) { // Ch Down
-      e.preventDefault();
-      injectKey('ArrowDown', 40);
+      e.stopPropagation();
+      var channelList = document.querySelector('[role="listbox"]');
+      if (channelList) {
+        channelList.focus({preventScroll:true});
+        var up = kc === 33 || key === 'PageUp';
+        var mappedKey = up ? 'ArrowUp' : 'ArrowDown';
+        var mappedCode = up ? 38 : 40;
+        channelList.dispatchEvent(new KeyboardEvent('keydown', {
+          key: mappedKey, code: mappedKey, keyCode: mappedCode,
+          which: mappedCode, bubbles: true, cancelable: true
+        }));
+      }
       return;
     }
 
