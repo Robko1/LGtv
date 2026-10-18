@@ -18,7 +18,6 @@
         body.webos-tv, body.lg-webos { background:#000; overflow:hidden; }
         .webos-tv .video-player-container { max-width:1280px; margin:0 auto; }
         .webos-tv .channel-list { max-height:70vh; }
-        .webos-tv .intro-video { object-fit:cover; width:100vw; height:100vh; }
         /* Erős fókusz gyűrű TV-re – távirányítóhoz */
         .webos-tv *:focus { outline:3px solid #00BFFF !important; outline-offset:2px; }
         .webos-tv [role="listbox"]:focus { outline:3px solid #06b6d4 !important; outline-offset:-2px; box-shadow:0 0 0 4px rgba(6,182,212,0.25), inset 0 0 0 2px rgba(6,182,212,0.4); }
@@ -77,6 +76,7 @@
       }
       var list = document.querySelector('[role="listbox"]');
       if (list) {
+        if (!list.hasAttribute('tabindex')) list.setAttribute('tabindex', '0');
         var active = document.activeElement;
         if (active && active.tagName === 'INPUT') return false;
         if (active && active.closest && active.closest('[role="dialog"]')) return false;
@@ -92,6 +92,8 @@
         }
         return true;
       }
+      var firstFocusable = getFocusable(document).find(function(el) { return !el.closest('[role="dialog"]'); });
+      if (firstFocusable) { firstFocusable.focus({preventScroll:true}); return true; }
     } catch (e) { console.warn('[webOS] focus fail', e); }
     return false;
   }
@@ -131,6 +133,12 @@
   document.addEventListener('keydown', function(e) {
     var kc = e.keyCode;
     var key = e.key;
+
+    // Ha nincs aktív fókusz, az első nyílgomb fókuszt ad az első vezérelhető elemnek.
+    if (kc >= 37 && kc <= 40 && (!document.activeElement || document.activeElement === document.body || document.activeElement === document.documentElement)) {
+      var first = getFocusable(document).find(function(el) { return !el.closest('[role="dialog"]'); });
+      if (first) { e.preventDefault(); first.focus({preventScroll:true}); return; }
+    }
 
     // webOS Back (461) → Escape (bezár modal, kilép fullscreen)
     if (kc === 461 || kc === 27) {
