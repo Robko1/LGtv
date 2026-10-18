@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
-DIST_DIR="$PROJECT_DIR/apk"
+DIST_DIR="$WEBOS_DIR/dist"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
 VERSION="${VERSION:-1.25.0}"
