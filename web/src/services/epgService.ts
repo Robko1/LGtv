@@ -32,7 +32,7 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
  *
  * FONTOS (memória/fagyás): korábban a tároló korlátlanul nőtt. Húsz­ezer
  * csatornás listánál a háttérben letöltött műsorok több tíz megabájtot
- * foglaltak, és a WebView-renderelő folyamat emiatt leállt. A legrégebben
+ * foglaltak, és a TV böngészőfolyamata emiatt leállt. A legrégebben
  * használt bejegyzéseket dobjuk el.
  */
 const CACHE_MAX_ENTRIES = 1200;
