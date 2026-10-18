@@ -65,6 +65,8 @@ jobs:
           set -euo pipefail
           grep -Fq 'https://api.github.com/repos/Robko1/LGtv/releases/latest' web/src/services/webosUpdateService.ts
           grep -Fq 'dispatchEvent(new KeyboardEvent' webos/webos.js
+          grep -Fq 'focusSpatially' webos/webos.js
+          grep -Fq 'keyCodes[key]' webos/webos.js
           if grep -RniE 'IPTVNative|Android|WebView|\.apk' web/src web/index.html; then
             echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
             exit 1
