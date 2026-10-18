@@ -1,8 +1,8 @@
 # IPTV R.T – LG webOS TV
 
 > **v2.3.1 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
-> - Ez a repo **csak LG webOS TV**-re való, külön fejlesztés Android-tól
-> - Android verzió külön repo-ban: https://github.com/Robko1/teszt-iptv (Android-only v2.3.0)
+> - Ez a repó kizárólag LG webOS TV-re készül.
+> - Nem tölt le, nem másol és nem használ forráskódot másik alkalmazásrepóból.
 > - Telepítés: [webos/README.md](webos/README.md)
 
 ## Mi ez?
