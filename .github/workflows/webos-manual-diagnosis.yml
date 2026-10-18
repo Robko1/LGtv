@@ -1,0 +1,84 @@
+name: LG webOS – kézi diagnosztika és web build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webos-manual-diagnosis
+  cancel-in-progress: false
+
+jobs:
+  diagnosis:
+    name: webOS ellenőrzés és HTML build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Forrás letöltése a main ágról
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Node.js beállítása
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Ellenőrizd a szükséges fájlokat
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s web/package.json
+          test -s web/package-lock.json
+          test -s web/index.html
+          test -s webos/appinfo.json
+          test -s webos/webos.js
+          echo "OK: a szükséges web és webOS fájlok megvannak."
+
+      - name: Webes csomagok telepítése
+        run: npm ci --prefix web --no-audit --no-fund
+
+      - name: LG webOS webes felület build
+        working-directory: web
+        env:
+          VITE_WEBOS: 'true'
+          VITE_WEBOS_FAST_LOAD: 'true'
+          VITE_WEBOS_SMALL_PLAYER: 'true'
+        run: npm run build
+
+      - name: HTML és webOS konfiguráció ellenőrzése
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE=build/web/index.html
+          test -s "$FILE"
+          python3 -m json.tool webos/appinfo.json >/dev/null
+          grep -Fq 'id="root"' "$FILE"
+          test -s webos/webos.js
+          echo "HTML méret: $(wc -c < "$FILE") byte"
+          echo "OK: a HTML build és az appinfo.json ellenőrzése sikeres."
+
+      - name: Diagnosztikai eredmények mentése
+        uses: actions/upload-artifact@v4
+        with:
+          name: webos-manual-diagnosis
+          path: |
+            build/web/index.html
+            webos/appinfo.json
+            webos/webos.js
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Összefoglaló
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## LG webOS kézi diagnosztika"
+            echo "- Indítás: kizárólag kézzel (workflow_dispatch)."
+            echo "- Ellenőrzés: szükséges fájlok, HTML build, appinfo.json."
+            echo "- Kimenet: webos-manual-diagnosis artifact."
+            echo "- Ez a workflow diagnosztikát és HTML buildet készít; IPK-t nem épít."
+          } >> "$GITHUB_STEP_SUMMARY"
