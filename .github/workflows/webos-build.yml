@@ -1,9 +1,9 @@
 name: IPTV – webOS TV IPK építése
 
-# LG webOS TV IPK build: KÜLÖN mappában (webos/), nem keverve Androiddal
-# KÉZI INDÍTÁSSAL: nem automatikus, csak te indítod ha webos/ mappában változtatsz
-# Kimenet: webos/IPTV-RT-webOS-*.ipk + apk/ másolat + Release
-# Diagnosztika: webos-diagnosis.yml (külön, kézi)
+# Kizárólag LG webOS TV IPK build; minden forrás a jelenlegi repóból származik.
+# Kézi indítás (workflow_dispatch), automatikus futás nincs.
+# Kimenet: webos/IPTV-RT-webOS-*.ipk + GitHub Release.
+# Diagnosztika: webos-manual-diagnosis.yml (külön, kézi)
 
 on:
   workflow_dispatch:
@@ -39,7 +39,6 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            web/package-lock.json
 
       - name: 3. Python 3.11
         uses: actions/setup-python@v4
@@ -51,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          npm ci --prefix web --no-audit --no-fund
+          npm install --prefix web --no-audit --no-fund
           pip install Pillow --break-system-packages -q || pip install Pillow -q
 
       - name: 5. Webes felület fordítása webOS-re
@@ -106,9 +105,8 @@ jobs:
           PY
           fi
           VERSION="$VERSION" bash tools/build-webos.sh
-          ls -lh webos/*.ipk apk/*.ipk
+          ls -lh webos/*.ipk
           test -s "webos/$IPK_FILE_NAME"
-          test -s "apk/$IPK_FILE_NAME"
 
       - name: 7. IPK ellenőrzése
         shell: bash
@@ -124,10 +122,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s "webos/$IPK_FILE_NAME"
-          test -s "apk/$IPK_FILE_NAME"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f "webos/$IPK_FILE_NAME" "apk/$IPK_FILE_NAME" "webos/assets/splash.png" "webos/assets/icon_tv.png" "webos/icon.png" "webos/largeIcon.png" || true
+          git add -f "webos/$IPK_FILE_NAME" "webos/assets/splash.png" "webos/assets/icon_tv.png" "webos/icon.png" "webos/largeIcon.png" || true
           # Ne adjuk hozzá a videót ha túl nagy (50MB limit), de most 537KB az IPK, videó kicsi
           git add -f "webos/assets/intro_landscape.mp4" || true
           if git diff --cached --quiet; then
@@ -144,8 +141,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Az IPK ugyanaz a fájl webos/ és apk/ mappában is (másolat), csak egyszer töltjük fel
-          # Az Android APK már a Release-ben van az apk-build workflow-ból
+          # Kizárólag az LG webOS IPK kerül a jelenlegi repó Release-ébe.
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --clobber
             gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file release-notes.md
@@ -163,6 +159,5 @@ jobs:
           name: IPTV-RT-webOS
           path: |
             webos/IPTV-RT-webOS-*.ipk
-            apk/IPTV-RT-webOS-*.ipk
           if-no-files-found: error
           retention-days: 14
