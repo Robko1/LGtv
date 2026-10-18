@@ -1,4 +1,11 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.3
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.4
+//
+// FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
+// catch (err), nincs template literal, nincs nyíl-függvény, nincs
+// Array.find / String.startsWith). A régebbi LG webOS TV-k böngészőmotorja
+// (Chrome 38–53) a modern szintaxison SyntaxError-ral elhasal, és akkor a
+// TELJES távirányító-kezelő script meg sem töltődik – az app kinyílik, de a
+// távirányító egyetlen gombjára sem reagál. Ne írj bele modern szintaxist!
 (function() {
   'use strict';
 
@@ -9,45 +16,89 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  console.log('[webOS] IPTV R.T webOS TV 2.3.3 inicializálás – távirányító fix + QR');
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.4 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+
+  // ---------- Gombkód / kulcsnév egységesítés ----------
+  // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
+  // csak keyCode-ot) küld. OK = 13, VISSZA = 461, CH+/- = 33/34.
+  var KEYCODE_TO_KEY = {
+    37: 'ArrowLeft', 38: 'ArrowUp', 39: 'ArrowRight', 40: 'ArrowDown',
+    13: 'Enter', 32: ' ', 8: 'Backspace', 27: 'Escape',
+    33: 'PageUp', 34: 'PageDown',
+    461: 'Escape',
+    415: 'MediaPlay', 19: 'MediaPause', 413: 'MediaStop',
+    412: 'MediaRewind', 417: 'MediaFastForward',
+    403: 'ColorF0Red', 404: 'ColorF1Green', 405: 'ColorF2Yellow', 406: 'ColorF3Blue'
+  };
+  var LEGACY_KEY_TO_KEY = {
+    'Up': 'ArrowUp', 'Down': 'ArrowDown', 'Left': 'ArrowLeft', 'Right': 'ArrowRight',
+    'Esc': 'Escape', 'Spacebar': ' ', 'U+0020': ' ',
+    'OK': 'Enter', 'Accept': 'Enter', 'Select': 'Enter', 'NumpadEnter': 'Enter',
+    'Back': 'Escape', 'GoBack': 'Escape', 'BrowserBack': 'Escape', 'XF86Back': 'Escape'
+  };
+  var KEY_TO_KEYCODE = {
+    'ArrowLeft': 37, 'ArrowUp': 38, 'ArrowRight': 39, 'ArrowDown': 40,
+    'Enter': 13, ' ': 32, 'Backspace': 8, 'Escape': 27,
+    'PageUp': 33, 'PageDown': 34
+  };
+
+  function normalizeKey(e) {
+    var kc = e.keyCode || e.which || 0;
+    if (kc && KEYCODE_TO_KEY[kc]) return KEYCODE_TO_KEY[kc];
+    var raw = e.key || '';
+    if (raw && LEGACY_KEY_TO_KEY[raw]) return LEGACY_KEY_TO_KEY[raw];
+    if (raw === 'Unidentified') return '';
+    return raw;
+  }
+
+  function isArrowKey(key) {
+    return key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
+  }
+
+  function arrayFind(list, fn) {
+    for (var i = 0; i < list.length; i++) {
+      if (fn(list[i])) return list[i];
+    }
+    return null;
+  }
 
   // ---------- CSS – TV fókusz gyűrű, kisebb lejátszó, gyors betöltés ----------
   function injectTvCss() {
     try {
-      var css = `
-        body.webos-tv, body.lg-webos { background:#000; overflow:hidden; }
-        .webos-tv .video-player-container { max-width:1280px; margin:0 auto; }
-        .webos-tv .channel-list { max-height:70vh; }
-        /* Erős fókusz gyűrű TV-re – távirányítóhoz */
-        .webos-tv *:focus { outline:3px solid #00BFFF !important; outline-offset:2px; }
-        .webos-tv [role="listbox"]:focus { outline:3px solid #06b6d4 !important; outline-offset:-2px; box-shadow:0 0 0 4px rgba(6,182,212,0.25), inset 0 0 0 2px rgba(6,182,212,0.4); }
-        .webos-tv [role="option"]:focus, .webos-tv [role="option"]:focus-visible {
-          outline:3px solid #06b6d4 !important; outline-offset:2px;
-          box-shadow:0 0 0 6px rgba(6,182,212,0.3), 0 0 20px rgba(6,182,212,0.2) !important;
-          z-index:10;
-        }
-        .webos-tv button:focus-visible, .webos-tv [role="button"]:focus-visible {
-          outline:3px solid #06b6d4 !important; outline-offset:2px;
-          box-shadow:0 0 0 4px rgba(6,182,212,0.2);
-        }
-        /* Egér – Magic Remote pointer */
-        body.has-mouse [role="option"], body.has-mouse button { cursor:pointer; }
-        body.has-mouse [role="option"]:hover { transform:translateY(-1px); filter:brightness(1.1); }
-        /* Gyorsabb animációk TV-n */
-        .webos-tv * { transition-duration:0.15s !important; }
-        /* Modal fókusz */
-        .webos-tv [role="dialog"]:focus { outline:none; }
-        .webos-tv [role="dialog"] button:focus { outline:3px solid #facc15 !important; }
-        /* Splash */
-        .webos-splash { position:fixed; inset:0; width:100vw; height:100vh; background:#000; z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#00BFFF; text-align:center; }
-        .webos-splash .splash-title { font-size:8vw; font-weight:800; letter-spacing:0.08em; }
-        .webos-splash .splash-subtitle { margin-top:22px; font-size:3vw; color:#fff; }
-      `;
+      var css = [
+        'body.webos-tv, body.lg-webos { background:#000; overflow:hidden; }',
+        '.webos-tv .video-player-container { max-width:1280px; margin:0 auto; }',
+        '.webos-tv .channel-list { max-height:70vh; }',
+        '/* Erős fókusz gyűrű TV-re – távirányítóhoz */',
+        '.webos-tv *:focus { outline:3px solid #00BFFF !important; outline-offset:2px; }',
+        '.webos-tv [role="listbox"]:focus { outline:3px solid #06b6d4 !important; outline-offset:-2px; box-shadow:0 0 0 4px rgba(6,182,212,0.25), inset 0 0 0 2px rgba(6,182,212,0.4); }',
+        '.webos-tv [role="option"]:focus, .webos-tv [role="option"]:focus-visible {',
+        '  outline:3px solid #06b6d4 !important; outline-offset:2px;',
+        '  box-shadow:0 0 0 6px rgba(6,182,212,0.3), 0 0 20px rgba(6,182,212,0.2) !important;',
+        '  z-index:10;',
+        '}',
+        '.webos-tv button:focus-visible, .webos-tv [role="button"]:focus-visible {',
+        '  outline:3px solid #06b6d4 !important; outline-offset:2px;',
+        '  box-shadow:0 0 0 4px rgba(6,182,212,0.2);',
+        '}',
+        '/* Egér – Magic Remote pointer */',
+        'body.has-mouse [role="option"], body.has-mouse button { cursor:pointer; }',
+        'body.has-mouse [role="option"]:hover { transform:translateY(-1px); filter:brightness(1.1); }',
+        '/* Gyorsabb animációk TV-n */',
+        '.webos-tv * { transition-duration:0.15s !important; }',
+        '/* Modal fókusz */',
+        '.webos-tv [role="dialog"]:focus { outline:none; }',
+        '.webos-tv [role="dialog"] button:focus { outline:3px solid #facc15 !important; }',
+        '/* Splash */',
+        '.webos-splash { position:fixed; top:0; left:0; right:0; bottom:0; width:100vw; height:100vh; background:#000; z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#00BFFF; text-align:center; }',
+        '.webos-splash .splash-title { font-size:8vw; font-weight:800; letter-spacing:0.08em; }',
+        '.webos-splash .splash-subtitle { margin-top:22px; font-size:3vw; color:#fff; }'
+      ].join('\n');
       var style = document.createElement('style');
       style.id = 'webos-tv-fix-css';
       style.textContent = css;
       document.head.appendChild(style);
-    } catch (e) { console.warn('[webOS] CSS inject fail', e); }
+    } catch (e) { try { console.warn('[webOS] CSS inject fail', e); } catch (e2) {} }
   }
 
   // ---------- Fókusz helper – csatornalista + modalok ----------
@@ -58,10 +109,11 @@
       return Array.prototype.slice.call(list).filter(function(el) {
         // Az offsetParent a position:fixed elemeknél null lehet, pedig láthatók.
         // A látható rect megbízhatóbban működik webOS-en és modális ablakokban.
+        var hiddenAncestor = el.closest ? el.closest('[hidden]') : null;
         return !el.hasAttribute('disabled') && el.getClientRects().length > 0 &&
-          !el.closest('[hidden]') && el.getAttribute('aria-hidden') !== 'true';
+          !hiddenAncestor && el.getAttribute('aria-hidden') !== 'true';
       });
-    } catch { return []; }
+    } catch (e) { return []; }
   }
 
   function focusFirstChannelList() {
@@ -71,7 +123,7 @@
       if (dialog) {
         var focusable = getFocusable(dialog);
         if (focusable.length) {
-          var btn = focusable.find(function(el){ return el.tagName==='BUTTON'; });
+          var btn = arrayFind(focusable, function(el) { return el.tagName === 'BUTTON'; });
           (btn || focusable[0]).focus({preventScroll:true});
           return true;
         }
@@ -87,18 +139,20 @@
         if (!list.contains(active)) {
           list.focus({preventScroll:true});
           var selId = null;
-          try { selId = list.getAttribute('data-selected-id'); } catch {}
+          try { selId = list.getAttribute('data-selected-id'); } catch (e) {}
           if (!selId) {
             // Próbáljuk meg az első csatornát fókuszba
             var first = document.querySelector('[data-channel-id]');
-            if (first) first.scrollIntoView({block:'nearest'});
+            if (first && first.scrollIntoView) first.scrollIntoView({block:'nearest'});
           }
         }
         return true;
       }
-      var firstFocusable = getFocusable(document).find(function(el) { return !el.closest('[role="dialog"]'); });
+      var firstFocusable = arrayFind(getFocusable(document), function(el) {
+        return !(el.closest && el.closest('[role="dialog"]'));
+      });
       if (firstFocusable) { firstFocusable.focus({preventScroll:true}); return true; }
-    } catch (e) { console.warn('[webOS] focus fail', e); }
+    } catch (e) { try { console.warn('[webOS] focus fail', e); } catch (e2) {} }
     return false;
   }
 
@@ -111,9 +165,9 @@
       var next = focusable[(idx + dir + focusable.length) % focusable.length];
       if (next) {
         next.focus();
-        next.scrollIntoView({block:'nearest', behavior:'smooth'});
+        if (next.scrollIntoView) next.scrollIntoView({block:'nearest', behavior:'smooth'});
       }
-    } catch {}
+    } catch (e) {}
   }
 
   // Magic Remote térbeli fókusznavigáció a gombok és menük között.
@@ -121,7 +175,7 @@
   function focusSpatially(active, key) {
     try {
       var items = getFocusable(document).filter(function(el) {
-        return !el.closest('[role="dialog"]');
+        return !(el.closest && el.closest('[role="dialog"]'));
       });
       if (!items.length) return false;
       if (!active || active === document.body || active === document.documentElement) {
@@ -152,20 +206,43 @@
       best.focus({preventScroll:true});
       if (best.scrollIntoView) best.scrollIntoView({block:'nearest', inline:'nearest'});
       return true;
-    } catch { return false; }
+    } catch (e) { return false; }
   }
 
   // ---------- Keyboard – Magic Remote + D-pad ----------
+  function makeKeyEvent(key, keyCode) {
+    // Régebbi webOS-en a KeyboardEvent konstruktor nem minden mezőt tölt ki,
+    // ezért a keyCode/which mezőket utólag is rögzítjük.
+    var ev = null;
+    try {
+      ev = new KeyboardEvent('keydown', {
+        key: key, code: key, keyCode: keyCode, which: keyCode,
+        bubbles: true, cancelable: true
+      });
+    } catch (e) {
+      try {
+        ev = document.createEvent('Event');
+        ev.initEvent('keydown', true, true);
+        ev.key = key;
+        ev.code = key;
+      } catch (e2) { return null; }
+    }
+    try {
+      if (ev.keyCode !== keyCode) {
+        Object.defineProperty(ev, 'keyCode', { get: function() { return keyCode; } });
+        Object.defineProperty(ev, 'which', { get: function() { return keyCode; } });
+      }
+      if (ev.key !== key) {
+        Object.defineProperty(ev, 'key', { get: function() { return key; } });
+      }
+    } catch (e3) {}
+    return ev;
+  }
+
   function injectKey(key, keyCode) {
     try {
-      var ev = new KeyboardEvent('keydown', {
-        key: key,
-        code: key,
-        keyCode: keyCode,
-        which: keyCode,
-        bubbles: true,
-        cancelable: true
-      });
+      var ev = makeKeyEvent(key, keyCode);
+      if (!ev) return;
       var target = document.activeElement;
       if (!target || target === document.body || target === document.documentElement) {
         var dialogTarget = document.querySelector('[role="dialog"]');
@@ -176,21 +253,27 @@
       // Egyszer küldjük ki a DOM-fába, így a React és a window/document kezelők
       // ugyanazt az eseményt kapják buborékolással, duplikálás nélkül.
       target.dispatchEvent(ev);
-    } catch (e) { console.warn('[webOS] injectKey fail', e); }
+    } catch (e) { try { console.warn('[webOS] injectKey fail', e); } catch (e2) {} }
   }
 
   document.addEventListener('keydown', function(e) {
-    var key = e.key || '';
-    var keyCodes = {ArrowLeft:37, ArrowUp:38, ArrowRight:39, ArrowDown:40, Enter:13, Escape:27, PageUp:33, PageDown:34};
-    var kc = e.keyCode || keyCodes[key] || ((key === 'Back' || key === 'GoBack') ? 461 : 0);
+    // Egységes kulcsnév: régi webOS-en a nyilak 'Up'/'Down'/… néven vagy csak
+    // keyCode-dal érkeznek, az OK 13, a VISSZA 461.
+    var key = normalizeKey(e);
+    var kc = e.keyCode || e.which || KEY_TO_KEYCODE[key] || 0;
+
+    // Ha a gombot már át kellett nevezni (régi webOS), újraküldjük az egységes
+    // névvel, hogy a React kezelők is megkapják érthető formában.
+    var rawKey = e.key || '';
+    var needsRedispatch = key && rawKey !== key && (isArrowKey(key) || key === 'Enter' || key === 'Escape');
 
     // A webOS néha a body-n hagyja a fókuszt. Ilyenkor az első gombnyomást
     // közvetlenül a csatornalistának adjuk át, nem veszítjük el fókuszváltáskor.
     var active = document.activeElement;
     var inTextEntry = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
     var dialogAtStart = document.querySelector('[role="dialog"]');
-    var isArrow = kc >= 37 && kc <= 40 || /^Arrow(Up|Down|Left|Right)$/.test(key || '');
-    var isConfirm = kc === 13 || key === 'Enter' || key === 'Accept' || key === 'OK' || key === 'Select';
+    var isArrow = isArrowKey(key);
+    var isConfirm = key === 'Enter';
     if (!dialogAtStart && !inTextEntry &&
         (!active || active === document.body || active === document.documentElement) &&
         (isArrow || isConfirm)) {
@@ -200,26 +283,23 @@
         e.stopPropagation();
         if (!listAtStart.hasAttribute('tabindex')) listAtStart.setAttribute('tabindex', '0');
         listAtStart.focus({preventScroll:true});
-        var normalizedKey = isConfirm ? 'Enter' : (key || ({37:'ArrowLeft',38:'ArrowUp',39:'ArrowRight',40:'ArrowDown'}[kc]));
-        var normalizedCode = isConfirm ? 13 : (kc || ({ArrowLeft:37,ArrowUp:38,ArrowRight:39,ArrowDown:40}[normalizedKey]));
-        listAtStart.dispatchEvent(new KeyboardEvent('keydown', {
-          key: normalizedKey, code: normalizedKey, keyCode: normalizedCode,
-          which: normalizedCode, bubbles: true, cancelable: true
-        }));
+        var normalizedKey = isConfirm ? 'Enter' : key;
+        var normalizedCode = KEY_TO_KEYCODE[normalizedKey] || kc;
+        var evList = makeKeyEvent(normalizedKey, normalizedCode);
+        if (evList) listAtStart.dispatchEvent(evList);
         return;
       }
     }
     // OK/Select/Enter: a távirányító különböző kulcsneveit egységesítjük.
-    if (isConfirm && key !== 'Enter' && !inTextEntry) {
+    if (isConfirm && rawKey !== 'Enter' && !inTextEntry) {
       var focused = document.activeElement;
       var listForOk = document.querySelector('[role="listbox"]');
       if (listForOk && (!focused || focused === document.body || focused === document.documentElement || listForOk.contains(focused))) {
         e.preventDefault();
         e.stopPropagation();
         listForOk.focus({preventScroll:true});
-        listForOk.dispatchEvent(new KeyboardEvent('keydown', {
-          key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true, cancelable:true
-        }));
+        var evOk = makeKeyEvent('Enter', 13);
+        if (evOk) listForOk.dispatchEvent(evOk);
         return;
       }
       if (focused && (focused.tagName === 'BUTTON' || focused.tagName === 'A' || focused.getAttribute('role') === 'button')) {
@@ -230,61 +310,53 @@
     }
 
     // webOS Back (461) → Escape (bezár modal, kilép fullscreen)
-    if (kc === 461 || kc === 27) {
-      console.log('[webOS] Back → Escape');
-      if (kc === 461) {
+    if (kc === 461 || key === 'Escape') {
+      if (kc === 461 || rawKey !== 'Escape') {
+        try { console.log('[webOS] Back → Escape'); } catch (eLog) {}
         e.preventDefault();
         e.stopPropagation();
         injectKey('Escape', 27);
-        // Ha van dialog, zárjuk JS-ből is
-        var dlg = document.querySelector('[role="dialog"]');
-        if (dlg) {
-          // A React modal saját Escape handlerje kezeli a bezárást.
-        }
         return;
       }
     }
 
     // Channel Up/Down (33/34): a listára küldjük, mert a documentre
     // dispatcholt esemény nem jut el a lista React onKeyDown kezelőjéhez.
-    if (kc === 33 || kc === 34 || key === 'PageUp' || key === 'PageDown') {
-      e.preventDefault();
-      e.stopPropagation();
+    if (key === 'PageUp' || key === 'PageDown') {
       var channelList = document.querySelector('[role="listbox"]');
-      if (channelList) {
+      if (channelList && !dialogAtStart) {
+        e.preventDefault();
+        e.stopPropagation();
         channelList.focus({preventScroll:true});
-        var up = kc === 33 || key === 'PageUp';
-        var mappedKey = up ? 'ArrowUp' : 'ArrowDown';
-        var mappedCode = up ? 38 : 40;
-        channelList.dispatchEvent(new KeyboardEvent('keydown', {
-          key: mappedKey, code: mappedKey, keyCode: mappedCode,
-          which: mappedCode, bubbles: true, cancelable: true
-        }));
+        var up = key === 'PageUp';
+        var evCh = makeKeyEvent(up ? 'ArrowUp' : 'ArrowDown', up ? 38 : 40);
+        if (evCh) channelList.dispatchEvent(evCh);
+        return;
       }
-      return;
     }
 
-    // D-pad (37-40) már Arrow* – de biztosítjuk hogy modalban is működjön
-    if (kc >= 37 && kc <= 40) {
-      var dialog = document.querySelector('[role="dialog"]');
-      if (dialog) {
-        // Modalban ArrowUp/Down → fókusz navigáció
-        if (kc === 38) { // Up
+    // D-pad – biztosítjuk hogy modalban is működjön
+    if (isArrow && dialogAtStart) {
+      var dialog = dialogAtStart;
+      // Modalban ArrowUp/Down → fókusz navigáció
+      if (key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopPropagation();
+        focusNextInModal(dialog, -1);
+        return;
+      } else if (key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopPropagation();
+        focusNextInModal(dialog, 1);
+        return;
+      } else {
+        // Left/Right modalban is fel/le-ként kezeljük ha nincs input fókuszban
+        var activeInDialog = document.activeElement;
+        if (!activeInDialog || activeInDialog.tagName !== 'INPUT') {
           e.preventDefault();
           e.stopPropagation();
-          focusNextInModal(dialog, -1);
-        } else if (kc === 40) { // Down
-          e.preventDefault();
-          e.stopPropagation();
-          focusNextInModal(dialog, 1);
-        } else if (kc === 37 || kc === 39) {
-          // Left/Right modalban is fel/le-ként kezeljük ha nincs input fókuszban
-          var active = document.activeElement;
-          if (!active || active.tagName !== 'INPUT') {
-            e.preventDefault();
-            e.stopPropagation();
-            focusNextInModal(dialog, kc === 39 ? 1 : -1);
-          }
+          focusNextInModal(dialog, key === 'ArrowRight' ? 1 : -1);
+          return;
         }
       }
     }
@@ -294,46 +366,65 @@
     if (isArrow && !dialogAtStart && !inTextEntry) {
       var focusedNow = document.activeElement;
       var insideList = focusedNow && focusedNow.closest && focusedNow.closest('[role="listbox"]');
-      if (!insideList) {
-        if (focusSpatially(focusedNow, key || ({37:'ArrowLeft',38:'ArrowUp',39:'ArrowRight',40:'ArrowDown'}[kc]))) {
+      var isControl = focusedNow && (focusedNow.tagName === 'BUTTON' || focusedNow.tagName === 'A' ||
+        (focusedNow.getAttribute && focusedNow.getAttribute('role') === 'button'));
+      if (!insideList && isControl) {
+        if (focusSpatially(focusedNow, key)) {
           e.preventDefault();
           e.stopPropagation();
           return;
         }
       }
+      // Régi webOS kulcsnév ('Up' stb.): adjuk tovább egységes 'Arrow*' néven,
+      // hogy a React csatornaváltó / lista kezelői is megkapják.
+      if (needsRedispatch) {
+        e.preventDefault();
+        e.stopPropagation();
+        injectKey(key, KEY_TO_KEYCODE[key] || kc);
+        return;
+      }
+    }
+
+    // Modalon belül régi kulcsnév: egységes néven továbbadjuk a Reactnek.
+    if (needsRedispatch && dialogAtStart && !inTextEntry && !isArrow) {
+      e.preventDefault();
+      e.stopPropagation();
+      injectKey(key, KEY_TO_KEYCODE[key] || kc);
+      return;
     }
 
     // Színes gombok – jövőbeli funkciók, most logoljuk
     if (kc >= 403 && kc <= 406) {
-      console.log('[webOS] Color key', kc);
+      try { console.log('[webOS] Color key', kc); } catch (eC) {}
     }
 
     // Média gombok
     if (kc === 412 || kc === 413 || kc === 415 || kc === 19 || kc === 417) {
-      console.log('[webOS] Media key', kc);
+      try { console.log('[webOS] Media key', kc); } catch (eM) {}
     }
   }, true);
 
   // ---------- Pointer – Magic Remote egér ----------
   document.addEventListener('mousemove', function() {
-    try { document.body.classList.add('has-mouse'); } catch {}
+    try { document.body.classList.add('has-mouse'); } catch (e) {}
   });
   document.addEventListener('keydown', function(e) {
-    if (e.key && (e.key.startsWith('Arrow') || e.key === 'Enter')) {
-      try { document.body.classList.remove('has-mouse'); } catch {}
+    var key = normalizeKey(e);
+    if (isArrowKey(key) || key === 'Enter') {
+      try { document.body.classList.remove('has-mouse'); } catch (e2) {}
     }
   });
 
   // ---------- webOS lifecycle ----------
   if (window.webOS) {
-    console.log('[webOS] webOS API elérhető');
+    try { console.log('[webOS] webOS API elérhető'); } catch (e) {}
     window.addEventListener('webOSRelaunch', function(e) {
-      console.log('[webOS] Relaunch:', e);
+      try { console.log('[webOS] Relaunch:', e); } catch (e2) {}
       setTimeout(focusFirstChannelList, 300);
     });
     document.addEventListener('visibilitychange', function() {
       if (!document.hidden) {
-        console.log('[webOS] App előtérbe került – fókusz vissza');
+        try { console.log('[webOS] App előtérbe került – fókusz vissza'); } catch (e) {}
         setTimeout(focusFirstChannelList, 300);
       }
     });
@@ -344,7 +435,7 @@
     injectTvCss();
     try {
       document.body.classList.add('webos-tv', 'lg-webos', 'tv-mode');
-    } catch {}
+    } catch (e) {}
     // Többszöri fókusz próbálkozás – lista később töltődik
     setTimeout(focusFirstChannelList, 300);
     setTimeout(focusFirstChannelList, 1000);
@@ -359,14 +450,14 @@
           setTimeout(function(){
             var f = getFocusable(dlg);
             if (f.length) {
-              var btn = f.find(function(el){ return el.tagName==='BUTTON'; });
+              var btn = arrayFind(f, function(el) { return el.tagName === 'BUTTON'; });
               (btn || f[0]).focus();
             }
           }, 100);
         }
       });
       observer.observe(document.body, { childList:true, subtree:true });
-    } catch {}
+    } catch (e) {}
 
     // Ha modal bezárul, fókusz vissza a listára
     var lastDialogState = false;
@@ -389,8 +480,9 @@
   window.__webosTvFocusFix = {
     focusFirst: focusFirstChannelList,
     getFocusable: getFocusable,
-    injectKey: injectKey
+    injectKey: injectKey,
+    normalizeKey: normalizeKey
   };
 
-  console.log('[webOS] IPTV R.T webOS TV ready 2.3.3 – Magic Remote fix + QR provisioning');
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.4 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

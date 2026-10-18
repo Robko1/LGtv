@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Category, Movie, AppSettings } from '../types/iptv';
 import { PosterImage, PosterSettingsButton } from './PosterImage';
 import { Search, Star, Play, Clock, Sparkles, Filter, ChevronDown, Mic2, Subtitles, Heart } from 'lucide-react';
+import { normalizeTvKey } from '../utils/tvKeys';
 
 interface MoviesViewProps {
   movies: Movie[];
@@ -142,7 +143,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
                 role="button"
                 tabIndex={0}
                 onClick={() => setSelectedMovie(mov)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedMovie(mov); } }}
+                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovie(mov); } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/60 md:hover:border-cyan-400/80 lg:hover:border-cyan-400/80 transition-all duration-200 hover:-translate-y-1 md:hover:-translate-y-1 lg:hover:-translate-y-1.5 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070e1e]"
               >
                 {/* Poster Image */}

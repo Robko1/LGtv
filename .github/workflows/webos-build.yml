@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.3.3'
+  VERSION: '2.3.4'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TAG: 'v2.3.3'
+  RELEASE_TAG: 'v2.3.4'
   OLD_RELEASE_TAG: 'v2.3.1'
   RELEASE_TITLE: 'IPTV-RT'
 
@@ -69,9 +69,15 @@ jobs:
         run: |
           set -euo pipefail
           grep -Fq 'https://api.github.com/repos/Robko1/LGtv/releases/latest' web/src/services/webosUpdateService.ts
-          grep -Fq 'dispatchEvent(new KeyboardEvent' webos/webos.js
+          grep -Fq 'normalizeKey' webos/webos.js
           grep -Fq 'focusSpatially' webos/webos.js
-          grep -Fq 'keyCodes[key]' webos/webos.js
+          grep -Fq 'KEYCODE_TO_KEY' webos/webos.js
+          grep -Fq 'makeKeyEvent' webos/webos.js
+          # ES5 szintaxis őrzés: régebbi LG webOS (Chrome 38-53) elhasal a modern szintaxison
+          if grep -nE '=>|`|catch \{|catch\{|\blet |\bconst ' webos/webos.js; then
+            echo "HIBA: modern JS szintaxis került a webos.js-be - régebbi LG TV-ken a távirányító-kezelő nem töltődne be." >&2
+            exit 1
+          fi
           if grep -RniE 'IPTVNative|Android|WebView|\.apk' web/src web/index.html; then
             echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
             exit 1
@@ -89,8 +95,8 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.3.3":
-              raise SystemExit(f"Eltérő buildverzió: várt 2.3.3, kapott {match.group(1)}")
+          if match.group(1) != "2.3.4":
+              raise SystemExit(f"Eltérő buildverzió: várt 2.3.4, kapott {match.group(1)}")
           print(f"LG webOS verziók egyeznek: {match.group(1)}")
           PY
           echo "OK: webOS-frissítő, platformtisztaság, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
@@ -156,7 +162,7 @@ jobs:
           import json
           from pathlib import Path
           packaged = json.loads(Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/appinfo.json").read_text())
-          if packaged.get("version") != "2.3.3":
+          if packaged.get("version") != "2.3.4":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
           if "splashBackground" in packaged:
               raise SystemExit("HIBA: a webOS appinfo.json még indítóképet állít be.")
@@ -167,9 +173,9 @@ jobs:
               raise SystemExit("HIBA: régi, fölösleges indítófelirat maradt.")
           if 'class="boot-spinner"' in html or 'class="boot-text"' in html:
               raise SystemExit("HIBA: a régi diagnosztikai indítóképernyő maradt a csomagban.")
-          if "focusSpatially" not in html or "dispatchEvent(new KeyboardEvent" not in html:
+          if "focusSpatially" not in html or "normalizeKey" not in html:
               raise SystemExit("HIBA: a távirányító-kezelő nem került bele a csomagolt HTML-be.")
-          print("OK: friss HTML, Magic Remote-kezelő, verzió 2.3.3; nincs csomagolt indítóvideó/kép.")
+          print("OK: friss HTML, Magic Remote-kezelő, verzió 2.3.4; nincs csomagolt indítóvideó/kép.")
           PY
           echo "OK: IPK tartalma rendben"
 
