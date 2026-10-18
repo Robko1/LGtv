@@ -94,7 +94,7 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.3.5":
+          if match.group(1) != "2.3.6":
               raise SystemExit(f"Nem várt alkalmazásverzió: {match.group(1)}")
           if "splashBackground" in manifest:
               raise SystemExit("A webOS manifest még splash képet állít be.")
