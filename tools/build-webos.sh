@@ -22,7 +22,7 @@ BUILD_DIR="$PROJECT_DIR/build/webos"
 DIST_DIR="$WEBOS_DIR/dist"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-1.25.0}"
+VERSION="${VERSION:-2.3.0}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="IPTV R.T webOS"
 
@@ -73,10 +73,11 @@ cp "$WEBOS_DIR/webos.js" "$BUILD_DIR/webos.js"
 log "index.html feldolgozása webOS TV-re (fekvő splash, kisebb lejátszó, gyors betöltés)"
 
 # A web build egy single file HTML, ebbe injektáljuk a webOS dolgokat
-python3 - << 'PY'
+VERSION="$VERSION" python3 - << 'PY'
 import pathlib
 import json
 import re
+import os
 
 web_build = pathlib.Path("build/web/index.html")
 build_dir = pathlib.Path("build/webos")
@@ -95,6 +96,10 @@ print(f"FIX: type=module + crossorigin eltávolítva, méret: {len(html)} bytes"
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.0"))
+(build_dir / "appinfo.json").write_text(
+    json.dumps(appinfo, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+)
 
 # webOS.js injektálása a <head>-be
 webos_js = (webos_dir / "webos.js").read_text(encoding="utf-8")
@@ -124,7 +129,17 @@ body.webos-tv, body.lg-webos {{
   align-items: center;
   justify-content: center;
 }}
+.webos-splash video {{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}}
 .webos-splash img {{
+  display: none;
+  position: relative;
+  z-index: 1;
   width: 400px;
   height: 400px;
   object-fit: contain;
@@ -152,14 +167,37 @@ html = html.replace("<body", '<body class="webos-tv lg-webos tv-mode"')
 # Fekvő splash hozzáadása body elejére
 splash_html = """
 <div id="webos-splash" class="webos-splash">
-  <img src="assets/icon_tv.png" alt="IPTV R.T" />
+  <video id="webos-intro-video" autoplay muted playsinline preload="auto">
+    <source src="assets/intro_landscape.mp4" type="video/mp4" />
+  </video>
+  <img id="webos-intro-fallback" src="assets/icon_tv.png" alt="IPTV R.T" />
 </div>
 <script>
-// Splash eltüntetése 2s után (fekvő videó helyett)
-setTimeout(function() {
-  var s = document.getElementById('webos-splash');
-  if (s) { s.style.transition = 'opacity 0.5s'; s.style.opacity = '0'; setTimeout(function(){ s.remove(); }, 500); }
-}, 2000);
+(function() {
+  var splash = document.getElementById('webos-splash');
+  var video = document.getElementById('webos-intro-video');
+  var fallback = document.getElementById('webos-intro-fallback');
+  var finished = false;
+  function finish() {
+    if (finished) return;
+    finished = true;
+    if (splash) {
+      splash.style.transition = 'opacity 0.5s';
+      splash.style.opacity = '0';
+      setTimeout(function() { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 500);
+    }
+  }
+  if (video) {
+    video.addEventListener('ended', finish);
+    video.addEventListener('error', function() {
+      video.style.display = 'none';
+      if (fallback) fallback.style.display = 'block';
+      setTimeout(finish, 1500);
+    });
+  }
+  // Biztonsági tartalék, ha a TV nem küld videóeseményt.
+  setTimeout(finish, 4500);
+})();
 </script>
 """
 if "<body" in html:
