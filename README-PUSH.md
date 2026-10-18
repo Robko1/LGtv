@@ -1,63 +1,22 @@
-# LGtv repo push – hogyan töltsd fel GitHub-ra
+# LGtv – main ág és kézi build
 
-Ez a repó kizárólag LG webOS TV-re készült (v2.3.1).
+A projekt repója: https://github.com/Robko1/LGtv  
+A változtatások közvetlenül a `main` ágra kerülnek. Ne inicializáld újra a repót, ne tölts fel másik projektből származó forrást, és ne használj force push-t.
 
-## Ha a GitHub-on már létrehoztad https://github.com/Robko1/LGtv (Private) üres repo-t:
+## 1. Forrás és diagnosztika ellenőrzése
 
-### 1. Tömörített projekt letöltése
+GitHub → **Actions** → **LG webOS – kézi diagnosztika és web build** → **Run workflow**.
 
-- Arena-ból letöltöd: `LGtv-project.tar.gz` (634K)
-- Kicsomagolod:
+Ez ellenőrzi a webes buildet, a LG webOS manifestet, a verzióegyezést, az IPK-csomagoló szintaxisát és azt, hogy a webes forrásban ne maradjon Android-specifikus híd.
 
-```bash
-tar xzf LGtv-project.tar.gz
-cd LGtv
-```
+## 2. IPK készítése és közzététele
 
-### 2. Git push
+Ha a diagnosztika sikeres, GitHub → **Actions** → **IPTV – webOS TV IPK építése** → **Run workflow**.
 
-```bash
-git init -b main
-git add -A
-git commit -m "v2.3.1 LG webOS TV külön repo – távirányító fix + külön kinézet + QR + workflow fix"
-git remote add origin https://github.com/Robko1/LGtv.git
-git push -u origin main
-```
+A build a jelenlegi `Robko1/LGtv` repó forrásaiból készíti az `IPTV-RT-webOS-2.3.1.ipk` csomagot, majd a `v2.3.1` GitHub Release-be teszi. A Release-ben csak az aktuális IPK marad.
 
-Ha a távoli repóban már vannak fájlok, először húzd le és egyesítsd őket; ne használj `--force` push-t:
+## Fontos
 
-```bash
-git remote add origin https://github.com/Robko1/LGtv.git
-git fetch origin
-git pull --rebase origin main
-git push -u origin main
-```
-
-### 3. Ellenőrzés
-
-- GitHub-on: https://github.com/Robko1/LGtv → a forrásfájlok és workflow-k látszanak
-- Actions fül: 2 workflow
-  - `LG webOS – kézi diagnosztika és web build` (kézi)
-  - `IPTV – webOS TV IPK építése` (kézi)
-
-### 4. IPK építés
-
-- Actions → `LG webOS – kézi diagnosztika és web build` → Run workflow → ha OK
-- Actions → `IPTV – webOS TV IPK építése` → Run workflow → artifact + Release `v2.3.1` → `IPTV-RT-webOS-2.3.1.ipk`
-
-## Mi változott a korábbi hibás futáshoz képest (39110438592)?
-
-- `tools/build-webos.sh`: `type="module"` + `crossorigin` eltávolítása – file:// nem támogatja, CORS hibát okozott webOS-en
-- `webos-manual-diagnosis.yml`: kézzel indítható LG webOS buildellenőrzés
-- Markerek keresése HTML-ben ÉS webos.js-ben: `webOS`, `IS_WEBOS_TV`, `IS_LG_WEBOS`
-
-## Telepítés TV-re
-
-- IPK: `webos/IPTV-RT-webOS-2.3.1.ipk` vagy a saját repó Release oldaláról
-- Dev Manager: https://github.com/webosbrew/dev-manager-desktop
-- TV Developer Mode be, IPK Install
-
-## QR telefonos
-
-- `provision.html` + `QR-TELEFONOS-BEALLITAS.md`
-- Bucket: `IPTV_RT_QR_8bc03776` kvdb.io
+- Csak LG webOS TV-re készülő IPK van; Android APK-t ez a repó nem épít.
+- A GitHub-frissítés a legfrissebb Release-t ellenőrzi. Az IPK telepítéséhez webOS fejlesztői eszköz szükséges; az alkalmazás nem tudja magát csendben frissíteni.
+- Az IPK sikeres buildjét és a valódi LG TV-s lejátszást minden kiadásnál külön ellenőrizni kell.
