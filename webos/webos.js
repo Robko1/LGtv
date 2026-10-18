@@ -56,7 +56,10 @@
       var root = container || document;
       var list = root.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
       return Array.prototype.slice.call(list).filter(function(el) {
-        return !el.hasAttribute('disabled') && el.offsetParent !== null;
+        // Az offsetParent a position:fixed elemeknél null lehet, pedig láthatók.
+        // A látható rect megbízhatóbban működik webOS-en és modális ablakokban.
+        return !el.hasAttribute('disabled') && el.getClientRects().length > 0 &&
+          !el.closest('[hidden]') && el.getAttribute('aria-hidden') !== 'true';
       });
     } catch { return []; }
   }
