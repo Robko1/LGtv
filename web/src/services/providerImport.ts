@@ -76,12 +76,12 @@ const MAX_MOVIES = 40000;
 const MAX_SERIES = 15000;
 
 /**
- * A felületfrissítéseket ritkítjuk: a sok callback lassíthatja a WebView-t.
+ * A felületfrissítéseket ritkítjuk: a sok callback lassíthatja a böngészőfelület-t.
  * Korábban 250/100 volt, ami 40k filmnél 160 progress + 400 yield = ~100s összidőből 86s feldolgozás.
  * Most 500/500: fele annyi callback, kevesebb főszál blokkolás, de még mindig nem fagy le.
  */
 const PROGRESS_UPDATE_EVERY = 500;
-/** Hosszú feldolgozás közben időnként visszaadjuk a vezérlést a WebView-nak. */
+/** Hosszú feldolgozás közben időnként visszaadjuk a vezérlést a böngészőfelület-nak. */
 const UI_YIELD_EVERY = 500;
 
 function yieldToUi(): Promise<void> {
