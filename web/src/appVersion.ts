@@ -153,7 +153,7 @@ export const WEB_VERSION_HISTORY = [
       "Ha a szolgáltató szervere nem válaszol (a kapcsolat létrejön, de válasz nem érkezik), a program ezt érthetően megmondja – és jelzi, hogy nem a telefon vagy a router a hibás",
       "Automatikus újrapróbálkozás: szolgáltatói hiba esetén percenként egyszer magától újrapróbálja (legfeljebb háromszor), így magától helyreáll, amikor a szerver visszatér",
       "Újrapróbálkozás gomb a hibaüzenetnél (azonnali próba)",
-      "Az APK a WebView pontos hálózati hibakódját is átadja (net::ERR_…), amiből a program megkülönbözteti a DNS-hibát, a nem válaszoló szervert és a blokkolt kapcsolatot",
+      "Az alkalmazás a WebView pontos hálózati hibakódját is átadja (net::ERR_…), amiből a program megkülönbözteti a DNS-hibát, a nem válaszoló szervert és a blokkolt kapcsolatot",
       "Ha a http:// port nem válaszol gyorsan, a program egyszer a https (titkosított) portot is megpróbálja",
       "Rövidebb időtúllépések: 10 s (bejelentkezés, EPG), 30 s (nagy listák) – egy elakadt kérés nem foglalja sokáig a kapcsolatot",
     ],
@@ -179,7 +179,7 @@ export const WEB_VERSION_HISTORY = [
       "Párhuzamos letöltés a szolgáltató kapcsolatlimitjéig (induláskor 2, legfeljebb 4 kérés) – a 429-es válaszból automatikusan tanul",
       "A filmek/sorozatok letöltése megáll, amikor már megvan a maximális darabszám (nagy listáknál feleannyi adat)",
       "EPG műsorújság javítva: valódi műsorok, kereshető csatornaválasztó, most/következő műsor az aktív csatornánál",
-      "Vágólap-védelem: a diagnosztika előnézete nem jelölhető ki, a vágólapra kizárólag a MÁSOLÁS gomb ír, az APK a natív kijelölést is tiltja",
+      "Vágólap-védelem: a diagnosztika előnézete nem jelölhető ki, a vágólapra kizárólag a MÁSOLÁS gomb ír, az alkalmazás a natív kijelölést is tiltja",
       "M3U/M3U8: link, fájlválasztás és teljes lista beillesztése is importálható",
       "Csatornaváltás: ha a beépített lejátszó 6 másodperc alatt nem indul el, automatikusan a natív lejátszó veszi át",
       "Biztosabb web-frissítés: ha induláskor nincs internet, a program később újrapróbálja",
@@ -281,7 +281,7 @@ export const WEB_VERSION_HISTORY = [
     version: '1.7',
     date: '2026-10-04',
     changes: [
-      "Fix Xtream HTTP fallback in Android WebView",
+      "Fix Xtream HTTP fallback for LG webOS TV",
     ],
   },
   {
@@ -290,7 +290,7 @@ export const WEB_VERSION_HISTORY = [
     changes: [
       "Reset web release history before real channel fix",
       "Use fetch when XMLHttpRequest is unavailable",
-      "Use XHR for Xtream requests in Android WebView",
+      "Use XHR for Xtream requests on LG webOS TV",
       "Restore Xtream network fallback from known working state",
     ],
   },
