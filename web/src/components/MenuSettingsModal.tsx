@@ -84,8 +84,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 }) => {
   const [githubTokenName, setGithubTokenName] = useState('');
   const [githubToken, setGithubToken] = useState('');
-  const [githubOwner, setGithubOwner] = useState('Robko1');
-  const [githubRepo, setGithubRepo] = useState('LGtv');
   const [githubConfigured, setGithubConfigured] = useState(false);
   const [githubStatus, setGithubStatus] = useState('');
   const [githubUpdating, setGithubUpdating] = useState(false);
@@ -121,8 +119,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     try {
       const cfg = api.githubConfig();
       setGithubTokenName(cfg?.tokenName || '');
-      setGithubOwner('Robko1');
-      setGithubRepo('LGtv');
       setGithubConfigured(Boolean(cfg?.configured));
       setGithubToken('');
       setGithubStatus('');
@@ -364,7 +360,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       setGithubStatus('Ez a teszt csak Android APK-ban érhető el.');
       return;
     }
-    api.githubSaveConfig(githubTokenName, githubToken, githubOwner, githubRepo);
+    api.githubSaveConfig(githubTokenName, githubToken, 'Robko1', 'LGtv');
     setGithubConfigured(Boolean(githubToken) || githubConfigured);
     setGithubToken('');
     setGithubStatus('Kapcsolat tesztelése...');
