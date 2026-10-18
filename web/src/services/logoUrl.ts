@@ -10,7 +10,7 @@
  *    kivételt dob, és így az érvényes logócím is elveszne;
  *  - a relatív és `//` kezdetű címeket a szolgáltató/lista hálózati címéhez
  *    oldjuk fel, séma nélküli báziscímnél HTTP alapértelmezéssel;
- *  - az APK `file://` dokumentumcímét soha nem használjuk bázisként, és a
+ *  - a TV-csomag `file://` dokumentumcímét soha nem használjuk bázisként, és a
  *    tiltott URL-sémák (file:, javascript: stb.) így is elutasítva maradnak.
  */
 
