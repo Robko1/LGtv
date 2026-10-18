@@ -976,7 +976,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const selectVodAudio = (track: AudioTrack) => {
-    // A hangsávlista MPV-azonosítót tartalmaz; a selectTrack indexet várna,
+    // A hangsávlista lejátszóazonosítót tartalmaz; a selectTrack indexet várna,
     // ami eltérhet, ezért a HTML5 videó-azonosító szerinti API-t használjuk.
     const mpvId = typeof track.id === 'number' ? track.id : Number(track.id);
     const nativeIndex = Number((track as AudioTrack & { nativeIndex?: number }).nativeIndex);
