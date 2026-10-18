@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.3.2'
+  VERSION: '2.3.3'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
   RELEASE_TAG: 'v2.3.1'
   RELEASE_TITLE: 'IPTV-RT'
@@ -102,12 +102,12 @@ jobs:
           import json
           from pathlib import Path
           packaged = json.loads(Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/appinfo.json").read_text())
-          if packaged.get("version") != "2.3.2":
+          if packaged.get("version") != "2.3.3":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
           html = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html").read_text()
           if 'id="root"' not in html or '/src/main.tsx' in html:
               raise SystemExit("HIBA: a csomagolt index.html hiányos vagy nem production build.")
-          print("OK: az IPK index.html fájlja bájtra pontosan egyezik a friss builddel; verzió 2.3.2.")
+          print("OK: az IPK index.html fájlja bájtra pontosan egyezik a friss builddel; verzió 2.3.3.")
           PY
           echo "OK: IPK tartalma rendben"
 
