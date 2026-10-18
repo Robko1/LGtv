@@ -208,7 +208,7 @@
       }
     }
     // OK/Select/Enter: a távirányító különböző kulcsneveit egységesítjük.
-    if (isConfirm && !inTextEntry) {
+    if (isConfirm && key !== 'Enter' && !inTextEntry) {
       var focused = document.activeElement;
       var listForOk = document.querySelector('[role="listbox"]');
       if (listForOk && (!focused || focused === document.body || focused === document.documentElement || listForOk.contains(focused))) {
