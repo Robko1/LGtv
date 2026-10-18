@@ -1,6 +1,16 @@
-export const WEB_VERSION = '2.3.5';
+export const WEB_VERSION = '2.3.6';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.6',
+    date: '2026-10-18',
+    changes: [
+      "TV navigáció javítás: a csatornalista tetejéről FEL nyíllal a felső menüsorra ugrik a fókusz (Kategóriák/Élő/Mozi/Sorozat/Beállítások), a menüsorról LE nyíllal vissza a listára. Üres vagy még töltődő listánál a nyilak azonnal a menüsorra visznek – eddig a távirányító zsákutcában volt, sehová nem lehetett navigálni.",
+      "Színes gomb gyorsmenük a távirányítón: ZÖLD = Beállítások, SÁRGA = Műsorújság (EPG), KÉK = Kategóriák, PIROS = diagnosztika ki/be. A diagnosztika-sáv mutatja a súgót.",
+      "Az őrült gyors pörgés/villogás javítva: a TV-s CSS minden elem animációját 0.15 másodpercre gyorsította (animation/transition-duration !important) – ettől pörgött veszettül a töltéskerék és villogott az óra. Az erőltetett gyorsítás eltávolítva, az animációk normál sebességűek.",
+      "Verzió: 2.3.6 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.5',
     date: '2026-10-18',

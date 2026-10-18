@@ -411,12 +411,38 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   };
 
   // Billentyűzet / TV remote támogatás: nyilakkal navigálás, Enter kiválasztás
+  /** TV: fókusz a felső menüsor első gombjára (Kategóriák/Mozi/Sorozat/Beállítások). */
+  const focusHeaderMenu = () => {
+    const btn = document.querySelector<HTMLElement>('header button:not([disabled])');
+    if (btn) {
+      btn.focus({ preventScroll: true } as any);
+      try { btn.scrollIntoView({ block: 'nearest' }); } catch {}
+      return true;
+    }
+    return false;
+  };
+
   const handleListKeyDown = (e: React.KeyboardEvent) => {
-    if (visibleChannels.length === 0) return;
     // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
     const key = normalizeTvKey(e);
+    if (visibleChannels.length === 0) {
+      // ÜRES lista (még töltődik vagy nincs lejátszási lista): ne legyen
+      // zsákutca a TV-n – bármely nyíllal a felső menüsorra ugrunk, hogy a
+      // távirányítóval el lehessen érni a Beállításokat/Mozit/Sorozatot.
+      if (isTvArrowKey(key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        focusHeaderMenu();
+      }
+      return;
+    }
     const currentIndex = visibleChannels.findIndex((c) => c.id === selectedChannelId);
-    if (key === 'ArrowDown') {
+    if (key === 'ArrowUp' && currentIndex <= 0) {
+      // A lista tetejéről felfelé: fókusz a felső menüsorra.
+      e.preventDefault();
+      e.stopPropagation();
+      focusHeaderMenu();
+    } else if (key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation();
       const nextIndex = Math.min(visibleChannels.length - 1, (currentIndex < 0 ? 0 : currentIndex + 1));

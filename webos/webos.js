@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.5
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.6
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.5 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.6 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -156,7 +156,7 @@
         'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
         'white-space:pre-wrap;word-break:break-word;');
       var title = document.createElement('div');
-      title.textContent = 'IPTV R.T diagnosztika 2.3.5 \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika 2.3.6 \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -164,10 +164,14 @@
       diag.keyLine.textContent = 'Nyomj egy gombot a távirányítón...';
       diag.mouseLine = document.createElement('div');
       diag.mouseLine.textContent = 'Egér/kattintás: 0 / 0';
+      var hint = document.createElement('div');
+      hint.textContent = 'PIROS: diag ki/be \u00b7 Z\u00d6LD: Be\u00e1ll\u00edt\u00e1sok \u00b7 S\u00c1RGA: M\u0171sor\u00fajs\u00e1g \u00b7 K\u00c9K: Kateg\u00f3ri\u00e1k';
+      hint.setAttribute('style', 'color:#64748b;font-size:16px;margin-top:4px;');
       box.appendChild(title);
       box.appendChild(diag.uiLine);
       box.appendChild(diag.keyLine);
       box.appendChild(diag.mouseLine);
+      box.appendChild(hint);
       document.body.appendChild(box);
       diag.el = box;
     } catch (e) {}
@@ -254,8 +258,8 @@
         '/* Egér – Magic Remote pointer */',
         'body.has-mouse [role="option"], body.has-mouse button { cursor:pointer; }',
         'body.has-mouse [role="option"]:hover { transform:translateY(-1px); filter:brightness(1.1); }',
-        '/* Gyorsabb animációk TV-n */',
-        '.webos-tv * { transition-duration:0.15s !important; }',
+        '/* FONTOS: korábban itt minden elem animációja 0.15s-re volt gyorsítva,',
+        '   ettől a töltéskerék és az óra őrülten pörgött/villogott a TV-n. Törölve. */',
         '/* Modal fókusz */',
         '.webos-tv [role="dialog"]:focus { outline:none; }',
         '.webos-tv [role="dialog"] button:focus { outline:3px solid #facc15 !important; }',
@@ -684,5 +688,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.5 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.6 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();
