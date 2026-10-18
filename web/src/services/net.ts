@@ -215,11 +215,21 @@ function proxyUrl(target: string, proxy: string): string {
 function redactDiagnosticUrl(url: string, depth = 0): string {
   try {
     const parsed = new URL(url);
+    if (parsed.username) parsed.username = '[redacted]';
+    if (parsed.password) parsed.password = '[redacted]';
     for (const key of Array.from(parsed.searchParams.keys())) {
-      if (/^(username|password|token|api_key|apikey|key|auth)$/i.test(key)) {
+      if (/^(username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)$/i.test(key)) {
         parsed.searchParams.set(key, '[redacted]');
       }
     }
+    const pathParts = parsed.pathname.split('/');
+    for (let i = 0; i < pathParts.length; i += 1) {
+      if (/^(live|movie|series)$/i.test(pathParts[i]) && pathParts[i + 1] && pathParts[i + 2]) {
+        pathParts[i + 1] = '[redacted]';
+        pathParts[i + 2] = '[redacted]';
+      }
+    }
+    parsed.pathname = pathParts.join('/');
     if (depth < 1) {
       const nested = parsed.searchParams.get('url');
       if (nested && /^https?:\/\//i.test(nested)) {
@@ -228,7 +238,7 @@ function redactDiagnosticUrl(url: string, depth = 0): string {
     }
     return parsed.toString();
   } catch {
-    return url.replace(/([?&](?:username|password|token|api_key|apikey|key|auth)=)[^&]*/gi, '$1[redacted]');
+    return url.replace(/([?&](?:username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)=)[^&]*/gi, '$1[redacted]').replace(/\/(live|movie|series)\/[^/]+\/[^/]+/gi, '/$1/[redacted]/[redacted]');
   }
 }
 
