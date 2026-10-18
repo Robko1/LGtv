@@ -89,7 +89,7 @@ VERSION=2.3.1 bash ../tools/build-webos.sh
 
 ## Verzió
 
-- **v2.3.1** – LG külön repo + Android-only szétválasztás + távirányító fix + QR
+- **v2.3.1** – LG webOS-only build + távirányító fix + QR
 - IPK: `IPTV-RT-webOS-2.3.1.ipk` (kb. 500-600KB)
 - appinfo.json: `hu.rt.iptv.webos` v2.3.1
 
