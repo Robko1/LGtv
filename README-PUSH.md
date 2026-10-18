@@ -1,6 +1,6 @@
 # LGtv repo push – hogyan töltsd fel GitHub-ra
 
-Ez a mappa az LG webOS TV külön repo-ja (v2.3.0).
+Ez a mappa az kizárólag LG webOS TV-re készült repó (v2.3.0).
 
 ## Ha a GitHub-on már létrehoztad https://github.com/Robko1/LGtv (Private) üres repo-t:
 
@@ -35,9 +35,9 @@ git push -u origin main --force
 
 ### 3. Ellenőrzés
 
-- GitHub-on: https://github.com/Robko1/LGtv → fájlok látszanak
+- GitHub-on: https://github.com/Robko1/LGtv → a forrásfájlok és workflow-k látszanak
 - Actions fül: 2 workflow
-  - `IPTV – LG webOS diagnosztika + kinézet build` (kézi)
+  - `LG webOS – kézi diagnosztika és web build` (kézi)
   - `IPTV – webOS TV IPK építése` (kézi)
 
 ### 4. IPK építés
@@ -48,12 +48,12 @@ git push -u origin main --force
 ## Mi változott a korábbi hibás futáshoz képest (39110438592)?
 
 - `tools/build-webos.sh`: `type="module"` + `crossorigin` eltávolítása – file:// nem támogatja, CORS hibát okozott webOS-en
-- `webos-diagnosis.yml`: 6. lépés már csak FIGYELMEZTETÉS, nem HIBA, ha type=module marad (build-webos.sh javítja)
+- `webos-manual-diagnosis.yml`: kézzel indítható LG webOS buildellenőrzés
 - Markerek keresése HTML-ben ÉS webos.js-ben: `webOS`, `IS_WEBOS_TV`, `IS_LG_WEBOS`
 
 ## Telepítés TV-re
 
-- IPK: `webos/IPTV-RT-webOS-2.3.0.ipk` vagy Release-ből
+- IPK: `webos/IPTV-RT-webOS-2.3.0.ipk` vagy a saját repó Release oldaláról
 - Dev Manager: https://github.com/webosbrew/dev-manager-desktop
 - TV Developer Mode be, IPK Install
 
