@@ -1,4 +1,4 @@
-name: IPTV – webOS TV IPK építése
+name: IPK építés
 
 # Kizárólag LG webOS TV IPK build; minden forrás a jelenlegi repóból származik.
 # Kézi indítás (workflow_dispatch), automatikus futás nincs.
@@ -114,7 +114,7 @@ jobs:
           set -euo pipefail
           IPK="webos/$IPK_FILE_NAME"
           ar t "$IPK"
-          ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon.png|splash.png|intro_landscape" 
+          ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon.png|splash.png|intro_landscape"
           mkdir -p /tmp/ipk-check
           ar p "$IPK" data.tar.gz | tar xzf - -C /tmp/ipk-check ./usr/palm/applications/hu.rt.iptv.webos/index.html ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json
           cmp -s build/webos/index.html /tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html || {
