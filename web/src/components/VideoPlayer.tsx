@@ -484,6 +484,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault();
+      e.stopPropagation();
       if (e.key === ' ' && isLive) {
         const api = nativeApi();
         const video = htmlVideoRef.current;
@@ -496,11 +497,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      e.stopPropagation();
       if (isLive) onPrevChannel?.();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
+      e.stopPropagation();
       if (isLive) onNextChannel?.();
     } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
       if (isFullscreen) setIsFullscreen(false);
       else if (isVod) onCloseVod?.();
     } else if (e.key === 'f' || e.key === 'F') {
