@@ -76,6 +76,7 @@ jobs:
             exit 1
           fi
           bash -n tools/build-webos.sh
+          node --check webos/webos.js
           python3 -m py_compile webos/tools/build-ipk.py
           python3 - <<'PY'
           import json, re
