@@ -215,7 +215,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const saveGithubSettings = () => {
     const api = (window as any).IPTVNative;
     if (!api?.githubSaveConfig) {
-      setGithubStatus('Ez a beállítás csak Android APK-ban érhető el.');
+      setGithubStatus('A GitHub-frissítés ezen az LG webOS-verzión nem érhető el; új IPK szükséges.');
       return;
     }
     api.githubSaveConfig(githubTokenName, githubToken, 'Robko1', 'LGtv');
@@ -278,7 +278,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     }
     if (!api?.nativeVideoDiagnostics) {
       setVideoDiagnosticText(
-        'A natív videódiagnosztika ebben a környezetben nem érhető el (Android APK szükséges).'
+        'A natív videódiagnosztika ezen az LG webOS-verzión nem érhető el.'
         + webSection()
       );
       setVideoDiagnosticStatus('Diagnosztikai adatforrás nem érhető el.');
@@ -357,7 +357,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const testGithubSettings = () => {
     const api = (window as any).IPTVNative;
     if (!api?.githubSaveConfig || !api?.githubTestConnection) {
-      setGithubStatus('Ez a teszt csak Android APK-ban érhető el.');
+      setGithubStatus('A GitHub-kapcsolatteszt ezen az LG webOS-verzión nem érhető el.');
       return;
     }
     api.githubSaveConfig(githubTokenName, githubToken, 'Robko1', 'LGtv');
@@ -1051,7 +1051,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 >
                   <span className="text-xs font-black text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
                     <Smartphone className="w-3.5 h-3.5" />
-                    <span>Alkalmazás / APK</span>
+                    <span>LG webOS alkalmazás</span>
                   </span>
                   <span className={`flex h-8 w-8 items-center justify-center rounded-full border border-cyan-400/50 bg-cyan-400/10 text-cyan-300 shadow-sm transition-colors ${showApplicationBox ? '': 'animate-pulse'}`} aria-hidden="true">
                     <ChevronDown className={`h-5 w-5 transition-transform duration-300 ${showApplicationBox ? 'rotate-180' : 'rotate-0'}`} strokeWidth={2.5} />
@@ -1083,7 +1083,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </h3>
                   <div className="p-3 rounded-xl bg-[#081329] border border-cyan-900/30 space-y-2.5">
                     <p className="text-[11px] text-slate-400 leading-relaxed">
-                      A „Frissítés most” gomb kézzel elindítja az IPTV-teszteket és webfrissítést, követi a build valódi lépéseit, majd siker esetén letölti a kész webes felületet. APK-buildet nem indít.
+                      A „Frissítés most” gomb kézzel elindítja az IPTV-teszteket és webfrissítést, követi a build valódi lépéseit, majd siker esetén letölti a kész webes felületet. IPK-buildet nem indít.
                     </p>
                     <input
                       value={githubToken}
@@ -2024,7 +2024,7 @@ sOI9cjN0PAqNuryXnd5re4a/2lyy2mT0yPQw9hhHpZmegp2tFmgNG4Cw9S5W
                       </button>
                     </h4>
                     <p className="text-xs text-cyan-300 font-semibold">
-                      Android APK mód
+                      LG webOS TV mód
                     </p>
                   </div>
                 </div>
