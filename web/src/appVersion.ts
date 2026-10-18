@@ -1,6 +1,18 @@
-export const WEB_VERSION = '2.3.4';
+export const WEB_VERSION = '2.3.5';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.5',
+    date: '2026-10-18',
+    changes: [
+      "KRITIKUS JAVÍTÁS: az alkalmazás kódja eddig <script type=\"module\">-ként került a csomagba, amit a Chrome 61-nél régebbi LG webOS motorok (webOS 3.x = Chrome 38, webOS 4.0 = Chrome 53) EGYÁLTALÁN NEM futtatnak le – az app el sem indult a TV-n, csak az IPTV R.T felirat látszott, és semmi nem reagált. Mostantól sima scriptként, ES5-re fordítva kerül be.",
+      "Babel ES5 fordítás (cél: Chrome 38 / webOS 3.x) + core-js, regenerator és fetch polyfill a csomagban – a régi TV-motorok is futtatják az appot.",
+      "AbortController, Element.closest/matches és requestIdleCallback polyfill régi webOS-hez (enélkül a hálózati betöltés elszállt volna).",
+      "Képernyős távirányító-diagnosztika: induláskor 2 percig látható sáv mutatja a TV motorját, a felület betöltését és minden lenyomott gombot (keyCode + név). A PIROS színes gombbal bármikor be/ki kapcsolható.",
+      "Az indulási hibaüzenet mostantól tényleg megjelenik a TV képernyőjén (a hibakijelző elemek eddig hiányoztak az index.html-ből).",
+      "Verzió: 2.3.5 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.4',
     date: '2026-10-18',

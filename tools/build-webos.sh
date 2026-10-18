@@ -20,7 +20,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.3.4}"
+VERSION="${VERSION:-2.3.5}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="IPTV R.T webOS"
 
@@ -47,6 +47,20 @@ if [[ ! -f "$WEB_BUILD" ]]; then
   echo "HIBA: nem található web build: $WEB_BUILD" >&2
   exit 1
 fi
+
+# 1/b. ES5 fordítás régi LG webOS motorokhoz (KRITIKUS!)
+# A Vite a teljes appot <script type="module">-ként ágyazza be, amit a
+# Chrome 61-nél régebbi TV-motorok (webOS 3.x = Chrome 38, webOS 4.0 = Chrome 53)
+# EGYÁLTALÁN NEM futtatnak le – az app el sem indult, a távirányító sem ment.
+# Itt: module típus eltávolítása + Babel ES5 + core-js/regenerator/fetch polyfill.
+log "Alkalmazás-script ES5 fordítása + polyfill (régi LG webOS motorokhoz)"
+if [[ ! -d "$PROJECT_DIR/web/node_modules/@babel/core" ]]; then
+  log "Babel függőségek telepítése (web/)"
+  pushd "$PROJECT_DIR/web" >/dev/null
+  npm install --no-audit --no-fund
+  popd >/dev/null
+fi
+node "$SCRIPT_DIR/transpile-es5.mjs" "$WEB_BUILD"
 
 # 2. webOS app mappa előkészítése
 log "webOS app mappa előkészítése"
@@ -85,16 +99,19 @@ webos_dir = pathlib.Path("webos")
 
 html = web_build.read_text(encoding="utf-8")
 
-# FONTOS: a Vite single-file bundle megőrzi a module script típust.
-# A type="module" törlése olyan kódnál, amely import.meta-t használ,
-# szintaktikai hibát okozhat, és a TV a 2/7 DOM kész lépésnél marad.
-# A JavaScript/CSS egyetlen HTML-be van inline-olva, ezért nincs külső modul-CORS kérés.
-print(f"Vite single-file HTML megőrizve, méret: {len(html)} bytes")
+# A tools/transpile-es5.mjs már eltávolította a type="module" script típust
+# (a Chrome<61 TV-motorok a module scriptet nem futtatják le!), ES5-re fordította
+# az alkalmazást és polyfilleket fűzött elé. Itt csak ellenőrzünk.
+if re.search(r'<script[^>]*type="module"', html):
+    raise SystemExit('HIBA: module script maradt a HTML-ben - a régi LG TV-ken az app el sem indulna. Futtasd: node tools/transpile-es5.mjs')
+if "IPTV-ES5-APP" not in html or "IPTV-ES5-POLYFILLS" not in html:
+    raise SystemExit("HIBA: az ES5-re fordított app vagy a polyfill blokk hiányzik a HTML-ből.")
+print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: {len(html)} bytes")
 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.4"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.5"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )

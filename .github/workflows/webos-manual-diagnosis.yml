@@ -69,7 +69,7 @@ jobs:
           grep -Fq 'KEYCODE_TO_KEY' webos/webos.js
           grep -Fq 'makeKeyEvent' webos/webos.js
           # ES5 szintaxis őrzés: régebbi LG webOS (Chrome 38-53) elhasal a modern szintaxison
-          if grep -nE '=>|`|catch \{|catch\{|\blet |\bconst ' webos/webos.js; then
+          if grep -nE '=>|`|catch \{|catch\{|^[[:space:]]*(let|const) |[;{(=] ?(let|const) ' webos/webos.js; then
             echo "HIBA: modern JS szintaxis került a webos.js-be - régebbi LG TV-ken a távirányító-kezelő nem töltődne be." >&2
             exit 1
           fi
@@ -94,7 +94,7 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.3.4":
+          if match.group(1) != "2.3.5":
               raise SystemExit(f"Nem várt alkalmazásverzió: {match.group(1)}")
           if "splashBackground" in manifest:
               raise SystemExit("A webOS manifest még splash képet állít be.")
