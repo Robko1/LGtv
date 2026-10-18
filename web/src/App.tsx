@@ -251,7 +251,7 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isOsdVisible, setIsOsdVisible] = useState<boolean>(true);
   // Teljes képernyőn a főoldali OSD (ChannelControls) ugyanabban a kinézetben
-  // úszik a natív MPV-kép fölött.
+  // úszik a HTML5 videókép fölött.
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
   // Fekvő teljes képernyős élő TV-nél a főoldali OSD-t is el kell rejteni.
   const [isLandscapeFullscreen, setIsLandscapeFullscreen] = useState<boolean>(false);
