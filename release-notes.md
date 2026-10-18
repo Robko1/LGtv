@@ -1,11 +1,11 @@
-# IPTV R.T – LG webOS TV v2.3.0
+# IPTV R.T – LG webOS TV v2.3.1
 
 Ez a kiadás kizárólag LG webOS TV-re készült. Android APK-t ez a repó nem készít, nem tölt le és nem csomagol.
 
 ## Telepítés
 
-- IPK: `IPTV-RT-webOS-2.3.0.ipk`
-- Letöltés: [GitHub Release v2.3.0](https://github.com/Robko1/LGtv/releases/tag/v2.3.0)
+- IPK: `IPTV-RT-webOS-2.3.1.ipk`
+- Letöltés: [GitHub Release v2.3.1](https://github.com/Robko1/LGtv/releases/tag/v2.3.1)
 - Telepítés: LG TV Developer Mode + webOS Dev Manager, vagy `ares-install`.
 - Részletek: [webos/README.md](webos/README.md)
 
