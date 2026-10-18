@@ -141,7 +141,7 @@
     var inTextEntry = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
     var dialogAtStart = document.querySelector('[role="dialog"]');
     var isArrow = kc >= 37 && kc <= 40 || /^Arrow(Up|Down|Left|Right)$/.test(key || '');
-    var isConfirm = kc === 13 || kc === 13 || key === 'Enter' || key === 'Accept';
+    var isConfirm = kc === 13 || key === 'Enter' || key === 'Accept' || key === 'OK' || key === 'Select';
     if (!dialogAtStart && !inTextEntry &&
         (!active || active === document.body || active === document.documentElement) &&
         (isArrow || isConfirm)) {
