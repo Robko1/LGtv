@@ -12,7 +12,7 @@
 const MAX_LINES = 400;
 const MAX_CHARS = 60000;
 const STORE_KEY = 'app-log';
-const DEFAULT_APP_VERSION = 'IPTV mindörökre 2';
+const DEFAULT_APP_VERSION = 'IPTV R.T webOS 2.3.1';
 
 let lines: string[] = [];
 let chars = 0;
