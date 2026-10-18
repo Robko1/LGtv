@@ -1,4 +1,4 @@
-name: LG webOS – kézi diagnosztika és web build
+name: Kézi diagnosztika
 
 on:
   workflow_dispatch:
