@@ -213,16 +213,11 @@ button:focus-visible,
   }
 }
 
-/* LG webOS TV – D-pad és Magic Remote fókuszkezelés */
-[role="listbox"]:focus {
-  outline: 2px solid rgb(6 182 212);
-  outline-offset: -2px;
-  box-shadow: inset 0 0 0 2px rgba(6, 182, 212, 0.3);
-}
+/* LG webOS TV – a lista konténerén nincs külső keret; a sor fókusza látható marad. */
+[role="listbox"]:focus,
 [role="listbox"]:focus-visible {
-  outline: 3px solid rgb(6 182 212);
-  outline-offset: -2px;
-  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.25), inset 0 0 0 2px rgba(6, 182, 212, 0.4);
+  outline: none;
+  box-shadow: none;
 }
 /* TV fókusz gyűrű erősebb – távirányítóhoz */
 @media (min-width: 1280px) {
