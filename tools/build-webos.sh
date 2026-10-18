@@ -10,8 +10,7 @@
 #   SKIP_WEB=1 tools/build-webos.sh  # meglévő build/web/index.html-t használja
 #
 # Kimenet:
-#   webos/IPTV-RT-webOS-<verzió>.ipk
-#   webos/dist/IPTV-RT-webOS-<verzió>.ipk (másolat)
+#   webos/IPTV-RT.ipk (egyetlen végleges kimenet)
 
 set -euo pipefail
 
@@ -19,7 +18,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
-DIST_DIR="$WEBOS_DIR/dist"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
 VERSION="${VERSION:-2.3.2}"
@@ -53,7 +51,7 @@ fi
 # 2. webOS app mappa előkészítése
 log "webOS app mappa előkészítése"
 rm -rf "$BUILD_DIR"
-mkdir -p "$BUILD_DIR" "$WEBOS_DIR/dist" "$DIST_DIR"
+mkdir -p "$BUILD_DIR"
 
 # Alap fájlok másolása
 cp "$WEBOS_DIR/appinfo.json" "$BUILD_DIR/appinfo.json"
@@ -236,9 +234,8 @@ JS
 # 5. IPK csomag készítése
 log "IPK csomag készítése"
 
-IPK_NAME="IPTV-RT-webOS-${VERSION}.ipk"
+IPK_NAME="IPTV-RT.ipk"
 IPK_PATH="$WEBOS_DIR/$IPK_NAME"
-IPK_DIST_PATH="$DIST_DIR/$IPK_NAME"
 
 python3 "$WEBOS_DIR/tools/build-ipk.py" \
   --app-dir "$BUILD_DIR" \
@@ -246,7 +243,6 @@ python3 "$WEBOS_DIR/tools/build-ipk.py" \
   --id "$APP_ID" \
   --version "$VERSION"
 
-cp "$IPK_PATH" "$IPK_DIST_PATH"
 
 # 6. Ellenőrzés
 log "Ellenőrzés"
@@ -261,7 +257,6 @@ fi
 
 SIZE=$(wc -c < "$IPK_PATH")
 log "Kész: $IPK_PATH ($((SIZE / 1024)) KB)"
-log "Másolat: $IPK_DIST_PATH"
 echo ""
 echo "Telepítés LG webOS TV-re:"
 echo "  1) Kapcsold be a Developer Mode-ot TV-n (LG Content Store → Developer Mode)"
