@@ -1663,7 +1663,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={htmlVideoRef}
             data-iptv-player="true"
             className="block h-full w-full bg-black"
-            style={{ objectFit: 'fill' }}
+            style={{ objectFit: 'contain' }}
             playsInline
             preload="auto"
             onPlaying={() => {
