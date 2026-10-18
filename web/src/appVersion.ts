@@ -5,25 +5,13 @@ export const WEB_VERSION_HISTORY = [
     version: '1.26.0',
     date: '2026-10-17',
     changes: [
-      "LG webOS TV változat – külön mappában (webos/), nem keverve Androiddal, ugyanaz a kinézet mint Androidon",
+      "Kizárólag LG webOS TV-re készült alkalmazás",
       "Kisebb TV lejátszó webOS-re: 1280x720 alap, 1920x1080-ra skálázódik, kevesebb erőforrás, gyorsabb indulás",
       "Gyors betöltés webOS-en: csak élő TV először (1 kérés), VOD kategóriák gyorsan, film/sorozat tartalom lusta (Mozi/Sorozat menüre töltődik)",
-      "Fekvő bejelentkező videó TV-re: 1920x1080 intro_landscape.mp4 + splash.png, nem álló 1080x2400 mint Androidon",
+      "Fekvő indítóképernyő LG TV-re: 1920x1080 intro_landscape.mp4 + splash.png",
       "webOS Magic Remote támogatás: Back (461) → Escape, Channel Up/Down, színes gombok, média gombok, Relaunch",
       "IPK csomag: ar archive (debian-binary 2.0, control.tar.gz, data.tar.gz) → /usr/palm/applications/hu.rt.iptv.webos/",
-      "Letöltés ugyanoda mint Android: apk/IPTV-RT-webOS-1.25.0.ipk + Releases v2.0.0 + webos/ mappába",
-    ],
-  },
-  {
-    version: '1.25.0',
-    date: '2026-10-17',
-    changes: [
-      "Android TV / smart TV támogatás – univerzális APK telefonra ÉS TV-re (box, stick, beépített Android TV)",
-      "TV launcher ikon: LEANBACK_LAUNCHER + banner – megjelenik a TV főképernyőjén",
-      "Tájolás javítva TV-n: fekvő mód alapértelmezett, nem kényszerít állóba – telefonon marad álló főoldal",
-      "D-pad / távirányító támogatás natívan: WebView fókusz, nyilak, Enter, Back, média gombok (play/pause) továbbítva",
-      "Touchscreen nem kötelező (required=false) – TV-n is telepíthető",
-      "Egy APK minden eszközre: telefon, tablet, ChromeOS, Android TV",
+      "IPK-kimenet kizárólag ebben a repóban: webos/IPTV-RT-webOS-2.3.0.ipk",
     ],
   },
   {
