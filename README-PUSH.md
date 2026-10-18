@@ -1,6 +1,6 @@
 # LGtv repo push – hogyan töltsd fel GitHub-ra
 
-Ez a mappa az kizárólag LG webOS TV-re készült repó (v2.3.0).
+Ez a repó kizárólag LG webOS TV-re készült (v2.3.0).
 
 ## Ha a GitHub-on már létrehoztad https://github.com/Robko1/LGtv (Private) üres repo-t:
 
@@ -42,7 +42,7 @@ git push -u origin main --force
 
 ### 4. IPK építés
 
-- Actions → `IPTV – LG webOS diagnosztika` → Run workflow → ha OK
+- Actions → `LG webOS – kézi diagnosztika és web build` → Run workflow → ha OK
 - Actions → `IPTV – webOS TV IPK építése` → Run workflow → artifact + Release `v2.3.0` → `IPTV-RT-webOS-2.3.0.ipk`
 
 ## Mi változott a korábbi hibás futáshoz képest (39110438592)?
