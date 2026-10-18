@@ -51,7 +51,7 @@ interface MenuSettingsModalProps {
   onMoveFavoriteChannel: (folderId: string, channelId: string, direction: 'up' | 'down') => void;
   onRemoveChannelFromFolder: (folderId: string, channelId: string) => void;
   onOpenEpgModal: () => void;
-  onOpenQrProvision?: () => void;
+  onOpenQrProvision: () => void;
   watchHistory: WatchHistoryItem[];
   onContinueWatching: (item: WatchHistoryItem) => void;
   onRemoveWatchHistoryItem: (id: string) => void;
@@ -71,6 +71,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   onDeleteProvider,
   onRefreshProvider,
   onOpenImportDiagnostic,
+  onOpenQrProvision,
   folders,
   onOpenAddFolder,
   onDeleteFolder,
