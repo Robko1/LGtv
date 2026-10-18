@@ -59,7 +59,7 @@ jobs:
           echo "HTML méret: $(wc -c < "$FILE") byte"
           echo "OK: a HTML build és az appinfo.json ellenőrzése sikeres."
 
-      - name: LG webOS frissítő és csomagoló ellenőrzése
+      - name: LG webOS frissítő, távirányító és indítóvideó ellenőrzése
         shell: bash
         run: |
           set -euo pipefail
@@ -69,47 +69,7 @@ jobs:
             echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
             exit 1
           fi
-          if grep -RliE '\.(mp4|webm|mov)
-          python3 -m py_compile webos/tools/build-ipk.py
-          python3 - <<'PY'
-          import json, re
-          from pathlib import Path
-          manifest = json.loads(Path("webos/appinfo.json").read_text(encoding="utf-8"))
-          version_source = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
-          match = re.search(r"WEB_VERSION\s*=\s*'([^']+)'", version_source)
-          if not match:
-              raise SystemExit("WEB_VERSION nem található")
-          if manifest.get("version") != match.group(1):
-              raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if "splashBackground" in manifest:
-              raise SystemExit("A webOS manifest még splash képet állít be.")
-          print(f"LG webOS verziók egyeznek: {match.group(1)}; nincs splash kép.")
-          PY
-          echo "OK: webOS-frissítő, távirányító-kezelő, platformtisztaság, indítóvideó-mentesség, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
-
-      - name: Diagnosztikai eredmények mentése
-        uses: actions/upload-artifact@v4
-        with:
-          name: webos-manual-diagnosis
-          path: |
-            build/web/index.html
-            webos/appinfo.json
-            webos/webos.js
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Összefoglaló
-        if: always()
-        shell: bash
-        run: |
-          {
-            echo "## LG webOS kézi diagnosztika"
-            echo "- Indítás: kizárólag kézzel (workflow_dispatch)."
-            echo "- Ellenőrzés: szükséges fájlok, HTML build, appinfo.json."
-            echo "- Kimenet: webos-manual-diagnosis artifact."
-            echo "- Ez a workflow diagnosztikát és HTML buildet készít; IPK-t nem épít."
-          } >> "$GITHUB_STEP_SUMMARY"
- webos/assets; then
+          if find webos/assets -type f | grep -Ei '\.(mp4|webm|mov)$'; then
             echo "HIBA: indítóvideó maradt a webOS assetek között." >&2
             exit 1
           fi
@@ -125,9 +85,13 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          print(f"LG webOS verziók egyeznek: {match.group(1)}")
+          if match.group(1) != "2.3.3":
+              raise SystemExit(f"Nem várt alkalmazásverzió: {match.group(1)}")
+          if "splashBackground" in manifest:
+              raise SystemExit("A webOS manifest még splash képet állít be.")
+          print(f"LG webOS verziók egyeznek: {match.group(1)}; nincs indítókép.")
           PY
-          echo "OK: webOS-frissítő, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
+          echo "OK: távirányító-kezelő, platformtisztaság, indítóvideó-mentesség, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
 
       - name: Diagnosztikai eredmények mentése
         uses: actions/upload-artifact@v4
@@ -147,7 +111,7 @@ jobs:
           {
             echo "## LG webOS kézi diagnosztika"
             echo "- Indítás: kizárólag kézzel (workflow_dispatch)."
-            echo "- Ellenőrzés: szükséges fájlok, HTML build, appinfo.json."
+            echo "- Ellenőrzés: HTML build, verzió, távirányító-kezelő, platformtisztaság, indítóvideó-mentesség."
             echo "- Kimenet: webos-manual-diagnosis artifact."
             echo "- Ez a workflow diagnosztikát és HTML buildet készít; IPK-t nem épít."
           } >> "$GITHUB_STEP_SUMMARY"
