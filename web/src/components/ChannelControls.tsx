@@ -33,6 +33,7 @@ interface ChannelControlsProps {
   onCastToTv: () => void;
   onTogglePip: () => void;
   showPip?: boolean;
+  showCast?: boolean;
   onOpenEpgModal: () => void;
   volume: number;
   onVolumeChange: (value: number) => void;
@@ -69,6 +70,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
   onCastToTv,
   onTogglePip,
   showPip = false,
+  showCast = false,
   onOpenEpgModal,
   volume,
   onVolumeChange,
@@ -330,15 +332,17 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         )}
 
         {/* Google Cast / TV-re küldés */}
-        <button
-          onClick={onCastToTv}
-          className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
-          title="Aktuális adás küldése TV-re"
-          aria-label="Aktuális adás küldése TV-re"
-        >
-          <Cast className="w-3.5 h-3.5 text-cyan-300" />
-          <span>TV</span>
-        </button>
+        {showCast && (
+          <button
+            onClick={onCastToTv}
+            className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
+            title="Aktuális adás küldése TV-re"
+            aria-label="Aktuális adás küldése TV-re"
+          >
+            <Cast className="w-3.5 h-3.5 text-cyan-300" />
+            <span>TV</span>
+          </button>
+        )}
       </div>
 
     </div>
