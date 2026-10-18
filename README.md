@@ -81,7 +81,7 @@ Részletek: [QR-TELEFONOS-BEALLITAS.md](QR-TELEFONOS-BEALLITAS.md) + `provision.
 
 ```bash
 git clone https://github.com/Robko1/LGtv.git && cd LGtv
-cd web && npm ci && VITE_WEBOS=true npm run build
+cd web && npm install --no-audit --no-fund && VITE_WEBOS=true npm run build
 # IPK építés
 VERSION=2.3.0 bash ../tools/build-webos.sh
 # Kimenet: webos/IPTV-RT-webOS-2.3.0.ipk
