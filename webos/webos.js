@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.1
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.2
 (function() {
   'use strict';
 
@@ -9,7 +9,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  console.log('[webOS] IPTV R.T webOS TV 2.3.1 inicializálás – távirányító fix + QR');
+  console.log('[webOS] IPTV R.T webOS TV 2.3.2 inicializálás – távirányító fix + QR');
 
   // ---------- CSS – TV fókusz gyűrű, kisebb lejátszó, gyors betöltés ----------
   function injectTvCss() {
@@ -276,5 +276,5 @@
     injectKey: injectKey
   };
 
-  console.log('[webOS] IPTV R.T webOS TV ready 2.3.1 – Magic Remote fix + QR provisioning');
+  console.log('[webOS] IPTV R.T webOS TV ready 2.3.2 – Magic Remote fix + QR provisioning');
 })();
