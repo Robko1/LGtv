@@ -132,6 +132,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    video.volume = Math.max(0, Math.min(1, volume));
+    video.muted = volume <= 0;
+  }, [volume]);
+
+  useEffect(() => {
+    const video = htmlVideoRef.current;
+    if (!video || nativeApi()?.play || !video.currentSrc) return;
+    if (isPlaying && video.paused) {
+      void video.play().catch(() => {
+        setIsLoading(false);
+        setHasError(true);
+        setErrorMessage('A TV nem engedélyezte a lejátszás indítását.');
+      });
+    } else if (!isPlaying && !video.paused) {
+      video.pause();
+    }
+  }, [isPlaying]);
   const vodOsdRef = useRef<HTMLDivElement | null>(null);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -887,7 +909,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setActiveVodSubtitleId(null);
   }, [providedAudioTracks, providedSubtitleTracks, customStreamUrl]);
 
-  // Film/sorozat idővonal: webes és natív motorból is ugyanazt az állapotot mutatjuk.
+  // Film/sorozat idővonal: natív motorból vagy HTML5 videóból olvassuk.
   useEffect(() => {
     if (!isVod) {
       setVodCurrentTime(0);
@@ -896,17 +918,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     const update = () => {
       const api = nativeApi();
-      let position = Math.max(0, Number(api?.position?.() || 0) / 1000);
-      const duration = Math.max(0, Number(api?.duration?.() || 0) / 1000);
-      if (!vodSeekDraggingRef.current) {
-        setVodCurrentTime(position);
-      }
+      const video = htmlVideoRef.current;
+      let position = api ? Math.max(0, Number(api.position?.() || 0) / 1000) : Math.max(0, Number(video?.currentTime || 0));
+      const duration = api ? Math.max(0, Number(api.duration?.() || 0) / 1000) : Math.max(0, Number(video?.duration || 0));
+      if (!vodSeekDraggingRef.current) setVodCurrentTime(position);
       setVodDuration(duration);
-
-      // A mentett pozíciót egyszer állítjuk vissza, amikor az adott stream készen áll.
       if (initialPositionSeconds > 0 && duration > 0 && resumeAppliedForUrlRef.current !== streamUrl) {
         const target = Math.min(initialPositionSeconds, Math.max(0, duration - 1));
-        api?.seekTo?.(Math.round(target * 1000));
+        if (api?.seekTo) api.seekTo(Math.round(target * 1000));
+        else if (video) video.currentTime = target;
         resumeAppliedForUrlRef.current = streamUrl;
         position = target;
         setVodCurrentTime(target);
@@ -917,9 +937,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     };
     update();
-    const timer = window.setInterval(update, 250);
+    const timer = window.setInterval(update, 500);
     return () => window.clearInterval(timer);
-  }, [isVod, nativeHandoff, streamUrl, onProgress]);
+  }, [isVod, nativeHandoff, streamUrl, onProgress, initialPositionSeconds]);
 
   const formatVodTime = (seconds: number) => {
     const total = Math.max(0, Math.floor(seconds || 0));
@@ -931,7 +951,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const seekVod = (seconds: number) => {
     const target = Math.max(0, Math.min(vodDuration || Infinity, seconds));
-    nativeApi()?.seekTo?.(Math.round(target * 1000));
+    const api = nativeApi();
+    if (api?.seekTo) api.seekTo(Math.round(target * 1000));
+    else if (htmlVideoRef.current) htmlVideoRef.current.currentTime = target;
     setVodCurrentTime(target);
     setShowControlsOverlay(true);
   };
@@ -1346,14 +1368,43 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setErrorMessage('Nincs lejátszható adatfolyam.');
       return;
     }
-    if (!nativeApi()?.play) {
-      setIsLoading(false);
-      setHasError(true);
-      setErrorMessage('A natív lejátszó nem érhető el ezen az eszközön.');
+    const api = nativeApi();
+    if (api?.play) {
+      handOverToNative(url);
       return;
     }
-    handOverToNative(url);
-  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative]);
+
+    // LG webOS: lejátszás a TV HTML5/HLS videóelemével.
+    const video = htmlVideoRef.current;
+    if (!video) {
+      setIsLoading(false);
+      setHasError(true);
+      setErrorMessage('Az LG webOS videóelem még nem áll készen.');
+      return;
+    }
+    try {
+      video.pause();
+      video.removeAttribute('src');
+      video.src = url;
+      video.load();
+      const playPromise = video.play();
+      setIsPlaying(true);
+      if (playPromise && typeof playPromise.catch === 'function') {
+        void playPromise.catch((error: unknown) => {
+          if (video.error) return;
+          setIsLoading(false);
+          setHasError(true);
+          setErrorMessage(error instanceof Error && error.name === 'NotAllowedError'
+            ? 'A TV lejátszási indítást blokkolta. Nyomj az Újrapróbálás gombra.'
+            : 'A TV nem tudta elindítani ezt az adatfolyamot. Ellenőrizd az URL-t és a stream formátumát.');
+        });
+      }
+    } catch (error) {
+      setIsLoading(false);
+      setHasError(true);
+      setErrorMessage(error instanceof Error ? error.message : 'A webOS videó indítása sikertelen.');
+    }
+  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying]);
 
   retryStreamRef.current = () => loadStream(pendingStreamUrlRef.current || streamUrl);
 
@@ -1367,13 +1418,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     clearAutoRetry();
     setActiveUrlIndex(0);
-    // Élő adásnál az MPEG-TS az elsődleges. Ha a lista .m3u8 címet adott,
-    // először annak .ts változatát próbáljuk; a VOD URL-jét nem alakítjuk át.
+    // LG webOS-en HLS (.m3u8) az elsődleges, a TV HTML5 videója ezt támogatja.
+    // A natív MPV-s környezetben megmarad a korábbi MPEG-TS sorrend.
+    const webOsHtmlPlayback = !nativeApi()?.play;
     const primaryUrl = !isVod
-      ? streamUrl.replace(/\\.m3u8(?=([?#]|$))/i, '.ts')
+      ? (webOsHtmlPlayback
+          ? streamUrl.replace(/\\.ts(?=([?#]|$))/i, '.m3u8')
+          : streamUrl.replace(/\\.m3u8(?=([?#]|$))/i, '.ts'))
       : streamUrl;
     pendingStreamUrlRef.current = primaryUrl;
-    retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
+    if (!isVod && webOsHtmlPlayback) {
+      const fallbackUrl = /\\.ts(?=([?#]|$))/i.test(streamUrl)
+        ? streamUrl
+        : streamUrl.replace(/\\.m3u8(?=([?#]|$))/i, '.ts');
+      retryPlanRef.current = { originalUrl: fallbackUrl, stage: 'hls' };
+    } else {
+      retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
+    }
     if (primaryUrl) {
       loadStreamRef.current(primaryUrl);
     }
@@ -1385,12 +1446,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadKey, clearAutoRetry, clearBufferWatchdog]);
 
-  // Handle Play/Pause
+  // Play/pause: natív hídon vagy LG webOS HTML5 videón keresztül.
   const togglePlay = () => {
     const api = nativeApi();
-    if (!api?.togglePause) return;
-    api.togglePause();
-    setIsPlaying((prev) => !prev);
+    if (api?.togglePause) {
+      api.togglePause();
+      setIsPlaying((prev) => !prev);
+      return;
+    }
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play().then(() => setIsPlaying(true)).catch(() => {
+        setHasError(true);
+        setErrorMessage('A TV lejátszási indítást blokkolta. Nyomj az Újrapróbálás gombra.');
+      });
+    } else {
+      video.pause();
+      setIsPlaying(false);
+    }
   };
 
   // Keep the main-page OSD connected to the real player control.
@@ -1563,13 +1637,49 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ref={videoSurfaceRef}
         className={`absolute bg-transparent pointer-events-none ${isFullscreen && isPortrait ? 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2' : 'inset-0'}`}
         style={isFullscreen && isPortrait
-          ? {
-              width: '100vw',
-              height: '56.25vw',
-              maxHeight: '100dvh',
-            }
+          ? { width: '100vw', height: '56.25vw', maxHeight: '100dvh' }
           : undefined}
-      />
+      >
+        {!nativeApi()?.play && (
+          <video
+            ref={htmlVideoRef}
+            data-iptv-player="true"
+            className="block h-full w-full bg-black"
+            style={{ objectFit: 'fill' }}
+            playsInline
+            preload="auto"
+            onPlaying={() => {
+              playbackStartedRef.current = true;
+              clearAutoRetry();
+              setIsLoading(false);
+              setHasError(false);
+              setIsPlaying(true);
+            }}
+            onCanPlay={() => { setIsLoading(false); setHasError(false); }}
+            onWaiting={() => { if (playbackStartedRef.current) setIsLoading(true); }}
+            onError={() => {
+              setIsLoading(false);
+              setErrorMessage('A TV nem tudta lejátszani az adatfolyamot. HLS/codec vagy stream URL hiba lehet.');
+              scheduleAutoRetry();
+            }}
+            onPause={() => setIsPlaying(false)}
+            onPlay={() => setIsPlaying(true)}
+            onEnded={() => onEndedRef.current?.()}
+            onTimeUpdate={(event) => {
+              if (!isVod) return;
+              const video = event.currentTarget;
+              const position = Math.max(0, Number(video.currentTime || 0));
+              const duration = Math.max(0, Number(video.duration || 0));
+              setVodDuration(duration);
+              if (!vodSeekDraggingRef.current) setVodCurrentTime(position);
+              if (Math.floor(position) !== lastReportedProgressRef.current) {
+                lastReportedProgressRef.current = Math.floor(position);
+                onProgress?.(position, duration);
+              }
+            }}
+          />
+        )}
+      </div>
 
       {/* A natív videó a WebView mögötti rétegen látható; az OSD fölötte marad. */}
       {nativeHandoff && <div className="absolute inset-0 bg-transparent pointer-events-none" />}
