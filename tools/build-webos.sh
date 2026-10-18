@@ -202,7 +202,6 @@ python3 "$WEBOS_DIR/tools/build-ipk.py" \
   --version "$VERSION"
 
 cp "$IPK_PATH" "$IPK_DIST_PATH"
-cp "$IPK_PATH" "$WEBOS_DIR/dist/$IPK_NAME" 2>/dev/null || mkdir -p "$WEBOS_DIR/dist" && cp "$IPK_PATH" "$WEBOS_DIR/dist/$IPK_NAME"
 
 # 6. Ellenőrzés
 log "Ellenőrzés"
