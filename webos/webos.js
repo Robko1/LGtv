@@ -39,8 +39,9 @@
         .webos-tv [role="dialog"]:focus { outline:none; }
         .webos-tv [role="dialog"] button:focus { outline:3px solid #facc15 !important; }
         /* Splash */
-        .webos-splash { position:fixed; inset:0; width:100vw; height:100vh; background:#000 url('assets/splash.png') center/cover no-repeat; z-index:99999; display:flex; align-items:center; justify-content:center; }
-        .webos-splash img { width:400px; height:400px; object-fit:contain; }
+        .webos-splash { position:fixed; inset:0; width:100vw; height:100vh; background:#000; z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#00BFFF; text-align:center; }
+        .webos-splash .splash-title { font-size:8vw; font-weight:800; letter-spacing:0.08em; }
+        .webos-splash .splash-subtitle { margin-top:22px; font-size:3vw; color:#fff; }
       `;
       var style = document.createElement('style');
       style.id = 'webos-tv-fix-css';
