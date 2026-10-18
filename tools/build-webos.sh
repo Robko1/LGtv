@@ -168,6 +168,7 @@ splash_html = """
   }, 1600);
 })();
 </script>
+"""
 
 if "<body" in html:
     # body tag után szúrjuk be
