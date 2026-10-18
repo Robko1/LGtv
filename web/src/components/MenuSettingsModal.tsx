@@ -118,9 +118,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
   // Valós idejű képesség-ellenőrzések: csak akkor jelenik meg zöld pipa,
   // ha az adott lejátszási mód ténylegesen elérhető az aktuális környezetben.
-  const pictureInPictureAvailable =
-    Boolean((document as any).pictureInPictureEnabled) ||
-    false;
+  const pictureInPictureAvailable = Boolean((document as any).pictureInPictureEnabled);
 
   // TV / stick / egér: D-pad + egér támogatás a beállítások modalban
   const modalRef = useRef<HTMLDivElement | null>(null);
