@@ -3,7 +3,7 @@
   "private": true,
   "version": "2.3.1",
   "type": "module",
-  "description": "IPTV R.T – LG webOS TV IPK (csak TV, külön repo Android-tól)",
+  "description": "IPTV R.T – kizárólag LG webOS TV IPK",
   "scripts": {
     "smoke": "node tools/smoke-test.mjs build/webos/index.html"
   },
