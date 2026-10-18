@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.3.0'
-  IPK_FILE_NAME: 'IPTV-RT-webOS-2.3.0.ipk'
-  RELEASE_TAG: 'v2.3.0'
+  VERSION: '2.3.1'
+  IPK_FILE_NAME: 'IPTV-RT-webOS-2.3.1.ipk'
+  RELEASE_TAG: 'v2.3.1'
   RELEASE_TITLE: 'IPTV mindörökre 2.3 – LG webOS TV távirányító fix + külön kinézet + QR telefonos beállítás'
 
 jobs:
