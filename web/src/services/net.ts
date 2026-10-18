@@ -307,8 +307,8 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
   }
 
   const attempts: string[] = [url];
-  // Nie przekazuj danych logowania IPTV publicznym proxy. Używamy wyłącznie
-  // bezpośredniego połączenia albo proxy jawnie skonfigurowanego przez użytkownika.
+  // Az IPTV-belépési adatokat nem küldjük nyilvános proxyknak.
+  // Közvetlen kapcsolatot vagy a felhasználó által beállított proxyt használunk.
   const custom = customProxy();
   if (custom) attempts.push(proxyUrl(url, custom));
 
