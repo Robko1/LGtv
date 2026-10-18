@@ -52,9 +52,6 @@ body.webos-theme .channel-list {
 body.webos-theme .webos-only {
   display: block;
 }
-body.android-theme .webos-only {
-  display: none !important;
-}
 
 /* webOS – Magic Remote pointer (egér) */
 body.webos-theme.has-mouse [role="option"]:hover {
