@@ -206,8 +206,12 @@ jobs:
 
           # A Release ugyanaz marad, csak az IPK és a leírás frissül.
           gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --clobber
+          NEW_ASSET_DATE="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .updatedAt' | head -n 1)"
+          [[ -n "$NEW_ASSET_DATE" ]] || { echo "HIBA: nem található a feltöltött IPK időbélyege." >&2; exit 1; }
+          RELEASE_UPDATED_DATETIME="$(date -u -d "$NEW_ASSET_DATE" '+%Y-%m-%d %H:%M UTC')"
           sed \
             -e "s/{{RELEASE_DATETIME}}/$RELEASE_DATETIME/g" \
+            -e "s/{{RELEASE_UPDATED_DATETIME}}/$RELEASE_UPDATED_DATETIME/g" \
             -e "s/{{CURRENT_VERSION}}/$CURRENT_VERSION/g" \
             -e "s/{{PREVIOUS_VERSION}}/$OLD_VERSION/g" \
             -e "s/{{PREVIOUS_DATETIME}}/$OLD_RELEASE_DATETIME/g" \
