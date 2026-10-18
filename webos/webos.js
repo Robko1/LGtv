@@ -166,10 +166,14 @@
         bubbles: true,
         cancelable: true
       });
-      document.dispatchEvent(ev);
-      window.dispatchEvent(ev);
-      var ae = document.activeElement;
-      if (ae && ae.dispatchEvent) ae.dispatchEvent(ev);
+      var target = document.activeElement;
+      if (!target || target === document.body || target === document.documentElement) {
+        target = document.querySelector('[role="dialog"]') ||
+          document.querySelector('[role="listbox"]') || document;
+      }
+      // Egyszer küldjük ki a DOM-fába, így a React és a window/document kezelők
+      // ugyanazt az eseményt kapják buborékolással, duplikálás nélkül.
+      target.dispatchEvent(ev);
     } catch (e) { console.warn('[webOS] injectKey fail', e); }
   }
 
@@ -233,9 +237,7 @@
         // Ha van dialog, zárjuk JS-ből is
         var dlg = document.querySelector('[role="dialog"]');
         if (dlg) {
-          // A React modal saját Escape handlerje bezárja, de biztosíték
-          var closeBtn = dlg.querySelector('button[aria-label*="Bezár"], button:has(.lucide-x)');
-          // Nem kattintunk, csak Escape eventet küldtünk
+          // A React modal saját Escape handlerje kezeli a bezárást.
         }
         return;
       }
