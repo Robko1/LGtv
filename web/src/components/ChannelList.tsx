@@ -543,7 +543,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
         tabIndex={0}
         onKeyDown={handleListKeyDown}
         onScroll={(event) => saveChannelScrollPosition(event.currentTarget)}
-        className="flex-1 overflow-y-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"
+        className="flex-1 overflow-y-auto focus:outline-none md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"
         role="listbox"
         aria-label="Csatornalista – nyilakkal navigálható, Enterrel választható, egérrel kattintható"
       >
