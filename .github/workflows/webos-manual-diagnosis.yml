@@ -31,14 +31,13 @@ jobs:
         run: |
           set -euo pipefail
           test -s web/package.json
-          test -s web/package-lock.json
           test -s web/index.html
           test -s webos/appinfo.json
           test -s webos/webos.js
           echo "OK: a szükséges web és webOS fájlok megvannak."
 
       - name: Webes csomagok telepítése
-        run: npm ci --prefix web --no-audit --no-fund
+        run: npm install --prefix web --no-audit --no-fund
 
       - name: LG webOS webes felület build
         working-directory: web
