@@ -1414,8 +1414,44 @@ export function App() {
   // Global Keyboard Shortcuts – TV remote, laptop, tablet billentyűzet + egér
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger when typing in inputs
-      if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes((e.target as HTMLElement).tagName)) {
+      // Szövegmezőben ne vegyük át a távirányító gombjait.
+      const target = e.target as HTMLElement | null;
+      if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+
+      // LG webOS-en nincs minden modellen automatikus D-pad fókuszléptetés:
+      // gomb/hivatkozás fókuszánál a nyilakkal a legközelebbi vezérlőre lépünk.
+      if (target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.getAttribute('role') === 'button')) {
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+          const scope = target.closest('[role="dialog"]') || target.closest('header') || target.parentElement;
+          if (scope) {
+            const candidates = Array.from(scope.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), a[href], [role="button"]:not([aria-disabled="true"]), [tabindex="0"]'
+            )).filter((el) => el !== target && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
+            const from = target.getBoundingClientRect();
+            const fx = from.left + from.width / 2;
+            const fy = from.top + from.height / 2;
+            let best: HTMLElement | null = null;
+            let bestScore = Number.POSITIVE_INFINITY;
+            for (const candidate of candidates) {
+              const r = candidate.getBoundingClientRect();
+              const dx = r.left + r.width / 2 - fx;
+              const dy = r.top + r.height / 2 - fy;
+              const forward = e.key === 'ArrowRight' ? dx > 2
+                : e.key === 'ArrowLeft' ? dx < -2
+                : e.key === 'ArrowDown' ? dy > 2 : dy < -2;
+              if (!forward) continue;
+              const primary = e.key === 'ArrowLeft' || e.key === 'ArrowRight' ? Math.abs(dx) : Math.abs(dy);
+              const secondary = e.key === 'ArrowLeft' || e.key === 'ArrowRight' ? Math.abs(dy) : Math.abs(dx);
+              const score = primary + secondary * 1.8;
+              if (score < bestScore) { best = candidate; bestScore = score; }
+            }
+            if (best) {
+              e.preventDefault();
+              e.stopPropagation();
+              best.focus({ preventScroll: true });
+            }
+          }
+        }
         return;
       }
       const active = document.activeElement as HTMLElement | null;
