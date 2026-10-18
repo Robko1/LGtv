@@ -1,9 +1,9 @@
-export const WEB_VERSION = '1.26.0';
+export const WEB_VERSION = '2.3.0';
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '1.26.0',
-    date: '2026-10-17',
+    version: '2.3.0',
+    date: '2026-10-18',
     changes: [
       "Kizárólag LG webOS TV-re készült alkalmazás",
       "Kisebb TV lejátszó webOS-re: 1280x720 alap, 1920x1080-ra skálázódik, kevesebb erőforrás, gyorsabb indulás",
@@ -12,6 +12,7 @@ export const WEB_VERSION_HISTORY = [
       "webOS Magic Remote támogatás: Back (461) → Escape, Channel Up/Down, színes gombok, média gombok, Relaunch",
       "IPK csomag: ar archive (debian-binary 2.0, control.tar.gz, data.tar.gz) → /usr/palm/applications/hu.rt.iptv.webos/",
       "IPK-kimenet kizárólag ebben a repóban: webos/IPTV-RT-webOS-2.3.0.ipk",
+      "GitHub Release verzióellenőrzés LG webOS-en; az IPK telepítése webOS fejlesztői eszközzel történik.",
     ],
   },
   {
