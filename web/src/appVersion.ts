@@ -1,6 +1,17 @@
-export const WEB_VERSION = '2.3.7';
+export const WEB_VERSION = '2.3.8';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.8',
+    date: '2026-10-19',
+    changes: [
+      "DOBOZ NAVIGÁCIÓ a Beállítások → Rendszer fülön: a nyilak a nagy dobozok (Lejátszó, Megjelenítés, LG webOS alkalmazás) között ugrálnak, OK-val lépsz BE a kijelölt dobozba és ott választasz, VISSZA gombbal lépsz ki a doboz szintre. A kijelölt doboz sárga keretet kap.",
+      "X-RE UGRÁLÁS JAVÍTVA: a Beállítások ablak saját időzítője fél másodpercenként az első gombra – a bezáró X-re! – rántotta a fókuszt navigálás közben (Listák/Kedvencek/Rendszer füleknél ezért kavarodott a kijelölés). Megszüntetve; plusz a vízszintes lépésnél az egy sorban lévő szomszéd mindig előnyt élvez a fent/lent lévő gombokkal szemben.",
+      "QR KÜLDÉS 404 JAVÍTVA: a kvdb.io tárolót soha senki nem hozta létre, ezért kapott a telefon 404-et a Küldés gombnál (nem az interneted volt a hibás!). Mostantól a TV maga hozza létre a tárolót és a QR linkben adja át az azonosítóját a telefonnak. FONTOS: a TV-n ÚJ QR kódot kell nyitni a frissítés után.",
+      "NYUGODT ANIMÁCIÓK: a sárga óra ikon pislogása és a beállítás fogaskerék pörgése sokkal lassabb lett TV-n (a Tailwind animáció időtartama elveszett a régi webOS böngészőn, ezért pörgött őrült gyorsan).",
+      "Verzió: 2.3.8 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.7',
     date: '2026-10-19',

@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.7
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.8
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.7 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.8 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -156,7 +156,7 @@
         'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
         'white-space:pre-wrap;word-break:break-word;');
       var title = document.createElement('div');
-      title.textContent = 'IPTV R.T diagnosztika 2.3.7 \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika 2.3.8 \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -244,6 +244,18 @@
         '/* NAGY TV-KIJELZŐ: a telefonos méretű felület 1.4x nagyítása, hogy a',
         '   feliratok és a menük messziről is olvashatók legyenek. */',
         '.webos-tv #root { zoom: 1.4; }',
+        '/* DOBOZ NAVIGÁCIÓ: a kijelölt beállítás-doboz jól látható sárga keretet kap. */',
+        '.webos-tv [data-tv-box] { scroll-margin: 40px; }',
+        '.webos-tv [data-tv-box]:focus { outline: 3px solid #fbbf24 !important; outline-offset: 3px; }',
+        '/* NYUGODT ANIMÁCIÓK TV-N: az óra ikon pislogása és a fogaskerék',
+        '   pörgése sokkal lassabb, saját keyframe-mel (a Tailwind 4 arbitrary',
+        '   animációk CSS-változós időtartama a régi webOS Chrome-on elveszhet,',
+        '   ettől pörgött őrült gyorsan a fogaskerék). */',
+        '@keyframes iptvSlowSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }',
+        '@keyframes iptvSlowPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }',
+        '.webos-tv .animate-spin { animation: iptvSlowSpin 2.5s linear infinite !important; }',
+        '.webos-tv [class*="animate-[spin"] { animation: iptvSlowSpin 8s linear infinite !important; }',
+        '.webos-tv .animate-pulse, .webos-tv [class*="animate-[pulse"] { animation: iptvSlowPulse 4s ease-in-out infinite !important; }',
         '.webos-tv .video-player-container { max-width:1280px; margin:0 auto; }',
         '.webos-tv .channel-list { max-height:70vh; }',
         '/* Erős fókusz gyűrű TV-re – távirányítóhoz */',
@@ -359,6 +371,53 @@
   // A csatornalistát külön hagyjuk, mert annak saját fel/le navigációja van.
   // Ha container meg van adva (pl. nyitott modal), CSAK azon belül keresünk –
   // így a fókusz nem szökhet ki a háttérbe, és irány szerint lép, nem sorban.
+  function spatialPick(active, key, items) {
+    try {
+      if (!items || !items.length) return false;
+      if (!active || active === document.body || active === document.documentElement) {
+        items[0].focus({preventScroll:true});
+        return true;
+      }
+      var from = active.getBoundingClientRect();
+      var fx = from.left + from.width / 2;
+      var fy = from.top + from.height / 2;
+      var best = null;
+      var bestScore = Infinity;
+      items.forEach(function(el) {
+        if (el === active) return;
+        if (active.contains && active.contains(el)) return;
+        if (el.contains && el.contains(active)) return;
+        var r = el.getBoundingClientRect();
+        var x = r.left + r.width / 2;
+        var y = r.top + r.height / 2;
+        var dx = x - fx;
+        var dy = y - fy;
+        var primary, cross, aligned;
+        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          if (key === 'ArrowLeft') { if (dx >= -2) return; primary = -dx; }
+          else { if (dx <= 2) return; primary = dx; }
+          cross = Math.abs(dy);
+          // EGY SORBAN van-e a két elem? Vízszintes lépésnél az azonos sorban
+          // lévő szomszéd mindig nyerjen a fent/lent lévő gombokkal (pl. a
+          // bezáró X-szel) szemben – e nélkül "kavarodott" a kijelölés.
+          aligned = Math.min(from.bottom, r.bottom) - Math.max(from.top, r.top) > 0;
+        } else {
+          if (key === 'ArrowUp') { if (dy >= -2) return; primary = -dy; }
+          else { if (dy <= 2) return; primary = dy; }
+          cross = Math.abs(dx);
+          // EGY OSZLOPBAN van-e a két elem? Függőleges lépésnél ugyanígy.
+          aligned = Math.min(from.right, r.right) - Math.max(from.left, r.left) > 0;
+        }
+        var score = primary + cross * (aligned ? 0.4 : 3.5);
+        if (score < bestScore) { best = el; bestScore = score; }
+      });
+      if (!best) return false;
+      best.focus({preventScroll:true});
+      if (best.scrollIntoView) best.scrollIntoView({block:'nearest', inline:'nearest'});
+      return true;
+    } catch (e) { return false; }
+  }
+
   function focusSpatially(active, key, container) {
     try {
       var items = getFocusable(container || document).filter(function(el) {
@@ -371,34 +430,7 @@
         items[0].focus({preventScroll:true});
         return true;
       }
-      if (!active || active === document.body || active === document.documentElement) {
-        items[0].focus({preventScroll:true});
-        return true;
-      }
-      var from = active.getBoundingClientRect();
-      var fx = from.left + from.width / 2;
-      var fy = from.top + from.height / 2;
-      var best = null;
-      var bestScore = Infinity;
-      items.forEach(function(el) {
-        if (el === active) return;
-        var r = el.getBoundingClientRect();
-        var x = r.left + r.width / 2;
-        var y = r.top + r.height / 2;
-        var dx = x - fx;
-        var dy = y - fy;
-        var primary, cross;
-        if (key === 'ArrowLeft') { if (dx >= -2) return; primary = -dx; cross = Math.abs(dy); }
-        else if (key === 'ArrowRight') { if (dx <= 2) return; primary = dx; cross = Math.abs(dy); }
-        else if (key === 'ArrowUp') { if (dy >= -2) return; primary = -dy; cross = Math.abs(dx); }
-        else { if (dy <= 2) return; primary = dy; cross = Math.abs(dx); }
-        var score = primary + cross * 1.8;
-        if (score < bestScore) { best = el; bestScore = score; }
-      });
-      if (!best) return false;
-      best.focus({preventScroll:true});
-      if (best.scrollIntoView) best.scrollIntoView({block:'nearest', inline:'nearest'});
-      return true;
+      return spatialPick(active, key, items);
     } catch (e) { return false; }
   }
 
@@ -490,8 +522,14 @@
       activeNow.blur();
       var dlgOfInput = activeNow.closest ? activeNow.closest('[role="dialog"]') : null;
       if (dlgOfInput) {
-        var fIn = getFocusable(dlgOfInput);
-        if (fIn.length) fIn[0].focus({preventScroll:true});
+        // Ha a mező egy data-tv-box dobozban van, a dobozra lépünk vissza.
+        var boxOfInput = activeNow.closest ? activeNow.closest('[data-tv-box]') : null;
+        if (boxOfInput && dlgOfInput.contains(boxOfInput)) {
+          boxOfInput.focus({preventScroll:true});
+        } else {
+          var fIn = getFocusable(dlgOfInput);
+          if (fIn.length) fIn[0].focus({preventScroll:true});
+        }
       } else {
         var hdrBtn = document.querySelector('header button');
         var lst = document.querySelector('[role="listbox"]');
@@ -525,6 +563,33 @@
     var dialogAtStart = document.querySelector('[role="dialog"]');
     var isArrow = isArrowKey(key);
     var isConfirm = key === 'Enter';
+
+    // OK gomb egy kijelölt "dobozon" (data-tv-box): BELÉPÉS a dobozba –
+    // a fókusz a doboz első vezérlőjére kerül, ott lehet választani.
+    if (isConfirm && active && active.hasAttribute && active.hasAttribute('data-tv-box')) {
+      e.preventDefault();
+      e.stopPropagation();
+      var innerF = getFocusable(active);
+      if (innerF.length) {
+        innerF[0].focus({preventScroll:true});
+        if (innerF[0].scrollIntoView) innerF[0].scrollIntoView({block:'nearest'});
+      }
+      return;
+    }
+
+    // VISSZA gomb egy doboz BELSEJÉBEN: először csak a doboz szintre lép ki
+    // (a doboz lesz kijelölve), nem zárja be az egész ablakot.
+    if ((kc === 461 || key === 'Escape') && dialogAtStart && active && active.closest) {
+      var backBox = active.closest('[data-tv-box]');
+      if (backBox && backBox !== active && dialogAtStart.contains(backBox)) {
+        e.preventDefault();
+        e.stopPropagation();
+        backBox.focus({preventScroll:true});
+        if (backBox.scrollIntoView) backBox.scrollIntoView({block:'nearest'});
+        return;
+      }
+    }
+
     if (!dialogAtStart && !inTextEntry &&
         (!active || active === document.body || active === document.documentElement) &&
         (isArrow || isConfirm)) {
@@ -599,6 +664,37 @@
       e.preventDefault();
       e.stopPropagation();
       if (inInput) activeInDialog.blur();
+      var curEl = document.activeElement;
+      // KÉTSZINTŰ "DOBOZ" NAVIGÁCIÓ: ha a modalban data-tv-box szekciók
+      // vannak (pl. Beállítások → Rendszer), a nyilak a DOBOZOK között
+      // ugrálnak; OK-val lép be a néző egy dobozba, és ott választ.
+      var boxes = Array.prototype.slice.call(dialog.querySelectorAll('[data-tv-box]')).filter(function(b) {
+        return b.getClientRects().length > 0;
+      });
+      if (boxes.length) {
+        if (!curEl || curEl === document.body || curEl === document.documentElement || !dialog.contains(curEl)) {
+          boxes[0].focus({preventScroll:true});
+          if (boxes[0].scrollIntoView) boxes[0].scrollIntoView({block:'nearest'});
+          return;
+        }
+        var curBox = curEl.closest ? curEl.closest('[data-tv-box]') : null;
+        if (curBox && curBox !== curEl) {
+          // A dobozon BELÜL vagyunk: csak a dobozban lévő elemek közt lépünk.
+          if (!focusSpatially(curEl, key, curBox)) {
+            // A doboz széléhez értünk: vissza a doboz szintre (kijelölt doboz).
+            curBox.focus({preventScroll:true});
+            if (curBox.scrollIntoView) curBox.scrollIntoView({block:'nearest'});
+          }
+          return;
+        }
+        // Doboz szint: a dobozok + a dobozokon KÍVÜLI vezérlők (fülek, X).
+        var levelItems = getFocusable(dialog).filter(function(el) {
+          if (el.hasAttribute && el.hasAttribute('data-tv-box')) return true;
+          return !(el.closest && el.closest('[data-tv-box]'));
+        });
+        spatialPick(curEl, key, levelItems);
+        return;
+      }
       if (!focusSpatially(document.activeElement, key, dialog)) {
         // Nincs elem abban az irányban: lineáris lépés tartalékként.
         focusNextInModal(dialog, (key === 'ArrowDown' || key === 'ArrowRight') ? 1 : -1);
@@ -754,5 +850,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.7 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.8 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();
