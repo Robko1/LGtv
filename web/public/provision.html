@@ -107,12 +107,15 @@
 </div>
 
 <div class="footer">
-  IPTV R.T – Telefonos QR beállítás v2.3.0 • kvdb.io ideiglenes tároló • 5 perc TTL
+  IPTV R.T – Telefonos QR beállítás v2.3.8 • kvdb.io ideiglenes tároló • 5 perc TTL
 </div>
 
 <script>
-const BUCKET = 'IPTV_RT_QR_8bc03776';
+// A tárolót (bucket) a TV hozza létre és a QR linkben adja át (&b=...).
+// A régi fix név csak tartalék – az sosem lett létrehozva, ezért adott 404-et.
+const LEGACY_BUCKET = 'IPTV_RT_QR_8bc03776';
 const KVDB_BASE = 'https://kvdb.io';
+let BUCKET = LEGACY_BUCKET;
 let currentType = 'xtream';
 let tvId = '';
 let code = '';
@@ -121,11 +124,14 @@ function getParams() {
   const url = new URL(window.location.href);
   tvId = url.searchParams.get('tv') || '';
   code = url.searchParams.get('code') || '';
+  BUCKET = url.searchParams.get('b') || LEGACY_BUCKET;
   document.getElementById('codeDisplay').textContent = code || '------';
   document.getElementById('tvInfo').textContent = 'TV ID: ' + tvId + ' | Kód: ' + code + ' | URL: ' + window.location.href;
   if (!tvId) {
     showStatus('Hiányzik TV ID – olvasd be újra a QR kódot a TV-n!', 'err');
     document.getElementById('sendBtn').disabled = true;
+  } else if (!url.searchParams.get('b')) {
+    showStatus('⚠️ Régi QR kód (nincs tároló azonosító). Frissítsd az appot a TV-n a legújabb verzióra, és olvasd be az ÚJ QR kódot!', 'err');
   }
 }
 
@@ -206,7 +212,11 @@ async function sendToTv() {
         try { window.close(); } catch {}
       }, 2000);
     } else {
-      showStatus('❌ Hiba küldéskor: ' + res.status + ' – próbáld újra vagy ellenőrizd az internetet', 'err');
+      if (res.status === 404) {
+        showStatus('❌ A TV tárolója nem található (404). Ez NEM internethiba: a TV-n zárd be és nyisd meg ÚJRA a QR képernyőt, majd olvasd be az új QR kódot. Ha régi az app a TV-n, előbb frissítsd a legújabb verzióra.', 'err');
+      } else {
+        showStatus('❌ Hiba küldéskor: HTTP ' + res.status + ' – próbáld újra', 'err');
+      }
       btn.disabled = false;
       btn.innerHTML = '<span>📤</span> Küldés TV-re';
     }

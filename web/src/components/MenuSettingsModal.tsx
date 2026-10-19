@@ -130,15 +130,18 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       try {
         const container = modalRef.current;
         if (!container) return;
-        // Fókusz a modal konténerre vagy első fókuszálható elemre
+        // FÓKUSZRABLÁS TILTVA: ha a fókusz már a modalBAN van (a néző épp a
+        // füleken vagy egy dobozban navigál), NEM nyúlunk hozzá. Korábban az
+        // első gombra – a bezáró X-re! – rántotta vissza az időzítő, ezért
+        // ugrált a kijelölés "magától" az X-re.
+        const ae = document.activeElement as HTMLElement | null;
+        if (ae && container.contains(ae) && ae !== container) return;
+        // Első fókusz: doboz (data-tv-box) → fülek → bármi, de NEM az X.
+        const box = container.querySelector<HTMLElement>('[data-tv-box]');
+        const buttons = Array.from(container.querySelectorAll<HTMLElement>('button'));
         const focusable = container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (focusable.length > 0) {
-          // Első nem input legyen fókuszban TV-n (hogy D-pad működjön)
-          const firstButton = Array.from(focusable).find(el => el.tagName === 'BUTTON') as HTMLElement | undefined;
-          (firstButton || focusable[0])?.focus({ preventScroll: true } as any);
-        } else {
-          container.focus();
-        }
+        const target = box || buttons[1] || buttons[0] || focusable[0] || container;
+        target?.focus({ preventScroll: true } as any);
       } catch {}
     };
     const t1 = window.setTimeout(focusModal, 100);
@@ -602,7 +605,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             <div className="space-y-5 animate-fadeIn">
               
               {/* SECTION: LEJÁTSZÓ */}
-              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
+              <div data-tv-box="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <h3 className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Lejátszó</span>
@@ -682,7 +685,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* SECTION: MOZI & SOROZAT (Screenshot 2) */}
-              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
+              <div data-tv-box="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <h3 className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
                   <Film className="w-3.5 h-3.5" />
                   <span>Mozi & Sorozat</span>
@@ -819,7 +822,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* SECTION: LG WEBOS ALKALMAZÁS */}
-              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
+              <div data-tv-box="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <button
                   type="button"
                   onClick={() => setShowApplicationBox((open) => !open)}

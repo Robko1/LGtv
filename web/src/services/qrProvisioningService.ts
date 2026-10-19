@@ -27,8 +27,44 @@ export interface QrProviderPayload {
   code: string; // 6 jegyű kód amit TV mutat
 }
 
-const BUCKET = 'IPTV_RT_QR_8bc03776'; // fix bucket név – kvdb.io auto létrehozza első POST-nál
+// FONTOS: a kvdb.io NEM hozza létre magától a tárolót (bucket) az első
+// írásnál – létre kell hozni (POST a kvdb.io gyökerére), különben minden
+// kérés 404-et ad ("Hiba küldéskor: 404" a telefonon). Ezért a TV a QR
+// megjelenítése előtt létrehoz egy saját tárolót, és annak azonosítóját
+// a QR linkben (&b=...) adja át a telefonnak.
+const LEGACY_BUCKET = 'IPTV_RT_QR_8bc03776'; // régi fix név – csak tartalék
 const KVDB_BASE = 'https://kvdb.io';
+const BUCKET_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 nap után új tárolót kérünk
+
+/** Létrehoz (vagy újrahasznosít) egy kvdb.io tárolót. Üres string = nem sikerült. */
+export async function ensureProvisionBucket(): Promise<string> {
+  // Korábban létrehozott, még friss tároló újrahasznosítása
+  try {
+    const cached = localStorage.getItem('qr_bucket') || '';
+    const ts = parseInt(localStorage.getItem('qr_bucket_ts') || '0', 10);
+    if (cached && ts && Date.now() - ts < BUCKET_TTL_MS) return cached;
+  } catch {}
+  try {
+    const res = await fetch(KVDB_BASE + '/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'email=iptv-rt-tv@example.com',
+    });
+    const text = (await res.text()).trim();
+    if (res.ok && /^[A-Za-z0-9_-]{8,64}$/.test(text)) {
+      try {
+        localStorage.setItem('qr_bucket', text);
+        localStorage.setItem('qr_bucket_ts', Date.now().toString());
+      } catch {}
+      return text;
+    }
+    console.warn('[QR] bucket létrehozás sikertelen', res.status, text.slice(0, 120));
+    return '';
+  } catch (e) {
+    console.warn('[QR] bucket létrehozás hiba', e);
+    return '';
+  }
+}
 const POLL_INTERVAL = 3000;
 const CODE_TTL_MS = 5 * 60 * 1000; // 5 percig él a kód
 
@@ -53,7 +89,7 @@ export function createProvisionSession(): { tvId: string; code: string; expiresA
   return { tvId, code, expiresAt };
 }
 
-export function getProvisionUrl(tvId: string, code: string): string {
+export function getProvisionUrl(tvId: string, code: string, bucket?: string): string {
   // A provision oldal a web buildben lesz: /provision.html
   // GitHub Pages vagy lokális: ha file:// akkor is működik ha van net
   // Használjuk a jelenlegi origin-t, de ha file:// akkor fallback github.io
@@ -70,12 +106,13 @@ export function getProvisionUrl(tvId: string, code: string): string {
     base = 'https://robko1.github.io/LGtv';
   }
   // provision.html a web/public-ban lesz
-  return `${base}/provision.html?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}`;
+  const b = bucket ? `&b=${encodeURIComponent(bucket)}` : '';
+  return `${base}/provision.html?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}${b}`;
 }
 
-export async function pollForProvider(tvId: string): Promise<QrProviderPayload | null> {
+export async function pollForProvider(tvId: string, bucket?: string): Promise<QrProviderPayload | null> {
   try {
-    const url = `${KVDB_BASE}/${BUCKET}/${encodeURIComponent(tvId)}`;
+    const url = `${KVDB_BASE}/${bucket || LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
     const res = await fetch(url, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
@@ -99,10 +136,10 @@ export async function pollForProvider(tvId: string): Promise<QrProviderPayload |
   }
 }
 
-export async function clearProvision(tvId: string): Promise<void> {
+export async function clearProvision(tvId: string, bucket?: string): Promise<void> {
   try {
-    // Törlés – POST üres vagy DELETE? kvdb.io DELETE támogatott
-    const url = `${KVDB_BASE}/${BUCKET}/${encodeURIComponent(tvId)}`;
+    // Törlés – kvdb.io DELETE támogatott
+    const url = `${KVDB_BASE}/${bucket || LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
     await fetch(url, { method: 'DELETE' }).catch(() => {});
   } catch {}
   try {
@@ -113,9 +150,9 @@ export async function clearProvision(tvId: string): Promise<void> {
 }
 
 // Telefon oldali – provision.html használja
-export async function pushProvider(tvId: string, payload: QrProviderPayload): Promise<boolean> {
+export async function pushProvider(tvId: string, payload: QrProviderPayload, bucket?: string): Promise<boolean> {
   try {
-    const url = `${KVDB_BASE}/${BUCKET}/${encodeURIComponent(tvId)}`;
+    const url = `${KVDB_BASE}/${bucket || LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
