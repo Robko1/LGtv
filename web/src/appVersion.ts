@@ -1,6 +1,21 @@
-export const WEB_VERSION = '2.3.9';
+export const WEB_VERSION = '2.3.10';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.10',
+    date: '2026-10-19',
+    changes: [
+      "EGYMÁSRA NYÍLÓ ABLAKOK JAVÍTVA: a QR és az Új mappa ablakban eddig azért nem lehetett mozogni, mert a TV-kezelő az ALATTA lévő Beállítások ablakban navigált. Mostantól mindig a legfelső ablak kapja a nyilakat és a VISSZA gombot.",
+      "QR KÜLDÉS: új elsődleges tároló (ntfy.sh) önteszttel; tartalék kvdb.io és jsonblob.com. Ha egyik sem elérhető, azt a TV azonnal kiírja. ÚJ QR kódot kell nyitni a frissítés után!",
+      "FŐOLDAL ÁTRENDEZVE: az óra kis dobozban a bal sarokba került, a hamburger ikon helyén Országok doboz van magyar zászlóval (Mozi/Sorozat stílusban).",
+      "Csatornalistáról BALRA nyíllal a jelölő azonnal a TV lejátszóra ugrik, FEL továbbra is a Beállítások.",
+      "Menü: a jobb felső X eltávolítva; nyitáskor a jelölő automatikusan a Kedvencek fülre ugrik; a Kedvencek fül színe a többivel egyező lett.",
+      "Rendszer fül: doboz szinten csak FEL/LE mozgás; a fülekre csak a legfelső dobozról felfelé lép ki a jelölő; lefelé haladva középre görget, és az alján látható lezárás jelzi a végét.",
+      "LG webOS alkalmazás doboz állandó (nem csukható), a Vissza és a Gyorsítótár törlése gomb eltávolítva.",
+      "A saját CORS proxy beállítás teljesen eltávolítva (felület + forráskód).",
+      "Verzió: 2.3.10 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.9',
     date: '2026-10-19',

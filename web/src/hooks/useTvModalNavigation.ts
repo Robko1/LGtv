@@ -17,6 +17,10 @@ export function useTvModalNavigation(isOpen: boolean, onClose: () => void, deps:
       try {
         const container = modalRef.current;
         if (!container) return;
+        // FÓKUSZRABLÁS TILTVA: ha a fókusz már a modalban van (a néző épp
+        // navigál benne), nem nyúlunk hozzá.
+        const ae = document.activeElement as HTMLElement | null;
+        if (ae && container.contains(ae) && ae !== container) return;
         const focusable = container.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
         );

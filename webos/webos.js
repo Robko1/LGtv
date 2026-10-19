@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.9
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.10
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.9 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.10 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -156,7 +156,7 @@
         'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
         'white-space:pre-wrap;word-break:break-word;');
       var title = document.createElement('div');
-      title.textContent = 'IPTV R.T diagnosztika 2.3.9 \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika 2.3.10 \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -381,6 +381,13 @@
   // A csatornalistát külön hagyjuk, mert annak saját fel/le navigációja van.
   // Ha container meg van adva (pl. nyitott modal), CSAK azon belül keresünk –
   // így a fókusz nem szökhet ki a háttérbe, és irány szerint lép, nem sorban.
+  function topDialog() {
+    // Egymasra nyilo ablakoknal (pl. Beallitasok folott a QR vagy az Uj mappa)
+    // MINDIG a legfelso (DOM-ban utolso) dialogban kell navigalni.
+    var l = document.querySelectorAll('[role="dialog"]');
+    return l.length ? l[l.length - 1] : null;
+  }
+
   function revealEl(el) {
     try {
       if (!el) return;
@@ -388,7 +395,7 @@
       // parametert igaznak veszi -> mindig a tetejere gorget, ettol tunt
       // lassunak/ugralonak a leptetes. A scrollIntoViewIfNeeded azonnali,
       // es csak akkor gorget, ha tenyleg kell.
-      if (el.scrollIntoViewIfNeeded) { el.scrollIntoViewIfNeeded(false); return; }
+      if (el.scrollIntoViewIfNeeded) { el.scrollIntoViewIfNeeded(true); return; }
       if (el.scrollIntoView) el.scrollIntoView({block:'nearest', inline:'nearest'});
     } catch (e) {}
   }
@@ -492,7 +499,7 @@
       if (!ev) return;
       var target = document.activeElement;
       if (!target || target === document.body || target === document.documentElement) {
-        var dialogTarget = document.querySelector('[role="dialog"]');
+        var dialogTarget = topDialog();
         var dialogFocusable = dialogTarget ? getFocusable(dialogTarget) : [];
         target = (dialogFocusable.length ? dialogFocusable[0] : dialogTarget) ||
           document.querySelector('[role="listbox"]') || document;
@@ -582,7 +589,7 @@
     // közvetlenül a csatornalistának adjuk át, nem veszítjük el fókuszváltáskor.
     var active = document.activeElement;
     var inTextEntry = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
-    var dialogAtStart = document.querySelector('[role="dialog"]');
+    var dialogAtStart = topDialog();
     var isArrow = isArrowKey(key);
     var isConfirm = key === 'Enter';
 
@@ -660,6 +667,19 @@
         try { console.log('[webOS] Back → Escape'); } catch (eLog) {}
         e.preventDefault();
         e.stopPropagation();
+        // Egymasra nyilo ablakoknal MINDIG a legfelso ablak zarodjon:
+        // ha a fokusz nem benne van, eloszor oda visszuk, kulonben az
+        // Escape az also ablakot zarna be.
+        var tdlg = topDialog();
+        if (tdlg && !tdlg.contains(document.activeElement)) {
+          var tf = getFocusable(tdlg);
+          if (tf.length) {
+            tf[0].focus({preventScroll:true});
+          } else {
+            if (!tdlg.hasAttribute('tabindex')) tdlg.setAttribute('tabindex', '-1');
+            tdlg.focus({preventScroll:true});
+          }
+        }
         injectKey('Escape', 27);
         return;
       }
@@ -700,7 +720,7 @@
       var boxes = Array.prototype.slice.call(dialog.querySelectorAll('[data-tv-box]')).filter(function(b) {
         return b.getClientRects().length > 0;
       });
-      var defEl = dialog.querySelector('[data-tv-default]');
+      var defEl = dialog.querySelector('[data-tv-default]') || dialog.querySelector('[data-tv-open-focus]');
       if (boxes.length || defEl) {
         if (!curEl || curEl === document.body || curEl === document.documentElement || !dialog.contains(curEl)) {
           var pullTo = defEl || boxes[0];
@@ -725,7 +745,24 @@
           }
           return;
         }
-        // Doboz szint: a dobozok + a dobozokon KÍVÜLI vezérlők (fülek, X).
+        var curIsBox = curEl.hasAttribute && curEl.hasAttribute('data-tv-box');
+        if (curIsBox) {
+          // Doboz szinten CSAK FEL/LE lehet lepkedni a dobozok kozott.
+          // A fulekre (Listak/Kedvencek/Rendszer) kizarolag a LEGFELSO
+          // dobozrol felfele lepve kerul a jelolo - az aljarol vagy
+          // kozeprol nem ugorhat at masik menure.
+          if (key === 'ArrowLeft' || key === 'ArrowRight') return;
+          if (spatialPick(curEl, key, boxes)) return;
+          if (key === 'ArrowUp') {
+            var outside = getFocusable(dialog).filter(function(el) {
+              if (el.hasAttribute && el.hasAttribute('data-tv-box')) return false;
+              return !(el.closest && el.closest('[data-tv-box]'));
+            });
+            spatialPick(curEl, key, outside);
+          }
+          return;
+        }
+        // Nem dobozon allunk (fulek, also gombok): dobozok + kivul eso vezerlok.
         var levelItems = getFocusable(dialog).filter(function(el) {
           if (el.hasAttribute && el.hasAttribute('data-tv-box')) return true;
           return !(el.closest && el.closest('[data-tv-box]'));
@@ -888,5 +925,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.9 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.10 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AppSettings, Channel, FavoriteFolder, ProviderAccount, BufferMode, SubtitleSize, WatchHistoryItem } from '../types/iptv';
 import {
   SlidersHorizontal,
-  X,
   Tv,
   FolderPlus,
   Play,
@@ -18,7 +17,6 @@ import {
   Star,
   ArrowUp,
   ArrowDown,
-  ChevronDown,
   Waves,
   PanelsTopLeft,
   Clock,
@@ -86,7 +84,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const [releaseCheckLoading, setReleaseCheckLoading] = useState(false);
   const [releaseCheckStatus, setReleaseCheckStatus] = useState('');
   const [showVersionHistory, setShowVersionHistory] = useState(false);
-  const [showApplicationBox, setShowApplicationBox] = useState(false);
+  const showApplicationBox = true; // állandó rész, nem csukható
   const [expandedFavoriteFolderId, setExpandedFavoriteFolderId] = useState<string | null>(null);
   const [movingFavoriteChannelId, setMovingFavoriteChannelId] = useState<string | null>(null);
   const favoriteLongPressTimer = useRef<number | null>(null);
@@ -148,7 +146,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           if (jump) jump.focus({ preventScroll: true } as any);
           return;
         }
-        const box = def || container.querySelector<HTMLElement>('[data-tv-box]');
+        // Nyitáskor mindig a Kedvencek fülre ugrik a jelölő.
+        const opener = container.querySelector<HTMLElement>('[data-tv-open-focus]');
+        const box = opener || def || container.querySelector<HTMLElement>('[data-tv-box]');
         const buttons = Array.from(container.querySelectorAll<HTMLElement>('button'));
         const focusable = container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
         const target = box || buttons[1] || buttons[0] || focusable[0] || container;
@@ -216,12 +216,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               MENÜ & BEÁLLÍTÁSOK
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-300 active:scale-90 transition-all"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {/* Az X gombot a TV-s kérés alapján eltávolítottuk – bezárás a
+              VISSZA gombbal vagy a háttérre kattintva. */}
         </div>
 
         {/* 4 Navigation Tabs Pills */}
@@ -240,10 +236,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           </button>
 
           <button
+            data-tv-open-focus=""
             onClick={() => setActiveTab('favorites')}
             className={`flex-1 min-w-[85px] py-2 px-2.5 rounded-xl text-xs font-black transition-all text-center truncate ${
               activeTab === 'favorites'
-                ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30'
+                ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
             }`}
           >
@@ -806,49 +803,17 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Megbízható CORS proxy */}
-                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/40 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
-                  <label className="text-xs font-bold text-white block">
-                    Saját / megbízható CORS proxy (opcionális)
-                  </label>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    Csak saját vagy megbízható proxyt adj meg: az IPTV-belépési adatok ezen a szerveren keresztül is áthaladhatnak. A nyilvános proxykat a bejelentkezési adatokat tartalmazó címekhez nem használjuk.
-                  </p>
-                  <input
-                    type="url"
-                    value={settings.corsProxy || ''}
-                    onChange={(e) => onUpdateSettings({ corsProxy: e.target.value })}
-                    placeholder="https://sajat-proxy.example vagy {url} helyőrző"
-                    className="w-full bg-[#0e1f3f] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-cyan-400"
-                  />
-                  {settings.corsProxy && (
-                    <button
-                      type="button"
-                      onClick={() => onUpdateSettings({ corsProxy: '' })}
-                      className="text-[11px] text-amber-300 underline"
-                    >
-                      Proxy törlése
-                    </button>
-                  )}
-                </div>
+                {/* A CORS proxy beállítás kérésre eltávolítva. */}
               </div>
 
               {/* SECTION: LG WEBOS ALKALMAZÁS */}
               <div data-tv-box="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
-                <button
-                  type="button"
-                  onClick={() => setShowApplicationBox((open) => !open)}
-                  className="w-full flex items-center justify-between text-left rounded-xl py-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-                  aria-expanded={showApplicationBox}
-                >
+                <div className="w-full flex items-center justify-between text-left rounded-xl py-1.5">
                   <span className="text-xs font-black text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
                     <Smartphone className="w-3.5 h-3.5" />
                     <span>LG webOS alkalmazás</span>
                   </span>
-                  <span className={`flex h-8 w-8 items-center justify-center rounded-full border border-cyan-400/50 bg-cyan-400/10 text-cyan-300 shadow-sm transition-colors ${showApplicationBox ? '': 'animate-pulse'}`} aria-hidden="true">
-                    <ChevronDown className={`h-5 w-5 transition-transform duration-300 ${showApplicationBox ? 'rotate-180' : 'rotate-0'}`} strokeWidth={2.5} />
-                  </span>
-                </button>
+                </div>
 
 {showApplicationBox && (
                   <>
@@ -1817,24 +1782,15 @@ sOI9cjN0PAqNuryXnd5re4a/2lyy2mT0yPQw9hhHpZmegp2tFmgNG4Cw9S5W
                   ))}
                 </div>
 
-                <button
-                  onClick={onClose}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#112347] hover:bg-[#172e5c] text-slate-200 border border-slate-700 text-xs font-bold active:scale-95 transition-all"
-                >
-                  Vissza
-                </button>
-
-                {/* Gyorsítótár törlése gomb (Screenshot 1) */}
-                <button
-                  onClick={handleClearCache}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-950/20 hover:bg-rose-950/50 text-rose-300 border border-rose-800/40 text-xs font-bold active:scale-95 transition-all"
-                >
-                  <Trash2 className="w-4 h-4 text-rose-400" />
-                  <span>Gyorsítótár törlése</span>
-                </button>
+                {/* A Vissza és a Gyorsítótár törlése gomb kérésre eltávolítva. */}
 
                   </>
                 )}
+              </div>
+
+              {/* Látható lezárás: innen nincs tovább lefelé */}
+              <div className="rounded-2xl border-2 border-dashed border-cyan-900/70 py-3 text-center text-[11px] font-bold tracking-widest text-slate-500">
+                ─── A BEÁLLÍTÁSOK VÉGE ───
               </div>
             </div>
           )}

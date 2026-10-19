@@ -107,7 +107,7 @@
 </div>
 
 <div class="footer">
-  IPTV R.T – Telefonos QR beállítás v2.3.9 • kvdb.io ideiglenes tároló • 5 perc TTL
+  IPTV R.T – Telefonos QR beállítás v2.3.10 • kvdb.io ideiglenes tároló • 5 perc TTL
 </div>
 
 <script>
@@ -116,8 +116,10 @@
 const LEGACY_BUCKET = 'IPTV_RT_QR_8bc03776';
 const KVDB_BASE = 'https://kvdb.io';
 const JSONBLOB_BASE = 'https://jsonblob.com/api/jsonBlob';
+const NTFY_BASE = 'https://ntfy.sh';
 let BUCKET = LEGACY_BUCKET;
-let JSONBLOB_ID = ''; // ha a QR &j= paramétert hoz, a jsonblob.com tárolót használjuk
+let JSONBLOB_ID = ''; // &j= paraméter: jsonblob.com tároló
+let NTFY_TOPIC = ''; // &n= paraméter: ntfy.sh téma (elsődleges)
 let currentType = 'xtream';
 let tvId = '';
 let code = '';
@@ -128,12 +130,13 @@ function getParams() {
   code = url.searchParams.get('code') || '';
   BUCKET = url.searchParams.get('b') || LEGACY_BUCKET;
   JSONBLOB_ID = url.searchParams.get('j') || '';
+  NTFY_TOPIC = url.searchParams.get('n') || '';
   document.getElementById('codeDisplay').textContent = code || '------';
   document.getElementById('tvInfo').textContent = 'TV ID: ' + tvId + ' | Kód: ' + code + ' | URL: ' + window.location.href;
   if (!tvId) {
     showStatus('Hiányzik TV ID – olvasd be újra a QR kódot a TV-n!', 'err');
     document.getElementById('sendBtn').disabled = true;
-  } else if (!url.searchParams.get('b') && !url.searchParams.get('j')) {
+  } else if (!url.searchParams.get('b') && !url.searchParams.get('j') && !url.searchParams.get('n')) {
     showStatus('⚠️ Régi QR kód (nincs tároló azonosító). Frissítsd az appot a TV-n a legújabb verzióra, és olvasd be az ÚJ QR kódot!', 'err');
   }
 }
@@ -202,7 +205,13 @@ async function sendToTv() {
 
   try {
     let res;
-    if (JSONBLOB_ID) {
+    if (NTFY_TOPIC) {
+      // ntfy.sh (elsődleges): egyszerű POST, a TV előre letesztelte a témát
+      res = await fetch(NTFY_BASE + '/' + encodeURIComponent(NTFY_TOPIC), {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+    } else if (JSONBLOB_ID) {
       // jsonblob.com tartalék tároló (a TV ellenőrizte, hogy működik)
       res = await fetch(JSONBLOB_BASE + '/' + encodeURIComponent(JSONBLOB_ID), {
         method: 'PUT',

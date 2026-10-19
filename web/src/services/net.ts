@@ -174,17 +174,7 @@ function noteResponse(): void {
 
 /* ------------------------------------------------------------- kérés */
 
-/** A beállításokban megadott egyedi CORS proxy (ha van, csak böngészőben). */
-function customProxy(): string {
-  try {
-    const raw = localStorage.getItem('iptv_rt_settings_v1');
-    if (!raw) return '';
-    const parsed = JSON.parse(raw) as { corsProxy?: string };
-    return (parsed.corsProxy || '').trim();
-  } catch {
-    return '';
-  }
-}
+// (A saját CORS proxy beállítás kérésre eltávolítva.)
 
 function hasSensitiveProviderData(rawUrl: string, depth = 0): boolean {
   try {
@@ -342,11 +332,8 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
 
   const attempts: string[] = [url];
   // Az IPTV-belépési adatokat nem küldjük nyilvános proxyknak.
-  // Közvetlen kapcsolatot vagy a felhasználó által beállított proxyt használunk.
-  const custom = customProxy();
-  if (custom) {
-    attempts.push(proxyUrl(url, custom));
-  } else if (!hasSensitiveProviderData(url)) {
+  // (A saját CORS proxy beállítás kérésre eltávolítva.)
+  if (!hasSensitiveProviderData(url)) {
     attempts.push(proxyUrl(url, 'https://api.allorigins.win'));
     attempts.push(proxyUrl(url, 'https://corsproxy.io'));
   }
