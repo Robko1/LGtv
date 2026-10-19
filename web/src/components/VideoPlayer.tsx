@@ -494,10 +494,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (api?.togglePause) api.togglePause();
         else if (video?.paused) void video.play().catch(() => undefined);
         else video?.pause();
+      } else if (key === 'Enter' && isLive && !isFullscreen) {
+        // TV: EGYETLEN OK gomb aktiválja a teljes képernyős nézést
+        // (korábban dupla kattintás/2x OK kellett).
+        setIsFullscreen(true);
       } else {
         // Enter = OSD vagy dupla logika szerint
         handleSurfaceTap(e);
       }
+    } else if ((key === 'ArrowLeft' || key === 'ArrowRight') && !isFullscreen) {
+      // A fókusz NE ragadjon be a lejátszó felületén: balra/jobbra nyíllal
+      // vissza lehet lépni a csatornalistára.
+      e.preventDefault();
+      e.stopPropagation();
+      const list = document.querySelector<HTMLElement>('[role="listbox"]');
+      if (list) list.focus({ preventScroll: true } as any);
     } else if (key === 'ArrowUp') {
       e.preventDefault();
       e.stopPropagation();

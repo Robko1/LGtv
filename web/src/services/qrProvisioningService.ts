@@ -27,44 +27,123 @@ export interface QrProviderPayload {
   code: string; // 6 jegyű kód amit TV mutat
 }
 
-// FONTOS: a kvdb.io NEM hozza létre magától a tárolót (bucket) az első
-// írásnál – létre kell hozni (POST a kvdb.io gyökerére), különben minden
-// kérés 404-et ad ("Hiba küldéskor: 404" a telefonon). Ezért a TV a QR
-// megjelenítése előtt létrehoz egy saját tárolót, és annak azonosítóját
-// a QR linkben (&b=...) adja át a telefonnak.
-const LEGACY_BUCKET = 'IPTV_RT_QR_8bc03776'; // régi fix név – csak tartalék
-const KVDB_BASE = 'https://kvdb.io';
-const BUCKET_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 nap után új tárolót kérünk
+// TÁROLÓ (relay) A TELEFON ÉS A TV KÖZÖTT
+//
+// 1. próba: kvdb.io – a TV létrehoz egy tárolót, majd ÖNTESZTTEL (írás +
+//    visszaolvasás) ellenőrzi, hogy tényleg működik. A 2.3.8-ban kiderült,
+//    hogy a kvdb.io 403-at ("a tároló házirendje blokkolta a kérést") is
+//    adhat, ezért csak IGAZOLTAN működő tárolót teszünk a QR kódba.
+// 2. tartalék: jsonblob.com – névtelen JSON tároló, CORS-barát.
+// A QR linkben &b=<kvdb tároló> VAGY &j=<jsonblob azonosító> utazik.
+export interface ProvisionChannel {
+  kind: 'kvdb' | 'jsonblob';
+  id: string;
+}
 
-/** Létrehoz (vagy újrahasznosít) egy kvdb.io tárolót. Üres string = nem sikerült. */
-export async function ensureProvisionBucket(): Promise<string> {
-  // Korábban létrehozott, még friss tároló újrahasznosítása
+const LEGACY_BUCKET = 'IPTV_RT_QR_8bc03776'; // régi fix név – csak végső tartalék
+const KVDB_BASE = 'https://kvdb.io';
+const JSONBLOB_BASE = 'https://jsonblob.com/api/jsonBlob';
+const CHANNEL_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 nap után új tárolót kérünk
+
+/** kvdb.io önteszt: írás + visszaolvasás. Csak működő tárolót hirdetünk. */
+async function verifyKvdb(bucket: string): Promise<boolean> {
   try {
-    const cached = localStorage.getItem('qr_bucket') || '';
-    const ts = parseInt(localStorage.getItem('qr_bucket_ts') || '0', 10);
-    if (cached && ts && Date.now() - ts < BUCKET_TTL_MS) return cached;
-  } catch {}
+    const key = `${KVDB_BASE}/${encodeURIComponent(bucket)}/iptv_selftest`;
+    // Szándékosan NINCS Content-Type fejléc: így "egyszerű" kérés, nem kell
+    // CORS preflight – pont úgy viselkedik, mint a telefon küldése.
+    const w = await fetch(key, { method: 'POST', body: 'ok' });
+    if (!w.ok) return false;
+    const r = await fetch(key);
+    if (!r.ok) return false;
+    return (await r.text()).trim().indexOf('ok') === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function createKvdb(): Promise<string> {
   try {
     const res = await fetch(KVDB_BASE + '/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'email=iptv-rt-tv@example.com',
+      body: 'email=iptv.rt.webos@gmail.com',
     });
     const text = (await res.text()).trim();
-    if (res.ok && /^[A-Za-z0-9_-]{8,64}$/.test(text)) {
-      try {
-        localStorage.setItem('qr_bucket', text);
-        localStorage.setItem('qr_bucket_ts', Date.now().toString());
-      } catch {}
-      return text;
-    }
-    console.warn('[QR] bucket létrehozás sikertelen', res.status, text.slice(0, 120));
+    if (res.ok && /^[A-Za-z0-9_-]{8,64}$/.test(text)) return text;
+    console.warn('[QR] kvdb tároló létrehozás sikertelen', res.status, text.slice(0, 120));
     return '';
   } catch (e) {
-    console.warn('[QR] bucket létrehozás hiba', e);
+    console.warn('[QR] kvdb tároló létrehozás hiba', e);
     return '';
   }
 }
+
+async function verifyJsonblob(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${JSONBLOB_BASE}/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ waiting: true }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function createJsonblob(): Promise<string> {
+  try {
+    const res = await fetch(JSONBLOB_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ waiting: true }),
+    });
+    if (!res.ok) return '';
+    const loc = res.headers.get('Location') || res.headers.get('location') || '';
+    const m = loc.match(/jsonBlob\/([A-Za-z0-9-]+)/);
+    return m ? m[1] : '';
+  } catch (e) {
+    console.warn('[QR] jsonblob létrehozás hiba', e);
+    return '';
+  }
+}
+
+function saveChannel(ch: ProvisionChannel): void {
+  try {
+    localStorage.setItem('qr_chan_kind', ch.kind);
+    localStorage.setItem('qr_chan_id', ch.id);
+    localStorage.setItem('qr_chan_ts', Date.now().toString());
+  } catch {}
+}
+
+/** IGAZOLTAN működő tárolócsatorna. null = egyik szolgáltatás sem elérhető. */
+export async function ensureProvisionChannel(): Promise<ProvisionChannel | null> {
+  // Korábbi, még friss csatorna újrahasznosítása (öntesztet így is futtatunk)
+  try {
+    const kind = localStorage.getItem('qr_chan_kind') || '';
+    const id = localStorage.getItem('qr_chan_id') || '';
+    const ts = parseInt(localStorage.getItem('qr_chan_ts') || '0', 10);
+    if (id && ts && Date.now() - ts < CHANNEL_TTL_MS) {
+      if (kind === 'kvdb' && (await verifyKvdb(id))) return { kind: 'kvdb', id };
+      if (kind === 'jsonblob' && (await verifyJsonblob(id))) return { kind: 'jsonblob', id };
+    }
+  } catch {}
+  const bucket = await createKvdb();
+  if (bucket && (await verifyKvdb(bucket))) {
+    const ch: ProvisionChannel = { kind: 'kvdb', id: bucket };
+    saveChannel(ch);
+    return ch;
+  }
+  const blob = await createJsonblob();
+  if (blob && (await verifyJsonblob(blob))) {
+    const ch: ProvisionChannel = { kind: 'jsonblob', id: blob };
+    saveChannel(ch);
+    return ch;
+  }
+  console.warn('[QR] egyik tároló szolgáltatás sem elérhető');
+  return null;
+}
+
 const POLL_INTERVAL = 3000;
 const CODE_TTL_MS = 5 * 60 * 1000; // 5 percig él a kód
 
@@ -89,7 +168,7 @@ export function createProvisionSession(): { tvId: string; code: string; expiresA
   return { tvId, code, expiresAt };
 }
 
-export function getProvisionUrl(tvId: string, code: string, bucket?: string): string {
+export function getProvisionUrl(tvId: string, code: string, channel?: ProvisionChannel | null): string {
   // A provision oldal a web buildben lesz: /provision.html
   // GitHub Pages vagy lokális: ha file:// akkor is működik ha van net
   // Használjuk a jelenlegi origin-t, de ha file:// akkor fallback github.io
@@ -106,13 +185,17 @@ export function getProvisionUrl(tvId: string, code: string, bucket?: string): st
     base = 'https://robko1.github.io/LGtv';
   }
   // provision.html a web/public-ban lesz
-  const b = bucket ? `&b=${encodeURIComponent(bucket)}` : '';
-  return `${base}/provision.html?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}${b}`;
+  let extra = '';
+  if (channel && channel.kind === 'kvdb') extra = `&b=${encodeURIComponent(channel.id)}`;
+  else if (channel && channel.kind === 'jsonblob') extra = `&j=${encodeURIComponent(channel.id)}`;
+  return `${base}/provision.html?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}${extra}`;
 }
 
-export async function pollForProvider(tvId: string, bucket?: string): Promise<QrProviderPayload | null> {
+export async function pollForProvider(tvId: string, channel?: ProvisionChannel | null): Promise<QrProviderPayload | null> {
   try {
-    const url = `${KVDB_BASE}/${bucket || LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
+    const url = channel && channel.kind === 'jsonblob'
+      ? `${JSONBLOB_BASE}/${encodeURIComponent(channel.id)}`
+      : `${KVDB_BASE}/${channel ? channel.id : LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
     const res = await fetch(url, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
@@ -136,11 +219,19 @@ export async function pollForProvider(tvId: string, bucket?: string): Promise<Qr
   }
 }
 
-export async function clearProvision(tvId: string, bucket?: string): Promise<void> {
+export async function clearProvision(tvId: string, channel?: ProvisionChannel | null): Promise<void> {
   try {
-    // Törlés – kvdb.io DELETE támogatott
-    const url = `${KVDB_BASE}/${bucket || LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
-    await fetch(url, { method: 'DELETE' }).catch(() => {});
+    if (channel && channel.kind === 'jsonblob') {
+      // A blob marad (újrahasznosítjuk), csak az adatokat ürítjük ki.
+      await fetch(`${JSONBLOB_BASE}/${encodeURIComponent(channel.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waiting: true }),
+      }).catch(() => {});
+    } else {
+      const url = `${KVDB_BASE}/${channel ? channel.id : LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
+      await fetch(url, { method: 'DELETE' }).catch(() => {});
+    }
   } catch {}
   try {
     localStorage.removeItem('qr_tvId');
@@ -150,14 +241,19 @@ export async function clearProvision(tvId: string, bucket?: string): Promise<voi
 }
 
 // Telefon oldali – provision.html használja
-export async function pushProvider(tvId: string, payload: QrProviderPayload, bucket?: string): Promise<boolean> {
+export async function pushProvider(tvId: string, payload: QrProviderPayload, channel?: ProvisionChannel | null): Promise<boolean> {
   try {
-    const url = `${KVDB_BASE}/${bucket || LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    if (channel && channel.kind === 'jsonblob') {
+      const res = await fetch(`${JSONBLOB_BASE}/${encodeURIComponent(channel.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return res.ok;
+    }
+    const url = `${KVDB_BASE}/${channel ? channel.id : LEGACY_BUCKET}/${encodeURIComponent(tvId)}`;
+    // Nincs Content-Type fejléc: egyszerű kérés, nem kell CORS preflight.
+    const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
     return res.ok;
   } catch (e) {
     console.error('[QR] push error', e);

@@ -135,9 +135,20 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         // első gombra – a bezáró X-re! – rántotta vissza az időzítő, ezért
         // ugrált a kijelölés "magától" az X-re.
         const ae = document.activeElement as HTMLElement | null;
-        if (ae && container.contains(ae) && ae !== container) return;
-        // Első fókusz: doboz (data-tv-box) → fülek → bármi, de NEM az X.
-        const box = container.querySelector<HTMLElement>('[data-tv-box]');
+        // Első fókusz: alapgomb (data-tv-default, pl. Telefon) → doboz
+        // (data-tv-box) → fülek → bármi, de NEM az X.
+        const def = container.querySelector<HTMLElement>('[data-tv-default]');
+        if (ae && container.contains(ae) && ae !== container) {
+          // Fülváltás után a kijelölés a fül TARTALMÁRA ugrik (Listák →
+          // Telefon gomb, Rendszer → első doboz); minden más esetben nem
+          // nyúlunk a fókuszhoz.
+          const onTab = !!(ae.closest && ae.closest('[data-tv-tabs]'));
+          if (!onTab) return;
+          const jump = def || container.querySelector<HTMLElement>('[data-tv-box]');
+          if (jump) jump.focus({ preventScroll: true } as any);
+          return;
+        }
+        const box = def || container.querySelector<HTMLElement>('[data-tv-box]');
         const buttons = Array.from(container.querySelectorAll<HTMLElement>('button'));
         const focusable = container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
         const target = box || buttons[1] || buttons[0] || focusable[0] || container;
@@ -214,7 +225,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         </div>
 
         {/* 4 Navigation Tabs Pills */}
-        <div className="px-3 py-2 bg-[#081329] border-b border-cyan-950/60 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        <div data-tv-tabs="" className="px-3 py-2 bg-[#081329] border-b border-cyan-950/60 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
 
 
           <button
@@ -264,6 +275,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </h3>
                 <div className="flex items-center gap-2">
                   <button
+                    data-tv-default=""
                     onClick={onOpenQrProvision}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
                     title="Telefonnal beállítás QR kóddal – nem kell TV-n pötyögni"
@@ -605,14 +617,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             <div className="space-y-5 animate-fadeIn">
               
               {/* SECTION: LEJÁTSZÓ */}
-              <div data-tv-box="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
                 <h3 className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Lejátszó</span>
                 </h3>
 
                 {/* Pufferelés */}
-                <div className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5">
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Waves className="h-4 w-4 text-cyan-300" /></span>
                     <span>Pufferelés</span>
@@ -638,7 +650,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* OSD automatikus elrejtése */}
-                <div className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5">
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><PanelsTopLeft className="h-4 w-4 text-cyan-300" /></span>
                     <span>OSD automatikus elrejtése</span>
@@ -664,7 +676,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Toggle: Kék óra mindig látszódjon */}
-                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm">
+                <div data-tv-box="" tabIndex={0} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <div className="flex min-w-0 items-start gap-2.5 pr-3">
                     <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-sky-400/50 bg-sky-500/15 px-1.5 shadow-sm shadow-sky-950/40">
                       <Clock className="h-3.5 w-3.5 text-sky-300" />
@@ -685,14 +697,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* SECTION: MOZI & SOROZAT (Screenshot 2) */}
-              <div data-tv-box="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
                 <h3 className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
                   <Film className="w-3.5 h-3.5" />
                   <span>Mozi & Sorozat</span>
                 </h3>
 
                 {/* Tekerési lépés */}
-                <div className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5">
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="text-xs font-bold text-white block">
                     Tekerési lépés
                   </label>
@@ -714,7 +726,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Következő rész automatikusan */}
-                <div className="flex items-center justify-between pt-1">
+                <div data-tv-box="" tabIndex={0} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <div>
                     <span className="text-xs font-bold text-white block">
                       Következő rész automatikusan
@@ -735,7 +747,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Preferált hangsáv nyelve */}
-                <div className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5">
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="text-xs font-bold text-white block">
                     Preferált hangsáv nyelve
                   </label>
@@ -757,7 +769,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Preferált felirat */}
-                <div className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5">
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="text-xs font-bold text-white block">
                     Preferált felirat
                   </label>
@@ -773,7 +785,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Felirat mérete */}
-                <div className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5">
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="text-xs font-bold text-white block">
                     Felirat mérete
                   </label>
@@ -795,7 +807,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Megbízható CORS proxy */}
-                <div className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/40 shadow-sm space-y-1.5">
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/40 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="text-xs font-bold text-white block">
                     Saját / megbízható CORS proxy (opcionális)
                   </label>

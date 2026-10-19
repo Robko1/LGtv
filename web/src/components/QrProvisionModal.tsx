@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { X, Smartphone, QrCode, RefreshCw, Check, Clock, Tv } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { createProvisionSession, getProvisionUrl, pollForProvider, clearProvision, ensureProvisionBucket, QrProviderPayload } from '../services/qrProvisioningService';
+import { createProvisionSession, getProvisionUrl, pollForProvider, clearProvision, ensureProvisionChannel, ProvisionChannel, QrProviderPayload } from '../services/qrProvisioningService';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 
 interface QrProvisionModalProps {
@@ -12,7 +12,7 @@ interface QrProvisionModalProps {
 
 export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onClose, onProviderReceived }) => {
   const [tvId, setTvId] = useState<string>('');
-  const [bucket, setBucket] = useState<string>('');
+  const [channel, setChannel] = useState<ProvisionChannel | null>(null);
   const [code, setCode] = useState<string>('');
   const [provisionUrl, setProvisionUrl] = useState<string>('');
   const [status, setStatus] = useState<'idle' | 'waiting' | 'received' | 'error' | 'expired'>('idle');
@@ -31,13 +31,13 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
     setStatus('waiting');
     setCountdown(300);
     setReceivedData(null);
-    // A kvdb.io tárolót a TV hozza létre, az azonosítója a QR linkbe kerül
-    // (&b=...). E nélkül a telefon 404-et kapna küldéskor.
-    const b = await ensureProvisionBucket();
-    setBucket(b);
-    const url = getProvisionUrl(session.tvId, session.code, b);
+    // A tárolót a TV hozza létre és ÖNTESZTTEL ellenőrzi (írás+olvasás),
+    // az azonosítója a QR linkbe kerül (&b= kvdb vagy &j= jsonblob).
+    const ch = await ensureProvisionChannel();
+    setChannel(ch);
+    const url = getProvisionUrl(session.tvId, session.code, ch);
     setProvisionUrl(url);
-    console.log('[QR] Session created', session.tvId, session.code, url, 'bucket:', b || '(tartalék)');
+    console.log('[QR] Session created', session.tvId, session.code, url, 'channel:', ch ? ch.kind + ':' + ch.id : 'NINCS');
   };
 
   useEffect(() => {
@@ -74,7 +74,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
   useEffect(() => {
     if (!isOpen || status !== 'waiting' || !tvId) return;
     pollRef.current = window.setInterval(async () => {
-      const data = await pollForProvider(tvId, bucket);
+      const data = await pollForProvider(tvId, channel);
       if (data) {
         console.log('[QR] Provider received', data);
         setReceivedData(data);
@@ -84,7 +84,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
         // Auto import 1.5s után
         setTimeout(() => {
           onProviderReceived(data);
-          clearProvision(tvId, bucket);
+          clearProvision(tvId, channel);
           onClose();
         }, 1500);
       }
@@ -92,10 +92,10 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
-  }, [isOpen, status, tvId, bucket, onProviderReceived, onClose]);
+  }, [isOpen, status, tvId, channel, onProviderReceived, onClose]);
 
   const handleRefresh = () => {
-    if (tvId) clearProvision(tvId, bucket);
+    if (tvId) clearProvision(tvId, channel);
     initSession();
   };
 

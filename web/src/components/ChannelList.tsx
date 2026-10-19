@@ -413,7 +413,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   // Billentyűzet / TV remote támogatás: nyilakkal navigálás, Enter kiválasztás
   /** TV: fókusz a felső menüsor első gombjára (Kategóriák/Mozi/Sorozat/Beállítások). */
   const focusHeaderMenu = () => {
-    const btn = document.querySelector<HTMLElement>('header button:not([disabled])');
+    // FEL gombra először mindig a Beállítások (fogaskerék) gombra ugrunk –
+    // onnan dönti el a néző, hogy jobbra vagy balra indul tovább.
+    const btn = document.querySelector<HTMLElement>('header [data-tv-header-default]:not([disabled])')
+      || document.querySelector<HTMLElement>('header button:not([disabled])');
     if (btn) {
       btn.focus({ preventScroll: true } as any);
       try { btn.scrollIntoView({ block: 'nearest' }); } catch {}
