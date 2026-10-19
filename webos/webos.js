@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.8
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.9
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.8 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.9 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -156,7 +156,7 @@
         'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
         'white-space:pre-wrap;word-break:break-word;');
       var title = document.createElement('div');
-      title.textContent = 'IPTV R.T diagnosztika 2.3.8 \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika 2.3.9 \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -244,9 +244,19 @@
         '/* NAGY TV-KIJELZŐ: a telefonos méretű felület 1.4x nagyítása, hogy a',
         '   feliratok és a menük messziről is olvashatók legyenek. */',
         '.webos-tv #root { zoom: 1.4; }',
+        '/* ZOOM-KOMPENZÁCIÓ: a fix, teljes képernyős rétegek (modal hátterek,',
+        '   teljes képernyős lejátszó) a zoom előtti méretben 100vw/100vh-t',
+        '   foglalnak, amit a zoom 140%-ra nagyít → kilógtak a képernyőről.',
+        '   100/1.4 = 71.4286 → nagyítás után pont kitöltik a képernyőt. */',
+        '.webos-tv .fixed.inset-0 { right: auto !important; bottom: auto !important; width: 71.4286vw !important; height: 71.4286vh !important; }',
+        '/* A felugró ablak sose lógjon ki fent és lent: 66vh * 1.4 = ~92% képernyő. */',
+        '.webos-tv [role="dialog"] { max-height: 66vh !important; }',
         '/* DOBOZ NAVIGÁCIÓ: a kijelölt beállítás-doboz jól látható sárga keretet kap. */',
-        '.webos-tv [data-tv-box] { scroll-margin: 40px; }',
+        '.webos-tv [data-tv-box] { scroll-margin: 40px; transition: none !important; }',
         '.webos-tv [data-tv-box]:focus { outline: 3px solid #fbbf24 !important; outline-offset: 3px; }',
+        '/* AZONNALI ugrálás a modalokban: semmi áttűnés/simított görgetés ne lassítsa. */',
+        '.webos-tv [role="dialog"] * { transition-duration: 0s !important; }',
+        '.webos-tv, .webos-tv * { scroll-behavior: auto !important; }',
         '/* NYUGODT ANIMÁCIÓK TV-N: az óra ikon pislogása és a fogaskerék',
         '   pörgése sokkal lassabb, saját keyframe-mel (a Tailwind 4 arbitrary',
         '   animációk CSS-változós időtartama a régi webOS Chrome-on elveszhet,',
@@ -371,6 +381,18 @@
   // A csatornalistát külön hagyjuk, mert annak saját fel/le navigációja van.
   // Ha container meg van adva (pl. nyitott modal), CSAK azon belül keresünk –
   // így a fókusz nem szökhet ki a háttérbe, és irány szerint lép, nem sorban.
+  function revealEl(el) {
+    try {
+      if (!el) return;
+      // A scrollIntoView({block:'nearest'}) a regi webOS Chrome-on (38) a
+      // parametert igaznak veszi -> mindig a tetejere gorget, ettol tunt
+      // lassunak/ugralonak a leptetes. A scrollIntoViewIfNeeded azonnali,
+      // es csak akkor gorget, ha tenyleg kell.
+      if (el.scrollIntoViewIfNeeded) { el.scrollIntoViewIfNeeded(false); return; }
+      if (el.scrollIntoView) el.scrollIntoView({block:'nearest', inline:'nearest'});
+    } catch (e) {}
+  }
+
   function spatialPick(active, key, items) {
     try {
       if (!items || !items.length) return false;
@@ -413,7 +435,7 @@
       });
       if (!best) return false;
       best.focus({preventScroll:true});
-      if (best.scrollIntoView) best.scrollIntoView({block:'nearest', inline:'nearest'});
+      revealEl(best);
       return true;
     } catch (e) { return false; }
   }
@@ -566,13 +588,20 @@
 
     // OK gomb egy kijelölt "dobozon" (data-tv-box): BELÉPÉS a dobozba –
     // a fókusz a doboz első vezérlőjére kerül, ott lehet választani.
+    // Ha a dobozban EGYETLEN vezérlő van (pl. egy kapcsoló), az OK azonnal
+    // átkapcsolja, nem kell külön belépni.
     if (isConfirm && active && active.hasAttribute && active.hasAttribute('data-tv-box')) {
       e.preventDefault();
       e.stopPropagation();
       var innerF = getFocusable(active);
+      if (innerF.length === 1 && (innerF[0].tagName === 'BUTTON' || innerF[0].tagName === 'A' ||
+          innerF[0].getAttribute('role') === 'button' || innerF[0].type === 'checkbox')) {
+        innerF[0].click();
+        return;
+      }
       if (innerF.length) {
         innerF[0].focus({preventScroll:true});
-        if (innerF[0].scrollIntoView) innerF[0].scrollIntoView({block:'nearest'});
+        revealEl(innerF[0]);
       }
       return;
     }
@@ -585,7 +614,7 @@
         e.preventDefault();
         e.stopPropagation();
         backBox.focus({preventScroll:true});
-        if (backBox.scrollIntoView) backBox.scrollIntoView({block:'nearest'});
+        revealEl(backBox);
         return;
       }
     }
@@ -671,10 +700,19 @@
       var boxes = Array.prototype.slice.call(dialog.querySelectorAll('[data-tv-box]')).filter(function(b) {
         return b.getClientRects().length > 0;
       });
-      if (boxes.length) {
+      var defEl = dialog.querySelector('[data-tv-default]');
+      if (boxes.length || defEl) {
         if (!curEl || curEl === document.body || curEl === document.documentElement || !dialog.contains(curEl)) {
-          boxes[0].focus({preventScroll:true});
-          if (boxes[0].scrollIntoView) boxes[0].scrollIntoView({block:'nearest'});
+          var pullTo = defEl || boxes[0];
+          pullTo.focus({preventScroll:true});
+          revealEl(pullTo);
+          return;
+        }
+        if (!boxes.length) {
+          // Csak alapgomb van (pl. Listak ful): sima terbeli lepes a modalban.
+          if (!focusSpatially(curEl, key, dialog)) {
+            focusNextInModal(dialog, (key === 'ArrowDown' || key === 'ArrowRight') ? 1 : -1);
+          }
           return;
         }
         var curBox = curEl.closest ? curEl.closest('[data-tv-box]') : null;
@@ -683,7 +721,7 @@
           if (!focusSpatially(curEl, key, curBox)) {
             // A doboz széléhez értünk: vissza a doboz szintre (kijelölt doboz).
             curBox.focus({preventScroll:true});
-            if (curBox.scrollIntoView) curBox.scrollIntoView({block:'nearest'});
+            revealEl(curBox);
           }
           return;
         }
@@ -850,5 +888,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.8 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.9 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

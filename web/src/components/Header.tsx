@@ -93,6 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* A beállítások és a kilépés gomb – reszponzív egér + TV */}
       <div className="flex shrink-0 items-center gap-2 md:gap-3 ml-0">
         <button
+          data-tv-header-default=""
           onClick={() => onOpenSettings()}
           className="flex shrink-0 items-center justify-center w-10 h-10 md:w-11 md:h-11 lg:w-12 lg:h-12 rounded-xl bg-amber-400 hover:bg-amber-300 md:hover:bg-amber-300 text-slate-950 shadow-lg shadow-amber-500/20 active:scale-95 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer"
           title="Menü & Beállítások"

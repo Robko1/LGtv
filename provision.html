@@ -107,7 +107,7 @@
 </div>
 
 <div class="footer">
-  IPTV R.T – Telefonos QR beállítás v2.3.8 • kvdb.io ideiglenes tároló • 5 perc TTL
+  IPTV R.T – Telefonos QR beállítás v2.3.9 • kvdb.io ideiglenes tároló • 5 perc TTL
 </div>
 
 <script>
@@ -115,7 +115,9 @@
 // A régi fix név csak tartalék – az sosem lett létrehozva, ezért adott 404-et.
 const LEGACY_BUCKET = 'IPTV_RT_QR_8bc03776';
 const KVDB_BASE = 'https://kvdb.io';
+const JSONBLOB_BASE = 'https://jsonblob.com/api/jsonBlob';
 let BUCKET = LEGACY_BUCKET;
+let JSONBLOB_ID = ''; // ha a QR &j= paramétert hoz, a jsonblob.com tárolót használjuk
 let currentType = 'xtream';
 let tvId = '';
 let code = '';
@@ -125,12 +127,13 @@ function getParams() {
   tvId = url.searchParams.get('tv') || '';
   code = url.searchParams.get('code') || '';
   BUCKET = url.searchParams.get('b') || LEGACY_BUCKET;
+  JSONBLOB_ID = url.searchParams.get('j') || '';
   document.getElementById('codeDisplay').textContent = code || '------';
   document.getElementById('tvInfo').textContent = 'TV ID: ' + tvId + ' | Kód: ' + code + ' | URL: ' + window.location.href;
   if (!tvId) {
     showStatus('Hiányzik TV ID – olvasd be újra a QR kódot a TV-n!', 'err');
     document.getElementById('sendBtn').disabled = true;
-  } else if (!url.searchParams.get('b')) {
+  } else if (!url.searchParams.get('b') && !url.searchParams.get('j')) {
     showStatus('⚠️ Régi QR kód (nincs tároló azonosító). Frissítsd az appot a TV-n a legújabb verzióra, és olvasd be az ÚJ QR kódot!', 'err');
   }
 }
@@ -198,12 +201,20 @@ async function sendToTv() {
   }
 
   try {
-    const url = `${KVDB_BASE}/${BUCKET}/${encodeURIComponent(tvId)}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    let res;
+    if (JSONBLOB_ID) {
+      // jsonblob.com tartalék tároló (a TV ellenőrizte, hogy működik)
+      res = await fetch(JSONBLOB_BASE + '/' + encodeURIComponent(JSONBLOB_ID), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      const url = `${KVDB_BASE}/${BUCKET}/${encodeURIComponent(tvId)}`;
+      // Szándékosan nincs Content-Type fejléc: egyszerű kérés, nem kell
+      // CORS preflight, és a kvdb.io házirendje sem akad fenn rajta.
+      res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+    }
     if (res.ok) {
       showStatus('✅ Sikeresen elküldve TV-re! Nézd a TV-t – automatikusan behozza a csatornákat, mozikat, sorozatokat, EPG-t. Ez az oldal bezárható.', 'ok');
       btn.innerHTML = '✅ Elküldve';
@@ -214,6 +225,8 @@ async function sendToTv() {
     } else {
       if (res.status === 404) {
         showStatus('❌ A TV tárolója nem található (404). Ez NEM internethiba: a TV-n zárd be és nyisd meg ÚJRA a QR képernyőt, majd olvasd be az új QR kódot. Ha régi az app a TV-n, előbb frissítsd a legújabb verzióra.', 'err');
+      } else if (res.status === 403) {
+        showStatus('❌ A tároló blokkolta az írást (403). Ez NEM internethiba: frissítsd az appot a TV-n a legújabb verzióra, nyisd meg ÚJRA a QR képernyőt, és olvasd be az ÚJ QR kódot – az új verzió csak előre letesztelt, működő tárolót ad a QR kódba.', 'err');
       } else {
         showStatus('❌ Hiba küldéskor: HTTP ' + res.status + ' – próbáld újra', 'err');
       }

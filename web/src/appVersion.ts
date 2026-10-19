@@ -1,6 +1,22 @@
-export const WEB_VERSION = '2.3.8';
+export const WEB_VERSION = '2.3.9';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.9',
+    date: '2026-10-19',
+    changes: [
+      "FINOM DOBOZ NAVIGÁCIÓ a Rendszer fülön: a sárga jelölő mostantól a KIS dobozokra ugrál (Pufferelés, Automatikus, Kék óra, Tekerési lépés, stb.), nem a nagy szekciókra. OK = belépés a dobozba (első opcióra ugrik, pl. Gyors), jobbra/balra választasz, VISSZA = ki a doboz keretére. Ha a dobozban csak egy kapcsoló van, az OK azonnal átkapcsolja.",
+      "A kapcsolók doboz nélküli sora is dobozba került, így arra is ráugrik a sárga jelölő.",
+      "AZONNALI ugrálás: az átmenetek és a simított görgetés kikapcsolva a modalokban, a görgetés a régi webOS-barát scrollIntoViewIfNeeded-del történik – a jelölő most késlekedés nélkül ugrik.",
+      "KILÓGÓ ABLAKOK JAVÍTVA: az 1.4x nagyítás miatt a felugró ablakok kilógtak fent és lent – a teljes képernyős rétegek zoom-kompenzációt kaptak, a modalok maximum a képernyő ~92 százalékáig érhetnek.",
+      "QR 403 JAVÍTVA: a TV mostantól ÖNTESZTTEL (írás+visszaolvasás) ellenőrzi a tárolót, mielőtt QR kódba tenné; ha a kvdb.io nem működik, automatikusan jsonblob.com tartalékra vált. A telefon csak előre letesztelt tárolót kap. ÚJ QR kódot kell nyitni a frissítés után!",
+      "Listák fül: első kijelölés a 📱 Telefon gombon, jobbra az Új lista, lefelé a listák/törlés.",
+      "Főképernyő: a csatornalistáról FEL gomb először a Beállítások (fogaskerék) gombra ugrik, onnan jobbra/balra mész tovább.",
+      "A TV-kép (lejátszó) fókuszból balra/jobbra nyíllal vissza lehet lépni a csatornalistára – nem ragad be többé.",
+      "A TV-képen EGYETLEN OK gomb aktiválja a teljes képernyőt (eddig kettő kellett).",
+      "Verzió: 2.3.9 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.8',
     date: '2026-10-19',
