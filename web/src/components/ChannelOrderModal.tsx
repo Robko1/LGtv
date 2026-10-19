@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { normalizeTvKey } from '../utils/tvKeys';
 import { FavoriteFolder } from '../types/iptv';
 import { X, FolderPlus, Check, Shuffle } from 'lucide-react';
 
@@ -27,6 +28,20 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
   channelToFavoriteId = null,
   onAssignChannelToFolder,
 }) => {
+  // TV VISSZA gomb / Escape: ez az ablak eddig csak egérrel volt zárható!
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const key = normalizeTvKey(e as unknown as React.KeyboardEvent);
+      if (key === 'Escape' || (e as KeyboardEvent).keyCode === 461) {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const [newFolderName, setNewFolderName] = useState('');
   const folderNameInputRef = useRef<HTMLInputElement>(null);
   const [selectedFolderId, setSelectedFolderId] = useState('');

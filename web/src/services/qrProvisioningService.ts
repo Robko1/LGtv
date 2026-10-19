@@ -36,13 +36,32 @@ export interface QrProviderPayload {
 // 2. tartalék: jsonblob.com – névtelen JSON tároló, CORS-barát.
 // A QR linkben &b=<kvdb tároló> VAGY &j=<jsonblob azonosító> utazik.
 export interface ProvisionChannel {
-  kind: 'kvdb' | 'jsonblob';
+  kind: 'ntfy' | 'kvdb' | 'jsonblob';
   id: string;
 }
 
 const LEGACY_BUCKET = 'IPTV_RT_QR_8bc03776'; // régi fix név – csak végső tartalék
 const KVDB_BASE = 'https://kvdb.io';
 const JSONBLOB_BASE = 'https://jsonblob.com/api/jsonBlob';
+const NTFY_BASE = 'https://ntfy.sh'; // elsődleges: névtelen, CORS-barát pub/sub
+
+/** ntfy.sh önteszt: közzététel + visszaolvasás ugyanarra a témára. */
+async function verifyNtfy(topic: string): Promise<boolean> {
+  try {
+    const token = 'selftest' + Date.now();
+    const pub = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}`, { method: 'POST', body: token });
+    if (!pub.ok) return false;
+    const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}/json?poll=1`);
+    if (!res.ok) return false;
+    return (await res.text()).indexOf(token) >= 0;
+  } catch {
+    return false;
+  }
+}
+
+function newNtfyTopic(): string {
+  return 'iptvrt_' + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
+}
 const CHANNEL_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 nap után új tárolót kérünk
 
 /** kvdb.io önteszt: írás + visszaolvasás. Csak működő tárolót hirdetünk. */
@@ -124,10 +143,17 @@ export async function ensureProvisionChannel(): Promise<ProvisionChannel | null>
     const id = localStorage.getItem('qr_chan_id') || '';
     const ts = parseInt(localStorage.getItem('qr_chan_ts') || '0', 10);
     if (id && ts && Date.now() - ts < CHANNEL_TTL_MS) {
+      if (kind === 'ntfy' && (await verifyNtfy(id))) return { kind: 'ntfy', id };
       if (kind === 'kvdb' && (await verifyKvdb(id))) return { kind: 'kvdb', id };
       if (kind === 'jsonblob' && (await verifyJsonblob(id))) return { kind: 'jsonblob', id };
     }
   } catch {}
+  const topic = newNtfyTopic();
+  if (await verifyNtfy(topic)) {
+    const chN: ProvisionChannel = { kind: 'ntfy', id: topic };
+    saveChannel(chN);
+    return chN;
+  }
   const bucket = await createKvdb();
   if (bucket && (await verifyKvdb(bucket))) {
     const ch: ProvisionChannel = { kind: 'kvdb', id: bucket };
@@ -186,12 +212,35 @@ export function getProvisionUrl(tvId: string, code: string, channel?: ProvisionC
   }
   // provision.html a web/public-ban lesz
   let extra = '';
-  if (channel && channel.kind === 'kvdb') extra = `&b=${encodeURIComponent(channel.id)}`;
+  if (channel && channel.kind === 'ntfy') extra = `&n=${encodeURIComponent(channel.id)}`;
+  else if (channel && channel.kind === 'kvdb') extra = `&b=${encodeURIComponent(channel.id)}`;
   else if (channel && channel.kind === 'jsonblob') extra = `&j=${encodeURIComponent(channel.id)}`;
   return `${base}/provision.html?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}${extra}`;
 }
 
 export async function pollForProvider(tvId: string, channel?: ProvisionChannel | null): Promise<QrProviderPayload | null> {
+  if (channel && channel.kind === 'ntfy') {
+    try {
+      const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(channel.id)}/json?poll=1`);
+      if (!res.ok) return null;
+      const lines = (await res.text()).split('\n');
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        try {
+          const msg = JSON.parse(line);
+          if (msg && msg.event === 'message' && typeof msg.message === 'string') {
+            const data = JSON.parse(msg.message) as QrProviderPayload;
+            if (data && (data.type === 'xtream' || data.type === 'm3u')) return data;
+          }
+        } catch { /* nem ez az üzenet */ }
+      }
+      return null;
+    } catch (e) {
+      console.warn('[QR] ntfy poll hiba', e);
+      return null;
+    }
+  }
   try {
     const url = channel && channel.kind === 'jsonblob'
       ? `${JSONBLOB_BASE}/${encodeURIComponent(channel.id)}`
@@ -221,7 +270,9 @@ export async function pollForProvider(tvId: string, channel?: ProvisionChannel |
 
 export async function clearProvision(tvId: string, channel?: ProvisionChannel | null): Promise<void> {
   try {
-    if (channel && channel.kind === 'jsonblob') {
+    if (channel && channel.kind === 'ntfy') {
+      // ntfy: az üzenetek ~12 óra után maguktól törlődnek, nincs teendő.
+    } else if (channel && channel.kind === 'jsonblob') {
       // A blob marad (újrahasznosítjuk), csak az adatokat ürítjük ki.
       await fetch(`${JSONBLOB_BASE}/${encodeURIComponent(channel.id)}`, {
         method: 'PUT',

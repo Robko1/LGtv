@@ -428,6 +428,16 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   const handleListKeyDown = (e: React.KeyboardEvent) => {
     // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
     const key = normalizeTvKey(e);
+    if (key === 'ArrowLeft') {
+      // BALRA: a jelölő azonnal a TV lejátszóra ugrik.
+      const player = document.querySelector<HTMLElement>('[data-tv-player]');
+      if (player) {
+        e.preventDefault();
+        e.stopPropagation();
+        player.focus({ preventScroll: true } as any);
+        return;
+      }
+    }
     if (visibleChannels.length === 0) {
       // ÜRES lista (még töltődik vagy nincs lejátszási lista): ne legyen
       // zsákutca a TV-n – bármely nyíllal a felső menüsorra ugrunk, hogy a

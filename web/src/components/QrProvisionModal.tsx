@@ -37,6 +37,12 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
     setChannel(ch);
     const url = getProvisionUrl(session.tvId, session.code, ch);
     setProvisionUrl(url);
+    if (!ch) {
+      // Egyik tároló szolgáltatás sem ment át az önteszten – a telefonos
+      // küldés biztosan hibázna, ezt a TV-n azonnal jelezzük.
+      setStatus('error');
+      return;
+    }
     console.log('[QR] Session created', session.tvId, session.code, url, 'channel:', ch ? ch.kind + ':' + ch.id : 'NINCS');
   };
 
@@ -211,7 +217,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
             </div>
           )}
           {status === 'error' && (
-            <div className="rounded-xl bg-rose-950/40 border border-rose-500/50 p-3 text-xs text-rose-300">Hiba történt, próbáld újra</div>
+            <div className="rounded-xl bg-rose-950/40 border border-rose-500/50 p-3 text-xs text-rose-300">Az ideiglenes tároló szolgáltatások (ntfy.sh / kvdb.io / jsonblob.com) egyike sem érhető el a TV-ről. Ellenőrizd a TV internetkapcsolatát, majd nyomd meg az Új kód gombot.</div>
           )}
 
           {/* Gombok */}

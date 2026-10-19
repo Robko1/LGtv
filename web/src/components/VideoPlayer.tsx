@@ -1653,6 +1653,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div
       ref={containerRef}
+      data-tv-player=""
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onMouseMove={handleMouseMove}

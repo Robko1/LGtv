@@ -1579,6 +1579,10 @@ export function App() {
         case 'Escape':
         case 'Backspace':
           // TV Back / Esc – modalt zár, fullscreenből kilép
+          // Egymásra nyíló ablakoknál (pl. Beállítások fölött Új mappa/QR)
+          // a LEGFELSŐ ablak saját kezelője zár – az App nem nyúl bele,
+          // különben egyetlen VISSZA mindkét ablakot bezárná.
+          if (document.querySelectorAll('[role="dialog"]').length > 1) break;
           if (isAudioModalOpen) { setIsAudioModalOpen(false); break; }
           if (isSubtitlesModalOpen) { setIsSubtitlesModalOpen(false); break; }
           if (isEpgOpen) { setIsEpgOpen(false); break; }
