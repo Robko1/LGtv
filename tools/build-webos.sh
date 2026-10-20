@@ -20,7 +20,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.3.16}"
+VERSION="${VERSION:-2.3.17}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
@@ -129,7 +129,7 @@ print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.16"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.17"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
