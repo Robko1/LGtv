@@ -1,6 +1,14 @@
-export const WEB_VERSION = '2.3.14';
+export const WEB_VERSION = '2.3.15';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.15',
+    date: '2026-10-20',
+    changes: [
+      "QR AUTOMATIKUS IMPORT JAVÍTVA: a TV már megkapta a QR-adatokat, de az új szolgáltató azonnali frissítése egy elavult React-állapot miatt nem találta meg a még nem frissült listában. Most közvetlenül a kapott szolgáltatói adatokkal indul a diagnosztika és a csatorna/film/sorozat import."
+    ],
+  },
+
   {
     version: '2.3.14',
     date: '2026-10-20',
