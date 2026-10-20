@@ -62,20 +62,12 @@
       <input id="xt_host" type="text" placeholder="http://pro.hu:8080 vagy pro.hu" autocomplete="off" />
     </div>
     <div class="field">
-      <label>Port (opcionális, ha URL-ben benne van, hagyd üresen)</label>
-      <input id="xt_port" type="text" placeholder="8080" autocomplete="off" />
-    </div>
-    <div class="field">
       <label>Felhasználónév</label>
       <input id="xt_user" type="text" placeholder="username" autocomplete="off" />
     </div>
     <div class="field">
       <label>Jelszó</label>
       <input id="xt_pass" type="password" placeholder="password" autocomplete="off" />
-    </div>
-    <div class="field">
-      <label>Lista neve (opcionális)</label>
-      <input id="xt_name" type="text" placeholder="Saját lista" autocomplete="off" />
     </div>
   </div>
 
@@ -87,10 +79,6 @@
       <label>M3U URL (http://.../playlist.m3u)</label>
       <input id="m3u_url" type="url" placeholder="http://example.com/get.php?username=...&password=...&type=m3u_plus" autocomplete="off" />
     </div>
-    <div class="field">
-      <label>Lista neve (opcionális)</label>
-      <input id="m3u_name" type="text" placeholder="Saját M3U" autocomplete="off" />
-    </div>
   </div>
 
   <button id="sendBtn" class="btn btn-primary" onclick="sendToTv()">
@@ -101,154 +89,83 @@
 
   <div class="card" style="margin-top:16px;">
     <h2>🔒 Adatvédelem</h2>
-    <p>Az adatok 5 percig élnek egy ideiglenes tárolóban (kvdb.io), utána automatikusan törlődnek. A TV csak egyszer olvassa ki, majd törli. Nem tároljuk sehol máshol. A kapcsolat HTTPS titkosított.</p>
+    <p>Az adatok a különálló Robko1 IPTV Supabase-projektben, legfeljebb 5 percig várakoznak. A TV egyszer olvassa be őket, utána a párosítás lezárul. A kapcsolat HTTPS titkosított.</p>
     <p style="margin-top:8px;">Alternatíva: ha nem bízol a felhőben, a TV-n továbbra is beírhatod kézzel: Beállítások → Listák → Új lista.</p>
   </div>
 </div>
 
 <div class="footer">
-  IPTV R.T – Telefonos QR beállítás v2.3.13 • kvdb.io ideiglenes tároló • 5 perc TTL
+  IPTV R.T – Telefonos QR beállítás • Supabase biztonságos párosítás • 5 perc
 </div>
 
 <script>
-// A tárolót (bucket) a TV hozza létre és a QR linkben adja át (&b=...).
-// A régi fix név csak tartalék – az sosem lett létrehozva, ezért adott 404-et.
-const LEGACY_BUCKET = 'IPTV_RT_QR_8bc03776';
-const KVDB_BASE = 'https://kvdb.io';
-const JSONBLOB_BASE = 'https://jsonblob.com/api/jsonBlob';
-const NTFY_BASE = 'https://ntfy.sh';
-let BUCKET = LEGACY_BUCKET;
-let JSONBLOB_ID = ''; // &j= paraméter: jsonblob.com tároló
-let NTFY_TOPIC = ''; // &n= paraméter: ntfy.sh téma (elsődleges)
-let currentType = 'xtream';
-let tvId = '';
-let code = '';
-
+const API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/qr-provision';
+const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
+let currentType = 'xtream', tvId = '', code = '', token = '';
 function getParams() {
   const url = new URL(window.location.href);
   tvId = url.searchParams.get('tv') || '';
   code = url.searchParams.get('code') || '';
-  BUCKET = url.searchParams.get('b') || LEGACY_BUCKET;
-  JSONBLOB_ID = url.searchParams.get('j') || '';
-  NTFY_TOPIC = url.searchParams.get('n') || '';
+  token = url.searchParams.get('token') || '';
   document.getElementById('codeDisplay').textContent = code || '------';
-  document.getElementById('tvInfo').textContent = 'TV ID: ' + tvId + ' | Kód: ' + code + ' | URL: ' + window.location.href;
-  if (!tvId) {
-    showStatus('Hiányzik TV ID – olvasd be újra a QR kódot a TV-n!', 'err');
+  document.getElementById('tvInfo').textContent = code ? 'Párosítási kód: ' + code : 'A TV-kód hiányzik.';
+  if (!tvId || !code || !/^[a-f0-9]{64}$/i.test(token)) {
+    showStatus('Érvénytelen vagy hiányos QR-kód. Olvasd be újra a TV-n látható kódot.', 'err');
     document.getElementById('sendBtn').disabled = true;
-  } else if (!url.searchParams.get('b') && !url.searchParams.get('j') && !url.searchParams.get('n')) {
-    showStatus('⚠️ Régi QR kód (nincs tároló azonosító). Frissítsd az appot a TV-n a legújabb verzióra, és olvasd be az ÚJ QR kódot!', 'err');
   }
 }
-
 function switchTab(type) {
   currentType = type;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
   document.getElementById('xtreamForm').classList.toggle('hidden', type !== 'xtream');
   document.getElementById('m3uForm').classList.toggle('hidden', type !== 'm3u');
 }
-
 function showStatus(msg, type) {
   const el = document.getElementById('status');
-  el.textContent = msg;
-  el.className = 'status ' + type;
-  el.classList.remove('hidden');
+  el.textContent = msg; el.className = 'status ' + type; el.classList.remove('hidden');
 }
-
-function validateXtream() {
-  const host = document.getElementById('xt_host').value.trim();
-  const user = document.getElementById('xt_user').value.trim();
-  const pass = document.getElementById('xt_pass').value.trim();
-  if (!host) return 'Host kötelező';
-  if (!user) return 'Felhasználónév kötelező';
-  if (!pass) return 'Jelszó kötelező';
-  return null;
-}
-
-function validateM3u() {
-  const url = document.getElementById('m3u_url').value.trim();
-  if (!url) return 'M3U URL kötelező';
-  if (!url.startsWith('http://') && !url.startsWith('https://')) return 'http:// vagy https:// kell';
-  return null;
-}
-
 async function sendToTv() {
   const btn = document.getElementById('sendBtn');
-  btn.disabled = true;
-  btn.innerHTML = '⏳ Küldés...';
-
+  btn.disabled = true; btn.innerHTML = '⏳ Küldés...';
   let payload;
   if (currentType === 'xtream') {
-    const err = validateXtream();
-    if (err) { showStatus(err, 'err'); btn.disabled=false; btn.innerHTML='<span>📤</span> Küldés TV-re'; return; }
-    payload = {
-      type: 'xtream',
-      host: document.getElementById('xt_host').value.trim(),
-      port: document.getElementById('xt_port').value.trim(),
-      username: document.getElementById('xt_user').value.trim(),
-      password: document.getElementById('xt_pass').value.trim(),
-      name: document.getElementById('xt_name').value.trim() || 'Telefonról',
-      code: code,
-      createdAt: new Date().toISOString()
-    };
+    const host = document.getElementById('xt_host').value.trim();
+    const username = document.getElementById('xt_user').value.trim();
+    const password = document.getElementById('xt_pass').value.trim();
+    if (!host || !username || !password) {
+      showStatus('A szerver, felhasználónév és jelszó kötelező.', 'err');
+      btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return;
+    }
+    payload = { type:'xtream', host, username, password,
+      code, createdAt:new Date().toISOString() };
   } else {
-    const err = validateM3u();
-    if (err) { showStatus(err, 'err'); btn.disabled=false; btn.innerHTML='<span>📤</span> Küldés TV-re'; return; }
-    payload = {
-      type: 'm3u',
-      url: document.getElementById('m3u_url').value.trim(),
-      name: document.getElementById('m3u_name').value.trim() || 'Telefonról M3U',
-      code: code,
-      createdAt: new Date().toISOString()
-    };
+    const url = document.getElementById('m3u_url').value.trim();
+    if (!(url.startsWith('http://') || url.startsWith('https://'))) {
+      showStatus('Érvényes http:// vagy https:// M3U URL szükséges.', 'err');
+      btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return;
+    }
+    payload = { type:'m3u', url,
+      code, createdAt:new Date().toISOString() };
   }
-
   try {
-    let res;
-    if (NTFY_TOPIC) {
-      // ntfy.sh (elsődleges): egyszerű POST, a TV előre letesztelte a témát
-      res = await fetch(NTFY_BASE + '/' + encodeURIComponent(NTFY_TOPIC), {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-    } else if (JSONBLOB_ID) {
-      // jsonblob.com tartalék tároló (a TV ellenőrizte, hogy működik)
-      res = await fetch(JSONBLOB_BASE + '/' + encodeURIComponent(JSONBLOB_ID), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } else {
-      const url = `${KVDB_BASE}/${BUCKET}/${encodeURIComponent(tvId)}`;
-      // Szándékosan nincs Content-Type fejléc: egyszerű kérés, nem kell
-      // CORS preflight, és a kvdb.io házirendje sem akad fenn rajta.
-      res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+    const res = await fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/json', apikey:API_KEY},
+      body:JSON.stringify({action:'submit', sessionId:tvId, token, code, payload}) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = data.error === 'expired_or_not_found' ? 'A TV-kód lejárt. Kérj új QR-kódot a TV-n.'
+        : data.error === 'code_mismatch' ? 'A párosítási kód nem egyezik.'
+        : data.error === 'already_used' ? 'Ezt a QR-kódot már felhasználták. Kérj újat a TV-n.'
+        : 'Nem sikerült elküldeni (HTTP ' + res.status + '). Kérj új QR-kódot, majd próbáld újra.';
+      showStatus('❌ ' + message, 'err');
+      btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return;
     }
-    if (res.ok) {
-      showStatus('✅ Sikeresen elküldve TV-re! Nézd a TV-t – automatikusan behozza a csatornákat, mozikat, sorozatokat, EPG-t. Ez az oldal bezárható.', 'ok');
-      btn.innerHTML = '✅ Elküldve';
-      // 2mp után próbáljuk bezárni vagy vissza
-      setTimeout(() => {
-        try { window.close(); } catch {}
-      }, 2000);
-    } else {
-      if (res.status === 404) {
-        showStatus('❌ A TV tárolója nem található (404). Ez NEM internethiba: a TV-n zárd be és nyisd meg ÚJRA a QR képernyőt, majd olvasd be az új QR kódot. Ha régi az app a TV-n, előbb frissítsd a legújabb verzióra.', 'err');
-      } else if (res.status === 403) {
-        showStatus('❌ A tároló blokkolta az írást (403). Ez NEM internethiba: frissítsd az appot a TV-n a legújabb verzióra, nyisd meg ÚJRA a QR képernyőt, és olvasd be az ÚJ QR kódot – az új verzió csak előre letesztelt, működő tárolót ad a QR kódba.', 'err');
-      } else {
-        showStatus('❌ Hiba küldéskor: HTTP ' + res.status + ' – próbáld újra', 'err');
-      }
-      btn.disabled = false;
-      btn.innerHTML = '<span>📤</span> Küldés TV-re';
-    }
+    showStatus('✅ Sikeresen elküldve a TV-re! A TV automatikusan átveszi az adatokat.', 'ok');
+    btn.innerHTML = '✅ Elküldve';
   } catch (e) {
-    showStatus('❌ Hálózati hiba: ' + e.message + ' – lehet hogy kvdb.io nem elérhető, próbáld újra', 'err');
-    btn.disabled = false;
-    btn.innerHTML = '<span>📤</span> Küldés TV-re';
+    showStatus('❌ Hálózati hiba. Ellenőrizd az internetkapcsolatot, majd próbáld újra.', 'err');
+    btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re';
   }
 }
-
 getParams();
 </script>
 </body>
