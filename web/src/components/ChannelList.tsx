@@ -611,6 +611,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
               const isSelected = ch.id === selectedChannelId;
               const isFavorite = folders.some((folder) => folder.channelIds.includes(ch.id));
               const currentEpg = localEpg[ch.id]?.now || ch.epgNow;
+              const nextEpg = localEpg[ch.id]?.next || ch.epgNext;
               // A műsorhaladás egyetlen értékként (a hiányos időbélyegek kezelése itt történik).
               const epgStart = Number(currentEpg?.startTimestamp || 0);
               const epgEnd = Number(currentEpg?.endTimestamp || 0);
@@ -715,8 +716,11 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                           )}
                           <span className="truncate">{currentEpg?.title || 'EPG betöltése…'}</span>
                         </span>
+                        <span className="text-slate-400 font-medium text-[10px] truncate">
+                          {nextEpg?.time ? `${nextEpg.time} · ` : ''}Következő: {nextEpg?.title || 'betöltés…'}
+                        </span>
                         {/* A haladássáv helye minden sorban foglalt, hogy a sorok egyformák legyenek. */}
-                        <div className="mt-1 h-1 w-full max-w-64">
+                        <div className="mt-0.5 h-1 w-full max-w-64">
                           {epgPercent !== null && (
                             <div
                               className="h-full w-full rounded-full bg-slate-700/80 overflow-hidden"
