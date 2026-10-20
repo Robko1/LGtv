@@ -82,7 +82,7 @@ jobs:
             echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
             exit 1
           fi
-          if find webos/assets -type f | grep -Ei '\\.(mp4|webm|mov)
+          if find webos/assets -type f | grep -Ei '\.(mp4|webm|mov)$'; then
           node --check webos/webos.js
           python3 -m py_compile webos/tools/build-ipk.py
           python3 - <<'PY'
