@@ -446,19 +446,22 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   const saveChannelScrollPosition = (element: HTMLDivElement) => {
     pendingScrollTop.current = element.scrollTop;
     if (scrollSaveFrame.current) return;
-    scrollSaveFrame.current = window.requestAnimationFrame(() => {
+    // A tárolóírás lassú művelet a TV-n - görgetés közben NEM írunk, csak
+    // 400 ms nyugalom után egyszer (a sessionStorage-írás minden
+    // nyíllépésnél fékezte a kijelölő mozgását).
+    scrollSaveFrame.current = window.setTimeout(() => {
       scrollSaveFrame.current = 0;
       try {
         window.sessionStorage.setItem(scrollPositionKey, String(pendingScrollTop.current));
       } catch {
         // A tároló hiánya nem akadályozza a csatornalista használatát.
       }
-    });
+    }, 400);
   };
   useEffect(() => () => {
     // Teljes képernyőre lépéskor a lista lekerül, mentsük azonnal a pending pozíciót.
     if (scrollSaveFrame.current) {
-      window.cancelAnimationFrame(scrollSaveFrame.current);
+      window.clearTimeout(scrollSaveFrame.current);
       scrollSaveFrame.current = 0;
       try {
         window.sessionStorage.setItem(scrollPositionKey, String(pendingScrollTop.current));

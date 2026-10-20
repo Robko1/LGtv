@@ -346,8 +346,6 @@
         '@keyframes iptvSlowSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }',
         '@keyframes iptvSlowPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }',
         '.webos-tv .animate-spin { animation: iptvSlowSpin 2.5s linear infinite !important; }',
-        '.webos-tv [class*="animate-[spin"] { animation: iptvSlowSpin 8s linear infinite !important; }',
-        '.webos-tv .animate-pulse, .webos-tv [class*="animate-[pulse"] { animation: iptvSlowPulse 4s ease-in-out infinite !important; }',
         '.webos-tv .video-player-container { max-width:1280px; margin:0 auto; }',
         '.webos-tv .channel-list { max-height:70vh; }',
         '/* Erős fókusz gyűrű TV-re – távirányítóhoz */',

@@ -164,6 +164,8 @@ export interface FavoriteFolder {
 
 export interface AppSettings {
   bufferMode: BufferMode;
+  /** Lejátszómotor a Rendszer menüből; a választás mentésre kerül. */
+  playerEngine: PlayerEngine;
   zappingDelay: number; // 0, 200, 350, 600 ms
   autoPlayLastChannel: boolean;
   closeListOnZap: boolean;
@@ -179,8 +181,6 @@ export interface AppSettings {
   activeProviderId: string;
   lastPlayedChannelId?: string;
   corsProxy: string;
-  /** Melyik lejátszó motor fusson (a választás megmarad újraindítás után is). */
-  playerEngine?: PlayerEngine;
 }
 
 export interface WatchHistoryItem {

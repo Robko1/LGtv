@@ -1535,7 +1535,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       video.pause();
       video.removeAttribute('src');
-      video.src = url;
+      // Korábbi <source> gyerekek eltakarítása (motorváltásnál is tiszta lap).
+      while (video.firstChild) video.removeChild(video.firstChild);
+      if (playerEngineRef.current === 'native') {
+        // NATÍV MOTOR: a webOS a <source> type mezőjében kapott mediaOption
+        // JSON-nal a TV saját (UMS) médiacsatornáján indítja az adást.
+        const isHls = /\.m3u8(?=([?#]|$))/i.test(url);
+        const mime = isHls ? 'application/vnd.apple.mpegurl' : (/\.ts(?=([?#]|$))/i.test(url) ? 'video/mp2t' : 'video/mp4');
+        const mediaOption = encodeURIComponent(JSON.stringify({
+          mediaTransportType: 'URI',
+          option: { htmlMediaOption: { useUMSMediaInfo: true } },
+        }));
+        const sourceEl = document.createElement('source');
+        sourceEl.setAttribute('src', url);
+        sourceEl.setAttribute('type', `${mime};mediaOption=${mediaOption}`);
+        // A <source> hibája nem mindig jut el a videóelemig - továbbadjuk,
+        // hogy a formátumváltó/zap-őr lánc ugyanúgy működjön, mint HTML5-nél.
+        sourceEl.onerror = () => {
+          try { video.dispatchEvent(new Event('error')); } catch { /* régi motor */ }
+        };
+        video.appendChild(sourceEl);
+      } else {
+        video.src = url;
+      }
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
       video.load();
