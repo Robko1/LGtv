@@ -1,6 +1,6 @@
 name: Tisztítás
 
-# Kizárólag kézzel indítható. Csak a webOS diagnosztikai és IPK-build futásokat takarítja.
+# Kizárólag kézzel indítható. Az utolsó 5 sikeres IPK-build marad; a többi befejezett IPK-build és régi diagnosztika törlődik.
 on:
   workflow_dispatch:
 
@@ -59,9 +59,19 @@ jobs:
                   page += 1
               return runs
 
+          def all_repository_runs():
+              runs = []
+              page = 1
+              while True:
+                  data = request(f"{api}/actions/runs?per_page=100&page={page}")
+                  batch = data.get("workflow_runs", [])
+                  runs.extend(batch)
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              return runs
           policies = [
-              ("webos-manual-diagnosis.yml", 5, "sikeres diagnosztika"),
-              ("webos-build.yml", 1, "sikeres IPK build"),
+              ("webos-build.yml", 5, "sikeres IPK build"),
           ]
           deleted = 0
           kept_summary = []
@@ -83,7 +93,14 @@ jobs:
 
               print(f"{workflow}: {len(completed)} befejezett futásból {len(keep_ids)} sikeres maradt.")
 
+          # A külön diagnosztikai workflow megszűnt: régi befejezett futásait is töröljük.
+          for run in all_repository_runs():
+              if run.get("path") == ".github/workflows/webos-manual-diagnosis.yml" and run.get("status") == "completed":
+                  request(f"{api}/actions/runs/{run.get('id')}", method="DELETE")
+                  deleted += 1
+                  print(f"Törölve: régi diagnosztika / run {run.get('id')} ({run.get('conclusion')})")
+
           print("Összegzés: " + "; ".join(kept_summary))
           print(f"Eltávolított régi/sikertelen futások: {deleted}")
-          print("A Release v2.3.1 és annak IPK-fájlja nem változik; csak Actions-futások és azok artifactjai törlődnek.")
+          print("A Release/IPK-fájlok nem változnak; csak Actions-futások és azok artifactjai törlődnek.")
           PY
