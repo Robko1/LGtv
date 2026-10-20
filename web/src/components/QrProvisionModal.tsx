@@ -15,6 +15,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
   const [tvId, setTvId] = useState<string>('');
   const [channel, setChannel] = useState<ProvisionChannel | null>(null);
   const [code, setCode] = useState<string>('');
+  const [token, setToken] = useState<string>('');
   const [provisionUrl, setProvisionUrl] = useState<string>('');
   const [status, setStatus] = useState<'idle' | 'waiting' | 'received' | 'error' | 'expired'>('idle');
   const [countdown, setCountdown] = useState<number>(300); // 5 perc
@@ -25,9 +26,17 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
   const { modalRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(isOpen, onClose, [code]);
 
   const initSession = async () => {
-    const session = createProvisionSession();
+    let session;
+    try {
+      session = await createProvisionSession();
+    } catch (e) {
+      console.error('[QR] Supabase session creation failed', e);
+      setStatus('error');
+      return;
+    }
     setTvId(session.tvId);
     setCode(session.code);
+    setToken(session.token);
     setProvisionUrl('');
     setStatus('waiting');
     setCountdown(300);
@@ -36,7 +45,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
     // az azonosítója a QR linkbe kerül (&b= kvdb vagy &j= jsonblob).
     const ch = await ensureProvisionChannel();
     setChannel(ch);
-    const url = getProvisionUrl(session.tvId, session.code, ch);
+    const url = getProvisionUrl(session.tvId, session.code, ch, session.token);
     setProvisionUrl(url);
     if (!ch) {
       // Egyik tároló szolgáltatás sem ment át az önteszten – a telefonos
@@ -81,7 +90,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
   useEffect(() => {
     if (!isOpen || status !== 'waiting' || !tvId) return;
     pollRef.current = window.setInterval(async () => {
-      const data = await pollForProvider(tvId, channel);
+      const data = await pollForProvider(tvId, channel, token);
       if (data) {
         console.log('[QR] Provider received', data);
         setReceivedData(data);
@@ -91,7 +100,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
         // Auto import 1.5s után
         setTimeout(() => {
           onProviderReceived(data);
-          clearProvision(tvId, channel);
+          clearProvision(tvId, channel, token);
           onClose();
         }, 1500);
       }
@@ -99,10 +108,10 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
-  }, [isOpen, status, tvId, channel, onProviderReceived, onClose]);
+  }, [isOpen, status, tvId, channel, token, onProviderReceived, onClose]);
 
   const handleRefresh = () => {
-    if (tvId) clearProvision(tvId, channel);
+    if (tvId) clearProvision(tvId, channel, token);
     initSession();
   };
 
@@ -180,7 +189,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
           {status === 'waiting' && (
             <div className="flex items-center justify-center gap-2 py-2 text-xs text-cyan-300">
               <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>Várakozás telefonos adatokra... (3mp-enként ellenőrzés)</span>
+              <span>Várakozás telefonos adatokra... (3 másodpercenként ellenőrzés)</span>
             </div>
           )}
           {status === 'received' && receivedData && (
@@ -205,9 +214,9 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
           )}
           {status === 'error' && (
             <div className="rounded-xl bg-rose-950/40 border border-rose-500/50 p-3 text-xs text-rose-300 space-y-1.5">
-              <p className="font-bold">Az ideiglenes tároló szolgáltatások egyike sem érhető el a TV-ről.</p>
+              <p className="font-bold">A Supabase QR-párosító szolgáltatás nem érhető el.</p>
               <p className="text-[11px] leading-relaxed break-words">Részletek (v{WEB_VERSION}): {getProvisionDiag() || 'nincs adat'}</p>
-              <p className="text-[11px] text-rose-200/80">Ha mindenhol „hálózati hiba” áll, a TV nem éri el ezeket a HTTPS oldalakat (régebbi TV-nél lejárt tanúsítványtár is okozhatja). Próbáld az Új kód gombot, vagy add meg az adatokat kézzel az Új lista gombbal.</p>
+              <p className="text-[11px] text-rose-200/80">Ellenőrizd a TV internetkapcsolatát, majd próbáld az Új kód gombot, vagy add meg az adatokat kézzel az Új lista gombbal.</p>
             </div>
           )}
 
