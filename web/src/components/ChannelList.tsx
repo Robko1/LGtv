@@ -48,7 +48,7 @@ const OVERSCAN = 3;
 /** TV-n/főoldalon pontosan ennyi csatornasor látszódjon egyszerre. */
 const VISIBLE_ROWS = 10;
 
-export const ChannelList: React.FC<ChannelListProps> = ({
+const ChannelListView: React.FC<ChannelListProps> = ({
   channels,
   activeProvider,
   epgReady,
@@ -612,7 +612,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
         // scrollIntoViewIfNeeded a megbízható.
         const legacy = el as HTMLElement & { scrollIntoViewIfNeeded?: (center?: boolean) => void };
         if (typeof legacy.scrollIntoViewIfNeeded === 'function') legacy.scrollIntoViewIfNeeded(false);
-        else if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        // FONTOS (TV-lassulás): a `behavior: 'smooth'` minden nyíllépésnél
+        // animált görgetést indított, ami a lassú webOS processzoron
+        // érezhetően akadozott. A kijelölő most azonnal ugrik.
+        else if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
       });
     };
     if (key === 'ArrowUp' && currentIndex <= 0) {
@@ -864,7 +867,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
 
                       {/* Channel Logo: sikeres betöltés után a logót nem tüntetjük el átmeneti hibára. */}
                       <div className={`relative shrink-0 ${bigRows ? 'w-14 h-11' : 'w-10 h-8'} rounded-lg border border-slate-700/60 p-0.5 flex items-center justify-center overflow-hidden bg-transparent`}>
-                        <ChannelLogo url={ch.logo} name={ch.name} retryKey={ch} />
+                        {/* A retryKey NEM a csatorna objektum: az EPG-frissítéskor
+                          új objektum jön, ami feleslegesen újraindította a logó
+                          betöltését minden sorban. Az egyedi azonosító stabil. */}
+                      <ChannelLogo url={ch.logo} name={ch.name} retryKey={ch.id} />
                       </div>
 
                       {/* Channel name, current EPG and real-time progress */}
@@ -1020,3 +1026,13 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     </div>
   );
 };
+
+/**
+ * Memoizált export.
+ *
+ * A csatornalista a legdrágább komponens (sorok, logók, EPG). Korábban minden
+ * App-szintű állapotváltozás (hangerő, OSD ki/be, lejátszás, előzmény
+ * frissítés) újrarajzolta. A propok most stabilak (useCallback/useMemo az
+ * App-ban), ezért elég akkor újrarajzolni, ha tényleg változott a lista.
+ */
+export const ChannelList = React.memo(ChannelListView);

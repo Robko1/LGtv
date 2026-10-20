@@ -1,6 +1,6 @@
 # TV – LG webOS TV
 
-> **v2.3.3 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
+> **v2.4.0 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
 > - Ez a repó kizárólag LG webOS TV-re készül.
 > - Nem tölt le, nem másol és nem használ forráskódot másik alkalmazásrepóból.
 > - Telepítés: [webos/README.md](webos/README.md)
@@ -11,6 +11,14 @@ LG webOS TV alkalmazás (IPK) TV-hez:
 - Élő TV, Mozi, Sorozat, EPG, kedvencek, beállítások
 - Távirányító (D-pad) + Magic Remote + egér támogatás
 - Külön kinézet: kisebb lejátszó (1280px max), gyors betöltés; nincs indítóvideó vagy splash kép
+- **Két lejátszó motor** (Menü → Rendszer → Lejátszó motor), a választás megmarad:
+  - **Beépített (HTML5)**: HLS, automatikus MPEG-TS váltás, teljes OSD – alapértelmezett
+  - **Natív (TV dekóder)**: a szolgáltató eredeti MPEG-TS címe közvetlenül a TV hardveres
+    dekóderén, automatikus formátumváltás nélkül, visszafogott felülettel
+- **2.4.0 teljesítmény**: a kijelölési sorszám O(n²) számítása megszűnt, az EPG már nem
+  rajzolja újra a teljes listát félpercenként, a lejátszás közbeni állapotfrissítés
+  legfeljebb 2 másodpercenként fut, a backdrop-elmosás és a globális CSS-átmenetek
+  kikapcsolva TV-n
 - QR kódos telefonos provider beállítás (nem kell TV távirányítóval pötyögni)
 
 ## Felépítés
@@ -83,13 +91,14 @@ Részletek: [QR-TELEFONOS-BEALLITAS.md](QR-TELEFONOS-BEALLITAS.md) + `provision.
 git clone https://github.com/Robko1/LGtv.git && cd LGtv
 cd web && npm install --no-audit --no-fund && VITE_WEBOS=true npm run build
 # IPK építés
-VERSION=2.3.3 bash ../tools/build-webos.sh
+VERSION=2.4.0 bash ../tools/build-webos.sh
 # Kimenet: webos/IPTV-RT.ipk
 ```
 
 ## Verzió
 
+- **v2.4.0** – teljesítmény-javítások + választható lejátszó motor (HTML5 / natív)
 - **v2.3.1** – LG webOS-only build + távirányító fix + QR
 - IPK: `IPTV-RT.ipk` (kb. 500-600KB)
-- appinfo.json: `hu.rt.iptv.webos` v2.3.3
+- appinfo.json: `hu.rt.iptv.webos` v2.4.0
 

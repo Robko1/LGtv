@@ -1,4 +1,11 @@
 export type BufferMode = 'fast' | 'balanced' | 'stable';
+/**
+ * Lejátszó motor.
+ *  - 'html5'  : a beépített HTML5/HLS lejátszó (formátumváltás, zap-őr, teljes OSD)
+ *  - 'native' : a TV hardveres dekóderére építő „natív” mód (közvetlen MPEG-TS,
+ *               nincs automatikus formátumváltás, minimális felület a kép fölött)
+ */
+export type PlayerEngine = 'html5' | 'native';
 export type AspectRatioMode = 'contain' | 'cover' | 'fill'; // 'Illesztés' | 'Kitöltés' | 'Nyújtás'
 export type SubtitleSize = '75%' | '100%' | '125%' | '150%' | '200%';
 
@@ -172,6 +179,8 @@ export interface AppSettings {
   activeProviderId: string;
   lastPlayedChannelId?: string;
   corsProxy: string;
+  /** Melyik lejátszó motor fusson (a választás megmarad újraindítás után is). */
+  playerEngine?: PlayerEngine;
 }
 
 export interface WatchHistoryItem {

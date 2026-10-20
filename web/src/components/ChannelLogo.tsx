@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { APP_ICON_SMALL_DATA_URL } from '../generatedIcon';
 import { normalizeLogoUrl } from '../services/logoUrl';
 
-interface Props { url?: string; name: string; retryKey?: object }
+/** retryKey: bármilyen stabil érték (pl. csatorna-azonosító) – változására újratölt. */
+interface Props { url?: string; name: string; retryKey?: unknown }
 
 /** A szolgáltatói logót közvetlenül tölti be, majd sikertelenségnél a gyorsítótárból próbálja visszaolvasni. */
 export const ChannelLogo: React.FC<Props> = ({ url, name, retryKey }) => {

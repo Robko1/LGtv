@@ -1,10 +1,25 @@
-export const WEB_VERSION = '2.3.19';
+export const WEB_VERSION = '2.4.0';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.19'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.0'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.0',
+    date: '2026-10-20',
+    changes: [
+      'NAGY LASSÚSÁG-JAVÍTÁS: a kijelölési sorszám kiszámítása négyzetszerű volt (20 000 csatornánál több százmillió összehasonlítás minden lista-változásnál) – most halmazos, azonnali',
+      'Az EPG-frissítés már nem a teljes csatornalistát rajzolja újra 30 másodpercenként, csak a nézett csatornát – nincs több félpercenkénti akadás',
+      'A film/sorozat lejátszás közben a felület legfeljebb 2 másodpercenként frissül (korábban másodpercenként), a teljes App újrarajzolása nélkül',
+      'Lejátszó: a kék óra külön, izolált komponens (nem rajzolja újra másodpercenként az egész OSD-t), a felesleges EPG-időzítő megszűnt',
+      'Beállítások → Rendszer → Lejátszó motor: Beépített (HTML5) vagy Natív (TV dekóder) – a választás megmarad újraindítás után is',
+      'Backdrop-elmosás (backdrop-blur) kikapcsolva TV-n: ez volt a legdrágább GPU-művelet a menükben és az OSD-ben',
+      'A globális 0,15 mp-es CSS-átmenet és a 0,2 mp-es animáció-felülírás megszűnt (ez tette lassúvá a kijelölést és pörgette túl a töltőkereket)',
+      'Kategória-kereső, kedvencek mappa-listája és a kijelölés-keresés memoizálva – gépelés és menünyitás közben nincs több teljes listás végigmenetel',
+      'A webOS fókuszfigyelő (MutationObserver) legfeljebb másodpercenként ~8-szor fut, és csak nyitott ablaknál dolgozik',
+    ],
+  },
   {
     version: '2.3.19',
     date: '2026-10-20',

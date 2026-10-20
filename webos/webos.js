@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.19
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.0
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.19 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.4.0 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -160,7 +160,7 @@
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.3.19') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.4.0') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -333,6 +333,12 @@
         '   (A folyamatos animációk - pörgő töltés, óra - megmaradnak.) */',
         '.webos-tv *, .webos-tv *:before, .webos-tv *:after { transition-duration: 0s !important; transition-delay: 0s !important; }',
         '.webos-tv, .webos-tv * { scroll-behavior: auto !important; }',
+        '/* ELMOSÁS KI: a backdrop-blur a teljes alatta levo kepet ujraszamolja',
+        '   minden kockaban - a regi webOS GPU-n ez a legdragabb muvelet. */',
+        '.webos-tv *, .webos-tv *:before, .webos-tv *:after {',
+        '  -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }',
+        '/* TV-n a hover-transform (translate/scale) is felesleges ujrarajzolas. */',
+        'body.has-mouse [role="option"]:hover { transform: none !important; }',
         '/* NYUGODT ANIMÁCIÓK TV-N: az óra ikon pislogása és a fogaskerék',
         '   pörgése sokkal lassabb, saját keyframe-mel (a Tailwind 4 arbitrary',
         '   animációk CSS-változós időtartama a régi webOS Chrome-on elveszhet,',
@@ -995,14 +1001,19 @@
 
     // Figyeljük a dialog megjelenését – ha nyílik, fókusz rá
     try {
+      // FONTOS (TV-lassulás): a teljes DOM-fára figyelő observer korábban
+      // MINDEN változásnál (minden új csatornasor, minden EPG-szöveg) lefutott
+      // és két teljes querySelectorAll-t végzett. Most legfeljebb ~8-szor
+      // másodpercenként fut, és ha nincs egyetlen nyitott ablak sem, azonnal
+      // visszatér - így a lista görgetése/újrarajzolása nem lassul tőle.
+      var dialogSweepTimer = 0;
       var observer = new MutationObserver(function() {
-        // A nyitasi sorrendet azonnal rogzitjuk, es MINDIG a legfelso
-        // ablakot celozzuk. (Korabban az ELSO dialog elso gombjara - a
-        // Listak fulre! - rantotta a fokuszt, mikozben a nezo a folotte
-        // nyitott QR/Uj mappa ablakban allt.)
-        stampDialogs();
-        var dlg = topDialog();
-        if (dlg && !dlg.contains(document.activeElement)) {
+        if (dialogSweepTimer) return;
+        dialogSweepTimer = setTimeout(function() {
+          dialogSweepTimer = 0;
+          var dlg = topDialog();
+          if (!dlg) return;
+          if (dlg.contains(document.activeElement)) return;
           setTimeout(function(){
             var dlgNow = topDialog();
             if (!dlgNow || dlgNow.contains(document.activeElement)) return;
@@ -1012,7 +1023,7 @@
               (btn || f[0]).focus();
             }
           }, 100);
-        }
+        }, 120);
       });
       observer.observe(document.body, { childList:true, subtree:true });
     } catch (e) {}
@@ -1042,5 +1053,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.19 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.4.0 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

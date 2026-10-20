@@ -1,6 +1,6 @@
 import { ChannelLogo } from './ChannelLogo';
 import { APP_ICON_DATA_URL } from '../generatedIcon';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppSettings, Channel, FavoriteFolder, ProviderAccount, BufferMode, SubtitleSize, WatchHistoryItem } from '../types/iptv';
 import {
   SlidersHorizontal,
@@ -121,6 +121,21 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   // ha az adott lejátszási mód ténylegesen elérhető az aktuális környezetben.
   const pictureInPictureAvailable = Boolean((document as any).pictureInPictureEnabled);
 
+  // Csatorna-kereső térkép: a kedvenc mappák listája korábban minden egyes
+  // csatornánál végigfutott a teljes (akár 20-60 ezer elemes) listán
+  // (`f.channelIds.map(id => channels.find(...))`), ami a menü minden
+  // kirajzolásakor több százezer összehasonlítást jelentett.
+  const channelById = useMemo(() => {
+    const map = new Map<string, Channel>();
+    for (const channel of channels) map.set(channel.id, channel);
+    return map;
+  }, [channels]);
+
+  const resumableHistory = useMemo(
+    () => watchHistory.filter((item) => item.mediaType === 'movie' || item.mediaType === 'series'),
+    [watchHistory],
+  );
+
   // TV / stick / egér: D-pad + egér támogatás a beállítások modalban
   const modalRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -187,11 +202,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         if (key === 'ArrowDown') {
           const next = focusable[(currentIndex + 1) % focusable.length];
           next?.focus();
-          next?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          next?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
         } else {
           const prev = focusable[(currentIndex - 1 + focusable.length) % focusable.length];
           prev?.focus();
-          prev?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          prev?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
         }
       } catch {}
     } else if (key === 'Escape' || key === 'Backspace') {
@@ -423,7 +438,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 ) : folders.map((f, folderIndex) => {
                   const folderChannels = f.channelIds
-                    .map((id) => channels.find((channel) => channel.id === id))
+                    .map((id) => channelById.get(id))
                     .filter((channel): channel is Channel => Boolean(channel));
                   const expanded = expandedFavoriteFolderId === f.id;
                   return (
@@ -497,7 +512,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 className={`flex items-center gap-2 rounded-xl p-2 border transition-colors ${moving ? 'bg-emerald-700/90 border-emerald-300 ring-2 ring-emerald-400/60' : 'bg-[#09152b] border-slate-700'}`}
                               >
                                 <div className="w-9 h-7 rounded-md bg-black/20 border border-slate-700 p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
-                                  <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
+                                  <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel.id} />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="text-xs font-bold text-slate-100 truncate">{channel.name}</div>
@@ -564,7 +579,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
 
-                {watchHistory.filter((item) => item.mediaType === 'movie' || item.mediaType === 'series').length === 0 ? (
+                {resumableHistory.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-cyan-800/70 bg-black/10 px-3 py-5 text-center">
                     <Film className="w-7 h-7 text-slate-500 mx-auto mb-2" />
                     <p className="text-sm font-bold text-slate-200">Még nincs mit folytatni</p>
@@ -572,9 +587,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {watchHistory
-                      .filter((item) => item.mediaType === 'movie' || item.mediaType === 'series')
-                      .map((item) => (
+                    {resumableHistory.map((item) => (
                         <div key={item.id} className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3">
                           <div className="flex items-center gap-3">
                             <div className="w-14 h-[72px] shrink-0 rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
@@ -657,6 +670,45 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       </button>
                     ))}
                   </div>
+
+                </div>
+
+                {/* Lejátszó motor: beépített HTML5 vagy natív TV-dekóder */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-amber-400/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="flex items-center gap-2 text-xs font-bold text-white">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-400/10"><Cast className="h-4 w-4 text-amber-300" /></span>
+                    <span>Lejátszó motor</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    Válaszd ki, melyik lejátszó fusson. A választás megmarad újraindítás után is.
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <button
+                      onClick={() => onUpdateSettings({ playerEngine: 'html5' })}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${
+                        (settings.playerEngine || 'html5') === 'html5'
+                          ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                          : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
+                      }`}
+                    >
+                      Beépített (HTML5)
+                    </button>
+                    <button
+                      onClick={() => onUpdateSettings({ playerEngine: 'native' })}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${
+                        settings.playerEngine === 'native'
+                          ? 'bg-emerald-400 text-slate-950 shadow-md shadow-emerald-400/30'
+                          : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
+                      }`}
+                    >
+                      Natív (TV dekóder)
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-cyan-300 leading-tight pt-1">
+                    {(settings.playerEngine || 'html5') === 'html5'
+                      ? 'Beépített: HLS, automatikus MPEG-TS váltás, teljes OSD. Ez a legbiztonságosabb.'
+                      : 'Natív: a szolgáltató eredeti MPEG-TS címe a TV hardveres dekóderén, formátumváltás nélkül, visszafogott felülettel.'}
+                  </p>
                 </div>
 
                 {/* OSD automatikus elrejtése */}

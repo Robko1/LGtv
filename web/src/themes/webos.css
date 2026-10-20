@@ -29,7 +29,6 @@ body.webos-theme [role="option"]:focus,
 body.webos-theme [role="option"]:focus-visible {
   outline: 3px solid #00BFFF !important;
   box-shadow: 0 0 0 8px rgba(0,191,255,0.35), 0 0 24px rgba(0,191,255,0.25) !important;
-  transform: scale(1.02);
   z-index: 10;
 }
 body.webos-theme button:focus-visible {
@@ -37,10 +36,37 @@ body.webos-theme button:focus-visible {
   box-shadow: 0 0 0 4px rgba(250,204,21,0.3);
 }
 
-/* webOS – gyorsabb animációk */
+/*
+ * webOS – SEMMI CSS ÁTMENET.
+ *
+ * FONTOS (ez volt a felület lassulásának egyik fő oka): itt korábban
+ * `transition-duration: 0.15s !important` és `animation-duration: 0.2s
+ * !important` állt minden elemre. Ez a webos.js-ben beállított „nincs
+ * átmenet” szabályt felülírta (nagyobb specificitás), ezért a TV lassú
+ * processzorán minden kijelölés/hover 150 ms-ig animálódott, a pörgő
+ * töltéskerék pedig 0,2 másodperces köröket futott (villogás, GPU-terhelés).
+ *
+ * A kijelölő most azonnal ugrik. A folyamatos animációk (töltéskerék, óra)
+ * saját, nyugodt időtartamukat a webos.js adja meg.
+ */
 body.webos-theme * {
-  transition-duration: 0.15s !important;
-  animation-duration: 0.2s !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
+
+/*
+ * webOS – ELMOSÁS (backdrop-filter) KI.
+ *
+ * A `backdrop-blur` minden felugró ablakban és OSD-ben a teljes alatta lévő
+ * képernyőt újraszámolja minden képkockán. A régi webOS GPU-n ez a
+ * legdrágább művelet; a menük/OSD így is olvashatók (a sötét réteg megmarad),
+ * cserébe a megnyitás és a görgetés érezhetően gyorsabb.
+ */
+body.webos-theme *,
+body.webos-theme *::before,
+body.webos-theme *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 /* webOS – csatornalista max 70vh, hogy látszódjon a lejátszó */
