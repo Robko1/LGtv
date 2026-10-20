@@ -138,7 +138,7 @@ export const WEB_VERSION_HISTORY = [
     version: '2.3.5',
     date: '2026-10-18',
     changes: [
-      "KRITIKUS JAVÍTÁS: az alkalmazás kódja eddig <script type=\"module\">-ként került a csomagba, amit a Chrome 61-nél régebbi LG webOS motorok (webOS 3.x = Chrome 38, webOS 4.0 = Chrome 53) EGYÁLTALÁN NEM futtatnak le – az app el sem indult a TV-n, csak az IPTV R.T felirat látszott, és semmi nem reagált. Mostantól sima scriptként, ES5-re fordítva kerül be.",
+      "KRITIKUS JAVÍTÁS: az alkalmazás kódja eddig <script type=\"module\">-ként került a csomagba, amit a Chrome 61-nél régebbi LG webOS motorok (webOS 3.x = Chrome 38, webOS 4.0 = Chrome 53) EGYÁLTALÁN NEM futtatnak le – az app el sem indult a TV-n, csak az TV felirat látszott, és semmi nem reagált. Mostantól sima scriptként, ES5-re fordítva kerül be.",
       "Babel ES5 fordítás (cél: Chrome 38 / webOS 3.x) + core-js, regenerator és fetch polyfill a csomagban – a régi TV-motorok is futtatják az appot.",
       "AbortController, Element.closest/matches és requestIdleCallback polyfill régi webOS-hez (enélkül a hálózati betöltés elszállt volna).",
       "Képernyős távirányító-diagnosztika: induláskor 2 percig látható sáv mutatja a TV motorját, a felület betöltését és minden lenyomott gombot (keyCode + név). A PIROS színes gombbal bármikor be/ki kapcsolható.",
@@ -161,7 +161,7 @@ export const WEB_VERSION_HISTORY = [
     version: '2.3.3',
     date: '2026-10-18',
     changes: [
-      "Az LG TV indítóvideója eltávolítva; rövid fekvő IPTV R.T felirat jelenik meg.",
+      "Az LG TV indítóvideója eltávolítva; rövid fekvő TV felirat jelenik meg.",
       "A body meglévő CSS-osztályai megmaradnak, a webOS-osztályok hozzáadása nem duplikálja a class attribútumot.",
       "A távirányító kezdeti fókuszának kezelése javítva; az IPK ellenőrzi a csomagolt index.html egyezését.",
       "Verzió: 2.3.3 – kizárólag LG webOS TV.",
