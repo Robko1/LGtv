@@ -858,9 +858,11 @@ export function App() {
           type: 'xtream' as const,
           url: host,
           port: port || '8080',
+          serverUrl: `${host.includes('://') ? host : `http://${host}`}${port ? `:${port}` : ''}`,
           username: payload.username,
           password: payload.password,
           isActive: true,
+          status: 'loading' as const,
           channelsCount: 0,
           moviesCount: 0,
           seriesCount: 0,
@@ -869,13 +871,18 @@ export function App() {
           maxConnections: 'N/A'
         };
         handleAddProvider(newProvider);
+        // A provider mentése után automatikusan induljon a teljes listaimport.
+        window.setTimeout(() => { void handleRefreshProvider(newProvider.id, false); }, 250);
       } else if (payload.type === 'm3u') {
         const newProvider = {
           id: 'qr_' + Date.now(),
           name: payload.name || 'Telefonról M3U',
           type: 'm3u' as const,
           url: payload.url,
+          m3uUrl: payload.url,
+          serverUrl: payload.url,
           isActive: true,
+          status: 'loading' as const,
           channelsCount: 0,
           moviesCount: 0,
           seriesCount: 0,
@@ -884,6 +891,8 @@ export function App() {
           maxConnections: 'N/A'
         };
         handleAddProvider(newProvider);
+        // M3U esetén is automatikusan induljon a beolvasás a mentés után.
+        window.setTimeout(() => { void handleRefreshProvider(newProvider.id, false); }, 250);
       }
     } catch (e) {
       console.error('[QR] handle error', e);
