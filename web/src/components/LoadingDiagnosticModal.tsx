@@ -4,6 +4,7 @@ import type { ImportProgress } from '../services/providerImport';
 import type { NetworkDiagnosticEvent } from '../services/net';
 import type { Channel } from '../types/iptv';
 import { cancelNetworkRequests } from '../services/net';
+import packageJson from '../../package.json';
 
 interface LoadingDiagnosticModalProps {
   isOpen: boolean;
@@ -42,9 +43,12 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
   const [diagnosticLogOpen, setDiagnosticLogOpen] = useState(false);
 
   useEffect(() => {
-    // A kész vagy hibával leállt diagnosztika csak megtekinthető marad:
-    // nincs tovább futó időzítő vagy teljesítményfigyelő.
-    if (!isOpen || error || progress?.percent === 100) return;
+    if (!isOpen) return;
+    // A befejezett vagy hibás diagnosztika 10 másodperc múlva automatikusan eltűnik.
+    if (error || progress?.percent === 100) {
+      const closeTimer = window.setTimeout(onClose, 10_000);
+      return () => window.clearTimeout(closeTimer);
+    }
     const timerId = window.setInterval(() => setNow(performance.now()), 250);
     let observer: PerformanceObserver | null = null;
     try {
@@ -62,7 +66,7 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
       window.clearInterval(timerId);
       observer?.disconnect();
     };
-  }, [isOpen, error, progress?.percent]);
+  }, [isOpen, error, progress?.percent, onClose]);
 
   const elapsed = Math.max(0, now - startedAt);
   const completed = !error && progress?.percent === 100;
@@ -95,7 +99,6 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
       withLogo: withLogo.length,
       missingLogo,
       source: sourceLabel,
-      storage: 'a csatorna logo mezője; a meglévő tartalomtárolási folyamat menti',
       samples: withLogo.slice(0, 5).map((channel) => ({ name: channel.name, logoUrl: channel.logo, source: sourceLabel })),
     };
   }, [channels, logoSource]);
@@ -185,7 +188,7 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
           <div className="relative p-3 sm:p-5 overflow-y-auto max-h-[calc(100dvh-24px)]">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <div className="text-[10px] tracking-[0.25em] text-cyan-300 font-bold">QUANTUM IPTV CORE</div>
+                <div className="text-[10px] tracking-[0.25em] text-cyan-300 font-bold">QUANTUM IPTV CORE • v{packageJson.version}</div>
                 <h2 className="text-lg font-black tracking-wider">BETÖLTÉSI DIAGNOSZTIKA</h2>
               </div>
               <button onClick={handleAbortAndClose} className="p-2 rounded-xl border border-cyan-800/60 bg-white/5 hover:bg-white/10">
@@ -249,7 +252,7 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
             ) : completed ? (
               <div className="mt-4 rounded-2xl border border-emerald-500/50 bg-emerald-950/30 p-3 flex gap-2 text-emerald-200 text-xs">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <div><b>BETÖLTÉS KÉSZ — DIAGNOSZTIKA ELÉRHETŐ</b><div className="mt-1 text-emerald-300/80">Az ablak szándékosan nyitva marad, amíg manuálisan be nem zárod.</div></div>
+                <div><b>BETÖLTÉS KÉSZ</b><div className="mt-1 text-emerald-300/80">A diagnosztika 10 másodperc múlva automatikusan bezárul.</div></div>
               </div>
             ) : null}
 
