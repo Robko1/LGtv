@@ -132,16 +132,22 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x tools/build-webos.sh webos/tools/build-ipk.py
-          # Ikonok generálása ha nincsenek
-          if [[ ! -f webos/icon.png || ! -f webos/largeIcon.png ]]; then
-            python3 - << 'PY'
+          # Az új LG IPTV ikon minden buildnél a repó ikonkep.png fájljából készül.
+          python3 - << 'PY'
+          from pathlib import Path
           from PIL import Image
-          img = Image.open("icon.jpg").convert('RGBA')
-          img.resize((80,80), Image.LANCZOS).save("webos/icon.png","PNG")
-          img.resize((130,130), Image.LANCZOS).save("webos/largeIcon.png","PNG")
-          img.resize((512,512), Image.LANCZOS).save("webos/assets/icon_tv.png","PNG")
+          source = Path("ikonkep.png")
+          if not source.is_file() or source.stat().st_size == 0:
+              raise SystemExit("HIBA: a gyökérben lévő ikonkep.png hiányzik vagy üres.")
+          img = Image.open(source).convert("RGBA")
+          Path("webos/assets").mkdir(parents=True, exist_ok=True)
+          Path("web/public").mkdir(parents=True, exist_ok=True)
+          img.resize((80,80), Image.Resampling.LANCZOS).save("webos/icon.png", "PNG")
+          img.resize((130,130), Image.Resampling.LANCZOS).save("webos/largeIcon.png", "PNG")
+          img.resize((512,512), Image.Resampling.LANCZOS).save("webos/assets/icon_tv.png", "PNG")
+          img.save("web/public/ikonkep.png", "PNG")
+          print("OK: az ikonkep.png lett az LG webOS ikon és a webes favicon forrása.")
           PY
-          fi
           # Nincs indítóvideó generálás vagy csomagolás.
           VERSION="$VERSION" bash tools/build-webos.sh
           ls -lh webos/*.ipk
