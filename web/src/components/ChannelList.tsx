@@ -491,6 +491,23 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     return false;
   };
 
+  /**
+   * TV: a mappasáv (Kedvencek / Összes / mappák) az egyetlen "felső" szomszéd
+   * a csatornalista fölött. A kijelölő a lista végéről/tetejéről ide lép, innen
+   * felfelé pedig a fejléc (Beállítások) következik.
+   */
+  const focusFolderBar = () => {
+    const bar = document.querySelector<HTMLElement>('[data-tv-folders]');
+    const target = bar?.querySelector<HTMLElement>('[data-tv-folder]') || bar;
+    if (target) {
+      if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '0');
+      target.focus({ preventScroll: true } as any);
+      try { target.scrollIntoView({ block: 'nearest', behavior: 'auto' as any }); } catch {}
+      return true;
+    }
+    return false;
+  };
+
   // TV távirányító színes gombjai (webos.js-ből): KÉK = mozgatás mód a
   // kijelölt csatornán, SÁRGA = hozzáadás kedvenc mappához felugró.
   useEffect(() => {
@@ -592,7 +609,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       if (isTvArrowKey(key)) {
         e.preventDefault();
         e.stopPropagation();
-        focusHeaderMenu();
+        if (!focusFolderBar()) focusHeaderMenu();
       }
       return;
     }
@@ -622,10 +639,15 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       });
     };
     if (key === 'ArrowUp' && currentIndex <= 0) {
-      // A lista tetejéről felfelé: fókusz a felső menüsorra.
+      // A lista tetejéről felfelé: a mappasávra lépünk (onnan tovább a fejléc).
       e.preventDefault();
       e.stopPropagation();
-      focusHeaderMenu();
+      if (!focusFolderBar()) focusHeaderMenu();
+    } else if (key === 'ArrowDown' && currentIndex >= visibleChannels.length - 1) {
+      // A lista ALJÁN lefelé: át a kedvencek mappasávjára.
+      e.preventDefault();
+      e.stopPropagation();
+      focusFolderBar();
     } else if (key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation();
@@ -700,11 +722,44 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   return (
     <div className="flex-1 min-h-0 h-full flex flex-col bg-[#070e1e] overflow-hidden md:bg-[#070e1e] lg:bg-[#070e1e] xl:bg-[#070e1e] 2xl:bg-[#070e1e]">
       {/* Az „Összes” után közvetlenül a létrehozott kedvenc mappák jelennek meg; nincs csatornakategória vagy külön mappanyitó. */}
-      <div className="px-2 py-2 bg-[#070f22] border-b border-cyan-950/60 overflow-x-auto shrink-0">
+      <div
+        data-tv-folders=""
+        tabIndex={0}
+        onKeyDown={(e) => {
+          // TV: a mappasávon balra/jobbra a mappák között lépkedünk, felfelé a
+          // fejléc (Beállítások), lefelé a csatornalista következik.
+          const key = normalizeTvKey(e);
+          if (!isTvArrowKey(key)) return;
+          const buttons = Array.from(
+            (e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[data-tv-folder]')
+          ).filter((el) => el.getClientRects().length > 0);
+          const index = buttons.indexOf(document.activeElement as HTMLElement);
+          if (key === 'ArrowRight') {
+            e.preventDefault();
+            e.stopPropagation();
+            const next = buttons[Math.min(buttons.length - 1, (index < 0 ? -1 : index) + 1)];
+            next?.focus({ preventScroll: true } as any);
+          } else if (key === 'ArrowLeft') {
+            e.preventDefault();
+            e.stopPropagation();
+            const prev = buttons[Math.max(0, (index < 0 ? buttons.length : index) - 1)];
+            prev?.focus({ preventScroll: true } as any);
+          } else if (key === 'ArrowUp') {
+            e.preventDefault();
+            e.stopPropagation();
+            focusHeaderMenu();
+          } else if (key === 'ArrowDown') {
+            e.preventDefault();
+            e.stopPropagation();
+            channelScrollRef.current?.focus({ preventScroll: true } as any);
+          }
+        }}
+        className="px-2 py-2 bg-[#070f22] border-b border-cyan-950/60 overflow-x-auto shrink-0 focus:outline-none">
         <div className="flex items-center gap-2 min-w-max">
           {selectedFavoriteFolderId && (
             <button
               type="button"
+              data-tv-folder=""
               onClick={() => {
                 setMovingChannelId(null);
                 if (sortMode === 'saved') {
@@ -736,6 +791,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
               <button
                 key={folder.id}
                 type="button"
+                data-tv-folder=""
                 onClick={() => onSelectFavoriteFolder(folder.id)}
                 className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap border-2 transition-colors ${folderBorder} ${isSelected ? 'bg-amber-400 text-slate-950' : 'bg-[#0d1c3a] text-slate-300'}`}
               >{folder.icon || '📁'} {folder.name}</button>

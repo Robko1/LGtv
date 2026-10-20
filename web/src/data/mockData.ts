@@ -11,6 +11,8 @@ export const INITIAL_SETTINGS: AppSettings = {
   // Alapértelmezés: beépített HTML5 lejátszó (ez a legmegbízhatóbb minden TV-n).
   playerEngine: 'html5',
   zappingDelay: 600,
+  // 0 = a készülék órája (kézi eltolás a Beállításokban állítható).
+  clockOffsetHours: 0,
   autoPlayLastChannel: true,
   closeListOnZap: true,
   swipeToZap: true,

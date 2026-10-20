@@ -711,6 +711,38 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </p>
                 </div>
 
+                {/* ÓRA: a webOS néha UTC-t ad vissza a helyi idő helyett. */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="flex items-center gap-2 text-xs font-bold text-white">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Clock className="h-4 w-4 text-cyan-300" /></span>
+                    <span>Óra beállítása</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    Ha a TV órája eltér a valós időtől (pl. Írországban nyáron 1 óra),
+                    itt állítható. Automatikus = a készülék órája.
+                  </p>
+                  <div className="grid grid-cols-5 gap-1.5 pt-1">
+                    {[null, -2, -1, 1, 2].map((value) => {
+                      const active = value === null
+                        ? (settings.clockOffsetHours ?? 0) === 0
+                        : settings.clockOffsetHours === value;
+                      return (
+                        <button
+                          key={value === null ? 'auto' : `o${value}`}
+                          onClick={() => onUpdateSettings({ clockOffsetHours: value === null ? 0 : value })}
+                          className={`py-2 rounded-xl text-xs font-black transition-all ${
+                            active
+                              ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30'
+                              : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
+                          }`}
+                        >
+                          {value === null ? 'Auto' : (value > 0 ? `+${value}` : `${value}`)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* OSD automatikus elrejtése */}
                 <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">

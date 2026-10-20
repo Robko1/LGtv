@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.0
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.1
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.4.0 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.4.1 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -160,7 +160,7 @@
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.4.0') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.4.1') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -298,6 +298,16 @@
         '.webos-tv [data-app-root] { height: 100% !important; min-height: 0 !important; max-height: 100% !important; }',
         '/* Teljes kepernyos lejatszo: dvh helyett vh a regi Chrome-on. */',
         '.webos-tv [data-tv-player].fixed { width: 100vw !important; height: 100vh !important; z-index: 2147483000 !important; }',
+        '/* TELJES KEPERNYO: a regi Chrome a 100dvh-t nem ismeri, ezert a doboz',
+        '   magassaga 0 lehetett, a kep pedig balrol elcsuszott. Itt fixen a',
+        '   teljes kijelzot hasznaljuk - bal oldali fekete sav nem maradhat. */',
+        '.webos-tv [data-tv-player].fixed { left:0 !important; top:0 !important; right:0 !important; bottom:0 !important; margin:0 !important; padding:0 !important; border:0 !important; max-width:none !important; max-height:none !important; transform:none !important; outline:none !important; box-shadow:none !important; }',
+        '.webos-tv [data-tv-player].fixed video { position:absolute !important; left:0 !important; top:0 !important; width:100% !important; height:100% !important; max-width:none !important; object-fit:fill !important; }',
+        '/* Teljes kepernyon a #root belső margoja es a fo keret kék szegelye sem',
+        '   latszhat (ezek adtak kek csíkot a bal also/felso sarokba). */',
+        'body.iptv-tv-fullscreen #root { padding:0 !important; }',
+        'body.iptv-tv-fullscreen [data-app-root] { border:0 !important; padding:0 !important; }',
+        'body.iptv-tv-fullscreen [data-tv-player].fixed:focus { outline:none !important; }',
         '/* Teljes kepernyon a fooldal SEMMI eleme nem latszhat at (a bal',
         '   felso sarokban a fejlec kek ora doboza latszott at). */',
         'body.iptv-tv-fullscreen header { visibility: hidden !important; }',
@@ -350,7 +360,12 @@
         '.webos-tv .channel-list { max-height:70vh; }',
         '/* Erős fókusz gyűrű TV-re – távirányítóhoz */',
         '.webos-tv *:focus { outline:3px solid #00BFFF !important; outline-offset:2px; }',
-        '.webos-tv [role="listbox"]:focus { outline:3px solid #06b6d4 !important; outline-offset:-2px; box-shadow:0 0 0 4px rgba(6,182,212,0.25), inset 0 0 0 2px rgba(6,182,212,0.4); }',
+        '/* NINCS NAGY DOBOZ: a csatornalista konténerének fokusza nem rajzol',
+        '   keretet - a néző csak a sorok sárga kijelölését látja. */',
+        '.webos-tv [role="listbox"]:focus, .webos-tv [role="listbox"]:focus-visible { outline:none !important; box-shadow:none !important; }',
+        '/* A fejlec es a mappasav kijeloloje is sarga (ugyanaz, mint a soroké). */',
+        '.webos-tv header [data-tv-header]:focus, .webos-tv [data-tv-folders]:focus,',
+        '.webos-tv [data-tv-folder]:focus { outline:3px solid #fbbf24 !important; outline-offset:2px; box-shadow:0 0 0 4px rgba(251,191,36,0.30) !important; }',
         '.webos-tv [role="option"]:focus, .webos-tv [role="option"]:focus-visible {',
         '  outline:3px solid #06b6d4 !important; outline-offset:2px;',
         '  box-shadow:0 0 0 6px rgba(6,182,212,0.3), 0 0 20px rgba(6,182,212,0.2) !important;',
@@ -397,6 +412,18 @@
           !hiddenAncestor && el.getAttribute('aria-hidden') !== 'true';
       });
     } catch (e) { return []; }
+  }
+
+  /**
+   * Csak a látható elemek, de biztonsági tartalékkal: ha a motor nem ad
+   * befoglaló méretet (pl. régi webOS vagy tesztkörnyezet), akkor a teljes
+   * listát használjuk - így a kijelölő soha nem akad el.
+   */
+  function visibleOrAll(items) {
+    var visible = items.filter(function(el) {
+      return el.getClientRects && el.getClientRects().length > 0;
+    });
+    return visible.length ? visible : items;
   }
 
   function focusFirstChannelList() {
@@ -891,26 +918,118 @@
       return;
     }
 
-    // Gombon/menün állva a nyilak a legközelebbi látható vezérlőre lépnek.
-    // A csatornalista és a modal saját nyílkezelése változatlan marad.
+    // ---------- FŐOLDAL: SZIGORÚ, ZÓNÁS KIJELÖLŐ-NAVIGÁCIÓ ----------
+    //
+    // FONTOS (a "kijelölő össze-vissza ugrál" hiba javítása):
+    // Korábban itt térbeli (legközelebbi elem) keresés futott, ami a főoldalon
+    // a lejátszó OSD-jére, a nagy lejátszó dobozra és a fejléc gombjaira is
+    // átugrott. Most a főoldalnak pontosan három zónája van, és a kijelölő
+    // csak ezek között, kiszámíthatóan mozog:
+    //
+    //   [fejléc menüsor]  <-fel/le->  [kedvencek mappasáv]  <-fel/le->  [csatornalista]
+    //
+    // A csatornalistán belül a nyilakat a lista saját kezelője viszi (soronként),
+    // a lejátszóra és az OSD-re a kijelölő SOHA nem lép.
     if (isArrow && !dialogAtStart && !inTextEntry) {
       var focusedNow = document.activeElement;
-      var insideList = focusedNow && focusedNow.closest && focusedNow.closest('[role="listbox"]');
-      var isControl = focusedNow && (focusedNow.tagName === 'BUTTON' || focusedNow.tagName === 'A' ||
-        (focusedNow.getAttribute && focusedNow.getAttribute('role') === 'button'));
-      if (!insideList && isControl) {
-        if (focusSpatially(focusedNow, key)) {
+      var playerNow = focusedNow && focusedNow.closest ? focusedNow.closest('[data-tv-player]') : null;
+      // Teljes képernyős lejátszó: a lejátszó saját gombkezelése viszi a nyilakat.
+      if (playerNow && playerNow.className.indexOf('fixed') !== -1) return;
+
+      var listEl = document.querySelector('[role="listbox"]');
+      var inList = listEl && focusedNow && (focusedNow === listEl || listEl.contains(focusedNow));
+      if (inList) {
+        // A lista saját React kezelője mozgatja a sárga kijelölést.
+        return;
+      }
+
+      var contentItems = function() {
+        return getFocusable(document).filter(function(el) {
+          if (el.hasAttribute('data-tv-skip')) return false;
+          if (el.closest && el.closest('header')) return false;
+          var box = el.closest ? el.closest('[data-tv-player]') : null;
+          if (box && box.className.indexOf('fixed') === -1) return false;
+          if (el.closest && el.closest('[data-osd]')) return false;
+          return true;
+        });
+      };
+
+      var headerItems = visibleOrAll(Array.prototype.slice.call(
+        document.querySelectorAll('header [data-tv-header]:not([data-tv-skip])')
+      ));
+      var folderBar = document.querySelector('[data-tv-folders]');
+      var folderItems = folderBar ? visibleOrAll(Array.prototype.slice.call(
+        folderBar.querySelectorAll('[data-tv-folder]')
+      )) : [];
+      var inHeader = focusedNow && focusedNow.closest && focusedNow.closest('header');
+      var inFolders = focusedNow && folderBar && (focusedNow === folderBar || folderBar.contains(focusedNow));
+      var headerDefault = document.querySelector('header [data-tv-header-default]');
+
+      var focusAndReveal = function(el) {
+        if (!el) return false;
+        if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+        el.focus({preventScroll:true});
+        revealEl(el);
+        return true;
+      };
+
+      if (inHeader && headerItems.length) {
+        e.preventDefault();
+        e.stopPropagation();
+        var hi = headerItems.indexOf(focusedNow);
+        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          var dir = key === 'ArrowRight' ? 1 : -1;
+          var target = hi < 0 ? 0 : hi + dir;
+          if (target < 0 || target >= headerItems.length) return;
+          focusAndReveal(headerItems[target]);
+        } else if (key === 'ArrowDown') {
+          // A menüsorról lefelé: először a mappasáv, utána a csatornalista.
+          // Mozi/Sorozat nézetben (nincs lista) a tartalom első vezérlője.
+          if (!focusAndReveal(folderItems[0] || folderBar) && !focusAndReveal(listEl)) {
+            focusAndReveal(contentItems()[0]);
+          }
+        }
+        return;
+      }
+
+      if (inFolders) {
+        e.preventDefault();
+        e.stopPropagation();
+        var fi = folderItems.indexOf(focusedNow);
+        if (key === 'ArrowRight') {
+          if (folderItems.length) focusAndReveal(folderItems[Math.min(folderItems.length - 1, (fi < 0 ? -1 : fi) + 1)]);
+        } else if (key === 'ArrowLeft') {
+          if (folderItems.length) focusAndReveal(folderItems[Math.max(0, (fi < 0 ? folderItems.length : fi) - 1)]);
+        } else if (key === 'ArrowUp') {
+          focusAndReveal(headerDefault || headerItems[headerItems.length - 1]);
+        } else if (key === 'ArrowDown') {
+          focusAndReveal(listEl);
+        }
+        return;
+      }
+
+      // Nincs értelmes fókusz (pl. a body-n ragadt): a csatornalistára visszük.
+      // Mozi/Sorozat nézetben (nincs csatornalista) a látható vezérlők között
+      // lépünk, de a lejátszó és az OSD továbbra is tiltott.
+      if (!listEl) {
+        // Mozi/Sorozat nézet: a lejátszó és az OSD kizárásával lépünk tovább.
+        var safeItems = contentItems();
+        if (focusedNow && spatialPick(focusedNow, key, safeItems)) {
           e.preventDefault();
           e.stopPropagation();
           return;
         }
+        if (needsRedispatch) {
+          e.preventDefault();
+          e.stopPropagation();
+          injectKey(key, KEY_TO_KEYCODE[key] || kc);
+        }
+        return;
       }
-      // Régi webOS kulcsnév ('Up' stb.): adjuk tovább egységes 'Arrow*' néven,
-      // hogy a React csatornaváltó / lista kezelői is megkapják.
-      if (needsRedispatch) {
+      if (listEl) {
         e.preventDefault();
         e.stopPropagation();
-        injectKey(key, KEY_TO_KEYCODE[key] || kc);
+        focusAndReveal(listEl);
         return;
       }
     }
@@ -1051,5 +1170,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.4.0 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.4.1 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

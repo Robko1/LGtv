@@ -18,6 +18,30 @@ const UI_STATE_KEY = 'iptv_rt_ui_state_v1';
 // Régi (már nem használt) kulcsok: a gyorsítótár törlésekor ezeket is eltakarítjuk.
 const LEGACY_KEYS = ['iptv_rt_channels_v1', 'iptv_rt_movies_v1', 'iptv_rt_series_v1'];
 
+/**
+ * Az utolsóként nézett csatorna azonosítója.
+ *
+ * SZÁNDÉKOSAN külön kulcs: a csatornaváltás így NEM írja újra a teljes
+ * beállítás-objektumot (sem a React állapotot) - a TV lassú tárolóján ez
+ * éppen a váltás pillanatában blokkolt. Az írás 800 ms-mal később, egyszer
+ * történik; a felület azonnal vált.
+ */
+const LAST_CHANNEL_KEY = 'iptv_rt_last_channel_v1';
+let lastChannelTimer: number | null = null;
+let pendingLastChannelId: string | null = null;
+
+function flushLastChannel(): void {
+  lastChannelTimer = null;
+  const id = pendingLastChannelId;
+  pendingLastChannelId = null;
+  if (!id) return;
+  try {
+    localStorage.setItem(LAST_CHANNEL_KEY, id);
+  } catch {
+    /* tároló nélkül is működik */
+  }
+}
+
 export const storageService = {
   getSettings(): AppSettings {
     try {
@@ -54,6 +78,25 @@ export const storageService = {
     } catch (e) {
       console.error('Failed to save settings:', e);
     }
+  },
+
+  /** Az utolsóként nézett csatorna (újraindításhoz). */
+  getLastChannelId(): string {
+    try {
+      return localStorage.getItem(LAST_CHANNEL_KEY) || '';
+    } catch {
+      return '';
+    }
+  },
+
+  /**
+   * Az utolsó csatorna mentése késleltetve, hogy a váltás azonnali legyen.
+   * A csatornaváltás útjából kikerült minden szinkron tárolóírás.
+   */
+  rememberLastChannel(channelId: string): void {
+    pendingLastChannelId = channelId;
+    if (lastChannelTimer !== null) return;
+    lastChannelTimer = window.setTimeout(flushLastChannel, 800);
   },
 
   getProviders(): ProviderAccount[] {
