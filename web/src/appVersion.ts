@@ -1,6 +1,14 @@
-export const WEB_VERSION = '2.3.13';
+export const WEB_VERSION = '2.3.14';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.14',
+    date: '2026-10-20',
+    changes: [
+      "KIADÁSFRISSÍTÉS JAVÍTVA: az IPK-építő eddig rögzített 2.3.13-as verziót használt, ezért a sikeres build sem hozott létre új címkét. Most 2.3.14-es verziót készít, a megfelelő Release-t frissíti, majd az előző v2.3.13-as kiadást csak az új IPK sikeres ellenőrzése után törli."
+    ],
+  },
+
   {
     version: '2.3.13',
     date: '2026-10-20',
