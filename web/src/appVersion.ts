@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.4.1';
+export const WEB_VERSION = '2.4.2';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.1'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.2'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.2',
+    date: '2026-10-20',
+    changes: [
+      'MENÜSOR: a kijelölő körben jár – Országok → Mozi → Sorozat → kilépés (X) → Beállítások; a Beállításokról balra az X, jobbra az Országok',
+      'A Sorozaton csak jobbra lehet lépni; a menüsorról LEFELÉ kizárólag a Beállításokról lehet (onnan a kedvencek mappasávja, majd a csatornalista)',
+      'OK a csatornalistán = kiválasztás ÉS azonnali teljes képernyő; vissza/OK után a főoldal az OSD-vel tér vissza',
+      'Visszatéréskor a sárga kijelölő és a kék kiválasztás a kiválasztott csatorna során van, a lejátszó doboz nem kap fókuszkeretet',
+      'ÚJ beállítás: Csatornabetöltés (Xtream API / M3U lista) – ezzel választható, hogyan kérje le a csatornákat a szolgáltatótól',
+      'A kedvencek mappái nagyobb dobozt és nagyobb ikont/feliratot kaptak',
+      'A csatornalista 9 sort mutat (korábban 10), így a lista alsó vonala is látszik',
+      'Induláskor nem jelenik meg a diagnosztikai panel; csak a PIROS gombbal hozható elő, és a neve már „TV diagnosztika”',
+    ],
+  },
   {
     version: '2.4.1',
     date: '2026-10-20',

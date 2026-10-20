@@ -10,6 +10,8 @@ export const INITIAL_SETTINGS: AppSettings = {
   bufferMode: 'stable',
   // Alapértelmezés: beépített HTML5 lejátszó (ez a legmegbízhatóbb minden TV-n).
   playerEngine: 'html5',
+  // Csatornalista: Xtream API (JSON) az alapértelmezés.
+  channelLoadMode: 'api',
   zappingDelay: 600,
   // 0 = a készülék órája (kézi eltolás a Beállításokban állítható).
   clockOffsetHours: 0,

@@ -45,8 +45,9 @@ const LIST_PADDING = 6;
  * TV-n minden nyíllépés újrarajzolja ezeket a sorokat is - a kisebb érték
  * érezhetően gyorsítja a kijelölő ugrását. */
 const OVERSCAN = 3;
-/** TV-n/főoldalon pontosan ennyi csatornasor látszódjon egyszerre. */
-const VISIBLE_ROWS = 10;
+/** TV-n/főoldalon pontosan ennyi csatornasor látszódjon egyszerre.
+ * 9 sor: így a lista alja (és az alsó vonal) is látszik a képernyőn. */
+const VISIBLE_ROWS = 9;
 
 const ChannelListView: React.FC<ChannelListProps> = ({
   channels,
@@ -128,7 +129,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   const [windowRange, setWindowRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const rangeRef = useRef(windowRange);
 
-  // PONTOSAN 10 sor férjen el: a sormagasságot a lista tényleges
+  // PONTOSAN 9 sor férjen el: a sormagasságot a lista tényleges
   // magasságából számoljuk, így az írás is megnő, és minden sor alja
   // (keret + műsorhaladás-csík) teljesen látszik.
   const [rowPitch, setRowPitch] = useState<number>(ROW_PITCH);
@@ -145,7 +146,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     if (!element) return;
     // A sormagasság a KÉPERNYŐN ténylegesen látszó helyhez igazodik: ha a
     // doboz a régi webOS hibás flex-számítása miatt a képernyőn túlra nyúlna,
-    // akkor is pontosan 10 sor férjen el a látható részben (az alsó sor alja
+    // akkor is pontosan 9 sor férjen el a látható részben (az alsó sor alja
     // korábban emiatt lógott le).
     let available = element.clientHeight;
     try {
@@ -200,7 +201,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     };
     measureRows();
     // Régi webOS-en nincs ResizeObserver: az elrendezés beállta után még
-    // kétszer újramérünk, hogy a 10 sor biztosan a látható részhez igazodjon.
+    // kétszer újramérünk, hogy a 9 sor biztosan a látható részhez igazodjon.
     const lateMeasure1 = window.setTimeout(() => { measureRows(); computeWindow(); }, 500);
     const lateMeasure2 = window.setTimeout(() => { measureRows(); computeWindow(); }, 2000);
     element.addEventListener('scroll', onScroll, { passive: true });
@@ -661,16 +662,44 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       e.stopPropagation();
       const current = visibleChannels[currentIndex >= 0 ? currentIndex : 0];
       if (current) {
-        if (current.id === selectedChannelId) {
-          // A már futó csatornán az OK a teljes képernyős nézetet indítja
-          // (a lejátszó dobozból indítás megszűnt).
-          window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
-        } else {
-          onSelectChannel(current);
-        }
+        // TV: EGY OK gomb = kiválasztás ÉS azonnali teljes képernyő.
+        // Korábban a listán állva az első OK csak kiválasztott, a második
+        // lépett teljes képernyőre - a néző ezt lassúnak érezte.
+        setHighlightedId(current.id);
+        if (current.id !== selectedChannelId) onSelectChannel(current);
+        window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
       }
     }
   };
+
+  /**
+   * Teljes képernyőről visszatérve a kiválasztott csatorna sora kapja a sárga
+   * kijelölést ÉS a fókuszt (a kék kiválasztás már ott van). Így a néző nem
+   * a lista tetején, és nem a lejátszó dobozon folytatja.
+   */
+  useEffect(() => {
+    const restore = () => {
+      const id = selectedChannelId;
+      if (!id) return;
+      setHighlightedId(id);
+      const row = document.querySelector<HTMLElement>(`[data-channel-id="${id}"] [role="option"]`)
+        || document.querySelector<HTMLElement>(`[data-channel-id="${id}"]`);
+      if (!row) return;
+      try {
+        const legacy = row as HTMLElement & { scrollIntoViewIfNeeded?: (center?: boolean) => void };
+        if (typeof legacy.scrollIntoViewIfNeeded === 'function') legacy.scrollIntoViewIfNeeded(false);
+        else row.scrollIntoView({ block: 'nearest', behavior: 'auto' as any });
+      } catch { /* régi motor */ }
+      row.focus({ preventScroll: true } as any);
+    };
+    const onRestore = () => {
+      // Két lépés: először a lista újrarenderelődik, utána fókuszálunk.
+      window.setTimeout(restore, 30);
+      window.setTimeout(restore, 220);
+    };
+    window.addEventListener('iptv-focus-selected-channel', onRestore);
+    return () => window.removeEventListener('iptv-focus-selected-channel', onRestore);
+  }, [selectedChannelId]);
 
   // TV / stick / egér: automatikus fókusz a listára, hogy a D-pad működjön
   useEffect(() => {
@@ -754,7 +783,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
             channelScrollRef.current?.focus({ preventScroll: true } as any);
           }
         }}
-        className="px-2 py-2 bg-[#070f22] border-b border-cyan-950/60 overflow-x-auto shrink-0 focus:outline-none">
+        className="px-3 py-2.5 bg-[#070f22] border-b border-cyan-950/60 overflow-x-auto shrink-0 focus:outline-none">
         <div className="flex items-center gap-2 min-w-max">
           {selectedFavoriteFolderId && (
             <button
@@ -781,7 +810,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                 : sortMode === 'number'
                   ? 'Kedvencek sorszám szerinti sorrendje. Kattints a vissza művelethez.'
                   : 'Vissza a kedvencek mentett sorrendjéhez.'}
-              className={`px-3 py-2 rounded-xl text-xs font-black whitespace-nowrap border transition-colors ${sortMode === 'saved' ? 'bg-cyan-400 text-slate-950 border-cyan-300' : sortMode === 'number' ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-emerald-400 text-slate-950 border-emerald-300'}`}
+              className={`px-4 py-2.5 rounded-2xl text-sm font-black whitespace-nowrap border-2 transition-colors ${sortMode === 'saved' ? 'bg-cyan-400 text-slate-950 border-cyan-300' : sortMode === 'number' ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-emerald-400 text-slate-950 border-emerald-300'}`}
             >{sortMode === 'saved' ? '📺 ↕ Mentett' : sortMode === 'number' ? '📺 # Szám' : '↩ Vissza'}</button>
           )}
           {folders.map((folder, folderIndex) => {
@@ -793,8 +822,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                 type="button"
                 data-tv-folder=""
                 onClick={() => onSelectFavoriteFolder(folder.id)}
-                className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap border-2 transition-colors ${folderBorder} ${isSelected ? 'bg-amber-400 text-slate-950' : 'bg-[#0d1c3a] text-slate-300'}`}
-              >{folder.icon || '📁'} {folder.name}</button>
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-bold whitespace-nowrap border-2 transition-colors ${folderBorder} ${isSelected ? 'bg-amber-400 text-slate-950' : 'bg-[#0d1c3a] text-slate-300'}`}
+              >
+                <span className="text-xl leading-none" aria-hidden="true">{folder.icon || '📁'}</span>
+                <span>{folder.name}</span>
+              </button>
             );
           })}
         </div>
@@ -828,7 +860,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
             {renderedChannels.map(({ channel: ch, index }) => {
               const isSelected = ch.id === selectedChannelId;
               const isHighlighted = ch.id === highlightedId;
-              // Nagyobb írás, ha a sorok a 10-es elosztás miatt magasabbak.
+              // Nagyobb írás, ha a sorok magasabbak (kevesebb sor = nagyobb sormagasság).
               const bigRows = rowHeight >= 76;
               const currentEpg = localEpg[ch.id]?.now || ch.epgNow;
               const nextEpg = localEpg[ch.id]?.next || ch.epgNext;
@@ -899,6 +931,8 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         if (movingChannelId) return; // mozgatás módban az OK a nyilakhoz tartozik
                         setHighlightedId(ch.id);
                         onSelectChannel(ch);
+                        // TV: a kiválasztás után AZONNAL teljes képernyő.
+                        window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
                       }
                     }}
                     className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none touch-pan-y focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#070e1e] ${

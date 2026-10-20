@@ -166,6 +166,13 @@ export interface AppSettings {
   bufferMode: BufferMode;
   /** Lejátszómotor a Rendszer menüből; a választás mentésre kerül. */
   playerEngine: PlayerEngine;
+  /**
+   * Hogyan kérjük le a csatornalistát a szolgáltatótól.
+   *  - 'api' : Xtream API (player_api.php, JSON)
+   *  - 'm3u' : a szolgáltató M3U listája (get.php)
+   * A választás mentésre kerül, és minden import/frissítés ezt használja.
+   */
+  channelLoadMode: 'api' | 'm3u';
   zappingDelay: number; // 0, 200, 350, 600 ms
   /**
    * Óra eltolása órában (-12 … +12).

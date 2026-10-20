@@ -38,6 +38,7 @@ import {
   saveRawPlaylist,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
+import { storageService } from './storageService';
 
 // webOS TV gyors betöltés detektálás
 export interface ImportProgress {
@@ -353,66 +354,149 @@ export async function importXtreamProvider(
 
   /* ---- 1. szakasz: élő csatornák ---------------------------------- */
 
-  onProgress({ phase: 'Élő kategóriák letöltése…', percent: 10 });
-  const liveCats = await providerRequest(
-    () => xtreamService.liveCategories(server, user, pass),
-    'Élő kategóriák'
-  );
+  /* ---------------------------------------------------------------
+   * CSATORNABETÖLTÉS MÓD (Beállítások → Rendszer → Csatornabetöltés)
+   *
+   *  'api' : Xtream player_api.php?action=get_live_streams  (JSON)
+   *          – kevesebb adatforgalom, azonnal kész kategóriák
+   *  'm3u' : a szolgáltató M3U listája (get.php?type=m3u_plus)
+   *          – akkor kell, ha az API nem adja vissza a csatornákat
+   *            (egyes szolgáltatók csak a listát engedik), vagy ha a
+   *            listában több csatorna van, mint az API-ban
+   *
+   * A beállítás a localStorage-ban él, ezért minden import és frissítés
+   * ugyanazt a módot használja.
+   * --------------------------------------------------------------- */
+  const channelLoadMode: 'api' | 'm3u' =
+    storageService.getSettings().channelLoadMode === 'm3u' ? 'm3u' : 'api';
 
-  onProgress({ phase: 'Élő csatornák letöltése…', detail: 'A szolgáltató élő listája töltődik', percent: 18 });
-  const liveStreams = await providerRequest(
-    () => xtreamService.liveStreams(server, user, pass),
-    'Élő csatornalista'
-  );
-  const liveCategoryMap = makeCategoryMap(liveCats);
-  const liveRows: Array<Array<string | number>> = [];
-  const liveCounts = new Map<string, number>();
-  const liveStreamCount = liveStreams.length;
-  const liveProcessTotal = Math.min(liveStreamCount, MAX_CHANNELS);
-  let liveProcessed = 0;
+  let liveChannels: Channel[] = [];
+  let liveCategories: Category[] = [];
+  let liveStreamCount = 0;
 
-  for (const stream of liveStreams) {
-    if (liveRows.length >= MAX_CHANNELS) break;
-    if (!stream || stream.stream_id === undefined || stream.stream_id === null) continue;
-    const category = resolveCategory(liveCategoryMap, stream.category_id, 'lc-');
-    const catId = category.id;
-    const catName = category.name;
-    liveCounts.set(catId, (liveCounts.get(catId) || 0) + 1);
-    const name = (stream.name || 'Csatorna').trim();
-    const info2 = flagFor(catName || name);
-    liveRows.push([
-      stream.num ?? liveRows.length + 1,
-      name,
-      // A logóbázis a bejelentkezéshez hasonló képzéssel készül: a séma
-      // nélküli szervercímet is a playerApiBase() egészíti ki http://-vel,
-      // a nyers cím (pl. `127.0.0.1:8080`) érvénytelen URL-bázis lenne.
-      normalizeLogoUrl(stream.stream_icon, xtreamService.playerApiBase(server, '', '')),
-      catId,
-      catName,
-      stream.stream_id,
-      info2.flag,
-      info2.countryCode,
-      // A 9. elem az EPG azonosító (epg_channel_id): ebből tudja az EPG nézet,
-      // melyik műsor melyik csatornához tartozik.
-      stream.epg_channel_id || '',
-    ]);
-    liveProcessed++;
-    if (liveProcessed % PROGRESS_UPDATE_EVERY === 0 || liveProcessed === liveProcessTotal) {
-      onProgress({
-        phase: 'Élő csatornák feldolgozása…',
-        detail: liveProcessed + '/' + Math.max(liveProcessTotal, 1) + ' csatorna',
-        percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 32),
-      });
+  if (channelLoadMode === 'm3u') {
+    onProgress({
+      phase: 'Csatornalista letöltése (M3U)…',
+      detail: 'A szolgáltató M3U listája töltődik',
+      percent: 10,
+    });
+    const playlistUrl = xtreamService.buildPlaylistUrl(server, user, pass);
+    const playlistText = await providerRequest(
+      () => xtreamService.loadM3U(playlistUrl),
+      'M3U csatornalista'
+    );
+    const parsed = await xtreamService.parseM3U(
+      playlistText,
+      (percent) => onProgress({ phase: 'Csatornák feldolgozása…', percent: 12 + Math.round(percent * 0.26) }),
+      playlistUrl
+    );
+
+    const rows: Array<Array<string | number>> = [];
+    const counts = new Map<string, number>();
+    const categoryNames = new Map<string, string>();
+    const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'other';
+
+    for (const channel of parsed.channels) {
+      if (rows.length >= MAX_CHANNELS) break;
+      const name = (channel.name || 'Csatorna').trim();
+      const categoryName = (channel.categoryName || 'Egyéb csatornák').trim();
+      const slug = slugify(categoryName);
+      const catId = `lc-${slug}`;
+      categoryNames.set(slug, categoryName);
+      counts.set(catId, (counts.get(catId) || 0) + 1);
+      const info = flagFor(categoryName || name);
+      rows.push([
+        channel.num ?? rows.length + 1,
+        name,
+        channel.logo || '',
+        catId,
+        categoryName,
+        // Nem számszerű azonosító (teljes stream URL) esetén a contentStore
+        // kész címként kezeli - ezért az M3U-ból kapott URL megy tovább.
+        channel.streamUrl || '',
+        info.flag,
+        info.countryCode,
+        '',
+      ]);
     }
-    if (liveProcessed % UI_YIELD_EVERY === 0) await yieldToUi();
-  }
 
-  // A már feldolgozott nyers API-objektumokat engedjük el, mielőtt a teljes
-  // megjelenítési lista létrejön: ez csökkenti a memória csúcsterhelését.
-  liveStreams.length = 0;
-  const liveChannels = decodeChannelsForImport(liveRows, provider);
-  liveRows.length = 0;
-  const liveCategories = buildCategories(liveCats, 'lc-', 'live', liveCounts);
+    liveStreamCount = rows.length;
+    liveChannels = decodeChannelsForImport(rows, provider);
+    rows.length = 0;
+
+    const categorySource: XtreamCategory[] = [];
+    categoryNames.forEach((categoryName, slug) => {
+      categorySource.push({ category_id: slug, category_name: categoryName });
+    });
+    liveCategories = buildCategories(categorySource, 'lc-', 'live', counts);
+
+    onProgress({
+      phase: 'Csatornák kész (M3U)',
+      detail: `${liveChannels.length.toLocaleString('hu-HU')} csatorna a listából`,
+      percent: 40,
+    });
+  } else {
+    onProgress({ phase: 'Élő kategóriák letöltése…', percent: 10 });
+    const liveCats = await providerRequest(
+      () => xtreamService.liveCategories(server, user, pass),
+      'Élő kategóriák'
+    );
+
+    onProgress({ phase: 'Élő csatornák letöltése…', detail: 'A szolgáltató élő listája töltődik', percent: 18 });
+    const liveStreams = await providerRequest(
+      () => xtreamService.liveStreams(server, user, pass),
+      'Élő csatornalista'
+    );
+    const liveCategoryMap = makeCategoryMap(liveCats);
+    const liveRows: Array<Array<string | number>> = [];
+    const liveCounts = new Map<string, number>();
+    const liveStreamCount = liveStreams.length;
+    const liveProcessTotal = Math.min(liveStreamCount, MAX_CHANNELS);
+    let liveProcessed = 0;
+
+    for (const stream of liveStreams) {
+      if (liveRows.length >= MAX_CHANNELS) break;
+      if (!stream || stream.stream_id === undefined || stream.stream_id === null) continue;
+      const category = resolveCategory(liveCategoryMap, stream.category_id, 'lc-');
+      const catId = category.id;
+      const catName = category.name;
+      liveCounts.set(catId, (liveCounts.get(catId) || 0) + 1);
+      const name = (stream.name || 'Csatorna').trim();
+      const info2 = flagFor(catName || name);
+      liveRows.push([
+        stream.num ?? liveRows.length + 1,
+        name,
+        // A logóbázis a bejelentkezéshez hasonló képzéssel készül: a séma
+        // nélküli szervercímet is a playerApiBase() egészíti ki http://-vel,
+        // a nyers cím (pl. `127.0.0.1:8080`) érvénytelen URL-bázis lenne.
+        normalizeLogoUrl(stream.stream_icon, xtreamService.playerApiBase(server, '', '')),
+        catId,
+        catName,
+        stream.stream_id,
+        info2.flag,
+        info2.countryCode,
+        // A 9. elem az EPG azonosító (epg_channel_id): ebből tudja az EPG nézet,
+        // melyik műsor melyik csatornához tartozik.
+        stream.epg_channel_id || '',
+      ]);
+      liveProcessed++;
+      if (liveProcessed % PROGRESS_UPDATE_EVERY === 0 || liveProcessed === liveProcessTotal) {
+        onProgress({
+          phase: 'Élő csatornák feldolgozása…',
+          detail: liveProcessed + '/' + Math.max(liveProcessTotal, 1) + ' csatorna',
+          percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 32),
+        });
+      }
+      if (liveProcessed % UI_YIELD_EVERY === 0) await yieldToUi();
+    }
+
+    // A már feldolgozott nyers API-objektumokat engedjük el, mielőtt a teljes
+    // megjelenítési lista létrejön: ez csökkenti a memória csúcsterhelését.
+    liveStreams.length = 0;
+    liveChannels = decodeChannelsForImport(liveRows, provider);
+    liveRows.length = 0;
+    liveCategories = buildCategories(liveCats, 'lc-', 'live', liveCounts);
+  }
   const liveReadyMs = Math.round(performance.now() - startedAt);
 
   // Az élő lista AZONNAL a felületre kerül (nem várunk a filmekre).

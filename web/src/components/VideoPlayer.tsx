@@ -430,7 +430,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isFullscreen]);
 
   // Teljes képernyőn a fókusz a lejátszóra kerül (így az OK/Vissza azonnal
-  // kilép), kilépés után pedig visszatér a csatornalistára.
+  // kilép), kilépés után pedig a KIVÁLASZTOTT csatorna sora kapja a fókuszt.
+  //
+  // FONTOS (a visszatérés hibái): korábban a kilépés után a fókusz a listára
+  // került, de a lejátszó doboz megtartotta a kék fókuszkeretét, az OSD pedig
+  // eltűnt. Most kilépéskor:
+  //   1. a lejátszó elveszti a fókuszt (nincs kék keret a nagy dobozon),
+  //   2. az OSD azonnal láthatóvá válik,
+  //   3. a csatornalista a kiválasztott sorra állítja a sárga kijelölést.
   const wasFullscreenRef = useRef(false);
   useEffect(() => {
     if (isFullscreen) {
@@ -440,10 +447,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
     } else if (wasFullscreenRef.current) {
       wasFullscreenRef.current = false;
-      window.requestAnimationFrame(() => {
-        const list = document.querySelector<HTMLElement>('[role="listbox"]');
-        if (list) list.focus({ preventScroll: true } as any);
-      });
+      try { (containerRef.current as HTMLElement | null)?.blur?.(); } catch { /* régi motor */ }
+      setShowControlsOverlay(true);
+      // A lista a kilépés után újra felépül (újra mountol), ezért kétszer
+      // jelezzük: azonnal, majd 150 ms múlva is (a lista már létezik).
+      const restoreFocus = () => window.dispatchEvent(new CustomEvent('iptv-focus-selected-channel'));
+      window.requestAnimationFrame(restoreFocus);
+      window.setTimeout(restoreFocus, 150);
     }
   }, [isFullscreen]);
   const isLivePortraitFullscreen = isLive && isFullscreen && isPortrait;
@@ -1850,7 +1860,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onClick={handleSurfaceTap}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className={`relative w-full ${isFullscreen ? 'h-[100dvh] max-h-none aspect-auto fixed inset-0 z-[9999]' : 'aspect-video max-h-none md:aspect-video lg:aspect-video'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
+      className={`relative w-full ${isFullscreen ? 'h-[100dvh] max-h-none aspect-auto fixed inset-0 z-[9999]' : 'aspect-video max-h-none md:aspect-video lg:aspect-video'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
       style={isFullscreen ? { width: '100vw', height: '100dvh', maxHeight: 'none', aspectRatio: 'auto' } : { width: '100%', aspectRatio: '16 / 9', height: 'auto' }}
     >
       {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
