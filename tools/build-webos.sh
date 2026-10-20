@@ -20,7 +20,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.3.18}"
+VERSION="${VERSION:-2.3.19}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
@@ -40,20 +40,24 @@ from pathlib import Path
 from PIL import Image
 root = Path(".")
 img = Image.open(root / "ikonkep.png").convert("RGBA")
-img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon.png", "PNG")
-img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon.png", "PNG")
+img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon-rt2.png", "PNG")
+img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon-rt2.png", "PNG")
 img.resize((512, 512), Image.Resampling.LANCZOS).save(root / "webos/assets/icon_tv.png", "PNG")
 # Beégetett (base64) app-ikon a felülethez: nem fájlhivatkozás, a HTML-be kerül.
 import base64, io
-thumb = img.resize((128, 128), Image.Resampling.LANCZOS)
-buf = io.BytesIO()
-thumb.save(buf, format="PNG", optimize=True)
-encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+def icon_b64(px):
+    thumb = img.resize((px, px), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    thumb.save(buf, format="PNG", optimize=True)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 (root / "web/src/generatedIcon.ts").write_text(
-    '// BEÉGETETT alkalmazás-ikon (a repó ikonkep.png fájljából, 128x128 PNG).\n'
+    '// BEÉGETETT alkalmazás-ikon (a repó ikonkep.png fájljából).\n'
     '// Nem külső hivatkozás: a csomagolt egyfájlos HTML-ben is mindig megjelenik.\n'
     '// A build (tools/build-webos.sh és a workflow) ugyanígy újragenerálja.\n'
-    'export const APP_ICON_DATA_URL = "data:image/png;base64,' + encoded + '";\n',
+    'export const APP_ICON_DATA_URL = "data:image/png;base64,' + icon_b64(128) + '";\n'
+    '// Kis (32px) változat a csatornasorokhoz/kereső felugrókhoz: a nagy kép\n'
+    '// minden sorba másolva lelassította a TV-t.\n'
+    'export const APP_ICON_SMALL_DATA_URL = "data:image/png;base64,' + icon_b64(32) + '";\n',
     encoding="utf-8",
 )
 PY
@@ -100,8 +104,8 @@ mkdir -p "$BUILD_DIR"
 
 # Alap fájlok másolása
 cp "$WEBOS_DIR/appinfo.json" "$BUILD_DIR/appinfo.json"
-cp "$WEBOS_DIR/icon.png" "$BUILD_DIR/icon.png"
-cp "$WEBOS_DIR/largeIcon.png" "$BUILD_DIR/largeIcon.png"
+cp "$WEBOS_DIR/icon-rt2.png" "$BUILD_DIR/icon-rt2.png"
+cp "$WEBOS_DIR/largeIcon-rt2.png" "$BUILD_DIR/largeIcon-rt2.png"
 mkdir -p "$BUILD_DIR/assets"
 # Indítóvideót és indítóképet nem csomagolunk; csak nem induló funkciós assetek maradnak.
 for asset in "$WEBOS_DIR/assets/"*; do
@@ -142,7 +146,7 @@ print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.18"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.19"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )

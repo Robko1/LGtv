@@ -369,6 +369,25 @@ function write(key: string, payload: unknown): boolean {
 }
 
 /** Csak az élő csatornák mentése (a betöltés első szakasza után azonnal). */
+/** Mentésnél a magyar csatornák kerülnek a lista elejére.
+ *  FONTOS (újraindítás utáni "arab csatornára ugrás" javítása): ha a teljes
+ *  lista nem fér el a TV tárolójában, a write() a lista VÉGÉT vágja le.
+ *  Korábban a szolgáltatói (ábécé szerinti, pl. arab kezdetű) sorrend került
+ *  mentésre, így pont a magyar csatornák vesztek el - újraindítás után a
+ *  program nem találta az utoljára nézett magyar adót, és az első megmaradt
+ *  (arab) csatornára állt. */
+function hungarianFirstForSave(channels: Channel[]): Channel[] {
+  const hu: Channel[] = [];
+  const rest: Channel[] = [];
+  for (const channel of channels) {
+    const isHu = (channel.countryCode || '').toUpperCase() === 'HU'
+      || channel.country === 'Magyarország'
+      || /\b(magyarország|hungary|hungarian)\b/i.test(channel.categoryName || '');
+    (isHu ? hu : rest).push(channel);
+  }
+  return hu.length ? hu.concat(rest) : channels;
+}
+
 export function saveLiveContent(content: ImportedContent): void {
   write(LIVE_KEY, {
     v: 1,
@@ -376,7 +395,7 @@ export function saveLiveContent(content: ImportedContent): void {
     savedAt: content.savedAt,
     totals: content.totals,
     cats: encodeCategories(content.liveCategories),
-    rows: encodeChannels(content.channels),
+    rows: encodeChannels(hungarianFirstForSave(content.channels)),
   } satisfies LivePart);
 }
 

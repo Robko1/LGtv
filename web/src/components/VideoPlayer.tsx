@@ -173,6 +173,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Hibaképernyőn a sárga kijelölés automatikusan az Újrapróbálás gombra
   // ugrik - eddig távirányítóval nem lehetett elérni.
   const retryButtonRef = useRef<HTMLButtonElement | null>(null);
+  // PUFFERELÉS BEKÖTVE (Rendszer menü: Gyors/Kiegyensúlyozott/Stabil):
+  // a zap-őr és az automatikus formátumváltás időzítése ehhez igazodik.
+  const bufferModeRef = useRef(settings.bufferMode);
+  bufferModeRef.current = settings.bufferMode;
+  const bufferTiming = () => {
+    const mode = bufferModeRef.current;
+    if (mode === 'fast') return { watchdogMs: 2500, retryMs: 150 };
+    if (mode === 'stable') return { watchdogMs: 7000, retryMs: 450 };
+    return { watchdogMs: 4000, retryMs: 250 };
+  };
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
     const plan = retryPlanRef.current;
@@ -202,7 +212,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     autoRetryTimerRef.current = window.setTimeout(() => {
       autoRetryTimerRef.current = null;
       retryStreamRef.current?.();
-    }, 250);
+    }, bufferTiming().retryMs);
   }, []);
   useEffect(() => {
     if (!hasError) return;
@@ -327,6 +337,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     window.addEventListener('iptv-enter-fullscreen', enterFs);
     return () => window.removeEventListener('iptv-enter-fullscreen', enterFs);
   }, [isLive]);
+
+  // Teljes képernyőn body-osztály jelzi a TV-s CSS-nek, hogy a főoldali
+  // elemek (fejléc, óra doboz) teljesen tűnjenek el - a bal felső sarokban
+  // átlátszó kék doboz ikon ennek a hiánya miatt látszott.
+  useEffect(() => {
+    try {
+      document.body.classList.toggle('iptv-tv-fullscreen', isFullscreen);
+    } catch { /* SSR/teszt környezet */ }
+    return () => {
+      try { document.body.classList.remove('iptv-tv-fullscreen'); } catch {}
+    };
+  }, [isFullscreen]);
 
   // Teljes képernyőn a fókusz a lejátszóra kerül (így az OK/Vissza azonnal
   // kilép), kilépés után pedig visszatér a csatornalistára.
@@ -1388,6 +1410,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // élő adásnál rövid demuxer-gyorsítótár kell, különben a hangsávváltás
       // csak a 20+ másodpercnyi puffer lejátszása után hallatszana.
       api.setLiveStreamHint?.(!isVod);
+      // A Rendszer menü pufferelés beállítása a natív lejátszóra is érvényes.
+      try { api.setBufferMode?.(bufferModeRef.current); } catch { /* opcionális híd */ }
       api.play(url, channel?.name || customTitle || 'IPTV R.T');
       setNativeMessage(note);
       setNativeHandoff(true);
@@ -1459,13 +1483,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // se hiba, se kép), nem várunk a végtelenségig pörgő töltésre -
       // automatikusan a következő formátumra (MPEG-TS) váltunk.
       if (!customStreamUrl) {
+        const { watchdogMs } = bufferTiming();
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
           if (!playbackStartedRef.current) {
-            appLog('Zap-őr: 4 mp alatt nem indult el az adás, automatikus formátumváltás.');
+            appLog('Zap-őr: nem indult el az adás időben, automatikus formátumváltás.');
             scheduleAutoRetry();
           }
-        }, 4000);
+        }, watchdogMs);
       }
       if (playPromise && typeof playPromise.catch === 'function') {
         void playPromise.catch((error: unknown) => {
@@ -1496,17 +1521,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     clearAutoRetry();
     setActiveUrlIndex(0);
-    // LG webOS-en HLS (.m3u8) az elsődleges, a TV HTML5 videója ezt támogatja.
-    // LG webOS-en a HLS-változat az elsődleges lejátszási forma.
-    const primaryUrl = !isVod
-      ? streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8')
-      : streamUrl;
+    // GYORS ZAPPOLÁS: megjegyezzük, melyik formátum (HLS vagy MPEG-TS) indult
+    // el legutóbb sikeresen, és csatornaváltásnál rögtön azzal próbálkozunk -
+    // így nem megy el másodpercekig tartó zap-őr várakozás minden váltásnál.
+    let preferTs = false;
+    try { preferTs = window.localStorage.getItem('iptv_rt_live-format') === 'ts'; } catch { /* tároló nélkül HLS marad */ }
+    const hlsUrl = streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
+    const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
+      ? streamUrl
+      : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
+    // Kiterjesztés nélküli élő URL-nél nincs mit cserélni - marad a HLS-út.
+    const canPreferTs = preferTs && tsUrl !== hlsUrl;
+    const primaryUrl = !isVod ? (canPreferTs ? tsUrl : hlsUrl) : streamUrl;
     pendingStreamUrlRef.current = primaryUrl;
     if (!isVod) {
-      const fallbackUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
-        ? streamUrl
-        : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
-      retryPlanRef.current = { originalUrl: fallbackUrl, stage: 'hls' };
+      retryPlanRef.current = canPreferTs
+        ? { originalUrl: tsUrl, stage: 'primary' }
+        : { originalUrl: tsUrl, stage: 'hls' };
     } else {
       retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
     }
@@ -1732,6 +1763,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             preload="auto"
             onPlaying={() => {
               playbackStartedRef.current = true;
+              // A sikeresen elindult élő formátumot megjegyezzük a gyors zappoláshoz.
+              if (!isVod && !customStreamUrl) {
+                try {
+                  const url = pendingStreamUrlRef.current || '';
+                  window.localStorage.setItem('iptv_rt_live-format', /\.ts(?=([?#]|$))/i.test(url) ? 'ts' : 'hls');
+                } catch { /* tároló nélkül is működik */ }
+              }
               clearZapWatchdog();
               clearAutoRetry();
               setIsLoading(false);
@@ -1865,6 +1903,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         gyerekelemekre is érvényes, így a koppintás a videóra jut.
       */}
       <div
+        data-player-osd=""
         className={`absolute inset-0 bg-linear-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 flex flex-col justify-between p-3 pointer-events-none ${
           showControlsOverlay ? 'opacity-100 visible' : 'opacity-0 invisible'
         }`}

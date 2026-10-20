@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { APP_ICON_DATA_URL } from '../generatedIcon';
+import { APP_ICON_SMALL_DATA_URL } from '../generatedIcon';
 import { normalizeLogoUrl } from '../services/logoUrl';
 
 interface Props { url?: string; name: string; retryKey?: object }
@@ -57,7 +57,7 @@ const LogoImage: React.FC<Props> = ({ url = '', name, retryKey }) => {
 
   if (!url || (failed && !cachedSource)) {
     // Beégetett app-ikon tartalékként (keresés felugrókban is), megfelelő méretre kicsinyítve.
-    return <img src={APP_ICON_DATA_URL} className="w-5 h-5 rounded object-contain opacity-80" alt="" aria-label={`A(z) ${name} logója nem érhető el`} />;
+    return <img src={APP_ICON_SMALL_DATA_URL} width={20} height={20} className="w-5 h-5 rounded object-contain opacity-80" alt="" aria-label={`A(z) ${name} logója nem érhető el`} />;
   }
 
   return (
