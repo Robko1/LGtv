@@ -838,9 +838,11 @@ export function App() {
       if (payload.type === 'xtream') {
         let host = String(payload.host || '').trim();
         let port = String(payload.port || '').trim();
+        let protocol = 'http:';
         try {
           if (host.includes('://')) {
             const u = new URL(host);
+            protocol = u.protocol || 'http:';
             host = u.hostname;
             if (u.port) port = u.port;
           } else if (host.includes(':')) {
@@ -858,7 +860,7 @@ export function App() {
           type: 'xtream' as const,
           url: host,
           port: port || '8080',
-          serverUrl: `${host.includes('://') ? host : `http://${host}`}${port ? `:${port}` : ''}`,
+          serverUrl: `${protocol}//${host}${port ? `:${port}` : ''}`,
           username: payload.username,
           password: payload.password,
           isActive: true,
