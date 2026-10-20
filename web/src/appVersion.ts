@@ -1,6 +1,18 @@
-export const WEB_VERSION = '2.3.12';
+export const WEB_VERSION = '2.3.13';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.13',
+    date: '2026-10-20',
+    changes: [
+      "MINDEN FELUGRÓ ABLAK TÁVIRÁNYÍTHATÓ: átnéztem az összeset. 7 ablak (köztük 'Az élő TV-csatornák betöltve/frissítve' kérdező ablak, a film/sorozat részletek, a diagnosztika-másolás, a poszter info és a hang/felirat menü) nem volt bejelentve a TV-kezelőnek, ezért nem lehetett bennük navigálni. Mindegyik megkapta a kezelést + a VISSZA gomb is bezárja őket.",
+      "CSATORNALISTA ÚJRAINDÍTÁS UTÁN: ha a TV tárolójába nem fért be a teljes lista, a mentés eddig CSENDBEN elveszett. Mostantól egyre kisebb adaggal újrapróbálja, hogy legalább a lista eleje megmaradjon; a PIROS gombos diagnosztika új sora megmutatja, mekkora tároló írható a TV-n és mennyi van elmentve.",
+      "FOLYTATÁS: az utolsó csatornát akkor is visszahozza induláskor, ha nem a kezdő ország listájában van.",
+      "KÉK ÓRA: teljes képernyőn a jobb felső sarokban kilógott a képernyőből - TV-n beljebb került (overscan-biztos).",
+      "QR önteszt megerősítve: a visszaolvasás 3 próbát tesz rövid szünettel és cache-törő paraméterrel; a hibarészletek mellett mostantól a verziószám is látszik, így biztosan tudni, melyik kiadás fut.",
+      "Verzió: 2.3.13 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.12',
     date: '2026-10-20',

@@ -318,7 +318,7 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
       </div>
 
       {copyWindowOpen && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 bg-[#020208]/80 backdrop-blur-sm" onCopy={(event) => event.preventDefault()} onCut={(event) => event.preventDefault()} onContextMenu={(event) => event.preventDefault()} style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}>
+        <div role="dialog" aria-modal="true" aria-label="Diagnosztika másolás" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setCopyWindowOpen(false); } }} className="fixed inset-0 z-[120] flex items-center justify-center p-3 bg-[#020208]/80 backdrop-blur-sm" onCopy={(event) => event.preventDefault()} onCut={(event) => event.preventDefault()} onContextMenu={(event) => event.preventDefault()} style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}>
           <div className="w-full max-w-xl max-h-[calc(100dvh-24px)] rounded-3xl border border-cyan-400/50 bg-[#060816] shadow-[0_0_60px_rgba(0,240,255,0.22)] text-white overflow-hidden">
             <div className="p-4 border-b border-cyan-950 flex items-center justify-between">
               <div>

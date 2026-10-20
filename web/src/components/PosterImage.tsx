@@ -172,7 +172,7 @@ export const PosterSettingsButton: React.FC = () => {
         Poszterek
       </button>
       {open && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Poszter információ" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } }} className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-cyan-700/60 bg-[#09152e] p-4 shadow-2xl">
             <div className="flex items-center justify-between gap-3 mb-3">
               <h3 className="text-white font-bold">Valódi film- és sorozatposzterek</h3>

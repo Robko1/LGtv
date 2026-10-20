@@ -1798,6 +1798,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Kék óra az OSD2-ben; teljes képernyőn az OSD elrejtése után is megmarad, ha a beállítás be van kapcsolva. */}
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
         <div
+          data-blue-clock
           className={`absolute top-3 z-40 flex items-center gap-1 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-2 py-1 font-mono text-xs font-semibold tracking-wider text-cyan-200 shadow-lg backdrop-blur-md pointer-events-none ${isVod || landscapeLiveFullscreen || (isFullscreen && isPortrait && !isVod) ? 'right-3' : 'right-14'}`}
           aria-label={`Pontos idő: ${blueClockTime}`}
         >
@@ -1824,6 +1825,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div ref={vodOsdRef} className="absolute inset-x-2 bottom-2 z-40 pointer-events-auto">
             {vodTrackMenu && (
               <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Hang és felirat választó"
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setVodTrackMenu(null); } }}
                 onClick={() => setVodTrackMenu(null)}
                 className="fixed inset-0 z-[10000] flex items-center justify-center p-3 md:p-4 bg-black/80 backdrop-blur-sm pointer-events-auto"
                 style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { X, Smartphone, QrCode, RefreshCw, Check, Clock, Tv } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { WEB_VERSION } from '../appVersion';
 import { createProvisionSession, getProvisionUrl, pollForProvider, clearProvision, ensureProvisionChannel, getProvisionDiag, ProvisionChannel, QrProviderPayload } from '../services/qrProvisioningService';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 
@@ -205,7 +206,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
           {status === 'error' && (
             <div className="rounded-xl bg-rose-950/40 border border-rose-500/50 p-3 text-xs text-rose-300 space-y-1.5">
               <p className="font-bold">Az ideiglenes tároló szolgáltatások egyike sem érhető el a TV-ről.</p>
-              <p className="text-[11px] leading-relaxed break-words">Részletek: {getProvisionDiag() || 'nincs adat'}</p>
+              <p className="text-[11px] leading-relaxed break-words">Részletek (v{WEB_VERSION}): {getProvisionDiag() || 'nincs adat'}</p>
               <p className="text-[11px] text-rose-200/80">Ha mindenhol „hálózati hiba” áll, a TV nem éri el ezeket a HTTPS oldalakat (régebbi TV-nél lejárt tanúsítványtár is okozhatja). Próbáld az Új kód gombot, vagy add meg az adatokat kézzel az Új lista gombbal.</p>
             </div>
           )}
