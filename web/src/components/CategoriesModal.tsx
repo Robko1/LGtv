@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Category, Channel } from '../types/iptv';
 import { X, Search, Layers, ChevronRight } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
@@ -35,6 +35,19 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCountryId, setExpandedCountryId] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
+  // A főoldali (App) szűréshez késleltetve adjuk át a keresést: gépelés közben
+  // ne induljon el minden leütésre a teljes csatornalista újraszűrése.
+  const searchPropagateTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (searchPropagateTimer.current !== null) window.clearTimeout(searchPropagateTimer.current);
+  }, []);
+  const propagateSearch = (value: string) => {
+    if (searchPropagateTimer.current !== null) window.clearTimeout(searchPropagateTimer.current);
+    searchPropagateTimer.current = window.setTimeout(() => {
+      searchPropagateTimer.current = null;
+      onSearchQueryChange(value);
+    }, 250);
+  };
 
   // TV / stick: auto-focus + D-pad navigáció
   useEffect(() => {
@@ -82,23 +95,47 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   if (!isOpen) return null;
 
   const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
-  const matchesChannel = (channel: Channel) => {
-    if (!normalizedSearch) return false;
-    const countryName = categories.find((cat) => cat.id === `country-${(channel.countryCode || 'INT').toUpperCase()}`)?.name || channel.country || '';
-    return [channel.name, channel.categoryName, channel.categoryId, channel.country, channel.countryCode, countryName]
-      .some((value) => String(value || '').toLocaleLowerCase().includes(normalizedSearch));
-  };
-  const searchResults = normalizedSearch ? channels.filter(matchesChannel).slice(0, 150) : [];
-  const filtered = categories
-    .filter((cat) => !normalizedSearch
-      || cat.name.toLocaleLowerCase().includes(normalizedSearch)
-      || channels.some((channel) =>
-        (channel.countryCode || 'INT').toUpperCase() === cat.id.slice('country-'.length) && matchesChannel(channel)
-      ))
 
-    .sort((a, b) =>
-      a.id === 'country-HU' ? -1 : b.id === 'country-HU' ? 1 : a.name.localeCompare(b.name, 'hu', { sensitivity: 'base', numeric: true })
-    );
+  /**
+   * Keresés: korábban ez MINDEN kirajzoláskor lefutott a teljes csatornalistán,
+   * ráadásul csatornánként egy `categories.find` és kategóriánként egy
+   * `channels.some` is - 20 000 csatornánál ez gépelés közben több millió
+   * művelet volt. Most memoizált, országnév-térképpel és találati halmazzal.
+   */
+  const { searchResults, filtered } = useMemo(() => {
+    if (!normalizedSearch) {
+      const sorted = [...categories].sort((a, b) =>
+        a.id === 'country-HU' ? -1 : b.id === 'country-HU' ? 1 : a.name.localeCompare(b.name, 'hu', { sensitivity: 'base', numeric: true })
+      );
+      return { searchResults: [] as Channel[], filtered: sorted };
+    }
+    const countryNames = new Map<string, string>();
+    for (const cat of categories) {
+      if (cat.id.startsWith('country-')) countryNames.set(cat.id.slice('country-'.length), cat.name);
+    }
+    const matched: Channel[] = [];
+    const matchedCountryCodes = new Set<string>();
+    for (const channel of channels) {
+      const code = (channel.countryCode || 'INT').toUpperCase();
+      const countryName = countryNames.get(code) || channel.country || '';
+      const haystack = [channel.name, channel.categoryName, channel.categoryId, channel.country, channel.countryCode, countryName];
+      let hit = false;
+      for (const value of haystack) {
+        if (String(value || '').toLocaleLowerCase().includes(normalizedSearch)) { hit = true; break; }
+      }
+      if (!hit) continue;
+      matchedCountryCodes.add(code);
+      if (matched.length < 150) matched.push(channel);
+    }
+    const filteredCats = categories
+      .filter((cat) => cat.name.toLocaleLowerCase().includes(normalizedSearch)
+        || matchedCountryCodes.has(cat.id.slice('country-'.length)))
+      .sort((a, b) =>
+        a.id === 'country-HU' ? -1 : b.id === 'country-HU' ? 1 : a.name.localeCompare(b.name, 'hu', { sensitivity: 'base', numeric: true })
+      );
+    return { searchResults: matched, filtered: filteredCats };
+  }, [categories, channels, normalizedSearch]);
+
   const homeCategory = categories.find((cat) => cat.id === 'country-HU') || categories[0];
 
   return (
@@ -128,7 +165,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => { const value = e.target.value; setSearchTerm(value); onSearchQueryChange(value); }}
+              onChange={(e) => { const value = e.target.value; setSearchTerm(value); propagateSearch(value); }}
               placeholder="Csatorna kereső... (név vagy kategória)"
               className="w-full bg-[#0e1e3e] border border-cyan-900/60 rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-white placeholder-slate-400 focus:outline-hidden focus:border-cyan-400 transition-colors"
             />

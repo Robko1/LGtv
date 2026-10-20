@@ -60,6 +60,44 @@ function readNativeMediaTracks(api: NativeApi | null) {
   }
 }
 
+/**
+ * Kék óra a lejátszóban.
+ *
+ * Saját komponens, saját 1 másodperces időzítővel: így a másodpercenkénti
+ * állapotváltozás csak ezt a néhány csomópontot rajzolja újra, nem a teljes
+ * (nagy) lejátszó felületet. Korábban ez a lejátszó gyökérállapotában volt,
+ * ezért a TV-n másodpercenként újrarajzolódott az egész OSD.
+ */
+const BlueClock: React.FC<{ className?: string }> = ({ className }) => {
+  const [time, setTime] = useState('');
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      setTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    const onVisibility = () => {
+      if (!document.hidden) update();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+  return (
+    <div
+      data-blue-clock
+      className={className}
+      aria-label={`Pontos idő: ${time}`}
+    >
+      <Clock className="h-7 w-7 shrink-0 text-cyan-300" />
+      <span>{time || '00:00'}</span>
+    </div>
+  );
+};
+
 interface VideoPlayerProps {
   channel: Channel | null;
   customStreamUrl?: string;
@@ -177,10 +215,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // a zap-őr és az automatikus formátumváltás időzítése ehhez igazodik.
   const bufferModeRef = useRef(settings.bufferMode);
   bufferModeRef.current = settings.bufferMode;
-  // Lejátszómotor (Rendszer menü): 'html5' = sima videóelem, 'native' = a TV
-  // saját médiacsatornája (webOS mediaOption a <source> elemen keresztül).
-  const playerEngineRef = useRef(settings.playerEngine);
-  playerEngineRef.current = settings.playerEngine;
+  /**
+   * LEJÁTSZÓ MOTOR (Beállítások → Rendszer → Lejátszó).
+   *
+   *  - 'html5'  : a beépített lejátszó. Élő adásnál először HLS-t próbál,
+   *               hiba/elakadás esetén magától MPEG-TS-re vált (zap-őr).
+   *  - 'native' : a TV hardveres dekóderére támaszkodó közvetlen mód: a
+   *               szolgáltató által adott URL-t változtatás nélkül játssza
+   *               (MPEG-TS), nem írja át .m3u8-ra és nem váltogatja a
+   *               formátumot, a felület pedig visszafogott (nincs
+   *               elmosás/animáció a kép fölött).
+   *
+   * A választás a beállításokban tárolódik, így újraindítás után is megmarad.
+   */
+  const playerEngine: 'html5' | 'native' = settings.playerEngine === 'native' ? 'native' : 'html5';
+  const playerEngineRef = useRef(playerEngine);
+  playerEngineRef.current = playerEngine;
+  /** Natív módban hányszor próbáltuk újraindítani ugyanazt a címet. */
+  const nativeRetryCountRef = useRef(0);
   const bufferTiming = () => {
     const mode = bufferModeRef.current;
     if (mode === 'fast') return { watchdogMs: 2500, retryMs: 150 };
@@ -189,6 +241,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
+    // Natív mód: a TV dekódere a szolgáltató eredeti URL-jét kapja, ezért itt
+    // nincs formátumváltás (az csak a beépített HLS-lejátszó sajátja). Rövid
+    // elakadásnál viszont ugyanazt a címet még kétszer újraindítjuk, hogy egy
+    // pillanatnyi hálózati hiba ne dobjon hibaképernyőre.
+    if (playerEngineRef.current === 'native') {
+      if (nativeRetryCountRef.current >= 2) {
+        setIsLoading(false);
+        setHasError(true);
+        setErrorMessage('A natív lejátszó nem tudta megnyitni az adást. Próbáld újraindítani, vagy válts vissza a beépített lejátszóra a Beállításokban.');
+        return;
+      }
+      nativeRetryCountRef.current += 1;
+      pendingStreamUrlRef.current = retryPlanRef.current.originalUrl || pendingStreamUrlRef.current;
+      setHasError(false);
+      setIsLoading(true);
+      autoRetryTimerRef.current = window.setTimeout(() => {
+        autoRetryTimerRef.current = null;
+        retryStreamRef.current?.();
+      }, bufferTiming().retryMs);
+      return;
+    }
     const plan = retryPlanRef.current;
     let nextUrl = '';
     let nextStage: 'hls' | 'final-ts' | null = null;
@@ -754,36 +827,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     connected: false,
     device: '',
   });
-  const [, setEpgProgress] = useState(0);
 
-  const [blueClockTime, setBlueClockTime] = useState('');
-  useEffect(() => {
-    // Az óra csak teljes képernyőn látszik - fölösleges időzítőt a főoldalon
-    // nem futtatunk (minden megspórolt ébresztés számít a TV-n).
-    if (!isFullscreen) return;
-    const updateClock = () => {
-      const now = new Date();
-      setBlueClockTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
-    };
-    updateClock();
-    const timer = window.setInterval(updateClock, 1000);
-    return () => window.clearInterval(timer);
-  }, [isFullscreen]);
-
-  useEffect(() => {
-    if (isVod || !channel?.epgNow?.startTimestamp || !channel.epgNow.endTimestamp) { setEpgProgress(0); return; }
-    const update = () => {
-      const start = Number(channel.epgNow?.startTimestamp || 0) * 1000;
-      const end = Number(channel.epgNow?.endTimestamp || 0) * 1000;
-      const percent = end > start ? ((Date.now() - start) / (end - start)) * 100 : 0;
-      // EGÉSZRE kerekítve: a tört százalék másodpercenként új értéket adott,
-      // és az egész lejátszó-komponenst (OSD-stül) újrarajzoltatta a TV-n.
-      setEpgProgress(Math.round(Math.max(0, Math.min(100, percent))));
-    };
-    update();
-    const timer = window.setInterval(update, 15000);
-    return () => window.clearInterval(timer);
-  }, [isVod, channel?.id, channel?.epgNow?.startTimestamp, channel?.epgNow?.endTimestamp]);
+  // A kék óra saját, izolált komponens (lásd BlueClock a fájl elején), hogy a
+  // másodpercenkénti frissítése NE rajzolja újra az egész lejátszó felületet.
+  //
+  // Az EPG-haladássáv időzítője itt korábban másodpercenként futott, de az
+  // értékét a felület sem használta - csak felesleges újrarajzolást okozott
+  // másodpercenként, ezért megszűnt.
 
   // A Cast állapotát (csatlakozva van-e TV, melyik) a natív hídtól kérdezzük.
   // Így a TV gomb nem „dísz”: látszik, hogy éppen melyik eszközre megy a kép.
@@ -1032,9 +1082,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     };
     update();
-    const timer = window.setInterval(update, 500);
+    // Látható OSD mellett 500 ms, rejtve 1 másodperc: a csúszka úgyis csak
+    // az OSD-ben látszik, a lejátszási helyzet mentése 1 másodperces
+    // pontossággal bőven elég.
+    const timer = window.setInterval(update, showControlsOverlay ? 500 : 1000);
     return () => window.clearInterval(timer);
-  }, [isVod, nativeHandoff, streamUrl, onProgress, initialPositionSeconds]);
+  }, [isVod, nativeHandoff, streamUrl, onProgress, initialPositionSeconds, showControlsOverlay]);
 
   const formatVodTime = (seconds: number) => {
     const total = Math.max(0, Math.floor(seconds || 0));
@@ -1548,9 +1601,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // újraindította a lejátszást – ez volt a „ne méretezzen/ugráljon össze-vissza”.
   const loadStreamRef = useRef(loadStream);
   loadStreamRef.current = loadStream;
-  const loadKey = `${streamUrl}|${settings.bufferMode}|${settings.playerEngine}`;
+  const loadKey = `${streamUrl}|${settings.bufferMode}|${playerEngine}`;
   useEffect(() => {
     clearAutoRetry();
+    nativeRetryCountRef.current = 0;
     setActiveUrlIndex(0);
     // GYORS ZAPPOLÁS: megjegyezzük, melyik formátum (HLS vagy MPEG-TS) indult
     // el legutóbb sikeresen, és csatornaváltásnál rögtön azzal próbálkozunk -
@@ -1563,9 +1617,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
     // Kiterjesztés nélküli élő URL-nél nincs mit cserélni - marad a HLS-út.
     const canPreferTs = preferTs && tsUrl !== hlsUrl;
-    const primaryUrl = !isVod ? (canPreferTs ? tsUrl : hlsUrl) : streamUrl;
+    // Natív mód: a szolgáltatótól kapott cím változatlanul megy a TV dekóderének.
+    const nativeMode = playerEngineRef.current === 'native';
+    const primaryUrl = nativeMode
+      ? streamUrl
+      : (!isVod ? (canPreferTs ? tsUrl : hlsUrl) : streamUrl);
     pendingStreamUrlRef.current = primaryUrl;
-    if (!isVod) {
+    if (nativeMode) {
+      retryPlanRef.current = { originalUrl: streamUrl, stage: 'primary' };
+    } else if (!isVod) {
       retryPlanRef.current = canPreferTs
         ? { originalUrl: tsUrl, stage: 'primary' }
         : { originalUrl: tsUrl, stage: 'hls' };
@@ -1765,6 +1825,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     <div
       ref={containerRef}
       data-tv-player=""
+      data-player-engine={playerEngine}
       tabIndex={isFullscreen ? 0 : -1}
       onKeyDown={handleKeyDown}
       onMouseMove={handleMouseMove}
@@ -1794,8 +1855,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             preload="auto"
             onPlaying={() => {
               playbackStartedRef.current = true;
+              nativeRetryCountRef.current = 0;
               // A sikeresen elindult élő formátumot megjegyezzük a gyors zappoláshoz.
-              if (!isVod && !customStreamUrl) {
+              if (!isVod && !customStreamUrl && playerEngineRef.current !== 'native') {
                 try {
                   const url = pendingStreamUrlRef.current || '';
                   window.localStorage.setItem('iptv_rt_live-format', /\.ts(?=([?#]|$))/i.test(url) ? 'ts' : 'hls');
@@ -1822,8 +1884,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               const video = event.currentTarget;
               const position = Math.max(0, Number(video.currentTime || 0));
               const duration = Math.max(0, Number(video.duration || 0));
-              setVodDuration(duration);
-              if (!vodSeekDraggingRef.current) setVodCurrentTime(position);
+              // Az idővonal állapotát csak akkor írjuk ki, ha az OSD látszik
+              // (a rejtett csúszka nem látszik, felesleges másodpercenként
+              // újrarajzolni a teljes lejátszót).
+              if (showControlsOverlay) {
+                setVodDuration(duration);
+                if (!vodSeekDraggingRef.current) setVodCurrentTime(position);
+              }
               if (Math.floor(position) !== lastReportedProgressRef.current) {
                 lastReportedProgressRef.current = Math.floor(position);
                 onProgress?.(position, duration);
@@ -1835,6 +1902,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* A videó a TV HTML5 videóelemében fut; az OSD fölötte marad. */}
       {nativeHandoff && <div className="absolute inset-0 bg-transparent pointer-events-none" />}
+
+      {/* Melyik lejátszó motor fut - csak a felületen, rövid jelzés. */}
+      {showControlsOverlay && playerEngine === 'native' && !isLoading && !hasError && (
+        <div className="absolute top-3 left-3 z-30 rounded-full border border-emerald-400/50 bg-black/70 px-3 py-1 text-[11px] font-black tracking-widest text-emerald-300 pointer-events-none">
+          NATÍV LEJÁTSZÓ
+        </div>
+      )}
 
       {/* Buffering Loading Indicator */}
       {isLoading && (
@@ -1917,14 +1991,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Kék óra az OSD2-ben; teljes képernyőn az OSD elrejtése után is megmarad, ha a beállítás be van kapcsolva. */}
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
-        <div
-          data-blue-clock
-          className={`absolute top-3 z-40 box-border max-w-[calc(100%-1.5rem)] flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-4 py-2 font-mono text-2xl font-semibold tracking-wider text-cyan-200 shadow-lg backdrop-blur-md pointer-events-none ${isVod || landscapeLiveFullscreen || (isFullscreen && isPortrait && !isVod) ? 'right-3' : 'right-14'}`}
-          aria-label={`Pontos idő: ${blueClockTime}`}
-        >
-          <Clock className="h-7 w-7 shrink-0 text-cyan-300" />
-          <span>{blueClockTime || '00:00'}</span>
-        </div>
+        <BlueClock
+          className={`absolute top-3 z-40 box-border max-w-[calc(100%-1.5rem)] flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-4 py-2 font-mono text-2xl font-semibold tracking-wider text-cyan-200 shadow-lg pointer-events-none ${isVod || landscapeLiveFullscreen || (isFullscreen && isPortrait && !isVod) ? 'right-3' : 'right-14'}`}
+        />
       )}
 
       {/*

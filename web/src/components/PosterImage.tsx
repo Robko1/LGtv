@@ -50,30 +50,60 @@ function normalizeTitle(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
+/**
+ * A tárolt poszter-gyorsítótárat EGYSZER olvassuk be.
+ *
+ * FONTOS (TV-lassulás): korábban minden egyes poszter-keresésnél és minden
+ * mentésnél újra `JSON.parse`-olta a teljes (akár 1500 bejegyzéses) listát,
+ * ráadásul minden mentés az egész listát vissza is írta. Egy 60 filmes
+ * rácson ez több száz teljes JSON-feldolgozás volt, minden kirajzoláskor.
+ */
+let posterCacheLoaded = false;
+let posterCache: Record<string, string | null> = {};
+let posterSaveTimer: number | null = null;
+
+function ensurePosterCache(): void {
+  if (posterCacheLoaded) return;
+  posterCacheLoaded = true;
+  try {
+    posterCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') as Record<string, string | null>;
+  } catch {
+    posterCache = {};
+  }
+}
+
 function cachedPoster(key: string): string | null | undefined {
   if (memoryCache.has(key)) return memoryCache.get(key);
-  try {
-    const stored = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') as Record<string, string | null>;
-    if (Object.prototype.hasOwnProperty.call(stored, key)) {
-      memoryCache.set(key, stored[key]);
-      return stored[key];
-    }
-  } catch {
-    // Storage may be unavailable in a private or embedded browser context.
+  ensurePosterCache();
+  if (Object.prototype.hasOwnProperty.call(posterCache, key)) {
+    memoryCache.set(key, posterCache[key]);
+    return posterCache[key];
   }
   return undefined;
 }
 
-function savePoster(key: string, value: string | null): void {
-  memoryCache.set(key, value);
+function flushPosterCache(): void {
+  posterSaveTimer = null;
   try {
-    const stored = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') as Record<string, string | null>;
-    stored[key] = value;
-    const entries = Object.entries(stored);
+    const entries = Object.entries(posterCache);
     // Keep the cache bounded on long-running TV sessions.
     localStorage.setItem(CACHE_KEY, JSON.stringify(Object.fromEntries(entries.slice(-1500))));
   } catch {
     // In-memory cache still works if storage is unavailable.
+  }
+}
+
+function savePoster(key: string, value: string | null): void {
+  memoryCache.set(key, value);
+  ensurePosterCache();
+  posterCache[key] = value;
+  // Legfeljebb 2 másodpercenként írunk a tárolóba (a memóriabeli gyorsítótár
+  // azonnal friss), így a rácson egyszerre sok poszter sem lassít.
+  if (posterSaveTimer !== null) return;
+  try {
+    posterSaveTimer = window.setTimeout(flushPosterCache, 2000);
+  } catch {
+    flushPosterCache();
   }
 }
 

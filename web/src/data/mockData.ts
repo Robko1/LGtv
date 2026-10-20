@@ -8,6 +8,7 @@ import { AppSettings } from '../types/iptv';
  */
 export const INITIAL_SETTINGS: AppSettings = {
   bufferMode: 'stable',
+  // Alapértelmezés: beépített HTML5 lejátszó (ez a legmegbízhatóbb minden TV-n).
   playerEngine: 'html5',
   zappingDelay: 600,
   autoPlayLastChannel: true,

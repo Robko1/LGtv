@@ -226,6 +226,21 @@ export function App() {
     );
   }, []);
   const previousCategoryBeforeFolderRef = useRef<string | null>(null);
+  /** Kedvenc mappa kiválasztása – stabil függvény, hogy a lista ne rajzolódjon feleslegesen. */
+  const handleSelectFavoriteFolder = useCallback((folderId: string | null) => {
+    if (folderId) {
+      if (!selectedFavoriteFolderId) previousCategoryBeforeFolderRef.current = selectedCategoryId;
+      setSelectedFavoriteFolderId(folderId);
+      setSelectedCategoryId('all');
+      setIsOnlyFavorites(false);
+    } else {
+      setSelectedFavoriteFolderId(null);
+      const previousCategory = previousCategoryBeforeFolderRef.current;
+      if (previousCategory) setSelectedCategoryId(previousCategory);
+      setIsOnlyFavorites(previousCategory === 'favorites');
+      previousCategoryBeforeFolderRef.current = null;
+    }
+  }, [selectedFavoriteFolderId, selectedCategoryId]);
 
   useEffect(() => {
     storageService.saveUiState({ activeView, selectedCategoryId, isOnlyFavorites, searchQuery });
@@ -328,25 +343,44 @@ export function App() {
   const [favoriteChannelId, setFavoriteChannelId] = useState<string | null>(null);
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
 
+  // Gyors csatorna-kereső: a teljes listán végigmenő `find` helyett egyszer
+  // épített térkép. A lista akár 20-60 ezer elemű is lehet, és a keresés
+  // korábban minden kirajzoláskor végigfutott a teljes tömbön.
+  const channelsById = useMemo(() => {
+    const map = new Map<string, Channel>();
+    for (const channel of channels) map.set(channel.id, channel);
+    return map;
+  }, [channels]);
+
   // Active channel reference
   const activeChannel = useMemo(() => {
-    return channels.find((c) => c.id === activeChannelId) || channels[0] || null;
-  }, [channels, activeChannelId]);
+    return channelsById.get(activeChannelId) || channels[0] || null;
+  }, [channelsById, channels, activeChannelId]);
 
   // A csatornalista a kiválasztott kategóriát, a kedvenceket vagy a kiválasztott mappát mutatja.
   const filteredChannels = useMemo(() => {
     const globalQuery = categorySearchQuery.trim().toLocaleLowerCase();
     if (globalQuery) {
+      // Országnevek előre kigyűjtve: korábban minden csatornánál egy
+      // `find` futott az országlistán (20 000 csatornánál ez másodpercekig tartott).
+      const countryNames = new Map<string, string>();
+      for (const category of countryCategories) {
+        if (category.id.startsWith('country-')) {
+          countryNames.set(category.id.slice('country-'.length), category.name);
+        }
+      }
       return channels.filter((channel) => {
-        const countryName = countryCategories.find((category) => category.id === `country-${(channel.countryCode || 'INT').toUpperCase()}`)?.name || channel.country || '';
+        const code = (channel.countryCode || 'INT').toUpperCase();
+        const countryName = countryNames.get(code) || channel.country || '';
         return [channel.name, channel.categoryName, channel.categoryId, channel.country, channel.countryCode, countryName]
           .some((value) => String(value || '').toLocaleLowerCase().includes(globalQuery));
       });
     }
     if (selectedFavoriteFolderId) {
       const folder = folders.find((item) => item.id === selectedFavoriteFolderId);
-      const byId = new Map(channels.map((channel) => [channel.id, channel]));
-      return (folder?.channelIds || []).map((id) => byId.get(id)).filter((channel): channel is Channel => Boolean(channel));
+      return (folder?.channelIds || [])
+        .map((id) => channelsById.get(id))
+        .filter((channel): channel is Channel => Boolean(channel));
     }
     const effectiveCategoryId = selectedCategoryId === 'all'
       ? findHungaryCategoryId(countryCategories) || countryCategories[0]?.id || 'all'
@@ -362,12 +396,23 @@ export function App() {
       if (effectiveCategoryId === 'all') return false;
       return ch.categoryId === effectiveCategoryId;
     });
-  }, [channels, selectedCategoryId, selectedSubCategoryId, isOnlyFavorites, folders, selectedFavoriteFolderId, countryCategories, categorySearchQuery]);
+  }, [channels, channelsById, selectedCategoryId, selectedSubCategoryId, isOnlyFavorites, folders, selectedFavoriteFolderId, countryCategories, categorySearchQuery]);
 
   // A képernyőn megjelenő sorszám a jelenlegi szűrt lista pozíciója; az eredeti ch.num érintetlen.
   const activeChannelDisplayNumber = useMemo(() => {
-    const orderMatchesCurrentList = displayedChannelOrder.length === filteredChannels.length
-      && displayedChannelOrder.every((id) => filteredChannels.some((channel) => channel.id === id));
+    // FONTOS (a felület lassulásának fő oka): itt korábban
+    // `displayedChannelOrder.every(id => filteredChannels.some(...))` volt,
+    // ami négyzetszerű (O(n²)) futásidőt jelentett - 20 000 csatornás
+    // országlistánál ez több százmillió összehasonlítás, azaz másodperces
+    // fagyás minden lista- vagy kijelölésváltozásnál. Halmazos ellenőrzés: O(n).
+    let orderMatchesCurrentList = displayedChannelOrder.length === filteredChannels.length;
+    if (orderMatchesCurrentList) {
+      const visibleIds = new Set<string>();
+      for (const channel of filteredChannels) visibleIds.add(channel.id);
+      for (const id of displayedChannelOrder) {
+        if (!visibleIds.has(id)) { orderMatchesCurrentList = false; break; }
+      }
+    }
     const order = orderMatchesCurrentList ? displayedChannelOrder : filteredChannels.map((channel) => channel.id);
     const index = order.indexOf(activeChannelId);
     return index >= 0 ? index + 1 : undefined;
@@ -376,43 +421,52 @@ export function App() {
   // A ChannelList kezeli a látható csatornák EPG-jét a referencia mintájára.
   // Itt csak a gyorsítótárból frissítjük a csatornaállapotot; nincs második előtöltő sor.
 
-  // A referencia nem egyetlen pillanatfelvételt mutat: a műsor címét az aktuális
-  // időből számolja újra. Ezzel a csatornalista EPG-je magától továbblép akkor is,
-  // ha a néző nem kattint rá a csatornára.
+  // A nézett csatorna műsora (most / következő) 30 másodpercenként frissül a
+  // gyorsítótárból - CSAK a nézett csatornára.
+  //
+  // FONTOS (a felület általános lassulásának fő oka): korábban ez a időzítő a
+  // TELJES csatornalistán (20-60 ezer elem) végigment és új tömböt készített
+  // 30 másodpercenként. Emiatt az összes memo (országkategóriák, szűrt lista,
+  // kijelölési sorszám) újraszámolódott, a csatornalista pedig teljesen
+  // újrarajzolódott - TV-n ez érezhető, másodperces akadás volt félpercenként.
+  // A listában látható sorok műsorát a ChannelList saját gyorsítótárból
+  // frissíti (localEpg), ehhez nem kell a nagy tömb módosítása.
   useEffect(() => {
     if (!activeProvider || activeProvider.type !== 'xtream') return;
-    const refreshDisplayedPrograms = () => {
-      const nowMs = Date.now();
+    const refreshActiveProgram = () => {
+      const channel = channelsById.get(activeChannelId);
+      if (!channel) return;
+      const streamId = streamIdFor(channel);
+      if (!streamId) return;
+      const entries = getCachedShortEpg(activeProvider, streamId, 6);
+      if (!entries.length) return;
+      const { now, next } = nowNextFromEpg(entries, Date.now());
+      const nextNow = now || channel.epgNow;
+      const nextNext = next || channel.epgNext;
+      if (
+        nextNow?.title === channel.epgNow?.title &&
+        nextNow?.time === channel.epgNow?.time &&
+        nextNow?.startTimestamp === channel.epgNow?.startTimestamp &&
+        nextNow?.endTimestamp === channel.epgNow?.endTimestamp &&
+        nextNext?.title === channel.epgNext?.title &&
+        nextNext?.time === channel.epgNext?.time
+      ) {
+        return;
+      }
       setChannels((prev) => {
         let changed = false;
-        const nextChannels = prev.map((channel) => {
-          const streamId = streamIdFor(channel);
-          if (!streamId) return channel;
-          const entries = getCachedShortEpg(activeProvider, streamId, 6);
-          if (!entries.length) return channel;
-          const { now, next } = nowNextFromEpg(entries, nowMs);
-          const nextNow = now || channel.epgNow;
-          const nextNext = next || channel.epgNext;
-          if (
-            nextNow?.title !== channel.epgNow?.title ||
-            nextNow?.time !== channel.epgNow?.time ||
-            nextNow?.startTimestamp !== channel.epgNow?.startTimestamp ||
-            nextNow?.endTimestamp !== channel.epgNow?.endTimestamp ||
-            nextNext?.title !== channel.epgNext?.title ||
-            nextNext?.time !== channel.epgNext?.time
-          ) {
-            changed = true;
-            return { ...channel, epgNow: nextNow, epgNext: nextNext };
-          }
-          return channel;
+        const nextChannels = prev.map((item) => {
+          if (item.id !== channel.id) return item;
+          changed = true;
+          return { ...item, epgNow: nextNow, epgNext: nextNext };
         });
         return changed ? nextChannels : prev;
       });
     };
-    refreshDisplayedPrograms();
-    const timer = window.setInterval(refreshDisplayedPrograms, 30000);
+    refreshActiveProgram();
+    const timer = window.setInterval(refreshActiveProgram, 30000);
     return () => window.clearInterval(timer);
-  }, [activeProvider?.id, activeProvider?.type]);
+  }, [activeProvider?.id, activeProvider?.type, activeChannelId, channelsById]);
 
   /**
    * Az ÉPPEN NÉZETT csatorna műsora (most / következő) a szolgáltatótól.
@@ -594,8 +648,32 @@ export function App() {
     handleSelectChannel(list[currentIndex - 1]);
   }, [filteredChannels, activeChannelId, handleSelectChannel, settings.closeListOnZap]);
 
+  /**
+   * A mappák a csatornakedvencek egyetlen forrásai: a csillag állapota a
+   * mappatagságot követi.
+   *
+   * `useCallback`: a memoizált csatornalista csak akkor rajzolódjon újra, ha
+   * tényleg történt változás (ne minden hangerő-/OSD-mozdulatnál).
+   */
+  const handleSaveFolders = useCallback((updatedFolders: FavoriteFolder[]) => {
+    setFolders(updatedFolders);
+    storageService.saveFolders(updatedFolders);
+    const favoriteChannelIds = new Set(updatedFolders.flatMap((folder) => folder.channelIds));
+    setChannels((previous) => {
+      let changed = false;
+      const next = previous.map((channel) => {
+        const isFavorite = favoriteChannelIds.has(channel.id);
+        if (channel.isFavorite === isFavorite) return channel;
+        changed = true;
+        return { ...channel, isFavorite };
+      });
+      if (changed) dirtyRef.current = true;
+      return changed ? next : previous;
+    });
+  }, []);
+
   // A csillag valódi kapcsoló: ha már kedvenc, egy újabb nyomás kiveszi minden kedvenc mappából.
-  const handleToggleFavorite = (channelId: string) => {
+  const handleToggleFavorite = useCallback((channelId: string) => {
     const isAlreadyFavorite = folders.some((folder) => folder.channelIds.includes(channelId));
     if (isAlreadyFavorite) {
       handleSaveFolders(folders.map((folder) => ({
@@ -606,15 +684,15 @@ export function App() {
     }
     setFavoriteChannelId(channelId);
     setIsOrderModalOpen(true);
-  };
+  }, [folders, handleSaveFolders]);
 
-  const handleRemoveChannelFromFolder = (folderId: string, channelId: string) => {
+  const handleRemoveChannelFromFolder = useCallback((folderId: string, channelId: string) => {
     handleSaveFolders(folders.map((folder) => folder.id === folderId
       ? { ...folder, channelIds: folder.channelIds.filter((id) => id !== channelId) }
       : folder));
-  };
+  }, [folders, handleSaveFolders]);
 
-  const handleMoveFavoriteChannel = (folderId: string, channelId: string, direction: 'up' | 'down') => {
+  const handleMoveFavoriteChannel = useCallback((folderId: string, channelId: string, direction: 'up' | 'down') => {
     const folder = folders.find((item) => item.id === folderId);
     if (!folder) return;
     const ids = folder.channelIds.slice();
@@ -623,9 +701,9 @@ export function App() {
     if (pos < 0 || target < 0 || target >= ids.length) return;
     [ids[pos], ids[target]] = [ids[target], ids[pos]];
     handleSaveFolders(folders.map((item) => item.id === folderId ? { ...item, channelIds: ids } : item));
-  };
+  }, [folders, handleSaveFolders]);
 
-  const handleAssignChannelToFolder = (channelId: string, folderId: string) => {
+  const handleAssignChannelToFolder = useCallback((channelId: string, folderId: string) => {
     const updatedFolders = folders.map((folder) =>
       folder.id === folderId
         ? { ...folder, channelIds: folder.channelIds.includes(channelId) ? folder.channelIds : [...folder.channelIds, channelId] }
@@ -636,11 +714,11 @@ export function App() {
       channel.id === channelId ? { ...channel, isFavorite: true } : channel
     ));
     dirtyRef.current = true;
-  };
+  }, [folders, handleSaveFolders]);
 
   // A kukával a kedvenc mappából csak a mappatagságot vesszük ki;
   // az ország/alaplistából törölve a csatorna minden kedvenc mappából is eltűnik.
-  const handleDeleteChannel = (channelId: string) => {
+  const handleDeleteChannel = useCallback((channelId: string) => {
     if (selectedFavoriteFolderId) {
       const updatedFolders = folders.map((folder) => folder.id === selectedFavoriteFolderId
         ? { ...folder, channelIds: folder.channelIds.filter((id) => id !== channelId) }
@@ -663,7 +741,7 @@ export function App() {
       if (nextChannel) setActiveChannelId(nextChannel.id);
     }
     dirtyRef.current = true;
-  };
+  }, [selectedFavoriteFolderId, folders, channels, handleSaveFolders, activeChannelId, filteredChannels, selectedCategoryId]);
 
   // Toggle Favorite for Movie
   const handleToggleFavoriteMovie = (movieId: string) => {
@@ -684,7 +762,7 @@ export function App() {
   };
 
   // Kézi csatorna-sorrend: az aktuálisan látható listában egy hellyel fel/le mozgat.
-  const handleMoveChannel = (channelId: string, direction: 'up' | 'down') => {
+  const handleMoveChannel = useCallback((channelId: string, direction: 'up' | 'down') => {
     if (selectedFavoriteFolderId) {
       handleMoveFavoriteChannel(selectedFavoriteFolderId, channelId, direction);
       return;
@@ -713,11 +791,11 @@ export function App() {
 
     setChannels(updated);
     dirtyRef.current = true;
-  };
+  }, [selectedFavoriteFolderId, handleMoveFavoriteChannel, filteredChannels, channels]);
 
   // Hosszan nyomva húzott csatornák sorrendje az aktuális kategóriában/kedvencekben.
   // A látható elemek helyeit cseréljük az alaplistában, így a többi kategória sorrendje nem sérül.
-  const handleReorderChannels = (orderedChannelIds: string[]) => {
+  const handleReorderChannels = useCallback((orderedChannelIds: string[]) => {
     const currentIds = filteredChannels.map((channel) => channel.id);
     const currentIdSet = new Set(currentIds);
     const slots: number[] = [];
@@ -732,30 +810,12 @@ export function App() {
     });
     setChannels(updated);
     dirtyRef.current = true;
-  };
+  }, [filteredChannels, channels]);
 
-  // A mappák a csatornakedvencek egyetlen forrásai: a csillag állapota a mappatagságot követi.
-  const handleSaveFolders = (updatedFolders: FavoriteFolder[]) => {
-    setFolders(updatedFolders);
-    storageService.saveFolders(updatedFolders);
-    const favoriteChannelIds = new Set(updatedFolders.flatMap((folder) => folder.channelIds));
-    setChannels((previous) => {
-      let changed = false;
-      const next = previous.map((channel) => {
-        const isFavorite = favoriteChannelIds.has(channel.id);
-        if (channel.isFavorite === isFavorite) return channel;
-        changed = true;
-        return { ...channel, isFavorite };
-      });
-      if (changed) dirtyRef.current = true;
-      return changed ? next : previous;
-    });
-  };
-
-  const handleDeleteFolder = (folderId: string) => {
+  const handleDeleteFolder = useCallback((folderId: string) => {
     handleSaveFolders(folders.filter((folder) => folder.id !== folderId));
     if (selectedFavoriteFolderId === folderId) setSelectedFavoriteFolderId(null);
-  };
+  }, [folders, handleSaveFolders, selectedFavoriteFolderId]);
 
   // Add New Provider (a letöltött csatorna/film/sorozat listával együtt)
   const handleAddProvider = (newProvider: ProviderAccount, content?: ImportedContent) => {
@@ -1367,6 +1427,22 @@ export function App() {
   };
 
   /**
+   * Az indítási pozíció (folytatás) EGYSZER számolódik ki, amikor a lejátszott
+   * stream megváltozik. Korábban minden kirajzoláskor lefutott egy `history.find`,
+   * és a lejátszó 500 ms-os idővonal-időzítője másodpercenként újraindult,
+   * mert a prop értéke folyamatosan változott.
+   */
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  const initialPlaybackPosition = useMemo(() => {
+    if (!customStreamUrl) return 0;
+    const item = historyRef.current.find(
+      (entry) => entry.streamUrl === customStreamUrl && entry.mediaType !== 'live'
+    );
+    return item?.positionSeconds || 0;
+  }, [customStreamUrl]);
+
+  /**
    * A most játszott film/sorozat hangsáv- és feliratlistája.
    *
    * FONTOS (a telefon lefagyása sorozat-import után): ez korábban közvetlenül a
@@ -1395,9 +1471,22 @@ export function App() {
 
   /** Az előzmény mentésének legutóbbi időpontja (lásd handlePlaybackProgress). */
   const lastHistorySaveAtRef = useRef(0);
+  /** A legutóbbi lejátszási helyzet (a felületre legfeljebb 2 másodpercenként megy ki). */
+  const pendingProgressRef = useRef<{ position: number; duration: number } | null>(null);
+  const lastHistoryUiAtRef = useRef(0);
+  const progressFlushTimerRef = useRef<number | null>(null);
 
-  const handlePlaybackProgress = useCallback((positionSeconds: number, durationSeconds: number) => {
-    if (!customStreamUrl || !Number.isFinite(positionSeconds) || positionSeconds < 0) return;
+  /**
+   * A lejátszási helyzet beírása az előzményekbe.
+   *
+   * FONTOS (az egész felület lassulása): a lejátszó másodpercenként jelent, és
+   * korábban minden jelzés `setHistory`-t hívott. Az App újrarajzolódott, vele
+   * a fejléc, a csatornalista és a teljes lejátszó OSD - filmnézés közben
+   * másodpercenként. Most a felület legfeljebb 2 másodpercenként kap frissítést,
+   * a tárolóba pedig továbbra is legfeljebb 5 másodpercenként írunk.
+   */
+  const applyProgressToHistory = useCallback((positionSeconds: number, durationSeconds: number) => {
+    if (!customStreamUrl) return;
     setHistory((previous) => {
       const index = previous.findIndex((item) => item.streamUrl === customStreamUrl && item.mediaType !== 'live');
       if (index < 0) return previous;
@@ -1426,6 +1515,34 @@ export function App() {
       return updated;
     });
   }, [customStreamUrl]);
+
+  const handlePlaybackProgress = useCallback((positionSeconds: number, durationSeconds: number) => {
+    if (!customStreamUrl || !Number.isFinite(positionSeconds) || positionSeconds < 0) return;
+    pendingProgressRef.current = { position: positionSeconds, duration: durationSeconds };
+    const now = Date.now();
+    const elapsed = now - lastHistoryUiAtRef.current;
+    if (elapsed >= 2000) {
+      lastHistoryUiAtRef.current = now;
+      applyProgressToHistory(positionSeconds, durationSeconds);
+      return;
+    }
+    if (progressFlushTimerRef.current === null) {
+      progressFlushTimerRef.current = window.setTimeout(() => {
+        progressFlushTimerRef.current = null;
+        const pending = pendingProgressRef.current;
+        if (!pending) return;
+        lastHistoryUiAtRef.current = Date.now();
+        applyProgressToHistory(pending.position, pending.duration);
+      }, Math.max(250, 2000 - elapsed));
+    }
+  }, [customStreamUrl, applyProgressToHistory]);
+
+  useEffect(() => () => {
+    if (progressFlushTimerRef.current !== null) {
+      window.clearTimeout(progressFlushTimerRef.current);
+      progressFlushTimerRef.current = null;
+    }
+  }, []);
 
   // Resume History item
   const handlePlayHistoryItem = (item: WatchHistoryItem) => {
@@ -1482,7 +1599,7 @@ export function App() {
           if (scope) {
             const candidates = Array.from(scope.querySelectorAll<HTMLElement>(
               'button:not(:disabled), a[href], [role="button"]:not([aria-disabled="true"]), [tabindex="0"]'
-            )).filter((el) => el !== target && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
+            )).filter((el) => el !== target && el.getClientRects().length > 0);
             const from = target.getBoundingClientRect();
             const fx = from.left + from.width / 2;
             const fy = from.top + from.height / 2;
@@ -1712,6 +1829,10 @@ export function App() {
     }
   }, [isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen]);
 
+  // Kép a képben támogatás: korábban ezt minden kirajzoláskor egy DOM-kereséssel
+  // (!) ellenőriztük, kétszer. Elég a környezet egyszeri vizsgálata.
+  const pipSupported = Boolean((document as any).pictureInPictureEnabled);
+
   return (
     <div data-app-root="" className="flex flex-col h-[100dvh] min-h-[100dvh] w-full min-w-0 max-w-none bg-[#080d1a] text-slate-100 overflow-hidden font-sans select-none shadow-2xl border-x border-cyan-950/40">
       
@@ -1803,7 +1924,7 @@ export function App() {
               setIsPlaying(false);
               setNextEpisodeToPlay(null);
             }}
-            initialPositionSeconds={history.find((item) => item.streamUrl === customStreamUrl && item.mediaType !== 'live')?.positionSeconds || 0}
+            initialPositionSeconds={initialPlaybackPosition}
             onProgress={handlePlaybackProgress}
             audioTracks={currentVodTracks.audioTracks}
             subtitleTracks={currentVodTracks.subtitleTracks}
@@ -1867,7 +1988,7 @@ export function App() {
                   onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
                   onCastToTv={() => mainPlayerCastRef.current?.()}
                   onTogglePip={() => mainPlayerPipRef.current?.()}
-            showPip={Boolean((document as any).pictureInPictureEnabled && typeof (document.querySelector('video[data-iptv-player="true"]') as any)?.requestPictureInPicture === 'function')}
+            showPip={pipSupported}
                   onOpenEpgModal={() => setIsEpgOpen(true)}
                   onOpenChannelDetails={() => {
                     setSettingsTab('system');
@@ -1898,7 +2019,7 @@ export function App() {
             onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
             onCastToTv={() => mainPlayerCastRef.current?.()}
             onTogglePip={() => mainPlayerPipRef.current?.()}
-                  showPip={Boolean((document as any).pictureInPictureEnabled && typeof (document.querySelector('video[data-iptv-player="true"]') as any)?.requestPictureInPicture === 'function')}
+                  showPip={pipSupported}
             onOpenEpgModal={() => setIsEpgOpen(true)}
             onOpenChannelDetails={() => {
               setSettingsTab('system');
@@ -1927,20 +2048,7 @@ export function App() {
                 selectedFavoriteFolderId={selectedFavoriteFolderId}
                 onDisplayOrderChange={handleDisplayOrderChange}
                 onAssignToFolder={handleAssignChannelToFolder}
-                onSelectFavoriteFolder={(folderId) => {
-                  if (folderId) {
-                    if (!selectedFavoriteFolderId) previousCategoryBeforeFolderRef.current = selectedCategoryId;
-                    setSelectedFavoriteFolderId(folderId);
-                    setSelectedCategoryId('all');
-                    setIsOnlyFavorites(false);
-                  } else {
-                    setSelectedFavoriteFolderId(null);
-                    const previousCategory = previousCategoryBeforeFolderRef.current;
-                    if (previousCategory) setSelectedCategoryId(previousCategory);
-                    setIsOnlyFavorites(previousCategory === 'favorites');
-                    previousCategoryBeforeFolderRef.current = null;
-                  }
-                }}
+                onSelectFavoriteFolder={handleSelectFavoriteFolder}
               />
             </div>
           )}
