@@ -62,7 +62,7 @@ async function verifyNtfy(topic: string): Promise<boolean> {
     const token = 'selftest' + Date.now();
     const pub = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}`, { method: 'POST', body: token });
     if (!pub.ok) { diag(`ntfy írás: HTTP ${pub.status}`); return false; }
-    const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}/json?poll=1`);
+    const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}/json?poll=1&since=all`);
     if (!res.ok) { diag(`ntfy olvasás: HTTP ${res.status}`); return false; }
     if ((await res.text()).indexOf(token) >= 0) return true;
     diag('ntfy: a visszaolvasott adat hiányzik');
@@ -240,7 +240,7 @@ export function getProvisionUrl(tvId: string, code: string, channel?: ProvisionC
 export async function pollForProvider(tvId: string, channel?: ProvisionChannel | null): Promise<QrProviderPayload | null> {
   if (channel && channel.kind === 'ntfy') {
     try {
-      const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(channel.id)}/json?poll=1`);
+      const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(channel.id)}/json?poll=1&since=all`);
       if (!res.ok) return null;
       const lines = (await res.text()).split('\n');
       for (let i = lines.length - 1; i >= 0; i--) {

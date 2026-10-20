@@ -175,20 +175,6 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
             </p>
           </div>
 
-          {/* Lépések */}
-          <div className="rounded-2xl bg-[#0a1630] border border-cyan-900/40 p-3.5 space-y-2">
-            <h3 className="text-xs font-black text-cyan-400 uppercase tracking-wider">Hogyan működik?</h3>
-            <ol className="space-y-1.5 text-xs text-slate-300 list-decimal list-inside">
-              <li>Olvasd be a QR kódot telefonnal (kamera)</li>
-              <li>Telefonon megnyílik egy oldal – írd be a szolgáltató adatait</li>
-              <li>Nyomd meg: <span className="text-cyan-300 font-bold">Küldés TV-re</span></li>
-              <li>TV automatikusan behozza a csatornákat, mozikat, sorozatokat, EPG-t</li>
-            </ol>
-            <p className="text-[11px] text-amber-300/80 pt-1">
-              Nem kell a TV-n pötyögni! A telefonon kényelmesen beírod, a TV kezeli.
-            </p>
-          </div>
-
           {/* Státusz */}
           {status === 'waiting' && (
             <div className="flex items-center justify-center gap-2 py-2 text-xs text-cyan-300">

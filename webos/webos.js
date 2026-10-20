@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.11
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.12
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.11 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.12 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -156,7 +156,7 @@
         'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
         'white-space:pre-wrap;word-break:break-word;');
       var title = document.createElement('div');
-      title.textContent = 'IPTV R.T diagnosztika 2.3.11 \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika 2.3.12 \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -260,8 +260,12 @@
         '/* OVERSCAN-VÉDELEM: a TV a kép legszélét levághatja (az óra doboz',
         '   bal széle és a lejátszó széle lógott ki) - biztonsági szegély. */',
         '.webos-tv #root { padding: 6px 14px 8px 14px; box-sizing: border-box; }',
-        '/* A felugró ablak sose lógjon ki fent és lent. */',
-        '.webos-tv [role="dialog"] { max-height: 86vh !important; }',
+        '/* A felugró ablak sose lógjon ki fent és lent. A korlát a BELSŐ',
+        '   panelre vonatkozik, NEM a teljes képernyős sötét háttérrétegre',
+        '   (a 86vh a háttérréteget rövidítette meg: alul vastag sáv látszott,',
+        '   ami a Rendszer fül alját takarta, a QR teteje pedig kilógott). */',
+        '.webos-tv [role="dialog"]:not(.fixed) { max-height: 92vh !important; }',
+        '.webos-tv [role="dialog"].items-center > div { max-height: 92vh !important; }',
         '/* A modal belső görgetője az aljáig elérhető legyen (Rendszer fül vége). */',
         '.webos-tv [role="dialog"] .overflow-y-auto { padding-bottom: 56px !important; }',
         '/* DOBOZ NAVIGÁCIÓ: a kijelölt beállítás-doboz jól látható sárga keretet kap. */',
@@ -973,5 +977,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.11 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.12 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

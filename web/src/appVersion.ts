@@ -1,6 +1,16 @@
-export const WEB_VERSION = '2.3.11';
+export const WEB_VERSION = '2.3.12';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.12',
+    date: '2026-10-20',
+    changes: [
+      "QR VISSZAOLVASÁS JAVÍTVA: az ntfy.sh lekérdezésből hiányzott a since=all paraméter, ezért a TV sosem látta a saját tesztüzenetét ('visszaolvasott adat hiányzik') és a telefonról küldött adatot sem. A TV igazából végig elérte az ntfy.sh-t! ÚJ QR kódot kell nyitni a frissítés után.",
+      "VASTAG SÖTÉT SÁV ELTŰNT: a magasság-korlát tévedésből a teljes képernyős sötét háttérrétegre került, ezért a Beállítások alatt egy vastag sáv takarta a Rendszer fül alját. A korlát mostantól csak a belső panelekre vonatkozik.",
+      "QR ABLAK KIFÉR: a 'Hogyan működik?' doboz (4 pontos lista) és a sárga szöveg eltávolítva, így a TV kód, a QR és az állapot is teljesen látszik a képernyőn.",
+      "Verzió: 2.3.12 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.11',
     date: '2026-10-20',
