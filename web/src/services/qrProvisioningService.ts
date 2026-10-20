@@ -45,16 +45,30 @@ const KVDB_BASE = 'https://kvdb.io';
 const JSONBLOB_BASE = 'https://jsonblob.com/api/jsonBlob';
 const NTFY_BASE = 'https://ntfy.sh'; // elsődleges: névtelen, CORS-barát pub/sub
 
+// Részletes hibanapló a TV-s hibaképernyőhöz: pontosan melyik szolgáltatás
+// miért nem ment át az önteszten (HTTP kód vagy hálózati hiba).
+let channelDiag: string[] = [];
+function diag(msg: string): void {
+  channelDiag.push(msg);
+  console.warn('[QR]', msg);
+}
+export function getProvisionDiag(): string {
+  return channelDiag.join(' • ');
+}
+
 /** ntfy.sh önteszt: közzététel + visszaolvasás ugyanarra a témára. */
 async function verifyNtfy(topic: string): Promise<boolean> {
   try {
     const token = 'selftest' + Date.now();
     const pub = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}`, { method: 'POST', body: token });
-    if (!pub.ok) return false;
+    if (!pub.ok) { diag(`ntfy írás: HTTP ${pub.status}`); return false; }
     const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}/json?poll=1`);
-    if (!res.ok) return false;
-    return (await res.text()).indexOf(token) >= 0;
-  } catch {
+    if (!res.ok) { diag(`ntfy olvasás: HTTP ${res.status}`); return false; }
+    if ((await res.text()).indexOf(token) >= 0) return true;
+    diag('ntfy: a visszaolvasott adat hiányzik');
+    return false;
+  } catch (e) {
+    diag('ntfy: hálózati hiba (' + ((e as Error)?.message || e) + ')');
     return false;
   }
 }
@@ -71,11 +85,12 @@ async function verifyKvdb(bucket: string): Promise<boolean> {
     // Szándékosan NINCS Content-Type fejléc: így "egyszerű" kérés, nem kell
     // CORS preflight – pont úgy viselkedik, mint a telefon küldése.
     const w = await fetch(key, { method: 'POST', body: 'ok' });
-    if (!w.ok) return false;
+    if (!w.ok) { diag(`kvdb írás: HTTP ${w.status}`); return false; }
     const r = await fetch(key);
-    if (!r.ok) return false;
+    if (!r.ok) { diag(`kvdb olvasás: HTTP ${r.status}`); return false; }
     return (await r.text()).trim().indexOf('ok') === 0;
-  } catch {
+  } catch (e) {
+    diag('kvdb önteszt: hálózati hiba (' + ((e as Error)?.message || e) + ')');
     return false;
   }
 }
@@ -89,10 +104,10 @@ async function createKvdb(): Promise<string> {
     });
     const text = (await res.text()).trim();
     if (res.ok && /^[A-Za-z0-9_-]{8,64}$/.test(text)) return text;
-    console.warn('[QR] kvdb tároló létrehozás sikertelen', res.status, text.slice(0, 120));
+    diag(`kvdb létrehozás: HTTP ${res.status} (${text.slice(0, 40)})`);
     return '';
   } catch (e) {
-    console.warn('[QR] kvdb tároló létrehozás hiba', e);
+    diag('kvdb: hálózati hiba (' + ((e as Error)?.message || e) + ')');
     return '';
   }
 }
@@ -104,8 +119,10 @@ async function verifyJsonblob(id: string): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ waiting: true }),
     });
+    if (!res.ok) diag(`jsonblob írás: HTTP ${res.status}`);
     return res.ok;
-  } catch {
+  } catch (e) {
+    diag('jsonblob: hálózati hiba (' + ((e as Error)?.message || e) + ')');
     return false;
   }
 }
@@ -117,12 +134,13 @@ async function createJsonblob(): Promise<string> {
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ waiting: true }),
     });
-    if (!res.ok) return '';
+    if (!res.ok) { diag(`jsonblob létrehozás: HTTP ${res.status}`); return ''; }
     const loc = res.headers.get('Location') || res.headers.get('location') || '';
     const m = loc.match(/jsonBlob\/([A-Za-z0-9-]+)/);
+    if (!m) diag('jsonblob: nincs Location fejléc');
     return m ? m[1] : '';
   } catch (e) {
-    console.warn('[QR] jsonblob létrehozás hiba', e);
+    diag('jsonblob: hálózati hiba (' + ((e as Error)?.message || e) + ')');
     return '';
   }
 }
@@ -137,6 +155,7 @@ function saveChannel(ch: ProvisionChannel): void {
 
 /** IGAZOLTAN működő tárolócsatorna. null = egyik szolgáltatás sem elérhető. */
 export async function ensureProvisionChannel(): Promise<ProvisionChannel | null> {
+  channelDiag = [];
   // Korábbi, még friss csatorna újrahasznosítása (öntesztet így is futtatunk)
   try {
     const kind = localStorage.getItem('qr_chan_kind') || '';

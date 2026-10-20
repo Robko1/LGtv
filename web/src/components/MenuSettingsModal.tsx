@@ -133,6 +133,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         // első gombra – a bezáró X-re! – rántotta vissza az időzítő, ezért
         // ugrált a kijelölés "magától" az X-re.
         const ae = document.activeElement as HTMLElement | null;
+        // Ha a fókusz egy MÁSIK (felettünk nyitott) ablakban van – pl. QR
+        // vagy Új mappa –, SOHA nem rabolhatjuk el. Korábban ez okozta,
+        // hogy a kijelölés "kiugrott a háttérbe".
+        const aeDlg = (ae && ae.closest ? ae.closest('[role="dialog"]') : null) as HTMLElement | null;
+        const myDlg = (container.closest('[role="dialog"]') || container.querySelector('[role="dialog"]') || container) as HTMLElement;
+        if (aeDlg && aeDlg !== myDlg && !myDlg.contains(aeDlg)) return;
         // Első fókusz: alapgomb (data-tv-default, pl. Telefon) → doboz
         // (data-tv-box) → fülek → bármi, de NEM az X.
         const def = container.querySelector<HTMLElement>('[data-tv-default]');
@@ -146,8 +152,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           if (jump) jump.focus({ preventScroll: true } as any);
           return;
         }
-        // Nyitáskor mindig a Kedvencek fülre ugrik a jelölő.
-        const opener = container.querySelector<HTMLElement>('[data-tv-open-focus]');
+        // Nyitáskor az ÉPP AKTÍV fül pillje kapja a kijelölést (alapból a
+        // Kedvencek, mert a menü azzal nyílik) – így a sárga jelölő és a
+        // kék aktív fül mindig ugyanott van.
+        const opener = container.querySelector<HTMLElement>(`[data-tv-tabid="${activeTab}"]`)
+          || container.querySelector<HTMLElement>('[data-tv-open-focus]');
         const box = opener || def || container.querySelector<HTMLElement>('[data-tv-box]');
         const buttons = Array.from(container.querySelectorAll<HTMLElement>('button'));
         const focusable = container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
@@ -225,6 +234,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
 
           <button
+            data-tv-tabid="lists"
             onClick={() => setActiveTab('lists')}
             className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-xs font-black transition-all text-center truncate ${
               activeTab === 'lists'
@@ -237,6 +247,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
           <button
             data-tv-open-focus=""
+            data-tv-tabid="favorites"
             onClick={() => setActiveTab('favorites')}
             className={`flex-1 min-w-[85px] py-2 px-2.5 rounded-xl text-xs font-black transition-all text-center truncate ${
               activeTab === 'favorites'
@@ -248,6 +259,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           </button>
 
           <button
+            data-tv-tabid="system"
             onClick={() => setActiveTab('system')}
             className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-xs font-black transition-all text-center truncate ${
               activeTab === 'system'
