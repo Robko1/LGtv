@@ -346,6 +346,19 @@ export const xtreamService = {
     return `${cleanServer}/series/${user}/${pass}/${streamId}.${ext}`;
   },
 
+  /**
+   * A szolgáltató M3U listájának címe (Xtream `get.php`).
+   *
+   * Ez a második csatornabetöltési mód: ugyanaz a szolgáltató, ugyanaz a
+   * belépés, csak nem a player_api.php JSON-t kérjük le, hanem a teljes
+   * lejátszási listát.
+   */
+  buildPlaylistUrl(serverUrl: string, username: string, password: string): string {
+    const cleanServer = this.cleanUrl(serverUrl).replace(/\/player_api\.php.*$/i, '').replace(/\/+$/, '');
+    const host = /^https?:\/\//i.test(cleanServer) ? cleanServer : `http://${cleanServer}`;
+    return `${host}/get.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&type=m3u_plus&output=ts`;
+  },
+
   /** Egyszerű M3U letöltés (URL-ről). */
   async loadM3U(url: string): Promise<string> {
     return httpGetText(url, { timeoutMs: 30000 });

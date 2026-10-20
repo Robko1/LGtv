@@ -62,6 +62,10 @@ export const storageService = {
       if (!['contain', 'cover', 'fill'].includes(settings.aspectRatio)) {
         settings.aspectRatio = 'fill';
       }
+      // Csatornabetöltés módja: régi mentésekben még nincs - alapértelmezés API.
+      if (settings.channelLoadMode !== 'api' && settings.channelLoadMode !== 'm3u') {
+        settings.channelLoadMode = 'api';
+      }
       // Lejátszómotor: régi mentésekben még nincs - alapértelmezés HTML5.
       if (settings.playerEngine !== 'html5' && settings.playerEngine !== 'native') {
         settings.playerEngine = 'html5';

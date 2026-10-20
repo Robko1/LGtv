@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.1
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.2
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.4.1 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] TV webOS 2.4.2 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -154,13 +154,13 @@
         'position:fixed;left:16px;bottom:16px;z-index:2147483000;max-width:72vw;' +
         'background:rgba(2,10,25,0.88);border:2px solid #00BFFF;border-radius:10px;' +
         'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
-        'white-space:pre-wrap;word-break:break-word;');
+        'white-space:pre-wrap;word-break:break-word;display:none;');
       var title = document.createElement('div');
       // A verziószám a futó alkalmazásból jön (appVersion.ts teszi közzé),
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.4.1') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'TV diagnosztika ' + (appVer || '2.4.2') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -222,8 +222,9 @@
 
   function diagToggle() {
     if (!diagEnsure()) return;
-    diag.forced = diag.el.style.display === 'none';
-    diag.el.style.display = diag.forced ? 'block' : 'none';
+    var hidden = diag.el.style.display === 'none';
+    diag.forced = hidden;
+    diag.el.style.display = hidden ? 'block' : 'none';
   }
 
   function diagKey(e, normalized) {
@@ -335,6 +336,8 @@
         '/* A kék óra teljes képernyőn a jobb felső sarokban kilógott a',
         '   képernyőből (overscan) - TV-n beljebb toljuk. */',
         '.webos-tv [data-blue-clock] { right: 36px !important; top: 16px !important; left: auto !important; }',
+        '/* A LEJATSZO DOBOZ SOSEM kap kek fokuszkeretet: a kijelolo a listan jar. */',
+        '.webos-tv [data-tv-player]:focus, .webos-tv [data-tv-player]:focus-visible { outline:none !important; box-shadow:none !important; }',
         '.webos-tv [data-tv-box] { scroll-margin: 40px; transition: none !important; }',
         '.webos-tv [data-tv-box]:focus { outline: 3px solid #fbbf24 !important; outline-offset: 3px; }',
         '/* AZONNALI kijelölő-ugrálás MINDENHOL: a 150-300 ms-os CSS átmenetek',
@@ -977,17 +980,43 @@
         e.preventDefault();
         e.stopPropagation();
         var hi = headerItems.indexOf(focusedNow);
+        var kindOf = function(el) {
+          return (el && el.getAttribute && el.getAttribute('data-tv-header-kind')) || '';
+        };
+        var kind = kindOf(focusedNow);
+
         if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          // A menüsor KÖRBEN jár: Országok -> Mozi -> Sorozat -> X -> Beállítások -> Országok.
+          // A SOROZATON csak jobbra lehet lépni (balra nem) - így nem lehet
+          // véletlenül visszafelé elindulni a menüben.
+          if (key === 'ArrowLeft' && kind === 'series') return;
           var dir = key === 'ArrowRight' ? 1 : -1;
-          var target = hi < 0 ? 0 : hi + dir;
-          if (target < 0 || target >= headerItems.length) return;
-          focusAndReveal(headerItems[target]);
-        } else if (key === 'ArrowDown') {
-          // A menüsorról lefelé: először a mappasáv, utána a csatornalista.
-          // Mozi/Sorozat nézetben (nincs lista) a tartalom első vezérlője.
+          var nextIndex;
+          if (hi < 0) {
+            nextIndex = 0;
+          } else {
+            nextIndex = hi + dir;
+            if (nextIndex >= headerItems.length) nextIndex = 0;
+            if (nextIndex < 0) nextIndex = headerItems.length - 1;
+          }
+          focusAndReveal(headerItems[nextIndex]);
+          return;
+        }
+
+        if (key === 'ArrowDown') {
+          // LEFELÉ KIZÁRÓLAG a Beállításokról: onnan a kedvencek mappasávjára,
+          // onnan a csatornalista 1. sorára. A Mozi/Sorozat/Országok/X gombokról
+          // NEM lehet lefelé menni (a kijelölő nem ugorhat a lejátszóra/OSD-re).
+          if (kind !== 'settings') return;
           if (!focusAndReveal(folderItems[0] || folderBar) && !focusAndReveal(listEl)) {
             focusAndReveal(contentItems()[0]);
           }
+          return;
+        }
+
+        if (key === 'ArrowUp') {
+          // A menüsorból felfelé nincs hova lépni.
+          return;
         }
         return;
       }
@@ -1097,10 +1126,10 @@
     try {
       document.body.classList.add('webos-tv', 'lg-webos', 'tv-mode');
     } catch (e) {}
-    // Képernyős diagnosztika: induláskor látszik, 2 perc után eltűnik,
-    // a PIROS gombbal bármikor visszahozható. Ha a felület 12 mp alatt sem
-    // töltődik be, piros hibaüzenet marad a képernyőn.
-    diagShow();
+    // Képernyős diagnosztika: induláskor NEM jelenik meg (a bal alsó sarokban
+    // nem zavarhatja a nézést). Kizárólag a PIROS gombbal hozható elő.
+    // Egyetlen kivétel: ha a felület 12 mp alatt sem töltődik be, hibaüzenet
+    // marad a képernyőn (az valódi hibajelzés, nem diagnosztika).
     diagUiCheck();
     var uiPoll = setInterval(function() {
       diagUiCheck();
@@ -1170,5 +1199,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.4.1 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] TV webOS ready 2.4.2 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();
