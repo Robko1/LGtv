@@ -22,7 +22,7 @@ WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
 VERSION="${VERSION:-2.3.16}"
 APP_ID="hu.rt.iptv.webos"
-APP_TITLE="IPTV R.T webOS"
+APP_TITLE="TV"
 
 log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
@@ -171,8 +171,8 @@ html = re.sub(r'<body\b[^>]*>', add_webos_body_classes, html, count=1)
 
 # Fekvő splash hozzáadása body elejére
 splash_html = """
-<div id="webos-splash" class="webos-splash" aria-label="IPTV R.T">
-  <div class="splash-title">IPTV R.T</div>
+<div id="webos-splash" class="webos-splash" aria-label="TV">
+  <div class="splash-title">TV</div>
 </div>
 <script>
 (function() {
