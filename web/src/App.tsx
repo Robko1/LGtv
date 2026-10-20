@@ -872,7 +872,7 @@ export function App() {
         };
         handleAddProvider(newProvider);
         // A provider mentése után automatikusan induljon a teljes listaimport.
-        window.setTimeout(() => { void handleRefreshProvider(newProvider.id, false); }, 250);
+        window.setTimeout(() => { void handleRefreshProvider(newProvider, false); }, 250);
       } else if (payload.type === 'm3u') {
         const newProvider = {
           id: 'qr_' + Date.now(),
@@ -892,7 +892,7 @@ export function App() {
         };
         handleAddProvider(newProvider);
         // M3U esetén is automatikusan induljon a beolvasás a mentés után.
-        window.setTimeout(() => { void handleRefreshProvider(newProvider.id, false); }, 250);
+        window.setTimeout(() => { void handleRefreshProvider(newProvider, false); }, 250);
       }
     } catch (e) {
       console.error('[QR] handle error', e);
@@ -933,9 +933,17 @@ export function App() {
   // az élő csatornalista néhány másodperc után használható, nem kell megvárni
   // a több tízezer film letöltését. Minden szakasz azonnal mentésre is kerül,
   // így a következő indítás a mentett listából azonnal dolgozik.
-  const handleRefreshProvider = async (id: string, manual = true) => {
-    const provider = providers.find((p) => p.id === id);
+  const handleRefreshProvider = async (providerOrId: string | ProviderAccount, manual = true) => {
+    // QR-es hozzáadás után a React providers állapota ebben a renderben még régi lehet.
+    // Az átadott ProviderAccount ezért közvetlenül használható, nem veszhet el az első import.
+    const provider = typeof providerOrId === 'string'
+      ? providers.find((p) => p.id === providerOrId)
+      : providerOrId;
     if (!provider) return;
+    const id = provider.id;
+    const providersForRefresh = providers.some((p) => p.id === id)
+      ? providers
+      : [provider, ...providers.map((p) => ({ ...p, isActive: false }))];
 
     // Ha korábbi EPG-előtöltés még fut, azt azonnal leállítjuk, hogy
     // semmilyen háttérkérés ne foglalja a kapcsolatot a fő Xtream betöltés elől.
@@ -1037,7 +1045,7 @@ export function App() {
       if (partial.movies) await saveVodContent(draft);
       if (partial.series) await saveSeriesContent(draft);
 
-      const updatedProviders = providers.map((p) =>
+      const updatedProviders = providersForRefresh.map((p) =>
         p.id === id
           ? {
               ...p,
