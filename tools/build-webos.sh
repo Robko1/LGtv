@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# IPTV R.T – LG webOS TV .ipk készítése
+# TV – LG webOS TV .ipk készítése
 #
 # A webes felületet (web/ → build/web/index.html) beleteszi a webOS appba,
 # hozzáadja a webOS specifikus fájlokat (appinfo.json, icon, webos.js, splash),
@@ -26,6 +26,24 @@ APP_TITLE="TV"
 
 log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
+
+# Az új ikon helyi asset: offline is a csomag része, nem külső URL.
+ICON_SOURCE="$PROJECT_DIR/ikonkep.png"
+if [[ ! -s "$ICON_SOURCE" ]]; then
+  echo "HIBA: hiányzik a gyökérben lévő ikonkep.png." >&2
+  exit 1
+fi
+mkdir -p "$PROJECT_DIR/web/public" "$WEBOS_DIR/assets"
+cp "$ICON_SOURCE" "$PROJECT_DIR/web/public/ikonkep.png"
+python3 - <<'PY'
+from pathlib import Path
+from PIL import Image
+root = Path(".")
+img = Image.open(root / "ikonkep.png").convert("RGBA")
+img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon.png", "PNG")
+img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon.png", "PNG")
+img.resize((512, 512), Image.Resampling.LANCZOS).save(root / "webos/assets/icon_tv.png", "PNG")
+PY
 
 # 1. web build (ha kell)
 if [[ "${SKIP_WEB:-0}" != "1" ]]; then
