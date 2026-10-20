@@ -16,10 +16,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.3.17'
+  VERSION: '2.3.18'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TAG: 'v2.3.17'
-  OLD_RELEASE_TAG: 'v2.3.16'
+  RELEASE_TAG: 'v2.3.18'
+  OLD_RELEASE_TAG: 'v2.3.17'
   RELEASE_TITLE: 'IPTV-RT'
 
 jobs:
@@ -79,12 +79,15 @@ jobs:
           img.save("web/public/ikonkep.png", "PNG")
           # A Rendszer panel ikonja beágyazott data URI lesz, nem külső fájlhivatkozás.
           import base64, io
-          thumb = img.resize((48,48), Image.Resampling.LANCZOS)
+          thumb = img.resize((128,128), Image.Resampling.LANCZOS)
           buffer = io.BytesIO()
-          thumb.save(buffer, format="PNG")
+          thumb.save(buffer, format="PNG", optimize=True)
           encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
           Path("web/src/generatedIcon.ts").write_text(
-              'export const APP_ICON_DATA_URL = "data:image/png;base64,' + encoded + '";\\n',
+              '// BEÉGETETT alkalmazás-ikon (a repó ikonkep.png fájljából, 128x128 PNG).\n'
+              '// Nem külső hivatkozás: a csomagolt egyfájlos HTML-ben is mindig megjelenik.\n'
+              '// A build (tools/build-webos.sh és a workflow) ugyanígy újragenerálja.\n'
+              'export const APP_ICON_DATA_URL = "data:image/png;base64,' + encoded + '";\n',
               encoding="utf-8"
           )
           print("OK: az ikon átméretezve és beégethető data URI-ként előállítva.")
@@ -125,8 +128,8 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.3.17":
-              raise SystemExit(f"Eltérő buildverzió: várt 2.3.17, kapott {match.group(1)}")
+          if match.group(1) != "2.3.18":
+              raise SystemExit(f"Eltérő buildverzió: várt 2.3.18, kapott {match.group(1)}")
           if "splashBackground" in manifest:
               raise SystemExit("HIBA: a webOS manifest még indítóképet állít be.")
           print(f"LG webOS verziók egyeznek: {match.group(1)}; nincs indítókép.")
@@ -184,7 +187,7 @@ jobs:
           import json
           from pathlib import Path
           packaged = json.loads(Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/appinfo.json").read_text())
-          if packaged.get("version") != "2.3.17":
+          if packaged.get("version") != "2.3.18":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
           if "splashBackground" in packaged:
               raise SystemExit("HIBA: a webOS appinfo.json még indítóképet állít be.")
@@ -202,7 +205,7 @@ jobs:
               raise SystemExit("HIBA: module script maradt a csomagban - a Chrome<61 TV-motorokon (webOS 3.x/4.0) az app el sem indulna!")
           if "IPTV-ES5-APP" not in html or "IPTV-ES5-POLYFILLS" not in html:
               raise SystemExit("HIBA: az ES5-re fordított app vagy a polyfill blokk hiányzik a csomagolt HTML-ből.")
-          print("OK: friss HTML, Magic Remote-kezelő, verzió 2.3.17; nincs csomagolt indítóvideó/kép.")
+          print("OK: friss HTML, Magic Remote-kezelő, verzió 2.3.18; nincs csomagolt indítóvideó/kép.")
           PY
           echo "OK: IPK tartalma rendben"
 
