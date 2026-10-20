@@ -8,6 +8,7 @@ import { AppSettings } from '../types/iptv';
  */
 export const INITIAL_SETTINGS: AppSettings = {
   bufferMode: 'stable',
+  playerEngine: 'html5',
   zappingDelay: 600,
   autoPlayLastChannel: true,
   closeListOnZap: true,

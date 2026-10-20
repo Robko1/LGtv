@@ -1,7 +1,7 @@
 import { ChannelLogo } from './ChannelLogo';
 import { APP_ICON_DATA_URL } from '../generatedIcon';
 import React, { useEffect, useRef, useState } from 'react';
-import { AppSettings, Channel, FavoriteFolder, ProviderAccount, BufferMode, SubtitleSize, WatchHistoryItem } from '../types/iptv';
+import { AppSettings, Channel, FavoriteFolder, ProviderAccount, BufferMode, PlayerEngine, SubtitleSize, WatchHistoryItem } from '../types/iptv';
 import {
   SlidersHorizontal,
   Tv,
@@ -654,6 +654,33 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         }`}
                       >
                         {bm === 'fast' ? 'Gyors' : (bm === 'balanced' ? 'Kiegyen...' : 'Stabil')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Lejátszómotor: HTML5 vagy a TV natív médiacsatornája */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="flex items-center gap-2 text-xs font-bold text-white">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10">📺</span>
+                    <span>Lejátszó</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    HTML5 = beépített videólejátszó. Natív = a TV saját médiacsatornája (webOS).
+                    Ha az egyik akadozik, próbáld a másikat – a választás mentésre kerül.
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    {(['html5', 'native'] as PlayerEngine[]).map((engine) => (
+                      <button
+                        key={engine}
+                        onClick={() => onUpdateSettings({ playerEngine: engine })}
+                        className={`py-2 rounded-xl text-xs font-black transition-all ${
+                          settings.playerEngine === engine
+                            ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                            : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
+                        }`}
+                      >
+                        {engine === 'html5' ? 'HTML5' : 'Natív (TV)'}
                       </button>
                     ))}
                   </div>

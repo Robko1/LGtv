@@ -155,8 +155,14 @@ export interface FavoriteFolder {
   channelIds: string[];
 }
 
+/** Lejátszómotor: 'html5' = normál webOS videóelem; 'native' = a TV saját
+ *  médiacsatornája (webOS mediaOption útvonal). */
+export type PlayerEngine = 'html5' | 'native';
+
 export interface AppSettings {
   bufferMode: BufferMode;
+  /** Lejátszómotor a Rendszer menüből; a választás mentésre kerül. */
+  playerEngine: PlayerEngine;
   zappingDelay: number; // 0, 200, 350, 600 ms
   autoPlayLastChannel: boolean;
   closeListOnZap: boolean;

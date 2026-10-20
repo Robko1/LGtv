@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.19
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.20
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.19 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.20 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -160,7 +160,7 @@
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.3.19') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.3.20') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -340,8 +340,17 @@
         '@keyframes iptvSlowSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }',
         '@keyframes iptvSlowPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }',
         '.webos-tv .animate-spin { animation: iptvSlowSpin 2.5s linear infinite !important; }',
-        '.webos-tv [class*="animate-[spin"] { animation: iptvSlowSpin 8s linear infinite !important; }',
-        '.webos-tv .animate-pulse, .webos-tv [class*="animate-[pulse"] { animation: iptvSlowPulse 4s ease-in-out infinite !important; }',
+        '/* TELJES SEBESSEG TV-N: a dekoracios, ALLANDOAN futo animaciok',
+        '   (porgo fogaskerek, pulzalo ora, ELO-potty ping) minden kepkockan',
+        '   ujrarajzoltattak a kepernyot a TV gyenge GPU-jan - ettol volt',
+        '   MINDEN lassu. A toltes-porgettyu (animate-spin) megmarad. */',
+        '.webos-tv [class*="animate-[spin"] { animation: none !important; }',
+        '.webos-tv .animate-pulse, .webos-tv [class*="animate-[pulse"] { animation: none !important; }',
+        '.webos-tv .animate-ping, .webos-tv [class*="animate-[ping"] { animation: none !important; opacity: 0.85; }',
+        '/* HATTERELMOSAS TILTVA TV-N: a backdrop-filter a fejlecen es a',
+        '   felugro ablakokon GPU-gyilkos a regi webOS-en - minden mozgast,',
+        '   kijeloles-ugrast es menyitast lassitott. */',
+        '.webos-tv *, .webos-tv *:before, .webos-tv *:after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }',
         '.webos-tv .video-player-container { max-width:1280px; margin:0 auto; }',
         '.webos-tv .channel-list { max-height:70vh; }',
         '/* Erős fókusz gyűrű TV-re – távirányítóhoz */',
@@ -1042,5 +1051,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.19 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.20 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();
