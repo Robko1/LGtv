@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.3.19';
+export const WEB_VERSION = '2.3.20';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.19'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.20'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.20',
+    date: '2026-10-20',
+    changes: [
+      'TELJES SEBESSÉG-ÁTVILÁGÍTÁS: a háttérelmosás (backdrop-blur) TV-n kikapcsolva - ez fékezte a fejlécet és minden felugró ablakot',
+      'A folyamatosan futó dekor-animációk (pörgő fogaskerék, pulzáló óra, ÉLŐ-pötty) TV-n leállítva - minden képkockán újrarajzoltatták a képernyőt',
+      'A lejátszó nem renderel újra másodpercenként: műsorhaladás 15 mp-enként egészre kerekítve, a kék óra időzítője csak teljes képernyőn fut',
+      'Görgetési pozíció mentése csak 400 ms nyugalom után (a tárolóírás minden nyíllépést fékezett)',
+      'ÚJ: Lejátszó választó a Rendszer menüben - HTML5 vagy Natív (TV, webOS médiacsatorna); a választás mentésre kerül és váltáskor azonnal újraindítja az adást',
+    ],
+  },
   {
     version: '2.3.19',
     date: '2026-10-20',

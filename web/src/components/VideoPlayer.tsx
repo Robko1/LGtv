@@ -177,6 +177,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // a zap-őr és az automatikus formátumváltás időzítése ehhez igazodik.
   const bufferModeRef = useRef(settings.bufferMode);
   bufferModeRef.current = settings.bufferMode;
+  // Lejátszómotor (Rendszer menü): 'html5' = sima videóelem, 'native' = a TV
+  // saját médiacsatornája (webOS mediaOption a <source> elemen keresztül).
+  const playerEngineRef = useRef(settings.playerEngine);
+  playerEngineRef.current = settings.playerEngine;
   const bufferTiming = () => {
     const mode = bufferModeRef.current;
     if (mode === 'fast') return { watchdogMs: 2500, retryMs: 150 };
@@ -754,6 +758,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const [blueClockTime, setBlueClockTime] = useState('');
   useEffect(() => {
+    // Az óra csak teljes képernyőn látszik - fölösleges időzítőt a főoldalon
+    // nem futtatunk (minden megspórolt ébresztés számít a TV-n).
+    if (!isFullscreen) return;
     const updateClock = () => {
       const now = new Date();
       setBlueClockTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
@@ -761,7 +768,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     updateClock();
     const timer = window.setInterval(updateClock, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isFullscreen]);
 
   useEffect(() => {
     if (isVod || !channel?.epgNow?.startTimestamp || !channel.epgNow.endTimestamp) { setEpgProgress(0); return; }
@@ -769,10 +776,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const start = Number(channel.epgNow?.startTimestamp || 0) * 1000;
       const end = Number(channel.epgNow?.endTimestamp || 0) * 1000;
       const percent = end > start ? ((Date.now() - start) / (end - start)) * 100 : 0;
-      setEpgProgress(Math.max(0, Math.min(100, percent)));
+      // EGÉSZRE kerekítve: a tört százalék másodpercenként új értéket adott,
+      // és az egész lejátszó-komponenst (OSD-stül) újrarajzoltatta a TV-n.
+      setEpgProgress(Math.round(Math.max(0, Math.min(100, percent))));
     };
     update();
-    const timer = window.setInterval(update, 1000);
+    const timer = window.setInterval(update, 15000);
     return () => window.clearInterval(timer);
   }, [isVod, channel?.id, channel?.epgNow?.startTimestamp, channel?.epgNow?.endTimestamp]);
 
@@ -1473,7 +1482,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       video.pause();
       video.removeAttribute('src');
-      video.src = url;
+      // Korábbi <source> gyerekek eltakarítása (motorváltásnál is tiszta lap).
+      while (video.firstChild) video.removeChild(video.firstChild);
+      if (playerEngineRef.current === 'native') {
+        // NATÍV MOTOR: a webOS a <source> type mezőjében kapott mediaOption
+        // JSON-nal a TV saját (UMS) médiacsatornáján indítja az adást.
+        const isHls = /\.m3u8(?=([?#]|$))/i.test(url);
+        const mime = isHls ? 'application/vnd.apple.mpegurl' : (/\.ts(?=([?#]|$))/i.test(url) ? 'video/mp2t' : 'video/mp4');
+        const mediaOption = encodeURIComponent(JSON.stringify({
+          mediaTransportType: 'URI',
+          option: { htmlMediaOption: { useUMSMediaInfo: true } },
+        }));
+        const sourceEl = document.createElement('source');
+        sourceEl.setAttribute('src', url);
+        sourceEl.setAttribute('type', `${mime};mediaOption=${mediaOption}`);
+        // A <source> hibája nem mindig jut el a videóelemig - továbbadjuk,
+        // hogy a formátumváltó/zap-őr lánc ugyanúgy működjön, mint HTML5-nél.
+        sourceEl.onerror = () => {
+          try { video.dispatchEvent(new Event('error')); } catch { /* régi motor */ }
+        };
+        video.appendChild(sourceEl);
+      } else {
+        video.src = url;
+      }
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
       video.load();
@@ -1517,7 +1548,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // újraindította a lejátszást – ez volt a „ne méretezzen/ugráljon össze-vissza”.
   const loadStreamRef = useRef(loadStream);
   loadStreamRef.current = loadStream;
-  const loadKey = `${streamUrl}|${settings.bufferMode}`;
+  const loadKey = `${streamUrl}|${settings.bufferMode}|${settings.playerEngine}`;
   useEffect(() => {
     clearAutoRetry();
     setActiveUrlIndex(0);
