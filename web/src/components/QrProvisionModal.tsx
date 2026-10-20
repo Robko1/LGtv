@@ -26,7 +26,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
   const { modalRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(isOpen, onClose, [code]);
 
   const initSession = async () => {
-    let session;
+    let session: { tvId: string; code: string; token: string; expiresAt: number };
     try {
       session = await createProvisionSession();
     } catch (e) {
