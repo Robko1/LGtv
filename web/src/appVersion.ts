@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.3.18';
+export const WEB_VERSION = '2.3.19';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.18'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.19'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.19',
+    date: '2026-10-20',
+    changes: [
+      'Újraindítás után tényleg a magyar csatornán folytat: mentéskor a magyar adók a lista elejére kerülnek, így kvóta-szűkítésnél sem vesznek el',
+      'Az indítóikon új fájlnéven kerül a csomagba (a webOS a régi nevet gyorsítótárazta)',
+      'Csatornalista: az alsó sor nem lóg le betöltött csatornáknál sem (képernyőhöz igazított sormagasság, min-h-0)',
+      'A lista fel/le mozgatása újra fürge: kis beégetett ikon a sorokban + az EPG-letöltők csak nyugalmi helyzetben indulnak újra',
+      'Villámgyors zapping teljes képernyőn: a program megjegyzi a működő formátumot (HLS/TS), és rögtön azzal indít',
+      'Pufferelés (Gyors/Kiegyensúlyozott/Stabil) ténylegesen bekötve a lejátszásba',
+      'Teljes képernyőn nem látszik át a fejléc kék óra doboza; a főoldali TV-dobozon nincs OSD és nem is fókuszálható',
+      'Színes gombok: KÉK = csatorna mozgatás mód (piros nyilak + kuka, sárga kurzorral), SÁRGA = kedvenc mappához adás, ZÖLD = hangsáv-választó',
+    ],
+  },
   {
     version: '2.3.18',
     date: '2026-10-20',

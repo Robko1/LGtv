@@ -34,7 +34,20 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-[#070d1d]/95 backdrop-blur-md border-b border-cyan-950/40 pl-0 pr-2 py-2 md:py-2.5 lg:py-3 flex items-center justify-between gap-2 md:gap-3 lg:gap-4 shadow-md">
+    <header
+      onKeyDown={(e) => {
+        // TV: a fejlécről LEFELÉ mindig a csatornalistára lépünk - a lejátszó
+        // doboz vagy az OSD soha nem lehet fókuszcél a főoldalon.
+        if ((e.key === 'ArrowDown' || e.key === 'Down' || (e as React.KeyboardEvent).keyCode === 40)) {
+          const list = document.querySelector<HTMLElement>('[role="listbox"]');
+          if (list) {
+            e.preventDefault();
+            e.stopPropagation();
+            list.focus({ preventScroll: true } as any);
+          }
+        }
+      }}
+      className="sticky top-0 z-40 bg-[#070d1d]/95 backdrop-blur-md border-b border-cyan-950/40 pl-0 pr-2 py-2 md:py-2.5 lg:py-3 flex items-center justify-between gap-2 md:gap-3 lg:gap-4 shadow-md">
       {/* Mozi/Sorozat nézetben a sorrend: hamburger, Élő TV, Mozi, Sorozat, óra. Reszponzív tablet/laptop/TV */}
       <div className="flex flex-1 items-center gap-1.5 md:gap-2 lg:gap-3 flex-nowrap min-w-0 mr-1">
         {/* Óra – ugyanakkora doboz, mint a Mozi/Sorozat/Országok */}

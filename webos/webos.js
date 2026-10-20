@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.18
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.19
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.18 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.19 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -160,7 +160,7 @@
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.3.18') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.3.19') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -297,7 +297,15 @@
         '   csatornalista doboz alja lelogott a kepernyorol - fix 100%. */',
         '.webos-tv [data-app-root] { height: 100% !important; min-height: 0 !important; max-height: 100% !important; }',
         '/* Teljes kepernyos lejatszo: dvh helyett vh a regi Chrome-on. */',
-        '.webos-tv [data-tv-player].fixed { width: 100vw !important; height: 100vh !important; }',
+        '.webos-tv [data-tv-player].fixed { width: 100vw !important; height: 100vh !important; z-index: 2147483000 !important; }',
+        '/* Teljes kepernyon a fooldal SEMMI eleme nem latszhat at (a bal',
+        '   felso sarokban a fejlec kek ora doboza latszott at). */',
+        'body.iptv-tv-fullscreen header { visibility: hidden !important; }',
+        '/* A fooldali kis lejatszo folott az OSD retegek TV-n nem jelennek',
+        '   meg (es a kijelolo sem ugorhat rajuk) - tiszta TV-kep a dobozban. */',
+        '.webos-tv [data-tv-player]:not(.fixed) [data-player-osd] { display: none !important; }',
+        '/* Regi webOS flexbox: a lista sose nojon a tartalommal a kepernyon tulra. */',
+        '.webos-tv [role="listbox"] { min-height: 0 !important; }',
         '/* A felugró ablak sose lógjon ki fent és lent. A korlát a BELSŐ',
         '   panelre vonatkozik, NEM a teljes képernyős sötét háttérrétegre',
         '   (a 86vh a háttérréteget rövidítette meg: alul vastag sáv látszott,',
@@ -377,6 +385,10 @@
         // Az offsetParent a position:fixed elemeknél null lehet, pedig láthatók.
         // A látható rect megbízhatóbban működik webOS-en és modális ablakokban.
         var hiddenAncestor = el.closest ? el.closest('[hidden]') : null;
+        // A TV lejátszó dobozába (és az OSD gombjaira) a kijelölő SOHA nem
+        // ugorhat át a főoldalról - csak teljes képernyőn (.fixed) él a doboz.
+        var playerBox = el.closest ? el.closest('[data-tv-player]') : null;
+        if (playerBox && playerBox.className.indexOf('fixed') === -1) return false;
         return !el.hasAttribute('disabled') && el.getClientRects().length > 0 &&
           !hiddenAncestor && el.getAttribute('aria-hidden') !== 'true';
       });
@@ -622,7 +634,9 @@
     if (kc === 404 || kc === 405 || kc === 406) {
       e.preventDefault();
       e.stopPropagation();
-      var tvAction = kc === 404 ? 'settings' : (kc === 405 ? 'epg' : 'categories');
+      // ZÖLD (404) = hangsáv-választó, SÁRGA (405) = kedvenc mappához adás,
+      // KÉK (406) = csatorna mozgatás mód a listában.
+      var tvAction = kc === 404 ? 'audio' : (kc === 405 ? 'favorite' : 'move');
       var evAction = null;
       try {
         evAction = new CustomEvent('iptv-tv-action', { detail: { action: tvAction } });
@@ -1028,5 +1042,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.18 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.19 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

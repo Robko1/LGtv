@@ -1658,7 +1658,10 @@ export function App() {
   useEffect(() => {
     const onTvAction = (e: Event) => {
       const action = (e as CustomEvent)?.detail?.action;
-      if (action === 'settings') setIsSettingsOpen((prev) => !prev);
+      // ZÖLD gomb: hangsáv-választó felugró (Audio).
+      if (action === 'audio') setIsAudioModalOpen((prev) => !prev);
+      // A 'move' (KÉK) és 'favorite' (SÁRGA) eseményeket a csatornalista kezeli.
+      else if (action === 'settings') setIsSettingsOpen((prev) => !prev);
       else if (action === 'epg') setIsEpgOpen((prev) => !prev);
       else if (action === 'categories') setIsCategoriesOpen((prev) => !prev);
     };
@@ -1923,6 +1926,7 @@ export function App() {
                 isOnlyFavorites={isOnlyFavorites}
                 selectedFavoriteFolderId={selectedFavoriteFolderId}
                 onDisplayOrderChange={handleDisplayOrderChange}
+                onAssignToFolder={handleAssignChannelToFolder}
                 onSelectFavoriteFolder={(folderId) => {
                   if (folderId) {
                     if (!selectedFavoriteFolderId) previousCategoryBeforeFolderRef.current = selectedCategoryId;

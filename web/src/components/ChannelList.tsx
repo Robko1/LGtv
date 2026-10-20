@@ -24,6 +24,8 @@ interface ChannelListProps {
   selectedFavoriteFolderId: string | null;
   onSelectFavoriteFolder: (folderId: string | null) => void;
   onDisplayOrderChange?: (orderedChannelIds: string[]) => void;
+  /** SÁRGA gomb: a kijelölt csatorna hozzáadása egy kedvenc mappához. */
+  onAssignToFolder?: (channelId: string, folderId: string) => void;
 }
 
 /**
@@ -62,6 +64,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   selectedFavoriteFolderId,
   onSelectFavoriteFolder,
   onDisplayOrderChange,
+  onAssignToFolder,
 }) => {
   // Sorszám szerinti rendezés és a Vissza gomb csak megnyitott kedvenc mappában működik.
   const [sortMode, setSortMode] = useState<'saved' | 'number' | 'back'>(() => {
@@ -74,6 +77,11 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     }
   });
   const [movingChannelId, setMovingChannelId] = useState<string | null>(null);
+  // KÉK gomb: távirányítós mozgatás mód. A sárga kurzor a piros fel nyílon
+  // indul, jobbra/balra nyíllal lép a le nyílra, majd a kukára; OK végrehajt.
+  const [moveCursor, setMoveCursor] = useState<'up' | 'down' | 'trash'>('up');
+  // SÁRGA gomb: kedvenc mappa választó felugró a kijelölt csatornához.
+  const [favoritePickChannelId, setFavoritePickChannelId] = useState<string | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const suppressNextClick = useRef(false);
   const lastReorderTapAt = useRef(0);
@@ -135,7 +143,18 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   const measureRows = React.useCallback(() => {
     const element = channelScrollRef.current;
     if (!element) return;
-    const usable = element.clientHeight - LIST_PADDING * 2;
+    // A sormagasság a KÉPERNYŐN ténylegesen látszó helyhez igazodik: ha a
+    // doboz a régi webOS hibás flex-számítása miatt a képernyőn túlra nyúlna,
+    // akkor is pontosan 10 sor férjen el a látható részben (az alsó sor alja
+    // korábban emiatt lógott le).
+    let available = element.clientHeight;
+    try {
+      const rect = element.getBoundingClientRect();
+      const viewportH = window.innerHeight || document.documentElement.clientHeight || rect.height;
+      const visible = viewportH - rect.top - 8;
+      if (visible > 0 && visible < available) available = visible;
+    } catch { /* mérés nélkül a clientHeight marad */ }
+    const usable = available - LIST_PADDING * 2;
     if (usable >= VISIBLE_ROWS * 44) {
       const pitch = usable / VISIBLE_ROWS;
       setRowPitch((previous) => (Math.abs(previous - pitch) > 0.5 ? pitch : previous));
@@ -180,6 +199,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       });
     };
     measureRows();
+    // Régi webOS-en nincs ResizeObserver: az elrendezés beállta után még
+    // kétszer újramérünk, hogy a 10 sor biztosan a látható részhez igazodjon.
+    const lateMeasure1 = window.setTimeout(() => { measureRows(); computeWindow(); }, 500);
+    const lateMeasure2 = window.setTimeout(() => { measureRows(); computeWindow(); }, 2000);
     element.addEventListener('scroll', onScroll, { passive: true });
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onScroll) : null;
     observer?.observe(element);
@@ -189,6 +212,8 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       observer?.disconnect();
       window.removeEventListener('resize', onScroll);
       if (frame) window.cancelAnimationFrame(frame);
+      window.clearTimeout(lateMeasure1);
+      window.clearTimeout(lateMeasure2);
     };
   }, [computeWindow, measureRows]);
 
@@ -238,10 +263,9 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     let cancelled = false;
     let cursor = 0;
     // Csak azokat kérjük le, amelyekhez nincs gyorsítótárazott adat.
-    const queue = epgQueue.filter((channel) => {
-      const streamId = streamIdFor(channel);
-      return !!streamId && getCachedShortEpg(activeProvider, streamId, 6).length === 0;
-    });
+    // A sor kiszámítása a 400 ms-os nyugalmi késleltetés után történik (lásd
+    // lent): nyíllal lépkedés közben nem olvassuk végig a gyorsítótárat.
+    let queue: typeof epgQueue = [];
 
     const updateFromCache = () => {
       setLocalEpg((previous) => {
@@ -268,7 +292,6 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       });
     };
 
-    updateFromCache();
     // A háttérben betöltött műsorokat NEM soronként írjuk ki az állapotba:
     // 400 ms-onként egyetlen frissítés viszi ki az összegyűlt adagokat.
     const pending = new Map<string, ReturnType<typeof nowNextFromEpg>>();
@@ -314,9 +337,21 @@ export const ChannelList: React.FC<ChannelListProps> = ({
         await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
       }
     };
-    void Promise.all([worker(), worker(), worker()]);
+    // NYUGALMI KÉSLELTETÉS: a kijelölő mozgatása közben az ablak minden
+    // lépésnél odébb csúszik - a munkások újraindítása csak akkor történik
+    // meg, amikor a néző megállt (ettől lett újra fürge a lista a TV-n).
+    const startTimer = window.setTimeout(() => {
+      if (cancelled) return;
+      queue = epgQueue.filter((channel) => {
+        const streamId = streamIdFor(channel);
+        return !!streamId && getCachedShortEpg(activeProvider, streamId, 6).length === 0;
+      });
+      updateFromCache();
+      void Promise.all([worker(), worker(), worker()]);
+    }, 400);
     return () => {
       cancelled = true;
+      window.clearTimeout(startTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
     };
   }, [epgReady, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
@@ -453,9 +488,94 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     return false;
   };
 
+  // TV távirányító színes gombjai (webos.js-ből): KÉK = mozgatás mód a
+  // kijelölt csatornán, SÁRGA = hozzáadás kedvenc mappához felugró.
+  useEffect(() => {
+    const onTvAction = (e: Event) => {
+      const action = (e as CustomEvent)?.detail?.action;
+      if (action !== 'move' && action !== 'favorite') return;
+      // Nyitott felugró ablak alatt a színes gomb ne piszkálja a listát.
+      if (document.querySelector('[role="dialog"]')) return;
+      const targetId = highlightedId || selectedChannelId;
+      if (!targetId) return;
+      if (action === 'move') {
+        setFavoritePickChannelId(null);
+        setMovingChannelId((previous) => (previous ? null : targetId));
+        setMoveCursor('up');
+        channelScrollRef.current?.focus({ preventScroll: true } as any);
+      } else {
+        setMovingChannelId(null);
+        setFavoritePickChannelId(targetId);
+      }
+    };
+    window.addEventListener('iptv-tv-action', onTvAction);
+    return () => window.removeEventListener('iptv-tv-action', onTvAction);
+  }, [highlightedId, selectedChannelId]);
+
+  // A kedvenc mappa felugró első gombja azonnal fókuszt kap (távirányító).
+  useEffect(() => {
+    if (!favoritePickChannelId) return;
+    const timer = window.setTimeout(() => {
+      const btn = document.querySelector<HTMLElement>('[data-favorite-pick] button');
+      btn?.focus({ preventScroll: true } as any);
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [favoritePickChannelId]);
+
+  /** Mozgatás után a sor maradjon látható (a kijelölés a csatornával megy). */
+  const keepMovingRowVisible = (channelId: string) => {
+    window.requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-channel-id="${channelId}"]`) as HTMLElement | null;
+      if (!el) return;
+      const legacy = el as HTMLElement & { scrollIntoViewIfNeeded?: (center?: boolean) => void };
+      if (typeof legacy.scrollIntoViewIfNeeded === 'function') legacy.scrollIntoViewIfNeeded(false);
+      else if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+    });
+  };
+
   const handleListKeyDown = (e: React.KeyboardEvent) => {
     // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
     const key = normalizeTvKey(e);
+    // MOZGATÁS MÓD (KÉK gomb): a sárga kurzor a piros nyilak/kuka között jár,
+    // az OK végrehajtja a kijelölt műveletet, a Vissza kilép a módból.
+    if (movingChannelId) {
+      const movingIndex = visibleChannels.findIndex((c) => c.id === movingChannelId);
+      e.preventDefault();
+      e.stopPropagation();
+      if (key === 'ArrowRight') {
+        setMoveCursor((c) => (c === 'up' ? 'down' : 'trash'));
+      } else if (key === 'ArrowLeft') {
+        setMoveCursor((c) => (c === 'trash' ? 'down' : 'up'));
+      } else if (key === 'ArrowUp') {
+        if (movingIndex > 0) {
+          onMoveChannel?.(movingChannelId, 'up');
+          keepMovingRowVisible(movingChannelId);
+        }
+      } else if (key === 'ArrowDown') {
+        if (movingIndex >= 0 && movingIndex < visibleChannels.length - 1) {
+          onMoveChannel?.(movingChannelId, 'down');
+          keepMovingRowVisible(movingChannelId);
+        }
+      } else if (key === 'Enter' || key === ' ') {
+        if (moveCursor === 'up') {
+          if (movingIndex > 0) {
+            onMoveChannel?.(movingChannelId, 'up');
+            keepMovingRowVisible(movingChannelId);
+          }
+        } else if (moveCursor === 'down') {
+          if (movingIndex >= 0 && movingIndex < visibleChannels.length - 1) {
+            onMoveChannel?.(movingChannelId, 'down');
+            keepMovingRowVisible(movingChannelId);
+          }
+        } else {
+          onDeleteChannel(movingChannelId);
+          setMovingChannelId(null);
+        }
+      } else if (key === 'Escape' || key === 'Backspace') {
+        setMovingChannelId(null);
+      }
+      return;
+    }
     if (key === 'ArrowLeft') {
       // BALRA: a TV lejátszó doboz NEM fókuszcél többé - a jelölő a listán marad.
       e.preventDefault();
@@ -572,7 +692,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   }, []);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070e1e] overflow-hidden md:bg-[#070e1e] lg:bg-[#070e1e] xl:bg-[#070e1e] 2xl:bg-[#070e1e]">
+    <div className="flex-1 min-h-0 h-full flex flex-col bg-[#070e1e] overflow-hidden md:bg-[#070e1e] lg:bg-[#070e1e] xl:bg-[#070e1e] 2xl:bg-[#070e1e]">
       {/* Az „Összes” után közvetlenül a létrehozott kedvenc mappák jelennek meg; nincs csatornakategória vagy külön mappanyitó. */}
       <div className="px-2 py-2 bg-[#070f22] border-b border-cyan-950/60 overflow-x-auto shrink-0">
         <div className="flex items-center gap-2 min-w-max">
@@ -624,7 +744,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
         tabIndex={0}
         onKeyDown={handleListKeyDown}
         onScroll={(event) => saveChannelScrollPosition(event.currentTarget)}
-        className="flex-1 overflow-y-auto focus:outline-none md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"
+        className="flex-1 min-h-0 overflow-y-auto focus:outline-none md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"
         role="listbox"
         aria-label="Csatornalista – nyilakkal navigálható, Enterrel választható, egérrel kattintható"
       >
@@ -714,6 +834,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                       if (key === 'Enter' || key === ' ') {
                         e.preventDefault();
                         e.stopPropagation();
+                        if (movingChannelId) return; // mozgatás módban az OK a nyilakhoz tartozik
                         setHighlightedId(ch.id);
                         onSelectChannel(ch);
                       }
@@ -791,7 +912,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                             disabled={index === 0}
                             onClick={(e) => { e.stopPropagation(); onMoveChannel(ch.id, 'up'); }}
                             onPointerDown={(e) => e.stopPropagation()}
-                            className="p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 hover:bg-red-700 disabled:opacity-20 active:scale-90"
+                            className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 hover:bg-red-700 disabled:opacity-20 active:scale-90 ${moveCursor === 'up' ? 'ring-4 ring-amber-400 scale-110' : ''}`}
                             title="Mozgatás felfelé"
                             aria-label="Csatorna mozgatása felfelé"
                           >
@@ -801,7 +922,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                             disabled={index === visibleChannels.length - 1}
                             onClick={(e) => { e.stopPropagation(); onMoveChannel(ch.id, 'down'); }}
                             onPointerDown={(e) => e.stopPropagation()}
-                            className="p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 hover:bg-red-700 disabled:opacity-20 active:scale-90"
+                            className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 hover:bg-red-700 disabled:opacity-20 active:scale-90 ${moveCursor === 'down' ? 'ring-4 ring-amber-400 scale-110' : ''}`}
                             title="Mozgatás lefelé"
                             aria-label="Csatorna mozgatása lefelé"
                           >
@@ -817,7 +938,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                             setMovingChannelId(null);
                           }}
                           onPointerDown={(e) => e.stopPropagation()}
-                          className="p-1.5 rounded-xl text-white bg-red-950 border border-red-500/80 hover:bg-red-800 active:scale-90"
+                          className={`p-1.5 rounded-xl text-white bg-red-950 border border-red-500/80 hover:bg-red-800 active:scale-90 ${moveCursor === 'trash' ? 'ring-4 ring-amber-400 scale-110' : ''}`}
                           title={selectedFavoriteFolderId ? 'Eltávolítás ebből a kedvenc mappából' : 'Csatorna törlése az ország/lista csatornái közül'}
                           aria-label={selectedFavoriteFolderId ? `Eltávolítás a kedvenc mappából: ${ch.name}` : `Csatorna törlése: ${ch.name}`}
                         >
@@ -832,6 +953,70 @@ export const ChannelList: React.FC<ChannelListProps> = ({
           </div>
         )}
       </div>
+
+      {/* SÁRGA gomb: kedvenc mappa választó felugró a kijelölt csatornához. */}
+      {favoritePickChannelId && (() => {
+        const channel = channels.find((c) => c.id === favoritePickChannelId)
+          || visibleChannels.find((c) => c.id === favoritePickChannelId);
+        const close = () => {
+          setFavoritePickChannelId(null);
+          channelScrollRef.current?.focus({ preventScroll: true } as any);
+        };
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Hozzáadás kedvenc mappához"
+            data-favorite-pick=""
+            className="fixed inset-0 z-[140] flex items-center justify-center p-6 bg-black/75"
+            onClick={(e) => { if (e.target === e.currentTarget) close(); }}
+            onKeyDown={(e) => {
+              const key = normalizeTvKey(e);
+              if (key === 'Escape' || key === 'Backspace') {
+                e.preventDefault();
+                e.stopPropagation();
+                close();
+              }
+            }}
+          >
+            <div className="w-full max-w-md rounded-2xl bg-[#081329] border-2 border-amber-400/70 shadow-2xl p-4 space-y-2">
+              <h3 className="text-base font-black text-amber-300">
+                ⭐ Kedvencekhez adás
+              </h3>
+              <p className="text-sm text-slate-300 truncate">
+                {channel ? channel.name : 'Csatorna'} – válassz kedvenc mappát:
+              </p>
+              <div className="max-h-[50vh] overflow-y-auto space-y-1.5 pt-1">
+                {folders.length === 0 ? (
+                  <p className="text-sm text-slate-400 leading-relaxed">
+                    Még nincs kedvenc mappa. Hozz létre egyet a Menü → Kedvencek fülön,
+                    utána a SÁRGA gombbal ide tudod tenni a csatornákat.
+                  </p>
+                ) : folders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => {
+                      if (channel) onAssignToFolder?.(channel.id, folder.id);
+                      close();
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl bg-[#0d1c3a] border border-cyan-700/50 text-slate-100 text-sm font-bold hover:bg-[#142b56] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  >
+                    {folder.icon || '📁'} {folder.name}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={close}
+                className="w-full px-3 py-2 rounded-xl bg-slate-700/70 text-slate-200 text-sm font-bold hover:bg-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              >
+                Mégse
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
