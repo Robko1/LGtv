@@ -1,6 +1,20 @@
-export const WEB_VERSION = '2.3.10';
+export const WEB_VERSION = '2.3.11';
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.11',
+    date: '2026-10-20',
+    changes: [
+      "FÓKUSZ-PINGPONG JAVÍTVA: a QR és az Új mappa ablakban eddig a jelölő be-beugrott, majd visszaugrott a háttérben lévő Beállításokba, mert több időzítő is egymástól rabolta a fókuszt. Mostantól SOHA nem veheti el a fókuszt egy alul lévő ablak a legfelsőtől.",
+      "KISEBB FELUGRÓ ABLAKOK: az 1.4x nagyítás teljesen eltávolítva (régebbi webOS-en hibásan vágta le az ablakok tetejét/alját). Helyette betűméret-nagyítás van, az ablakok legfeljebb a képernyő 86%-áig érnek és mindig teljesen kiférnek.",
+      "KÉPERNYŐSZÉL (overscan) JAVÍTVA: az óra doboz és a TV-lejátszó bal széle nem lóg ki többé a képernyőről – az app biztonsági margót kapott körben.",
+      "FŐOLDAL: az Országok és a Sorozat doboz helyet cserélt (sorrend: óra, Sorozat, Mozi, Országok), és mind a négy doboz egyforma méretű lett.",
+      "Rendszer fül: az aljáig le lehet görgetni, a legalsó doboz is teljesen látszik.",
+      "Beállítások nyitásakor a sárga jelölő mindig az AKTÍV fül gombjára ugrik (alapból a Kedvencek) – nem a Listákra.",
+      "QR hibakeresés: ha a tárolók (ntfy.sh / kvdb.io / jsonblob.com) nem érhetők el a TV-ről, a hibaüzenet mostantól szolgáltatásonként kiírja a pontos okot (HTTP kód vagy hálózati hiba).",
+      "Verzió: 2.3.11 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.10',
     date: '2026-10-19',

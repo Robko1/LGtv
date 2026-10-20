@@ -21,6 +21,15 @@ export function useTvModalNavigation(isOpen: boolean, onClose: () => void, deps:
         // navigál benne), nem nyúlunk hozzá.
         const ae = document.activeElement as HTMLElement | null;
         if (ae && container.contains(ae) && ae !== container) return;
+        // Ha a fókusz egy FELETTÜNK nyitott ablakban van (a webos.js nyitási
+        // sorszáma nagyobb), szintén tilos elrabolni.
+        const aeDlg = (ae && ae.closest ? ae.closest('[role="dialog"]') : null) as HTMLElement | null;
+        const myDlg = (container.closest('[role="dialog"]') || container.querySelector('[role="dialog"]')) as HTMLElement | null;
+        if (aeDlg && myDlg && aeDlg !== myDlg) {
+          const aSeq = parseInt(aeDlg.getAttribute('data-iptv-dlgseq') || '0', 10);
+          const mSeq = parseInt(myDlg.getAttribute('data-iptv-dlgseq') || '0', 10);
+          if (aSeq > 0 && aSeq >= mSeq) return;
+        }
         const focusable = container.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
         );
