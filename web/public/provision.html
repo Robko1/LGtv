@@ -62,20 +62,12 @@
       <input id="xt_host" type="text" placeholder="http://pro.hu:8080 vagy pro.hu" autocomplete="off" />
     </div>
     <div class="field">
-      <label>Port (opcionális, ha URL-ben benne van, hagyd üresen)</label>
-      <input id="xt_port" type="text" placeholder="8080" autocomplete="off" />
-    </div>
-    <div class="field">
       <label>Felhasználónév</label>
       <input id="xt_user" type="text" placeholder="username" autocomplete="off" />
     </div>
     <div class="field">
       <label>Jelszó</label>
       <input id="xt_pass" type="password" placeholder="password" autocomplete="off" />
-    </div>
-    <div class="field">
-      <label>Lista neve (opcionális)</label>
-      <input id="xt_name" type="text" placeholder="Saját lista" autocomplete="off" />
     </div>
   </div>
 
@@ -86,10 +78,6 @@
     <div class="field">
       <label>M3U URL (http://.../playlist.m3u)</label>
       <input id="m3u_url" type="url" placeholder="http://example.com/get.php?username=...&password=...&type=m3u_plus" autocomplete="off" />
-    </div>
-    <div class="field">
-      <label>Lista neve (opcionális)</label>
-      <input id="m3u_name" type="text" placeholder="Saját M3U" autocomplete="off" />
     </div>
   </div>
 
@@ -148,8 +136,7 @@ async function sendToTv() {
       showStatus('A szerver, felhasználónév és jelszó kötelező.', 'err');
       btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return;
     }
-    payload = { type:'xtream', host, port:document.getElementById('xt_port').value.trim(),
-      username, password, name:document.getElementById('xt_name').value.trim() || 'Telefonról',
+    payload = { type:'xtream', host, username, password,
       code, createdAt:new Date().toISOString() };
   } else {
     const url = document.getElementById('m3u_url').value.trim();
@@ -157,7 +144,7 @@ async function sendToTv() {
       showStatus('Érvényes http:// vagy https:// M3U URL szükséges.', 'err');
       btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return;
     }
-    payload = { type:'m3u', url, name:document.getElementById('m3u_name').value.trim() || 'Telefonról M3U',
+    payload = { type:'m3u', url,
       code, createdAt:new Date().toISOString() };
   }
   try {
