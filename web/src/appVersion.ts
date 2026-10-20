@@ -1,6 +1,22 @@
-export const WEB_VERSION = '2.3.15';
+export const WEB_VERSION = '2.3.16';
+
+// A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
+// diagnosztikához - így az mindig a valóban futó kiadást mutatja.
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.16'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.16',
+    date: '2026-10-20',
+    changes: [
+      "CSATORNALISTA: pontosan 10 csatorna látszik egyszerre, a sorok és az írás arányosan megnőttek (logó, név, EPG, műsorcsík mind nagyobb), és minden sor kerete-alja teljesen látszik. A csillag gomb kikerült a sorokból.",
+      "LISTÁZÁS ≠ CSATORNAVÁLTÁS: a fel/le nyíl csak a sárga kijelölést mozgatja (böngészés), csatornát KIZÁRÓLAG az OK gomb vált. Így a lépegetés villámgyors, mert böngészés közben semmi nem töltődik - a stream csak az OK-ra indul.",
+      "MOZI ÉS SOROZAT BETÖLTÉS JAVÍTVA: a TV-s 'gyors mód' a filmeket/sorozatokat egy soha el nem készült lusta betöltésre hagyta, ezért maradtak üresen. Mostantól betöltéskor ÉS frissítéskor is teljesen letöltődnek (az élő csatornák továbbra is elsőként jelennek meg).",
+      "ORSZÁG ÉS UTOLSÓ CSATORNA MEGMARAD: az alapértelmezett mindig Magyarország; a betöltés/frissítés nem vált másik országra és nem írja felül az utoljára nézett csatornát - újraindítás után is ott folytatja.",
+      "PIROS gombos diagnosztika: a verziószám mostantól a futó alkalmazásból jön, nem beégetett szám (eddig 2.3.13-at mutatott).",
+      "Verzió: 2.3.16 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.15',
     date: '2026-10-20',
