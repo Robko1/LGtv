@@ -1,10 +1,25 @@
-export const WEB_VERSION = '2.4.0';
+export const WEB_VERSION = '2.4.1';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.0'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.1'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.1',
+    date: '2026-10-20',
+    changes: [
+      'CSATORNAVÁLTÁS: a váltás útjáról kikerült minden szinkron tárolóírás és a felesleges teljes újrarajzolás - a kép azonnal indul',
+      'A lejátszó váltáskor már nem bontja le teljesen a dekódert (nincs üres load()), ez webOS-on 0,3-1 másodpercet spórol',
+      'Az EPG-frissítés már nem építi újra a teljes csatornatömböt: a váltás utáni akadás megszűnt',
+      'FŐOLDALI KIJELÖLŐ: szigorú, zónás navigáció - fejléc -> kedvencek mappasáv -> csatornalista; a lejátszóra és az OSD-re a kijelölő SOHA nem lép',
+      'A csatornalista végén lefelé (és a tetején felfelé) a kedvencek mappasávjára lép, onnan felfelé a Beállítások, onnan jobbra/balra a menüsor',
+      'Nincs több nagy kék doboz a listán és a menüsoron: csak a sárga kijelölő mozog',
+      'A kilépés (piros X) gomb kikerült a távirányítós kijelölésből',
+      'TELJES KÉPERNYŐ: a kép a teljes kijelzőt kitölti (nincs bal oldali fekete sáv, nincs kék szegély a sarkokban)',
+      'ÓRA: új beállítás (Menü -> Rendszer -> Óra beállítása) - ha a TV UTC-t ad vissza, a felület órája a valós helyi időt mutatja',
+    ],
+  },
   {
     version: '2.4.0',
     date: '2026-10-20',

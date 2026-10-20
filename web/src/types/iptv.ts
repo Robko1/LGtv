@@ -167,6 +167,14 @@ export interface AppSettings {
   /** Lejátszómotor a Rendszer menüből; a választás mentésre kerül. */
   playerEngine: PlayerEngine;
   zappingDelay: number; // 0, 200, 350, 600 ms
+  /**
+   * Óra eltolása órában (-12 … +12).
+   *
+   * A webOS TV böngészőmotorja néha a TV beállított időzónája helyett UTC-t ad
+   * vissza (Írországban ez pontosan 1 óra eltérés nyáron). Ezzel a beállítással
+   * a felület órája a valós helyi időt mutatja; 0 = a készülék órája.
+   */
+  clockOffsetHours: number;
   autoPlayLastChannel: boolean;
   closeListOnZap: boolean;
   swipeToZap: boolean;

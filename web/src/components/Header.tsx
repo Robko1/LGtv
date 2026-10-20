@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Film, Tv, Layers, Clock, Settings, X } from 'lucide-react';
+import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 
 interface HeaderProps {
   activeView: 'live' | 'movies' | 'series';
   onViewChange: (view: 'live' | 'movies' | 'series') => void;
   onOpenCategories: () => void;
   onOpenSettings: (tab?: 'channels' | 'lists' | 'favorites' | 'system') => void;
+  /** Óra eltolása órában (0 = a készülék órája). */
+  clockOffsetHours?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -13,21 +16,23 @@ export const Header: React.FC<HeaderProps> = ({
   onViewChange,
   onOpenCategories,
   onOpenSettings,
+  clockOffsetHours = 0,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
 
+  // Az óra a beállított eltolással számol (a webOS néha UTC-t ad vissza a
+  // helyi idő helyett). Csak a kijelzett percérték változásakor rajzolunk.
+  const offset = normalizeClockOffset(clockOffsetHours);
   useEffect(() => {
     const updateTime = () => {
-      const now = new Date();
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      setCurrentTime(`${hours}:${minutes}`);
+      const next = formatClockTime(offset);
+      setCurrentTime((previous) => (previous === next ? previous : next));
     };
 
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [offset]);
 
   const handleExitApp = () => {
     window.close();
@@ -60,6 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
         {activeView !== 'live' && (
           <button
             onClick={() => onViewChange('live')}
+            data-tv-header=""
             className="flex flex-1 min-w-0 items-center justify-center gap-1.5 px-1.5 h-10 md:h-11 lg:h-12 rounded-xl text-[11px] sm:text-sm md:text-sm lg:text-base font-bold transition-all border active:scale-95 bg-cyan-600 hover:bg-cyan-500 md:hover:bg-cyan-500 text-white border-cyan-400/60 shadow-lg shadow-cyan-900/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
             aria-label="TV"
             title="TV"
@@ -71,6 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={() => onViewChange('series')}
+          data-tv-header=""
           className={`flex flex-1 min-w-0 items-center justify-center gap-1.5 px-1.5 h-10 md:h-11 lg:h-12 rounded-xl text-[11px] sm:text-sm md:text-sm lg:text-base font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
             activeView === 'series'
               ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
@@ -83,6 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={() => onViewChange('movies')}
+          data-tv-header=""
           className={`flex flex-1 min-w-0 items-center justify-center gap-1.5 px-1.5 h-10 md:h-11 lg:h-12 rounded-xl text-[11px] sm:text-sm md:text-sm lg:text-base font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
             activeView === 'movies'
               ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-lg shadow-amber-950/40'
@@ -96,6 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
         {activeView === 'live' && (
           <button
             onClick={onOpenCategories}
+            data-tv-header=""
             className="flex flex-1 min-w-0 items-center justify-center gap-1.5 px-1.5 h-10 md:h-11 lg:h-12 rounded-xl text-[11px] sm:text-sm md:text-sm lg:text-base font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer"
             title="Országok – kategóriák és csatornalisták"
           >
@@ -114,6 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex shrink-0 items-center gap-2 md:gap-3 ml-0">
         <button
           data-tv-header-default=""
+          data-tv-header=""
           onClick={() => onOpenSettings()}
           className="flex shrink-0 items-center justify-center w-10 h-10 md:w-11 md:h-11 lg:w-12 lg:h-12 rounded-xl bg-amber-400 hover:bg-amber-300 md:hover:bg-amber-300 text-slate-950 shadow-lg shadow-amber-500/20 active:scale-95 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer"
           title="Menü & Beállítások"
@@ -123,6 +133,11 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
         <button
           onClick={handleExitApp}
+          // A távirányító kijelölője SOHA ne álljon meg a kilépésen: a főoldalon
+          // csak a menüsor, a mappák és a csatornalista járható.
+          tabIndex={-1}
+          data-tv-skip=""
+          aria-hidden="true"
           className="flex shrink-0 items-center justify-center w-8 h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 text-red-500 hover:text-red-400 active:scale-90 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer bg-transparent"
           title="Kilépés az alkalmazásból"
           aria-label="Kilépés az alkalmazásból"

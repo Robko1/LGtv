@@ -3,6 +3,7 @@ import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
 import { Play, Pause, Volume2, VolumeX, Rewind, FastForward, PictureInPicture2, Languages, Captions, Cast, Clock, Film, X, Mic2, Check } from 'lucide-react';
 import { appLog } from '../services/appLog';
 import { normalizeTvKey } from '../utils/tvKeys';
+import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
@@ -68,12 +69,13 @@ function readNativeMediaTracks(api: NativeApi | null) {
  * (nagy) lejátszó felületet. Korábban ez a lejátszó gyökérállapotában volt,
  * ezért a TV-n másodpercenként újrarajzolódott az egész OSD.
  */
-const BlueClock: React.FC<{ className?: string }> = ({ className }) => {
+const BlueClock: React.FC<{ className?: string; offsetHours?: number }> = ({ className, offsetHours = 0 }) => {
   const [time, setTime] = useState('');
+  const offset = normalizeClockOffset(offsetHours);
   useEffect(() => {
     const update = () => {
-      const now = new Date();
-      setTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+      const next = formatClockTime(offset);
+      setTime((previous) => (previous === next ? previous : next));
     };
     update();
     const timer = window.setInterval(update, 1000);
@@ -85,7 +87,7 @@ const BlueClock: React.FC<{ className?: string }> = ({ className }) => {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [offset]);
   return (
     <div
       data-blue-clock
@@ -1534,7 +1536,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     try {
       video.pause();
-      video.removeAttribute('src');
+      // GYORS VÁLTÁS: korábban itt `removeAttribute('src')` + `load()` állt,
+      // ami a lejátszó teljes lebontását és újraindítását kényszerítette
+      // (webOS-on 0,3-1 másodperc). A `src` felülírása ugyanúgy megszakítja a
+      // régi adást, csak a dekóder újraindítása marad el.
       // Korábbi <source> gyerekek eltakarítása (motorváltásnál is tiszta lap).
       while (video.firstChild) video.removeChild(video.firstChild);
       if (playerEngineRef.current === 'native') {
@@ -1555,12 +1560,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           try { video.dispatchEvent(new Event('error')); } catch { /* régi motor */ }
         };
         video.appendChild(sourceEl);
+        // A <source> alapú lejátszáshoz kötelező a load(), a közvetlen src-nél
+        // a böngésző magától elindítja a betöltést.
+        video.load();
       } else {
         video.src = url;
+        video.load();
       }
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
-      video.load();
       const playPromise = video.play();
       setIsPlaying(true);
       // ZAP-ŐR: ha az élő adás nem indul el időben (a HLS-próba csak "lóg",
@@ -1609,8 +1617,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // GYORS ZAPPOLÁS: megjegyezzük, melyik formátum (HLS vagy MPEG-TS) indult
     // el legutóbb sikeresen, és csatornaváltásnál rögtön azzal próbálkozunk -
     // így nem megy el másodpercekig tartó zap-őr várakozás minden váltásnál.
-    let preferTs = false;
-    try { preferTs = window.localStorage.getItem('iptv_rt_live-format') === 'ts'; } catch { /* tároló nélkül HLS marad */ }
+    //
+    // FONTOS (a csatornaváltás lassúsága): korábban az első próba MINDIG a
+    // szolgáltató címéből átírt .m3u8 volt. Az átírás egy plusz kérést és egy
+    // lejátszási lista feldolgozását jelentette minden váltásnál, ami webOS-on
+    // fél-egy másodperc. Most a szolgáltató által adott cím megy először
+    // (általában .ts), és csak ha az nem indul el, váltunk .m3u8-ra. Ha a
+    // legutóbb sikeres formátum HLS volt, azt használjuk elsőként.
+    let storedFormat = '';
+    try { storedFormat = window.localStorage.getItem('iptv_rt_live-format') || ''; } catch { /* tároló nélkül az eredeti cím */ }
+    const preferTs = storedFormat !== 'hls';
     const hlsUrl = streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
     const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
       ? streamUrl
@@ -1850,7 +1866,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={htmlVideoRef}
             data-iptv-player="true"
             className="block h-full w-full bg-black"
-            style={{ objectFit: 'contain' }}
+            // Fekvő teljes képernyőn KITÖLTÉS (nincs oldalsó fekete sáv, a kép a
+            // teljes kijelzőt használja), egyébként a 16:9-et megtartó illesztés.
+            style={{ objectFit: isFullscreen && !isPortrait ? 'fill' : 'contain' }}
             playsInline
             preload="auto"
             onPlaying={() => {
@@ -1992,6 +2010,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Kék óra az OSD2-ben; teljes képernyőn az OSD elrejtése után is megmarad, ha a beállítás be van kapcsolva. */}
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
         <BlueClock
+          offsetHours={settings.clockOffsetHours}
           className={`absolute top-3 z-40 box-border max-w-[calc(100%-1.5rem)] flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-4 py-2 font-mono text-2xl font-semibold tracking-wider text-cyan-200 shadow-lg pointer-events-none ${isVod || landscapeLiveFullscreen || (isFullscreen && isPortrait && !isVod) ? 'right-3' : 'right-14'}`}
         />
       )}

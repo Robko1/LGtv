@@ -246,9 +246,20 @@ export function App() {
     storageService.saveUiState({ activeView, selectedCategoryId, isOnlyFavorites, searchQuery });
   }, [activeView, selectedCategoryId, isOnlyFavorites, searchQuery]);
 
+  /**
+   * A NÉZETT csatorna műsora (most/elkövetkező) külön, kis állapotban.
+   *
+   * FONTOS (a csatornaváltás lassúsága): korábban az EPG-frissítés a TELJES
+   * csatornatömböt (20-60 ezer elem) újraépítette egy `map`-pel. Ettől minden
+   * nagy memo (országkategóriák, szűrt lista, sorszám, ID-térkép) újraszámolódott,
+   * a csatornalista pedig teljesen újrarajzolódott – éppen a váltás pillanatában.
+   * Most csak ez az egy bejegyzés változik, a `channels` tömb azonos marad.
+   */
+  const [activeEpg, setActiveEpg] = useState<{ id: string; now?: Channel['epgNow']; next?: Channel['epgNext'] } | null>(null);
+
   // Active Channel / Media State
   const [activeChannelId, setActiveChannelId] = useState<string>(() => {
-    const saved = settings.lastPlayedChannelId;
+    const saved = storageService.getLastChannelId() || settings.lastPlayedChannelId;
     const initialCountryCode = selectedCategoryId.startsWith('country-')
       ? selectedCategoryId.slice('country-'.length)
       : 'HU';
@@ -354,8 +365,12 @@ export function App() {
 
   // Active channel reference
   const activeChannel = useMemo(() => {
-    return channelsById.get(activeChannelId) || channels[0] || null;
-  }, [channelsById, channels, activeChannelId]);
+    const base = channelsById.get(activeChannelId) || channels[0] || null;
+    if (!base || !activeEpg || activeEpg.id !== base.id) return base;
+    // Csak akkor készítünk új objektumot, ha tényleg változott a műsor.
+    if (base.epgNow === activeEpg.now && base.epgNext === activeEpg.next) return base;
+    return { ...base, epgNow: activeEpg.now, epgNext: activeEpg.next };
+  }, [channelsById, channels, activeChannelId, activeEpg]);
 
   // A csatornalista a kiválasztott kategóriát, a kedvenceket vagy a kiválasztott mappát mutatja.
   const filteredChannels = useMemo(() => {
@@ -453,15 +468,7 @@ export function App() {
       ) {
         return;
       }
-      setChannels((prev) => {
-        let changed = false;
-        const nextChannels = prev.map((item) => {
-          if (item.id !== channel.id) return item;
-          changed = true;
-          return { ...item, epgNow: nextNow, epgNext: nextNext };
-        });
-        return changed ? nextChannels : prev;
-      });
+      setActiveEpg({ id: channel.id, now: nextNow, next: nextNext });
     };
     refreshActiveProgram();
     const timer = window.setInterval(refreshActiveProgram, 30000);
@@ -490,11 +497,7 @@ export function App() {
           if (cancelled || !entries.length) return;
           const { now, next } = nowNextFromEpg(entries);
           if (!now && !next) return;
-          setChannels((prev) =>
-            prev.map((ch) =>
-              ch.id === channel.id ? { ...ch, epgNow: now || ch.epgNow, epgNext: next || ch.epgNext } : ch
-            )
-          );
+          setActiveEpg({ id: channel.id, now: now || channel.epgNow, next: next || channel.epgNext });
         })
         .catch(() => {
           /* Az EPG hibája nem akadályozhatja a nézést. */
@@ -607,17 +610,28 @@ export function App() {
   }, []);
 
   // Switch Active Channel
+  /**
+   * Csatornaváltás.
+   *
+   * FONTOS (a váltás lassúsága): itt NEM írjuk szinkron a localStorage-ba az
+   * "utolsó csatorna" azonosítót. Az írás a TV lassú tárolóján blokkolta a fő
+   * szálat pont a lejátszás indítása előtt; most a váltás után, összevontan
+   * (800 ms) történik. A beállítás-objektum csak memóriában frissül, ami
+   * azonnal rendelkezésre áll az újraindításhoz is.
+   */
   const handleSelectChannel = useCallback((channel: Channel) => {
     setNextEpisodeToPlay(null);
     setCustomStreamUrl(undefined);
     setCustomStreamTitle(undefined);
     setActiveChannelId(channel.id);
     setIsPlaying(true);
-    handleUpdateSettings({ lastPlayedChannelId: channel.id });
+    // Csak ezt az egy azonosítót mentjük, késleltetve - a beállítás-objektum
+    // állapotát NEM írjuk, így a váltás egyetlen újrarajzolással megvan.
+    storageService.rememberLastChannel(channel.id);
     if (activeView !== 'live') {
       setActiveView('live');
     }
-  }, [activeView, handleUpdateSettings]);
+  }, [activeView]);
 
   // Next / Prev channel switching: always follow the numeric channel number,
   // not the current category/search/render order. Stop at the ends instead of
@@ -883,7 +897,7 @@ export function App() {
     setIsOnlyFavorites(false);
     // A korábban nézett csatornát NEM írjuk felül: ha az új listában is
     // megvan, azon maradunk; csak ha eltűnt, választunk magyar csatornát.
-    const savedLastId = settings.lastPlayedChannelId;
+    const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
     const savedStillExists = Boolean(savedLastId && normalizedContent.channels.some((channel) => channel.id === savedLastId));
     const firstDefaultChannel = normalizedContent.channels.find((channel) => (channel.countryCode || 'INT').toUpperCase() === defaultCountryCode)
       || normalizedContent.channels[0];
@@ -892,10 +906,8 @@ export function App() {
       handleUpdateSettings({ activeProviderId: providerId });
     } else if (firstDefaultChannel) {
       setActiveChannelId(firstDefaultChannel.id);
-      handleUpdateSettings({
-        lastPlayedChannelId: firstDefaultChannel.id,
-        activeProviderId: providerId,
-      });
+      storageService.rememberLastChannel(firstDefaultChannel.id);
+      handleUpdateSettings({ activeProviderId: providerId });
     } else {
       handleUpdateSettings({ activeProviderId: providerId });
     }
@@ -1838,6 +1850,7 @@ export function App() {
       
       {/* Top Header Bar (Exact match to screenshot 1/2/3/4/5/6) */}
       {!isVideoFullscreen && <Header
+        clockOffsetHours={settings.clockOffsetHours}
         activeView={activeView}
         onViewChange={(view) => {
           setActiveView(view);
@@ -1969,7 +1982,7 @@ export function App() {
             Teljes képernyős OSD élő TV-nél: pontosan a főoldali panel
           */}
           {!customStreamUrl && isVideoFullscreen && !isLandscapeFullscreen && isOsdVisible && activeChannel && (
-            <div className="fixed inset-x-2 bottom-2 z-[10000] pointer-events-none">
+            <div data-osd="" className="fixed inset-x-2 bottom-2 z-[10000] pointer-events-none">
               <div className="pointer-events-auto">
                 <ChannelControls
                   channel={activeChannel}
@@ -2235,7 +2248,7 @@ export function App() {
             setChannels(orderedChannels);
             // A korábban nézett csatornát ne írjuk felül az import első csatornájával.
             // Csak akkor választunk magyar csatornát, ha a mentett csatorna már nem létezik.
-            const savedLastChannelId = settings.lastPlayedChannelId;
+            const savedLastChannelId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
             const savedLastChannelExists = Boolean(savedLastChannelId && orderedChannels.some((channel) => channel.id === savedLastChannelId));
             const firstHungarianChannel = orderedChannels.find((channel) =>
               (channel.countryCode || 'INT').toUpperCase() === 'HU'
