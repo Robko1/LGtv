@@ -207,12 +207,11 @@ export function App() {
   const vodReturnViewRef = useRef<'movies' | 'series'>('movies');
   const movieCategoryRef = useRef('all');
   const seriesCategoryRef = useRef('all');
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() => {
-    const saved = savedUiState.current.selectedCategoryId;
-    return saved?.startsWith('country-')
-      ? saved
-      : findHungaryCategoryId(buildCountryCategories(bootChannels)) || 'all';
-  });
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() =>
+    // Induláskor mindig Magyarország legyen a főoldali csatornalista,
+    // ne a korábban elmentett vagy az első országcsoport.
+    findHungaryCategoryId(buildCountryCategories(bootChannels)) || 'all'
+  );
   const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string | null>(null);
   const [isOnlyFavorites, setIsOnlyFavorites] = useState<boolean>(savedUiState.current.isOnlyFavorites || false);
   const [searchQuery] = useState<string>(savedUiState.current.searchQuery || '');
@@ -2106,21 +2105,24 @@ export function App() {
         onLiveChannelsLoaded={(partial) => {
           if (partial.channels) {
             const incomingCountries = buildCountryCategories(partial.channels);
-            const selectedStillExists = incomingCountries.some((country) => country.id === selectedCategoryId);
-            const effectiveCategoryId =
-              selectedCategoryId === 'all' || !selectedCategoryId.startsWith('country-') || !selectedStillExists
-                ? findHungaryCategoryId(incomingCountries) || selectedCategoryId
-                : selectedCategoryId;
-            if (effectiveCategoryId !== selectedCategoryId) setSelectedCategoryId(effectiveCategoryId);
+            const hungaryCategoryId = findHungaryCategoryId(incomingCountries) || 'all';
+            // A főoldal induláskor mindig a magyar csatornacsoportot mutatja.
+            if (selectedCategoryId !== hungaryCategoryId) setSelectedCategoryId(hungaryCategoryId);
             const orderedChannels = hungaryFirst(partial.channels);
             setChannels(orderedChannels);
-            const selectedCountryCode = effectiveCategoryId.startsWith('country-')
-              ? effectiveCategoryId.slice('country-'.length)
-              : 'HU';
-            const firstSelectedChannel = orderedChannels.find((channel) =>
-              (channel.countryCode || 'INT').toUpperCase() === selectedCountryCode
+            // A korábban nézett csatornát ne írjuk felül az import első csatornájával.
+            // Csak akkor választunk magyar csatornát, ha a mentett csatorna már nem létezik.
+            const savedLastChannelId = settings.lastPlayedChannelId;
+            const savedLastChannelExists = Boolean(savedLastChannelId && orderedChannels.some((channel) => channel.id === savedLastChannelId));
+            const firstHungarianChannel = orderedChannels.find((channel) =>
+              (channel.countryCode || 'INT').toUpperCase() === 'HU'
             );
-            if (firstSelectedChannel) setActiveChannelId(firstSelectedChannel.id);
+            if (savedLastChannelExists) {
+              setActiveChannelId(savedLastChannelId!);
+            } else if (firstHungarianChannel) {
+              setActiveChannelId(firstHungarianChannel.id);
+              handleUpdateSettings({ lastPlayedChannelId: firstHungarianChannel.id });
+            }
           }
           if (partial.liveCategories) setCategories(partial.liveCategories);
           if (partial.totals) setTotalCounts((previous) => ({ live: partial.totals?.live ?? previous.live, vod: partial.totals?.vod ?? previous.vod, series: partial.totals?.series ?? previous.series }));
