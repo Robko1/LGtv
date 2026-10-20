@@ -1799,10 +1799,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
         <div
           data-blue-clock
-          className={`absolute top-3 z-40 flex items-center gap-1 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-2 py-1 font-mono text-xs font-semibold tracking-wider text-cyan-200 shadow-lg backdrop-blur-md pointer-events-none ${isVod || landscapeLiveFullscreen || (isFullscreen && isPortrait && !isVod) ? 'right-3' : 'right-14'}`}
+          className={`absolute top-3 z-40 box-border max-w-[calc(100%-1.5rem)] flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-4 py-2 font-mono text-2xl font-semibold tracking-wider text-cyan-200 shadow-lg backdrop-blur-md pointer-events-none ${isVod || landscapeLiveFullscreen || (isFullscreen && isPortrait && !isVod) ? 'right-3' : 'right-14'}`}
           aria-label={`Pontos idő: ${blueClockTime}`}
         >
-          <Clock className="h-3.5 w-3.5 text-cyan-300" />
+          <Clock className="h-7 w-7 shrink-0 text-cyan-300" />
           <span>{blueClockTime || '00:00'}</span>
         </div>
       )}
