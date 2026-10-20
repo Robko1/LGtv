@@ -16,10 +16,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.3.13'
+  VERSION: '2.3.14'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TAG: 'v2.3.13'
-  OLD_RELEASE_TAG: 'v2.3.1'
+  RELEASE_TAG: 'v2.3.14'
+  OLD_RELEASE_TAG: 'v2.3.13'
   RELEASE_TITLE: 'IPTV-RT'
 
 jobs:
@@ -99,8 +99,8 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.3.13":
-              raise SystemExit(f"Eltérő buildverzió: várt 2.3.13, kapott {match.group(1)}")
+          if match.group(1) != "2.3.14":
+              raise SystemExit(f"Eltérő buildverzió: várt 2.3.14, kapott {match.group(1)}")
           if "splashBackground" in manifest:
               raise SystemExit("HIBA: a webOS manifest még indítóképet állít be.")
           print(f"LG webOS verziók egyeznek: {match.group(1)}; nincs indítókép.")
@@ -168,7 +168,7 @@ jobs:
           import json
           from pathlib import Path
           packaged = json.loads(Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/appinfo.json").read_text())
-          if packaged.get("version") != "2.3.13":
+          if packaged.get("version") != "2.3.14":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
           if "splashBackground" in packaged:
               raise SystemExit("HIBA: a webOS appinfo.json még indítóképet állít be.")
@@ -186,7 +186,7 @@ jobs:
               raise SystemExit("HIBA: module script maradt a csomagban - a Chrome<61 TV-motorokon (webOS 3.x/4.0) az app el sem indulna!")
           if "IPTV-ES5-APP" not in html or "IPTV-ES5-POLYFILLS" not in html:
               raise SystemExit("HIBA: az ES5-re fordított app vagy a polyfill blokk hiányzik a csomagolt HTML-ből.")
-          print("OK: friss HTML, Magic Remote-kezelő, verzió 2.3.13; nincs csomagolt indítóvideó/kép.")
+          print("OK: friss HTML, Magic Remote-kezelő, verzió 2.3.14; nincs csomagolt indítóvideó/kép.")
           PY
           echo "OK: IPK tartalma rendben"
 
