@@ -66,7 +66,7 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
       window.clearInterval(timerId);
       observer?.disconnect();
     };
-  }, [isOpen, error, progress?.percent, onClose]);
+  }, [isOpen, error, progress?.percent]);
 
   const elapsed = Math.max(0, now - startedAt);
   const completed = !error && progress?.percent === 100;
