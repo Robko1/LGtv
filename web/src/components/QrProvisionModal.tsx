@@ -172,11 +172,11 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
               <QrCode className="w-5 h-5" />
               <span className="text-xs font-bold uppercase tracking-wider">Olvasd be telefonnal</span>
             </div>
-            <div className="p-3 rounded-2xl bg-white border-2 border-cyan-400/50 shadow-lg">
+            <div className="p-4 rounded-2xl bg-white border-2 border-cyan-400/50 shadow-lg">
               {provisionUrl ? (
-                <QRCodeSVG value={provisionUrl} size={200} level="M" includeMargin={false} />
+                <QRCodeSVG value={provisionUrl} size={320} level="M" includeMargin={false} />
               ) : (
-                <div className="w-[200px] h-[200px] flex items-center justify-center bg-slate-100 text-slate-500 text-xs">QR generálás...</div>
+                <div className="w-[320px] h-[320px] flex items-center justify-center bg-slate-100 text-slate-500 text-xs">QR generálás...</div>
               )}
             </div>
             <p className="text-[11px] text-slate-400 text-center max-w-xs leading-relaxed break-all">
