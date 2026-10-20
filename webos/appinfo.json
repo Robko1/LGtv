@@ -4,7 +4,7 @@
   "vendor": "IPTV R.T",
   "type": "web",
   "main": "index.html",
-  "title": "IPTV R.T - webOS TV",
+  "title": "TV",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
   "iconColor": "#00BFFF",
