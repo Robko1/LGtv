@@ -344,11 +344,26 @@ function write(key: string, payload: unknown): boolean {
       text = JSON.stringify({ ...source, rows: source.rows.slice(0, keep) });
     }
   }
-  const ok = backend.put(key, text);
-  if (!ok && backend.name === 'native') {
-    // Ha a natív tároló nem megy, próbáljuk a memóriát, hogy legalább a
-    // munkamenetben megmaradjon a lista.
+  let ok = backend.put(key, text);
+  if (!ok) {
+    // TV-n a localStorage kvóta kisebb lehet - a mentés eddig CSENDBEN
+    // elveszett (újraindítás után üres volt a lista). Egyre kisebb
+    // adaggal újrapróbáljuk, hogy legalább a lista eleje megmaradjon.
+    const source = payload as { rows?: Row[] };
+    let rows = Array.isArray(source?.rows) ? source.rows : null;
+    while (!ok && rows && rows.length > 100) {
+      rows = rows.slice(0, Math.floor(rows.length / 2));
+      text = JSON.stringify({ ...source, rows });
+      ok = backend.put(key, text);
+    }
+    if (ok && rows) {
+      appLog(`Tároló: a teljes lista nem fért el, szűkített mentés: ${key} (${rows.length} sor).`);
+    }
+  }
+  if (!ok) {
+    // Végső tartalék: memória, hogy legalább a munkamenetben megmaradjon.
     memory.set(key, text);
+    appLog(`Tároló HIBA: ${key} mentése nem sikerült (${backend.name}) - újraindítás után nem lesz meg!`);
   }
   return ok;
 }

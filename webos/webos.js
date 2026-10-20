@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.12
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.13
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.12 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.13 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -156,7 +156,7 @@
         'padding:10px 16px;color:#aee9ff;font:600 20px/1.45 monospace;pointer-events:none;' +
         'white-space:pre-wrap;word-break:break-word;');
       var title = document.createElement('div');
-      title.textContent = 'IPTV R.T diagnosztika 2.3.12 \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika 2.3.13 \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -164,6 +164,33 @@
       diag.keyLine.textContent = 'Nyomj egy gombot a távirányítón...';
       diag.mouseLine = document.createElement('div');
       diag.mouseLine.textContent = 'Egér/kattintás: 0 / 0';
+      // Tároló-próba: kiderül, miért veszik el a csatornalista újraindításkor.
+      var storLine = document.createElement('div');
+      storLine.textContent = 'Tároló: próba...';
+      try {
+        var caps = [262144, 1048576, 2097152];
+        var okCap = 0;
+        var filler = new Array(1025).join('x'); // 1 KB
+        for (var ci = 0; ci < caps.length; ci++) {
+          try {
+            var chunkKB = Math.floor(caps[ci] / 1024);
+            var big = '';
+            for (var bi = 0; bi < chunkKB; bi++) { big += filler; }
+            window.localStorage.setItem('iptv_rt_captest', big);
+            window.localStorage.removeItem('iptv_rt_captest');
+            okCap = caps[ci];
+          } catch (capErr) { break; }
+        }
+        var saved = 0;
+        for (var ki = 0; ki < window.localStorage.length; ki++) {
+          var kk = window.localStorage.key(ki) || '';
+          if (kk.indexOf('iptv') === 0) { saved += (window.localStorage.getItem(kk) || '').length; }
+        }
+        storLine.textContent = 'T\u00e1rol\u00f3: localStorage OK, \u00edrhat\u00f3 ~' + Math.round(okCap / 1048576 * 10) / 10 + ' MB, mentve ' + Math.round(saved / 1024) + ' KB';
+      } catch (storErr) {
+        storLine.textContent = 'T\u00e1rol\u00f3 HIBA: localStorage nem el\u00e9rhet\u0151 (' + (storErr && storErr.name ? storErr.name : storErr) + ') - ez\u00e9rt v\u00e9sz el a lista!';
+        storLine.setAttribute('style', 'color:#f87171;');
+      }
       var hint = document.createElement('div');
       hint.textContent = 'PIROS: diag ki/be \u00b7 Z\u00d6LD: Be\u00e1ll\u00edt\u00e1sok \u00b7 S\u00c1RGA: M\u0171sor\u00fajs\u00e1g \u00b7 K\u00c9K: Kateg\u00f3ri\u00e1k';
       hint.setAttribute('style', 'color:#64748b;font-size:16px;margin-top:4px;');
@@ -171,6 +198,7 @@
       box.appendChild(diag.uiLine);
       box.appendChild(diag.keyLine);
       box.appendChild(diag.mouseLine);
+      box.appendChild(storLine);
       box.appendChild(hint);
       document.body.appendChild(box);
       diag.el = box;
@@ -269,6 +297,9 @@
         '/* A modal belső görgetője az aljáig elérhető legyen (Rendszer fül vége). */',
         '.webos-tv [role="dialog"] .overflow-y-auto { padding-bottom: 56px !important; }',
         '/* DOBOZ NAVIGÁCIÓ: a kijelölt beállítás-doboz jól látható sárga keretet kap. */',
+        '/* A kék óra teljes képernyőn a jobb felső sarokban kilógott a',
+        '   képernyőből (overscan) - TV-n beljebb toljuk. */',
+        '.webos-tv [data-blue-clock] { right: 36px !important; top: 16px !important; left: auto !important; }',
         '.webos-tv [data-tv-box] { scroll-margin: 40px; transition: none !important; }',
         '.webos-tv [data-tv-box]:focus { outline: 3px solid #fbbf24 !important; outline-offset: 3px; }',
         '/* AZONNALI ugrálás a modalokban: semmi áttűnés/simított görgetés ne lassítsa. */',
@@ -977,5 +1008,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.12 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.13 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

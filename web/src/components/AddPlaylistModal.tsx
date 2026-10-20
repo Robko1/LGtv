@@ -520,7 +520,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
         </div>
       </div>
       {liveLoadedPromptOpen && (
-        <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák betöltve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setLiveLoadedPromptOpen(false); } }} className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-cyan-400/50 bg-[#081329] p-5 text-white shadow-2xl">
             <div className="text-lg font-black text-cyan-200">Az élő TV-csatornák betöltve</div>
             <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok betöltése még folyamatban van. Szeretnéd tovább nézni a folyamatot, vagy folytassuk a háttérben?</p>

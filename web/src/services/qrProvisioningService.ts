@@ -62,10 +62,17 @@ async function verifyNtfy(topic: string): Promise<boolean> {
     const token = 'selftest' + Date.now();
     const pub = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}`, { method: 'POST', body: token });
     if (!pub.ok) { diag(`ntfy írás: HTTP ${pub.status}`); return false; }
-    const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}/json?poll=1&since=all`);
-    if (!res.ok) { diag(`ntfy olvasás: HTTP ${res.status}`); return false; }
-    if ((await res.text()).indexOf(token) >= 0) return true;
-    diag('ntfy: a visszaolvasott adat hiányzik');
+    // Visszaolvasás: 3 próba rövid szünettel (a kiszolgáló gyorsítótára
+    // nem mindig azonnali), és cache-törő paraméterrel, hogy a TV régi
+    // böngészője ne a gyorsítótárból adja vissza az üres választ.
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 800));
+      const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(topic)}/json?poll=1&since=all&_=${Date.now()}`);
+      lastStatus = res.status;
+      if (res.ok && (await res.text()).indexOf(token) >= 0) return true;
+    }
+    diag(lastStatus && lastStatus !== 200 ? `ntfy olvasás: HTTP ${lastStatus}` : 'ntfy: a visszaolvasott adat 3 próbára sem jött meg');
     return false;
   } catch (e) {
     diag('ntfy: hálózati hiba (' + ((e as Error)?.message || e) + ')');
@@ -240,7 +247,7 @@ export function getProvisionUrl(tvId: string, code: string, channel?: ProvisionC
 export async function pollForProvider(tvId: string, channel?: ProvisionChannel | null): Promise<QrProviderPayload | null> {
   if (channel && channel.kind === 'ntfy') {
     try {
-      const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(channel.id)}/json?poll=1&since=all`);
+      const res = await fetch(`${NTFY_BASE}/${encodeURIComponent(channel.id)}/json?poll=1&since=all&_=${Date.now()}`);
       if (!res.ok) return null;
       const lines = (await res.text()).split('\n');
       for (let i = lines.length - 1; i >= 0; i--) {

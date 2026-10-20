@@ -240,7 +240,9 @@ export function App() {
       : 'HU';
     const belongsToInitialCountry = (channel: Channel) =>
       (channel.countryCode || 'INT').toUpperCase() === initialCountryCode;
-    return settings.autoPlayLastChannel && saved && channels.some((channel) => channel.id === saved && belongsToInitialCountry(channel))
+    // Az utolsó csatornát akkor is folytatjuk, ha nem a kezdő ország
+    // listájában van (pl. kedvencekből nézett külföldi adó).
+    return settings.autoPlayLastChannel && saved && channels.some((channel) => channel.id === saved)
       ? saved
       : (channels.find(belongsToInitialCountry)?.id || channels[0]?.id || 'hu-sony-max');
   });
@@ -1943,7 +1945,7 @@ export function App() {
       />
 
       {refreshLivePromptOpen && (
-        <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák frissítve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRefreshLivePromptOpen(false); } }} className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-cyan-400/50 bg-[#081329] p-5 text-white shadow-2xl">
             <div className="text-lg font-black text-cyan-200">Az élő TV-csatornák frissítve</div>
             <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok frissítése még folyamatban van. Szeretnéd tovább nézni a diagnosztikát, vagy folytassuk a háttérben?</p>
