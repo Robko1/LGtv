@@ -1,7 +1,7 @@
 {
   "id": "hu.rt.iptv.webos",
   "version": "2.3.16",
-  "vendor": "IPTV R.T",
+  "vendor": "TV",
   "type": "web",
   "main": "index.html",
   "title": "TV",
@@ -10,7 +10,7 @@
   "iconColor": "#00BFFF",
   "bgColor": "#000000",
   "resolution": "1920x1080",
-  "appDescription": "IPTV R.T - Elő TV, Mozi, Sorozat - LG webOS TV",
+  "appDescription": "TV - Élő TV, Mozi, Sorozat - LG webOS TV",
   "disableBackHistoryAPI": true,
   "requiredPermissions": [
     "com.webos.media",
