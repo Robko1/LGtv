@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Channel, FavoriteFolder } from '../types/iptv';
-import { Star, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
+import { ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
 import { ChannelLogo } from './ChannelLogo';
 import { ProviderRef } from '../services/contentStore';
 import { EpgNowNext, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from '../services/epgService';
@@ -41,6 +41,8 @@ const ROW_PITCH = ROW_HEIGHT + ROW_GAP;
 const LIST_PADDING = 6;
 /** A látható területen felül/alul ennyi sort tartunk készen (gyors görgetéshez). */
 const OVERSCAN = 6;
+/** TV-n/főoldalon pontosan ennyi csatornasor látszódjon egyszerre. */
+const VISIBLE_ROWS = 10;
 
 export const ChannelList: React.FC<ChannelListProps> = ({
   channels,
@@ -49,7 +51,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   epgRevision,
   selectedChannelId,
   onSelectChannel,
-  onToggleFavorite,
+  // onToggleFavorite: a csillag gomb kikerült a sorokból (2.3.16), a prop a kompatibilitás miatt maradt.
   onDeleteChannel,
   onMoveChannel,
   folders,
@@ -116,6 +118,28 @@ export const ChannelList: React.FC<ChannelListProps> = ({
   const [windowRange, setWindowRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const rangeRef = useRef(windowRange);
 
+  // PONTOSAN 10 sor férjen el: a sormagasságot a lista tényleges
+  // magasságából számoljuk, így az írás is megnő, és minden sor alja
+  // (keret + műsorhaladás-csík) teljesen látszik.
+  const [rowPitch, setRowPitch] = useState<number>(ROW_PITCH);
+  const rowHeight = Math.max(40, rowPitch - ROW_GAP);
+  // BÖNGÉSZŐ-KIJELÖLÉS: a fel/le nyíl CSAK a sárga kijelölést mozgatja,
+  // csatornát NEM vált. Váltás kizárólag OK/Enter gombbal történik.
+  const [highlightedId, setHighlightedId] = useState<string>(selectedChannelId);
+  useEffect(() => {
+    // Ha a lejátszott csatorna máshonnan változik (CH+/-, OSD), a kijelölés követi.
+    setHighlightedId(selectedChannelId);
+  }, [selectedChannelId]);
+  const measureRows = React.useCallback(() => {
+    const element = channelScrollRef.current;
+    if (!element) return;
+    const usable = element.clientHeight - LIST_PADDING * 2;
+    if (usable >= VISIBLE_ROWS * 44) {
+      const pitch = usable / VISIBLE_ROWS;
+      setRowPitch((previous) => (Math.abs(previous - pitch) > 0.5 ? pitch : previous));
+    }
+  }, []);
+
   const computeWindow = React.useCallback(() => {
     const element = channelScrollRef.current;
     const total = visibleChannels.length;
@@ -129,15 +153,15 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       }
       return;
     }
-    const first = Math.floor(Math.max(0, element.scrollTop - LIST_PADDING) / ROW_PITCH);
-    const visibleRows = Math.ceil(element.clientHeight / ROW_PITCH) + 1;
+    const first = Math.floor(Math.max(0, element.scrollTop - LIST_PADDING) / rowPitch);
+    const visibleRows = Math.ceil(element.clientHeight / rowPitch) + 1;
     const start = Math.max(0, first - OVERSCAN);
     const end = Math.min(total, first + visibleRows + OVERSCAN);
     if (rangeRef.current.start !== start || rangeRef.current.end !== end) {
       rangeRef.current = { start, end };
       setWindowRange({ start, end });
     }
-  }, [visibleChannels.length]);
+  }, [visibleChannels.length, rowPitch]);
 
   // Görgetés közben csak akkor rajzolunk újra, ha ténylegesen új sorok
   // kerülnek a látható sávba – így a görgetés nem indít folyamatos munkát.
@@ -149,9 +173,11 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       if (frame) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
+        measureRows();
         computeWindow();
       });
     };
+    measureRows();
     element.addEventListener('scroll', onScroll, { passive: true });
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onScroll) : null;
     observer?.observe(element);
@@ -162,7 +188,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       window.removeEventListener('resize', onScroll);
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [computeWindow]);
+  }, [computeWindow, measureRows]);
 
   // A kategória-/mappaváltás vagy a lista hosszának változása után azonnal
   // újraszámoljuk az ablakot (a görgetési pozíció visszaállítása után is).
@@ -178,7 +204,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     [visibleChannels, windowStart, windowEnd],
   );
 
-  const totalHeight = visibleChannels.length * ROW_PITCH + LIST_PADDING * 2;
+  const totalHeight = visibleChannels.length * rowPitch + LIST_PADDING * 2;
 
   /* ------------------------------------------------------------ EPG */
 
@@ -353,7 +379,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     if (!restored || element.scrollTop === 0) {
       const selectedIndex = visibleChannels.findIndex((ch) => ch.id === selectedChannelId);
       if (selectedIndex >= 0) {
-        const targetTop = Math.max(0, selectedIndex * ROW_PITCH - element.clientHeight / 3);
+        const targetTop = Math.max(0, selectedIndex * rowPitch - element.clientHeight / 3);
         element.scrollTop = targetTop;
         try { window.sessionStorage.setItem(scrollPositionKey, String(targetTop)); } catch {}
       }
@@ -362,10 +388,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       // látható-e; ha nem, görgessünk hozzá (ne ugorjon tetejére).
       const selectedIndex = visibleChannels.findIndex((ch) => ch.id === selectedChannelId);
       if (selectedIndex >= 0) {
-        const selectedTop = selectedIndex * ROW_PITCH;
+        const selectedTop = selectedIndex * rowPitch;
         const viewportTop = element.scrollTop;
         const viewportBottom = viewportTop + element.clientHeight;
-        if (selectedTop < viewportTop || selectedTop > viewportBottom - ROW_PITCH) {
+        if (selectedTop < viewportTop || selectedTop > viewportBottom - rowPitch) {
           const targetTop = Math.max(0, selectedTop - element.clientHeight / 3);
           element.scrollTop = targetTop;
           try { window.sessionStorage.setItem(scrollPositionKey, String(targetTop)); } catch {}
@@ -373,7 +399,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       }
     }
     computeWindow();
-  }, [scrollPositionKey, computeWindow, visibleChannels, selectedChannelId]);
+  }, [scrollPositionKey, computeWindow, visibleChannels, selectedChannelId, rowPitch]);
 
   // A görgetési helyzet mentése. FONTOS: nem minden egyes görgetési eseménynél
   // írunk a tárolóba (az minden képkockában egy záró szinkron írás volt),
@@ -449,7 +475,28 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       }
       return;
     }
-    const currentIndex = visibleChannels.findIndex((c) => c.id === selectedChannelId);
+    // A fel/le nyíl CSAK a sárga kijelölést mozgatja (felsorolás),
+    // csatornát nem vált - váltani az OK/Enter gombbal lehet.
+    const highlightIndex = visibleChannels.findIndex((c) => c.id === highlightedId);
+    const currentIndex = highlightIndex >= 0
+      ? highlightIndex
+      : visibleChannels.findIndex((c) => c.id === selectedChannelId);
+    const moveHighlight = (target: number) => {
+      const next = visibleChannels[target];
+      if (!next) return;
+      setHighlightedId(next.id);
+      // A fókusz a listán marad, hogy ne ragadjon sárga keret egy régi soron.
+      (e.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true } as any);
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-channel-id="${next.id}"]`) as HTMLElement | null;
+        if (!el) return;
+        // Régi webOS Chrome: a scrollIntoView(options) hibás - ott a
+        // scrollIntoViewIfNeeded a megbízható.
+        const legacy = el as HTMLElement & { scrollIntoViewIfNeeded?: (center?: boolean) => void };
+        if (typeof legacy.scrollIntoViewIfNeeded === 'function') legacy.scrollIntoViewIfNeeded(false);
+        else if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    };
     if (key === 'ArrowUp' && currentIndex <= 0) {
       // A lista tetejéről felfelé: fókusz a felső menüsorra.
       e.preventDefault();
@@ -458,28 +505,11 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     } else if (key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation();
-      const nextIndex = Math.min(visibleChannels.length - 1, (currentIndex < 0 ? 0 : currentIndex + 1));
-      const next = visibleChannels[nextIndex];
-      if (next) {
-        onSelectChannel(next);
-        // TV: görgess a kiválasztottra
-        requestAnimationFrame(() => {
-          const el = document.querySelector(`[data-channel-id="${next.id}"]`) as HTMLElement;
-          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        });
-      }
+      moveHighlight(Math.min(visibleChannels.length - 1, (currentIndex < 0 ? 0 : currentIndex + 1)));
     } else if (key === 'ArrowUp') {
       e.preventDefault();
       e.stopPropagation();
-      const prevIndex = Math.max(0, (currentIndex < 0 ? 0 : currentIndex - 1));
-      const prev = visibleChannels[prevIndex];
-      if (prev) {
-        onSelectChannel(prev);
-        requestAnimationFrame(() => {
-          const el = document.querySelector(`[data-channel-id="${prev.id}"]`) as HTMLElement;
-          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        });
-      }
+      moveHighlight(Math.max(0, (currentIndex < 0 ? 0 : currentIndex - 1)));
     } else if (key === 'Enter' || key === ' ') {
       e.preventDefault();
       e.stopPropagation();
@@ -609,7 +639,9 @@ export const ChannelList: React.FC<ChannelListProps> = ({
           <div className="relative w-full" style={{ height: totalHeight }}>
             {renderedChannels.map(({ channel: ch, index }) => {
               const isSelected = ch.id === selectedChannelId;
-              const isFavorite = folders.some((folder) => folder.channelIds.includes(ch.id));
+              const isHighlighted = ch.id === highlightedId;
+              // Nagyobb írás, ha a sorok a 10-es elosztás miatt magasabbak.
+              const bigRows = rowHeight >= 76;
               const currentEpg = localEpg[ch.id]?.now || ch.epgNow;
               const nextEpg = localEpg[ch.id]?.next || ch.epgNext;
               // A műsorhaladás egyetlen értékként (a hiányos időbélyegek kezelése itt történik).
@@ -624,8 +656,8 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                   data-channel-id={ch.id}
                   className={`absolute left-0 right-0 ${index > 0 ? 'border-t border-cyan-950/30' : ''}`}
                   style={{
-                    top: LIST_PADDING + index * ROW_PITCH,
-                    height: ROW_HEIGHT,
+                    top: LIST_PADDING + index * rowPitch,
+                    height: rowHeight,
                     paddingLeft: LIST_PADDING,
                     paddingRight: LIST_PADDING,
                   }}
@@ -668,28 +700,33 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                         }
                         return;
                       }
+                      setHighlightedId(ch.id);
                       onSelectChannel(ch);
                     }}
                     onKeyDown={(e) => {
                       const key = normalizeTvKey(e);
                       if (key === 'Enter' || key === ' ') {
                         e.preventDefault();
+                        e.stopPropagation();
+                        setHighlightedId(ch.id);
                         onSelectChannel(ch);
                       }
                     }}
                     className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none touch-pan-y focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#070e1e] ${
                       movingChannelId === ch.id
                         ? 'bg-emerald-700/90 border-2 border-emerald-300 shadow-lg shadow-emerald-950/60 ring-2 ring-emerald-400/60 scale-[1.01]'
-                        : isSelected
-                          ? 'bg-linear-to-r from-cyan-950/90 via-[#0e2752] to-[#0a1b38] border-2 border-cyan-400/80 shadow-lg shadow-cyan-950/60 ring-1 ring-cyan-400/30 scale-[1.01]'
-                          : 'bg-[#0a152d]/80 hover:bg-[#112347] md:hover:bg-[#132a52] lg:hover:bg-[#132a52] xl:hover:bg-[#152e5c] border border-slate-800/40 hover:border-cyan-700/50'
+                        : isHighlighted && !isSelected
+                          ? 'bg-[#13254b] border-2 border-amber-400/90 ring-2 ring-amber-400/40 shadow-lg shadow-amber-950/40'
+                          : isSelected
+                            ? `bg-linear-to-r from-cyan-950/90 via-[#0e2752] to-[#0a1b38] border-2 ${isHighlighted ? 'border-amber-400/90 ring-2 ring-amber-400/40' : 'border-cyan-400/80 ring-1 ring-cyan-400/30'} shadow-lg shadow-cyan-950/60 scale-[1.01]`
+                            : 'bg-[#0a152d]/80 hover:bg-[#112347] md:hover:bg-[#132a52] lg:hover:bg-[#132a52] xl:hover:bg-[#152e5c] border border-slate-800/40 hover:border-cyan-700/50'
                     }`}
                   >
                     {/* Left side: Num badge + Logo + Info */}
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       {/* Number pill */}
                       <div
-                        className={`shrink-0 px-2.5 py-1 rounded-xl font-black text-xs sm:text-sm tracking-wider min-w-[56px] text-center ${
+                        className={`shrink-0 px-2.5 py-1 rounded-xl font-black ${bigRows ? 'text-base' : 'text-xs sm:text-sm'} tracking-wider min-w-[56px] text-center ${
                           isSelected
                             ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30 font-black'
                             : 'bg-[#0d1f42] text-cyan-300 border border-cyan-700/40'
@@ -699,16 +736,16 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                       </div>
 
                       {/* Channel Logo: sikeres betöltés után a logót nem tüntetjük el átmeneti hibára. */}
-                      <div className="relative shrink-0 w-10 h-8 rounded-lg border border-slate-700/60 p-0.5 flex items-center justify-center overflow-hidden bg-transparent">
+                      <div className={`relative shrink-0 ${bigRows ? 'w-14 h-11' : 'w-10 h-8'} rounded-lg border border-slate-700/60 p-0.5 flex items-center justify-center overflow-hidden bg-transparent`}>
                         <ChannelLogo url={ch.logo} name={ch.name} retryKey={ch} />
                       </div>
 
                       {/* Channel name, current EPG and real-time progress */}
                       <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-slate-100 font-bold text-xs sm:text-sm truncate group-hover:text-cyan-200">
+                        <span className={`text-slate-100 font-bold ${bigRows ? 'text-lg leading-tight' : 'text-xs sm:text-sm'} truncate group-hover:text-cyan-200`}>
                           {ch.name}
                         </span>
-                        <span className="text-amber-400 font-medium text-[11px] truncate flex items-center gap-1">
+                        <span className={`text-amber-400 font-medium ${bigRows ? 'text-sm' : 'text-[11px]'} truncate flex items-center gap-1`}>
                           {currentEpg?.time && (
                             <span className="text-amber-300 font-mono font-bold shrink-0">
                               {currentEpg.time}
@@ -716,11 +753,11 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                           )}
                           <span className="truncate">{currentEpg?.title || 'EPG betöltése…'}</span>
                         </span>
-                        <span className="text-slate-400 font-medium text-[10px] truncate">
+                        <span className={`text-slate-400 font-medium ${bigRows ? 'text-xs' : 'text-[10px]'} truncate`}>
                           {nextEpg?.time ? `${nextEpg.time} · ` : ''}Következő: {nextEpg?.title || 'betöltés…'}
                         </span>
                         {/* A haladássáv helye minden sorban foglalt, hogy a sorok egyformák legyenek. */}
-                        <div className="mt-0.5 h-1 w-full max-w-64">
+                        <div className={`mt-0.5 ${bigRows ? 'h-1.5' : 'h-1'} w-full max-w-64`}>
                           {epgPercent !== null && (
                             <div
                               className="h-full w-full rounded-full bg-slate-700/80 overflow-hidden"
@@ -766,21 +803,6 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                           </button>
                         </>
                       ) : null}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggleFavorite(ch.id);
-                        }}
-                        className={`p-2 rounded-xl transition-all active:scale-90 ${
-                          isFavorite
-                            ? 'text-amber-400 hover:text-amber-300'
-                            : 'text-slate-500 hover:text-amber-400 opacity-60 group-hover:opacity-100'
-                        }`}
-                        title="Kedvenc mappa kiválasztása"
-                        aria-label={`Kedvenc mappa kiválasztása: ${ch.name}`}
-                      >
-                        <Star className={`w-4 h-4 ${isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
-                      </button>
                       {movingChannelId === ch.id ? (
                         <button
                           onClick={(e) => {

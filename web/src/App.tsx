@@ -812,14 +812,25 @@ export function App() {
 
     dirtyRef.current = false;
     const importedCountries = buildCountryCategories(normalizedContent.channels);
+    // Az alapértelmezett ország MINDIG Magyarország - betöltés/frissítés nem
+    // válthat másik országra.
     const defaultCountryId = findHungaryCategoryId(importedCountries) || importedCountries[0]?.id || 'all';
     const defaultCountryCode = defaultCountryId.startsWith('country-') ? defaultCountryId.slice('country-'.length) : '';
-    const firstDefaultChannel = normalizedContent.channels.find((channel) => (channel.countryCode || 'INT').toUpperCase() === defaultCountryCode)
-      || normalizedContent.channels[0];
-    setSelectedCategoryId(defaultCountryId);
+    const keepCategory = selectedCategoryId.startsWith('country-')
+      && importedCountries.some((category) => category.id === selectedCategoryId);
+    if (!keepCategory) setSelectedCategoryId(defaultCountryId);
     setSelectedSubCategoryId(null);
     setIsOnlyFavorites(false);
-    if (firstDefaultChannel) {
+    // A korábban nézett csatornát NEM írjuk felül: ha az új listában is
+    // megvan, azon maradunk; csak ha eltűnt, választunk magyar csatornát.
+    const savedLastId = settings.lastPlayedChannelId;
+    const savedStillExists = Boolean(savedLastId && normalizedContent.channels.some((channel) => channel.id === savedLastId));
+    const firstDefaultChannel = normalizedContent.channels.find((channel) => (channel.countryCode || 'INT').toUpperCase() === defaultCountryCode)
+      || normalizedContent.channels[0];
+    if (savedStillExists) {
+      setActiveChannelId(savedLastId!);
+      handleUpdateSettings({ activeProviderId: providerId });
+    } else if (firstDefaultChannel) {
       setActiveChannelId(firstDefaultChannel.id);
       handleUpdateSettings({
         lastPlayedChannelId: firstDefaultChannel.id,

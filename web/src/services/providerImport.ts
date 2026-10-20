@@ -40,12 +40,6 @@ import {
 import { xtreamService, XtreamCategory, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 
 // webOS TV gyors betöltés detektálás
-function isWebOSFastLoad(): boolean {
-  try {
-    return !!(window as any).WEBOS_FAST_LOAD || !!(window as any).IS_WEBOS_TV || /Web0S|webOS/i.test(navigator.userAgent || '');
-  } catch { return false; }
-}
-
 export interface ImportProgress {
   phase: string;
   detail?: string;
@@ -449,69 +443,12 @@ export async function importXtreamProvider(
   let vodCats: Category[] = [];
   let vodTotal = 0;
 
-  // webOS TV-n gyors betöltés: csak élő TV, VOD később lusta
-  if (isWebOSFastLoad()) {
-    console.log('[webOS] Gyors betöltés: csak élő TV, VOD/Sorozat lusta betöltés');
-    onProgress({ phase: 'webOS gyors mód: élő TV kész, VOD később', percent: 100 });
-    // Visszatérünk csak élő csatornákkal, VOD üres - később töltődik ha kell
-    // De azért megpróbáljuk a VOD kategóriákat gyorsan lekérni, hogy a menü látszódjon
-    let quickVodCats: Category[] = [];
-    let quickSeriesCats: Category[] = [];
-    try {
-      const vodCategoriesQuick = await providerRequest(
-        () => xtreamService.vodCategories(server, user, pass),
-        'Film kategóriák (webOS gyors)'
-      );
-      quickVodCats = buildCategories(vodCategoriesQuick, 'vc-', 'movie', new Map());
-      vodCats = quickVodCats;
-      vodTotal = 0;
-      await onPartial({ vodCategories: quickVodCats, totals: { vod: 0 } });
-    } catch (e) {
-      console.warn('[webOS] VOD kategóriák gyors lekérése nem sikerült:', e);
-    }
-    try {
-      const seriesCategoriesQuick = await providerRequest(
-        () => xtreamService.seriesCategories(server, user, pass),
-        'Sorozat kategóriák (webOS gyors)'
-      );
-      quickSeriesCats = buildCategories(seriesCategoriesQuick, 'sc-', 'series', new Map());
-      await onPartial({ seriesCategories: quickSeriesCats, totals: { series: 0 } });
-    } catch (e) {
-      console.warn('[webOS] Sorozat kategóriák gyors lekérése nem sikerült:', e);
-    }
-    // Itt megállunk, VOD és sorozat tartalom üres marad, később töltődik lusta módban
-    // De a teljes visszatéréshez még be kell fejezni a függvényt - ugrunk a végére
-    // A lusta betöltést az App.tsx fogja kezelni ha a felhasználó Mozi/Sorozat menübe lép
-    if ((window as any).WEBOS_LAZY_VOD !== false) {
-      console.log('[webOS] VOD lusta mód: csak kategóriák, tartalom később - gyors indulás');
-      const totalMs = Math.round(performance.now() - startedAt);
-      onProgress({
-        phase: 'Kész (webOS gyors)',
-        detail: `${liveChannels.length.toLocaleString('hu-HU')} csatorna • VOD később • ⏱ ${(totalMs / 1000).toFixed(1)} s`,
-        percent: 100,
-      });
-      const quickContent: ImportedContent = {
-        provider,
-        savedAt: new Date().toISOString(),
-        channels: liveChannels,
-        movies: [],
-        series: [],
-        liveCategories,
-        vodCategories: quickVodCats,
-        seriesCategories: quickSeriesCats,
-        totals: { live: liveStreamCount, vod: 0, series: 0 },
-        warnings,
-      };
-      return {
-        content: quickContent,
-        user: {
-          expireDate,
-          maxConnections: parseInt(String(info?.max_connections || '1'), 10) || 1,
-          status: String(info?.status || 'Active'),
-        },
-      };
-    }
-  }
+  /* webOS MEGJEGYZÉS: korábban itt egy "gyors mód" volt, ami a TV-n csak az
+   * élő csatornákat töltötte be, a filmeket/sorozatokat pedig egy soha meg
+   * nem valósult "lusta betöltésre" hagyta - ezért maradt ÜRES a Mozi és a
+   * Sorozat a TV-n. A teljes betöltés fut mindenhol; az élő csatornák így is
+   * elsőként, azonnal a felületre kerülnek (onPartial), a filmek/sorozatok a
+   * háttérben töltődnek tovább. */
   try {
     onProgress({ phase: 'Film kategóriák letöltése…', percent: 45 });
     const vodCategories = await providerRequest(
