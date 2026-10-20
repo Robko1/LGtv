@@ -859,7 +859,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-[#0e1e3e] border border-cyan-800/40">
                   <div className="w-12 h-12 rounded-xl bg-[#071124] border border-cyan-800/40 flex items-center justify-center overflow-hidden shadow-lg shadow-blue-500/20">
                     <img
-                      src="/ikonkep.png"
+                      src="./ikonkep.png"
                       width={48}
                       height={48}
                       alt="TV"
