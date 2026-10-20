@@ -1,4 +1,4 @@
-# IPTV R.T – LG webOS TV
+# TV – LG webOS TV
 
 > **v2.3.3 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
 > - Ez a repó kizárólag LG webOS TV-re készül.
@@ -7,7 +7,7 @@
 
 ## Mi ez?
 
-LG webOS TV alkalmazás (IPK) IPTV R.T-hez:
+LG webOS TV alkalmazás (IPK) TV-hez:
 - Élő TV, Mozi, Sorozat, EPG, kedvencek, beállítások
 - Távirányító (D-pad) + Magic Remote + egér támogatás
 - Külön kinézet: kisebb lejátszó (1280px max), gyors betöltés; nincs indítóvideó vagy splash kép
