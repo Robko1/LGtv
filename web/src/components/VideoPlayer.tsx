@@ -170,6 +170,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
   const bufferWatchdogRef = useRef<number | null>(null);
   const playbackStartedRef = useRef(false);
+  // Hibaképernyőn a sárga kijelölés automatikusan az Újrapróbálás gombra
+  // ugrik - eddig távirányítóval nem lehetett elérni.
+  const retryButtonRef = useRef<HTMLButtonElement | null>(null);
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
     const plan = retryPlanRef.current;
@@ -199,8 +202,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     autoRetryTimerRef.current = window.setTimeout(() => {
       autoRetryTimerRef.current = null;
       retryStreamRef.current?.();
-    }, 1000);
+    }, 250);
   }, []);
+  useEffect(() => {
+    if (!hasError) return;
+    const timer = window.setTimeout(() => {
+      try { retryButtonRef.current?.focus({ preventScroll: true }); } catch { /* fókusz nélkül is kattintható */ }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [hasError]);
   const clearAutoRetry = useCallback((_resetCount = true) => {
     if (autoRetryTimerRef.current !== null) {
       window.clearTimeout(autoRetryTimerRef.current);
@@ -1418,6 +1428,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.load();
       const playPromise = video.play();
       setIsPlaying(true);
+      // ZAP-ŐR: ha az élő adás nem indul el időben (a HLS-próba csak "lóg",
+      // se hiba, se kép), nem várunk a végtelenségig pörgő töltésre -
+      // automatikusan a következő formátumra (MPEG-TS) váltunk.
+      if (!customStreamUrl) {
+        zapWatchdogRef.current = window.setTimeout(() => {
+          zapWatchdogRef.current = null;
+          if (!playbackStartedRef.current) {
+            appLog('Zap-őr: 4 mp alatt nem indult el az adás, automatikus formátumváltás.');
+            scheduleAutoRetry();
+          }
+        }, 4000);
+      }
       if (playPromise && typeof playPromise.catch === 'function') {
         void playPromise.catch((error: unknown) => {
           if (video.error) return;
@@ -1433,7 +1455,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setHasError(true);
       setErrorMessage(error instanceof Error ? error.message : 'A webOS videó indítása sikertelen.');
     }
-  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying, volume]);
+  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying, volume, customStreamUrl, scheduleAutoRetry]);
 
   retryStreamRef.current = () => loadStream(pendingStreamUrlRef.current || streamUrl);
 
@@ -1683,6 +1705,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             preload="auto"
             onPlaying={() => {
               playbackStartedRef.current = true;
+              clearZapWatchdog();
               clearAutoRetry();
               setIsLoading(false);
               setHasError(false);
@@ -1763,7 +1786,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 else if (streamUrl) loadStream(streamUrl);
                 else retryStreamRef.current?.();
               }}
-              className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all shadow-md active:scale-95"
+              ref={retryButtonRef}
+              className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400"
             >
               Újrapróbálás ({settings.bufferMode})
             </button>

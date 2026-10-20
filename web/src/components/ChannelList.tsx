@@ -39,8 +39,10 @@ const ROW_HEIGHT = 66;
 const ROW_GAP = 4;
 const ROW_PITCH = ROW_HEIGHT + ROW_GAP;
 const LIST_PADDING = 6;
-/** A látható területen felül/alul ennyi sort tartunk készen (gyors görgetéshez). */
-const OVERSCAN = 6;
+/** A látható területen felül/alul ennyi sort tartunk készen (gyors görgetéshez).
+ * TV-n minden nyíllépés újrarajzolja ezeket a sorokat is - a kisebb érték
+ * érezhetően gyorsítja a kijelölő ugrását. */
+const OVERSCAN = 3;
 /** TV-n/főoldalon pontosan ennyi csatornasor látszódjon egyszerre. */
 const VISIBLE_ROWS = 10;
 

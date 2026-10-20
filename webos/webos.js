@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.16
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.3.17
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] IPTV R.T webOS TV 2.3.16 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV 2.3.17 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -160,7 +160,7 @@
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.3.16') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'IPTV R.T diagnosztika ' + (appVer || '2.3.17') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -306,8 +306,11 @@
         '.webos-tv [data-blue-clock] { right: 36px !important; top: 16px !important; left: auto !important; }',
         '.webos-tv [data-tv-box] { scroll-margin: 40px; transition: none !important; }',
         '.webos-tv [data-tv-box]:focus { outline: 3px solid #fbbf24 !important; outline-offset: 3px; }',
-        '/* AZONNALI ugrálás a modalokban: semmi áttűnés/simított görgetés ne lassítsa. */',
-        '.webos-tv [role="dialog"] * { transition-duration: 0s !important; }',
+        '/* AZONNALI kijelölő-ugrálás MINDENHOL: a 150-300 ms-os CSS átmenetek',
+        '   a TV lassú processzorán vánszorgássá teszik a sárga kijelölés',
+        '   mozgását - az átmenetek a teljes felületen ki vannak kapcsolva.',
+        '   (A folyamatos animációk - pörgő töltés, óra - megmaradnak.) */',
+        '.webos-tv *, .webos-tv *:before, .webos-tv *:after { transition-duration: 0s !important; transition-delay: 0s !important; }',
         '.webos-tv, .webos-tv * { scroll-behavior: auto !important; }',
         '/* NYUGODT ANIMÁCIÓK TV-N: az óra ikon pislogása és a fogaskerék',
         '   pörgése sokkal lassabb, saját keyframe-mel (a Tailwind 4 arbitrary',
@@ -1012,5 +1015,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.16 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] IPTV R.T webOS TV ready 2.3.17 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();

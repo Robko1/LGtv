@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.3.16';
+export const WEB_VERSION = '2.3.17';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.16'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.17'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.17',
+    date: '2026-10-20',
+    changes: [
+      "VILLÁMGYORS KIJELÖLŐ: a sárga kijelölés eddig minden ugrásnál 150-300 ms-os CSS átmenettel úszott át - a TV lassú processzorán ettől vánszorgott. Az átmenetek a TELJES felületen kikapcsolva, a kijelölő mindenhol azonnal ugrik; a csatornalista nyíllépésenként kevesebb sort rajzol újra.",
+      "ZAP-ŐR: ha egy csatorna 4 másodperc alatt nem indul el (a pörgő töltés csak forog), a lejátszó nem vár tovább, hanem AZONNAL a másik formátumra (MPEG-TS) vált. A formátumváltások közti kényszerszünet 1 mp-ről 0,25 mp-re csökkent - a csatornaváltás így érezhetően gyorsabb, és az elsőre be nem töltő csatornák maguktól helyrejönnek.",
+      "HIBAKÉPERNYŐ: az Újrapróbálás gombra eddig nem lehetett ránavigálni - mostantól a kijelölés automatikusan ráugrik, OK-val azonnal újratölt.",
+      "Verzió: 2.3.17 – kizárólag LG webOS TV.",
+    ],
+  },
   {
     version: '2.3.16',
     date: '2026-10-20',
