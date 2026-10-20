@@ -98,8 +98,8 @@ Version: {version}
 Section: misc
 Priority: optional
 Architecture: all
-Maintainer: IPTV R.T <iptv@rt.hu>
-Description: IPTV R.T - Elo TV, Mozi, Sorozat LG webOS TV-re
+Maintainer: TV
+Description: TV - Elo TV, Mozi, Sorozat LG webOS TV-re
 """
         (control_dir / 'control').write_text(control_content)
         
