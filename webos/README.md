@@ -1,4 +1,4 @@
-# IPTV R.T – kizárólag LG webOS TV
+# TV – kizárólag LG webOS TV
 
 > Ez a repó önálló LG webOS TV-alkalmazás. A forrás, build és csomagolás kizárólag ebben a repóban történik.
 
@@ -9,7 +9,7 @@
 - **Kinézet:** LG webOS TV-re kialakított (React + Tailwind), reszponzív TV-re
 - **Lejátszó:** kisebb (1280x720 alap, de 1920x1080-ra skálázódik), natív `<video>` + hls.js, webOS natív HLS támogatás is
 - **Betöltés:** gyors mód – csak élő TV először (1 kérés), VOD kategóriák gyorsan, film/sorozat tartalom lusta (csak ha a felhasználó Mozi/Sorozat menübe lép) – így 20k csatorna is 2-3s alatt indul TV-n
-- **Indítás:** nincs indítóvideó vagy splash kép; csak rövid, nagy „IPTV R.T” fekvő felirat látható.
+- **Indítás:** nincs indítóvideó vagy splash kép; csak rövid, nagy „TV” fekvő felirat látható.
 
 ## Fájlok
 
@@ -45,7 +45,7 @@ Kimenet:
 ### Mit csinál a build?
 
 1. `web/` Vite build `VITE_WEBOS=true VITE_WEBOS_FAST_LOAD=true` – kisebb player, gyors betöltés
-2. `build/web/index.html` → `build/webos/index.html` + webOS távirányító-kezelő injektálás + csak IPTV R.T felirat + `webos-tv` body class
+2. `build/web/index.html` → `build/webos/index.html` + webOS távirányító-kezelő injektálás + csak TV felirat + `webos-tv` body class
 3. `webos/` + `build/webos/` → `data.tar.gz` → `control.tar.gz` + `debian-binary` → ar archive `.ipk`
 
 ### Ellenőrzés
