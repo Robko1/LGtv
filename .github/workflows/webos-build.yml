@@ -77,7 +77,17 @@ jobs:
           img.resize((130,130), Image.Resampling.LANCZOS).save("webos/largeIcon.png", "PNG")
           img.resize((512,512), Image.Resampling.LANCZOS).save("webos/assets/icon_tv.png", "PNG")
           img.save("web/public/ikonkep.png", "PNG")
-          print("OK: az ikonkep.png lett az LG webOS ikon és a webes favicon forrása.")
+          # A Rendszer panel ikonja beágyazott data URI lesz, nem külső fájlhivatkozás.
+          import base64, io
+          thumb = img.resize((48,48), Image.Resampling.LANCZOS)
+          buffer = io.BytesIO()
+          thumb.save(buffer, format="PNG")
+          encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+          Path("web/src/generatedIcon.ts").write_text(
+              'export const APP_ICON_DATA_URL = "data:image/png;base64,' + encoded + '";\\n',
+              encoding="utf-8"
+          )
+          print("OK: az ikon átméretezve és beégethető data URI-ként előállítva.")
           PY
 
       - name: 6. Kézi diagnosztika – forrás, webOS frissítő és csomagoló
