@@ -3,7 +3,7 @@ name: IPK építés
 # Kizárólag LG webOS TV IPK build; minden forrás a jelenlegi repóból származik.
 # Kézi indítás (workflow_dispatch), automatikus futás nincs.
 # Kimenet: az aktuális verziójú Release-ben kizárólag az IPTV-RT.ipk marad.
-# Diagnosztika: webos-manual-diagnosis.yml (külön, kézi)
+# A teljes forrásdiagnosztika és IPK-ellenőrzés ebben a workflow-ban fut.
 
 on:
   workflow_dispatch:
