@@ -41,19 +41,18 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
     setStatus('waiting');
     setCountdown(300);
     setReceivedData(null);
-    // A tárolót a TV hozza létre és ÖNTESZTTEL ellenőrzi (írás+olvasás),
-    // az azonosítója a QR linkbe kerül (&b= kvdb vagy &j= jsonblob).
+    // A párosítási munkamenet a különálló Supabase-projektben jön létre.
+    // A QR tartalmazza a munkamenet-azonosítót és a véletlen, titkos tokent.
     const ch = await ensureProvisionChannel();
     setChannel(ch);
     const url = getProvisionUrl(session.tvId, session.code, ch, session.token);
     setProvisionUrl(url);
     if (!ch) {
-      // Egyik tároló szolgáltatás sem ment át az önteszten – a telefonos
-      // küldés biztosan hibázna, ezt a TV-n azonnal jelezzük.
+      // Biztonsági tartalék: ne mutassunk működő QR-kódot, ha a backend nem kész.
       setStatus('error');
       return;
     }
-    console.log('[QR] Session created', session.tvId, session.code, url, 'channel:', ch ? ch.kind + ':' + ch.id : 'NINCS');
+    console.log('[QR] Supabase pairing session created', session.tvId, 'expires in 5 minutes');
   };
 
   useEffect(() => {
