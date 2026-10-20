@@ -37,6 +37,9 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
  */
 const CACHE_MAX_ENTRIES = 1200;
 const cache = new Map<string, { at: number; entries: EpgEntry[] }>();
+// Az App és a csatornalista ugyanazt a műsort is kérheti induláskor.
+// Egy csatornához egyszerre csak egy hálózati EPG-kérés fusson.
+const inFlight = new Map<string, Promise<EpgEntry[]>>();
 
 function trimCache(): void {
   while (cache.size > CACHE_MAX_ENTRIES) {
@@ -104,26 +107,37 @@ export async function loadShortEpg(
   const key = epgCacheKey(provider, streamId) + `|${limit}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.entries;
+  const pending = inFlight.get(key);
+  if (pending) return pending;
 
-  const items = await xtreamService.shortEpg(
-    provider.serverUrl,
-    provider.username,
-    provider.password,
-    streamId,
-    limit
-  );
+  const request = (async (): Promise<EpgEntry[]> => {
+    const items = await xtreamService.shortEpg(
+      provider.serverUrl!,
+      provider.username!,
+      provider.password!,
+      streamId,
+      limit
+    );
 
-  const entries: EpgEntry[] = items.map((item, index) => ({
-    id: String(item.id ?? index),
-    title: decodeBase64(item.title) || 'Névtelen műsor',
-    description: decodeBase64(item.description) || '',
-    start: toTimestamp(item.start_timestamp, item.start),
-    end: toTimestamp(item.stop_timestamp, item.end),
-  }));
+    const entries: EpgEntry[] = items.map((item, index) => ({
+      id: String(item.id ?? index),
+      title: decodeBase64(item.title) || 'Névtelen műsor',
+      description: decodeBase64(item.description) || '',
+      start: toTimestamp(item.start_timestamp, item.start),
+      end: toTimestamp(item.stop_timestamp, item.end),
+    }));
 
-  cache.set(key, { at: Date.now(), entries });
-  trimCache();
-  return entries;
+    cache.set(key, { at: Date.now(), entries });
+    trimCache();
+    return entries;
+  })();
+
+  inFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlight.get(key) === request) inFlight.delete(key);
+  }
 }
 
 function fmtRange(start: number, end: number): string {
