@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.3.17';
+export const WEB_VERSION = '2.3.18';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.17'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.3.18'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.3.18',
+    date: '2026-10-20',
+    changes: [
+      'Új alkalmazás-ikon beégetve (base64) a Rendszer fülre és minden ikonhelyre - nem fájlhivatkozás',
+      'Főoldal: a jobb oldali csatornalista doboz alja nem lóg le a képernyőről (100dvh-tartalék + overscan)',
+      'A TV lejátszó doboz nem fókuszcél: balra nyíl nem lép rá, teljes képernyő a lista OK gombjával indul',
+      'Teljes képernyőből Vissza VAGY egyetlen OK gomb visszalép a főoldalra',
+      'Beállítások: sokkal nagyobb betűk a Kedvencek és Rendszer füleken is',
+    ],
+  },
   {
     version: '2.3.17',
     date: '2026-10-20',

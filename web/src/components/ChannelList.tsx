@@ -457,14 +457,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
     const key = normalizeTvKey(e);
     if (key === 'ArrowLeft') {
-      // BALRA: a jelölő azonnal a TV lejátszóra ugrik.
-      const player = document.querySelector<HTMLElement>('[data-tv-player]');
-      if (player) {
-        e.preventDefault();
-        e.stopPropagation();
-        player.focus({ preventScroll: true } as any);
-        return;
-      }
+      // BALRA: a TV lejátszó doboz NEM fókuszcél többé - a jelölő a listán marad.
+      e.preventDefault();
+      e.stopPropagation();
+      return;
     }
     if (visibleChannels.length === 0) {
       // ÜRES lista (még töltődik vagy nincs lejátszási lista): ne legyen
@@ -516,7 +512,15 @@ export const ChannelList: React.FC<ChannelListProps> = ({
       e.preventDefault();
       e.stopPropagation();
       const current = visibleChannels[currentIndex >= 0 ? currentIndex : 0];
-      if (current) onSelectChannel(current);
+      if (current) {
+        if (current.id === selectedChannelId) {
+          // A már futó csatornán az OK a teljes képernyős nézetet indítja
+          // (a lejátszó dobozból indítás megszűnt).
+          window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
+        } else {
+          onSelectChannel(current);
+        }
+      }
     }
   };
 

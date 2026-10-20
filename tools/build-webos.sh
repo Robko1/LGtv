@@ -20,7 +20,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.3.17}"
+VERSION="${VERSION:-2.3.18}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
@@ -43,6 +43,19 @@ img = Image.open(root / "ikonkep.png").convert("RGBA")
 img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon.png", "PNG")
 img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon.png", "PNG")
 img.resize((512, 512), Image.Resampling.LANCZOS).save(root / "webos/assets/icon_tv.png", "PNG")
+# Beégetett (base64) app-ikon a felülethez: nem fájlhivatkozás, a HTML-be kerül.
+import base64, io
+thumb = img.resize((128, 128), Image.Resampling.LANCZOS)
+buf = io.BytesIO()
+thumb.save(buf, format="PNG", optimize=True)
+encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+(root / "web/src/generatedIcon.ts").write_text(
+    '// BEÉGETETT alkalmazás-ikon (a repó ikonkep.png fájljából, 128x128 PNG).\n'
+    '// Nem külső hivatkozás: a csomagolt egyfájlos HTML-ben is mindig megjelenik.\n'
+    '// A build (tools/build-webos.sh és a workflow) ugyanígy újragenerálja.\n'
+    'export const APP_ICON_DATA_URL = "data:image/png;base64,' + encoded + '";\n',
+    encoding="utf-8",
+)
 PY
 
 # 1. web build (ha kell)
@@ -129,7 +142,7 @@ print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.17"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.3.18"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )

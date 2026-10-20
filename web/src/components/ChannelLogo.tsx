@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Tv } from 'lucide-react';
+import { APP_ICON_DATA_URL } from '../generatedIcon';
 import { normalizeLogoUrl } from '../services/logoUrl';
 
 interface Props { url?: string; name: string; retryKey?: object }
@@ -56,7 +56,8 @@ const LogoImage: React.FC<Props> = ({ url = '', name, retryKey }) => {
   };
 
   if (!url || (failed && !cachedSource)) {
-    return <Tv className="w-5 h-5 text-slate-500" aria-label={`A(z) ${name} logója nem érhető el`} />;
+    // Beégetett app-ikon tartalékként (keresés felugrókban is), megfelelő méretre kicsinyítve.
+    return <img src={APP_ICON_DATA_URL} className="w-5 h-5 rounded object-contain opacity-80" alt="" aria-label={`A(z) ${name} logója nem érhető el`} />;
   }
 
   return (

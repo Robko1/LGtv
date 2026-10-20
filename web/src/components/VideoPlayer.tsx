@@ -318,6 +318,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * - Mozi/sorozat fekvő: semmilyen kattintásra semmi funkció
    */
   const isLive = !isVod;
+  // TV: a csatornalistáról érkező kérés (OK a már futó csatornán) indítja a
+  // teljes képernyős nézetet - a lejátszó dobozból indítás megszűnt.
+  useEffect(() => {
+    const enterFs = () => {
+      if (isLive) setIsFullscreen(true);
+    };
+    window.addEventListener('iptv-enter-fullscreen', enterFs);
+    return () => window.removeEventListener('iptv-enter-fullscreen', enterFs);
+  }, [isLive]);
+
+  // Teljes képernyőn a fókusz a lejátszóra kerül (így az OK/Vissza azonnal
+  // kilép), kilépés után pedig visszatér a csatornalistára.
+  const wasFullscreenRef = useRef(false);
+  useEffect(() => {
+    if (isFullscreen) {
+      wasFullscreenRef.current = true;
+      window.requestAnimationFrame(() => {
+        containerRef.current?.focus({ preventScroll: true } as any);
+      });
+    } else if (wasFullscreenRef.current) {
+      wasFullscreenRef.current = false;
+      window.requestAnimationFrame(() => {
+        const list = document.querySelector<HTMLElement>('[role="listbox"]');
+        if (list) list.focus({ preventScroll: true } as any);
+      });
+    }
+  }, [isFullscreen]);
   const isLivePortraitFullscreen = isLive && isFullscreen && isPortrait;
   const isLiveLandscapeFullscreen = isLive && isFullscreen && !isPortrait;
   const isVodPortraitFullscreen = isVod && isFullscreen && isPortrait;
@@ -504,10 +531,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (api?.togglePause) api.togglePause();
         else if (video?.paused) void video.play().catch(() => undefined);
         else video?.pause();
-      } else if (key === 'Enter' && isLive && !isFullscreen) {
-        // TV: EGYETLEN OK gomb aktiválja a teljes képernyős nézést
-        // (korábban dupla kattintás/2x OK kellett).
-        setIsFullscreen(true);
+      } else if (key === 'Enter' && isLive && isFullscreen) {
+        // TV: teljes képernyőben EGYETLEN OK gomb visszalép a főoldalra
+        // (a Vissza gomb mellett). A dobozból indítás funkció megszűnt.
+        setIsFullscreen(false);
       } else {
         // Enter = OSD vagy dupla logika szerint
         handleSurfaceTap(e);
@@ -1676,7 +1703,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     <div
       ref={containerRef}
       data-tv-player=""
-      tabIndex={0}
+      tabIndex={isFullscreen ? 0 : -1}
       onKeyDown={handleKeyDown}
       onMouseMove={handleMouseMove}
       onMouseDown={handleMouseDown}
