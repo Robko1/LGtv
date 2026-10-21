@@ -58,6 +58,8 @@ export interface Channel {
     time: string;
     title: string;
   };
+  /** A következő három EPG-műsor a főoldali OSD-hez. */
+  epgUpcoming?: Array<{ title: string; time: string }>;
   isFavorite: boolean;
   orderIndex: number;
   audioTracks?: AudioTrack[];
