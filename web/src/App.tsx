@@ -2034,6 +2034,7 @@ export function App() {
 
           {/* TV-only channel controls: film/sorozat közben a VOD OSD az egyetlen lejátszóvezérlő. */}
           {!customStreamUrl && !isVideoFullscreen && isOsdVisible && <ChannelControls
+            className="main-live-osd"
             channel={activeChannel}
             displayNumber={activeChannelDisplayNumber}
             isPlaying={isPlaying}
