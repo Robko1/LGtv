@@ -17,4 +17,4 @@
 
 Ez a kiadás **kizárólag LG webOS TV-re** készült. Android APK-t ez a repó nem készít, nem tölt le és nem csomagol.
 
-A build kézzel indítható, a `Robko1/LGtv` repó `main` ágából épít. A következő build verziószáma a forrásban beállított alkalmazásverzió lesz; verzióemeléshez a `webos/appinfo.json` és a `web/src/appVersion.ts` verzióját együtt kell módosítani.
+A build kézzel indítható, a `Robko1/LGtv` repó `main` ágából épít. Minden kézi IPK-build automatikusan növeli a javítóverziót, és a változást visszamenti a `main` ágra. Az IPK, az alkalmazás, a Git-tag és a kiadási cím/leírás ugyanazt a verziószámot használja.
