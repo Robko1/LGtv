@@ -289,8 +289,8 @@ jobs:
           from pathlib import Path
           base = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos")
           packaged = json.loads((base / "appinfo.json").read_text())
-          if packaged.get("version") != "2.5.1":
-              raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
+          if packaged.get("version") != os.environ.get("VERSION"):
+              raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}, várt: {os.environ.get('VERSION')}")
           if packaged.get("splashBackground") != "splash-screen.png":
               raise SystemExit("HIBA: a csomagolt appinfo.json nem a fekete indítóképet használja.")
           if packaged.get("spinnerOnLaunch") is not False:
