@@ -2135,7 +2135,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           /* Film/sorozat OSD: kék panel, idővonal, lejátszás, hangsáv és felirat. */
           <div
             ref={vodOsdRef}
-            className="absolute inset-x-2 bottom-2 z-40 pointer-events-auto"
+            className="absolute inset-x-2 bottom-2 z-40 pointer-events-auto [&_button:focus]:outline-none [&_button:focus]:ring-2 [&_button:focus]:ring-yellow-400 [&_input:focus]:outline-none [&_input:focus]:ring-2 [&_input:focus]:ring-yellow-400"
             onKeyDown={(e) => {
               const key = normalizeTvKey(e);
               const root = vodOsdRef.current;
