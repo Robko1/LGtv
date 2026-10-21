@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Category, Channel } from '../types/iptv';
-import { X, Search, Layers, ChevronRight } from 'lucide-react';
+import { Search, Layers, ChevronRight } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 
 interface CategoriesModalProps {
@@ -34,6 +34,9 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCountryId, setExpandedCountryId] = useState<string | null>(null);
+  const [searchEditing, setSearchEditing] = useState(false);
+  const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   // A főoldali (App) szűréshez késleltetve adjuk át a keresést: gépelés közben
   // ne induljon el minden leütésre a teljes csatornalista újraszűrése.
@@ -49,46 +52,60 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
     }, 250);
   };
 
-  // TV / stick: auto-focus + D-pad navigáció
+  // A fókusz a kategórialistán marad; a kereső csak OK-ra vált gépelésre.
   useEffect(() => {
-    if (!isOpen) return;
-    const focusModal = () => {
-      try {
-        const container = modalRef.current;
-        if (!container) return;
-        const focusable = container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (focusable.length > 0) {
-          const firstButton = Array.from(focusable).find(el => el.tagName === 'BUTTON') as HTMLElement | undefined;
-          (firstButton || focusable[0])?.focus({ preventScroll: true } as any);
-        }
-      } catch {}
-    };
-    const t1 = window.setTimeout(focusModal, 100);
-    const t2 = window.setTimeout(focusModal, 500);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    if (!isOpen) {
+      setSearchEditing(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      const container = modalRef.current;
+      const firstCategory = container?.querySelector<HTMLElement>('[data-category-row="true"]');
+      (firstCategory || searchTriggerRef.current)?.focus({ preventScroll: true } as any);
+    }, 120);
+    return () => window.clearTimeout(t);
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!searchEditing) return;
+    const t = window.setTimeout(() => searchInputRef.current?.focus({ preventScroll: true } as any), 0);
+    return () => window.clearTimeout(t);
+  }, [searchEditing]);
+
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
-    // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, VISSZA=461) is jöhet.
     const key = normalizeTvKey(e);
     if (key === 'ArrowDown' || key === 'ArrowUp') {
-      try {
-        const container = modalRef.current;
-        if (!container) return;
-        const focusable = Array.from(container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter(el => !el.hasAttribute('disabled') && (el as HTMLElement).offsetParent !== null);
-        if (focusable.length === 0) return;
-        const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
-        e.preventDefault(); e.stopPropagation();
-        if (key === 'ArrowDown') {
-          const next = focusable[(currentIndex + 1) % focusable.length];
-          next?.focus(); next?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        } else {
-          const prev = focusable[(currentIndex - 1 + focusable.length) % focusable.length];
-          prev?.focus(); prev?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }
-      } catch {}
+      if (searchEditing && document.activeElement === searchInputRef.current) return;
+      const container = modalRef.current;
+      if (!container) return;
+      const focusable = Array.from(container.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [data-category-row="true"]:not([aria-disabled="true"])'
+      )).filter(el => el.offsetParent !== null);
+      if (!focusable.length) return;
+      const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      e.preventDefault();
+      e.stopPropagation();
+      const nextIndex = key === 'ArrowDown'
+        ? (currentIndex < 0 ? 0 : (currentIndex + 1) % focusable.length)
+        : (currentIndex < 0 ? focusable.length - 1 : (currentIndex - 1 + focusable.length) % focusable.length);
+      const next = focusable[nextIndex];
+      next?.focus();
+      next?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } else if (key === 'Escape' || key === 'Backspace') {
-      e.preventDefault(); e.stopPropagation(); onClose();
+      e.preventDefault();
+      e.stopPropagation();
+      if (searchEditing) {
+        setSearchEditing(false);
+        window.setTimeout(() => searchTriggerRef.current?.focus({ preventScroll: true } as any), 0);
+      } else if (expandedCountryId) {
+        setExpandedCountryId(null);
+      } else {
+        onClose();
+      }
+    } else if ((key === 'Enter' || key === ' ') && document.activeElement === searchTriggerRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      setSearchEditing(true);
     }
   };
 
@@ -150,25 +167,34 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
               KATEGÓRIÁK
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-300 active:scale-90 transition-all"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
         </div>
 
         {/* Search Bar */}
         <div className="p-3 bg-[#081226] border-b border-cyan-950/50">
-          <div className="relative">
-            <Search className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => { const value = e.target.value; setSearchTerm(value); propagateSearch(value); }}
-              placeholder="Csatorna kereső... (név vagy kategória)"
-              className="w-full bg-[#0e1e3e] border border-cyan-900/60 rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-white placeholder-slate-400 focus:outline-hidden focus:border-cyan-400 transition-colors"
-            />
+          <div className={`relative rounded-xl border-2 transition-colors ${searchEditing ? 'border-yellow-400 ring-2 ring-yellow-400/20' : 'border-cyan-900/60 focus-within:border-yellow-400'}`}>
+            <Search className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            {searchEditing ? (
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchTerm}
+                onChange={(e) => { const value = e.target.value; setSearchTerm(value); propagateSearch(value); }}
+                onBlur={() => {}}
+                placeholder="Csatorna kereső... (név vagy kategória)"
+                className="w-full bg-[#0e1e3e] rounded-[10px] pl-9 pr-3 py-2 text-xs sm:text-sm text-white placeholder-slate-400 focus:outline-none"
+              />
+            ) : (
+              <button
+                ref={searchTriggerRef}
+                type="button"
+                onClick={() => setSearchEditing(true)}
+                className="w-full text-left bg-[#0e1e3e] rounded-[10px] pl-9 pr-3 py-2 text-xs sm:text-sm text-slate-300 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                aria-label="Kereső megnyitása"
+              >
+                {searchTerm || 'Csatorna kereső... (OK a gépeléshez)'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -221,6 +247,10 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
             return (
               <React.Fragment key={cat.id}>
               <div
+                data-category-row="true"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (e.currentTarget as HTMLDivElement).click(); } }}
                 onClick={() => {
                   const countryCode = cat.id.startsWith('country-') ? cat.id.slice('country-'.length) : '';
                   const subCategories = countryCode
@@ -245,7 +275,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                   onSelectCategory(cat.id);
                   onClose();
                 }}
-                className={`group flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-all duration-150 ${
+                className={`group flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 ${
                   isSelected
                     ? 'bg-linear-to-r from-cyan-950 via-[#0e2752] to-[#0a1b38] border-2 border-cyan-400 shadow-lg ring-1 ring-cyan-400/30'
                     : 'bg-[#0a1630] hover:bg-[#11244a] border border-cyan-900/30'
