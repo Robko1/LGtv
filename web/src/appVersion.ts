@@ -1,10 +1,19 @@
-export const WEB_VERSION = '2.4.4';
+export const WEB_VERSION = '2.4.5';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.4'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.5'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.5',
+    date: '2026-10-21',
+    changes: [
+      'INDULÁS: egyetlen erőforrás-betöltési hiba (pl. betűtípus internet nélkül, csatornalogó, induló videó) sem hozza elő többé a „HIBA” képernyőt a már kész felület fölött',
+      'A „HIBA a(z) 7/7 lépésnél – JS:(object event)” üzenet megszűnt: csak valódi JavaScript hiba jelenik meg indítási hibaként',
+      'Ha a felület már kirajzolódott, a hibák csak a naplóba (konzol) kerülnek – a képernyőt nem takarja el semmi',
+    ],
+  },
   {
     version: '2.4.4',
     date: '2026-10-21',

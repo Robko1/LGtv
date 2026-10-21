@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.4.4'
+  VERSION: '2.4.5'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TAG: 'v2.4.4'
+  RELEASE_TAG: 'v2.4.5'
   OLD_RELEASE_TAG: 'v2.3.19'
   RELEASE_TITLE: 'IPTV-RT'
 
@@ -132,8 +132,8 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.4.4":
-              raise SystemExit(f"Eltérő buildverzió: várt 2.4.4, kapott {match.group(1)}")
+          if match.group(1) != "2.4.5":
+              raise SystemExit(f"Eltérő buildverzió: várt 2.4.5, kapott {match.group(1)}")
           if "splashBackground" in manifest:
               raise SystemExit("HIBA: a webOS manifest még indítóképet állít be.")
           print(f"LG webOS verziók egyeznek: {match.group(1)}; nincs indítókép.")
@@ -216,7 +216,7 @@ jobs:
           from pathlib import Path
           base = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos")
           packaged = json.loads((base / "appinfo.json").read_text())
-          if packaged.get("version") != "2.4.4":
+          if packaged.get("version") != "2.4.5":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
           if "splashBackground" in packaged:
               raise SystemExit("HIBA: a webOS appinfo.json még indítóképet állít be.")
