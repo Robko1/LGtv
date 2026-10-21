@@ -169,14 +169,28 @@
         var INTRO_SRC = 'assets/intro.mp4';
         var introEnded = false;
 
+        // Rövid napló arról, MIÉRT tűnt el az induló videó. A PIROS gombos
+        // TV diagnosztika kiírja (a TV-n nincs hozzáférésünk a konzolhoz),
+        // így a "félbeszakadt a videó" típusú hibák oka látható lesz.
+        var introLogEntries = [];
+        window.__IPTV_INTRO_LOG__ = introLogEntries;
+        function introLog(message) {
+          try {
+            introLogEntries.push(Math.round(Date.now() - started) + ' ms: ' + message);
+            if (introLogEntries.length > 12) introLogEntries.shift();
+            console.log('INTRO ' + message);
+          } catch (e) {}
+        }
+
         function removeSplash() {
           var splash = byId('boot-splash');
           if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
         }
 
-        function endIntro() {
+        function endIntro(reason) {
           if (introEnded) return;
           introEnded = true;
+          introLog('vége: ' + reason);
           var splash = byId('boot-splash');
           var video = byId('boot-video');
           if (video) {
@@ -190,15 +204,36 @@
 
         function startIntro() {
           var video = byId('boot-video');
-          if (!video) { endIntro(); return; }
+          if (!video) { endIntro('nincs videó elem'); return; }
           try {
-            video.addEventListener('ended', endIntro);
-            video.addEventListener('error', endIntro);
+            video.addEventListener('ended', function () { endIntro('ended esemény'); });
+            video.addEventListener('error', function () {
+              var code = 'ismeretlen';
+              try { code = video.error ? video.error.code : 'nincs error objektum'; } catch (e) {}
+              endIntro('error esemény (code ' + code + ')');
+            });
+            video.addEventListener('playing', function () {
+              introLog('lejátszás elindult (' + Math.round(video.currentTime * 100) / 100 + ' s)');
+            });
+            // Ha a TV a hangos autoplay-t tiltotta (ezért némán indult), próbáljuk
+            // visszakapcsolni a hangot. Ha ettől megállna, visszanémítjuk.
+            video.addEventListener('playing', function () {
+              if (!video.muted) return;
+              introLog('néma indult – hang visszakapcsolása');
+              try { video.muted = false; video.volume = 1; } catch (e) {}
+              window.setTimeout(function () {
+                if (video.paused) {
+                  introLog('a hang visszakapcsolása megállította – újra némán');
+                  try { video.muted = true; video.play(); } catch (e) {}
+                }
+              }, 600);
+            }, { once: true });
           } catch (e) {}
+
           try {
             video.src = INTRO_SRC;
             video.load();
-          } catch (e) { endIntro(); return; }
+          } catch (e) { endIntro('a videó betöltése nem indult el'); return; }
 
           // Hanggal indul (a logó-videó hangja); ha a TV motorja a hangos
           // automatikus indítást tiltja, némán újrapróbáljuk, hogy a videó
@@ -208,19 +243,28 @@
           try { played = video.play(); } catch (e) {}
           if (played && played.catch) {
             played.catch(function () {
+              introLog('hangos indítás tiltva – néma újrapróbálás');
               try { video.muted = true; video.play(); } catch (e) {}
             });
+          } else if (!played) {
+            introLog('play() nem adott Promise-t (régi motor)');
           }
 
-          // Ha 4 mp alatt el sem indul (nincs videófájl, tiltott autoplay),
-          // akkor nem tartjuk fogva a felületet.
+          // Ha 8 mp alatt el sem indul (nincs videófájl, tiltott autoplay,
+          // nagyon lassú TV), akkor nem tartjuk tovább fogva a felületet.
           window.setTimeout(function () {
             var v = byId('boot-video');
-            if (!v || v.currentTime > 0.05) return;
-            endIntro();
-          }, 4000);
+            if (!v) return;
+            if (v.currentTime > 0.05) return;
+            // Ha már van dekódolt kép (readyState >= 2), csak lassan indul -
+            // ilyenkor NEM tesszük el a videót, a megakadás-figyelő dönt.
+            if (v.readyState >= 2) { introLog('8 mp után is lassan indul, de van kép – várunk'); return; }
+            endIntro('8 mp alatt nem indult el (readyState ' + v.readyState + ')');
+          }, 8000);
 
-          // Ha a lejátszás megakad (nem halad a videó), szintén engedjük el.
+          // Ha a lejátszás tartósan megakad (nem halad a videó), engedjük el.
+          // 10 másodperc türelmi idő: a TV a háttérben felépülő felülettől is
+          // el tudja venni a processzort, ilyenkor rövid ideig állhat a kép.
           var lastTime = -1;
           var stuck = 0;
           var watchdog = window.setInterval(function () {
@@ -232,9 +276,9 @@
               return;
             }
             stuck++;
-            if (stuck >= 5) {
+            if (stuck >= 10) {
               window.clearInterval(watchdog);
-              endIntro();
+              endIntro('megakadt (' + Math.round((v.currentTime || 0) * 10) / 10 + ' s-nál, paused=' + v.paused + ')');
             }
           }, 1000);
         }

@@ -21,7 +21,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.4.5}"
+VERSION="${VERSION:-2.4.6}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
@@ -44,6 +44,9 @@ img = Image.open(root / "ikonkep.png").convert("RGBA")
 img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon-rt2.png", "PNG")
 img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon-rt2.png", "PNG")
 img.resize((512, 512), Image.Resampling.LANCZOS).save(root / "webos/assets/icon_tv.png", "PNG")
+# A TV saját indítóképernyője (a videó előtt): TISZTA FEKETE 1920x1080 PNG.
+# Csak a rendszer fehér villanását váltja feketére - nincs rajta logó/felirat.
+Image.new("RGB", (1920, 1080), (0, 0, 0)).save(root / "webos/splash-screen.png", "PNG", optimize=True)
 # Beégetett (base64) app-ikon a felülethez: nem fájlhivatkozás, a HTML-be kerül.
 import base64, io
 def icon_b64(px):
@@ -107,6 +110,8 @@ mkdir -p "$BUILD_DIR"
 cp "$WEBOS_DIR/appinfo.json" "$BUILD_DIR/appinfo.json"
 cp "$WEBOS_DIR/icon-rt2.png" "$BUILD_DIR/icon-rt2.png"
 cp "$WEBOS_DIR/largeIcon-rt2.png" "$BUILD_DIR/largeIcon-rt2.png"
+# Fekete indítókép (appinfo.json: splashBackground) - a videó előtti villanás ellen.
+cp "$WEBOS_DIR/splash-screen.png" "$BUILD_DIR/splash-screen.png"
 mkdir -p "$BUILD_DIR/assets"
 # Indítókép nincs. A többi asset (logók, kicsi ikonok) bekerül.
 for asset in "$WEBOS_DIR/assets/"*; do
@@ -123,9 +128,9 @@ done
 # végig, majd elhalványul - közben a React app már felépül a háttérben.
 INTRO_SOURCE=""
 for intro_candidate in \
+  "$WEBOS_DIR/assets/intro.mp4" \
   "$PROJECT_DIR/intro.mp4" \
-  "$PROJECT_DIR/Autos_TV_logo_nagy_TV_gyors_1920x1080.mp4" \
-  "$WEBOS_DIR/assets/intro.mp4"; do
+  "$PROJECT_DIR/Autos_TV_logo_nagy_TV_gyors_1920x1080.mp4"; do
   if [[ -s "$intro_candidate" ]]; then
     INTRO_SOURCE="$intro_candidate"
     break
@@ -168,7 +173,7 @@ print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.4.5"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.4.6"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
