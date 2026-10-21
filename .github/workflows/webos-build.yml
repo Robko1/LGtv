@@ -177,37 +177,61 @@ jobs:
           set -euo pipefail
           IPK="webos/$IPK_FILE_NAME"
           ar t "$IPK"
-          ar p "$IPK" data.tar.gz | tar tz | grep -E "appinfo.json|index.html|icon-rt2.png"
+          # FONTOS: a data.tar.gz-t ELŐBB fájlba mentjük, és csak utána greppelünk.
+          # Korábban a listát csövön keresztül szűrtük `grep -q`-val: a grep az
+          # első találatnál kilép, ilyenkor az `ar`/`tar` SIGPIPE-pal (141) áll
+          # le, a `set -o pipefail` pedig emiatt akkor is elhasalt, amikor a
+          # csomagban minden rendben volt (ez okozta a 2.4.4 CI-hibáját).
+          rm -rf /tmp/ipk-check
+          mkdir -p /tmp/ipk-check
+          ar p "$IPK" data.tar.gz > /tmp/ipk-data.tar.gz
+          test -s /tmp/ipk-data.tar.gz
+          tar tzf /tmp/ipk-data.tar.gz > /tmp/ipk-files.txt
+          echo "IPK tartalma:"
+          cat /tmp/ipk-files.txt
+          grep -E "appinfo.json|index.html|icon-rt2.png" /tmp/ipk-files.txt
           # Az induló videónak BENNE KELL lennie a csomagban, indítókép viszont nem.
-          ar p "$IPK" data.tar.gz | tar tz | grep -q 'assets/intro\.mp4' || {
+          if ! grep -qx '\./usr/palm/applications/hu\.rt\.iptv\.webos/assets/intro\.mp4' /tmp/ipk-files.txt; then
             echo "HIBA: az induló videó (assets/intro.mp4) hiányzik az IPK-ból." >&2
             exit 1
-          }
-          if ar p "$IPK" data.tar.gz | tar tz | grep -Ei 'assets/splash\.png'; then
+          fi
+          if grep -E 'assets/splash\.png' /tmp/ipk-files.txt; then
             echo "HIBA: indítókép került az IPK-ba." >&2
             exit 1
           fi
-          mkdir -p /tmp/ipk-check
-          ar p "$IPK" data.tar.gz | tar xzf - -C /tmp/ipk-check ./usr/palm/applications/hu.rt.iptv.webos/index.html ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json
+          tar xzf /tmp/ipk-data.tar.gz -C /tmp/ipk-check \
+            ./usr/palm/applications/hu.rt.iptv.webos/index.html \
+            ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json \
+            ./usr/palm/applications/hu.rt.iptv.webos/assets/intro.mp4
           cmp -s build/webos/index.html /tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html || {
             echo "HIBA: az IPK index.html fájlja nem egyezik a mostani builddel." >&2
+            exit 1
+          }
+          cmp -s build/webos/assets/intro.mp4 /tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/assets/intro.mp4 || {
+            echo "HIBA: az IPK-ba került induló videó nem egyezik a mostani builddel." >&2
             exit 1
           }
           python3 - <<'PY'
           import json
           from pathlib import Path
-          packaged = json.loads(Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/appinfo.json").read_text())
+          base = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos")
+          packaged = json.loads((base / "appinfo.json").read_text())
           if packaged.get("version") != "2.4.4":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
           if "splashBackground" in packaged:
               raise SystemExit("HIBA: a webOS appinfo.json még indítóképet állít be.")
-          html = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html").read_text()
+          intro = base / "assets" / "intro.mp4"
+          if not intro.is_file() or intro.stat().st_size < 1024 * 1024:
+              raise SystemExit("HIBA: az induló videó (assets/intro.mp4) hiányzik vagy túl kicsi a csomagban.")
+          html = (base / "index.html").read_text()
           if 'id="root"' not in html or '/src/main.tsx' in html:
               raise SystemExit("HIBA: a csomagolt index.html hiányos vagy nem production build.")
           if "LG webOS TV · FEKVŐ 1920 × 1080" in html:
               raise SystemExit("HIBA: régi, fölösleges indítófelirat maradt.")
           if 'class="boot-spinner"' in html or 'class="boot-text"' in html:
               raise SystemExit("HIBA: a régi diagnosztikai indítóképernyő maradt a csomagban.")
+          if 'class="boot-title"' in html or "webos-splash" in html:
+              raise SystemExit("HIBA: a régi nagy TV feliratos indítóképernyő maradt a csomagban.")
           if 'id="boot-splash"' not in html or "assets/intro.mp4" not in html:
               raise SystemExit("HIBA: az induló videó overlay (#boot-splash) nem került a csomagolt HTML-be.")
           if "focusSpatially" not in html or "normalizeKey" not in html:
@@ -217,11 +241,12 @@ jobs:
               raise SystemExit("HIBA: module script maradt a csomagban - a Chrome<61 TV-motorokon (webOS 3.x/4.0) az app el sem indulna!")
           if "IPTV-ES5-APP" not in html or "IPTV-ES5-POLYFILLS" not in html:
               raise SystemExit("HIBA: az ES5-re fordított app vagy a polyfill blokk hiányzik a csomagolt HTML-ből.")
-          print("OK: friss HTML, Magic Remote-kezelő, induló videó a csomagban, verzió 2.4.4; nincs indítókép.")
+          print(f"OK: HTML {len(html)} byte, induló videó {intro.stat().st_size} byte, verzió {packaged.get('version')}; nincs indítókép.")
           PY
           echo "OK: IPK tartalma rendben"
 
       - name: 11. Diagnosztikai eredmények mentése
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: webos-build-diagnosis
