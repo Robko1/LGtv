@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.4.9';
+export const WEB_VERSION = '2.4.10';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.9'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.10'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.10',
+    date: '2026-10-21',
+    changes: [
+      'VISSZAÁLLÍTÁS: az induló videó vezérlése újra a body végén, inline fut (a 2.4.8-ban bevált felállás) – a 2.4.9-es <head>-es változat a TV-n elrontotta a videót (nem indult el)',
+      'A videó ismét hanggal indul, és csak ha a TV elutasítja, némán próbálja újra – a néma első indítás a TV-n nem működött',
+      'A #boot-splash a #root-on kívül marad, a plakát és a félbeszakadás elleni védelem változatlan',
+      'A csatorna továbbra is csak az induló videó után indul (dekóder-ütközés elleni kapu)',
+    ],
+  },
   {
     version: '2.4.9',
     date: '2026-10-21',
