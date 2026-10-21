@@ -783,7 +783,18 @@ const ChannelListView: React.FC<ChannelListProps> = ({
           } else if (key === 'ArrowDown') {
             e.preventDefault();
             e.stopPropagation();
-            channelScrollRef.current?.focus({ preventScroll: true } as any);
+            // A kedvenc mappák alól mindig az első csatornaszámra lépünk.
+            const first = visibleChannels[0];
+            if (first) {
+              setHighlightedId(first.id);
+              const list = channelScrollRef.current;
+              if (list) {
+                list.scrollTop = 0;
+                list.focus({ preventScroll: true } as any);
+              }
+            } else {
+              channelScrollRef.current?.focus({ preventScroll: true } as any);
+            }
           }
         }}
         className="px-3 py-2.5 bg-[#070f22] border-b border-cyan-950/60 overflow-x-auto shrink-0 focus:outline-none">
@@ -942,24 +953,26 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         }
                       }
                     }}
-                    className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none touch-pan-y focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#070e1e] ${
+                    className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-colors duration-75 select-none touch-pan-y focus:outline-none ${
                       movingChannelId === ch.id
-                        ? 'bg-emerald-700/90 border-2 border-emerald-300 shadow-lg shadow-emerald-950/60 ring-2 ring-emerald-400/60 scale-[1.01]'
-                        : isHighlighted && !isSelected
-                          ? 'bg-[#13254b] border-2 border-amber-400/90 ring-2 ring-amber-400/40 shadow-lg shadow-amber-950/40'
-                          : isSelected
-                            ? `bg-linear-to-r from-cyan-950/90 via-[#0e2752] to-[#0a1b38] border-2 ${isHighlighted ? 'border-amber-400/90 ring-2 ring-amber-400/40' : 'border-cyan-400/80 ring-1 ring-cyan-400/30'} shadow-lg shadow-cyan-950/60 scale-[1.01]`
-                            : 'bg-[#0a152d]/80 hover:bg-[#112347] md:hover:bg-[#132a52] lg:hover:bg-[#132a52] xl:hover:bg-[#152e5c] border border-slate-800/40 hover:border-cyan-700/50'
+                        ? 'bg-emerald-700/90'
+                        : isSelected
+                          ? 'bg-[#0b1a34]'
+                          : 'bg-[#0a152d]/80 hover:bg-[#112347] md:hover:bg-[#132a52] lg:hover:bg-[#132a52] xl:hover:bg-[#152e5c]'
                     }`}
                   >
                     {/* Left side: Num badge + Logo + Info */}
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       {/* Number pill */}
                       <div
-                        className={`shrink-0 px-2.5 py-1 rounded-xl font-black ${bigRows ? 'text-base' : 'text-xs sm:text-sm'} tracking-wider min-w-[56px] text-center ${
-                          isSelected
-                            ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30 font-black'
-                            : 'bg-[#0d1f42] text-cyan-300 border border-cyan-700/40'
+                        data-channel-number=""
+                        tabIndex={-1}
+                        className={`shrink-0 px-2.5 py-1 rounded-xl font-black ${bigRows ? 'text-base' : 'text-xs sm:text-sm'} tracking-wider min-w-[56px] text-center transition-colors duration-75 ${
+                          isHighlighted
+                            ? 'bg-cyan-400 text-slate-950 border border-cyan-300'
+                            : isSelected
+                              ? 'bg-cyan-950 text-cyan-200 border border-cyan-800/60'
+                              : 'bg-[#0d1f42] text-cyan-300 border border-cyan-700/40'
                         }`}
                       >
                         {index + 1}
