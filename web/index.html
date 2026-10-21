@@ -49,72 +49,16 @@
       ::-webkit-scrollbar-thumb:hover {
         background: rgba(56, 189, 248, 0.6);
       }
-      /* INDULÓ VIDEÓ: teljes képernyős, fekvő bejelentkező animáció (nincs TV
-         felirat). A React app közben a háttérben töltődik fel, így a videó
-         végén a kép "összeáll": a videó elhalványul, és már a kész felület
-         van mögötte. A videó nem kap görgetősávot és nem tolja el az appot. */
-      #boot-splash {
+      /* INDULÓ VIDEÓ NINCS (2.5.0): a webOS saját indítóképernyője a logó
+         képkockáját mutatja (splashBackground), utána azonnal a főoldal jön.
+         Ez a blokk csak akkor látszik, ha az app indításkor valódi hibát ad. */
+      #boot-error-screen {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        width: 100vw;
-        height: 100vh;
-        overflow: hidden;
-        background: #000;
-        z-index: 2147483000;
-      }
-      #boot-splash.is-hidden {
-        opacity: 0;
-        transition: opacity 0.55s ease-out;
-        pointer-events: none;
-      }
-      /* A videó első kockája a videó MÖGÖTT, nagyon lassú nagyítással - így a
-         várakozás (amíg a TV dekódere elindul) nem tűnik lefagyott képnek. */
-      #boot-splash .boot-poster {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        background: #000;
-        z-index: 0;
-        animation: bootPosterZoom 10s linear forwards;
-        transform-origin: 50% 50%;
-      }
-      @keyframes bootPosterZoom {
-        from { transform: scale(1); }
-        to { transform: scale(1.05); }
-      }
-      #boot-splash .boot-video {
-        z-index: 1;
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        /* A videó első kockája (plakát) a háttérben: a videó előtt is ez
-           látszik, nem fekete/fehér villanás. */
-        background: #000 url('assets/intro-poster.jpg') center center / contain no-repeat;
-      }
-      /* Indulási lépés + hibaüzenet: csak HIBA esetén látszik (a videó helyén),
-         hogy a TV-n is olvasható legyen, mi akadt el. */
-      #boot-splash .boot-hint {
         display: none;
-      }
-      #boot-splash.boot-failed .boot-video {
-        display: none;
-      }
-      #boot-splash.boot-failed .boot-hint {
-        display: flex;
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
         flex-direction: column;
         align-items: center;
         justify-content: center;
@@ -122,17 +66,16 @@
         text-align: center;
         background: #080d1a;
         color: #f1f5f9;
+        z-index: 2147483000;
       }
-      #boot-splash .boot-stage {
+      #boot-error-screen.is-visible {
+        display: flex;
+      }
+      #boot-error-screen .boot-stage {
         font-size: 22px;
         color: #64748b;
       }
-      #boot-splash .boot-time {
-        margin-top: 6px;
-        font-size: 18px;
-        color: #475569;
-      }
-      #boot-splash .boot-error {
+      #boot-error-screen .boot-error {
         margin-top: 14px;
         max-width: 80vw;
         font-size: 20px;
@@ -144,223 +87,40 @@
     </style>
   </head>
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
-    <!-- INDULÓ (BEJELENTKEZŐ) VIDEÓ.
-         A #boot-splash a #root-on KÍVÜL van, mert a React az első rajzoláskor
-         lecseréli a #root teljes tartalmát - így a videó az app FÖLÖTT fut,
-         az app pedig közben a háttérben épül fel.
-         A vezérlő szkript a body VÉGÉN, inline fut (nem külön fájl, nem
-         <head>): a 2.4.9-es <head>-es kísérlet a TV-n elrontotta a videót
-         (a body-ba átmozgatott <video> elemet a motor újratöltötte, ezért a
-         videó sosem indult el). Ez a bevált, 2.4.8-as felállás. -->
-    <div id="boot-splash" aria-label="Induló videó">
-      <img id="boot-poster" class="boot-poster" src="assets/intro-poster.jpg" alt="" />
-      <video id="boot-video" class="boot-video" playsinline webkit-playsinline
-        preload="auto" disablepictureinpicture x-webkit-airplay="deny"
-        poster="assets/intro-poster.jpg"></video>
-      <div id="boot-hint" class="boot-hint">
-        <div id="boot-stage" class="boot-stage"></div>
-        <div id="boot-time" class="boot-time"></div>
-        <div id="boot-error" class="boot-error"></div>
-      </div>
-    </div>
+    <!-- NINCS induló videó (2.5.0). A webOS saját indítóképernyője a logó
+         képkockáját mutatja (appinfo.json: splashBackground), majd a program
+         azonnal a főoldallal indul. Az itteni szkript csak az indulási
+         lépés/hiba jelzéshez kell (a TV-n is olvasható hibaüzenet). -->
     <div id="root"></div>
+    <div id="boot-error-screen">
+      <div id="boot-stage" class="boot-stage"></div>
+      <div id="boot-error" class="boot-error"></div>
+    </div>
     <script>
       (function () {
         var started = Date.now();
         window.__IPTV_STARTUP_STAGE__ = 1;
         window.__IPTV_STARTUP_DIAG__ = true;
-        window.__IPTV_INTRO_ACTIVE__ = true; // amíg true, a lejátszó nem indul el
-
-        var INTRO_SRC = 'assets/intro.mp4';
-        var INTRO_MAX_MS = 9800; // a videó hossza (9,7 mp) + ráhagyás
-
-        var logEntries = [];
-        window.__IPTV_INTRO_LOG__ = logEntries;
 
         function byId(id) { return document.getElementById(id); }
-
-        function introLog(message) {
-          try {
-            logEntries.push(Math.round(Date.now() - started) + ' ms: ' + message);
-            if (logEntries.length > 14) logEntries.shift();
-            console.log('INTRO ' + message);
-          } catch (e) {}
-        }
 
         function show(stage, label) {
           window.__IPTV_STARTUP_STAGE__ = stage;
           var el = byId('boot-stage');
-          var tm = byId('boot-time');
           if (el) el.textContent = stage + '/7 ' + label;
-          if (tm) tm.textContent = (Date.now() - started) + ' ms';
           try { console.log('STARTUP ' + stage + '/7 ' + label + ' @ ' + (Date.now() - started) + ' ms'); } catch (e) {}
         }
         window.__IPTV_STARTUP_STAGE_SET__ = show;
 
-        var introEnded = false;
-        var introStartedAt = 0;
-        var posterTimer = null;
-
-        // A csatorna (lejátszó) csak az induló videó UTÁN indulhat el: a TV-n egy
-        // videó-dekóder van, és a csatorna elindítása elvenné tőle a dekódert.
-        function releasePlayback() {
-          try { window.__IPTV_INTRO_ACTIVE__ = false; } catch (e) {}
-          try {
-            var ev = document.createEvent('Event');
-            ev.initEvent('iptv-intro-done', true, true);
-            window.dispatchEvent(ev);
-          } catch (e2) {}
-          introLog('lejátszás engedélyezve (iptv-intro-done)');
-        }
-
-        function removeSplash() {
-          var splash = byId('boot-splash');
-          if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
-        }
-
-        function endIntro(reason) {
-          if (introEnded) return;
-          introEnded = true;
-          introLog('vége: ' + reason);
-          var splash = byId('boot-splash');
-          var video = byId('boot-video');
-          if (video) { try { video.pause(); } catch (e) {} }
-          if (!splash) return;
-          if (splash.className.indexOf('boot-failed') >= 0) return; // hiba: marad a hibaüzenet
-          releasePlayback();
-          splash.className += ' is-hidden';
-          window.setTimeout(removeSplash, 650);
-        }
-
-        // Hiba / megakadás: NEM ugrunk azonnal a főoldalra - a videó első
-        // kockája (plakát) marad a tervezett ideig.
-        function showPosterInsteadOfVideo(reason) {
-          var video = byId('boot-video');
-          if (introEnded) return;
-          if (posterTimer) { introLog('plakát kérés (már fut): ' + reason); return; }
-          introLog('plakátra váltás: ' + reason);
-          if (video) {
-            try { video.style.display = 'none'; } catch (e) {}
-            try { video.pause(); } catch (e2) {}
-          }
-          var elapsed = introStartedAt ? (Date.now() - introStartedAt) : 0;
-          var remaining = Math.max(1200, INTRO_MAX_MS - elapsed);
-          posterTimer = window.setTimeout(function () {
-            endIntro('tervezett idő letelt (plakát)');
-          }, remaining);
-        }
-
-        function startIntro() {
-          var video = byId('boot-video');
-          if (!video) { endIntro('nincs videó elem'); return; }
-          introStartedAt = Date.now();
-          try {
-            video.addEventListener('loadedmetadata', function () {
-              introLog('videó kész (' + (Math.round((video.duration || 0) * 10) / 10) + ' s)');
-            });
-            video.addEventListener('playing', function () {
-              introLog('lejátszás elindult (' + (Math.round((video.currentTime || 0) * 100) / 100) + ' s)');
-            });
-            // Ha a TV a hangos indítást tiltotta (ezért némán indult), a lejátszás
-            // után megpróbáljuk visszakapcsolni a hangot. Ha ettől megállna,
-            // azonnal visszanémítunk - a videó soha nem áll meg a hang miatt.
-            video.addEventListener('playing', function () {
-              if (!video.muted || introEnded) return;
-              introLog('hang visszakapcsolása');
-              try { video.muted = false; video.volume = 1; } catch (e) {}
-              window.setTimeout(function () {
-                if (video.paused) {
-                  introLog('a hang visszakapcsolása megállította – újra némán');
-                  try { video.muted = true; video.play(); } catch (e) {}
-                }
-              }, 700);
-            }, { once: true });
-            video.addEventListener('ended', function () {
-              var duration = 0;
-              var position = 0;
-              try { duration = video.duration || 0; } catch (e) {}
-              try { position = video.currentTime || 0; } catch (e2) {}
-              if (duration > 1 && position < duration - 0.5) {
-                // Nem valódi befejezés: a TV dekódere adta fel a végét.
-                showPosterInsteadOfVideo('korán véget ért (' +
-                  (Math.round(position * 10) / 10) + '/' + (Math.round(duration * 10) / 10) + ' s)');
-                return;
-              }
-              endIntro('ended esemény');
-            });
-            video.addEventListener('error', function () {
-              var code = 'ismeretlen';
-              try { code = video.error ? video.error.code : 'nincs error objektum'; } catch (e) {}
-              showPosterInsteadOfVideo('error esemény (code ' + code + ')');
-            });
-          } catch (e) {}
-
-          try {
-            video.src = INTRO_SRC;
-            video.load();
-          } catch (e) { showPosterInsteadOfVideo('a videó betöltése nem indult el'); return; }
-
-          // Hanggal indul; ha a TV a hangos autoplay-t tiltja, némán újrapróbáljuk
-          // (ez a bevált út: a TV-n a néma indítás nem mindig megy el elsőre).
-          try { video.muted = false; video.volume = 1; } catch (e) {}
-          var played = null;
-          try { played = video.play(); } catch (e) {}
-          if (played && played.catch) {
-            played.catch(function (err) {
-              var name = (err && err.name) ? err.name : String(err);
-              introLog('hangos indítás nem sikerült (' + name + ') – néma újrapróbálás');
-              try { video.muted = true; video.play(); } catch (e) {}
-            });
-          } else if (!played) {
-            introLog('play() nem adott Promise-t (régi motor)');
-          }
-
-          // Ha 8 mp alatt el sem indul (és még kép sincs), nem tartjuk fogva.
-          window.setTimeout(function () {
-            if (introEnded || posterTimer) return;
-            var v = byId('boot-video');
-            if (!v) return;
-            if ((v.currentTime || 0) > 0.05) return;
-            if (v.readyState >= 2) { introLog('8 mp után is lassan indul, de van kép – várunk'); return; }
-            showPosterInsteadOfVideo('8 mp alatt nem indult el (readyState ' + v.readyState + ')');
-          }, 8000);
-
-          // Megakadás-figyelő: 10 mp türelem.
-          var lastTime = -1;
-          var stuck = 0;
-          var watchdog = window.setInterval(function () {
-            var v = byId('boot-video');
-            if (introEnded || !v) { window.clearInterval(watchdog); return; }
-            if (!v.paused && (v.currentTime || 0) > lastTime + 0.01) {
-              lastTime = v.currentTime;
-              stuck = 0;
-              return;
-            }
-            stuck++;
-            if (stuck >= 10) {
-              window.clearInterval(watchdog);
-              showPosterInsteadOfVideo('megakadt (' +
-                (Math.round((v.currentTime || 0) * 10) / 10) + ' s-nál, paused=' + v.paused + ')');
-            }
-          }, 1000);
-        }
-
-        // ---------- Hibaképernyő (csak VALÓDI hiba esetén) ----------
         function appReady() {
           return !!(window.__IPTV_APP_READY__ || (window.__IPTV_STARTUP_STAGE__ || 0) >= 7);
         }
 
         window.__IPTV_STARTUP_FAIL__ = function (message) {
           try { console.error('STARTUP FAIL stage=' + window.__IPTV_STARTUP_STAGE__ + ': ' + String(message)); } catch (e) {}
-          var splash = byId('boot-splash');
-          if (!splash) return;
-          var video = byId('boot-video');
-          if (video) {
-            try { video.style.display = 'none'; } catch (e) {}
-            try { video.pause(); } catch (e2) {}
-          }
-          splash.className = 'boot-failed';
-          introEnded = true;
+          var box = byId('boot-error-screen');
+          if (!box) return;
+          box.className = 'is-visible';
           var el = byId('boot-stage');
           var err = byId('boot-error');
           if (el) el.textContent = 'HIBA a(z) ' + (window.__IPTV_STARTUP_STAGE__ || '?') + '/7 lépésnél';
@@ -368,8 +128,7 @@
         };
 
         // Erőforrás-betöltési hiba (betűtípus internet nélkül, logó stb.) NEM
-        // apphiba: csak naplózzuk. A felület kész állapotában semmilyen hiba nem
-        // takarhatja el a képet.
+        // apphiba - csak naplózzuk. Kész felület fölött semmi nem takarhatja el.
         function isResourceError(e) {
           var t = e && e.target;
           return !!(t && t !== window && t !== document && t.tagName);
@@ -377,7 +136,6 @@
 
         window.addEventListener('error', function (e) {
           if (isResourceError(e)) {
-            if (e.target && e.target.id === 'boot-video') return; // saját kezelője van
             try {
               var t = e.target;
               console.warn('STARTUP: erőforrás nem töltődött be: ' + t.tagName +
@@ -406,9 +164,7 @@
           window.__IPTV_STARTUP_FAIL__('Promise: ' + message);
         });
 
-        // ---------- Indítás ----------
         show(1, 'webOS HTML');
-        startIntro();
         show(2, 'DOM kész');
       })();
     </script>

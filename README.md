@@ -1,6 +1,6 @@
 # TV – LG webOS TV
 
-> **v2.4.10 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
+> **v2.5.0 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
 > - Ez a repó kizárólag LG webOS TV-re készül.
 > - Nem tölt le, nem másol és nem használ forráskódot másik alkalmazásrepóból.
 > - Telepítés: [webos/README.md](webos/README.md)
@@ -10,7 +10,7 @@
 LG webOS TV alkalmazás (IPK) TV-hez:
 - Élő TV, Mozi, Sorozat, EPG, kedvencek, beállítások
 - Távirányító (D-pad) + Magic Remote + egér támogatás
-- Külön kinézet: kisebb lejátszó (1280px max), gyors betöltés; induló (bejelentkező) videó, splash kép nélkül
+- Külön kinézet: kisebb lejátszó (1280px max), gyors betöltés; induló videó nélkül, a logó képkockájával mint indítókép
 - **Két lejátszó motor** (Menü → Rendszer → Lejátszó motor), a választás megmarad:
   - **Beépített (HTML5)**: HLS, automatikus MPEG-TS váltás, teljes OSD – alapértelmezett
   - **Natív (TV dekóder)**: a szolgáltató eredeti MPEG-TS címe közvetlenül a TV hardveres
@@ -91,12 +91,13 @@ Részletek: [QR-TELEFONOS-BEALLITAS.md](QR-TELEFONOS-BEALLITAS.md) + `provision.
 git clone https://github.com/Robko1/LGtv.git && cd LGtv
 cd web && npm install --no-audit --no-fund && VITE_WEBOS=true npm run build
 # IPK építés
-VERSION=2.4.10 bash ../tools/build-webos.sh
+VERSION=2.5.0 bash ../tools/build-webos.sh
 # Kimenet: webos/IPTV-RT.ipk
 ```
 
 ## Verzió
 
+- **v2.5.0** – induló videó kivéve: a logó képkockája az indítókép, utána azonnal a főoldal; kisebb IPK
 - **v2.4.10** – az induló videó visszaállítva a bevált (body-inline) felállásra
 - **v2.4.9** – az induló videó az első pillanatban indul (bootstrap az app előtt), néma indítás, nincs kétszeri próbálkozás
 - **v2.4.8** – a csatorna csak az induló videó után indul (dekóder-ütközés javítása), a videó végigjátszódik
@@ -108,5 +109,5 @@ VERSION=2.4.10 bash ../tools/build-webos.sh
 - **v2.4.0** – teljesítmény-javítások + választható lejátszó motor (HTML5 / natív)
 - **v2.3.1** – LG webOS-only build + távirányító fix + QR
 - IPK: `IPTV-RT.ipk` (kb. 500-600KB)
-- appinfo.json: `hu.rt.iptv.webos` v2.4.10
+- appinfo.json: `hu.rt.iptv.webos` v2.5.0
 

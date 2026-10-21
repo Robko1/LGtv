@@ -2,9 +2,9 @@
 # TV – LG webOS TV .ipk készítése
 #
 # A webes felületet (web/ → build/web/index.html) beleteszi a webOS appba,
-# hozzáadja a webOS specifikus fájlokat (appinfo.json, icon, webos.js) és az
-# induló (bejelentkező) videót assets/intro.mp4 néven, majd Pythonnal .ipk-t
-# készít.
+# hozzáadja a webOS specifikus fájlokat (appinfo.json, icon, webos.js) és a
+# logó képkockáját indítóképként (splash-screen.png), majd Pythonnal .ipk-t
+# készít. Induló videó nincs (2.5.0).
 #
 # Használat:
 #   tools/build-webos.sh
@@ -21,7 +21,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.4.10}"
+VERSION="${VERSION:-2.5.0}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
@@ -44,17 +44,11 @@ img = Image.open(root / "ikonkep.png").convert("RGBA")
 img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon-rt2.png", "PNG")
 img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon-rt2.png", "PNG")
 img.resize((512, 512), Image.Resampling.LANCZOS).save(root / "webos/assets/icon_tv.png", "PNG")
-# A TV saját indítóképernyője (a videó előtt): a VIDEÓ ELSŐ KOCKÁJA
-# (webos/assets/intro-poster.jpg) 1920x1080 PNG-ként. Így a rendszer
-# töltőképernyője és az induló videó első kockája UGYANAZ - nincs fehér
-# villanás és nincs fekete várakozás sem. Ha nincs plakát, fekete a tartalék.
-poster = root / "webos/assets/intro-poster.jpg"
-if poster.is_file():
-    Image.open(poster).convert("RGB").resize((1920, 1080), Image.Resampling.LANCZOS).save(
-        root / "webos/splash-screen.png", "PNG", optimize=True
-    )
-else:
-    Image.new("RGB", (1920, 1080), (0, 0, 0)).save(root / "webos/splash-screen.png", "PNG", optimize=True)
+# A TV saját indítóképernyője (appinfo.json: splashBackground) a webos/
+# splash-screen.png: a logó-videóból kivágott, teljesen összeállt képkocka.
+# NEM generáljuk, hanem a repóban lévő (kézzel jóváhagyott) fájlt használjuk.
+if not (root / "webos/splash-screen.png").is_file():
+    raise SystemExit("HIBA: hiányzik a webos/splash-screen.png (a logó képkocka).")
 # Beégetett (base64) app-ikon a felülethez: nem fájlhivatkozás, a HTML-be kerül.
 import base64, io
 def icon_b64(px):
@@ -118,10 +112,10 @@ mkdir -p "$BUILD_DIR"
 cp "$WEBOS_DIR/appinfo.json" "$BUILD_DIR/appinfo.json"
 cp "$WEBOS_DIR/icon-rt2.png" "$BUILD_DIR/icon-rt2.png"
 cp "$WEBOS_DIR/largeIcon-rt2.png" "$BUILD_DIR/largeIcon-rt2.png"
-# Fekete indítókép (appinfo.json: splashBackground) - a videó előtti villanás ellen.
+# Indítókép (appinfo.json: splashBackground): a logóból kivágott képkocka.
 cp "$WEBOS_DIR/splash-screen.png" "$BUILD_DIR/splash-screen.png"
 mkdir -p "$BUILD_DIR/assets"
-# Indítókép nincs. A többi asset (logók, kicsi ikonok) bekerül.
+# A többi asset (logók, kicsi ikonok) bekerül; videó nem lehet köztük.
 for asset in "$WEBOS_DIR/assets/"*; do
   [[ -f "$asset" ]] || continue
   case "$(basename "$asset")" in
@@ -130,32 +124,19 @@ for asset in "$WEBOS_DIR/assets/"*; do
   cp "$asset" "$BUILD_DIR/assets/"
 done
 
-# INDULÓ (BEJELENTKEZŐ) VIDEÓ: a feltöltött videóból készült, TV-re optimalizált
-# (1280x720, High@3.1, faststart) fájl kerül a
-# csomagba assets/intro.mp4 néven. A web/index.html a videót viszonylagos
-# útvonalról (assets/intro.mp4) tölti be, a #boot-splash overlay-en játssza
-# végig, majd elhalványul - közben a React app már felépül a háttérben.
-INTRO_SOURCE=""
-for intro_candidate in \
-  "$WEBOS_DIR/assets/intro.mp4" \
-  "$PROJECT_DIR/intro.mp4" \
-  "$PROJECT_DIR/Autos_TV_logo_nagy_TV_gyors_1920x1080.mp4"; do
-  if [[ -s "$intro_candidate" ]]; then
-    INTRO_SOURCE="$intro_candidate"
-    break
-  fi
-done
-if [[ -n "$INTRO_SOURCE" ]]; then
-  cp "$INTRO_SOURCE" "$BUILD_DIR/assets/intro.mp4"
-  log "Induló videó a csomagban: $(basename "$INTRO_SOURCE") → assets/intro.mp4 ($(( $(wc -c < "$INTRO_SOURCE") / 1024 )) KB)"
-else
-  warn "Nincs induló videó (intro.mp4) – az app a videó nélkül indul, a felület azonnal látszik."
+# INDULÓ VIDEÓ NINCS (2.5.0): a videót kivettük a programból - a webOS saját
+# indítóképernyője (splash-screen.png, a logó képkockája) után azonnal a
+# főoldal indul, és az IPK is jóval kisebb. Ha véletlenül videó kerülne az
+# assetek közé, a build megáll (nem akarunk véletlenül nagy csomagot).
+if find "$WEBOS_DIR/assets" -maxdepth 1 -type f | grep -Ei '\.(mp4|webm|mov)$'; then
+  echo "HIBA: videó van a webos/assets mappában, pedig 2.5.0-tól nincs induló videó." >&2
+  exit 1
 fi
 # webOS specifikus JS másolása
 cp "$WEBOS_DIR/webos.js" "$BUILD_DIR/webos.js"
 
 # 3. index.html feldolgozása webOS-re
-log "index.html feldolgozása webOS TV-re (induló videó, kisebb lejátszó, gyors betöltés)"
+log "index.html feldolgozása webOS TV-re (nincs induló videó, kisebb lejátszó, gyors betöltés)"
 
 # A web build egy single file HTML, ebbe injektáljuk a webOS dolgokat
 VERSION="$VERSION" python3 - << 'PY'
@@ -182,7 +163,7 @@ print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.4.10"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.5.0"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
@@ -203,18 +184,9 @@ body.webos-tv, body.lg-webos {{
   background: #000;
   overflow: hidden;
 }}
-/* Induló videó: teljes képernyős overlay, a felület fölött. A videót a
-   web/index.html szkriptje indítja és a végén halványítja el. Nincs TV felirat. */
-#boot-splash {{
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  width: 100vw; height: 100vh; overflow: hidden;
-  background: #000; z-index: 99998;
-}}
-#boot-splash .boot-video {{
-  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-  object-fit: contain; background: #000;
-}}
-#boot-splash.is-hidden {{ opacity: 0; transition: opacity 0.55s ease-out; pointer-events: none; }}
+/* NINCS induló videó/splash overlay: a webOS saját indítóképernyője (a logó
+   képkockája) után azonnal a főoldal jön. */
+#boot-error-screen {{ z-index: 2147483000; }}
 /* Kisebb TV lejátszó - 1280px max, középen */
 .webos-tv .video-player-wrapper {{
   max-width: 1280px;
@@ -243,8 +215,8 @@ def add_webos_body_classes(match):
     return tag[:-1] + ' class="webos-tv lg-webos tv-mode">'
 html = re.sub(r'<body\b[^>]*>', add_webos_body_classes, html, count=1)
 
-# NINCS külön webOS splash (nagy TV felirat): az induló videót a web build
-# #boot-splash overlay-e játssza le (web/index.html + assets/intro.mp4).
+# NINCS külön webOS splash overlay: a TV saját indítóképernyője (a logó
+# képkockája) után azonnal a főoldal jön (2.5.0-tól nincs induló videó).
 
 # Kiírás
 (build_dir / "index.html").write_text(html, encoding="utf-8")

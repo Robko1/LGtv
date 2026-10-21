@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.4.10';
+export const WEB_VERSION = '2.5.0';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.10'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.5.0'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.0',
+    date: '2026-10-21',
+    changes: [
+      'INDULÓ VIDEÓ KIVÉVE a programból: a videóból kivágott, teljesen összeállt logó-képkocka lett a TV saját indítóképernyője (splashBackground)',
+      'A webOS indítása után AZONNAL a főoldal jön (nincs videó, nincs overlay, nincs várakozás)',
+      'Az IPK mérete 5,4 MB → kb. 2,8 MB (a 3,7 MB-os videó kikerült, az indítókép 543 KB)',
+      'A csatorna azonnal indul (nincs szükség a videó utáni dekóder-kapu-ra)',
+    ],
+  },
   {
     version: '2.4.10',
     date: '2026-10-21',
