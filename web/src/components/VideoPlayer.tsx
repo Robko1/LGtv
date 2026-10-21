@@ -1918,9 +1918,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={htmlVideoRef}
             data-iptv-player="true"
             className="block h-full w-full bg-black"
-            // Fekvő teljes képernyőn KITÖLTÉS (nincs oldalsó fekete sáv, a kép a
-            // teljes kijelzőt használja), egyébként a 16:9-et megtartó illesztés.
-            style={{ objectFit: isFullscreen ? 'fill' : 'contain' }}
+            // Élő TV-n a főoldali 16:9-es keretet is mindig kitöltjük csatornaváltáskor.
+            // Film/sorozat normál nézetben megtartja a képarányt; teljes képernyőn fill.
+            style={{ objectFit: isFullscreen || !isVod ? 'fill' : 'contain' }}
             playsInline
             preload="auto"
             onPlaying={() => {
