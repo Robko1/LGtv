@@ -199,8 +199,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
   const [, setErrorMessage] = useState<string>('');
-  // Lejátszáskor először MPEG-TS, hiba esetén egyszer HLS, majd még egyszer MPEG-TS.
-  // Ha a második MPEG-TS-próba is hibázik, nincs további automatikus váltogatás.
+  // Élő adásnál gyors, soros próbálkozás: eredeti MPEG-TS → HLS → utolsó MPEG-TS.
+  // Amint a lejátszás elindul, a watchdog és minden ütemezett újrapróba leáll.
   const autoRetryTimerRef = useRef<number | null>(null);
   const retryStreamRef = useRef<(() => void) | null>(null);
   const pendingStreamUrlRef = useRef('');
@@ -245,27 +245,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
-    // Natív mód: a TV dekódere a szolgáltató eredeti URL-jét kapja, ezért itt
-    // nincs formátumváltás (az csak a beépített HLS-lejátszó sajátja). Rövid
-    // elakadásnál viszont ugyanazt a címet még kétszer újraindítjuk, hogy egy
-    // pillanatnyi hálózati hiba ne dobjon hibaképernyőre.
-    if (playerEngineRef.current === 'native') {
-      if (nativeRetryCountRef.current >= 2) {
-        setIsLoading(false);
-        setHasError(true);
-        setErrorMessage('A natív lejátszó nem tudta megnyitni az adást. Próbáld újraindítani, vagy válts vissza a beépített lejátszóra a Beállításokban.');
-        return;
-      }
-      nativeRetryCountRef.current += 1;
-      pendingStreamUrlRef.current = retryPlanRef.current.originalUrl || pendingStreamUrlRef.current;
-      setHasError(false);
-      setIsLoading(true);
-      autoRetryTimerRef.current = window.setTimeout(() => {
-        autoRetryTimerRef.current = null;
-        retryStreamRef.current?.();
-      }, bufferTiming().retryMs);
-      return;
-    }
+    // LG webOS-en mindkét „motor” a TV HTML5 videóelemét használja.
+    // Ezért a kiválasztott lejátszóbeállítástól függetlenül formátumot is váltunk:
+    // MPEG-TS → HLS → MPEG-TS. Egyszerre csak egy próbálkozás fut.
     const plan = retryPlanRef.current;
     let nextUrl = '';
     let nextStage: 'hls' | 'final-ts' | null = null;
@@ -1565,7 +1547,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // címválasztás és a hibakezelés (natívnál nincs formátumváltás), nem a
       // lejátszás útja.
       video.src = url;
-      // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
+      // webOS TV-ken a src önmagában néha nem indítja el az első csatornát.
+      // Az explicit load() biztosan elindítja az új erőforrás kiválasztását.
+      video.load();
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
       const playPromise = video.play();
@@ -1586,11 +1570,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (playPromise && typeof playPromise.catch === 'function') {
         void playPromise.catch((error: unknown) => {
           if (!isCurrentLoad() || video.error) return;
-          setIsLoading(false);
-          setHasError(true);
-          setErrorMessage(error instanceof Error && error.name === 'NotAllowedError'
-            ? 'A TV lejátszási indítást blokkolta. Nyomj az Újrapróbálás gombra.'
-            : 'A TV nem tudta elindítani ezt az adatfolyamot. Ellenőrizd az URL-t és a stream formátumát.');
+          appLog('A lejátszásindítási ígéret hibázott; automatikus streampróba indul.');
+          scheduleAutoRetry();
+          if (!autoRetryTimerRef.current) {
+            setIsLoading(false);
+            setHasError(true);
+            setErrorMessage(error instanceof Error && error.name === 'NotAllowedError'
+              ? 'A TV lejátszási indítást blokkolta. Nyomj az Újrapróbálás gombra.'
+              : 'A TV nem tudta elindítani ezt az adatfolyamot. Ellenőrizd az URL-t és a stream formátumát.');
+          }
         });
       }
     } catch (error) {
@@ -1874,7 +1862,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               playbackStartedRef.current = true;
               nativeRetryCountRef.current = 0;
               // A sikeresen elindult élő formátumot megjegyezzük a gyors zappoláshoz.
-              if (!isVod && !customStreamUrl && playerEngineRef.current !== 'native') {
+              if (!isVod && !customStreamUrl) {
                 try {
                   const url = pendingStreamUrlRef.current || '';
                   window.localStorage.setItem('iptv_rt_live-format', /\.ts(?=([?#]|$))/i.test(url) ? 'ts' : 'hls');
