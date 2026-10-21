@@ -265,9 +265,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
-    // LG webOS-en mindkét „motor” a TV HTML5 videóelemét használja.
-    // Ezért a kiválasztott lejátszóbeállítástól függetlenül formátumot is váltunk:
-    // MPEG-TS → HLS → MPEG-TS. Egyszerre csak egy próbálkozás fut.
+    // Élő TV-n a kézzel kiválasztott formátumot tiszteletben tartjuk:
+    // hiba esetén nem váltunk át csendben a másikra. A másik formátum
+    // a Rendszer beállításában választható ki.
+    if (!customStreamUrl) {
+      setIsLoading(false);
+      setHasError(true);
+      setErrorMessage('Ez a streamformátum nem indult el. A Rendszer beállításában próbáld ki a másik formátumot.');
+      return;
+    }
     const plan = retryPlanRef.current;
     let nextUrl = '';
     let nextStage: 'hls' | 'final-ts' | null = null;
@@ -1729,30 +1735,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // fél-egy másodperc. Most a szolgáltató által adott cím megy először
     // (általában .ts), és csak ha az nem indul el, váltunk .m3u8-ra. Ha a
     // legutóbb sikeres formátum HLS volt, azt használjuk elsőként.
-    let storedFormat = '';
-    try { storedFormat = window.localStorage.getItem('iptv_rt_live-format') || ''; } catch { /* tároló nélkül az eredeti cím */ }
-    const preferTs = storedFormat !== 'hls';
+    // A kézi formátumválasztás elsőbbséget élvez a korábbi sikeres formátummal szemben.
+    // A .ts/.m3u8 kiterjesztést a választott formátumhoz igazítjuk, ha lehetséges.
     const hlsUrl = streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
     const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
       ? streamUrl
       : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
-    // Kiterjesztés nélküli élő URL-nél nincs mit cserélni - marad a HLS-út.
-    const canPreferTs = preferTs && tsUrl !== hlsUrl;
-    // Natív mód: a szolgáltatótól kapott cím változatlanul megy a TV dekóderének.
-    const nativeMode = playerEngineRef.current === 'native';
-    const primaryUrl = nativeMode
+    const selectedFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
+    const primaryUrl = isVod
       ? streamUrl
-      : (!isVod ? (canPreferTs ? tsUrl : hlsUrl) : streamUrl);
+      : (selectedFormat === 'hls' ? hlsUrl : tsUrl);
     pendingStreamUrlRef.current = primaryUrl;
-    if (nativeMode) {
-      retryPlanRef.current = { originalUrl: streamUrl, stage: 'primary' };
-    } else if (!isVod) {
-      retryPlanRef.current = canPreferTs
-        ? { originalUrl: tsUrl, stage: 'primary' }
-        : { originalUrl: tsUrl, stage: 'hls' };
-    } else {
-      retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
-    }
+    retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
     if (primaryUrl) {
       loadStreamRef.current(primaryUrl);
     }
@@ -1762,7 +1756,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       clearAutoRetry(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadKey, clearAutoRetry, clearBufferWatchdog]);
+  }, [loadKey, clearAutoRetry, clearBufferWatchdog, settings.streamFormat]);
 
   // Play/pause: natív hídon vagy LG webOS HTML5 videón keresztül.
   const togglePlay = () => {
