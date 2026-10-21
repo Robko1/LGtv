@@ -22,7 +22,6 @@ webos/
   webos.js              – webOS specifikus: Magic Remote, D-pad/OK fókusznavigáció, gyors betöltés
   webOSTV.js            – webOS lib stub
   assets/
-    icon_tv.png         – 512x512 TV ikon
   tools/
     build-ipk.py        – Python .ipk csomagoló (ar archive: debian-binary, control.tar.gz, data.tar.gz)
   dist/

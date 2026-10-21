@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.5.0'
+  VERSION: '2.5.1'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TAG: 'v2.5.0'
+  RELEASE_TAG: 'v2.5.1'
   OLD_RELEASE_TAG: 'v2.3.19'
   RELEASE_TITLE: 'IPTV-RT'
 
@@ -76,7 +76,6 @@ jobs:
           # Új fájlnév: a webOS indító a régi icon.png nevet gyorsítótárazta.
           img.resize((80,80), Image.Resampling.LANCZOS).save("webos/icon-rt2.png", "PNG")
           img.resize((130,130), Image.Resampling.LANCZOS).save("webos/largeIcon-rt2.png", "PNG")
-          img.resize((512,512), Image.Resampling.LANCZOS).save("webos/assets/icon_tv.png", "PNG")
           img.save("web/public/ikonkep.png", "PNG")
           # A Rendszer panel ikonja beágyazott data URI lesz, nem külső fájlhivatkozás.
           import base64, io
@@ -146,8 +145,8 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.5.0":
-              raise SystemExit(f"Eltérő buildverzió: várt 2.5.0, kapott {match.group(1)}")
+          if match.group(1) != "2.5.1":
+              raise SystemExit(f"Eltérő buildverzió: várt 2.5.1, kapott {match.group(1)}")
           # A TV saját indítóképernyője a VIDEÓ ELSŐ KOCKÁJA (a fehér villanás
           # ellen), és a rendszer forgó fogaskereke se jelenjen meg a videó előtt.
           if manifest.get("splashBackground") != "splash-screen.png":
@@ -244,7 +243,7 @@ jobs:
           from pathlib import Path
           base = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos")
           packaged = json.loads((base / "appinfo.json").read_text())
-          if packaged.get("version") != "2.5.0":
+          if packaged.get("version") != "2.5.1":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
           if packaged.get("splashBackground") != "splash-screen.png":
               raise SystemExit("HIBA: a csomagolt appinfo.json nem a fekete indítóképet használja.")
@@ -269,6 +268,12 @@ jobs:
               raise SystemExit("HIBA: induló videó maradt a csomagolt HTML-ben (2.5.0-tól nincs videó).")
           if 'id="boot-error-screen"' not in html:
               raise SystemExit("HIBA: az indulási hibaképernyő nem került a csomagolt HTML-be.")
+          # Egy pillanat alatti indulás: a #root a kész felületig rejtve van.
+          if "iptv-booting" not in html or "__IPTV_REVEAL__" not in html:
+              raise SystemExit("HIBA: hiányzik az egy pillanat alatti megjelenés (iptv-booting / __IPTV_REVEAL__).")
+          # A betöltés alatti háttér a webOS indítóképével azonos kép kell legyen.
+          if "/splash-bg.jpg" not in Path("/tmp/ipk-files.txt").read_text():
+              raise SystemExit("HIBA: hiányzik a betöltés alatti háttér (splash-bg.jpg) a csomagból.")
 
           if "focusSpatially" not in html or "normalizeKey" not in html:
               raise SystemExit("HIBA: a távirányító-kezelő nem került bele a csomagolt HTML-be.")
