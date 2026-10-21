@@ -50,9 +50,9 @@ export const Header: React.FC<HeaderProps> = ({
       */}
       <div className="flex flex-1 items-center gap-1.5 md:gap-2 lg:gap-3 flex-nowrap min-w-0 mr-1">
         {/* Óra – ugyanakkora doboz, mint a Mozi/Sorozat/Országok */}
-        <div className="flex flex-1 min-w-0 h-10 md:h-11 lg:h-12 items-center justify-center gap-1 px-1.5 rounded-xl bg-[#0a162e] border border-amber-400/30 text-amber-300 font-mono text-[11px] sm:text-sm md:text-sm lg:text-base font-semibold tracking-wider shadow-inner">
+        <div className="flex flex-1 min-w-0 h-10 md:h-11 lg:h-12 items-center justify-center gap-1 px-1.5 rounded-xl bg-[#0a162e] border border-amber-400/30 text-amber-300 font-mono font-semibold tracking-wider shadow-inner">
           <Clock className="w-4 h-4 md:w-5 md:h-5 text-amber-400 animate-pulse shrink-0" />
-          <span className="truncate">{currentTime || '02:15'}</span>
+          <span className="whitespace-nowrap text-2xl sm:text-3xl md:text-3xl lg:text-4xl leading-none">{currentTime || '02:15'}</span>
         </div>
 
         {activeView !== 'live' && (
