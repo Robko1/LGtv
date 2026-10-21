@@ -123,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
           data-tv-header=""
           data-tv-header-kind="settings"
           onClick={() => onOpenSettings()}
-          className="flex shrink-0 items-center justify-center w-10 h-10 md:w-11 md:h-11 lg:w-12 lg:h-12 rounded-xl bg-amber-400 hover:bg-amber-300 md:hover:bg-amber-300 text-slate-950 shadow-lg shadow-amber-500/20 active:scale-95 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer"
+          className="flex shrink-0 items-center justify-center w-10 h-10 md:w-11 md:h-11 lg:w-12 lg:h-12 rounded-xl bg-cyan-500 hover:bg-cyan-400 md:hover:bg-cyan-400 text-white border border-cyan-400/60 shadow-lg shadow-cyan-900/30 active:scale-95 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
           title="Menü & Beállítások"
           aria-label="Beállítások"
         >
