@@ -48,10 +48,10 @@ export const Header: React.FC<HeaderProps> = ({
         mappasávjába, onnan a csatornalistára. A Sorozat a sor eleje, ezért
         onnan csak jobbra lehet lépni.
       */}
-      <div className="flex flex-1 items-center gap-1.5 md:gap-2 lg:gap-3 flex-nowrap min-w-0 mr-1">
-        {/* Óra – ugyanakkora doboz, mint a Mozi/Sorozat/Országok */}
-        <div className="flex flex-1 min-w-0 h-10 md:h-11 lg:h-12 items-center justify-center gap-1 px-1.5 rounded-xl bg-[#0a162e] border border-amber-400/30 text-amber-300 font-mono font-semibold tracking-wider shadow-inner">
-          <Clock className="w-4 h-4 md:w-5 md:h-5 text-amber-400 animate-pulse shrink-0" />
+      <div className="flex flex-1 items-center gap-1 md:gap-1.5 lg:gap-2 flex-nowrap min-w-0 mr-1">
+        {/* Az óra önálló, keret és háttér nélküli elem, a fejléc bal széléhez igazítva. */}
+        <div className="flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 text-amber-300 font-mono font-semibold tracking-wider">
+          <Clock className="hidden w-4 h-4 md:w-5 md:h-5 text-amber-400 animate-pulse shrink-0" />
           <span className="whitespace-nowrap text-2xl sm:text-3xl md:text-3xl lg:text-4xl leading-none">{currentTime || '02:15'}</span>
         </div>
 
@@ -117,7 +117,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Kilépés + Beállítások – a távirányítón a kettő szomszédos */}
-      <div className="flex shrink-0 items-center gap-2 md:gap-3 ml-0">
+      <div className="flex shrink-0 items-center gap-1.5 md:gap-2 ml-0">
         <button
           data-tv-header-default=""
           data-tv-header=""
