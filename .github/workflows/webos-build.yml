@@ -63,37 +63,35 @@ jobs:
           npm ci --no-audit --no-fund
           npm install --prefix web --no-audit --no-fund
           pip install Pillow --break-system-packages -q || pip install Pillow -q
-          # Az új LG IPTV ikon minden buildnél a repó ikonkep.png fájljából készül.
+          # A jóváhagyott, átlátszó és lekerekített ikonokat használjuk;
+          # a build ne generálja őket újra a régi gyökér ikonkep.png-ből.
           python3 - << 'PY'
           from pathlib import Path
           from PIL import Image
-          source = Path("ikonkep.png")
-          if not source.is_file() or source.stat().st_size == 0:
-              raise SystemExit("HIBA: a gyökérben lévő ikonkep.png hiányzik vagy üres.")
-          img = Image.open(source).convert("RGBA")
+          import base64, io
+          small = Path("webos/icon-rt2.png")
+          large = Path("webos/largeIcon-rt2.png")
+          for path in (small, large):
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"HIBA: hiányzik vagy üres az új ikon: {path}")
+          small_img = Image.open(small).convert("RGBA")
+          large_img = Image.open(large).convert("RGBA")
           Path("webos/assets").mkdir(parents=True, exist_ok=True)
           Path("web/public").mkdir(parents=True, exist_ok=True)
-          # Új fájlnév: a webOS indító a régi icon.png nevet gyorsítótárazta.
-          img.resize((80,80), Image.Resampling.LANCZOS).save("webos/icon-rt2.png", "PNG")
-          img.resize((130,130), Image.Resampling.LANCZOS).save("webos/largeIcon-rt2.png", "PNG")
-          img.save("web/public/ikonkep.png", "PNG")
-          # A Rendszer panel ikonja beágyazott data URI lesz, nem külső fájlhivatkozás.
-          import base64, io
-          def icon_b64(px):
-              thumb = img.resize((px,px), Image.Resampling.LANCZOS)
+          large_img.save("web/public/ikonkep.png", "PNG")
+          def icon_b64(img, px):
+              thumb = img.resize((px, px), Image.Resampling.LANCZOS)
               buffer = io.BytesIO()
               thumb.save(buffer, format="PNG", optimize=True)
               return base64.b64encode(buffer.getvalue()).decode("ascii")
           Path("web/src/generatedIcon.ts").write_text(
-              '// BEÉGETETT alkalmazás-ikon (a repó ikonkep.png fájljából).\n'
-              '// Nem külső hivatkozás: a csomagolt egyfájlos HTML-ben is mindig megjelenik.\n'
-              '// A build (tools/build-webos.sh és a workflow) ugyanígy újragenerálja.\n'
-              'export const APP_ICON_DATA_URL = "data:image/png;base64,' + icon_b64(128) + '";\n'
-              '// Kis (32px) változat a csatornasorokhoz/kereső felugrókhoz.\n'
-              'export const APP_ICON_SMALL_DATA_URL = "data:image/png;base64,' + icon_b64(32) + '";\n',
+              '// Beégetett ikonok a jóváhagyott webos ikonfájlokból.\\n'
+              '// Az átlátszó háttér és a lekerekített szélek megmaradnak.\\n'
+              'export const APP_ICON_DATA_URL = "data:image/png;base64,' + icon_b64(large_img, 128) + '";\\n'
+              'export const APP_ICON_SMALL_DATA_URL = "data:image/png;base64,' + icon_b64(small_img, 32) + '";\\n',
               encoding="utf-8"
           )
-          print("OK: az ikon átméretezve és beégethető data URI-ként előállítva.")
+          print("OK: a jóváhagyott kis és nagy ikon használatra előkészítve.")
           PY
 
       - name: 6. Kézi diagnosztika – forrás, webOS frissítő és csomagoló
