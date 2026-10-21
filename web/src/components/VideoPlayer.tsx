@@ -581,13 +581,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isLiveLandscapeFullscreen, isVodLandscapeFullscreen, canToggleOsd, showControlsOverlay]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // A streamhiba csak tájékoztató réteg: ne indítson lejátszóvezérlést,
-    // fókuszváltást vagy fullscreenből kilépést, amíg látható.
-    if (hasError) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
+    // A lejátszási hiba nem zárhatja csapdába a távirányítót:
+    // a Vissza/OK és a csatornaváltó nyilak hibaüzenet mellett is működjenek.
     // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, OK=13, VISSZA=461) is jöhet.
     const key = normalizeTvKey(e);
     if (key === 'Enter' && isVod && isFullscreen) {
@@ -2098,7 +2093,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Stream Error Overlay with fallback launcher */}
       {hasError && (
-        <div onClick={(e) => e.stopPropagation()} className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 p-4 text-center">
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            // Hibás élő adásnál egy képernyőkoppintás is adjon kiutat a fullscreenből.
+            if (isLive && isFullscreen) setIsFullscreen(false);
+          }}
+          className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 p-4 text-center"
+        >
           <h4 className="text-white font-bold text-sm sm:text-base whitespace-pre-line">A csatornát nem lehet be tölteni !{"\n"}kapcsolj másik csatornára...{"\n"}ez a sz@r le fagyott 😂</h4>
 
         </div>
