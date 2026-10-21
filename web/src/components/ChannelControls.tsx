@@ -86,28 +86,28 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         </div>
       )}
 
-      {/* Csatornaszám bal felül; Audio és CC a panel két alsó sarkában. */}
-      <div className={`absolute top-2 left-3 z-10 text-cyan-300 font-black ${compactMainOsd ? "text-2xl" : "text-2xl sm:text-3xl"} tracking-wider leading-none`}>
-        {displayNumber ?? '—'}
-      </div>
-
-      {/* Nagyobb csatornalogó, név és aktuális műsor középre igazítva. */}
-      <div className={`flex flex-col items-center text-center ${compactMainOsd ? "gap-0.5 px-10 min-h-0" : "gap-1.5 px-8"}`}>
-        <div className={`${compactMainOsd ? "w-16 h-12" : "w-16 h-14 sm:w-20 sm:h-16"} rounded-lg bg-[#0e1e3e] border border-cyan-800/40 p-1.5 flex items-center justify-center overflow-hidden shadow-inner`}>
+      {/* Főoldali OSD: nagy logó balra, a csatornanév és az aktuális műsor nagy betűkkel mellette. */}
+      <div className={`relative flex w-full items-center ${compactMainOsd ? "gap-3 px-1 pt-1 min-h-0" : "gap-3 px-2"}`}>
+        <div className={`relative shrink-0 rounded-xl bg-[#0e1e3e] border border-cyan-700/70 p-1.5 flex items-center justify-center overflow-hidden shadow-inner ${compactMainOsd ? "w-24 h-20" : "w-20 h-16 sm:w-24 sm:h-20"}`}>
           <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
+          <span className="absolute -top-0.5 -left-0.5 rounded-br-md bg-[#0e1d3b] px-1.5 py-0.5 text-sm sm:text-base text-cyan-300 font-black tracking-wide leading-none">
+            {displayNumber ?? '—'}
+          </span>
         </div>
-        <h2 className={`max-w-full text-white font-black ${compactMainOsd ? "text-lg" : "text-lg sm:text-2xl"} tracking-tight leading-tight break-words line-clamp-1`}>
-          {channel.name}
-        </h2>
-        <div className={`max-w-full text-amber-300 font-bold ${compactMainOsd ? "text-base" : "text-base sm:text-lg"} leading-snug break-words line-clamp-1`}>
-          {channel.epgNow?.title || 'Élő adás'}
+        <div className="min-w-0 flex-1 flex flex-col justify-center text-left gap-1">
+          <h2 className={`max-w-full text-white font-black tracking-tight leading-tight break-words line-clamp-1 ${compactMainOsd ? "text-2xl sm:text-3xl" : "text-lg sm:text-2xl"}`}>
+            {channel.name}
+          </h2>
+          <div className={`max-w-full text-amber-300 font-extrabold leading-tight break-words line-clamp-2 ${compactMainOsd ? "text-xl sm:text-2xl" : "text-base sm:text-lg"}`}>
+            {channel.epgNow?.title || 'Élő adás'}
+          </div>
         </div>
       </div>
-      {/* Keep programme start/end times and the continuously updating progress bar in place. */}
-      <div className={`flex items-center gap-3 w-full ${compactMainOsd ? "shrink-0" : ""}`}>
-        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-sm" : "text-xs sm:text-sm"} font-semibold tabular-nums`}>{formatTime(epgStart)}</span>
+      {/* A nagyított EPG-szöveg alatt marad a folyamatosan frissülő műsorhaladás. */}
+      <div className={`flex items-center gap-3 w-full ${compactMainOsd ? "shrink-0 mt-1" : ""}`}>
+        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-base" : "text-xs sm:text-sm"} font-bold tabular-nums`}>{formatTime(epgStart)}</span>
         <div
-          className="flex-1 bg-slate-800/90 rounded-full h-2 overflow-hidden flex shadow-inner"
+          className={`flex-1 bg-slate-800/90 rounded-full ${compactMainOsd ? "h-3" : "h-2"} overflow-hidden flex shadow-inner`}
           role="progressbar"
           aria-label={channel.epgNow?.title ? `${channel.epgNow.title} műsorhaladása` : 'EPG műsorhaladása'}
           aria-valuemin={0}
@@ -116,14 +116,14 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         >
           <div className="bg-linear-to-r from-amber-400 to-yellow-300 h-full rounded-full transition-all duration-500 shadow-sm shadow-amber-400" style={{ width: `${hasEpgProgress ? epgProgress : 0}%` }} />
         </div>
-        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-sm" : "text-xs sm:text-sm"} font-semibold tabular-nums`}>{formatTime(epgEnd)}</span>
+        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-base" : "text-xs sm:text-sm"} font-bold tabular-nums`}>{formatTime(epgEnd)}</span>
       </div>
 
-      {/* Three upcoming programmes centered under the bar, with larger readable text and no decorative arrows. */}
+      {/* A következő három műsor nagyobb betűvel, a panel alsó részén. */}
       {upcoming.length > 0 && (
-        <div className={`w-full flex flex-col items-center text-center ${compactMainOsd ? "gap-0.5 border-t border-cyan-900/70 pt-1 min-h-0 overflow-hidden" : "gap-1 border-t border-cyan-900/70 pt-2"}`}>
+        <div className={`w-full flex flex-col items-center text-center ${compactMainOsd ? "gap-1 border-t border-cyan-900/70 pt-2 min-h-0 overflow-hidden" : "gap-1 border-t border-cyan-900/70 pt-2"}`}>
           {upcoming.map((program, index) => (
-            <div key={`${program.time}-${program.title}-${index}`} className={`w-full ${compactMainOsd ? "text-base leading-tight truncate" : "text-base sm:text-lg leading-snug break-words"} font-semibold text-slate-100` }>
+            <div key={`${program.time}-${program.title}-${index}`} className={`w-full ${compactMainOsd ? "text-lg sm:text-xl leading-tight truncate" : "text-base sm:text-lg leading-snug break-words"} font-bold text-slate-100` }>
               {program.title}
             </div>
           ))}
