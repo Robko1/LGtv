@@ -168,6 +168,8 @@ export interface AppSettings {
   bufferMode: BufferMode;
   /** Lejátszómotor a Rendszer menüből; a választás mentésre kerül. */
   playerEngine: PlayerEngine;
+  /** Élő adás formátuma: MPEG-TS (.ts) vagy HLS (.m3u8), mindkét lejátszómódhoz. */
+  streamFormat: LiveStreamFormat;
   /**
    * Hogyan kérjük le a csatornalistát a szolgáltatótól.
    *  - 'api' : Xtream API (player_api.php, JSON)
