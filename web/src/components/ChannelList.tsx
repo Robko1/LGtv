@@ -89,9 +89,10 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   const [epgClock, setEpgClock] = useState(() => Date.now());
   const [localEpg, setLocalEpg] = useState<Record<string, EpgNowNext>>({});
 
-  // A műsorhaladás frissüljön akkor is, ha a csatornalista egyébként nem változik.
+  // A lista sárga EPG-sávja az OSD-vel azonos ütemben frissül.
+  // Az időbélyegek alapján számoljuk újra a kitöltést, nem a csatornaváltáshoz kötjük.
   useEffect(() => {
-    const timer = window.setInterval(() => setEpgClock(Date.now()), 30000);
+    const timer = window.setInterval(() => setEpgClock(Date.now()), 10000);
     return () => window.clearInterval(timer);
   }, []);
 
