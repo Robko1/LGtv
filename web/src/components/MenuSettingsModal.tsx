@@ -711,6 +711,38 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </p>
                 </div>
 
+                {/* Élő adás streamformátuma – ugyanaz a beállítás mindkét lejátszómódban. */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-amber-400/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="flex items-center gap-2 text-xs font-bold text-white">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-400/10"><Tv className="h-4 w-4 text-amber-300" /></span>
+                    <span>Élő adás formátuma</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    Válaszd ki, milyen formátummal próbálja lejátszani az élő csatornákat. A választás mindkét lejátszómódra érvényes, és csatornaváltáskor is megmarad.
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSettings({ streamFormat: 'ts' })}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`}
+                      aria-pressed={(settings.streamFormat || 'ts') === 'ts'}
+                    >
+                      MPEG-TS (.ts)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSettings({ streamFormat: 'hls' })}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${settings.streamFormat === 'hls' ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`}
+                      aria-pressed={settings.streamFormat === 'hls'}
+                    >
+                      HLS (.m3u8)
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-cyan-300 leading-tight pt-1">
+                    {settings.streamFormat === 'hls' ? 'HLS van kiválasztva. A lejátszó nem vált át automatikusan MPEG-TS-re.' : 'MPEG-TS van kiválasztva. A lejátszó nem vált át automatikusan HLS-re.'}
+                  </p>
+                </div>
+
                 {/* ÓRA: a webOS néha UTC-t ad vissza a helyi idő helyett. */}
                 <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
