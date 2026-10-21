@@ -1849,7 +1849,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         maxWidth: 'none',
         maxHeight: 'none',
         aspectRatio: 'auto',
-        objectFit: 'fill',
+        // A főoldali élő videó tartsa meg a forrás képarányát, mint a referencia-lejátszó.
+        objectFit: 'contain',
       });
       // Kényszerített újramérés a webOS Chromium későn frissülő videórétegéhez.
       void container.offsetHeight;
@@ -2016,9 +2017,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={htmlVideoRef}
             data-iptv-player="true"
             className="block h-full w-full bg-black"
-            // Élő TV-n a főoldali 16:9-es keretet is mindig kitöltjük csatornaváltáskor.
-            // Film/sorozat normál nézetben megtartja a képarányt; teljes képernyőn fill.
-            style={{ objectFit: isFullscreen || !isVod ? 'fill' : 'contain' }}
+            // Élő TV-n a főoldali keretben is a teljes kép látszódjon, torzítás nélkül.
+            // A VOD teljes képernyős viselkedését változatlanul hagyjuk.
+            style={{ objectFit: isVod && isFullscreen ? 'fill' : 'contain' }}
             playsInline
             preload="auto"
             onPlaying={() => {
