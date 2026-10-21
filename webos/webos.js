@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.8
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.9
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] TV webOS 2.4.8 inicializálás – induló videó + távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] TV webOS 2.4.9 inicializálás – induló videó + távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -160,7 +160,7 @@
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'TV diagnosztika ' + (appVer || '2.4.8') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'TV diagnosztika ' + (appVer || '2.4.9') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -413,8 +413,9 @@
         '.webos-tv [role="dialog"] button:focus { outline:3px solid #facc15 !important; }',
         '/* Induló videó (bejelentkező animáció): teljes képernyőn, a felület',
         '   fölött fut; a web/index.html kezeli (nincs TV felirat, nincs spinner). */',
-        '#boot-splash { position:fixed; top:0; left:0; right:0; bottom:0; width:100vw; height:100vh; background:#000; z-index:99998; overflow:hidden; }',
-        '#boot-splash .boot-video { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; background:#000; }',
+        '#boot-splash { position:fixed; top:0; left:0; right:0; bottom:0; width:100vw; height:100vh; background:#000; z-index:2147483000; overflow:hidden; }',
+        '#boot-splash .boot-poster { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; background:#000; z-index:0; }',
+        '#boot-splash .boot-video { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; background:#000; z-index:1; }',
         '#boot-splash.is-hidden { opacity:0; transition:opacity 0.55s ease-out; pointer-events:none; }'
       ].join('\n');
       var style = document.createElement('style');

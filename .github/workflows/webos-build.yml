@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.4.8'
+  VERSION: '2.4.9'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TAG: 'v2.4.8'
+  RELEASE_TAG: 'v2.4.9'
   OLD_RELEASE_TAG: 'v2.3.19'
   RELEASE_TITLE: 'IPTV-RT'
 
@@ -123,6 +123,16 @@ jobs:
           fi
           test -s webos/assets/intro.mp4
           test -s webos/assets/intro-poster.jpg
+          # Az induló videó bootstrap-je is ES5 kell legyen (régi TV-motorok).
+          if grep -nE '=>|`' webos/intro-boot.js; then
+            echo "HIBA: modern szintaxis van a webos/intro-boot.js-ben - a régi LG TV-ken nem futna." >&2
+            exit 1
+          fi
+          node --check webos/intro-boot.js
+          cmp -s webos/intro-boot.js web/public/intro-boot.js || {
+            echo "HIBA: a web/public/intro-boot.js nem egyezik a webos/intro-boot.js-sel (futtasd: bash tools/build-webos.sh)." >&2
+            exit 1
+          }
           bash -n tools/build-webos.sh
           node --check webos/webos.js
           python3 -m py_compile webos/tools/build-ipk.py
@@ -136,8 +146,8 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.4.8":
-              raise SystemExit(f"Eltérő buildverzió: várt 2.4.8, kapott {match.group(1)}")
+          if match.group(1) != "2.4.9":
+              raise SystemExit(f"Eltérő buildverzió: várt 2.4.9, kapott {match.group(1)}")
           # A TV saját indítóképernyője a VIDEÓ ELSŐ KOCKÁJA (a fehér villanás
           # ellen), és a rendszer forgó fogaskereke se jelenjen meg a videó előtt.
           if manifest.get("splashBackground") != "splash-screen.png":
@@ -240,7 +250,7 @@ jobs:
           from pathlib import Path
           base = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos")
           packaged = json.loads((base / "appinfo.json").read_text())
-          if packaged.get("version") != "2.4.8":
+          if packaged.get("version") != "2.4.9":
               raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}")
           if packaged.get("splashBackground") != "splash-screen.png":
               raise SystemExit("HIBA: a csomagolt appinfo.json nem a fekete indítóképet használja.")
@@ -261,8 +271,14 @@ jobs:
               raise SystemExit("HIBA: a régi diagnosztikai indítóképernyő maradt a csomagban.")
           if 'class="boot-title"' in html or "webos-splash" in html:
               raise SystemExit("HIBA: a régi nagy TV feliratos indítóképernyő maradt a csomagban.")
-          if 'id="boot-splash"' not in html or "assets/intro.mp4" not in html:
+          if "boot-splash" not in html or "assets/intro.mp4" not in html:
               raise SystemExit("HIBA: az induló videó overlay (#boot-splash) nem került a csomagolt HTML-be.")
+          # A bootstrap-nek az ALKALMAZÁS ELŐTT kell futnia (különben a videó
+          # csak az 1 MB-os csomag elemzése után indul - ez volt az 5 mp fagyás).
+          boot_at = html.find("__IPTV_INTRO_BOOTED__")
+          app_at = html.find("IPTV-ES5-APP")
+          if boot_at < 0 or app_at < 0 or boot_at > app_at:
+              raise SystemExit("HIBA: az induló videó bootstrap nem az app előtt fut a csomagolt HTML-ben.")
           if "assets/intro-poster.jpg" not in html:
               raise SystemExit("HIBA: az induló videó plakátja (assets/intro-poster.jpg) nem került a csomagolt HTML-be.")
           # A csatorna csak az induló videó után indulhat (dekóder-ütközés a TV-n).
