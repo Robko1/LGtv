@@ -1859,7 +1859,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Kényszerített újramérés a webOS Chromium későn frissülő videórétegéhez.
       void container.offsetHeight;
       void video.getBoundingClientRect().width;
-      window.dispatchEvent(new Event('resize'));
     };
     const syncAfterLayout = () => {
       syncMainPageLayout();
