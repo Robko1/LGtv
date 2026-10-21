@@ -684,8 +684,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } else if (key === 'Escape' || key === 'Backspace') {
       e.preventDefault();
       e.stopPropagation();
-      if (isFullscreen) setIsFullscreen(false);
-      else if (isVod) onCloseVod?.();
+      // Film/sorozat teljes képernyőjén a Vissza egyből a megfelelő
+      // könyvtárnézetbe tér vissza; ne álljon meg egy köztes ablakos állapotban.
+      if (isVod) onCloseVod?.();
+      else if (isFullscreen) setIsFullscreen(false);
     } else if (key === 'f' || key === 'F') {
       e.preventDefault();
       e.stopPropagation();
