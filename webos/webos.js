@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.2
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.3
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] TV webOS 2.4.2 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] TV webOS 2.4.3 inicializálás – távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -160,7 +160,7 @@
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'TV diagnosztika ' + (appVer || '2.4.2') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'TV diagnosztika ' + (appVer || '2.4.3') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -986,10 +986,10 @@
         var kind = kindOf(focusedNow);
 
         if (key === 'ArrowLeft' || key === 'ArrowRight') {
-          // A menüsor KÖRBEN jár: Országok -> Mozi -> Sorozat -> X -> Beállítások -> Országok.
-          // A SOROZATON csak jobbra lehet lépni (balra nem) - így nem lehet
-          // véletlenül visszafelé elindulni a menüben.
-          if (key === 'ArrowLeft' && kind === 'series') return;
+          // A menüsor KÖRBEN jár:
+          //   Sorozat -> Mozi -> Országok -> Beállítások -> X -> (körbe) Sorozat
+          // A LEGELSŐ gombon (Sorozat) csak jobbra lehet lépni, balra nem.
+          if (key === 'ArrowLeft' && hi <= 0) return;
           var dir = key === 'ArrowRight' ? 1 : -1;
           var nextIndex;
           if (hi < 0) {
@@ -1199,5 +1199,5 @@
     normalizeKey: normalizeKey
   };
 
-  try { console.log('[webOS] TV webOS ready 2.4.2 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
+  try { console.log('[webOS] TV webOS ready 2.4.3 – távirányító fix (ES5) + QR provisioning'); } catch (e) {}
 })();
