@@ -350,7 +350,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // LG webOS TV: kizárólag fekvő, 16:9-es nézet. Nincs mobilos
   // tájolásfigyelés vagy késleltetett viewport-ellenőrzés.
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const isPortrait = false;
   const [showControlsOverlay, setShowControlsOverlay] = useState<boolean>(true);
   const [activeUrlIndex, setActiveUrlIndex] = useState<number>(0);
 
@@ -434,9 +433,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [isFullscreen]);
   // A webOS TV kizárólag fekvő nézetet használ.
-  const isLivePortraitFullscreen = false;
   const isLiveLandscapeFullscreen = isLive && isFullscreen;
-  const isVodPortraitFullscreen = false;
   const isVodLandscapeFullscreen = isVod && isFullscreen;
   const landscapeLiveFullscreen = isLiveLandscapeFullscreen;
   const canToggleOsd = isVod && isFullscreen;
@@ -476,7 +473,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       return;
     }
-    if (isVodPortraitFullscreen && vodTrackMenu !== null) return;
+    if (vodTrackMenu !== null) return;
     if (settings.osdHideDelay > 0 && showControlsOverlay) {
       osdHideTimerRef.current = setTimeout(() => {
         setShowControlsOverlay(false);
@@ -492,7 +489,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         osdHideTimerRef.current = null;
       }
     };
-  }, [canToggleOsd, showControlsOverlay, settings.osdHideDelay, isVodPortraitFullscreen, vodTrackMenu]);
+  }, [canToggleOsd, showControlsOverlay, settings.osdHideDelay, vodTrackMenu]);
 
   useEffect(() => {
     onOverlayVisibilityChange?.(showControlsOverlay);
@@ -529,20 +526,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     // Élő fekvő: egy kattintásra semmi
     if (isLiveLandscapeFullscreen) return;
-    // Élő álló fullscreen: egy kattintás OSD fel
-    if (isLivePortraitFullscreen) {
-      setShowControlsOverlay(true);
-      if (osdHideTimerRef.current) clearTimeout(osdHideTimerRef.current);
-      osdHideTimerRef.current = settings.osdHideDelay > 0
-        ? setTimeout(() => {
-            setShowControlsOverlay(false);
-            osdHideTimerRef.current = null;
-          }, settings.osdHideDelay * 1000)
-        : null;
-      return;
-    }
     // Élő főoldal (nem fullscreen): egy kattintásra semmi
-  }, [isVod, isFullscreen, isLiveLandscapeFullscreen, isLivePortraitFullscreen, settings.osdHideDelay]);
+  }, [isVod, isFullscreen, isLiveLandscapeFullscreen]);
 
   // Dupla gyors kattintás kezelése
   const handleDoubleTap = useCallback(() => {
@@ -1928,10 +1913,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
       <div
         ref={videoSurfaceRef}
-        className={`absolute bg-transparent pointer-events-none ${isFullscreen && isPortrait ? 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2' : 'inset-0'}`}
-        style={isFullscreen && isPortrait
-          ? { width: '100vw', height: '56.25vw', maxHeight: '100dvh' }
-          : undefined}
+        className="absolute inset-0 bg-transparent pointer-events-none"
       >
         {!nativeApi()?.play && (
           <video
@@ -1940,7 +1922,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             className="block h-full w-full bg-black"
             // Fekvő teljes képernyőn KITÖLTÉS (nincs oldalsó fekete sáv, a kép a
             // teljes kijelzőt használja), egyébként a 16:9-et megtartó illesztés.
-            style={{ objectFit: isFullscreen && !isPortrait ? 'fill' : 'contain' }}
+            style={{ objectFit: isFullscreen ? 'fill' : 'contain' }}
             playsInline
             preload="auto"
             onPlaying={() => {
@@ -2083,7 +2065,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
         <BlueClock
           offsetHours={settings.clockOffsetHours}
-          className={`absolute top-3 z-40 box-border max-w-[calc(100%-1.5rem)] flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-4 py-2 font-mono text-2xl font-semibold tracking-wider text-cyan-200 shadow-lg pointer-events-none ${isVod || landscapeLiveFullscreen || (isFullscreen && isPortrait && !isVod) ? 'right-3' : 'right-14'}`}
+          className={`absolute top-3 z-40 box-border max-w-[calc(100%-1.5rem)] flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-4 py-2 font-mono text-2xl font-semibold tracking-wider text-cyan-200 shadow-lg pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
         />
       )}
 
