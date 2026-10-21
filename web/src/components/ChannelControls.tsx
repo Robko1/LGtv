@@ -46,7 +46,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
   className,
 }) => {
   const [epgClock, setEpgClock] = React.useState(() => Date.now());
-  // A meglévő, folyamatos EPG-haladás frissítési üteme változatlan: 10 másodperc.
+  // Keep the existing continuous EPG progress refresh interval.
   React.useEffect(() => {
     const timer = window.setInterval(() => setEpgClock(Date.now()), 10000);
     return () => window.clearInterval(timer);
@@ -85,11 +85,23 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         </div>
       )}
 
-      {/* Középre rendezett, nagyobb csatornaazonosítók. */}
-      <div className="flex flex-col items-center text-center gap-1.5 px-8">
-        <div className="text-cyan-300 font-black text-2xl sm:text-3xl tracking-wider leading-none">
+      {/* Audio and CC are informational labels only; channel number shares this row. */}
+      <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 min-h-9">
+        <div className="justify-self-start inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2.5 py-1.5 text-xs sm:text-sm font-bold text-slate-200 pointer-events-none" aria-label={hasMultipleAudioTracks ? 'Több hangsáv elérhető' : 'Audio'}>
+          <Mic2 className={`w-4 h-4 ${hasMultipleAudioTracks ? 'text-emerald-400' : 'text-rose-400'}`} />
+          <span>Audio</span>
+        </div>
+        <div className="text-cyan-300 font-black text-2xl sm:text-3xl tracking-wider leading-none text-center">
           {displayNumber ?? '—'}
         </div>
+        <div className="justify-self-end inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2.5 py-1.5 text-xs sm:text-sm font-bold text-slate-200 pointer-events-none" aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'CC'}>
+          <Subtitles className={`w-4 h-4 ${hasActiveSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
+          <span>CC</span>
+        </div>
+      </div>
+
+      {/* Keep the existing centered channel logo, name and current programme layout. */}
+      <div className="flex flex-col items-center text-center gap-1.5 px-8">
         <div className="w-16 h-14 sm:w-20 sm:h-16 rounded-lg bg-[#0e1e3e] border border-cyan-800/40 p-1.5 flex items-center justify-center overflow-hidden shadow-inner">
           <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
         </div>
@@ -101,7 +113,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         </div>
       </div>
 
-      {/* Kezdési és befejezési idő a meglévő, 10 mp-enként frissülő sáv mellett. */}
+      {/* Keep programme start/end times and the continuously updating progress bar in place. */}
       <div className="flex items-center gap-3 w-full">
         <span className="shrink-0 text-slate-200 text-xs sm:text-sm font-semibold tabular-nums">{formatTime(epgStart)}</span>
         <div
@@ -117,30 +129,19 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         <span className="shrink-0 text-slate-200 text-xs sm:text-sm font-semibold tabular-nums">{formatTime(epgEnd)}</span>
       </div>
 
-      {/* A következő három műsor, kizárólag a betöltött EPG-adatokból. */}
+      {/* Three upcoming programmes centered under the bar, with larger readable text and no decorative arrows. */}
       {upcoming.length > 0 && (
-        <div className="w-full flex flex-col gap-1 border-t border-cyan-900/70 pt-2">
+        <div className="w-full flex flex-col items-center text-center gap-1 border-t border-cyan-900/70 pt-2">
           {upcoming.map((program, index) => (
-            <div key={`${program.time}-${program.title}-${index}`} className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-start gap-2 text-sm sm:text-base leading-snug">
-              <span className="text-cyan-300 font-semibold tabular-nums">{program.time}</span>
-              <span className="text-slate-100 min-w-0 break-words">{program.title}</span>
+            <div key={`${program.time}-${program.title}-${index}`} className="w-full text-base sm:text-lg leading-snug font-semibold text-slate-100 break-words">
+              {program.title}
             </div>
           ))}
         </div>
       )}
 
-      {/* Az Audio és CC kisebb, jól olvasható gombja a két szélen marad. */}
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <button
-          onClick={onOpenAudioModal}
-          className={`shrink-0 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg text-xs sm:text-sm font-bold border active:scale-95 ${hasMultipleAudioTracks ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/50' : 'bg-[#121f3d] text-rose-300 border-rose-500/30'}`}
-          title={hasMultipleAudioTracks ? 'Több hangsáv elérhető' : 'Nincs több hangsáv ennél a csatornánál'}
-          aria-label={hasMultipleAudioTracks ? 'Hangsávváltás elérhető' : 'Több hangsáv nem található'}
-        >
-          <Mic2 className={`w-4 h-4 ${hasMultipleAudioTracks ? 'text-emerald-400' : 'text-rose-400'}`} />
-          <span>Audio</span>
-        </button>
-        <div className="flex items-center justify-center gap-2">
+      {(showPip || showCast) && (
+        <div className="flex items-center justify-center gap-2 pt-1">
           {showPip && (
             <button onClick={onTogglePip} className="flex items-center gap-1 py-1.5 px-2 rounded-lg bg-[#121f3d] text-slate-200 border border-slate-700/60 text-xs font-bold" title="Kép a képben">
               <PictureInPicture2 className="w-4 h-4 text-slate-300" /><span>PiP</span>
@@ -152,16 +153,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
             </button>
           )}
         </div>
-        <button
-          onClick={onOpenSubtitlesModal}
-          className={`shrink-0 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg text-xs sm:text-sm font-bold border active:scale-95 ${hasActiveSubtitle ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/50' : 'bg-[#121f3d] text-slate-200 border-slate-700/60'}`}
-          title={hasActiveSubtitle ? 'Felirat aktív' : 'Felirat választása'}
-          aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'Felirat választása'}
-        >
-          <Subtitles className={`w-4 h-4 ${hasActiveSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
-          <span>CC</span>
-        </button>
-      </div>
+      )}
     </div>
   );
 };
