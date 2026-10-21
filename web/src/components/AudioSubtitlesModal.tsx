@@ -27,6 +27,56 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
 }) => {
   const [pendingAudioTrackId, setPendingAudioTrackId] = React.useState<string | null>(null);
   const [pendingSubtitleTrackId, setPendingSubtitleTrackId] = React.useState<string | null>(null);
+  const [focusedAudioTrackId, setFocusedAudioTrackId] = React.useState<string | null>(null);
+
+  // Megnyitáskor a sárga fókusz mindig az aktív hangsávra kerül; ha nincs
+  // aktív jelölés, az első elérhető sávra ugrik.
+  React.useEffect(() => {
+    if (!isOpen || mode !== 'audio') return;
+    const activeTrack = audioTracks.find((track) => track.selected === true);
+    setFocusedAudioTrackId(String(activeTrack?.id ?? audioTracks[0]?.id ?? ''));
+  }, [isOpen, mode, audioTracks]);
+
+  // TV távirányító: fel/le navigáció, OK választás, Vissza bezárás.
+  // Capture fázisban kezeljük, hogy az App globális gombkezelője ne nyelje el.
+  React.useEffect(() => {
+    if (!isOpen || mode !== 'audio') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key;
+      if (key === 'Escape' || key === 'Backspace' || key === 'GoBack' || key === 'BrowserBack') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (key === 'ArrowUp' || key === 'ArrowDown') {
+        if (audioTracks.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const currentIndex = audioTracks.findIndex((track) => String(track.id) === focusedAudioTrackId);
+        const nextIndex = key === 'ArrowDown'
+          ? Math.min(audioTracks.length - 1, Math.max(0, currentIndex) + 1)
+          : Math.max(0, (currentIndex < 0 ? 0 : currentIndex) - 1);
+        setFocusedAudioTrackId(String(audioTracks[nextIndex].id));
+        return;
+      }
+      if (key === 'Enter' || key === ' ') {
+        if (!focusedAudioTrackId) return;
+        const focusedTrack = audioTracks.find((track) => String(track.id) === focusedAudioTrackId);
+        if (!focusedTrack) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setPendingAudioTrackId(String(focusedTrack.id));
+        onSelectAudioTrack?.(focusedTrack);
+        if (focusedTrack.selected === true) {
+          setPendingAudioTrackId(null);
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [isOpen, mode, audioTracks, focusedAudioTrackId, onClose, onSelectAudioTrack]);
 
   // Hooks must run in the same order whether the modal is open or closed.
   React.useEffect(() => {
@@ -83,13 +133,15 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
               : <Mic2 className="w-5 h-5 text-rose-400 stroke-[2.5]" />}
             <h2 className="text-base sm:text-lg font-black text-white tracking-wide">{mode === 'subtitle' ? 'FELIRAT' : 'HANGSÁV'}</h2>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Bezárás"
-            className="p-1.5 rounded-full border-2 border-cyan-500/60 bg-[#0e1d3b] hover:bg-[#16274b] text-cyan-300 active:scale-90 transition-all"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {mode !== 'audio' && (
+            <button
+              onClick={onClose}
+              aria-label="Bezárás"
+              className="p-1.5 rounded-full border-2 border-cyan-500/60 bg-[#0e1d3b] hover:bg-[#16274b] text-cyan-300 active:scale-90 transition-all"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -123,9 +175,11 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
                         }
                       }}
                       className={`p-3 w-full rounded-2xl flex items-center justify-between cursor-pointer border transition-all ${
-                        isSelected
-                          ? 'bg-[#0f244a] border-cyan-400 text-white shadow-md ring-1 ring-cyan-400/40'
-                          : 'bg-[#0a152d] border-slate-800 text-slate-300 hover:bg-[#102042]'
+                        focusedAudioTrackId === opt.id
+                          ? 'bg-[#0f244a] border-yellow-400 text-white shadow-md ring-2 ring-yellow-400/80'
+                          : isSelected
+                            ? 'bg-[#0f244a] border-cyan-400 text-white shadow-md ring-1 ring-cyan-400/40'
+                            : 'bg-[#0a152d] border-slate-800 text-slate-300 hover:bg-[#102042]'
                       }`}
                     >
                       <div>
