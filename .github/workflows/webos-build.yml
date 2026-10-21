@@ -43,7 +43,7 @@ jobs:
           import json, re
           from pathlib import Path
           src = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
-          m = re.search(r"WEB_VERSION\\s*=\\s*'([0-9]+)\\.([0-9]+)\\.([0-9]+)'", src)
+          m = re.search(r"WEB_VERSION\s*=\s*'([0-9]+)\.([0-9]+)\.([0-9]+)'", src)
           if not m:
               raise SystemExit("HIBA: nem olvasható a WEB_VERSION.")
           print(".".join(m.groups()))
@@ -58,11 +58,11 @@ jobs:
           old, new = os.environ["CURRENT"], os.environ["NEXT"]
           p = Path("web/src/appVersion.ts")
           src = p.read_text(encoding="utf-8")
-          src, count = re.subn(r"(WEB_VERSION\\s*=\\s*')[^']+(')", r"\\g<1>" + new + r"\\2", src, count=1)
+          src, count = re.subn(r"(WEB_VERSION\s*=\s*')[^']+(')", r"\g<1>" + new + r"\2", src, count=1)
           if count != 1:
               raise SystemExit("HIBA: WEB_VERSION frissítése nem sikerült.")
           # A verziótörténet legelső bejegyzése az aktuális kiadás.
-          src, count = re.subn(r"(version:\\s*')[^']+(')", r"\\g<1>" + new + r"\\2", src, count=1)
+          src, count = re.subn(r"(version:\s*')[^']+(')", r"\g<1>" + new + r"\2", src, count=1)
           if count != 1:
               raise SystemExit("HIBA: verziótörténet frissítése nem sikerült.")
           p.write_text(src, encoding="utf-8")
@@ -71,7 +71,7 @@ jobs:
           if manifest.get("version") != old:
               raise SystemExit(f"HIBA: appinfo.json verziója ({manifest.get('version')}) eltér a forrásétól ({old}).")
           manifest["version"] = new
-          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
           print(f"Verzió emelve: {old} -> {new}")
           PY
           echo "VERSION=$NEXT" >> "$GITHUB_ENV"
