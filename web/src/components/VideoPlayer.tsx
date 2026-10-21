@@ -488,7 +488,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } else if (isFullscreen && !isVod) {
       setShowControlsOverlay(true);
     }
-  }, [isLivePortraitFullscreen, isVodPortraitFullscreen, isLiveLandscapeFullscreen, isVodLandscapeFullscreen, isFullscreen, isVod]);
+  }, [isLivePortraitFullscreen, isVodPortraitFullscreen, isLiveLandscapeFullscreen, isVodLandscapeFullscreen, isFullscreen, isVod, streamUrl]);
 
   // Képarány mindig fill (nyújtás) – a beállításokból kivettük, de a natív rétegnek mindig fill kell
   useEffect(() => {
