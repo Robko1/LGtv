@@ -53,10 +53,10 @@ def icon_b64(img, px):
     thumb.save(buf, format="PNG", optimize=True)
     return base64.b64encode(buf.getvalue()).decode("ascii")
 (root / "web/src/generatedIcon.ts").write_text(
-    '// Beégetett ikonok a jóváhagyott webos ikonfájlokból.\\n'
-    '// Az átlátszó háttér és a lekerekített szélek megmaradnak.\\n'
-    'export const APP_ICON_DATA_URL = "data:image/png;base64,' + icon_b64(large_img, 128) + '";\\n'
-    'export const APP_ICON_SMALL_DATA_URL = "data:image/png;base64,' + icon_b64(small_img, 32) + '";\\n',
+    '// Beégetett ikonok a jóváhagyott webos ikonfájlokból.\n'
+    '// Az átlátszó háttér és a lekerekített szélek megmaradnak.\n'
+    'export const APP_ICON_DATA_URL = "data:image/png;base64,' + icon_b64(large_img, 128) + '";\n'
+    'export const APP_ICON_SMALL_DATA_URL = "data:image/png;base64,' + icon_b64(small_img, 32) + '";\n',
     encoding="utf-8",
 )
 PY
