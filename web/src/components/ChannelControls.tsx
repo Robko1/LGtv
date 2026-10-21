@@ -86,15 +86,22 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         </div>
       )}
 
-      {/* Főoldali OSD: nagy logó balra, a csatornanév és az aktuális műsor nagy betűkkel mellette. */}
-      <div className={`relative flex w-full items-center ${compactMainOsd ? "gap-3 px-1 pt-1 min-h-0" : "gap-3 px-2"}`}>
+      {/* Főoldali OSD: a szám a logódobozon KÍVÜL, balra; név és aktuális műsor középre rendezve. */}
+      <div className={`relative flex w-full items-center ${compactMainOsd ? "gap-2 px-1 pt-1 min-h-0" : "gap-3 px-2"}`}>
+        {compactMainOsd && (
+          <div className="shrink-0 w-10 self-stretch flex items-center justify-center text-cyan-300 text-3xl font-black tracking-tight leading-none">
+            {displayNumber ?? '—'}
+          </div>
+        )}
         <div className={`relative shrink-0 rounded-xl bg-[#0e1e3e] border border-cyan-700/70 p-1.5 flex items-center justify-center overflow-hidden shadow-inner ${compactMainOsd ? "w-24 h-20" : "w-20 h-16 sm:w-24 sm:h-20"}`}>
           <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
-          <span className="absolute -top-0.5 -left-0.5 rounded-br-md bg-[#0e1d3b] px-1.5 py-0.5 text-sm sm:text-base text-cyan-300 font-black tracking-wide leading-none">
-            {displayNumber ?? '—'}
-          </span>
+          {!compactMainOsd && (
+            <span className="absolute -top-0.5 -left-0.5 rounded-br-md bg-[#0e1d3b] px-1.5 py-0.5 text-sm sm:text-base text-cyan-300 font-black tracking-wide leading-none">
+              {displayNumber ?? '—'}
+            </span>
+          )}
         </div>
-        <div className="min-w-0 flex-1 flex flex-col justify-center text-left gap-1">
+        <div className={`min-w-0 flex-1 flex flex-col justify-center text-center gap-1 ${compactMainOsd ? "px-1" : "text-left"}`}>
           <h2 className={`max-w-full text-white font-black tracking-tight leading-tight break-words line-clamp-1 ${compactMainOsd ? "text-2xl sm:text-3xl" : "text-lg sm:text-2xl"}`}>
             {channel.name}
           </h2>
@@ -103,9 +110,9 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
           </div>
         </div>
       </div>
-      {/* A nagyított EPG-szöveg alatt marad a folyamatosan frissülő műsorhaladás. */}
+      {/* A műsor kezdési/végzési ideje nagyobb; a sárga haladáscsík vastagsága változatlan. */}
       <div className={`flex items-center gap-3 w-full ${compactMainOsd ? "shrink-0 mt-1" : ""}`}>
-        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-base" : "text-xs sm:text-sm"} font-bold tabular-nums`}>{formatTime(epgStart)}</span>
+        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-2xl" : "text-xs sm:text-sm"} font-bold tabular-nums`}>{formatTime(epgStart)}</span>
         <div
           className={`flex-1 bg-slate-800/90 rounded-full ${compactMainOsd ? "h-3" : "h-2"} overflow-hidden flex shadow-inner`}
           role="progressbar"
@@ -116,27 +123,32 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         >
           <div className="bg-linear-to-r from-amber-400 to-yellow-300 h-full rounded-full transition-all duration-500 shadow-sm shadow-amber-400" style={{ width: `${hasEpgProgress ? epgProgress : 0}%` }} />
         </div>
-        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-base" : "text-xs sm:text-sm"} font-bold tabular-nums`}>{formatTime(epgEnd)}</span>
+        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-2xl" : "text-xs sm:text-sm"} font-bold tabular-nums`}>{formatTime(epgEnd)}</span>
       </div>
 
-      {/* A következő három műsor nagyobb betűvel, a panel alsó részén. */}
+      {/* A főoldali OSD-n a legalsó következő műsor az Audio/CC alsó sávjába kerül. */}
       {upcoming.length > 0 && (
-        <div className={`w-full flex flex-col items-center text-center ${compactMainOsd ? "gap-1 border-t border-cyan-900/70 pt-2 min-h-0 overflow-hidden" : "gap-1 border-t border-cyan-900/70 pt-2"}`}>
-          {upcoming.map((program, index) => (
-            <div key={`${program.time}-${program.title}-${index}`} className={`w-full ${compactMainOsd ? "text-lg sm:text-xl leading-tight truncate" : "text-base sm:text-lg leading-snug break-words"} font-bold text-slate-100` }>
+        <div className={`w-full flex flex-col items-center text-center ${compactMainOsd ? "gap-1 border-t border-cyan-900/70 pt-2 min-h-0 overflow-hidden pb-7" : "gap-1 border-t border-cyan-900/70 pt-2"}`}>
+          {upcoming.slice(0, compactMainOsd ? 2 : 3).map((program, index) => (
+            <div key={`${program.time}-${program.title}-${index}`} className={`w-full ${compactMainOsd ? "text-xl sm:text-2xl leading-tight truncate" : "text-base sm:text-lg leading-snug break-words"} font-bold text-slate-100` }>
               {program.title}
             </div>
           ))}
         </div>
       )}
 
-      {/* Audio és CC a rögzített méretű főoldali OSD alsó sarkaiban. */}
+      {/* Alsó sáv: Audio balra, a 3. következő műsor középen, CC jobbra. */}
       {compactMainOsd && (
-        <div className="absolute inset-x-3 bottom-2 flex items-center justify-between pointer-events-none">
+        <div className="absolute inset-x-3 bottom-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-none">
           <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200" aria-label={hasMultipleAudioTracks ? 'Több hangsáv elérhető' : 'Audio'}>
             <Mic2 className={`w-4 h-4 ${hasMultipleAudioTracks ? 'text-emerald-400' : 'text-rose-400'}`} />
             <span>Audio</span>
           </div>
+          {upcoming.length > 2 ? (
+            <div className="min-w-0 text-center text-xl sm:text-2xl leading-tight font-bold text-slate-100 truncate" title={upcoming[2].title}>
+              {upcoming[2].title}
+            </div>
+          ) : <div />}
           <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200" aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'CC'}>
             <Subtitles className={`w-4 h-4 ${hasActiveSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
             <span>CC</span>
