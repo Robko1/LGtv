@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.3
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.4
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] TV webOS 2.4.3 inicializálás – távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] TV webOS 2.4.4 inicializálás – induló videó + távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -240,9 +240,10 @@
   function diagUiCheck() {
     try {
       if (!diagEnsure()) return;
-      var splash = document.getElementById('boot-splash');
+      // FONTOS: az induló videó (5-10 mp) alatt is BETÖLTÖTT a felület, ezért
+      // nem a splash megléte, hanem a kirajzolt app (fejléc) számít.
       var list = document.querySelector('[role="listbox"], [role="dialog"], header');
-      if (!splash || list) {
+      if (list || window.__IPTV_APP_READY__) {
         diag.uiLoaded = true;
         diag.uiLine.textContent = 'Felület: BET\u00d6LT\u0150D\u00d6TT \u2713';
         diag.uiLine.style.color = '#4ade80';
@@ -386,10 +387,11 @@
         '/* Modal fókusz */',
         '.webos-tv [role="dialog"]:focus { outline:none; }',
         '.webos-tv [role="dialog"] button:focus { outline:3px solid #facc15 !important; }',
-        '/* Splash */',
-        '.webos-splash { position:fixed; top:0; left:0; right:0; bottom:0; width:100vw; height:100vh; background:#000; z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#00BFFF; text-align:center; }',
-        '.webos-splash .splash-title { font-size:8vw; font-weight:800; letter-spacing:0.08em; }',
-        '.webos-splash .splash-subtitle { margin-top:22px; font-size:3vw; color:#fff; }'
+        '/* Induló videó (bejelentkező animáció): teljes képernyőn, a felület',
+        '   fölött fut; a web/index.html kezeli (nincs TV felirat, nincs spinner). */',
+        '#boot-splash { position:fixed; top:0; left:0; right:0; bottom:0; width:100vw; height:100vh; background:#000; z-index:99998; overflow:hidden; }',
+        '#boot-splash .boot-video { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; background:#000; }',
+        '#boot-splash.is-hidden { opacity:0; transition:opacity 0.55s ease-out; pointer-events:none; }'
       ].join('\n');
       var style = document.createElement('style');
       style.id = 'webos-tv-fix-css';

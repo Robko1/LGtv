@@ -57,9 +57,18 @@ try {
   stage(5, "React mount elindítva");
 
   const startedAt = Date.now();
+  /*
+   * Az induló VIDEÓ szándékosan a #root-on kívül, fölötte fut (lásd
+   * web/index.html), ezért a kész felületet már NEM a splash eltűnéséből
+   * lehet felismerni – azt vizsgáljuk, hogy a React valóban kirajzolta-e a
+   * saját fejlécét (#root gyerekei + <header>). Így a videó alatt is
+   * helyesen jelezzük, hogy a háttérben minden készen áll.
+   */
   const checkRendered = () => {
-    const splash = document.getElementById("boot-splash");
-    if (!splash) {
+    const root = document.getElementById("root");
+    const appMounted = !!root && root.childElementCount > 0 && !!document.querySelector("header");
+    if (appMounted) {
+      try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
       stage(6, "App állapot / Storage");
       stage(7, "Főképernyő kész");
       return;
