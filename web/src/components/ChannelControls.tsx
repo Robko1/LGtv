@@ -64,10 +64,10 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
 
   if (!channel) return null;
   const compactMainOsd = className?.includes('main-live-osd') ?? false;
-  const upcoming = (channel.epgUpcoming || []).slice(0, compactMainOsd ? 2 : 3);
+  const upcoming = (channel.epgUpcoming || []).slice(0, 3);
 
   return (
-    <div className={`relative box-border w-full ${compactMainOsd ? 'h-[260px] min-h-[260px] max-h-[260px] overflow-hidden px-4 py-2 gap-1.5' : 'max-h-[calc(100dvh-8px)] overflow-y-auto px-4 pt-3 pb-3 sm:px-6 sm:pt-4 gap-2.5'} bg-[#0e1d3b]/95 border-2 border-cyan-500/60 rounded-xl flex flex-col select-none shadow-sm ${className || ''}`}>
+    <div className={`relative box-border w-full ${compactMainOsd ? 'h-[260px] min-h-[260px] max-h-[260px] overflow-hidden px-4 pt-2 pb-9 gap-1' : 'max-h-[calc(100dvh-8px)] overflow-y-auto px-4 pt-3 pb-3 sm:px-6 sm:pt-4 gap-2.5'} bg-[#0e1d3b]/95 border-2 border-cyan-500/60 rounded-xl flex flex-col select-none shadow-sm ${className || ''}`}>
       {!hideHeaderActions && (
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
           <button
@@ -86,37 +86,26 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         </div>
       )}
 
-      {/* Audio and CC are informational labels only; channel number shares this row. */}
-      <div className={`relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 ${compactMainOsd ? "min-h-7" : "min-h-9"}`}>
-        <div className="justify-self-start inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2.5 py-1.5 text-xs sm:text-sm font-bold text-slate-200 pointer-events-none" aria-label={hasMultipleAudioTracks ? 'Több hangsáv elérhető' : 'Audio'}>
-          <Mic2 className={`w-4 h-4 ${hasMultipleAudioTracks ? 'text-emerald-400' : 'text-rose-400'}`} />
-          <span>Audio</span>
-        </div>
-        <div className="text-cyan-300 font-black text-2xl sm:text-3xl tracking-wider leading-none text-center">
-          {displayNumber ?? '—'}
-        </div>
-        <div className="justify-self-end inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2.5 py-1.5 text-xs sm:text-sm font-bold text-slate-200 pointer-events-none" aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'CC'}>
-          <Subtitles className={`w-4 h-4 ${hasActiveSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
-          <span>CC</span>
-        </div>
+      {/* Csatornaszám bal felül; Audio és CC a panel két alsó sarkában. */}
+      <div className={`absolute top-2 left-3 z-10 text-cyan-300 font-black ${compactMainOsd ? "text-2xl" : "text-2xl sm:text-3xl"} tracking-wider leading-none`}>
+        {displayNumber ?? '—'}
       </div>
 
-      {/* Keep the existing centered channel logo, name and current programme layout. */}
-      <div className={`flex flex-col items-center text-center ${compactMainOsd ? "gap-0.5 px-8 min-h-0" : "gap-1.5 px-8"}`}>
-        <div className={`${compactMainOsd ? "w-10 h-8" : "w-16 h-14 sm:w-20 sm:h-16"} rounded-lg bg-[#0e1e3e] border border-cyan-800/40 p-1.5 flex items-center justify-center overflow-hidden shadow-inner`}>
+      {/* Nagyobb csatornalogó, név és aktuális műsor középre igazítva. */}
+      <div className={`flex flex-col items-center text-center ${compactMainOsd ? "gap-0.5 px-10 min-h-0" : "gap-1.5 px-8"}`}>
+        <div className={`${compactMainOsd ? "w-16 h-12" : "w-16 h-14 sm:w-20 sm:h-16"} rounded-lg bg-[#0e1e3e] border border-cyan-800/40 p-1.5 flex items-center justify-center overflow-hidden shadow-inner`}>
           <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
         </div>
-        <h2 className={`max-w-full text-white font-black ${compactMainOsd ? "text-base" : "text-lg sm:text-2xl"} tracking-tight leading-tight break-words line-clamp-1`}>
+        <h2 className={`max-w-full text-white font-black ${compactMainOsd ? "text-lg" : "text-lg sm:text-2xl"} tracking-tight leading-tight break-words line-clamp-1`}>
           {channel.name}
         </h2>
-        <div className={`max-w-full text-amber-300 font-bold ${compactMainOsd ? "text-sm" : "text-base sm:text-lg"} leading-snug break-words line-clamp-1`}>
+        <div className={`max-w-full text-amber-300 font-bold ${compactMainOsd ? "text-base" : "text-base sm:text-lg"} leading-snug break-words line-clamp-1`}>
           {channel.epgNow?.title || 'Élő adás'}
         </div>
       </div>
-
       {/* Keep programme start/end times and the continuously updating progress bar in place. */}
       <div className={`flex items-center gap-3 w-full ${compactMainOsd ? "shrink-0" : ""}`}>
-        <span className="shrink-0 text-slate-200 text-xs sm:text-sm font-semibold tabular-nums">{formatTime(epgStart)}</span>
+        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-sm" : "text-xs sm:text-sm"} font-semibold tabular-nums`}>{formatTime(epgStart)}</span>
         <div
           className="flex-1 bg-slate-800/90 rounded-full h-2 overflow-hidden flex shadow-inner"
           role="progressbar"
@@ -127,20 +116,33 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         >
           <div className="bg-linear-to-r from-amber-400 to-yellow-300 h-full rounded-full transition-all duration-500 shadow-sm shadow-amber-400" style={{ width: `${hasEpgProgress ? epgProgress : 0}%` }} />
         </div>
-        <span className="shrink-0 text-slate-200 text-xs sm:text-sm font-semibold tabular-nums">{formatTime(epgEnd)}</span>
+        <span className={`shrink-0 text-slate-200 ${compactMainOsd ? "text-sm" : "text-xs sm:text-sm"} font-semibold tabular-nums`}>{formatTime(epgEnd)}</span>
       </div>
 
       {/* Three upcoming programmes centered under the bar, with larger readable text and no decorative arrows. */}
       {upcoming.length > 0 && (
-        <div className={`w-full flex flex-col items-center text-center ${compactMainOsd ? "gap-0 border-t border-cyan-900/70 pt-1 min-h-0 overflow-hidden" : "gap-1 border-t border-cyan-900/70 pt-2"}`}>
+        <div className={`w-full flex flex-col items-center text-center ${compactMainOsd ? "gap-0.5 border-t border-cyan-900/70 pt-1 min-h-0 overflow-hidden" : "gap-1 border-t border-cyan-900/70 pt-2"}`}>
           {upcoming.map((program, index) => (
-            <div key={`${program.time}-${program.title}-${index}`} className={`w-full ${compactMainOsd ? "text-sm leading-tight truncate" : "text-base sm:text-lg leading-snug break-words"} font-semibold text-slate-100` }>
+            <div key={`${program.time}-${program.title}-${index}`} className={`w-full ${compactMainOsd ? "text-base leading-tight truncate" : "text-base sm:text-lg leading-snug break-words"} font-semibold text-slate-100` }>
               {program.title}
             </div>
           ))}
         </div>
       )}
 
+      {/* Audio és CC a rögzített méretű főoldali OSD alsó sarkaiban. */}
+      {compactMainOsd && (
+        <div className="absolute inset-x-3 bottom-2 flex items-center justify-between pointer-events-none">
+          <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200" aria-label={hasMultipleAudioTracks ? 'Több hangsáv elérhető' : 'Audio'}>
+            <Mic2 className={`w-4 h-4 ${hasMultipleAudioTracks ? 'text-emerald-400' : 'text-rose-400'}`} />
+            <span>Audio</span>
+          </div>
+          <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200" aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'CC'}>
+            <Subtitles className={`w-4 h-4 ${hasActiveSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
+            <span>CC</span>
+          </div>
+        </div>
+      )}
       {(showPip || showCast) && (
         <div className={`flex items-center justify-center gap-2 ${compactMainOsd ? "pt-0 shrink-0" : "pt-1"}`}>
           {showPip && (
