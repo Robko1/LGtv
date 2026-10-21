@@ -305,13 +305,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       retryStreamRef.current?.();
     }, bufferTiming().retryMs);
   }, []);
-  useEffect(() => {
-    if (!hasError) return;
-    const timer = window.setTimeout(() => {
-      try { retryButtonRef.current?.focus({ preventScroll: true }); } catch { /* fókusz nélkül is kattintható */ }
-    }, 80);
-    return () => window.clearTimeout(timer);
-  }, [hasError]);
   const clearAutoRetry = useCallback((_resetCount = true) => {
     if (autoRetryTimerRef.current !== null) {
       window.clearTimeout(autoRetryTimerRef.current);
@@ -588,6 +581,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isLiveLandscapeFullscreen, isVodLandscapeFullscreen, canToggleOsd, showControlsOverlay]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // A streamhiba csak tájékoztató réteg: ne indítson lejátszóvezérlést,
+    // fókuszváltást vagy fullscreenből kilépést, amíg látható.
+    if (hasError) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, OK=13, VISSZA=461) is jöhet.
     const key = normalizeTvKey(e);
     if (key === 'Enter' && isVod && isFullscreen) {
@@ -647,7 +647,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         else setIsFullscreen(false);
       }
     }
-  }, [isLive, isVod, isFullscreen, onPrevChannel, onNextChannel, onCloseVod]);
+  }, [hasError, isLive, isVod, isFullscreen, onPrevChannel, onNextChannel, onCloseVod]);
   const [nativeHandoff, setNativeHandoff] = useState<boolean>(false);
   const [, setNativeMessage] = useState<string>('');
 
@@ -2098,7 +2098,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Stream Error Overlay with fallback launcher */}
       {hasError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 p-4 text-center">
+        <div onClick={(e) => e.stopPropagation()} className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 p-4 text-center">
           <h4 className="text-white font-bold text-sm sm:text-base whitespace-pre-line">A csatornát nem lehet be tölteni !{"\n"}kapcsolj másik csatornára...{"\n"}ez a sz@r le fagyott 😂</h4>
 
         </div>
