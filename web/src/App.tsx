@@ -458,17 +458,18 @@ export function App() {
       const { now, next } = nowNextFromEpg(entries, Date.now());
       const nextNow = now || channel.epgNow;
       const nextNext = next || channel.epgNext;
+      const upcoming = entries.filter((entry) => entry.start >= (nextNow?.endTimestamp || 0)).slice(0, 3).map((entry) => ({ title: entry.title, time: new Date(entry.start * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }));
       if (
         nextNow?.title === channel.epgNow?.title &&
         nextNow?.time === channel.epgNow?.time &&
         nextNow?.startTimestamp === channel.epgNow?.startTimestamp &&
         nextNow?.endTimestamp === channel.epgNow?.endTimestamp &&
         nextNext?.title === channel.epgNext?.title &&
-        nextNext?.time === channel.epgNext?.time
+        nextNext?.time === channel.epgNext?.time &&
+        JSON.stringify(upcoming) === JSON.stringify(channel.epgUpcoming || [])
       ) {
         return;
       }
-      const upcoming = entries.filter((entry) => entry.start >= (nextNow?.endTimestamp || 0)).slice(0, 3).map((entry) => ({ title: entry.title, time: new Date(entry.start * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }));
       setActiveEpg({ id: channel.id, now: nextNow, next: nextNext, upcoming });
     };
     refreshActiveProgram();
