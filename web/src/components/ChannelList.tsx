@@ -624,8 +624,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       const next = visibleChannels[target];
       if (!next) return;
       setHighlightedId(next.id);
-      // A fókusz a listán marad, hogy ne ragadjon sárga keret egy régi soron.
-      (e.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true } as any);
+      // A fókusz a sorszám dobozára kerül, nem a teljes csatornasorra.
       requestAnimationFrame(() => {
         const el = document.querySelector(`[data-channel-id="${next.id}"]`) as HTMLElement | null;
         if (!el) return;
@@ -637,6 +636,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         // animált görgetést indított, ami a lassú webOS processzoron
         // érezhetően akadozott. A kijelölő most azonnal ugrik.
         else if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+        el.querySelector<HTMLElement>('[data-channel-number]')?.focus({ preventScroll: true } as any);
       });
     };
     if (key === 'ArrowUp' && currentIndex <= 0) {
@@ -788,10 +788,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
             if (first) {
               setHighlightedId(first.id);
               const list = channelScrollRef.current;
-              if (list) {
-                list.scrollTop = 0;
-                list.focus({ preventScroll: true } as any);
-              }
+              if (list) list.scrollTop = 0;
+              requestAnimationFrame(() => {
+                const numberBox = document.querySelector<HTMLElement>(`[data-channel-id="${first.id}"] [data-channel-number]`);
+                numberBox?.focus({ preventScroll: true } as any);
+              });
             } else {
               channelScrollRef.current?.focus({ preventScroll: true } as any);
             }
