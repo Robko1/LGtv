@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Movie, AppSettings } from '../types/iptv';
 import { PosterImage, PosterSettingsButton } from './PosterImage';
 import { Search, Star, Play, Clock, Sparkles, Filter, ChevronDown, Mic2, Subtitles } from 'lucide-react';
@@ -18,6 +18,8 @@ interface MoviesViewProps {
 
 const PAGE_SIZE = 60;
 
+let movieReturnSnapshot: { searchTerm: string; scrollTop: number; visibleCount: number } | null = null;
+
 export const MoviesView: React.FC<MoviesViewProps> = ({
   movies,
   categories: providerCategories,
@@ -26,11 +28,12 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
 }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => movieReturnSnapshot?.searchTerm ?? '');
   const [isSearchEditing, setIsSearchEditing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
+  const movieGridRef = useRef<HTMLDivElement | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
 
   const categories = [
@@ -57,6 +60,18 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [selectedCategory, searchTerm]);
+
+  useEffect(() => {
+    const snapshot = movieReturnSnapshot;
+    if (!snapshot) return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (movieGridRef.current) movieGridRef.current.scrollTop = snapshot.scrollTop;
+        setVisibleCount(snapshot.visibleCount);
+      });
+    });
+    movieReturnSnapshot = null;
+  }, []);
 
   const visibleMovies = filteredMovies.slice(0, visibleCount);
 
@@ -121,7 +136,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       </div>
 
       {/* Movies Grid – reszponzív: telefon 2, tablet 3-4, laptop 6, TV 7-8 oszlop, egér hover */}
-      <div className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
+      <div ref={movieGridRef} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
         {filteredMovies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
             <Filter className="w-10 h-10 text-slate-600 mb-2" />
@@ -260,6 +275,11 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
               <button
                 onClick={() => {
                   const mov = selectedMovie;
+                  movieReturnSnapshot = {
+                    searchTerm,
+                    scrollTop: movieGridRef.current?.scrollTop ?? 0,
+                    visibleCount,
+                  };
                   setSelectedMovie(null);
                   onPlayMovie(mov);
                 }}
