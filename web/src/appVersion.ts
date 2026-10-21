@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.4.3';
+export const WEB_VERSION = '2.4.4';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.3'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.4'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.4',
+    date: '2026-10-21',
+    changes: [
+      'INDULÓ VIDEÓ: az app indításakor a feltöltött logó-videó játszódik le teljes képernyőn (nagy TV felirat nélkül)',
+      'A videó alatt a felület a háttérben betölt, a videó végén elhalványul – a kép „összeáll”, minden készen áll',
+      'Ha a TV nem tudja lejátszani a videót (vagy 4 mp alatt nem indul el), a felület azonnal megjelenik – nincs fekete képernyő',
+      'A webOS indítókép/splash TV felirata és a hozzá tartozó késleltetett overlay megszűnt',
+    ],
+  },
   {
     version: '2.4.3',
     date: '2026-10-20',

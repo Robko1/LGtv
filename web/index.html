@@ -49,27 +49,60 @@
       ::-webkit-scrollbar-thumb:hover {
         background: rgba(56, 189, 248, 0.6);
       }
-      /* Egyszerű, fekvő webOS indulófelirat – videó, spinner és diagnosztikai szöveg nélkül. */
+      /* INDULÓ VIDEÓ: teljes képernyős, fekvő bejelentkező animáció (nincs TV
+         felirat). A React app közben a háttérben töltődik fel, így a videó
+         végén a kép "összeáll": a videó elhalványul, és már a kész felület
+         van mögötte. A videó nem kap görgetősávot és nem tolja el az appot. */
       #boot-splash {
         position: fixed;
-        inset: 0;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: #000;
+        z-index: 99998;
+      }
+      #boot-splash.is-hidden {
+        opacity: 0;
+        transition: opacity 0.55s ease-out;
+        pointer-events: none;
+      }
+      #boot-splash .boot-video {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+      }
+      /* Indulási lépés + hibaüzenet: csak HIBA esetén látszik (a videó helyén),
+         hogy a TV-n is olvasható legyen, mi akadt el. */
+      #boot-splash .boot-hint {
+        display: none;
+      }
+      #boot-splash.boot-failed .boot-video {
+        display: none;
+      }
+      #boot-splash.boot-failed .boot-hint {
         display: flex;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
         padding: 24px;
         text-align: center;
-        background: #000;
-        color: #00BFFF;
-        z-index: 99998;
+        background: #080d1a;
+        color: #f1f5f9;
       }
-      #boot-splash .boot-title {
-        font-size: clamp(64px, 8vw, 140px);
-        font-weight: 800;
-        letter-spacing: 0.08em;
-      }
-      /* Indulási lépés + hibaüzenet: a TV-n is látszik, ha az app elakad. */
       #boot-splash .boot-stage {
-        margin-top: 20px;
         font-size: 22px;
         color: #64748b;
       }
@@ -90,30 +123,38 @@
     </style>
   </head>
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
-    <!-- Ha a React még nem rajzolt ki, csak a nagy TV felirat látszik. -->
-    <div id="root">
-      <div id="boot-splash" aria-label="TV indulás">
-        <div style="display:flex;flex-direction:column;align-items:center;">
-          <div class="boot-title">TV</div>
-          <!-- A __IPTV_STARTUP_STAGE_SET__ / __IPTV_STARTUP_FAIL__ ide ír:
-               korábban ezek az elemek hiányoztak, ezért az indulási hiba
-               sosem látszott a TV képernyőjén. -->
-          <div id="boot-stage" class="boot-stage"></div>
-          <div id="boot-time" class="boot-time"></div>
-          <div id="boot-error" class="boot-error"></div>
-        </div>
+    <!-- INDULÓ (BEJELENTKEZŐ) VIDEÓ.
+         FONTOS: a #boot-splash a #root-on KÍVÜL van, mert a React a #root
+         teljes tartalmát lecseréli az első rajzoláskor – a régi splash ezért
+         eltűnt, mielőtt a videó végigmehetett volna. Így a videó az app
+         FÖLÖTT fut, az app pedig közben a háttérben épül fel. -->
+    <div id="boot-splash" aria-label="Induló videó">
+      <video id="boot-video" class="boot-video" playsinline webkit-playsinline
+        preload="auto" disablepictureinpicture x-webkit-airplay="deny"></video>
+      <div id="boot-hint" class="boot-hint">
+        <!-- A __IPTV_STARTUP_STAGE_SET__ / __IPTV_STARTUP_FAIL__ ide ír:
+             korábban ezek az elemek hiányoztak, ezért az indulási hiba
+             sosem látszott a TV képernyőjén. -->
+        <div id="boot-stage" class="boot-stage"></div>
+        <div id="boot-time" class="boot-time"></div>
+        <div id="boot-error" class="boot-error"></div>
       </div>
     </div>
+    <div id="root"></div>
     <script>
       (function () {
         var started = Date.now();
         window.__IPTV_STARTUP_STAGE__ = 1;
         window.__IPTV_STARTUP_DIAG__ = true;
 
+        function byId(id) {
+          return document.getElementById(id);
+        }
+
         function show(stage, label) {
           window.__IPTV_STARTUP_STAGE__ = stage;
-          var el = document.getElementById('boot-stage');
-          var tm = document.getElementById('boot-time');
+          var el = byId('boot-stage');
+          var tm = byId('boot-time');
           if (el) el.textContent = stage + '/7 ' + label;
           if (tm) tm.textContent = (Date.now() - started) + ' ms';
           try { console.log('STARTUP ' + stage + '/7 ' + label + ' @ ' + (Date.now() - started) + ' ms'); } catch (e) {}
@@ -121,14 +162,109 @@
 
         window.__IPTV_STARTUP_STAGE_SET__ = show;
 
+        // ---------- INDULÓ VIDEÓ ----------
+        // A videó a teljes képernyőn fut, alatta a React app már betölt.
+        // A videó végén (vagy ha a TV nem tudja lejátszani) elhalványul, és
+        // a háttérben addigra összeállt felület jelenik meg.
+        var INTRO_SRC = 'assets/intro.mp4';
+        var introEnded = false;
+
+        function removeSplash() {
+          var splash = byId('boot-splash');
+          if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+        }
+
+        function endIntro() {
+          if (introEnded) return;
+          introEnded = true;
+          var splash = byId('boot-splash');
+          var video = byId('boot-video');
+          if (video) {
+            try { video.pause(); } catch (e) {}
+          }
+          if (!splash) return;
+          if (splash.className.indexOf('boot-failed') >= 0) return; // hiba: marad a hibaüzenet
+          splash.className += ' is-hidden';
+          window.setTimeout(removeSplash, 650);
+        }
+
+        function startIntro() {
+          var video = byId('boot-video');
+          if (!video) { endIntro(); return; }
+          try {
+            video.addEventListener('ended', endIntro);
+            video.addEventListener('error', endIntro);
+          } catch (e) {}
+          try {
+            video.src = INTRO_SRC;
+            video.load();
+          } catch (e) { endIntro(); return; }
+
+          // Hanggal indul (a logó-videó hangja); ha a TV motorja a hangos
+          // automatikus indítást tiltja, némán újrapróbáljuk, hogy a videó
+          // akkor is végigmenjen.
+          try { video.muted = false; video.volume = 1; } catch (e) {}
+          var played = null;
+          try { played = video.play(); } catch (e) {}
+          if (played && played.catch) {
+            played.catch(function () {
+              try { video.muted = true; video.play(); } catch (e) {}
+            });
+          }
+
+          // Ha 4 mp alatt el sem indul (nincs videófájl, tiltott autoplay),
+          // akkor nem tartjuk fogva a felületet.
+          window.setTimeout(function () {
+            var v = byId('boot-video');
+            if (!v || v.currentTime > 0.05) return;
+            endIntro();
+          }, 4000);
+
+          // Ha a lejátszás megakad (nem halad a videó), szintén engedjük el.
+          var lastTime = -1;
+          var stuck = 0;
+          var watchdog = window.setInterval(function () {
+            var v = byId('boot-video');
+            if (introEnded || !v) { window.clearInterval(watchdog); return; }
+            if (!v.paused && v.currentTime > lastTime + 0.01) {
+              lastTime = v.currentTime;
+              stuck = 0;
+              return;
+            }
+            stuck++;
+            if (stuck >= 5) {
+              window.clearInterval(watchdog);
+              endIntro();
+            }
+          }, 1000);
+        }
+
         window.__IPTV_STARTUP_FAIL__ = function (message) {
-          var splash = document.getElementById('boot-splash');
-          if (splash) splash.style.display = 'flex';
-          var el = document.getElementById('boot-stage');
-          var err = document.getElementById('boot-error');
+          try { console.error('STARTUP FAIL stage=' + window.__IPTV_STARTUP_STAGE__ + ': ' + String(message)); } catch (e) {}
+
+          var splash = byId('boot-splash');
+          if (!splash) {
+            // A videó már levéltük: külön hibaablak, hogy ne üres fekete kép legyen.
+            splash = document.createElement('div');
+            splash.id = 'boot-splash';
+            splash.innerHTML = '<div class="boot-hint" style="display:flex">' +
+              '<div id="boot-stage" class="boot-stage"></div>' +
+              '<div id="boot-time" class="boot-time"></div>' +
+              '<div id="boot-error" class="boot-error"></div></div>';
+            if (document.body) document.body.appendChild(splash);
+          }
+          if (!splash) return;
+          splash.className = 'boot-failed';
+          introEnded = true;
+          var video = byId('boot-video');
+          if (video) {
+            try { video.pause(); } catch (e) {}
+            try { video.removeAttribute('src'); } catch (e) {}
+          }
+          var el = byId('boot-stage');
+          var err = byId('boot-error');
           if (el) el.textContent = 'HIBA a(z) ' + (window.__IPTV_STARTUP_STAGE__ || '?') + '/7 lépésnél';
           if (err) err.textContent = String(message || 'Ismeretlen JavaScript hiba');
-          try { console.error('STARTUP FAIL stage=' + window.__IPTV_STARTUP_STAGE__ + ': ' + String(message)); } catch (e) {}
         };
 
         show(1, 'webOS HTML');
@@ -136,9 +272,11 @@
         if (document.readyState === 'loading') {
           document.addEventListener('DOMContentLoaded', function () {
             show(2, 'DOM kész');
+            startIntro();
           }, { once: true });
         } else {
           show(2, 'DOM kész');
+          startIntro();
         }
 
         window.addEventListener('error', function (e) {
