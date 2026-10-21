@@ -1810,52 +1810,96 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Kilépés után a webOS böngésző néha a teljes képernyős méreteket hagyja
-  // a videóelemen. Élő TV-n minden állapotváltás után visszaállítjuk ugyanazt
-  // a 16:9-es főoldali keretet és a fill méretezést, majd újraszámoltatjuk
-  // a layoutot. A streamhez és a lejátszáshoz nem nyúlunk.
+  // Teljes képernyőből VISSZATÉRÉSKOR csak a főoldali lejátszó méretét
+  // állítjuk helyre. A teljes képernyős megjelenítés logikáját szándékosan
+  // nem módosítjuk. WebOS-en a fullscreenből kilépés után a régi viewport
+  // néha megmarad, ezért több képkockán és a tényleges konténer méretváltozásán
+  // keresztül is újramérjük a 16:9-es főoldali keretet.
   useEffect(() => {
-    const syncLiveVideoLayout = () => {
+    if (isVod || isFullscreen) return;
+
+    let frame1 = 0;
+    let frame2 = 0;
+    let frame3 = 0;
+    const settleTimers: number[] = [];
+    const syncMainPageLayout = () => {
+      if (isFullscreen) return;
       const container = containerRef.current;
       const video = htmlVideoRef.current;
-      if (!container || !video || isVod) return;
+      if (!container || !video) return;
 
-      if (isFullscreen) {
-        Object.assign(container.style, {
-          position: 'fixed',
-          inset: '0px',
-          width: '100vw',
-          height: '100dvh',
-          maxHeight: 'none',
-          aspectRatio: 'auto',
-          zIndex: '9999',
-        });
-      } else {
-        Object.assign(container.style, {
-          position: 'relative',
-          inset: 'auto',
-          width: '100%',
-          height: 'auto',
-          maxHeight: 'none',
-          aspectRatio: '16 / 9',
-          zIndex: 'auto',
-        });
-      }
+      Object.assign(container.style, {
+        position: 'relative',
+        inset: 'auto',
+        left: 'auto',
+        right: 'auto',
+        top: 'auto',
+        bottom: 'auto',
+        width: '100%',
+        height: 'auto',
+        minHeight: '0',
+        maxHeight: 'none',
+        aspectRatio: '16 / 9',
+        zIndex: 'auto',
+        transform: 'none',
+      });
       Object.assign(video.style, {
         display: 'block',
+        position: 'absolute',
+        inset: '0px',
         width: '100%',
         height: '100%',
+        minWidth: '0',
+        minHeight: '0',
         maxWidth: 'none',
+        maxHeight: 'none',
+        aspectRatio: 'auto',
         objectFit: 'fill',
       });
-      // A régebbi webOS Chromium néha csak resize után frissíti a videó
-      // felületének méretét, ha a Fullscreen API-ból visszatértünk.
+      // Kényszerített újramérés a webOS Chromium későn frissülő videórétegéhez.
       void container.offsetHeight;
+      void video.getBoundingClientRect().width;
       window.dispatchEvent(new Event('resize'));
     };
+    const syncAfterLayout = () => {
+      syncMainPageLayout();
+      frame1 = window.requestAnimationFrame(() => {
+        syncMainPageLayout();
+        frame2 = window.requestAnimationFrame(() => {
+          syncMainPageLayout();
+          frame3 = window.requestAnimationFrame(syncMainPageLayout);
+        });
+      });
+      settleTimers.forEach((timer) => window.clearTimeout(timer));
+      settleTimers.length = 0;
+      [80, 180, 350, 600].forEach((delay) => {
+        settleTimers.push(window.setTimeout(syncMainPageLayout, delay) as unknown as number);
+      });
+    };
 
-    const frame = window.requestAnimationFrame(syncLiveVideoLayout);
-    return () => window.cancelAnimationFrame(frame);
+    syncAfterLayout();
+    const parent = containerRef.current?.parentElement;
+    const observer = typeof ResizeObserver !== 'undefined' && parent
+      ? new ResizeObserver(syncAfterLayout)
+      : null;
+    if (parent) observer?.observe(parent);
+    window.addEventListener('resize', syncAfterLayout);
+    window.addEventListener('orientationchange', syncAfterLayout);
+    window.visualViewport?.addEventListener('resize', syncAfterLayout);
+    document.addEventListener('fullscreenchange', syncAfterLayout);
+    document.addEventListener('visibilitychange', syncAfterLayout);
+    return () => {
+      observer?.disconnect();
+      window.cancelAnimationFrame(frame1);
+      window.cancelAnimationFrame(frame2);
+      window.cancelAnimationFrame(frame3);
+      settleTimers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener('resize', syncAfterLayout);
+      window.removeEventListener('orientationchange', syncAfterLayout);
+      window.visualViewport?.removeEventListener('resize', syncAfterLayout);
+      document.removeEventListener('fullscreenchange', syncAfterLayout);
+      document.removeEventListener('visibilitychange', syncAfterLayout);
+    };
   }, [isFullscreen, isVod, streamUrl]);
 
   const toggleFullscreen = () => {
