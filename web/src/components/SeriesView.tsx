@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Series, Episode, AppSettings } from '../types/iptv';
 import { PosterImage, PosterSettingsButton } from './PosterImage';
 import { Search, Star, Play, Clock, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2 } from 'lucide-react';
@@ -20,6 +20,8 @@ interface SeriesViewProps {
 
 const PAGE_SIZE = 60;
 
+let seriesReturnSnapshot: { searchTerm: string; scrollTop: number; visibleCount: number } | null = null;
+
 export const SeriesView: React.FC<SeriesViewProps> = ({
   series,
   categories: providerCategories,
@@ -30,12 +32,13 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
 }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => seriesReturnSnapshot?.searchTerm ?? '');
   const [isSearchEditing, setIsSearchEditing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [visibleCount, setVisibleCount] = useState(() => seriesReturnSnapshot?.visibleCount ?? PAGE_SIZE);
+  const seriesGridRef = useRef<HTMLDivElement | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
 
   const categories = [
@@ -60,6 +63,18 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [selectedCategory, searchTerm]);
+
+  useEffect(() => {
+    const snapshot = seriesReturnSnapshot;
+    if (!snapshot) return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (seriesGridRef.current) seriesGridRef.current.scrollTop = snapshot.scrollTop;
+        setVisibleCount(snapshot.visibleCount);
+      });
+    });
+    seriesReturnSnapshot = null;
+  }, []);
 
   const visibleSeries = filteredSeries.slice(0, visibleCount);
 
@@ -133,7 +148,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
       </div>
 
       {/* Series Grid – reszponzív */}
-      <div className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
+      <div ref={seriesGridRef} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
         {filteredSeries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
             <Filter className="w-10 h-10 text-slate-600 mb-2" />
@@ -332,6 +347,11 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
                       key={ep.id}
                       onClick={() => {
                         const ser = selectedSeries;
+                        seriesReturnSnapshot = {
+                          searchTerm,
+                          scrollTop: seriesGridRef.current?.scrollTop ?? 0,
+                          visibleCount,
+                        };
                         setSelectedSeriesId('');
                         onPlayEpisode(ser, ep);
                       }}
