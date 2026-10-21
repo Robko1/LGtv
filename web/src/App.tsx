@@ -278,9 +278,11 @@ export function App() {
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isOsdVisible, setIsOsdVisible] = useState<boolean>(true);
-  // Teljes képernyőn a főoldali OSD (ChannelControls) ugyanabban a kinézetben
-  // úszik a HTML5 videókép fölött.
+  // A teljes képernyős élő TV OSD saját időzítést kap, így a főoldali OSD
+  // helyzete és láthatósága csatornaváltáskor sem változik meg.
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
+  const [isFullscreenOsdVisible, setIsFullscreenOsdVisible] = useState<boolean>(false);
+  const fullscreenOsdTimerRef = useRef<number | null>(null);
   // Fekvő teljes képernyős élő TV-nél a főoldali OSD-t is el kell rejteni.
   const [isLandscapeFullscreen, setIsLandscapeFullscreen] = useState<boolean>(false);
   useEffect(() => {
@@ -300,6 +302,33 @@ export function App() {
       window.visualViewport?.removeEventListener('resize', updateOrientation);
     };
   }, [isVideoFullscreen]);
+  // Belépéskor és minden csatornaváltáskor jelenjen meg a teljes képernyős
+  // információs OSD, majd az aktuális beállítás szerinti idő után tűnjön el.
+  // Ez külön timer, ezért a főoldali OSD állapotát nem módosítja.
+  useEffect(() => {
+    if (fullscreenOsdTimerRef.current !== null) {
+      window.clearTimeout(fullscreenOsdTimerRef.current);
+      fullscreenOsdTimerRef.current = null;
+    }
+    if (!isVideoFullscreen || isLandscapeFullscreen || customStreamUrl || !activeChannel) {
+      setIsFullscreenOsdVisible(false);
+      return;
+    }
+    setIsFullscreenOsdVisible(true);
+    if (settings.osdHideDelay > 0) {
+      fullscreenOsdTimerRef.current = window.setTimeout(() => {
+        setIsFullscreenOsdVisible(false);
+        fullscreenOsdTimerRef.current = null;
+      }, settings.osdHideDelay * 1000);
+    }
+    return () => {
+      if (fullscreenOsdTimerRef.current !== null) {
+        window.clearTimeout(fullscreenOsdTimerRef.current);
+        fullscreenOsdTimerRef.current = null;
+      }
+    };
+  }, [isVideoFullscreen, isLandscapeFullscreen, activeChannelId, customStreamUrl, settings.osdHideDelay]);
+
   const mainPlayerToggleRef = useRef<(() => void) | null>(null);
   const mainPlayerCastRef = useRef<(() => void) | null>(null);
   const mainPlayerPipRef = useRef<(() => void) | null>(null);
@@ -1985,8 +2014,8 @@ export function App() {
           {/*
             Teljes képernyős OSD élő TV-nél: pontosan a főoldali panel
           */}
-          {!customStreamUrl && isVideoFullscreen && !isLandscapeFullscreen && isOsdVisible && activeChannel && (
-            <div data-osd="" className="fixed inset-x-2 bottom-0 z-[10000] pointer-events-none">
+          {!customStreamUrl && isVideoFullscreen && !isLandscapeFullscreen && isFullscreenOsdVisible && activeChannel && (
+            <div data-osd="" className="fixed inset-x-2 bottom-2 z-[10000] mx-auto w-[calc(100%-1rem)] max-w-3xl pointer-events-none">
               <div className="pointer-events-auto">
                 <ChannelControls
                   channel={activeChannel}
@@ -2005,13 +2034,13 @@ export function App() {
                   onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
                   onCastToTv={() => mainPlayerCastRef.current?.()}
                   onTogglePip={() => mainPlayerPipRef.current?.()}
-            showPip={pipSupported}
+                  showPip={false}
+                  showCast={false}
                   onOpenEpgModal={() => setIsEpgOpen(true)}
                   onOpenChannelDetails={() => {
                     setSettingsTab('system');
                     setIsSettingsOpen(true);
                   }}
-                  onRequestHide={() => mainPlayerOsdToggleRef.current?.()}
                   hideHeaderActions
                 />
               </div>
