@@ -264,9 +264,9 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     }
     let cancelled = false;
     let cursor = 0;
-    // Csak azokat kérjük le, amelyekhez nincs gyorsítótárazott adat.
-    // A sor kiszámítása a 400 ms-os nyugalmi késleltetés után történik (lásd
-    // lent): nyíllal lépkedés közben nem olvassuk végig a gyorsítótárat.
+    // A nézett és a képernyőn látható csatornák EPG-je azonnal induljon,
+    // párhuzamosan a videó betöltésével. Csak a látható ablakot kérjük le,
+    // így a korai EPG nem terheli túl a TV-t és nem járja be a teljes listát.
     let queue: typeof epgQueue = [];
 
     const updateFromCache = () => {
@@ -336,12 +336,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         } catch {
           // Egy csatorna EPG-hibája ne akadályozza a többi sor betöltését.
         }
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
       }
     };
-    // NYUGALMI KÉSLELTETÉS: a kijelölő mozgatása közben az ablak minden
-    // lépésnél odébb csúszik - a munkások újraindítása csak akkor történik
-    // meg, amikor a néző megállt (ettől lett újra fürge a lista a TV-n).
+    // Rövid, 80 ms-os összevonás: az EPG a videóval párhuzamosan indul,
+    // de a gyors fókuszmozgatáskor érkező apró változásokat összevonjuk.
     const startTimer = window.setTimeout(() => {
       if (cancelled) return;
       queue = epgQueue.filter((channel) => {
@@ -349,8 +348,8 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         return !!streamId && getCachedShortEpg(activeProvider, streamId, 6).length === 0;
       });
       updateFromCache();
-      void Promise.all([worker(), worker(), worker()]);
-    }, 400);
+      void Promise.all([worker(), worker(), worker(), worker()]);
+    }, 80);
     return () => {
       cancelled = true;
       window.clearTimeout(startTimer);
