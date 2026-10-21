@@ -950,7 +950,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         }
                       }
                     }}
-                    className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none touch-pan-y focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#070e1e] ${
+                    className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none touch-pan-y focus:outline-none ${
                       movingChannelId === ch.id
                         ? 'bg-emerald-700/90 border-2 border-emerald-300 shadow-lg shadow-emerald-950/60 ring-2 ring-emerald-400/60 scale-[1.01]'
                         : isHighlighted && !isSelected
