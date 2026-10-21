@@ -193,6 +193,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoSurfaceRef = useRef<HTMLDivElement | null>(null);
   const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
+  const isVodRef = useRef(Boolean(customStreamUrl));
+  isVodRef.current = Boolean(customStreamUrl);
 
   useEffect(() => {
     const video = htmlVideoRef.current;
@@ -268,7 +270,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Élő TV-n a kézzel kiválasztott formátumot tiszteletben tartjuk:
     // hiba esetén nem váltunk át csendben a másikra. A másik formátum
     // a Rendszer beállításában választható ki.
-    if (!customStreamUrl) {
+    if (!isVodRef.current) {
       setIsLoading(false);
       setHasError(true);
       setErrorMessage('Ez a streamformátum nem indult el. A Rendszer beállításában próbáld ki a másik formátumot.');
