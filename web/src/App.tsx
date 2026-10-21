@@ -284,24 +284,9 @@ export function App() {
   const [isFullscreenOsdVisible, setIsFullscreenOsdVisible] = useState<boolean>(false);
   const fullscreenOsdTimerRef = useRef<number | null>(null);
   // Fekvő teljes képernyős élő TV-nél a főoldali OSD-t is el kell rejteni.
-  const [isLandscapeFullscreen, setIsLandscapeFullscreen] = useState<boolean>(false);
-  useEffect(() => {
-    const updateOrientation = () => {
-      const viewport = window.visualViewport;
-      const width = viewport?.width || window.innerWidth;
-      const height = viewport?.height || window.innerHeight;
-      setIsLandscapeFullscreen(isVideoFullscreen && width > height);
-    };
-    updateOrientation();
-    window.addEventListener('resize', updateOrientation);
-    window.addEventListener('orientationchange', updateOrientation);
-    window.visualViewport?.addEventListener('resize', updateOrientation);
-    return () => {
-      window.removeEventListener('resize', updateOrientation);
-      window.removeEventListener('orientationchange', updateOrientation);
-      window.visualViewport?.removeEventListener('resize', updateOrientation);
-    };
-  }, [isVideoFullscreen]);
+  // A webOS alkalmazás kizárólag fekvő tévés nézetet használ.
+  // A teljes képernyő állapotát közvetlenül követjük, nem várunk viewport-mérésre.
+  const isLandscapeFullscreen = isVideoFullscreen;
   // Belépéskor és minden csatornaváltáskor jelenjen meg a teljes képernyős
   // információs OSD, majd az aktuális beállítás szerinti idő után tűnjön el.
   // Ez külön timer, ezért a főoldali OSD állapotát nem módosítja.
@@ -310,7 +295,7 @@ export function App() {
       window.clearTimeout(fullscreenOsdTimerRef.current);
       fullscreenOsdTimerRef.current = null;
     }
-    if (!isVideoFullscreen || isLandscapeFullscreen || customStreamUrl || !activeChannel) {
+    if (!isVideoFullscreen || customStreamUrl || !activeChannel) {
       setIsFullscreenOsdVisible(false);
       return;
     }
@@ -2014,7 +1999,7 @@ export function App() {
           {/*
             Teljes képernyős OSD élő TV-nél: pontosan a főoldali panel
           */}
-          {!customStreamUrl && isVideoFullscreen && !isLandscapeFullscreen && isFullscreenOsdVisible && activeChannel && (
+          {!customStreamUrl && isVideoFullscreen && isFullscreenOsdVisible && activeChannel && (
             <div data-osd="" className="fixed inset-x-2 bottom-2 z-[10000] mx-auto w-[calc(100%-1rem)] max-w-3xl pointer-events-none">
               <div className="pointer-events-auto">
                 <ChannelControls
