@@ -29,7 +29,6 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   onPlayEpisode,
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
-  onToggleFavoriteSeries,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchEditing, setIsSearchEditing] = useState(false);
@@ -163,7 +162,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
                   if (onOpenSeries) onOpenSeries(ser);
                   setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1);
                 }}
-                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); if (onOpenSeries) onOpenSeries(ser); } }}
+                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); if (onOpenSeries) onOpenSeries(ser); } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/60 md:hover:border-cyan-400/80 transition-all duration-200 hover:-translate-y-1 lg:hover:-translate-y-1.5 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070e1e]"
               >
                 {/* Poster */}
