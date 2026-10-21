@@ -61,6 +61,26 @@ function readNativeMediaTracks(api: NativeApi | null) {
   }
 }
 
+/** A webOS HTMLMediaElement may expose selectable audio tracks through AudioTrackList. */
+function readHtmlAudioTracks(video: HTMLVideoElement | null): AudioTrack[] {
+  if (!video) return [];
+  try {
+    const list = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
+    if (!list || typeof list.length !== 'number') return [];
+    return Array.from({ length: list.length }, (_, index) => {
+      const track = list[index];
+      return {
+        id: index,
+        name: String(track?.label || track?.language || `Hangsáv ${index + 1}`),
+        lang: String(track?.language || ''),
+        selected: Boolean(track?.enabled),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Kék óra a lejátszóban.
  *
@@ -818,6 +838,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const pendingTvSubtitleSelectionRef = useRef<{ id: number | null; startedAt: number } | null>(null);
   const nativeAudioTrackSignatureRef = useRef('');
   const pendingTvAudioSelectionRef = useRef<{ index: number; startedAt: number } | null>(null);
+  // HTML5/webOS hangsávváltáskor megőrizzük a kiválasztott sáv sorszámát,
+  // hogy ha a TV csak újratöltés után érvényesíti, ugyanazt a sávot állítsuk vissza.
+  const pendingHtmlAudioIndexRef = useRef<number | null>(null);
+  const htmlAudioReloadingRef = useRef(false);
   const [castStatus, setCastStatus] = useState<{ available: boolean; connected: boolean; device: string }>({
     available: false,
     connected: false,
@@ -1130,7 +1154,63 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const selectTvAudio = useCallback((track: AudioTrack) => {
     const mpvId = typeof track.id === 'number' ? track.id : Number(track.id);
     const api = nativeApi();
-    if (!api) return;
+    if (!api) {
+      // LG webOS HTML5 motor: próbáljuk közvetlenül a TV által közzétett
+      // AudioTrackList-et vezérelni. A listában az index a webes sávazonosító.
+      const video = htmlVideoRef.current as (HTMLVideoElement & { audioTracks?: ArrayLike<any> }) | null;
+      const list = video?.audioTracks;
+      const index = Number(track.id);
+      if (!video || !list || !Number.isInteger(index) || index < 0 || index >= list.length) {
+        appLog('A webOS nem tett közzé vezérelhető HTML5 hangsávlistát.');
+        setShowTvAudioMenu(false);
+        return;
+      }
+      try {
+        pendingHtmlAudioIndexRef.current = index;
+        let switched = false;
+        for (let i = 0; i < list.length; i++) {
+          const enabled = i === index;
+          if (Boolean(list[i]?.enabled) !== enabled) switched = true;
+          list[i].enabled = enabled;
+        }
+        const mapped = readHtmlAudioTracks(video);
+        setTvAudioTracks(mapped);
+        if (!switched || mapped[index]?.selected) {
+          pendingHtmlAudioIndexRef.current = null;
+          appLog(`webOS HTML5 hangsávváltás azonnal érvényesítve: sáv=${index}.`);
+        } else {
+          // Egyes webOS változatok csak a médiaforrás újranyitásakor alkalmazzák.
+          // Ugyanazt a csatornát töltjük újra, majd visszaállítjuk a kért indexet.
+          htmlAudioReloadingRef.current = true;
+          const url = video.currentSrc || video.src || streamUrl;
+          if (url) {
+            video.addEventListener('loadedmetadata', () => {
+              const current = video.audioTracks;
+              const requested = pendingHtmlAudioIndexRef.current;
+              if (current && requested !== null && requested < current.length) {
+                for (let i = 0; i < current.length; i++) current[i].enabled = i === requested;
+              }
+              pendingHtmlAudioIndexRef.current = null;
+              htmlAudioReloadingRef.current = false;
+              setTvAudioTracks(readHtmlAudioTracks(video));
+            }, { once: true });
+            video.src = url;
+            video.load();
+            void video.play().catch(() => undefined);
+            appLog(`webOS HTML5 hangsávváltás: csatorna újratöltése, kért sáv=${index}.`);
+          } else {
+            pendingHtmlAudioIndexRef.current = null;
+            htmlAudioReloadingRef.current = false;
+          }
+        }
+      } catch (error) {
+        pendingHtmlAudioIndexRef.current = null;
+        htmlAudioReloadingRef.current = false;
+        appLog('webOS hangsávváltási hiba: ' + String(error));
+      }
+      setShowTvAudioMenu(false);
+      return;
+    }
     const nativeIndex = Number((track as AudioTrack & { nativeIndex?: number }).nativeIndex);
     pendingTvAudioSelectionRef.current = { index: mpvId, startedAt: Date.now() };
     if (Number.isFinite(mpvId)) {
@@ -1287,6 +1367,44 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       api.off?.(handleNativeEvent);
     };
   }, [clearAutoRetry, clearBufferWatchdog, armBufferWatchdog, scheduleAutoRetry, settings.preferredSubtitle]);
+
+  // HTML5/webOS: folyamatosan figyeljük a TV által ténylegesen közzétett
+  // hangsávokat. A ChannelControls ebből számolja a zöld/piros Audio állapotot.
+  // Ha a webOS motor nem biztosít AudioTrackList-et, nem találgatunk sávszámot.
+  useEffect(() => {
+    if (nativeHandoff) return;
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    const refreshHtmlAudioTracks = () => {
+      if (htmlAudioReloadingRef.current) return;
+      const mapped = readHtmlAudioTracks(video);
+      setTvAudioTracks((previous) =>
+        previous.length === mapped.length && previous.every((track, index) =>
+          String(track.id) === String(mapped[index]?.id) &&
+          track.name === mapped[index]?.name && track.lang === mapped[index]?.lang &&
+          track.selected === mapped[index]?.selected
+        ) ? previous : mapped
+      );
+      setVodAudioTracks((previous) =>
+        previous.length === mapped.length && previous.every((track, index) =>
+          String(track.id) === String(mapped[index]?.id) &&
+          track.name === mapped[index]?.name && track.lang === mapped[index]?.lang &&
+          track.selected === mapped[index]?.selected
+        ) ? previous : mapped
+      );
+      const requested = pendingHtmlAudioIndexRef.current;
+      if (requested !== null && mapped[requested]?.selected) pendingHtmlAudioIndexRef.current = null;
+    };
+    refreshHtmlAudioTracks();
+    video.addEventListener('loadedmetadata', refreshHtmlAudioTracks);
+    video.addEventListener('canplay', refreshHtmlAudioTracks);
+    const timer = window.setInterval(refreshHtmlAudioTracks, 1000);
+    return () => {
+      window.clearInterval(timer);
+      video.removeEventListener('loadedmetadata', refreshHtmlAudioTracks);
+      video.removeEventListener('canplay', refreshHtmlAudioTracks);
+    };
+  }, [nativeHandoff, streamUrl]);
 
   // A natív track-list késve is megérkezhet (csatornánként eltérő időben).
   // Amíg a natív motor fut, rendszeresen újraolvassuk, hogy a gomb és a lista
