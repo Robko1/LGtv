@@ -1,4 +1,4 @@
-// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.5
+// webOS TV specifikus – Magic Remote + távirányító + egér + fókusz fix 2.4.6
 //
 // FONTOS: ez a fájl SZÁNDÉKOSAN ES5 szintaxissal készült (var, function,
 // catch (err), nincs template literal, nincs nyíl-függvény, nincs
@@ -16,7 +16,7 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
-  try { console.log('[webOS] TV webOS 2.4.5 inicializálás – induló videó + távirányító fix (ES5)'); } catch (e) {}
+  try { console.log('[webOS] TV webOS 2.4.6 inicializálás – induló videó + távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
   // A régi webOS a nyilakra 'Up'/'Down'/'Left'/'Right' nevet (vagy semmit,
@@ -160,7 +160,7 @@
       // így a diagnosztika SOHA nem mutathat régi, beégetett számot.
       var appVer = '';
       try { appVer = String(window.IPTV_RT_WEB_VERSION || ''); } catch (e) {}
-      title.textContent = 'TV diagnosztika ' + (appVer || '2.4.3') + ' \u2013 ' + chromeVersion();
+      title.textContent = 'TV diagnosztika ' + (appVer || '2.4.6') + ' \u2013 ' + chromeVersion();
       title.setAttribute('style', 'color:#00BFFF;');
       diag.uiLine = document.createElement('div');
       diag.uiLine.textContent = 'Felület: betöltés...';
@@ -168,6 +168,10 @@
       diag.keyLine.textContent = 'Nyomj egy gombot a távirányítón...';
       diag.mouseLine = document.createElement('div');
       diag.mouseLine.textContent = 'Egér/kattintás: 0 / 0';
+      // Induló videó naplója: a TV-n ez mutatja meg, miért szakadt félbe
+      // vagy tűnt el a bejelentkező videó (ended / error / megakadás).
+      diag.introLine = document.createElement('div');
+      diag.introLine.textContent = 'Induló videó: –';
       // Tároló-próba: kiderül, miért veszik el a csatornalista újraindításkor.
       var storLine = document.createElement('div');
       storLine.textContent = 'Tároló: próba...';
@@ -202,16 +206,35 @@
       box.appendChild(diag.uiLine);
       box.appendChild(diag.keyLine);
       box.appendChild(diag.mouseLine);
+      box.appendChild(diag.introLine);
       box.appendChild(storLine);
       box.appendChild(hint);
       document.body.appendChild(box);
       diag.el = box;
+      diagIntroRefresh();
     } catch (e) {}
     return diag.el;
   }
 
+  // Az induló videó naplójának utolsó sorai (web/index.html tölti fel).
+  function introLineText() {
+    try {
+      var log = window.__IPTV_INTRO_LOG__;
+      if (!log || !log.length) return 'Induló videó: nincs bejegyzés';
+      var tail = log.slice(Math.max(0, log.length - 3));
+      return 'Induló videó:\n  ' + tail.join('\n  ');
+    } catch (e) { return 'Induló videó: –'; }
+  }
+
+  function diagIntroRefresh() {
+    try {
+      if (diag.introLine) diag.introLine.textContent = introLineText();
+    } catch (e) {}
+  }
+
   function diagShow() {
     if (!diagEnsure()) return;
+    diagIntroRefresh();
     diag.el.style.display = 'block';
     if (diag.hideTimer) clearTimeout(diag.hideTimer);
     // 2 perc után magától eltűnik, HA a felület betöltődött.
@@ -222,6 +245,7 @@
 
   function diagToggle() {
     if (!diagEnsure()) return;
+    diagIntroRefresh();
     var hidden = diag.el.style.display === 'none';
     diag.forced = hidden;
     diag.el.style.display = hidden ? 'block' : 'none';

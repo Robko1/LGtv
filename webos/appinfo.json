@@ -1,6 +1,6 @@
 {
   "id": "hu.rt.iptv.webos",
-  "version": "2.4.5",
+  "version": "2.4.6",
   "vendor": "TV",
   "type": "web",
   "main": "index.html",
@@ -22,5 +22,7 @@
   "transparent": false,
   "uiRevision": 2,
   "requiredMemory": 100,
-  "supportPortraitMode": false
+  "supportPortraitMode": false,
+  "splashBackground": "splash-screen.png",
+  "spinnerOnLaunch": false
 }

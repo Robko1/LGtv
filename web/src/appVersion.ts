@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.4.5';
+export const WEB_VERSION = '2.4.6';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.5'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.6'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.6',
+    date: '2026-10-21',
+    changes: [
+      'INDULÁS: a TV saját töltőképernyője fekete (nincs többé fehér villanás és forgó fogaskerék) – a videó előtt tiszta fekete kép látszik',
+      'Az induló videó TV-barátabb lett: H.264 High@4.0 (korábban 4.2), faststart, kisebb fájl – gyorsabban indul és kevesebb processzort vesz el a felülettől',
+      'Az induló videó hangja: ha a TV a hangos automatikus indítást tiltja, a lejátszás után még egyszer megpróbáljuk visszakapcsolni (ha megállítaná, visszanémítjuk)',
+      'Az induló videó hosszabb türelmet kap, mielőtt eltűnik (8 mp az indulásra, 10 mp a megakadásra) – nem szakad félbe a lassú betöltés miatt',
+      'A PIROS gombos TV diagnosztika kiírja az induló videó naplóját: miért tűnt el (ended / error / megakadt / nem indult el)',
+    ],
+  },
   {
     version: '2.4.5',
     date: '2026-10-21',
