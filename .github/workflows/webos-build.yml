@@ -16,10 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: '2.5.1'
   IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TAG: 'v2.5.1'
-  OLD_RELEASE_TAG: 'v2.3.19'
   RELEASE_TITLE: 'IPTV-RT'
 
 jobs:
@@ -33,7 +30,60 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: 2. Node.js 22
+      - name: 2. Verzió automatikus emelése és mentése
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Minden kézi IPK-build új patch verziót kap. A verziót a main ágra
+          # is visszamentjük, hogy a következő build ne ugyanarról a régi számról induljon.
+          CURRENT="$(python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          src = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
+          m = re.search(r"WEB_VERSION\\s*=\\s*'([0-9]+)\\.([0-9]+)\\.([0-9]+)'", src)
+          if not m:
+              raise SystemExit("HIBA: nem olvasható a WEB_VERSION.")
+          print(".".join(m.groups()))
+          PY
+          )"
+          IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
+          export CURRENT NEXT
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          old, new = os.environ["CURRENT"], os.environ["NEXT"]
+          p = Path("web/src/appVersion.ts")
+          src = p.read_text(encoding="utf-8")
+          src, count = re.subn(r"(WEB_VERSION\\s*=\\s*')[^']+(')", r"\\g<1>" + new + r"\\2", src, count=1)
+          if count != 1:
+              raise SystemExit("HIBA: WEB_VERSION frissítése nem sikerült.")
+          # A verziótörténet legelső bejegyzése az aktuális kiadás.
+          src, count = re.subn(r"(version:\\s*')[^']+(')", r"\\g<1>" + new + r"\\2", src, count=1)
+          if count != 1:
+              raise SystemExit("HIBA: verziótörténet frissítése nem sikerült.")
+          p.write_text(src, encoding="utf-8")
+          manifest_path = Path("webos/appinfo.json")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if manifest.get("version") != old:
+              raise SystemExit(f"HIBA: appinfo.json verziója ({manifest.get('version')}) eltér a forrásétól ({old}).")
+          manifest["version"] = new
+          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+          print(f"Verzió emelve: {old} -> {new}")
+          PY
+          echo "VERSION=$NEXT" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$NEXT" >> "$GITHUB_ENV"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/src/appVersion.ts webos/appinfo.json
+          git commit -m "chore: bump webOS IPK version to v$NEXT"
+          git push origin HEAD:main
+          echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: 3. Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -143,8 +193,6 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          if match.group(1) != "2.5.1":
-              raise SystemExit(f"Eltérő buildverzió: várt 2.5.1, kapott {match.group(1)}")
           # A TV saját indítóképernyője a VIDEÓ ELSŐ KOCKÁJA (a fehér villanás
           # ellen), és a rendszer forgó fogaskereke se jelenjen meg a videó előtt.
           if manifest.get("splashBackground") != "splash-screen.png":
@@ -337,7 +385,7 @@ jobs:
           # Ez kijavítja a korábban ott maradt, régi commitra mutató taget.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+          git tag -f "$RELEASE_TAG" "$BUILD_COMMIT"
           git push origin "refs/tags/$RELEASE_TAG" --force
 
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
@@ -393,7 +441,7 @@ jobs:
           {
             echo "## LG webOS IPK építés és diagnosztika"
             echo "- Indítás: kizárólag kézzel (workflow_dispatch)."
-            echo "- Ellenőrzés: forrásfájlok, HTML build, webOS-frissítő, távirányító-kezelés, platformtisztaság, induló videó a csomagban (indítókép nélkül), verziók és szintaxis."
+            echo "- Ellenőrzés: forrásfájlok, HTML build, webOS-frissítő, távirányító-kezelés, platformtisztaság, indítókép, verziók és szintaxis."
             echo "- IPK: csomagtartalom, HTML, verzió, ES5/polyfill, távirányító-kezelés és SHA-256 ellenőrzése."
             echo "- Kimenet: IPK artifact és GitHub Release."
           } >> "$GITHUB_STEP_SUMMARY"
