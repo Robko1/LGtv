@@ -28,41 +28,35 @@ APP_TITLE="TV"
 log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
 
-# Az új ikon helyi asset: offline is a csomag része, nem külső URL.
-ICON_SOURCE="$PROJECT_DIR/ikonkep.png"
-if [[ ! -s "$ICON_SOURCE" ]]; then
-  echo "HIBA: hiányzik a gyökérben lévő ikonkep.png." >&2
-  exit 1
-fi
+# A jóváhagyott, átlátszó és lekerekített ikonokat használjuk változtatás nélkül.
+# Ne generáljuk újra őket a régi gyökér ikonkep.png fájlból.
 mkdir -p "$PROJECT_DIR/web/public" "$WEBOS_DIR/assets"
-cp "$ICON_SOURCE" "$PROJECT_DIR/web/public/ikonkep.png"
 python3 - <<'PY'
 from pathlib import Path
 from PIL import Image
+import base64, io
 root = Path(".")
-img = Image.open(root / "ikonkep.png").convert("RGBA")
-img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon-rt2.png", "PNG")
-img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon-rt2.png", "PNG")
-# A TV saját indítóképernyője (appinfo.json: splashBackground) a webos/
-# splash-screen.png: a logó-videóból kivágott, teljesen összeállt képkocka.
-# NEM generáljuk, hanem a repóban lévő (kézzel jóváhagyott) fájlt használjuk.
+small_path = root / "webos/icon-rt2.png"
+large_path = root / "webos/largeIcon-rt2.png"
+for path in (small_path, large_path):
+    if not path.is_file() or path.stat().st_size == 0:
+        raise SystemExit(f"HIBA: hiányzik vagy üres az új ikon: {path}")
+small_img = Image.open(small_path).convert("RGBA")
+large_img = Image.open(large_path).convert("RGBA")
+large_img.save(root / "web/public/ikonkep.png", "PNG")
+# A TV saját indítóképernyője a repóban tárolt, jóváhagyott fájl; ezt nem generáljuk újra.
 if not (root / "webos/splash-screen.png").is_file():
     raise SystemExit("HIBA: hiányzik a webos/splash-screen.png (a logó képkocka).")
-# Beégetett (base64) app-ikon a felülethez: nem fájlhivatkozás, a HTML-be kerül.
-import base64, io
-def icon_b64(px):
+def icon_b64(img, px):
     thumb = img.resize((px, px), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
     thumb.save(buf, format="PNG", optimize=True)
     return base64.b64encode(buf.getvalue()).decode("ascii")
 (root / "web/src/generatedIcon.ts").write_text(
-    '// BEÉGETETT alkalmazás-ikon (a repó ikonkep.png fájljából).\n'
-    '// Nem külső hivatkozás: a csomagolt egyfájlos HTML-ben is mindig megjelenik.\n'
-    '// A build (tools/build-webos.sh és a workflow) ugyanígy újragenerálja.\n'
-    'export const APP_ICON_DATA_URL = "data:image/png;base64,' + icon_b64(128) + '";\n'
-    '// Kis (32px) változat a csatornasorokhoz/kereső felugrókhoz: a nagy kép\n'
-    '// minden sorba másolva lelassította a TV-t.\n'
-    'export const APP_ICON_SMALL_DATA_URL = "data:image/png;base64,' + icon_b64(32) + '";\n',
+    '// Beégetett ikonok a jóváhagyott webos ikonfájlokból.\\n'
+    '// Az átlátszó háttér és a lekerekített szélek megmaradnak.\\n'
+    'export const APP_ICON_DATA_URL = "data:image/png;base64,' + icon_b64(large_img, 128) + '";\\n'
+    'export const APP_ICON_SMALL_DATA_URL = "data:image/png;base64,' + icon_b64(small_img, 32) + '";\\n',
     encoding="utf-8",
 )
 PY
