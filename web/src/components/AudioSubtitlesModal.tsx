@@ -1,6 +1,7 @@
 import React from 'react';
 import { AudioTrack, SubtitleTrack, AppSettings, SubtitleSize } from '../types/iptv';
 import { X, Subtitles, Mic2, Check } from 'lucide-react';
+import { normalizeTvKey } from '../utils/tvKeys';
 
 interface AudioSubtitlesModalProps {
   isOpen: boolean;
@@ -42,7 +43,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
   React.useEffect(() => {
     if (!isOpen || mode !== 'audio') return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const key = event.key;
+      const key = normalizeTvKey(event);
       if (key === 'Escape' || key === 'Backspace' || key === 'GoBack' || key === 'BrowserBack') {
         event.preventDefault();
         event.stopPropagation();
