@@ -1985,7 +1985,7 @@ export function App() {
             Teljes képernyős OSD élő TV-nél: pontosan a főoldali panel
           */}
           {!customStreamUrl && isVideoFullscreen && !isLandscapeFullscreen && isOsdVisible && activeChannel && (
-            <div data-osd="" className="fixed inset-x-2 bottom-2 z-[10000] pointer-events-none">
+            <div data-osd="" className="fixed inset-x-2 bottom-0 z-[10000] pointer-events-none">
               <div className="pointer-events-auto">
                 <ChannelControls
                   channel={activeChannel}
