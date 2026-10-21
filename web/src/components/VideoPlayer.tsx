@@ -1629,9 +1629,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // címválasztás és a hibakezelés (natívnál nincs formátumváltás), nem a
       // lejátszás útja.
       video.src = url;
-      // webOS TV-ken a src önmagában néha nem indítja el az első csatornát.
-      // Az explicit load() biztosan elindítja az új erőforrás kiválasztását.
-      video.load();
+      // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
       const playPromise = video.play();
