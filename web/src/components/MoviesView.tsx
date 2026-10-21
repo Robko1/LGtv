@@ -25,7 +25,6 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
   onPlayMovie,
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
-  onToggleFavoriteMovie,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchEditing, setIsSearchEditing] = useState(false);
