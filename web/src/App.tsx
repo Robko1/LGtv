@@ -255,7 +255,7 @@ export function App() {
    * a csatornalista pedig teljesen újrarajzolódott – éppen a váltás pillanatában.
    * Most csak ez az egy bejegyzés változik, a `channels` tömb azonos marad.
    */
-  const [activeEpg, setActiveEpg] = useState<{ id: string; now?: Channel['epgNow']; next?: Channel['epgNext'] } | null>(null);
+  const [activeEpg, setActiveEpg] = useState<{ id: string; now?: Channel['epgNow']; next?: Channel['epgNext']; upcoming?: Channel['epgUpcoming'] } | null>(null);
 
   // Active Channel / Media State
   const [activeChannelId, setActiveChannelId] = useState<string>(() => {
@@ -368,8 +368,8 @@ export function App() {
     const base = channelsById.get(activeChannelId) || channels[0] || null;
     if (!base || !activeEpg || activeEpg.id !== base.id) return base;
     // Csak akkor készítünk új objektumot, ha tényleg változott a műsor.
-    if (base.epgNow === activeEpg.now && base.epgNext === activeEpg.next) return base;
-    return { ...base, epgNow: activeEpg.now, epgNext: activeEpg.next };
+    if (base.epgNow === activeEpg.now && base.epgNext === activeEpg.next && JSON.stringify(base.epgUpcoming || []) === JSON.stringify(activeEpg.upcoming || [])) return base;
+    return { ...base, epgNow: activeEpg.now, epgNext: activeEpg.next, epgUpcoming: activeEpg.upcoming };
   }, [channelsById, channels, activeChannelId, activeEpg]);
 
   // A csatornalista a kiválasztott kategóriát, a kedvenceket vagy a kiválasztott mappát mutatja.
@@ -468,7 +468,8 @@ export function App() {
       ) {
         return;
       }
-      setActiveEpg({ id: channel.id, now: nextNow, next: nextNext });
+      const upcoming = entries.filter((entry) => entry.start >= (nextNow?.endTimestamp || 0)).slice(0, 3).map((entry) => ({ title: entry.title, time: new Date(entry.start * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }));
+      setActiveEpg({ id: channel.id, now: nextNow, next: nextNext, upcoming });
     };
     refreshActiveProgram();
     const timer = window.setInterval(refreshActiveProgram, 30000);
@@ -497,7 +498,9 @@ export function App() {
           if (cancelled || !entries.length) return;
           const { now, next } = nowNextFromEpg(entries);
           if (!now && !next) return;
-          setActiveEpg({ id: channel.id, now: now || channel.epgNow, next: next || channel.epgNext });
+          const current = now || channel.epgNow;
+          const upcoming = entries.filter((entry) => entry.start >= (current?.endTimestamp || 0)).slice(0, 3).map((entry) => ({ title: entry.title, time: new Date(entry.start * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }));
+          setActiveEpg({ id: channel.id, now: current, next: next || channel.epgNext, upcoming });
         })
         .catch(() => {
           /* Az EPG hibája nem akadályozhatja a nézést. */
