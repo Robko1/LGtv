@@ -1810,6 +1810,54 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // Kilépés után a webOS böngésző néha a teljes képernyős méreteket hagyja
+  // a videóelemen. Élő TV-n minden állapotváltás után visszaállítjuk ugyanazt
+  // a 16:9-es főoldali keretet és a fill méretezést, majd újraszámoltatjuk
+  // a layoutot. A streamhez és a lejátszáshoz nem nyúlunk.
+  useEffect(() => {
+    const syncLiveVideoLayout = () => {
+      const container = containerRef.current;
+      const video = htmlVideoRef.current;
+      if (!container || !video || isVod) return;
+
+      if (isFullscreen) {
+        Object.assign(container.style, {
+          position: 'fixed',
+          inset: '0px',
+          width: '100vw',
+          height: '100dvh',
+          maxHeight: 'none',
+          aspectRatio: 'auto',
+          zIndex: '9999',
+        });
+      } else {
+        Object.assign(container.style, {
+          position: 'relative',
+          inset: 'auto',
+          width: '100%',
+          height: 'auto',
+          maxHeight: 'none',
+          aspectRatio: '16 / 9',
+          zIndex: 'auto',
+        });
+      }
+      Object.assign(video.style, {
+        display: 'block',
+        width: '100%',
+        height: '100%',
+        maxWidth: 'none',
+        objectFit: 'fill',
+      });
+      // A régebbi webOS Chromium néha csak resize után frissíti a videó
+      // felületének méretét, ha a Fullscreen API-ból visszatértünk.
+      void container.offsetHeight;
+      window.dispatchEvent(new Event('resize'));
+    };
+
+    const frame = window.requestAnimationFrame(syncLiveVideoLayout);
+    return () => window.cancelAnimationFrame(frame);
+  }, [isFullscreen, isVod, streamUrl]);
+
   const toggleFullscreen = () => {
     const container = containerRef.current;
     if (!container) return;
