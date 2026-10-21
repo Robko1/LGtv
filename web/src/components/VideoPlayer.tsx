@@ -210,6 +210,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
   const bufferWatchdogRef = useRef<number | null>(null);
   const playbackStartedRef = useRef(false);
+  // Csatornaváltási generáció: a régi stream későn érkező eseményei ne írják felül az új csatorna állapotát.
+  const streamLoadGenerationRef = useRef(0);
   // Hibaképernyőn a sárga kijelölés automatikusan az Újrapróbálás gombra
   // ugrik - eddig távirányítóval nem lehetett elérni.
   const retryButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -1508,6 +1510,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Egyetlen lejátszómotor: LG webOS-en a TV HTML5/HLS videóeleme játssza le az adatfolyamot.
   const loadStream = useCallback((url: string) => {
+    const loadGeneration = ++streamLoadGenerationRef.current;
+    const isCurrentLoad = () => loadGeneration === streamLoadGenerationRef.current;
     clearZapWatchdog();
     clearBufferWatchdog();
     playbackStartedRef.current = false;
@@ -1561,7 +1565,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // címválasztás és a hibakezelés (natívnál nincs formátumváltás), nem a
       // lejátszás útja.
       video.src = url;
-      video.load();
+      // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
       const playPromise = video.play();
@@ -1573,7 +1577,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const { watchdogMs } = bufferTiming();
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
-          if (!playbackStartedRef.current) {
+          if (isCurrentLoad() && !playbackStartedRef.current) {
             appLog('Zap-őr: nem indult el az adás időben, automatikus formátumváltás.');
             scheduleAutoRetry();
           }
@@ -1581,7 +1585,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       if (playPromise && typeof playPromise.catch === 'function') {
         void playPromise.catch((error: unknown) => {
-          if (video.error) return;
+          if (!isCurrentLoad() || video.error) return;
           setIsLoading(false);
           setHasError(true);
           setErrorMessage(error instanceof Error && error.name === 'NotAllowedError'
