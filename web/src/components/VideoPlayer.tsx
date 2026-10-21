@@ -474,18 +474,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isVodLandscapeFullscreen = isVod && isFullscreen && !isPortrait;
   // Régi név kompatibilitáshoz megtartva, de most csak live landscape
   const landscapeLiveFullscreen = isLiveLandscapeFullscreen;
-  // OSD csak álló fullscreenben jelenhet meg (élő és VOD is)
-  const canToggleOsd = isLivePortraitFullscreen || isVodPortraitFullscreen;
+  // Élő TV-n csak álló fullscreenben kapcsolható az OSD; film/sorozat esetén
+  // álló és fekvő fullscreenben is előhívható.
+  const canToggleOsd = isLivePortraitFullscreen || (isVod && isFullscreen);
 
   useEffect(() => {
-    // Álló teljes képernyőben induláskor látszódjon az OSD, majd tűnjön el beállítás szerint
-    if (isLivePortraitFullscreen || isVodPortraitFullscreen) {
+    // Film/sorozat teljes képernyőjén mindkét tájolásban induláskor látszódjon.
+    if (isLivePortraitFullscreen || isVodPortraitFullscreen || isVodLandscapeFullscreen) {
       setShowControlsOverlay(true);
-    } else if (isLiveLandscapeFullscreen || isVodLandscapeFullscreen) {
-      // Fekvőben alapból rejtett, és nem is hozható elő kattintásra
+    } else if (isLiveLandscapeFullscreen) {
+      // Élő TV fekvő fullscreen viselkedése változatlan.
       setShowControlsOverlay(false);
     } else if (isFullscreen && !isVod) {
-      // Biztonsági fallback
       setShowControlsOverlay(true);
     }
   }, [isLivePortraitFullscreen, isVodPortraitFullscreen, isLiveLandscapeFullscreen, isVodLandscapeFullscreen, isFullscreen, isVod]);
@@ -558,10 +558,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Egyszeri kattintás kezelése
   const handleSingleTap = useCallback(() => {
-    // VOD fekvő: semmilyen kattintásra semmi
-    if (isVodLandscapeFullscreen) return;
-    // VOD álló: egy kattintás OSD fel és beállítás szerint eltűnik
-    if (isVodPortraitFullscreen) {
+    // Film/sorozat: egy kattintás/OK előhozza az OSD-t mindkét tájolásban.
+    if (isVod && isFullscreen) {
       setShowControlsOverlay(true);
       return;
     }
@@ -580,14 +578,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return;
     }
     // Élő főoldal (nem fullscreen): egy kattintásra semmi
-  }, [isVodLandscapeFullscreen, isVodPortraitFullscreen, isLiveLandscapeFullscreen, isLivePortraitFullscreen, settings.osdHideDelay]);
+  }, [isVod, isFullscreen, isLiveLandscapeFullscreen, isLivePortraitFullscreen, settings.osdHideDelay]);
 
   // Dupla gyors kattintás kezelése
   const handleDoubleTap = useCallback(() => {
-    // VOD fekvő: semmi
-    if (isVodLandscapeFullscreen) return;
-    // VOD álló: dupla kattintásra semmi extra, csak OSD maradjon (ne lépjen ki)
-    if (isVodPortraitFullscreen) {
+    // Film/sorozat: dupla kattintás sem zárja be a lejátszót.
+    if (isVod && isFullscreen) {
       setShowControlsOverlay(true);
       return;
     }
@@ -605,7 +601,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       return;
     }
-  }, [isVodLandscapeFullscreen, isVodPortraitFullscreen, isLive, isFullscreen]);
+  }, [isVod, isFullscreen, isLive]);
 
   const handleSurfaceTap = (event?: React.MouseEvent | React.KeyboardEvent) => {
     event?.stopPropagation();
@@ -645,7 +641,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, OK=13, VISSZA=461) is jöhet.
     const key = normalizeTvKey(e);
-    if (key === ' ' || key === 'Enter') {
+    if (key === 'Enter' && isVod && isFullscreen) {
+      // Az OK előhozza az OSD-t, és az első vezérlőre helyezi a fókuszt.
+      // Ha már egy OSD-gombon áll a fókusz, az OSD belső kezelője kapja az OK-t.
+      e.preventDefault();
+      e.stopPropagation();
+      setShowControlsOverlay(true);
+      window.requestAnimationFrame(() => {
+        const first = vodOsdRef.current?.querySelector<HTMLElement>('button, input[type="range"]');
+        first?.focus({ preventScroll: true } as any);
+      });
+    } else if (key === ' ' || key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
       if (key === ' ' && isLive) {
@@ -2129,10 +2135,48 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }`}
       >
         {isVod ? (
-          /* Film/sorozat OSD: pontosan a főoldalon megszokott kék panel-kinézet,
-             de filmnézéshez való vezérlőkkel (csúsztatható idővonal, tekerés,
-             hangválasztás, felirat, TV-re küldés, PiP, teljes képernyő). */
-          <div ref={vodOsdRef} className="absolute inset-x-2 bottom-2 z-40 pointer-events-auto">
+          /* Film/sorozat OSD: kék panel, idővonal, lejátszás, hangsáv és felirat. */
+          <div
+            ref={vodOsdRef}
+            className="absolute inset-x-2 bottom-2 z-40 pointer-events-auto"
+            onKeyDown={(e) => {
+              const key = normalizeTvKey(e);
+              const root = vodOsdRef.current;
+              if (!root) return;
+              if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
+                const controls = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), input[type="range"]:not([disabled])'));
+                if (!controls.length) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const active = document.activeElement as HTMLElement | null;
+                const current = active && controls.includes(active) ? active : null;
+                if (!current) {
+                  controls[0].focus({ preventScroll: true } as any);
+                  return;
+                }
+                const a = current.getBoundingClientRect();
+                const ax = a.left + a.width / 2;
+                const ay = a.top + a.height / 2;
+                const candidates = controls.filter((el) => el !== current).map((el) => {
+                  const r = el.getBoundingClientRect();
+                  const dx = r.left + r.width / 2 - ax;
+                  const dy = r.top + r.height / 2 - ay;
+                  return { el, dx, dy, vertical: Math.abs(dy), horizontal: Math.abs(dx) };
+                }).filter((p) => {
+                  if (key === 'ArrowLeft') return p.dx < -2 && p.vertical <= Math.max(24, a.height / 2);
+                  if (key === 'ArrowRight') return p.dx > 2 && p.vertical <= Math.max(24, a.height / 2);
+                  if (key === 'ArrowUp') return p.dy < -2;
+                  return p.dy > 2;
+                }).sort((p, q) => {
+                  if (key === 'ArrowLeft' || key === 'ArrowRight') return p.horizontal - q.horizontal || p.vertical - q.vertical;
+                  return p.vertical - q.vertical || p.horizontal - q.horizontal;
+                });
+                if (candidates[0]) candidates[0].el.focus({ preventScroll: true } as any);
+              } else if (key === 'Enter' || key === ' ') {
+                e.stopPropagation();
+              }
+            }}
+          >
             {vodTrackMenu && (
               <div
                 role="dialog"
@@ -2401,8 +2445,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 </div>
               </div>
 
-              {/* Legalsó sor: Audio + CC + PiP + TV – Kép gomb eltávolítva minden OSD-ből */}
-              <div className="grid grid-cols-4 gap-1.5 pt-0.5">
+              {/* Legalsó sor: Audio + CC. A PiP és TV-küldés funkciókódja megmarad, a gombok rejtve vannak. */}
+              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2435,30 +2479,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   <Captions className="w-3.5 h-3.5 text-cyan-300" />
                   <span>CC</span>
                 </button>
-                {supportsPictureInPicture && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); void togglePictureInPicture(); }}
-                    className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
-                    title="Kép a képben"
-                    aria-label="Kép a képben"
-                  >
-                    <PictureInPicture2 className="w-3.5 h-3.5 text-slate-300" />
-                    <span>PiP</span>
-                  </button>
-                )}
-                {showCastButton && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); void castToTv(); }}
-                    className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
-                    title={castStatus.connected
-                      ? `A kép a TV-n megy${castStatus.device ? ' (' + castStatus.device + ')' : ''} – koppints az eszközválasztáshoz`
-                      : 'Aktuális film küldése TV-re (Google Cast)'}
-                    aria-label="Küldés TV-re"
-                  >
-                    <Cast className="w-3.5 h-3.5 text-cyan-300" />
-                    <span>TV</span>
-                  </button>
-                )}
+                {/* PiP és TV-küldés gomb rejtve; a funkciókód és kezelőfüggvények megmaradnak. */}
               </div>
             </div>
           </div>
