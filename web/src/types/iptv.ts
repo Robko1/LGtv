@@ -6,6 +6,8 @@ export type BufferMode = 'fast' | 'balanced' | 'stable';
  *               nincs automatikus formátumváltás, minimális felület a kép fölött)
  */
 export type PlayerEngine = 'html5' | 'native';
+/** Kézzel kiválasztott élő TV streamformátum; csatornaváltáskor is megmarad. */
+export type LiveStreamFormat = 'ts' | 'hls';
 export type AspectRatioMode = 'contain' | 'cover' | 'fill'; // 'Illesztés' | 'Kitöltés' | 'Nyújtás'
 export type SubtitleSize = '75%' | '100%' | '125%' | '150%' | '200%';
 
