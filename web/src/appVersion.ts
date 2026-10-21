@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.4.7';
+export const WEB_VERSION = '2.4.8';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.7'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.8'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.8',
+    date: '2026-10-21',
+    changes: [
+      'A FŐ HIBA JAVÍTVA: az induló videó alatt a csatorna már nem indul el – a TV-n egy videó-dekóder van, és a csatorna elindítása vette el tőle a dekódert, ezért fagyott meg 5 mp-re és szakadt félbe 4 mp-nél',
+      'A lejátszás csak az induló videó VÉGE után indul (iptv-intro-done esemény), így a videó végig lejátszódik, a felület pedig közben a háttérben felépül',
+      'Ha a videó mégis korán érne véget (a TV dekódere feladja), a plakát marad a tervezett ideig – nem ugrik át a főoldalra',
+      'A videó előtti várakozás már nem tűnik lefagyott képnek: a plakát nagyon lassan közelít (10 mp-es zoom)',
+      'A PIROS gombos diagnosztika az indítási kísérlet hibáját is kiírja (pl. NotAllowedError)',
+    ],
+  },
   {
     version: '2.4.7',
     date: '2026-10-21',

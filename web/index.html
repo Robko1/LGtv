@@ -70,7 +70,26 @@
         transition: opacity 0.55s ease-out;
         pointer-events: none;
       }
+      /* A videó első kockája a videó MÖGÖTT, nagyon lassú nagyítással - így a
+         várakozás (amíg a TV dekódere elindul) nem tűnik lefagyott képnek. */
+      #boot-splash .boot-poster {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+        z-index: 0;
+        animation: bootPosterZoom 10s linear forwards;
+        transform-origin: 50% 50%;
+      }
+      @keyframes bootPosterZoom {
+        from { transform: scale(1); }
+        to { transform: scale(1.05); }
+      }
       #boot-splash .boot-video {
+        z-index: 1;
         position: absolute;
         top: 0;
         left: 0;
@@ -131,6 +150,7 @@
          eltűnt, mielőtt a videó végigmehetett volna. Így a videó az app
          FÖLÖTT fut, az app pedig közben a háttérben épül fel. -->
     <div id="boot-splash" aria-label="Induló videó">
+      <img id="boot-poster" class="boot-poster" src="assets/intro-poster.jpg" alt="" />
       <video id="boot-video" class="boot-video" playsinline webkit-playsinline
         preload="auto" disablepictureinpicture x-webkit-airplay="deny"
         poster="assets/intro-poster.jpg"></video>
@@ -148,6 +168,7 @@
       (function () {
         var started = Date.now();
         window.__IPTV_STARTUP_STAGE__ = 1;
+        window.__IPTV_INTRO_ACTIVE__ = true;
         window.__IPTV_STARTUP_DIAG__ = true;
 
         function byId(id) {
@@ -190,6 +211,19 @@
           if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
         }
 
+        // A vetítés (a csatorna) csak az induló videó UTÁN indulhat el: a TV-n
+        // egy videó-dekóder van, és ha a csatorna közben elindul, elveszi a
+        // dekódert az induló videótól (ettől fagyott meg és szakadt félbe).
+        function releasePlayback() {
+          try { window.__IPTV_INTRO_ACTIVE__ = false; } catch (e) {}
+          try {
+            var ev = document.createEvent('Event');
+            ev.initEvent('iptv-intro-done', true, true);
+            window.dispatchEvent(ev);
+          } catch (e2) {}
+          introLog('lejátszás engedélyezve (iptv-intro-done)');
+        }
+
         // Ha a TV dekódere megáll (error) vagy megakad, nem vágjuk el azonnal
         // az intro-t: a videó első kockája (plakát) marad a háttérben, amíg a
         // videó hossza le nem telik, és csak utána jön a felület. Így a
@@ -225,6 +259,9 @@
           }
           if (!splash) return;
           if (splash.className.indexOf('boot-failed') >= 0) return; // hiba: marad a hibaüzenet
+          // A videó véget ért: most indulhat a csatorna (a háttérben már kész
+          // felület azonnal megjelenik, amint elhalványul az overlay).
+          releasePlayback();
           splash.className += ' is-hidden';
           window.setTimeout(removeSplash, 650);
         }
@@ -233,7 +270,21 @@
           var video = byId('boot-video');
           if (!video) { endIntro('nincs videó elem'); return; }
           try {
-            video.addEventListener('ended', function () { endIntro('ended esemény'); });
+            video.addEventListener('ended', function () {
+              // Ha a videó a vége ELŐTT áll le (a TV dekódere feladta), az nem
+              // valódi befejezés: ilyenkor a plakát marad, és a tervezett
+              // időben engedjük csak tovább a felületet.
+              var duration = 0;
+              var position = 0;
+              try { duration = video.duration || 0; } catch (e) {}
+              try { position = video.currentTime || 0; } catch (e2) {}
+              if (duration > 1 && position < duration - 0.5) {
+                showPosterInsteadOfVideo('korán véget ért (' +
+                  (Math.round(position * 10) / 10) + '/' + (Math.round(duration * 10) / 10) + ' s)');
+                return;
+              }
+              endIntro('ended esemény');
+            });
             video.addEventListener('error', function () {
               var code = 'ismeretlen';
               try { code = video.error ? video.error.code : 'nincs error objektum'; } catch (e) {}
@@ -270,8 +321,9 @@
           var played = null;
           try { played = video.play(); } catch (e) {}
           if (played && played.catch) {
-            played.catch(function () {
-              introLog('hangos indítás tiltva – néma újrapróbálás');
+            played.catch(function (err) {
+              var name = (err && err.name) ? err.name : String(err);
+              introLog('hangos indítás nem sikerült (' + name + ') – néma újrapróbálás');
               try { video.muted = true; video.play(); } catch (e) {}
             });
           } else if (!played) {
