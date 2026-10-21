@@ -298,7 +298,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: 12. Verziózott Release frissítése ír idő szerint
+      - name: 12. Verziózott Release és Git-tag frissítése
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -311,22 +311,37 @@ jobs:
             exit 1
           }
 
-          # A korábbi kiadásból olvassuk ki az előző verziót és az IPK feltöltési idejét.
-          OLD_VERSION="ismeretlen"
-          OLD_RELEASE_DATETIME="nincs korábbi feltöltés"
-          if gh release view "$OLD_RELEASE_TAG" >/dev/null 2>&1; then
-            OLD_VERSION="$(gh release view "$OLD_RELEASE_TAG" --json body --jq '.body' | grep -m 1 -E 'Most feltöltött alkalmazás verziója|Az alkalmazás belső verziója|Aktuális build verziója' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
-            OLD_ASSET_DATE="$(gh release view "$OLD_RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .updatedAt' | head -n 1)"
-            if [[ -n "$OLD_ASSET_DATE" ]]; then
-              OLD_RELEASE_DATETIME="$(TZ=Europe/Dublin date -d "$OLD_ASSET_DATE" '+%Y-%m-%d %H:%M %Z (Írország)')"
-            fi
-          fi
-          [[ -n "$OLD_VERSION" ]] || OLD_VERSION="ismeretlen"
-
           RELEASE_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
           LOCAL_SHA="$(sha256sum "webos/$IPK_FILE_NAME" | awk '{print $1}')"
 
-          # A Release neve az alkalmazás tényleges verziója lesz, nem a régi v2.3.1.
+          # A korábbi verziót a legutóbbi MÁS kiadás IPK-jából olvassuk ki,
+          # nem egy örökre beégetett régi tagból.
+          PREVIOUS_VERSION="nincs korábbi kiadás"
+          PREVIOUS_DATETIME="nincs korábbi feltöltés"
+          PREVIOUS_TAG="$(gh release list --limit 50 --json tagName,isDraft,isPrerelease,publishedAt --jq '[.[] | select(.isDraft == false and .isPrerelease == false and .tagName != "'"$RELEASE_TAG"'")] | sort_by(.publishedAt) | last | .tagName // empty')"
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            PREVIOUS_ASSET_DATE="$(gh release view "$PREVIOUS_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .updatedAt' | head -n 1 || true)"
+            if [[ -n "$PREVIOUS_ASSET_DATE" ]]; then
+              PREVIOUS_DATETIME="$(TZ=Europe/Dublin date -d "$PREVIOUS_ASSET_DATE" '+%Y-%m-%d %H:%M %Z (Írország)')"
+            fi
+            mkdir -p /tmp/previous-webos-release
+            if gh release download "$PREVIOUS_TAG" --pattern "$IPK_FILE_NAME" --dir /tmp/previous-webos-release >/dev/null 2>&1; then
+              PREVIOUS_APPINFO="$(mktemp)"
+              ar p "/tmp/previous-webos-release/$IPK_FILE_NAME" data.tar.gz > /tmp/previous-webos-data.tar.gz
+              tar xOzf /tmp/previous-webos-data.tar.gz ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json > "$PREVIOUS_APPINFO" 2>/dev/null || true
+              PREVIOUS_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","ismeretlen"))' "$PREVIOUS_APPINFO" 2>/dev/null || echo "ismeretlen")"
+            else
+              PREVIOUS_VERSION="$PREVIOUS_TAG"
+            fi
+          fi
+
+          # A vX.Y.Z Git-tag is a mostani, ellenőrzött main build commitjára mutasson.
+          # Ez kijavítja a korábban ott maradt, régi commitra mutató taget.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$RELEASE_TAG" --force
+
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "LG webOS TV IPK kiadás."
           fi
@@ -336,16 +351,25 @@ jobs:
           [[ -n "$NEW_ASSET_DATE" ]] || { echo "HIBA: nem található a feltöltött IPK időbélyege." >&2; exit 1; }
           RELEASE_UPDATED_DATETIME="$(TZ=Europe/Dublin date -d "$NEW_ASSET_DATE" '+%Y-%m-%d %H:%M %Z (Írország)')"
 
-          sed \
-            -e "s/{{RELEASE_DATETIME}}/$RELEASE_DATETIME/g" \
-            -e "s/{{RELEASE_UPDATED_DATETIME}}/$RELEASE_UPDATED_DATETIME/g" \
-            -e "s/{{CURRENT_VERSION}}/$CURRENT_VERSION/g" \
-            -e "s/{{PREVIOUS_VERSION}}/$OLD_VERSION/g" \
-            -e "s/{{PREVIOUS_DATETIME}}/$OLD_RELEASE_DATETIME/g" \
-            release-notes.md > /tmp/release-notes.md
+          export RELEASE_DATETIME RELEASE_UPDATED_DATETIME CURRENT_VERSION PREVIOUS_VERSION PREVIOUS_DATETIME LOCAL_SHA
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          template = Path("release-notes.md").read_text(encoding="utf-8")
+          values = {
+              "RELEASE_DATETIME": os.environ["RELEASE_DATETIME"],
+              "RELEASE_UPDATED_DATETIME": os.environ["RELEASE_UPDATED_DATETIME"],
+              "CURRENT_VERSION": os.environ["CURRENT_VERSION"],
+              "PREVIOUS_VERSION": os.environ["PREVIOUS_VERSION"],
+              "PREVIOUS_DATETIME": os.environ["PREVIOUS_DATETIME"],
+          }
+          for key, value in values.items():
+              template = template.replace("{{" + key + "}}", value)
+          Path("/tmp/release-notes.md").write_text(template, encoding="utf-8")
+          PY
           gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes-file /tmp/release-notes.md
 
-          # Csak az egyetlen IPK maradhat a Release-ben.
+          # A Release-ben csak a legutóbbi IPK maradjon.
           while IFS= read -r asset; do
             [[ -z "$asset" || "$asset" == "$IPK_FILE_NAME" ]] && continue
             gh release delete-asset "$RELEASE_TAG" "$asset" --yes
@@ -354,7 +378,7 @@ jobs:
           REMOTE_SHA="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "'"$IPK_FILE_NAME"'") | .digest' | sed 's/^sha256://')"
           [[ -n "$REMOTE_SHA" && "$REMOTE_SHA" == "$LOCAL_SHA" ]] || {
             echo "HIBA: a Release-ben lévő IPK nem egyezik a most épített fájllal." >&2
-            echo "Helyi SHA256: $LOCAL_SHA / Release SHA256: $REMOTE_SHA" >&2
+            echo "Helyi SHA-256: $LOCAL_SHA / Release SHA-256: $REMOTE_SHA" >&2
             exit 1
           }
           ASSET_COUNT="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')"
@@ -363,12 +387,7 @@ jobs:
             exit 1
           }
 
-          # A régi, félrevezető v2.3.1 Release és Git-tag eltávolítása csak az új IPK ellenőrzése után.
-          if [[ "$OLD_RELEASE_TAG" != "$RELEASE_TAG" ]] && gh release view "$OLD_RELEASE_TAG" >/dev/null 2>&1; then
-            gh release delete "$OLD_RELEASE_TAG" --yes --cleanup-tag
-          fi
-          echo "OK: $IPK_FILE_NAME v$CURRENT_VERSION feltöltve; SHA-256 egyezik; ír helyi idő; előző verzió: $OLD_VERSION ($OLD_RELEASE_DATETIME)."
-
+          echo "OK: $IPK_FILE_NAME v$CURRENT_VERSION feltöltve; tag a $GITHUB_SHA commitra állítva; SHA-256 egyezik; előző kiadás: $PREVIOUS_TAG / $PREVIOUS_VERSION ($PREVIOUS_DATETIME)."
       - name: 13. Összefoglaló
         if: always()
         shell: bash
