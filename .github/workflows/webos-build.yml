@@ -433,7 +433,7 @@ jobs:
             exit 1
           }
 
-          echo "OK: $IPK_FILE_NAME v$CURRENT_VERSION feltöltve; tag a $GITHUB_SHA commitra állítva; SHA-256 egyezik; előző kiadás: $PREVIOUS_TAG / $PREVIOUS_VERSION ($PREVIOUS_DATETIME)."
+          echo "OK: $IPK_FILE_NAME v$CURRENT_VERSION feltöltve; tag a $BUILD_COMMIT commitra állítva; SHA-256 egyezik; előző kiadás: $PREVIOUS_TAG / $PREVIOUS_VERSION ($PREVIOUS_DATETIME)."
       - name: 13. Összefoglaló
         if: always()
         shell: bash
