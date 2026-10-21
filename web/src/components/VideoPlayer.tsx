@@ -2008,8 +2008,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onClick={handleSurfaceTap}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className={`relative w-full ${isFullscreen ? 'h-[100dvh] max-h-none aspect-auto fixed inset-0 z-[9999]' : 'aspect-video max-h-none md:aspect-video lg:aspect-video'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
-      style={isFullscreen ? { width: '100vw', height: '100dvh', maxHeight: 'none', aspectRatio: 'auto' } : { width: '100%', aspectRatio: '16 / 9', height: 'auto' }}
+      className={`relative w-full ${isFullscreen ? 'h-[100dvh] max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
+      style={isFullscreen ? { width: '100vw', height: '100dvh', maxHeight: 'none', aspectRatio: 'auto' } : { width: '100%', height: '100%', minHeight: 0, maxHeight: 'none', aspectRatio: 'auto' }}
     >
       {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
       <div
