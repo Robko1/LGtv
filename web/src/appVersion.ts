@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.4.6';
+export const WEB_VERSION = '2.4.7';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.6'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.7'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.7',
+    date: '2026-10-21',
+    changes: [
+      'INDULÁS: a TV töltőképernyője már a videó ELSŐ KOCKÁJA – nincs többé 5 mp sötét/fehér várakozás, a kép azonnal a bejelentkező animáció',
+      'Az induló videó 1280x720 (H.264 High@3.1) – kisebb dekóder-terhelés, gyorsabb indulás, az IPK 6,1 MB helyett ~4,4 MB',
+      'Ha a TV dekódere megáll vagy megakad, a videó első kockája marad a tervezett ideig, és csak utána jön a felület – az intro nem szakad félbe',
+      'Ha a videó nem indul el, a plakát (első kocka) látszik a videó hosszáig, nem ugrik azonnal a főoldalra',
+    ],
+  },
   {
     version: '2.4.6',
     date: '2026-10-21',

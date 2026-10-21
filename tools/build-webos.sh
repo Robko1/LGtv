@@ -21,7 +21,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.4.6}"
+VERSION="${VERSION:-2.4.7}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
@@ -44,9 +44,17 @@ img = Image.open(root / "ikonkep.png").convert("RGBA")
 img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon-rt2.png", "PNG")
 img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon-rt2.png", "PNG")
 img.resize((512, 512), Image.Resampling.LANCZOS).save(root / "webos/assets/icon_tv.png", "PNG")
-# A TV saját indítóképernyője (a videó előtt): TISZTA FEKETE 1920x1080 PNG.
-# Csak a rendszer fehér villanását váltja feketére - nincs rajta logó/felirat.
-Image.new("RGB", (1920, 1080), (0, 0, 0)).save(root / "webos/splash-screen.png", "PNG", optimize=True)
+# A TV saját indítóképernyője (a videó előtt): a VIDEÓ ELSŐ KOCKÁJA
+# (webos/assets/intro-poster.jpg) 1920x1080 PNG-ként. Így a rendszer
+# töltőképernyője és az induló videó első kockája UGYANAZ - nincs fehér
+# villanás és nincs fekete várakozás sem. Ha nincs plakát, fekete a tartalék.
+poster = root / "webos/assets/intro-poster.jpg"
+if poster.is_file():
+    Image.open(poster).convert("RGB").resize((1920, 1080), Image.Resampling.LANCZOS).save(
+        root / "webos/splash-screen.png", "PNG", optimize=True
+    )
+else:
+    Image.new("RGB", (1920, 1080), (0, 0, 0)).save(root / "webos/splash-screen.png", "PNG", optimize=True)
 # Beégetett (base64) app-ikon a felülethez: nem fájlhivatkozás, a HTML-be kerül.
 import base64, io
 def icon_b64(px):
@@ -122,7 +130,8 @@ for asset in "$WEBOS_DIR/assets/"*; do
   cp "$asset" "$BUILD_DIR/assets/"
 done
 
-# INDULÓ (BEJELENTKEZŐ) VIDEÓ: a felhasználó által feltöltött videó kerül a
+# INDULÓ (BEJELENTKEZŐ) VIDEÓ: a feltöltött videóból készült, TV-re optimalizált
+# (1280x720, High@3.1, faststart) fájl kerül a
 # csomagba assets/intro.mp4 néven. A web/index.html a videót viszonylagos
 # útvonalról (assets/intro.mp4) tölti be, a #boot-splash overlay-en játssza
 # végig, majd elhalványul - közben a React app már felépül a háttérben.
@@ -173,7 +182,7 @@ print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.4.6"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.4.7"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
