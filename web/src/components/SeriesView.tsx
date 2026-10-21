@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Category, Series, Episode, AppSettings } from '../types/iptv';
 import { PosterImage, PosterSettingsButton } from './PosterImage';
-import { Search, Star, Play, Clock, Sparkles, Filter, ChevronDown, Tv, Heart, CheckCircle2, Loader2 } from 'lucide-react';
+import { Search, Star, Play, Clock, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2 } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 
 interface SeriesViewProps {
@@ -32,6 +32,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   onToggleFavoriteSeries,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSearchEditing, setIsSearchEditing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
@@ -73,7 +74,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   ) || selectedSeries?.seasons[0];
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070e1e] overflow-hidden select-none lg:select-auto">
+    <div className="flex-1 flex flex-col bg-[#070e1e] overflow-hidden select-none lg:select-auto" onKeyDown={(e) => { if (normalizeTvKey(e) === 'Escape' && !isSearchEditing && isCategoryMenuOpen) { e.preventDefault(); e.stopPropagation(); setIsCategoryMenuOpen(false); } }}>
       {/* Top Bar – reszponzív */}
       <div className="p-3 md:p-4 lg:p-4 xl:p-5 bg-[#09152e] border-b border-cyan-950/60 flex flex-col gap-2.5 md:gap-3">
         <div className="flex items-center justify-between gap-2">
@@ -101,6 +102,8 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
           <input
             type="text"
             value={searchTerm}
+            readOnly={!isSearchEditing}
+            onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' && !isSearchEditing) { e.preventDefault(); setIsSearchEditing(true); } else if (key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (isSearchEditing) { setIsSearchEditing(false); (e.currentTarget as HTMLInputElement).blur(); } else if (isCategoryMenuOpen) { setIsCategoryMenuOpen(false); } } }}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Sorozat keresése cím vagy műfaj alapján..."
             className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-white placeholder-slate-400 focus:outline-hidden focus:border-cyan-400 transition-colors"
@@ -178,17 +181,6 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
                     <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
                     <span>{ser.rating}</span>
                   </div>
-
-                  {/* Favorite */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleFavoriteSeries(ser.id);
-                    }}
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 backdrop-blur-md text-slate-300 hover:text-rose-400 active:scale-90 transition-all"
-                  >
-                    <Heart className={`w-3.5 h-3.5 ${ser.isFavorite ? 'fill-rose-500 text-rose-500' : ''}`} />
-                  </button>
 
                   {/* Play overlay hover */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
