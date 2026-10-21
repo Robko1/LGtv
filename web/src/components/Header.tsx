@@ -43,10 +43,10 @@ export const Header: React.FC<HeaderProps> = ({
       className="sticky top-0 z-40 bg-[#070d1d]/95 backdrop-blur-md border-b border-cyan-950/40 pl-0 pr-2 py-2 md:py-2.5 lg:py-3 flex items-center justify-between gap-2 md:gap-3 lg:gap-4 shadow-md">
       {/*
         TV-n a kijelölő SZIGORÚAN balról jobbra halad:
-          Országok -> Mozi -> Sorozat -> [X] -> [Beállítások]
-        A Beállításokról jobbra lépve az Országokra (körbe) jutunk, balra
-        pedig a kilépés (X) gombra. A menüsorról LEFELÉ csak a Beállításokról
-        lehet indulni - onnan a kedvencek mappasávjába.
+          Sorozat -> Mozi -> Országok -> [Beállítások] -> [X]  (körbe)
+        A Beállításokról LEFELÉ lehet indulni - onnan a kedvencek
+        mappasávjába, onnan a csatornalistára. A Sorozat a sor eleje, ezért
+        onnan csak jobbra lehet lépni.
       */}
       <div className="flex flex-1 items-center gap-1.5 md:gap-2 lg:gap-3 flex-nowrap min-w-0 mr-1">
         {/* Óra – ugyanakkora doboz, mint a Mozi/Sorozat/Országok */}
@@ -69,6 +69,34 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        <button
+          onClick={() => onViewChange('series')}
+          data-tv-header=""
+          data-tv-header-kind="series"
+          className={`flex flex-1 min-w-0 items-center justify-center gap-1.5 px-1.5 h-10 md:h-11 lg:h-12 rounded-xl text-[11px] sm:text-sm md:text-sm lg:text-base font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
+            activeView === 'series'
+              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
+              : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
+          }`}
+        >
+          <Layers className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
+          <span>Sorozat</span>
+        </button>
+
+        <button
+          onClick={() => onViewChange('movies')}
+          data-tv-header=""
+          data-tv-header-kind="movies"
+          className={`flex flex-1 min-w-0 items-center justify-center gap-1.5 px-1.5 h-10 md:h-11 lg:h-12 rounded-xl text-[11px] sm:text-sm md:text-sm lg:text-base font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
+            activeView === 'movies'
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-lg shadow-amber-950/40'
+              : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
+          }`}
+        >
+          <Film className="w-5 h-5 md:w-6 md:h-6 text-amber-400" />
+          <span>Mozi</span>
+        </button>
+
         {activeView === 'live' && (
           <button
             onClick={onOpenCategories}
@@ -86,48 +114,10 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        <button
-          onClick={() => onViewChange('movies')}
-          data-tv-header=""
-          data-tv-header-kind="movies"
-          className={`flex flex-1 min-w-0 items-center justify-center gap-1.5 px-1.5 h-10 md:h-11 lg:h-12 rounded-xl text-[11px] sm:text-sm md:text-sm lg:text-base font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
-            activeView === 'movies'
-              ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-lg shadow-amber-950/40'
-              : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
-          }`}
-        >
-          <Film className="w-5 h-5 md:w-6 md:h-6 text-amber-400" />
-          <span>Mozi</span>
-        </button>
-
-        <button
-          onClick={() => onViewChange('series')}
-          data-tv-header=""
-          data-tv-header-kind="series"
-          className={`flex flex-1 min-w-0 items-center justify-center gap-1.5 px-1.5 h-10 md:h-11 lg:h-12 rounded-xl text-[11px] sm:text-sm md:text-sm lg:text-base font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
-            activeView === 'series'
-              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
-              : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
-          }`}
-        >
-          <Layers className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
-          <span>Sorozat</span>
-        </button>
-
       </div>
 
       {/* Kilépés + Beállítások – a távirányítón a kettő szomszédos */}
       <div className="flex shrink-0 items-center gap-2 md:gap-3 ml-0">
-        <button
-          onClick={handleExitApp}
-          data-tv-header=""
-          data-tv-header-kind="exit"
-          className="flex shrink-0 items-center justify-center w-8 h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 text-red-500 hover:text-red-400 active:scale-90 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer bg-transparent rounded-lg"
-          title="Kilépés az alkalmazásból"
-          aria-label="Kilépés az alkalmazásból"
-        >
-          <X className="w-6 h-6 md:w-7 md:h-7 lg:w-8 lg:h-8 stroke-[3]" />
-        </button>
         <button
           data-tv-header-default=""
           data-tv-header=""
@@ -138,6 +128,16 @@ export const Header: React.FC<HeaderProps> = ({
           aria-label="Beállítások"
         >
           <Settings className="w-5 h-5 md:w-6 md:h-6 stroke-[2.2] animate-[spin_10s_linear_infinite]" />
+        </button>
+        <button
+          onClick={handleExitApp}
+          data-tv-header=""
+          data-tv-header-kind="exit"
+          className="flex shrink-0 items-center justify-center w-8 h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 text-red-500 hover:text-red-400 active:scale-90 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer bg-transparent rounded-lg"
+          title="Kilépés az alkalmazásból"
+          aria-label="Kilépés az alkalmazásból"
+        >
+          <X className="w-6 h-6 md:w-7 md:h-7 lg:w-8 lg:h-8 stroke-[3]" />
         </button>
       </div>
     </header>

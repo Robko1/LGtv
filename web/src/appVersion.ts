@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.4.2';
+export const WEB_VERSION = '2.4.3';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.2'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.4.3'; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.4.3',
+    date: '2026-10-20',
+    changes: [
+      'Menüsor: az Országok és a Sorozat helyet cserélt (Sorozat -> Mozi -> Országok), a Beállítások és a kilépés (X) szintén',
+      'Csatornaváltás: az ELSŐ OK a főoldali (kis) lejátszóban indít, a teljes képernyő csak a második OK-ra vált',
+      'Natív lejátszó: javítva a csatornaváltás - a kiválasztott csatorna mindkét motorral elindul (főoldalon és teljes képernyőn is)',
+      'A csatornasor jobb szélén kedvenc-csillag: sárga = benne van valamelyik kedvenc mappában, szürke = nincs; kattintásra ugyanazt teszi, mint az OSD csillaga',
+      'Az OSD-ből kivettük az EPG-újság, a hangerő, az előző/következő csatorna és a középső Lejátszás/Szünet gombot is – csak az Audio/CC/PiP sor maradt',
+      'A Beállításokból kikerült a Csatornabetöltés választó (a működés változatlanul megmarad)',
+    ],
+  },
   {
     version: '2.4.2',
     date: '2026-10-20',

@@ -1552,31 +1552,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // régi adást, csak a dekóder újraindítása marad el.
       // Korábbi <source> gyerekek eltakarítása (motorváltásnál is tiszta lap).
       while (video.firstChild) video.removeChild(video.firstChild);
-      if (playerEngineRef.current === 'native') {
-        // NATÍV MOTOR: a webOS a <source> type mezőjében kapott mediaOption
-        // JSON-nal a TV saját (UMS) médiacsatornáján indítja az adást.
-        const isHls = /\.m3u8(?=([?#]|$))/i.test(url);
-        const mime = isHls ? 'application/vnd.apple.mpegurl' : (/\.ts(?=([?#]|$))/i.test(url) ? 'video/mp2t' : 'video/mp4');
-        const mediaOption = encodeURIComponent(JSON.stringify({
-          mediaTransportType: 'URI',
-          option: { htmlMediaOption: { useUMSMediaInfo: true } },
-        }));
-        const sourceEl = document.createElement('source');
-        sourceEl.setAttribute('src', url);
-        sourceEl.setAttribute('type', `${mime};mediaOption=${mediaOption}`);
-        // A <source> hibája nem mindig jut el a videóelemig - továbbadjuk,
-        // hogy a formátumváltó/zap-őr lánc ugyanúgy működjön, mint HTML5-nél.
-        sourceEl.onerror = () => {
-          try { video.dispatchEvent(new Event('error')); } catch { /* régi motor */ }
-        };
-        video.appendChild(sourceEl);
-        // A <source> alapú lejátszáshoz kötelező a load(), a közvetlen src-nél
-        // a böngésző magától elindítja a betöltést.
-        video.load();
-      } else {
-        video.src = url;
-        video.load();
-      }
+      // CSATORNAVÁLTÁS MINDKÉT MOTORRAL:
+      // A videóelem `src`-jét mindig felülírjuk. Korábban a natív mód
+      // <source mediaOption=...> elemet fűzött be, ami a TV-n nem indította
+      // el az adást (a csatornaváltás „nem történt meg”), ezért a natív mód is
+      // a közvetlen címet kapja: a szolgáltató EREDETI URL-jét, formátum-átírás
+      // nélkül, a TV hardveres dekóderén. A két motor között a különbség a
+      // címválasztás és a hibakezelés (natívnál nincs formátumváltás), nem a
+      // lejátszás útja.
+      video.src = url;
+      video.load();
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
       const playPromise = video.play();

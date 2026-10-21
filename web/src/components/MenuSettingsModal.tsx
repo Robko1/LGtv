@@ -23,8 +23,7 @@ import {
   Clock,
   Cast,
   ListOrdered,
-  MousePointerClick,
-  Download
+  MousePointerClick
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { normalizeTvKey } from '../utils/tvKeys';
@@ -709,45 +708,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     {(settings.playerEngine || 'html5') === 'html5'
                       ? 'Beépített: HLS, automatikus MPEG-TS váltás, teljes OSD. Ez a legbiztonságosabb.'
                       : 'Natív: a szolgáltató eredeti MPEG-TS címe a TV hardveres dekóderén, formátumváltás nélkül, visszafogott felülettel.'}
-                  </p>
-                </div>
-
-                {/* CSATORNABETÖLTÉS: melyik úton kérjük le a listát a szolgáltatótól */}
-                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-emerald-400/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
-                  <label className="flex items-center gap-2 text-xs font-bold text-white">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-400/10"><Download className="h-4 w-4 text-emerald-300" /></span>
-                    <span>Csatornabetöltés</span>
-                  </label>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    Melyik úton kérje le a csatornalistát a szolgáltatótól. Ha az egyikkel
-                    nincs csatorna vagy hiányos a lista, próbáld a másikat, majd frissítsd a listát.
-                  </p>
-                  <div className="grid grid-cols-2 gap-1.5 pt-1">
-                    <button
-                      onClick={() => onUpdateSettings({ channelLoadMode: 'api' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${
-                        (settings.channelLoadMode || 'api') === 'api'
-                          ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
-                          : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
-                      }`}
-                    >
-                      Xtream API
-                    </button>
-                    <button
-                      onClick={() => onUpdateSettings({ channelLoadMode: 'm3u' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${
-                        settings.channelLoadMode === 'm3u'
-                          ? 'bg-emerald-400 text-slate-950 shadow-md shadow-emerald-400/30'
-                          : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
-                      }`}
-                    >
-                      M3U lista
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-cyan-300 leading-tight pt-1">
-                    {(settings.channelLoadMode || 'api') === 'api'
-                      ? 'Xtream API: a szolgáltató player_api.php végpontja (JSON). Ez a gyorsabb út.'
-                      : 'M3U lista: a szolgáltató get.php címe (teljes lejátszási lista). Akkor használd, ha az API nem adja a csatornákat.'}
                   </p>
                 </div>
 

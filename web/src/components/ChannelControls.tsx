@@ -1,17 +1,10 @@
 import { ChannelLogo } from './ChannelLogo';
 import React from 'react';
 import { Channel } from '../types/iptv';
-import { 
-  Star, 
-  SkipBack, 
-  SkipForward, 
-  Play, 
-  Pause, 
-  Volume2, 
-  VolumeX,
-  Calendar, 
-  Mic2, 
-  Subtitles, 
+import {
+  Star,
+  Mic2,
+  Subtitles,
   PictureInPicture2,
   Cast,
   X,
@@ -58,10 +51,6 @@ interface ChannelControlsProps {
 export const ChannelControls: React.FC<ChannelControlsProps> = ({
   channel,
   displayNumber,
-  isPlaying,
-  onTogglePlay,
-  onPrevChannel,
-  onNextChannel,
   onToggleFavorite,
   onOpenAudioModal,
   hasMultipleAudioTracks,
@@ -71,74 +60,17 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
   onTogglePip,
   showPip = false,
   showCast = false,
-  onOpenEpgModal,
-  volume,
-  onVolumeChange,
-  onToggleMute,
   onRequestHide,
   hideHeaderActions = false,
   className,
 }) => {
   const [epgClock, setEpgClock] = React.useState(() => Date.now());
-  const [showVolumeSlider, setShowVolumeSlider] = React.useState(false);
-  const volumeControlRef = React.useRef<HTMLDivElement | null>(null);
-  const volumeClickTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isCoarsePointer = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : true;
-  React.useEffect(() => () => { if (volumeClickTimer.current) clearTimeout(volumeClickTimer.current); }, []);
-  React.useEffect(() => {
-    if (!showVolumeSlider) return;
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (volumeControlRef.current && !volumeControlRef.current.contains(event.target as Node)) {
-        setShowVolumeSlider(false);
-      }
-    };
-    document.addEventListener('pointerdown', closeOnOutsideClick);
-    document.addEventListener('mousedown', closeOnOutsideClick as any);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsideClick);
-      document.removeEventListener('mousedown', closeOnOutsideClick as any);
-    };
-  }, [showVolumeSlider]);
-  const handleVolumeButtonClick = () => {
-    // Telefonon: 1 kattintás némít, dupla gyors kattintás csúszka
-    // Laptop/desktop egérrel: hover is nyitja, de kattintás is működik
-    if (showVolumeSlider) {
-      if (volumeClickTimer.current) {
-        clearTimeout(volumeClickTimer.current);
-        volumeClickTimer.current = null;
-      }
-      setShowVolumeSlider(false);
-      return;
-    }
-    if (volumeClickTimer.current) {
-      clearTimeout(volumeClickTimer.current);
-      volumeClickTimer.current = null;
-      setShowVolumeSlider(true);
-      return;
-    }
-    volumeClickTimer.current = setTimeout(() => {
-      volumeClickTimer.current = null;
-      onToggleMute();
-    }, 260);
-  };
-  const handleVolumeMouseEnter = () => {
-    if (!isCoarsePointer) setShowVolumeSlider(true);
-  };
-  const handleVolumeMouseLeave = () => {
-    if (!isCoarsePointer) {
-      // Kis késleltetés, hogy a csúszkára is át lehessen menni egérrel
-      setTimeout(() => {
-        if (volumeControlRef.current && !volumeControlRef.current.matches(':hover')) {
-          setShowVolumeSlider(false);
-        }
-      }, 300);
-    }
-  };
+  // A műsorhaladás-sáv 10 mp-enként lép tovább (nem másodpercenként: a
+  // másodperces újrarajzolás a TV-n érezhetően lassította az OSD-t).
   React.useEffect(() => {
     const timer = window.setInterval(() => setEpgClock(Date.now()), 10000);
     return () => window.clearInterval(timer);
   }, []);
-
   const epgStart = channel?.epgNow?.startTimestamp;
   const epgEnd = channel?.epgNow?.endTimestamp;
   const epgProgress = typeof epgStart === 'number' && typeof epgEnd === 'number' && epgEnd > epgStart
@@ -224,83 +156,18 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         />
       </div>
 
-      {/* Primary Playback Controls Row (Screenshot 5/6) */}
-      <div className="flex items-center gap-1.5 pt-0.5">
-        <div className="flex flex-1 items-center justify-center gap-1.5 sm:gap-2 min-w-0">
-          {/* Prev Channel */}
-          <button
-            onClick={onPrevChannel}
-            className="w-10 h-10 rounded-xl bg-[#0f1d3a] hover:bg-[#16274b] text-slate-200 border border-slate-700/60 flex items-center justify-center active:scale-90 transition-all shadow-md"
-            title="Előző csatorna"
-          >
-            <SkipBack className="w-4 h-4 fill-current" />
-          </button>
-
-          {/* Play / Pause Primary Button */}
-          <button
-            onClick={onTogglePlay}
-            className="w-10 h-10 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-cyan-400/25"
-            title={isPlaying ? "Szünet" : "Lejátszás"}
-            aria-label={isPlaying ? "Szünet" : "Lejátszás"}
-          >
-            {isPlaying ? (
-              <Pause className="w-4 h-4 fill-current stroke-[2.5]" />
-            ) : (
-              <Play className="w-4 h-4 fill-current stroke-[2.5]" />
-            )}
-          </button>
-
-          {/* Next Channel */}
-          <button
-            onClick={onNextChannel}
-            className="w-10 h-10 rounded-xl bg-[#0f1d3a] hover:bg-[#16274b] text-slate-200 border border-slate-700/60 flex items-center justify-center active:scale-90 transition-all shadow-md"
-            title="Következő csatorna"
-          >
-            <SkipForward className="w-4 h-4 fill-current" />
-          </button>
-
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          {/* Audio toggle button – egér hover laptop/desktop */}
-          <div className="relative" ref={volumeControlRef} onMouseEnter={handleVolumeMouseEnter} onMouseLeave={handleVolumeMouseLeave}>
-          <button
-          onClick={handleVolumeButtonClick}
-          className={`w-10 h-10 rounded-xl border flex items-center justify-center active:scale-90 transition-all shadow-md ${volume <= 0 ? 'bg-red-600/20 text-red-400 border-red-500/60' : 'bg-[#0f1d3a] hover:bg-[#16274b] text-slate-200 border-slate-700/60'}`}
-          title="Egy kattintás: némítás; két gyors kattintás: hangerő"
-          aria-label={volume <= 0 ? 'Hang bekapcsolása' : 'Hang némítása'}
-          >
-          {volume <= 0 ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5 text-cyan-300" />}
-          </button>
-          {showVolumeSlider && (
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[120] min-w-[68px] rounded-xl border border-cyan-700/60 bg-[#081226] px-4 py-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-          <input type="range" min="0" max="1" step="0.01" value={volume}
-          onChange={(event) => onVolumeChange(Number(event.target.value))}
-          aria-label="Hangerő" className="h-28 w-6 accent-cyan-400 cursor-pointer"
-          style={{ writingMode: 'vertical-lr', direction: 'rtl' }} />
-          <div className="mt-1 text-center text-[10px] text-slate-300">{Math.round(volume * 100)}%</div>
-          </div>
-          )}
-          </div>
-          {/* EPG Calendar button */}
-          <button
-            onClick={onOpenEpgModal}
-            className="w-10 h-10 rounded-xl bg-[#0f1d3a] hover:bg-[#16274b] text-amber-300 border border-amber-500/30 flex items-center justify-center active:scale-90 transition-all shadow-md"
-            title="EPG Műsorújság"
-          >
-            <Calendar className="w-4 h-4 text-amber-400" />
-          </button>
-
-        </div>
-      </div>
-
-      {/* Feature Action Buttons Row: Audio, CC, PiP, Cast – Kép gomb eltávolítva minden OSD-ből */}
-      <div className="grid grid-cols-4 gap-1.5 pt-0.5">
+      {/*
+        Alsó gombsor: csak az Audio / CC / PiP marad.
+        Az OSD-ből kivettük az EPG-újságot, a hangerőt, az előző/következő
+        csatornát ÉS a középső Lejátszás/Szünet gombot is (a csatornaváltás
+        és a lejátszás a listán / a távirányító médiagombjaival történik).
+      */}
+      <div className="flex items-stretch gap-1.5 pt-0.5">
 
         {/* Audio Button */}
         <button
           onClick={onOpenAudioModal}
-          className={`flex items-center justify-center gap-1 py-2 px-1 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-sm border ${hasMultipleAudioTracks ? 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-500/50' : 'bg-[#121f3d] hover:bg-[#17274c] text-rose-300 border-rose-500/30'}`}
+          className={`flex-1 flex items-center justify-center gap-1 py-2 px-1 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-sm border ${hasMultipleAudioTracks ? 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-500/50' : 'bg-[#121f3d] hover:bg-[#17274c] text-rose-300 border-rose-500/30'}`}
           title={hasMultipleAudioTracks ? 'Több hangsáv elérhető' : 'Nincs több hangsáv ennél a csatornánál'}
           aria-label={hasMultipleAudioTracks ? 'Hangsávváltás elérhető' : 'Több hangsáv nem található'}
         >
@@ -311,7 +178,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         {/* CC Subtitles Button */}
         <button
           onClick={onOpenSubtitlesModal}
-          className={`flex items-center justify-center gap-1 py-2 px-1 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-sm border ${hasActiveSubtitle ? 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-500/50' : 'bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border-slate-700/60'}`}
+          className={`flex-1 flex items-center justify-center gap-1 py-2 px-1 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-sm border ${hasActiveSubtitle ? 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-500/50' : 'bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border-slate-700/60'}`}
           title={hasActiveSubtitle ? 'Felirat aktív' : 'Felirat választása'}
           aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'Felirat választása'}
         >
@@ -323,7 +190,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         {showPip && (
           <button
             onClick={onTogglePip}
-            className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
+            className="flex-1 flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
             title="Kép a képben"
           >
             <PictureInPicture2 className="w-3.5 h-3.5 text-slate-300" />
@@ -335,7 +202,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
         {showCast && (
           <button
             onClick={onCastToTv}
-            className="w-full flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
+            className="flex-1 flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm"
             title="Aktuális adás küldése TV-re"
             aria-label="Aktuális adás küldése TV-re"
           >

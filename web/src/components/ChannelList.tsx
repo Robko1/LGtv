@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Channel, FavoriteFolder } from '../types/iptv';
-import { ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
+import { ArrowUp, ArrowDown, Trash2, Star } from 'lucide-react';
 import { ChannelLogo } from './ChannelLogo';
 import { ProviderRef } from '../services/contentStore';
 import { EpgNowNext, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from '../services/epgService';
@@ -56,7 +56,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   epgRevision,
   selectedChannelId,
   onSelectChannel,
-  // onToggleFavorite: a csillag gomb kikerült a sorokból (2.3.16), a prop a kompatibilitás miatt maradt.
+  onToggleFavorite,
   onDeleteChannel,
   onMoveChannel,
   folders,
@@ -662,12 +662,15 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       e.stopPropagation();
       const current = visibleChannels[currentIndex >= 0 ? currentIndex : 0];
       if (current) {
-        // TV: EGY OK gomb = kiválasztás ÉS azonnali teljes képernyő.
-        // Korábban a listán állva az első OK csak kiválasztott, a második
-        // lépett teljes képernyőre - a néző ezt lassúnak érezte.
-        setHighlightedId(current.id);
-        if (current.id !== selectedChannelId) onSelectChannel(current);
-        window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
+        // TV: az ELSŐ OK a főoldali (kis) lejátszóban indítja a csatornát.
+        // A teljes képernyő csak a MÁSODIK OK-ra vált - így a néző a főoldalon
+        // tud maradni, és csak ha akar, lép be a teljes képernyős nézetbe.
+        if (current.id === selectedChannelId) {
+          window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
+        } else {
+          setHighlightedId(current.id);
+          onSelectChannel(current);
+        }
       }
     }
   };
@@ -930,9 +933,13 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         e.stopPropagation();
                         if (movingChannelId) return; // mozgatás módban az OK a nyilakhoz tartozik
                         setHighlightedId(ch.id);
-                        onSelectChannel(ch);
-                        // TV: a kiválasztás után AZONNAL teljes képernyő.
-                        window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
+                        // Első OK: indítás a főoldali lejátszóban. A teljes
+                        // képernyő csak a már futó csatornán, második OK-ra jön.
+                        if (ch.id === selectedChannelId) {
+                          window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
+                        } else {
+                          onSelectChannel(ch);
+                        }
                       }
                     }}
                     className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none touch-pan-y focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#070e1e] ${
@@ -1005,6 +1012,34 @@ const ChannelListView: React.FC<ChannelListProps> = ({
 
                     {/* Jobb oldali műveletek. A rendező nyilak csak a zöldre kijelölt csatornán jelennek meg. */}
                     <div className="flex items-center gap-1 shrink-0 ml-1">
+                      {/*
+                        KEDVENC-CSILLAG (mint az OSD-ben): sárga = valamelyik
+                        kedvenc mappában benne van, szürke = nincs hozzáadva.
+                        Kattintásra ugyanazt teszi, mint az OSD csillaga.
+                        A távirányítós kijelölést nem zavarja (tabIndex -1).
+                      */}
+                      {onToggleFavorite && movingChannelId !== ch.id && (
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          data-tv-skip=""
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleFavorite(ch.id);
+                          }}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-xl border transition-all active:scale-90 ${
+                            ch.isFavorite
+                              ? 'bg-amber-400/20 text-amber-300 border-amber-400/50'
+                              : 'bg-[#0f1d3a] text-slate-500 border-slate-700/60 hover:text-amber-400'
+                          }`}
+                          title={ch.isFavorite ? 'Eltávolítás a kedvencekből' : 'Hozzáadás a kedvencekhez'}
+                          aria-label={ch.isFavorite ? `${ch.name} eltávolítása a kedvencekből` : `${ch.name} hozzáadása a kedvencekhez`}
+                          aria-pressed={ch.isFavorite}
+                        >
+                          <Star className={`w-4 h-4 ${ch.isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
+                        </button>
+                      )}
                       {movingChannelId === ch.id && onMoveChannel ? (
                         <>
                           <button
