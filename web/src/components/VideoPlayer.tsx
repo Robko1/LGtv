@@ -4,6 +4,7 @@ import { Play, Pause, Volume2, VolumeX, Rewind, FastForward, PictureInPicture2, 
 import { appLog } from '../services/appLog';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
+import { useIntroFinished } from '../utils/introGate';
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
@@ -173,6 +174,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoSurfaceRef = useRef<HTMLDivElement | null>(null);
   const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  /*
+   * INDULÓ VIDEÓ ALATT NEM INDUL LEJÁTSZÁS.
+   * A webOS TV-n egy hardveres videó-dekóder van: ha a csatorna a bejelentkező
+   * videó közben indul el, elveszi tőle a dekódert, ettől az induló videó
+   * megfagy és 3-5 másodpercnél félbeszakad. Ezért a stream betöltése csak az
+   * `iptv-intro-done` esemény (az induló videó vége) után kezdődik.
+   */
+  const introFinished = useIntroFinished();
 
   useEffect(() => {
     const video = htmlVideoRef.current;
@@ -1606,6 +1616,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   loadStreamRef.current = loadStream;
   const loadKey = `${streamUrl}|${settings.bufferMode}|${playerEngine}`;
   useEffect(() => {
+    // Amíg az induló videó fut, a csatorna NEM indul el (dekóder-ütközés).
+    // Amint az `iptv-intro-done` megérkezik, az effekt újra lefut és indít.
+    if (!introFinished) return;
     clearAutoRetry();
     nativeRetryCountRef.current = 0;
     setActiveUrlIndex(0);
@@ -1652,7 +1665,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       clearAutoRetry(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadKey, clearAutoRetry, clearBufferWatchdog]);
+  }, [loadKey, clearAutoRetry, clearBufferWatchdog, introFinished]);
 
   // Play/pause: natív hídon vagy LG webOS HTML5 videón keresztül.
   const togglePlay = () => {
