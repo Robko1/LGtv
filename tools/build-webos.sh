@@ -21,7 +21,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.5.0}"
+VERSION="${VERSION:-2.5.1}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
@@ -43,7 +43,6 @@ root = Path(".")
 img = Image.open(root / "ikonkep.png").convert("RGBA")
 img.resize((80, 80), Image.Resampling.LANCZOS).save(root / "webos/icon-rt2.png", "PNG")
 img.resize((130, 130), Image.Resampling.LANCZOS).save(root / "webos/largeIcon-rt2.png", "PNG")
-img.resize((512, 512), Image.Resampling.LANCZOS).save(root / "webos/assets/icon_tv.png", "PNG")
 # A TV saját indítóképernyője (appinfo.json: splashBackground) a webos/
 # splash-screen.png: a logó-videóból kivágott, teljesen összeállt képkocka.
 # NEM generáljuk, hanem a repóban lévő (kézzel jóváhagyott) fájlt használjuk.
@@ -114,6 +113,21 @@ cp "$WEBOS_DIR/icon-rt2.png" "$BUILD_DIR/icon-rt2.png"
 cp "$WEBOS_DIR/largeIcon-rt2.png" "$BUILD_DIR/largeIcon-rt2.png"
 # Indítókép (appinfo.json: splashBackground): a logóból kivágott képkocka.
 cp "$WEBOS_DIR/splash-screen.png" "$BUILD_DIR/splash-screen.png"
+# Kisebb (128 színű) változat: a HTML CSS-e ezt használja háttérként az
+# "egy pillanat alatti megjelenés" alatt (a teljes kép 411 KB, ez ~90 KB).
+python3 - "$WEBOS_DIR" "$BUILD_DIR" <<'PY'
+import sys
+from pathlib import Path
+from PIL import Image
+webos_dir, build_dir = Path(sys.argv[1]), Path(sys.argv[2])
+src = Image.open(webos_dir / "splash-screen.png").convert("RGB")
+# A webOS indítókép és a HTML háttér UGYANAZ a kép: nincs átmenet/villanás.
+# JPEG, mert a fotó-szerű háttér így ~90 KB (PNG-ben 257 KB lenne).
+src.resize((1280, 720), Image.Resampling.LANCZOS).save(
+    build_dir / "splash-bg.jpg", "JPEG", quality=72, optimize=True, progressive=True
+)
+print("splash-bg.jpg:", (build_dir / "splash-bg.jpg").stat().st_size, "byte")
+PY
 mkdir -p "$BUILD_DIR/assets"
 # A többi asset (logók, kicsi ikonok) bekerül; videó nem lehet köztük.
 for asset in "$WEBOS_DIR/assets/"*; do
@@ -163,7 +177,7 @@ print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.5.0"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.5.1"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )

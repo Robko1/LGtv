@@ -1,6 +1,6 @@
 # TV – LG webOS TV
 
-> **v2.5.0 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
+> **v2.5.1 – kizárólag LG webOS TV, távirányító + QR telefonos beállítás**
 > - Ez a repó kizárólag LG webOS TV-re készül.
 > - Nem tölt le, nem másol és nem használ forráskódot másik alkalmazásrepóból.
 > - Telepítés: [webos/README.md](webos/README.md)
@@ -36,7 +36,7 @@ LGtv/
 │   ├── appinfo.json          # v2.3.3, hu.rt.iptv.webos
 │   ├── webos.js              # Magic Remote + D-pad + OK fókusznavigáció
 │   ├── icon.png / largeIcon.png
-│   ├── assets/               # icon_tv.png (nincs splash vagy intro videó)
+│   ├── assets/               # (nincs benne videó vagy indítókép)
 │   └── tools/build-ipk.py    # IPK csomagoló (ar archive)
 ├── tools/
 │   ├── build-webos.sh        # FIX: type=module + crossorigin eltávolítás file:// CORS-hoz
@@ -91,12 +91,13 @@ Részletek: [QR-TELEFONOS-BEALLITAS.md](QR-TELEFONOS-BEALLITAS.md) + `provision.
 git clone https://github.com/Robko1/LGtv.git && cd LGtv
 cd web && npm install --no-audit --no-fund && VITE_WEBOS=true npm run build
 # IPK építés
-VERSION=2.5.0 bash ../tools/build-webos.sh
+VERSION=2.5.1 bash ../tools/build-webos.sh
 # Kimenet: webos/IPTV-RT.ipk
 ```
 
 ## Verzió
 
+- **v2.5.1** – egy pillanat alatti indulás (a kész felület egyszerre jelenik meg), kisebb csomag
 - **v2.5.0** – induló videó kivéve: a logó képkockája az indítókép, utána azonnal a főoldal; kisebb IPK
 - **v2.4.10** – az induló videó visszaállítva a bevált (body-inline) felállásra
 - **v2.4.9** – az induló videó az első pillanatban indul (bootstrap az app előtt), néma indítás, nincs kétszeri próbálkozás
@@ -109,5 +110,5 @@ VERSION=2.5.0 bash ../tools/build-webos.sh
 - **v2.4.0** – teljesítmény-javítások + választható lejátszó motor (HTML5 / natív)
 - **v2.3.1** – LG webOS-only build + távirányító fix + QR
 - IPK: `IPTV-RT.ipk` (kb. 500-600KB)
-- appinfo.json: `hu.rt.iptv.webos` v2.5.0
+- appinfo.json: `hu.rt.iptv.webos` v2.5.1
 
