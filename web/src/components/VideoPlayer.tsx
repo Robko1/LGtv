@@ -2100,41 +2100,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {hasError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 p-4 text-center">
           <h4 className="text-white font-bold text-sm sm:text-base whitespace-pre-line">A csatornát nem lehet be tölteni !{"\n"}kapcsolj másik csatornára...{"\n"}ez a sz@r le fagyott 😂</h4>
-          <p className="mt-2 text-[11px] text-slate-400">Puffer: {settings.bufferMode} • koppints újrapróbálkozáshoz</p>
-          <div className="flex items-center justify-center mt-3 w-full">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const api = nativeApi();
-                // A mostani pufferelési beállítás (Stabil) alapján töltse újra
-                // – ez segít, ha többször újra kell pufferelni.
-                try { api?.setBufferMode?.(settings.bufferMode); } catch {}
-                // Visszaállítjuk az eredeti retry tervet (primary .ts) és
-                // a jelenlegi beállításokkal indítjuk újra.
-                try {
-                  const original = retryPlanRef.current?.originalUrl || pendingStreamUrlRef.current || streamUrl;
-                  if (original) {
-                    pendingStreamUrlRef.current = original;
-                    retryPlanRef.current = { originalUrl: original, stage: 'primary' };
-                  }
-                } catch {}
-                clearAutoRetry();
-                setHasError(false);
-                setIsLoading(true);
-                appLog(`Újrapróbálás: puffer=${settings.bufferMode}, url=${pendingStreamUrlRef.current || streamUrl}`);
-                api?.retryToast?.(`Újrapróbálás ${settings.bufferMode} pufferrel`);
-                // A loadKey már tartalmazza a bufferMode-ot, de itt közvetlenül
-                // is újratöltjük a jelenlegi beállítással.
-                if (pendingStreamUrlRef.current) loadStream(pendingStreamUrlRef.current);
-                else if (streamUrl) loadStream(streamUrl);
-                else retryStreamRef.current?.();
-              }}
-              ref={retryButtonRef}
-              className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400"
-            >
-              Újrapróbálás ({settings.bufferMode})
-            </button>
-          </div>
+
         </div>
       )}
 
