@@ -1698,9 +1698,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ? streamUrl
       : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
     const selectedFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
+    // Gyors csatornaváltás: mindkét LG lejátszó-beállításnál ugyanazt a
+    // legutóbb sikeresen elindult élő formátumot próbáljuk először.
+    // A beállított formátum csak akkor az elsődleges, ha még nincs sikeres
+    // korábbi próba eltárolva. Hibánál a meglévő zap-őr próbálkozik tovább.
+    let rememberedFormat: 'ts' | 'hls' | null = null;
+    if (!isVod) {
+      try {
+        const stored = window.localStorage.getItem('iptv_rt_live-format');
+        if (stored === 'ts' || stored === 'hls') rememberedFormat = stored;
+      } catch { /* helyi tárhely nélkül a beállított formátum marad */ }
+    }
+    const primaryFormat = rememberedFormat || selectedFormat;
     const primaryUrl = isVod
       ? streamUrl
-      : (selectedFormat === 'hls' ? hlsUrl : tsUrl);
+      : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
     pendingStreamUrlRef.current = primaryUrl;
     retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
     if (primaryUrl) {
