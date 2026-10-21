@@ -433,27 +433,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
     }
   }, [isFullscreen]);
-  const isLivePortraitFullscreen = isLive && isFullscreen && isPortrait;
-  const isLiveLandscapeFullscreen = isLive && isFullscreen && !isPortrait;
-  const isVodPortraitFullscreen = isVod && isFullscreen && isPortrait;
-  const isVodLandscapeFullscreen = isVod && isFullscreen && !isPortrait;
-  // Régi név kompatibilitáshoz megtartva, de most csak live landscape
+  // A webOS TV kizárólag fekvő nézetet használ.
+  const isLivePortraitFullscreen = false;
+  const isLiveLandscapeFullscreen = isLive && isFullscreen;
+  const isVodPortraitFullscreen = false;
+  const isVodLandscapeFullscreen = isVod && isFullscreen;
   const landscapeLiveFullscreen = isLiveLandscapeFullscreen;
-  // Élő TV-n csak álló fullscreenben kapcsolható az OSD; film/sorozat esetén
-  // álló és fekvő fullscreenben is előhívható.
-  const canToggleOsd = isLivePortraitFullscreen || (isVod && isFullscreen);
+  const canToggleOsd = isVod && isFullscreen;
 
   useEffect(() => {
-    // Film/sorozat teljes képernyőjén mindkét tájolásban induláskor látszódjon.
-    if (isLivePortraitFullscreen || isVodPortraitFullscreen || isVodLandscapeFullscreen) {
+    if (isVod && isFullscreen) {
       setShowControlsOverlay(true);
     } else if (isLiveLandscapeFullscreen) {
-      // Élő TV fekvő fullscreen viselkedése változatlan.
       setShowControlsOverlay(false);
-    } else if (isFullscreen && !isVod) {
+    } else {
       setShowControlsOverlay(true);
     }
-  }, [isLivePortraitFullscreen, isVodPortraitFullscreen, isLiveLandscapeFullscreen, isVodLandscapeFullscreen, isFullscreen, isVod, streamUrl]);
+  }, [isLiveLandscapeFullscreen, isFullscreen, isVod, streamUrl]);
 
   // Képarány mindig fill (nyújtás) – a beállításokból kivettük, de a natív rétegnek mindig fill kell
   useEffect(() => {
@@ -465,7 +461,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (settings.aspectRatio !== 'fill') {
       window.dispatchEvent(new CustomEvent('iptv-native-aspect-ratio', { detail: 'fill' }));
     }
-  }, [isFullscreen, isPortrait, isVod, settings.aspectRatio, streamUrl]);
+  }, [isFullscreen, isVod, settings.aspectRatio, streamUrl]);
   useEffect(() => {
     if (osdHideTimerRef.current) {
       clearTimeout(osdHideTimerRef.current);
@@ -1020,7 +1016,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       document.removeEventListener('fullscreenchange', syncAfterLayout);
       document.removeEventListener('visibilitychange', syncAfterLayout);
     };
-  }, [nativeHandoff, isFullscreen, isPortrait, nativeOsdReserve]);
+  }, [nativeHandoff, isFullscreen, nativeOsdReserve]);
 
   // Élő TV fekvő teljes képernyő jelzése és képarány mindig fill (nyújtás)
   useEffect(() => {
@@ -1030,7 +1026,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     api.setLiveLandscapeFullscreen?.(isLiveLandscapeFullscreen);
     // Mindig fill, mert a beállításokból kivettük a képméret választást
     api.setAspectRatio?.('fill');
-  }, [nativeHandoff, isLiveLandscapeFullscreen, isFullscreen, isPortrait, isVod, streamUrl]);
+  }, [nativeHandoff, isLiveLandscapeFullscreen, isFullscreen, isVod, streamUrl]);
 
   // A natív lejátszó saját „Kép” gombja ugyanazt a mentett webes beállítást módosítja.
   useEffect(() => {
