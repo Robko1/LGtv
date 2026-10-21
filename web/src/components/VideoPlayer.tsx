@@ -520,6 +520,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       osdHideTimerRef.current = setTimeout(() => {
         setShowControlsOverlay(false);
         osdHideTimerRef.current = null;
+        // Rejtett OSD után a fókusz visszakerül a lejátszóra, hogy OK-val
+        // ismét előhívható legyen a panel.
+        containerRef.current?.focus({ preventScroll: true } as any);
       }, settings.osdHideDelay * 1000);
     }
     return () => {
