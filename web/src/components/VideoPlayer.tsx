@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
-import { Play, Pause, Volume2, VolumeX, Rewind, FastForward, PictureInPicture2, Languages, Captions, Cast, Clock, Film, X, Mic2, Check } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Rewind, FastForward, Languages, Captions, Clock, Film, X, Mic2, Check } from 'lucide-react';
 import { appLog } from '../services/appLog';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
@@ -347,11 +347,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
-  const supportsPictureInPicture = Boolean(
-    (document as any).pictureInPictureEnabled &&
-    htmlVideoRef.current &&
-    typeof (htmlVideoRef.current as any).requestPictureInPicture === 'function'
-  );
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isPortrait, setIsPortrait] = useState<boolean>(false);
   useEffect(() => {
@@ -901,7 +896,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!started) { native.toast?.('Nem sikerült elindítani a TV-küldést.'); return; }
     setShowControlsOverlay(true);
   };
-  const showCastButton = Boolean(nativeApi());
 
   const castToTvRef = useRef(castToTv);
   castToTvRef.current = castToTv;
