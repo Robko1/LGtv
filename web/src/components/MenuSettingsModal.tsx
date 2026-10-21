@@ -674,7 +674,24 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Lejátszó motor: beépített HTML5 vagy natív TV-dekóder */}
-                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-amber-400/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                <div data-tv-box="" tabIndex={0}
+                  onKeyDown={(event) => {
+                    const key = normalizeTvKey(event);
+                    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
+                    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                      const next = current < 0
+                        ? (settings.streamFormat === 'hls' ? 1 : 0)
+                        : (current + (key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+                      buttons[next]?.focus({ preventScroll: true });
+                    } else if (key === 'Enter' && event.target === event.currentTarget) {
+                      event.preventDefault();
+                      buttons[settings.streamFormat === 'hls' ? 1 : 0]?.click();
+                    }
+                  }}
+                  className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-amber-400/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-400/10"><Cast className="h-4 w-4 text-amber-300" /></span>
                     <span>Lejátszó motor</span>
