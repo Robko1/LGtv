@@ -279,18 +279,58 @@
           startIntro();
         }
 
+        // A felület akkor számít késznek, ha a React már kirajzolta a fejlécét
+        // (main.tsx ilyenkor állítja be a __IPTV_APP_READY__ / 7. lépés jelzést).
+        function appReady() {
+          return !!(window.__IPTV_APP_READY__ || (window.__IPTV_STARTUP_STAGE__ || 0) >= 7);
+        }
+
+        // Az ERŐFORRÁS-betöltési hibák (betűtípus-stíluslap internet nélkül,
+        // csatornalogó, induló videó stb.) is 'error' eseményként érkeznek a
+        // window-ra, de NEM apphibák. Korábban ezek is előhozták a
+        // "HIBA a(z) 7/7 lépésnél" képernyőt a már kész felület fölött
+        // (az üzenet ilyenkor "JS:(object event)" volt).
+        function isResourceError(e) {
+          var t = e && e.target;
+          return !!(t && t !== window && t !== document && t.tagName);
+        }
+
+        function resourceLabel(e) {
+          try {
+            var t = e.target;
+            var src = t.src || t.href || t.currentSrc || '';
+            return t.tagName + (src ? ' – ' + src : '');
+          } catch (e2) { return 'ismeretlen erőforrás'; }
+        }
+
         window.addEventListener('error', function (e) {
+          if (isResourceError(e)) {
+            // Csak naplózzuk (a PIROS gombos diagnosztika/konzol mutatja).
+            try { console.warn('STARTUP: erőforrás nem töltődött be: ' + resourceLabel(e)); } catch (e2) {}
+            return;
+          }
+          if (!e || !e.message) return; // ismeretlen esemény: ne takarjuk el a felületet
+          if (appReady()) {
+            // A felület már fut: a hibát naplózzuk, de NEM takarjuk el a képernyőt.
+            try {
+              console.error('IPTV-RT hiba (a felület már fut): ' + e.message + ' @ ' +
+                (e.filename || '') + ':' + (e.lineno || 0));
+            } catch (e2) {}
+            return;
+          }
           window.__IPTV_STARTUP_FAIL__(
-            'JS: ' + ((e && e.message) || e) + '\n' +
-            ((e && e.filename) || '') + ':' + ((e && e.lineno) || 0)
+            'JS: ' + e.message + '\n' + (e.filename || '') + ':' + (e.lineno || 0)
           );
         }, true);
 
         window.addEventListener('unhandledrejection', function (e) {
           var reason = e && e.reason;
-          window.__IPTV_STARTUP_FAIL__(
-            'Promise: ' + ((reason && reason.message) || String(reason))
-          );
+          var message = (reason && (reason.stack || reason.message)) || String(reason);
+          if (appReady()) {
+            try { console.error('IPTV-RT promise hiba (a felület már fut): ' + message); } catch (e2) {}
+            return;
+          }
+          window.__IPTV_STARTUP_FAIL__('Promise: ' + message);
         });
       })();
     </script>
