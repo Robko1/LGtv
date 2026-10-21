@@ -347,39 +347,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
+  // LG webOS TV: kizárólag fekvő, 16:9-es nézet. Nincs mobilos
+  // tájolásfigyelés vagy késleltetett viewport-ellenőrzés.
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [isPortrait, setIsPortrait] = useState<boolean>(false);
-  useEffect(() => {
-    let frame = 0;
-    let settleTimer: number | null = null;
-    const updateOrientation = () => {
-      const viewport = window.visualViewport;
-      const width = viewport?.width || window.innerWidth;
-      const height = viewport?.height || window.innerHeight;
-      setIsPortrait(height >= width);
-    };
-    const scheduleOrientationUpdate = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        updateOrientation();
-        frame = window.requestAnimationFrame(updateOrientation);
-      });
-      if (settleTimer !== null) window.clearTimeout(settleTimer);
-      // webOS TV viewport-váltás reports its final viewport a little later.
-      settleTimer = window.setTimeout(updateOrientation, 180);
-    };
-    updateOrientation();
-    window.addEventListener('resize', scheduleOrientationUpdate);
-    window.addEventListener('orientationchange', scheduleOrientationUpdate);
-    window.visualViewport?.addEventListener('resize', scheduleOrientationUpdate);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      if (settleTimer !== null) window.clearTimeout(settleTimer);
-      window.removeEventListener('resize', scheduleOrientationUpdate);
-      window.removeEventListener('orientationchange', scheduleOrientationUpdate);
-      window.visualViewport?.removeEventListener('resize', scheduleOrientationUpdate);
-    };
-  }, []);
+  const isPortrait = false;
   const [showControlsOverlay, setShowControlsOverlay] = useState<boolean>(true);
   const [activeUrlIndex, setActiveUrlIndex] = useState<number>(0);
 
@@ -456,11 +427,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       wasFullscreenRef.current = false;
       try { (containerRef.current as HTMLElement | null)?.blur?.(); } catch { /* régi motor */ }
       setShowControlsOverlay(true);
-      // A lista a kilépés után újra felépül (újra mountol), ezért kétszer
-      // jelezzük: azonnal, majd 150 ms múlva is (a lista már létezik).
-      const restoreFocus = () => window.dispatchEvent(new CustomEvent('iptv-focus-selected-channel'));
-      window.requestAnimationFrame(restoreFocus);
-      window.setTimeout(restoreFocus, 150);
+      // Egyetlen következő képkockás fókuszjelzés elég; nincs késleltetett ismétlés.
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('iptv-focus-selected-channel'));
+      });
     }
   }, [isFullscreen]);
   const isLivePortraitFullscreen = isLive && isFullscreen && isPortrait;
