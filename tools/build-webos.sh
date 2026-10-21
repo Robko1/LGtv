@@ -21,7 +21,7 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.4.8}"
+VERSION="${VERSION:-2.4.9}"
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
@@ -36,6 +36,12 @@ if [[ ! -s "$ICON_SOURCE" ]]; then
 fi
 mkdir -p "$PROJECT_DIR/web/public" "$WEBOS_DIR/assets"
 cp "$ICON_SOURCE" "$PROJECT_DIR/web/public/ikonkep.png"
+# Az induló videó bootstrap-je (egyetlen forrás: webos/intro-boot.js). A dev
+# szerver a public-ból szolgálja ki; az IPK-ba a HTML-be beágyazva kerül
+# (lásd a HTML feldolgozást), mert ott nincs külön fájlletöltés.
+if [[ -s "$WEBOS_DIR/intro-boot.js" ]]; then
+  cp "$WEBOS_DIR/intro-boot.js" "$PROJECT_DIR/web/public/intro-boot.js"
+fi
 python3 - <<'PY'
 from pathlib import Path
 from PIL import Image
@@ -182,7 +188,7 @@ print(f"Vite single-file HTML (ES5 + polyfill, module script nélkül), méret: 
 # appinfo.json verzió frissítése
 appinfo_path = webos_dir / "appinfo.json"
 appinfo = json.loads(appinfo_path.read_text(encoding="utf-8"))
-appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.4.8"))
+appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.4.9"))
 (build_dir / "appinfo.json").write_text(
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
@@ -230,6 +236,28 @@ if "</head>" in html:
     html = html.replace("</head>", injection + "\n</head>")
 else:
     html = injection + html
+
+# INDULÓ VIDEÓ BOOTSTRAP beágyazása a <head>-be.
+# A web/index.html egy <script src="/intro-boot.js"> hivatkozást tartalmaz (ezt
+# használja a dev szerver). Az IPK-ban nincs külön fájlletöltés: a szkriptet a
+# HTML-be ágyazzuk, a <head>-ben, az ALKALMAZÁS ELŐTT - így a videó azonnal
+# elindul, a nagy app-csomag elemzése közben (korábban ez volt az 5 mp fagyás).
+intro_boot_path = pathlib.Path("webos/intro-boot.js")
+if not intro_boot_path.is_file():
+    raise SystemExit("HIBA: hiányzik a webos/intro-boot.js (az induló videó bootstrap).")
+intro_boot = intro_boot_path.read_text(encoding="utf-8")
+if "=>" in intro_boot or "`" in intro_boot:
+    raise SystemExit("HIBA: az intro-boot.js modern szintaxist tartalmaz - a régi LG TV-ken nem futna.")
+intro_tag_re = re.compile(r'<script[^>]*src="[^"]*intro-boot\.js"[^>]*>\s*</script>')
+if not intro_tag_re.search(html):
+    raise SystemExit("HIBA: nem található az intro-boot.js hivatkozás a HTML-ben.")
+html = intro_tag_re.sub(
+    lambda m: '<!-- Induló videó bootstrap (beágyazva, az app előtt fut) -->\n<script>\n'
+              + intro_boot + '\n</script>',
+    html,
+    count=1,
+)
+print(f"Induló videó bootstrap beágyazva: {len(intro_boot)} byte")
 
 # webOS body osztályok hozzáadása a meglévő class attribútum megőrzésével.
 def add_webos_body_classes(match):
