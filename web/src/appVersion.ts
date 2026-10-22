@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.23';
+export const WEB_VERSION = '2.5.24';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.23',
+    version: '2.5.24',
     date: '2026-10-22',
     changes: [
       'MOZI / SOROZAT OSD: a referencia (sharktie/lg-iptv) VOD-OSD felépítése – KÉK kiemeléssel: fent vissza nyíl + a film címe, lent idővonal (aktuális / teljes idő) és kerek vezérlők (tekerés, nagy LEJÁTSZÁS, tekerés, hangsáv, felirat, hangerő)',
