@@ -47,6 +47,8 @@
     <div id="tvInfo" style="font-size:12px; color:#7dd3fc; font-family:monospace; word-break:break-all;"></div>
   </div>
 
+  <div class="card"><div class="field"><label>Szolgáltató neve</label><input id="provider_name" type="text" placeholder="Pl. Saját IPTV" autocomplete="organization" /></div></div>
+
   <div class="tabs">
     <div class="tab active" data-type="xtream" onclick="switchTab('xtream')">Xtream Codes</div>
     <div class="tab" data-type="m3u" onclick="switchTab('m3u')">M3U Lista</div>
@@ -136,7 +138,9 @@ async function sendToTv() {
       showStatus('A szerver, felhasználónév és jelszó kötelező.', 'err');
       btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return;
     }
-    payload = { type:'xtream', host, username, password,
+    const name = document.getElementById('provider_name').value.trim();
+    if (!name) { showStatus('Add meg a szolgáltató nevét.', 'err'); btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return; }
+    payload = { type:'xtream', name, host, username, password,
       code, createdAt:new Date().toISOString() };
   } else {
     const url = document.getElementById('m3u_url').value.trim();
@@ -144,7 +148,9 @@ async function sendToTv() {
       showStatus('Érvényes http:// vagy https:// M3U URL szükséges.', 'err');
       btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return;
     }
-    payload = { type:'m3u', url,
+    const name = document.getElementById('provider_name').value.trim();
+    if (!name) { showStatus('Add meg a szolgáltató nevét.', 'err'); btn.disabled = false; btn.innerHTML = '<span>📤</span> Küldés TV-re'; return; }
+    payload = { type:'m3u', name, url,
       code, createdAt:new Date().toISOString() };
   }
   try {
