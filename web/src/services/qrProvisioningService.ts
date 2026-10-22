@@ -17,6 +17,7 @@ export interface ProvisionChannel { kind: 'supabase'; id: string; }
 export interface ProvisionSession { tvId: string; code: string; token: string; expiresAt: number; }
 
 const API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/qr-provision-form';
+const FORM_URL = 'https://robko1.github.io/LGtv/provision.html';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
 const POLL_INTERVAL = 3000;
 const CODE_TTL_MS = 5 * 60 * 1000;
@@ -65,10 +66,9 @@ export async function ensureProvisionChannel(): Promise<ProvisionChannel | null>
   return { kind: 'supabase', id: 'qr-provision' };
 }
 export function getProvisionUrl(tvId: string, code: string, channel?: ProvisionChannel | null, token = ''): string {
-  // A telefonos űrlapot maga a Supabase Edge Function szolgálja ki:
-  // nem függ GitHub Pages-től, ezért TV-n file:// alól és IPK-ból is működik.
+  // A HTML űrlap statikus weboldalon fut; a Supabase csak a párosítási API-t kezeli.
   const t = token || (() => { try { return localStorage.getItem('qr_token') || ''; } catch { return ''; } })();
-  return `${API_URL}?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}&token=${encodeURIComponent(t)}`;
+  return `${FORM_URL}?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}&token=${encodeURIComponent(t)}`;
 }
 export async function pollForProvider(tvId: string, channel?: ProvisionChannel | null, token?: string): Promise<QrProviderPayload | null> {
   try {
