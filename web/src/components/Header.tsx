@@ -60,11 +60,11 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => onViewChange('live')}
             data-tv-header=""
             data-tv-header-kind="live"
-            className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[11px] font-bold transition-all border active:scale-95 bg-cyan-600 hover:bg-cyan-500 md:hover:bg-cyan-500 text-white border-cyan-400/60 shadow-lg shadow-cyan-900/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
+            className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-cyan-600 hover:bg-cyan-500 md:hover:bg-cyan-500 text-white border-cyan-400/60 shadow-lg shadow-cyan-900/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
             aria-label="TV"
             title="TV"
           >
-            <Tv className="w-5 h-5 md:w-6 md:h-6 text-white" />
+            <Tv className="w-10 h-10 md:w-12 md:h-12 text-white" />
             <span>TV</span>
           </button>
         )}
@@ -73,13 +73,13 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onViewChange('series')}
           data-tv-header=""
           data-tv-header-kind="series"
-          className={`flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[11px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
+          className={`flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
             activeView === 'series'
               ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
           }`}
         >
-          <Layers className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
+          <Layers className="w-8 h-8 md:w-10 md:h-10 text-cyan-400" />
           <span>Sorozat</span>
         </button>
 
@@ -87,13 +87,13 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onViewChange('movies')}
           data-tv-header=""
           data-tv-header-kind="movies"
-          className={`flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[11px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
+          className={`flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
             activeView === 'movies'
               ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-lg shadow-amber-950/40'
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
           }`}
         >
-          <Film className="w-4 h-4 md:w-5 md:h-5 text-amber-400" />
+          <Film className="w-8 h-8 md:w-10 md:h-10 text-amber-400" />
           <span>Mozi</span>
         </button>
 
@@ -102,10 +102,10 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onOpenCategories}
             data-tv-header=""
             data-tv-header-kind="countries"
-            className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[11px] font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer"
+            className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer"
             title="Országok – kategóriák és csatornalisták"
           >
-            <svg viewBox="0 0 24 16" className="w-6 h-4 rounded-[3px] shrink-0" aria-hidden="true">
+            <svg viewBox="0 0 24 16" className="w-12 h-8 rounded-[3px] shrink-0" aria-hidden="true">
               <rect width="24" height="16" fill="#ffffff" />
               <rect width="24" height="5.33" fill="#ce2939" />
               <rect y="10.67" width="24" height="5.33" fill="#477050" />
@@ -119,11 +119,11 @@ export const Header: React.FC<HeaderProps> = ({
           data-tv-header=""
           data-tv-header-kind="settings"
           onClick={() => onOpenSettings()}
-          className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[11px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
+          className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
           title="Menü"
           aria-label="Menü"
         >
-          <Settings className="w-4 h-4 shrink-0" />
+          <Settings className="w-8 h-8 shrink-0" />
           <span>Menü</span>
         </button>
       </div>
