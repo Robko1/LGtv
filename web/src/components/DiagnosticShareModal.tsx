@@ -32,7 +32,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     setNotice('');
     try {
       appLog('Diagnosztikai napló QR-kód létrehozása.');
-      const created = await createDiagnosticShare(getAppLogText());
+      const created = await createDiagnosticShare(getAppLogText().slice(-59000));
       if (generation !== generationRef.current) {
         void revokeDiagnosticShare(created.token);
         return;
@@ -44,6 +44,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
       setNotice('Új QR-kód elkészült. A hivatkozás 1 óráig érvényes.');
     } catch (cause) {
       if (generation === generationRef.current) setError('Nem sikerült létrehozni a QR-kódot. Ellenőrizd a TV internetkapcsolatát, majd próbáld újra.');
+      appLog('Diagnosztikai QR-kód létrehozása sikertelen: ' + String(cause).slice(0, 180));
       console.warn('[diagnostic-qr] create failed', cause);
     } finally {
       if (generation === generationRef.current) setBusy(false);
@@ -61,13 +62,14 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     setNotice('');
     try {
       appLog('Diagnosztikai napló frissítése a QR-hivatkozáson.');
-      const expiresAt = await refreshDiagnosticShare(current.token, getAppLogText());
+      const expiresAt = await refreshDiagnosticShare(current.token, getAppLogText().slice(-59000));
       const updated = { ...current, expiresAt };
       setShare(updated);
       shareRef.current = updated;
       setNotice('A napló frissült. A QR-kód változatlan, a legfrissebb naplót nyitja meg.');
     } catch (cause) {
       setError('A frissítés nem sikerült. Készíts új QR-kódot.');
+      appLog('Diagnosztikai QR-napló frissítése sikertelen: ' + String(cause).slice(0, 180));
       console.warn('[diagnostic-qr] refresh failed', cause);
     } finally {
       setBusy(false);
