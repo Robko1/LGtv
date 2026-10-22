@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.5.29';
+export const WEB_VERSION = '2.5.30';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.30',
+    date: '2026-10-22',
+    changes: [
+      'CSATORNAVÁLTÁS – „Format error” javítás: a lejátszó mostantól CSATORNÁNKÉNT jegyzi meg, melyik streamformátum (MPEG-TS vagy HLS) indult el, és legközelebb azzal kezd (eddig csak egy globális emlékezet volt, ezért az a csatorna, amelyik az egyik formátummal nem indult, minden váltásnál ugyanúgy elhalt – a naplóban pl. „[HU] ATV … Format error” háromszor egymás után)',
+      'Ha egy csatorna nem indul el, a lejátszó MAGA próbálja ki a másik formátumot (TS ↔ HLS) – nem kell a Rendszer beállításában kézzel átállítani; csak ha egyik sem megy, akkor jelez hibát',
+      'A sikertelen csatorna emléke törlődik, így a következő próba tiszta lappal, a beállított alapformátummal indul',
+      'A lejátszó a következő csatorna indítása előtt törli a videóelem MEGMARADT hibaállapotát (a naplóban: „paused=true; error=…Format error” öröklődött át az új adásra)',
+      'Fagyás-védelem sűrű zappolásnál: két élő betöltés között legalább 300 ms telik el, a közben érkező kérések összevonódnak (a webOS dekódere nem tud több párhuzamos megnyitást elviselni – a napló szerint ~3 perc alatt ~40 csatornaváltás történt a lefagyás előtt)',
+      'A csatornaváltási napló mostantól a formátum-emléket és a tartalék formátumot is kiírja (könnyebb diagnózis)',
+      'A gyorsítótár törlése a formátum-emlékezetet is törli',
+      'Új futásidejű teszt a formátum-emlékezetre (sérült tároló, tele tárhely, korlát, csatornánkénti függetlenség)',
+    ],
+  },
   {
     version: '2.5.29',
     date: '2026-10-22',
