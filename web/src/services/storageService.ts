@@ -62,6 +62,21 @@ export const storageService = {
       if (!['contain', 'cover', 'fill'].includes(settings.aspectRatio)) {
         settings.aspectRatio = 'fill';
       }
+      /*
+       * OSD-eltűnés: a megengedett értékek 6 / 8 / 10 / 12 másodperc
+       * (0 = soha). A korábbi mentésekben 2–5 szerepelhetett – a legközelebbi
+       * engedélyezett értékre kerekítjük, hogy a teljes képernyős OSD is
+       * ugyanazt használja, mint a főoldali.
+       */
+      const OSD_CHOICES = [6, 8, 10, 12];
+      const osdDelay = Number(settings.osdHideDelay);
+      if (!Number.isFinite(osdDelay) || osdDelay < 0) {
+        settings.osdHideDelay = 8;
+      } else if (osdDelay > 0 && !OSD_CHOICES.includes(osdDelay)) {
+        settings.osdHideDelay = OSD_CHOICES.reduce((best, choice) =>
+          Math.abs(choice - osdDelay) < Math.abs(best - osdDelay) ? choice : best, OSD_CHOICES[0]);
+      }
+      if (typeof settings.mirrorLayout !== 'boolean') settings.mirrorLayout = false;
       // Csatornabetöltés módja: régi mentésekben még nincs - alapértelmezés API.
       if (settings.channelLoadMode !== 'api' && settings.channelLoadMode !== 'm3u') {
         settings.channelLoadMode = 'api';

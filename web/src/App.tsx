@@ -365,6 +365,19 @@ export function App() {
   // összes csatornája egyetlen választható elem alá kerül.
   const countryCategories = useMemo(() => buildCountryCategories(channels), [channels]);
 
+  /**
+   * A csatornalistában KIVÁLASZTOTT ország (a fejléc zászlajához).
+   *
+   * Ugyanaz a feloldás, mint a lista szűrésénél: az „Összes” helyett a
+   * Magyarország kategória (vagy az első ország) érvényes.
+   */
+  const activeCountryCategory = useMemo(() => {
+    const effectiveId = selectedCategoryId === 'all'
+      ? (findHungaryCategoryId(countryCategories) || countryCategories[0]?.id || '')
+      : selectedCategoryId;
+    return countryCategories.find((category) => category.id === effectiveId) || null;
+  }, [countryCategories, selectedCategoryId]);
+
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isOsdVisible, setIsOsdVisible] = useState<boolean>(true);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
@@ -753,6 +766,21 @@ export function App() {
   const handleUpdateSettings = useCallback((newSettings: Partial<AppSettings>) => {
     setSettings((current) => {
       const updated = { ...current, ...newSettings };
+      storageService.saveSettings(updated);
+      return updated;
+    });
+  }, []);
+
+  /**
+   * Tükrözött elrendezés be/ki (PIROS / Record gomb).
+   *
+   * A funkcionális frissítés miatt nem számít, milyen `settings` példányt
+   * látott a gombkezelő a regisztráláskor – mindig a legfrissebb állapotból
+   * váltunk, és azonnal mentjük is.
+   */
+  const handleToggleMirrorLayout = useCallback(() => {
+    setSettings((current) => {
+      const updated = { ...current, mirrorLayout: !current.mirrorLayout };
       storageService.saveSettings(updated);
       return updated;
     });
@@ -2122,11 +2150,15 @@ export function App() {
       else if (action === 'settings') setIsSettingsOpen((prev) => !prev);
       else if (action === 'epg') setIsEpgOpen((prev) => !prev);
       else if (action === 'categories') setIsCategoriesOpen((prev) => !prev);
+      // PIROS (Record) gomb: TÜKRÖZÖTT elrendezés be/ki.
+      // A felhasználó kérésére a piros gomb mostantól a főoldali
+      // elrendezést fordítja meg (csatornalista balra, OSD jobbra).
+      else if (action === 'mirror') handleToggleMirrorLayout();
       else if (action === 'diagnostic-share') setIsDiagnosticShareOpen(true);
     };
     window.addEventListener('iptv-tv-action', onTvAction);
     return () => window.removeEventListener('iptv-tv-action', onTvAction);
-  }, []);
+  }, [handleToggleMirrorLayout]);
 
   // TV stick: induláskor és modal bezárásakor fókusz a csatornalistára, hogy D-pad azonnal működjön
   useEffect(() => {
@@ -2167,6 +2199,9 @@ export function App() {
     if (!isCategoriesOpen && !isSettingsOpen && !isEpgOpen && !isAudioModalOpen && !isSubtitlesModalOpen) {
       const focusBack = () => {
         try {
+          // Teljes képernyőn a kijelölő a LEJÁTSZÓN marad (a csatornaváltás
+          // miatt) – a rejtett csatornalistára nem visszük vissza.
+          if (isVideoFullscreen) return;
           if (document.querySelector('[data-view-pane]:not([data-view-hidden])')?.getAttribute('data-view-pane') !== 'live') return;
           // A fókusz a CSATORNASORRA kerül, nem a lista dobozára: a teljes
           // csatornalista soha nem jelölhető ki.
@@ -2184,7 +2219,7 @@ export function App() {
       const t = window.setTimeout(focusBack, 150);
       return () => clearTimeout(t);
     }
-  }, [isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen]);
+  }, [isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen]);
 
   // Kép a képben támogatás: korábban ezt minden kirajzoláskor egy DOM-kereséssel
   // (!) ellenőriztük, kétszer. Elég a környezet egyszeri vizsgálata.
@@ -2206,6 +2241,8 @@ export function App() {
         onViewChange={handleViewChange}
         onOpenCategories={handleOpenCategories}
         onOpenSettings={handleOpenSettings}
+        countryFlag={activeCountryCategory?.flag}
+        countryName={activeCountryCategory?.name}
       />
 
       {/*
@@ -2225,7 +2262,18 @@ export function App() {
       >
 
         {/* Live TV View – reszponzív: mobilon egymás alatt, tablet/laptop/TV-n egymás mellett */}
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+        {/*
+          TÜKRÖZÖTT ELRENDEZÉS (PIROS / Record gomb).
+          Ilyenkor a sor iránya megfordul: a csatornalista (a kedvenc
+          mappákkal) a BAL oldalra, a lejátszó és az OSD a JOBB oldalra
+          kerül. A felső menüsor és a működés változatlan – csak a helyek
+          cserélődnek.
+        */}
+        <div
+          data-live-main-row=""
+          data-mirror={settings.mirrorLayout ? '1' : undefined}
+          className={`flex-1 flex flex-col ${settings.mirrorLayout ? 'md:flex-row-reverse' : 'md:flex-row'} overflow-hidden min-h-0`}
+        >
           {/* Video + Controls – mobilon felül, desktopon bal oldalt rugalmas */}
           <div className="flex-1 flex flex-col overflow-hidden min-h-0 md:min-w-0">
           {/* Video Player */}
@@ -2289,7 +2337,12 @@ export function App() {
           />
 
           {isVideoFullscreen && !customStreamUrl && isFullscreenLiveOsdVisible && (
-            <FullscreenLiveOsd channel={activeChannel} displayNumber={activeChannelDisplayNumber} />
+            <FullscreenLiveOsd
+              channel={activeChannel}
+              displayNumber={activeChannelDisplayNumber}
+              hasMultipleAudioTracks={liveAudioTracks.length > 1}
+              hasActiveSubtitle={liveSubtitleTracks.some((track) => track.selected === true)}
+            />
           )}
 
           {/* TV-only channel controls: film/sorozat közben a VOD OSD az egyetlen lejátszóvezérlő.
@@ -2377,7 +2430,6 @@ export function App() {
             movies={movies}
             categories={vodCategories}
             totalCount={totalCounts.vod}
-            settings={settings}
             onPlayMovie={handlePlayMovie}
             selectedCategoryId={movieCategoryRef.current}
             onSelectedCategoryChange={handleMoviesCategoryChange}
@@ -2401,7 +2453,6 @@ export function App() {
             totalCount={totalCounts.series}
             loadingSeriesId={loadingSeriesId}
             onOpenSeries={handleLoadSeriesInfo}
-            settings={settings}
             onPlayEpisode={handlePlayEpisode}
             selectedCategoryId={seriesCategoryRef.current}
             onSelectedCategoryChange={handleSeriesCategoryChange}
@@ -2528,6 +2579,7 @@ export function App() {
         onRemoveChannelFromFolder={handleRemoveChannelFromFolder}
         onOpenEpgModal={() => setIsEpgOpen(true)}
         onOpenQrProvision={() => setIsQrProvisionOpen(true)}
+        onOpenDiagnosticShare={() => setIsDiagnosticShareOpen(true)}
         watchHistory={history}
         onContinueWatching={handlePlayHistoryItem}
         onRemoveWatchHistoryItem={handleRemoveWatchHistoryItem}

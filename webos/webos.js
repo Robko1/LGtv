@@ -772,9 +772,10 @@
     if (kc === 403 || kc === 404 || kc === 405 || kc === 406) {
       e.preventDefault();
       e.stopPropagation();
-      // PIROS (403) = naplómegosztó QR; ZÖLD (404) = hangsáv; SÁRGA (405) = kedvenc;
-      // KÉK (406) = csatornamozgatás mód a listában.
-      var tvAction = kc === 403 ? 'diagnostic-share' : (kc === 404 ? 'audio' : (kc === 405 ? 'favorite' : 'move'));
+      // PIROS / Record (403) = TÜKRÖZÖTT elrendezés be/ki (a felhasználó
+      // kérésére); ZÖLD (404) = hangsáv (teljes képernyőn is);
+      // SÁRGA (405) = kedvenc; KÉK (406) = csatornamozgatás mód a listában.
+      var tvAction = kc === 403 ? 'mirror' : (kc === 404 ? 'audio' : (kc === 405 ? 'favorite' : 'move'));
       var evAction = null;
       try {
         evAction = new CustomEvent('iptv-tv-action', { detail: { action: tvAction } });
@@ -1155,9 +1156,9 @@
         var kind = kindOf(focusedNow);
 
         if (key === 'ArrowLeft' || key === 'ArrowRight') {
-          // A menüsor KÖRBEN jár:
-          //   Sorozat -> Mozi -> Országok -> Beállítások -> X -> (körbe) Sorozat
-          // A LEGELSŐ gombon (Sorozat) csak jobbra lehet lépni, balra nem.
+          // A menüsor KÖRBEN jár. A sorrend (a sárga óra mellett):
+          //   Menü -> Sorozat -> Mozi -> Országok -> X -> (körbe) Menü
+          // A LEGELSŐ gombon (Menü) csak jobbra lehet lépni, balra nem.
           if (key === 'ArrowLeft' && hi <= 0) return;
           var dir = key === 'ArrowRight' ? 1 : -1;
           var nextIndex;
