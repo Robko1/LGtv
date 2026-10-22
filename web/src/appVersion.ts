@@ -13,7 +13,8 @@ export const WEB_VERSION_HISTORY = [
       'A teljes képernyős méret most inline, `vh` egységgel készül (a régi webOS Chromium nem ismeri a `dvh`-t és az `inset` rövidítést)',
       'CSATORNAVÁLTÁS TELJES KÉPERNYŐN JAVÍTVA: a rejtett csatornalista már „nem létezik” a távirányító számára, így a CH+/CH- és a nyilak a lejátszóhoz mennek – a csatorna tényleg vált',
       'A fókusz teljes képernyőn a lejátszón marad (késői újrarajzolás sem viheti el), a rejtett lista pedig nem nyel el gombokat',
-      'Új próbák: teljes képernyős kitöltés, rejtett lista, gombok átirányítása (41 próba)',
+      'IPK BUILD JAVÍTVA: a webOS kezelő forrása ismét szigorúan ES5 – egy magyarázó megjegyzésbe került backtick miatt állt le a csomagolás (a helyi próba most előre jelzi)',
+      'Új próbák: teljes képernyős kitöltés, rejtett lista, gombok átirányítása, ES5-őr (44 próba)',
     ],
   },
   {

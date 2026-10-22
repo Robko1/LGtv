@@ -453,7 +453,7 @@
    * Láthatatlan-e az elem?
    *
    * A TV / Mozi / Sorozat nézetek az azonnali váltás miatt a DOM-ban
-   * maradnak (csak `visibility: hidden` + `data-view-hidden`), és a
+   * maradnak (csak visibility: hidden + data-view-hidden), és a
    * csatornalista is a DOM-ban marad teljes képernyőn. A kijelölőnek és a
    * gombkezelőnek ezeket NEM szabad látnia: különben a távirányító nyilai a
    * rejtett listára mennek, és teljes képernyőn nem lehet csatornát váltani.
