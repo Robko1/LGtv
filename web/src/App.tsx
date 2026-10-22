@@ -522,7 +522,9 @@ export function App() {
     appLog(`Mentett tartalom betöltése indul (tároló: ${bootLive.provider.id}).`);
     logMemory('tartalom betöltése előtt');
     const timer = window.setTimeout(() => {
-      void (async () => {
+      // A film- és sorozatlista egymástól független: ne kelljen megvárni a
+      // teljes filmkatalógust ahhoz, hogy a sorozatok megjelenhessenek.
+      const vodTask = (async () => {
         try {
           const vod = await loadVodAsync(provider);
           if (cancelled) return;
@@ -532,6 +534,9 @@ export function App() {
         } catch (error) {
           appLogError('Filmek betöltése', error);
         }
+      })();
+      const seriesTask = (async () => {
+        // Engedjük, hogy az első nézet kirajzolódjon, majd külön induljon a sorozat-cache.
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         try {
           const ser = await loadSeriesAsync(provider);
@@ -542,9 +547,9 @@ export function App() {
         } catch (error) {
           appLogError('Sorozatok betöltése', error);
         }
-        logMemory('tartalom betöltése után');
       })();
-    }, 60);
+      void Promise.all([vodTask, seriesTask]).finally(() => logMemory('tartalom betöltése után'));
+    }, 0);
     return () => {
       cancelled = true;
       clearTimeout(timer);
