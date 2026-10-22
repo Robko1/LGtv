@@ -382,13 +382,9 @@ function write(key: string, payload: unknown): boolean {
 }
 
 /** Csak az élő csatornák mentése (a betöltés első szakasza után azonnal). */
-/** Mentésnél a magyar csatornák kerülnek a lista elejére.
- *  FONTOS (újraindítás utáni "arab csatornára ugrás" javítása): ha a teljes
- *  lista nem fér el a TV tárolójában, a write() a lista VÉGÉT vágja le.
- *  Korábban a szolgáltatói (ábécé szerinti, pl. arab kezdetű) sorrend került
- *  mentésre, így pont a magyar csatornák vesztek el - újraindítás után a
- *  program nem találta az utoljára nézett magyar adót, és az első megmaradt
- *  (arab) csatornára állt. */
+/** Mentésnél a magyar csatornák kerülnek előre.
+ *  A darabolt mentés elkerüli, hogy egyetlen túl nagy localStorage-érték
+ *  miatt a lista vége levágódjon; a magyar sorrend továbbra is megmarad. */
 function hungarianFirstForSave(channels: Channel[]): Channel[] {
   const hu: Channel[] = [];
   const rest: Channel[] = [];
