@@ -1161,6 +1161,22 @@ export function App() {
       const content: ImportedContent =
         'content' in result ? result.content : (result as ImportedContent);
 
+      // Xtream API-fiókadatok: a lejárat és a kapcsolatkorlát az auth válaszból jön.
+      // QR-rel hozzáadott szolgáltatónál is felülírjuk az induló N/A értékeket.
+      if ('user' in result && result.user) {
+        const updatedProviders = providersForRefresh.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                expireDate: result.user.expireDate,
+                maxConnections: result.user.maxConnections,
+              }
+            : p
+        );
+        setProviders(updatedProviders);
+        storageService.saveProviders(updatedProviders);
+      }
+
       // Frissítéskor csak a szolgáltatói tartalom változik; a felhasználó kedvencei,
       // kézi sorrendje és a kedvencmappákhoz tartozó csatornaazonosítók megmaradnak.
       const refreshedChannels = preserveChannelPreferences(content.channels, channels);
