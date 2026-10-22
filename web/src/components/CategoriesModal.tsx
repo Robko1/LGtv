@@ -153,6 +153,34 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
     return { searchResults: matched, filtered: filteredCats };
   }, [categories, channels, normalizedSearch]);
 
+  // Az országokhoz tartozó alkategóriákat és darabszámokat egyszer, memoizálva
+  // készítjük el. Korábban minden ország megnyitásakor újra végigszűrtük a
+  // teljes csatornalistát, majd minden alkategóriánál ismételtünk egy szűrést.
+  // Nagy IPTV-listán ez a modal megakasztását és hosszú hibaáradatot okozhatott.
+  const countrySubCategories = useMemo(() => {
+    const byCountry = new Map<string, Map<string, { id: string; name: string; count: number }>>();
+    for (const channel of channels) {
+      const countryCode = (channel.countryCode || 'INT').toUpperCase();
+      const categoryId = channel.categoryId || 'other';
+      let country = byCountry.get(countryCode);
+      if (!country) {
+        country = new Map();
+        byCountry.set(countryCode, country);
+      }
+      const existing = country.get(categoryId);
+      if (existing) {
+        existing.count++;
+      } else {
+        country.set(categoryId, {
+          id: categoryId,
+          name: channel.categoryName || categoryId,
+          count: 1,
+        });
+      }
+    }
+    return byCountry;
+  }, [channels]);
+
   const homeCategory = categories.find((cat) => cat.id === 'country-HU') || categories[0];
 
   return (
@@ -254,10 +282,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                 onClick={() => {
                   const countryCode = cat.id.startsWith('country-') ? cat.id.slice('country-'.length) : '';
                   const subCategories = countryCode
-                    ? Array.from(new Map(channels
-                        .filter((channel) => (channel.countryCode || 'INT').toUpperCase() === countryCode)
-                        .map((channel) => [channel.categoryId, { id: channel.categoryId, name: channel.categoryName || channel.categoryId }])
-                      ).values())
+                    ? Array.from(countrySubCategories.get(countryCode)?.values() || [])
                     : [];
                   // Ha több alkategória van, kiválasztjuk az országot (pl. Magyarország 105)
                   // és lenyitjuk az alkategóriákat – így csak a kiválasztott ország/kategória
@@ -300,10 +325,8 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
               </div>
               {expandedCountryId === cat.id && (() => {
                 const countryCode = cat.id.slice('country-'.length);
-                const subCategories = Array.from(new Map(channels
-                  .filter((channel) => (channel.countryCode || 'INT').toUpperCase() === countryCode)
-                  .map((channel) => [channel.categoryId, { id: channel.categoryId, name: channel.categoryName || channel.categoryId }])
-                ).values()).sort((a, b) => a.name.localeCompare(b.name));
+                const subCategories = Array.from(countrySubCategories.get(countryCode)?.values() || [])
+                  .sort((a, b) => a.name.localeCompare(b.name, 'hu', { sensitivity: 'base', numeric: true }));
                 return (
                   <div className="ml-5 mt-1 mb-2 pl-3 border-l-2 border-cyan-700/60 space-y-1">
                     <button
@@ -330,7 +353,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                         className="w-full flex items-center justify-between gap-2 rounded-xl border border-cyan-900/40 bg-[#0b1b36] hover:bg-[#12305b] px-3 py-2 text-left text-sm text-slate-200"
                       >
                         <span>{subCategory.name}</span>
-                        <span className="text-xs text-slate-400">{channels.filter((channel) => (channel.countryCode || 'INT').toUpperCase() === countryCode && channel.categoryId === subCategory.id).length}</span>
+                        <span className="text-xs text-slate-400">{subCategory.count}</span>
                       </button>
                     ))}
                   </div>
