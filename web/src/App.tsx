@@ -2013,7 +2013,7 @@ export function App() {
           </div>
           {/* Virtualized Fast Channel List – reszponzív oldalsáv */}
           {!isVideoFullscreen && !customStreamUrl && (
-            <div className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 border-t md:border-t-0 md:border-l border-cyan-950/40 bg-[#070e1e]">
+            <div className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 bg-[#070e1e]">
               <ChannelList
                 channels={filteredChannels}
                 activeProvider={activeProvider}
