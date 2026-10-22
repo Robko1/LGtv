@@ -420,3 +420,74 @@ test('6. a CI 6. lépésének minden forrás-őre teljesül', () => {
     .map((file) => path.relative(ROOT, file));
   assert.deepEqual(offenders, [], `más platformra utaló kód: ${offenders.join(', ')}`);
 });
+
+/* ────────── 7. Mozi/Sorozat navigáció, mappatörlés, gyors visszalépés ────────── */
+
+test('7. a rejtett nézet display:none (nincs beégett maradék kép a háttérben)', () => {
+  assert.match(APP, /display: isActive \? undefined : 'none'/, 'a nem aktív nézet kikerül a kirajzolásból');
+  assert.doesNotMatch(APP, /visibility: isActive \? 'visible' : 'hidden'/,
+    'a visibility-kapcsolás maradék (beégett) képkockákat hagyott a Mozi nézet hátterében');
+});
+
+test('7. nézetváltáskor a görgetési pozíció megmarad (display:none mellett is)', () => {
+  assert.match(APP, /const capturePaneScroll = useCallback\(\(view: string\)/, 'van görgetés-mentés');
+  assert.match(APP, /const restorePaneScroll = useCallback\(\(view: string\)/, 'van görgetés-visszaállítás');
+  assert.match(APP, /capturePaneScroll\(activeView\);/, 'váltás ELŐTT mentünk');
+  assert.match(APP, /restorePaneScroll\(activeView\);/, 'a megnyitott nézetben visszaállítunk');
+  assert.match(read('web/src/components/ChannelList.tsx'), /data-scroll-keep=""/);
+  assert.match(read('web/src/components/MoviesView.tsx'), /data-scroll-keep=""/);
+  assert.match(read('web/src/components/SeriesView.tsx'), /data-scroll-keep=""/);
+});
+
+test('7. nézetváltáskor a fókusz a megnyitott nézetbe kerül', () => {
+  assert.match(APP, /const first = pane\.querySelector<HTMLElement>\(/, 'a nézet első vezérlője kapja a fókuszt');
+  assert.match(APP, /\[data-view-pane="\$\{activeView\}"\]/, 'a LÁTHATÓ nézetet keressük');
+});
+
+test('7. a VISSZA gomb a Mozi/Sorozat nézetből az élő nézetbe tér vissza', () => {
+  assert.match(APP, /if \(activeView !== 'live'\) \{\s*e\.preventDefault\(\);\s*handleViewChange\('live'\);/,
+    'a nézetből eddig nem lehetett kijutni a távirányítóval');
+});
+
+test('7. a háttérben lévő csatornalista nem lopja el a fókuszt', () => {
+  const guards = APP.match(/data-view-pane\]:not\(\[data-view-hidden\]\)[^\n]*!== 'live'/g) || [];
+  assert.ok(guards.length >= 2, 'mindkét fókusz-visszaállító effekt ellenőrzi a nézetet');
+});
+
+test('7. kedvenc mappa törlése távirányítóval (nincs window.confirm)', () => {
+  const settings = read('web/src/components/MenuSettingsModal.tsx');
+  // Csak a KÓD számít: a magyarázó megjegyzésekben szerepelhet a confirm szó.
+  const settingsCode = settings
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '') // JSX komment
+    .replace(/\/\*[\s\S]*?\*\//g, '')      // blokk-komment
+    .replace(/^\s*\/\/.*$/gm, '');           // sor-komment
+  assert.doesNotMatch(settingsCode, /window\.confirm|(?<![.\w])confirm\(/, 'a TV nem jelenít meg natív confirm ablakot');
+  assert.match(settings, /const \[pendingDeleteFolderId, setPendingDeleteFolderId\]/);
+  assert.match(settings, /Igen, törlés/, 'van megerősítő gomb');
+  assert.match(settings, /Mégse/, 'van visszavonó gomb');
+  assert.match(settings, /onDeleteFolder\(f\.id\);/, 'a megerősítés valóban töröl');
+  // A törlés-megerősítés a saját kérdésen belül kap fókuszt (TV-n is elérhető).
+  assert.match(settings, /if \(pendingDeleteFolderId\) \{[\s\S]{0,220}?setPendingDeleteFolderId\(null\);/, 'VISSZA: a kérdés visszavonása');
+});
+
+test('7. teljes képernyőről visszatérve nincs újraépítés', () => {
+  // Az oldalsáv nem tűnik el (nincs visibility-kapcsolás): a lejátszó fedi.
+  assert.match(APP, /data-live-sidebar=""/);
+  assert.doesNotMatch(APP, /visibility: isVideoFullscreen \|\| customStreamUrl \? 'hidden' : 'visible'/,
+    'a visibility eldobta a csatornalista kirajzolt rétegét = lassú visszatérés');
+  // Az OSD mountolva marad (nincs feltételes mount/unmount).
+  assert.doesNotMatch(APP, /\{!customStreamUrl && !isVideoFullscreen && isOsdVisible && <ChannelControls/,
+    'az OSD minden váltáskor újraépült');
+  assert.match(APP, /display: isVideoFullscreen \|\| !isOsdVisible \? 'none' : undefined/);
+  // A csatornalista memoizált (nem rajzolódik újra a teljes képernyő miatt).
+  assert.match(read('web/src/components/ChannelList.tsx'), /export const ChannelList = React\.memo\(/);
+  assert.match(read('web/src/components/MoviesView.tsx'), /React\.memo\(MoviesViewComponent\)/);
+  assert.match(read('web/src/components/SeriesView.tsx'), /React\.memo\(SeriesViewComponent\)/);
+});
+
+test('7. Mozi/Sorozat nézetben a nyilak nem váltanak élő csatornát', () => {
+  // A főoldali gyorsgombok (FEL/LE, CH+/CH-) csak az élő nézetben zárnak:
+  // böngészés közben nem indulhat el a háttérben egy másik adás.
+  const arrows = APP.match(/if \(activeView !== 'live'\) break;/g) || [];
+  assert.ok(arrows.length >= 4, `a négy gombkezelő (FEL, LE, CH+, CH-) ellenőrizze a nézetet (talált: ${arrows.length})`);
+});

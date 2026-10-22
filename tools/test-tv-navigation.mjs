@@ -256,3 +256,162 @@ test('5. rejtett lista mellett a fókusz nem kerülhet a rejtett sorokra', () =>
   assert.equal(active.id, 'player');
   });
 });
+
+/* ─────────────── 6. Mozi / Sorozat nézet navigációja ─────────────── */
+
+/*
+ * A Mozi/Sorozat nézet a DOM-ban marad (a nem aktív nézetek display:none-t
+ * kapnak). A fejléc „zóna” szabályai korábban MINDEN nézetben lefutottak és
+ * `return`-öltek: a Mozi/Sorozat nézetben a LE nyíl nem csinált semmit, a
+ * nézetben egyáltalán nem lehetett mozogni. Ezek a próbák azt rögzítik,
+ * hogy a nyilak ott is a nézet vezérlőire visznek, és a rejtett
+ * csatornalistára soha nem lépnek.
+ */
+function libraryDom({ view = 'movies', liveMounted = true } = {}) {
+  const rows = Array.from({ length: 6 }, (_, i) => `
+      <div data-channel-id="ch-${i}">
+        <div role="option" tabindex="0">${i + 1}. Csatorna ${i + 1}</div>
+      </div>`).join('');
+  const livePane = liveMounted
+    ? `<div data-view-pane="live" ${view === 'live' ? '' : 'data-view-hidden="" style="display:none"'}>
+         <div role="listbox" aria-label="Csatornalista">${rows}</div>
+       </div>`
+    : '';
+  const library = (name, title) => `
+    <div data-view-pane="${name}" ${view === name ? '' : 'data-view-hidden="" style="display:none"'}>
+      <button tabindex="0">Kategóriák</button>
+      <div role="button" tabindex="0">${title} 1</div>
+      <div role="button" tabindex="0">${title} 2</div>
+    </div>`;
+  const html = `<!doctype html><html><head></head><body class="webos-tv">
+    <header>
+      <button data-tv-header="" data-tv-header-kind="live" tabindex="0">TV</button>
+      <button data-tv-header="" data-tv-header-kind="series" tabindex="0">Sorozat</button>
+      <button data-tv-header="" data-tv-header-kind="movies" tabindex="0">Mozi</button>
+      <button data-tv-header="" data-tv-header-default="" data-tv-header-kind="settings" tabindex="0">Menü</button>
+    </header>
+    <div data-view-pane="__none__" style="display:none"></div>
+    ${livePane}
+    ${library('movies', 'Film')}
+    ${library('series', 'Sorozat')}
+    <div id="root"></div>
+  </body></html>`;
+  const dom = new JSDOM(html, { url: 'https://tv.local/', runScripts: 'dangerously', virtualConsole: new VirtualConsole() });
+  dom.window.eval(WEBOS_JS);
+  if (!dom.window.document.getElementById('webos-tv-fix-css')) {
+    dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+  }
+  return dom;
+}
+
+test('6. Mozi nézetben a LE nyíl a fejlécből a NÉZET vezérlőire lép', () => {
+  const dom = libraryDom({ view: 'movies' });
+  try {
+    const doc = dom.window.document;
+    const movieButton = doc.querySelector('header [data-tv-header-kind="movies"]');
+    movieButton.focus();
+    const event = press(dom.window, 'ArrowDown', 40);
+    assert.equal(event.defaultPrevented, true, 'a gombot a kezelő viszi');
+    const active = doc.activeElement;
+    assert.ok(active, 'van kijelölés');
+    assert.equal(active.closest('[data-view-pane]')?.getAttribute('data-view-pane'), 'movies',
+      'a fókusz a Mozi nézetben maradt');
+    assert.equal(active.textContent.trim(), 'Kategóriák', 'a nézet első vezérlője');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('6. Mozi nézetben body-fókusszal az első gombnyomás is működik', () => {
+  const dom = libraryDom({ view: 'movies' });
+  try {
+    const doc = dom.window.document;
+    doc.body.focus();
+    press(dom.window, 'ArrowDown', 40);
+    const active = doc.activeElement;
+    assert.ok(active && active !== doc.body, 'a fókusz nem marad a body-n');
+    assert.equal(active.closest('[data-view-pane]')?.getAttribute('data-view-pane'), 'movies');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('6. a rejtett csatornalista SOHA nem kap fókuszt Mozi nézetben', () => {
+  const dom = libraryDom({ view: 'movies' });
+  try {
+    const doc = dom.window.document;
+    for (const [key, code] of [['ArrowDown', 40], ['ArrowUp', 38], ['ArrowLeft', 37], ['ArrowRight', 39]]) {
+      press(dom.window, key, code);
+      const active = doc.activeElement;
+      assert.ok(!active?.closest?.('[data-view-pane="live"]'),
+        `a rejtett csatornalistára nem lépett (${key})`);
+      assert.ok(!active?.closest?.('[role="listbox"]'),
+        `a rejtett listára nem lépett (${key})`);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('6. élő nézetben a fejléc LE nyila továbbra sem ugrik a listára (nincs regresszió)', () => {
+  const dom = libraryDom({ view: 'live' });
+  try {
+    const doc = dom.window.document;
+    const movieButton = doc.querySelector('header [data-tv-header-kind="movies"]');
+    movieButton.focus();
+    press(dom.window, 'ArrowDown', 40);
+    assert.equal(doc.activeElement, movieButton,
+      'élő nézetben a Mozi gombról lefelé nem lép (a korábbi viselkedés marad)');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('6. a Sorozat nézet ugyanígy navigálható', () => {
+  const dom = libraryDom({ view: 'series' });
+  try {
+    const doc = dom.window.document;
+    doc.querySelector('header [data-tv-header-kind="movies"]').focus();
+    press(dom.window, 'ArrowDown', 40);
+    assert.equal(doc.activeElement?.closest('[data-view-pane]')?.getAttribute('data-view-pane'), 'series');
+  } finally {
+    dom.window.close();
+  }
+});
+
+/* ───── 7. Rejtett ablak és rejtett nézet nem fogja el a távirányítót ───── */
+
+test('7. a rejtett nézet ablaka (display:none) nem kapja meg a nyilakat', () => {
+  const rows = '<div data-channel-id="ch-0"><div role="option" tabindex="0">1. Csatorna</div></div>';
+  const html = `<!doctype html><html><head></head><body class="webos-tv">
+    <header><button data-tv-header="" data-tv-header-kind="movies" tabindex="0">Mozi</button></header>
+    <div data-view-pane="live" data-view-hidden="" style="display:none">
+      <div role="listbox">${rows}</div>
+      <div role="dialog" aria-label="Rejtett kérdés" data-iptv-dlgseq="99">
+        <button tabindex="0">Törlés</button>
+        <button tabindex="0">Mégse</button>
+      </div>
+    </div>
+    <div data-view-pane="movies">
+      <button tabindex="0">Kategóriák</button>
+      <div role="button" tabindex="0">Film 1</div>
+    </div>
+    <div id="root"></div>
+  </body></html>`;
+  const dom = new JSDOM(html, { url: 'https://tv.local/', runScripts: 'dangerously', virtualConsole: new VirtualConsole() });
+  try {
+    dom.window.eval(WEBOS_JS);
+    if (!dom.window.document.getElementById('webos-tv-fix-css')) {
+      dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+    }
+    const doc = dom.window.document;
+    doc.querySelector('header button').focus();
+    press(dom.window, 'ArrowDown', 40);
+    const active = doc.activeElement;
+    assert.equal(active?.closest('[data-view-pane]')?.getAttribute('data-view-pane'), 'movies',
+      'a rejtett ablak nem foghatja el a navigációt');
+    assert.notEqual(active?.textContent?.trim(), 'Törlés');
+  } finally {
+    dom.window.close();
+  }
+});

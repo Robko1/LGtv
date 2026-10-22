@@ -297,10 +297,11 @@
         '   teljes kijelzot hasznaljuk - bal oldali fekete sav nem maradhat. */',
         '.webos-tv [data-tv-player].fixed { left:0 !important; top:0 !important; right:0 !important; bottom:0 !important; margin:0 !important; padding:0 !important; border:0 !important; max-width:none !important; max-height:none !important; transform:none !important; outline:none !important; box-shadow:none !important; }',
         '.webos-tv [data-tv-player].fixed video { position:absolute !important; left:0 !important; top:0 !important; width:100% !important; height:100% !important; max-width:none !important; object-fit:fill !important; }',
-        '/* Teljes kepernyon a #root belső margoja es a fo keret kék szegelye sem',
-        '   latszhat (ezek adtak kek csíkot a bal also/felso sarokba). */',
-        'body.iptv-tv-fullscreen #root { padding:0 !important; }',
-        'body.iptv-tv-fullscreen [data-app-root] { border:0 !important; padding:0 !important; }',
+        '/* TELJES KEPERNYO: a #root margoja es az app-keret szegelye NEM valtozik.',
+        '   Korabban ezeket 0-ra allitottuk, ami a TELJES oldal ujraelrendezeset',
+        '   valtotta ki (a csatornalista magassaga is valtozott, ezert a lista',
+        '   ujrarenderelte a sorokat) - visszatereskor ez latszott ujraepitesnek.',
+        '   A lejatszo doboza position:fixed, ezert a #root margoja ra nem hat. */',
         'body.iptv-tv-fullscreen [data-tv-player].fixed:focus { outline:none !important; }',
         '/* Teljes kepernyon a fooldal SEMMI eleme nem latszhat at (a bal',
         '   felso sarokban a fejlec kek ora doboza latszott at). */',
@@ -423,6 +424,29 @@
   }
 
   /**
+   * Egy adott doboz fókuszálható elemei, biztonsági tartalékkal.
+   *
+   * A getFocusable a látható méretet (getClientRects) is nézi. Ha a motor
+   * nem ad méretet (pl. a doboz épp épül, vagy egy régi motor), akkor a
+   * doboz összes vezérlőjére visszaesünk – így a kijelölő soha nem akad el,
+   * és a Mozi/Sorozat nézetben a LE nyíl mindig talál célpontot.
+   */
+  function focusableIn(container) {
+    if (!container) return [];
+    var items = getFocusable(container);
+    if (items.length) return items;
+    try {
+      return Array.prototype.slice.call(
+        container.querySelectorAll('button, [href], input, [tabindex]:not([tabindex="-1"])')
+      ).filter(function(el) {
+        if (el.hasAttribute('disabled')) return false;
+        if (el.closest && el.closest('[data-view-hidden]')) return false;
+        return true;
+      });
+    } catch (e) { return []; }
+  }
+
+  /**
    * Csak a látható elemek, de biztonsági tartalékkal: ha a motor nem ad
    * befoglaló méretet (pl. régi webOS vagy tesztkörnyezet), akkor a teljes
    * listát használjuk - így a kijelölő soha nem akad el.
@@ -479,6 +503,23 @@
     var list = document.querySelector('[role="listbox"]');
     if (!list) return null;
     return isHiddenEl(list) ? null : list;
+  }
+
+  /**
+   * A LÁTHATÓ nézet doboza (TV / Mozi / Sorozat).
+   *
+   * A három nézet a DOM-ban marad, a nem aktívak display:none-t kapnak.
+   * A Mozi/Sorozat nézetben nincs csatornalista, ezért a távirányító a
+   * nézet saját vezérlői között lépked – ehhez kell a doboz.
+   */
+  function activePane() {
+    try {
+      var panes = document.querySelectorAll('[data-view-pane]');
+      for (var i = 0; i < panes.length; i++) {
+        if (!isHiddenEl(panes[i])) return panes[i];
+      }
+    } catch (e) { /* régi motor */ }
+    return null;
   }
 
   /** A lista első (vagy a kiválasztott) csatornasora. */
@@ -580,9 +621,12 @@
     try {
       var l = document.querySelectorAll('[role="dialog"]');
       if (!l.length) return null;
-      var best = l[l.length - 1];
+      var best = null;
       var bestSeq = -1;
       for (var i = 0; i < l.length; i++) {
+        // A REJTETT nézet ablaka nem létezik a távirányító számára: különben
+        // a gombok egy display:none dobozon belül keresnének szomszédot.
+        if (isHiddenEl(l[i])) continue;
         var sq = parseInt(l[i].getAttribute('data-iptv-dlgseq') || '0', 10);
         if (sq >= bestSeq) { best = l[i]; bestSeq = sq; }
       }
@@ -1094,7 +1138,14 @@
         return true;
       };
 
-      if (inHeader && headerItems.length) {
+      /*
+       * A fejléc „zóna” szabályai (fel/le a fejléc, mappasáv és csatornalista
+       * között) CSAK az élő nézetre érvényesek. A Mozi/Sorozat nézetben nincs
+       * csatornalista: ott a fejlécből lefelé a nézet vezérlőire kell lépni.
+       * Korábban itt a szabály return-ölt, ezért a Mozi/Sorozat nézetben
+       * a LE nyíl (és így a navigáció) egyáltalán nem működött.
+       */
+      if (inHeader && headerItems.length && listEl) {
         e.preventDefault();
         e.stopPropagation();
         var hi = headerItems.indexOf(focusedNow);
@@ -1142,7 +1193,7 @@
         return;
       }
 
-      if (inFolders) {
+      if (inFolders && listEl) {
         e.preventDefault();
         e.stopPropagation();
         var fi = folderItems.indexOf(focusedNow);
@@ -1168,11 +1219,48 @@
       // Mozi/Sorozat nézetben (nincs csatornalista) a látható vezérlők között
       // lépünk, de a lejátszó és az OSD továbbra is tiltott.
       if (!listEl) {
-        // Mozi/Sorozat nézet: a lejátszó és az OSD kizárásával lépünk tovább.
-        var safeItems = contentItems();
-        if (focusedNow && spatialPick(focusedNow, key, safeItems)) {
+        /*
+         * MOZI / SOROZAT NÉZET.
+         *
+         * Itt nincs csatornalista, ezért a fejléc és a nyitott nézet
+         * vezérlői között TÉRBEN lépkedünk. A rejtett nézet elemeit a
+         * getFocusable már kiszűri (data-view-hidden + display:none).
+         */
+        var shownPane = activePane();
+        var paneItems = focusableIn(shownPane);
+        var safeItems = paneItems.concat(headerItems).concat(folderItems);
+
+        // A fókusz a body-n vagy egy eltűnt elemen ragadt: a nézet első
+        // vezérlőjére visszük, hogy a távirányító azonnal működjön.
+        if (!focusedNow || focusedNow === document.body || focusedNow === document.documentElement || isHiddenEl(focusedNow)) {
           e.preventDefault();
           e.stopPropagation();
+          var firstItem = paneItems[0] || headerItems[0] || folderItems[0];
+          if (firstItem) firstItem.focus({preventScroll:true});
+          return;
+        }
+        if (spatialPick(focusedNow, key, safeItems)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        // Ha térben nincs szomszéd (pl. a fejléc alatt üres a nézet teteje),
+        // a LE nyíl a nézet első vezérlőjére, a FEL a fejléc utolsó elemére lép.
+        // A nézeten BELÜL soha nem ugrunk vissza a tetejére: ott a térbeli
+        // lépés a mérvadó (különben a lista közepén a LE nyíl felrántaná).
+        var focusInPane = !!(shownPane && focusedNow && shownPane.contains(focusedNow));
+        if (key === 'ArrowDown' && paneItems.length && !focusInPane) {
+          e.preventDefault();
+          e.stopPropagation();
+          paneItems[0].focus({preventScroll:true});
+          revealEl(paneItems[0]);
+          return;
+        }
+        if (key === 'ArrowUp' && headerItems.length && !focusInPane) {
+          e.preventDefault();
+          e.stopPropagation();
+          var lastHeader = headerDefault || headerItems[headerItems.length - 1];
+          lastHeader.focus({preventScroll:true});
           return;
         }
         if (needsRedispatch) {

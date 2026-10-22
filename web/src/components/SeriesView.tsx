@@ -21,7 +21,7 @@ interface SeriesViewProps {
 const PAGE_SIZE = 120;
 let seriesReturnSnapshot: { searchTerm: string; scrollTop: number; visibleCount: number } | null = null;
 
-export const SeriesView: React.FC<SeriesViewProps> = ({
+const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   series,
   categories: providerCategories,
   totalCount,
@@ -39,6 +39,24 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   const [visibleCount, setVisibleCount] = useState(() => seriesReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const seriesGridRef = useRef<HTMLDivElement | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
+  // A részletek-ablak fókusza – lásd MoviesView (a távirányítónak azonnal
+  // egy gombon kell lennie, különben a dialógusban nem lehet mozogni).
+  const detailDialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!selectedSeriesId) {
+      const previous = previousFocusRef.current;
+      previousFocusRef.current = null;
+      if (previous && document.contains(previous)) previous.focus({ preventScroll: true } as FocusOptions);
+      return;
+    }
+    if (!previousFocusRef.current) previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const timer = window.setTimeout(() => {
+      const first = detailDialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)');
+      first?.focus({ preventScroll: true } as FocusOptions);
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [selectedSeriesId]);
 
   const categories = [
     { id: 'all', name: 'Összes sorozat' },
@@ -168,7 +186,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
       </div>
 
       {/* Referencia-szerű sorozatkönyvtár: vízszintes kategóriapolcok és teljes kategóriarács. */}
-      <div ref={seriesGridRef} onScroll={(e) => { const el = e.currentTarget; if ((selectedCategory !== 'all' || searchTerm.trim()) && el.scrollHeight - el.scrollTop - el.clientHeight < 700 && visibleCount < filteredSeries.length) setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredSeries.length)); }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
+      <div ref={seriesGridRef} data-scroll-keep="" onScroll={(e) => { const el = e.currentTarget; if ((selectedCategory !== 'all' || searchTerm.trim()) && el.scrollHeight - el.scrollTop - el.clientHeight < 700 && visibleCount < filteredSeries.length) setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredSeries.length)); }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
         {selectedCategory === 'all' && !searchTerm.trim() ? (
           categoryRows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
@@ -237,7 +255,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
 
       {/* Series Season & Episode Detail Modal */}
       {selectedSeries && (
-        <div role="dialog" aria-modal="true" aria-label="Sorozat részletei" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setSelectedSeriesId(''); } }} className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/85 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
+        <div ref={detailDialogRef} role="dialog" aria-modal="true" aria-label="Sorozat részletei" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setSelectedSeriesId(''); } }} className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/85 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
           <div className="bg-[#09152e] border border-cyan-800/60 rounded-3xl max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl w-full max-h-[92dvh] lg:max-h-[85vh] overflow-y-auto shadow-2xl animate-scaleUp flex flex-col">
             {/* Header */}
             <div className="relative h-44 w-full bg-slate-900 overflow-hidden shrink-0">
@@ -400,3 +418,6 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
     </div>
   );
 };
+
+/* Memoizált nézet – a főoldal egyéb állapotváltozásai nem rajzolják újra. */
+export const SeriesView = React.memo(SeriesViewComponent);
