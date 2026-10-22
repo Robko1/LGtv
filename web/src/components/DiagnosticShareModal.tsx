@@ -75,6 +75,16 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   };
 
   useEffect(() => {
+    if (!isOpen) return;
+    const onRedKey = (event: Event) => {
+      if ((event as CustomEvent)?.detail?.action === 'diagnostic-share') void createNewQr();
+    };
+    window.addEventListener('iptv-tv-action', onRedKey);
+    return () => window.removeEventListener('iptv-tv-action', onRedKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen) {
       generationRef.current += 1;
       setBusy(false);
