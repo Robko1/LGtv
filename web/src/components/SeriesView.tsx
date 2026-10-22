@@ -52,7 +52,8 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     }
     if (!previousFocusRef.current) previousFocusRef.current = document.activeElement as HTMLElement | null;
     const timer = window.setTimeout(() => {
-      const first = detailDialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)');
+      const first = detailDialogRef.current?.querySelector<HTMLElement>('[data-dialog-primary]')
+        || detailDialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)');
       first?.focus({ preventScroll: true } as FocusOptions);
     }, 60);
     return () => window.clearTimeout(timer);
@@ -354,9 +355,25 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                 </h5>
 
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {activeSeason?.episodes.map((ep) => (
+                  {activeSeason?.episodes.map((ep, epIndex) => (
                     <div
                       key={ep.id}
+                      /*
+                       * AZ EPIZÓDSOR FÓKUSZÁLHATÓ. Korábban csak onClick volt
+                       * rajta: a távirányítóval (D-pad + OK) egyetlen epizódot
+                       * sem lehetett elindítani, mert a sor nem volt a
+                       * fókuszálható elemek között.
+                       */
+                      role="button"
+                      tabIndex={0}
+                      data-dialog-primary={epIndex === 0 ? '' : undefined}
+                      onKeyDown={(e) => {
+                        const key = normalizeTvKey(e);
+                        if (key === 'Enter' || key === ' ') {
+                          e.preventDefault();
+                          (e.currentTarget as HTMLElement).click();
+                        }
+                      }}
                       onClick={() => {
                         const ser = selectedSeries;
                         seriesReturnSnapshot = {
@@ -404,7 +421,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                       </div>
 
                       {/* Right: Play pill */}
-                      <button className="shrink-0 p-2 rounded-xl bg-cyan-400/20 text-cyan-300 border border-cyan-500/40 group-hover:bg-cyan-400 group-hover:text-slate-950 transition-all ml-2">
+                      <button tabIndex={-1} aria-hidden="true" className="shrink-0 p-2 rounded-xl bg-cyan-400/20 text-cyan-300 border border-cyan-500/40 group-hover:bg-cyan-400 group-hover:text-slate-950 transition-all ml-2">
                         <Play className="w-4 h-4 fill-current ml-0.5" />
                       </button>
                     </div>

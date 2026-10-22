@@ -51,7 +51,8 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     }
     if (!previousFocusRef.current) previousFocusRef.current = document.activeElement as HTMLElement | null;
     const timer = window.setTimeout(() => {
-      const first = detailDialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)');
+      const first = detailDialogRef.current?.querySelector<HTMLElement>('[data-dialog-primary]')
+        || detailDialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)');
       first?.focus({ preventScroll: true } as FocusOptions);
     }, 60);
     return () => window.clearTimeout(timer);
@@ -293,6 +294,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
             <div className="p-4 space-y-4">
               {/* Play Button */}
               <button
+                data-dialog-primary=""
                 onClick={() => {
                   const mov = selectedMovie;
                   movieReturnSnapshot = {

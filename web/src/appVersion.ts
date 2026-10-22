@@ -16,6 +16,7 @@ export const WEB_VERSION_HISTORY = [
       'KEDVENC MAPPA TÖRLÉSE MŰKÖDIK: a TV nem jelenít meg natív megerősítő ablakot (window.confirm mindig „nem”), ezért a törlés hatástalan volt – most a felületen belül, távirányítóval választható kérdés jelenik meg (Igen, törlés / Mégse)',
       'GYORSABB VISSZALÉPÉS TELJES KÉPERNYŐBŐL: az oldalsáv nem tűnik el (a lejátszó fedi), az OSD nem épül újra, a csatornalista/mozi/sorozat nézet memoizált, és a teljes képernyő nem rendezte újra az egész oldalt – nincs látható újraépítés',
       'Böngészés közben a FEL/LE nyíl és a CH+/CH- nem vált csatornát a háttérben',
+      'A SOROZAT epizódjai távirányítóval is elindíthatók: a sorok eddig csak egérrel voltak kattinthatók (nem voltak fókuszálhatók), a részletek-ablakban pedig az első epizód kapja a kijelölést',
     ],
   },
   {

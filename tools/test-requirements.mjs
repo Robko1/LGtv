@@ -491,3 +491,13 @@ test('7. Mozi/Sorozat nézetben a nyilak nem váltanak élő csatornát', () => 
   const arrows = APP.match(/if \(activeView !== 'live'\) break;/g) || [];
   assert.ok(arrows.length >= 4, `a négy gombkezelő (FEL, LE, CH+, CH-) ellenőrizze a nézetet (talált: ${arrows.length})`);
 });
+
+test('7. a sorozat epizódjai távirányítóval is elindíthatók', () => {
+  const seriesView = read('web/src/components/SeriesView.tsx');
+  assert.match(seriesView, /role="button"\s*\n\s*tabIndex=\{0\}/, 'az epizódsor fókuszálható');
+  assert.match(seriesView, /if \(key === 'Enter' \|\| key === ' '\)/, 'az OK/Enter elindítja az epizódot');
+  assert.match(seriesView, /data-dialog-primary=\{epIndex === 0 \? '' : undefined\}/,
+    'a részletek-ablakban az első epizód kapja a fókuszt');
+  // A mozi részletek-ablakában a „Film Indítása” gomb az elsődleges cél.
+  assert.match(read('web/src/components/MoviesView.tsx'), /data-dialog-primary=""/);
+});
