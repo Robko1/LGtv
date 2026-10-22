@@ -10,6 +10,12 @@
 LG webOS TV alkalmazás (IPK) TV-hez:
 - Élő TV, Mozi, Sorozat, EPG, kedvencek, beállítások
 - Távirányító (D-pad) + Magic Remote + egér támogatás
+- **Színes távirányítógombok – egyetlen, egységes kezelés**:
+  - **Piros**: képernyős diagnosztika be-/kikapcsolása
+  - **Zöld**: hangsávválasztó (Audio)
+  - **Sárga**: csatorna hozzáadása a kedvencekhez
+  - **Kék**: csatornamozgatási mód
+  - A zöld/sárga/kék gomb nem nyit Beállításokat, EPG-t vagy Kategóriákat; ezek a régi, ütköző hozzárendelések eltávolítva.
 - Külön kinézet: kisebb lejátszó (1280px max), gyors betöltés; induló videó nélkül, a logó képkockájával mint indítókép
 - **Két lejátszó motor** (Menü → Rendszer → Lejátszó motor), a választás megmarad:
   - **Beépített (HTML5)**: HLS, automatikus MPEG-TS váltás, teljes OSD – alapértelmezett
