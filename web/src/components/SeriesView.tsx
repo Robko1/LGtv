@@ -18,9 +18,7 @@ interface SeriesViewProps {
   onToggleFavoriteSeries: (seriesId: string) => void;
 }
 
-const PAGE_SIZE = 60;
-
-let seriesReturnSnapshot: { searchTerm: string; scrollTop: number; visibleCount: number } | null = null;
+let seriesReturnSnapshot: { searchTerm: string; scrollTop: number } | null = null;
 
 export const SeriesView: React.FC<SeriesViewProps> = ({
   series,
@@ -37,7 +35,6 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
-  const [visibleCount, setVisibleCount] = useState(() => seriesReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const seriesGridRef = useRef<HTMLDivElement | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
 
@@ -61,22 +58,37 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   }), [series, selectedCategory, searchTerm]);
 
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [selectedCategory, searchTerm]);
-
-  useEffect(() => {
     const snapshot = seriesReturnSnapshot;
     if (!snapshot) return;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         if (seriesGridRef.current) seriesGridRef.current.scrollTop = snapshot.scrollTop;
-        setVisibleCount(snapshot.visibleCount);
       });
     });
     seriesReturnSnapshot = null;
   }, []);
 
-  const visibleSeries = filteredSeries.slice(0, visibleCount);
+  const visibleSeries = filteredSeries;
+
+  // Referencia-szerű kategóriapolcok: a kategóriák sorrendjét a szolgáltató adja,
+  // a címek eredeti sorrendjét megőrizzük; minden kategóriához egyetlen csoportosítás.
+  const categoryRows = useMemo(() => {
+    const grouped = new Map<string, Series[]>();
+    for (const item of series) {
+      const key = item.categoryId || 'uncategorized';
+      const list = grouped.get(key);
+      if (list) list.push(item); else grouped.set(key, [item]);
+    }
+    const rows = (providerCategories || [])
+      .map((category) => ({ category, items: grouped.get(category.id) || [] }))
+      .filter((row) => row.items.length > 0);
+    const known = new Set(rows.map((row) => row.category.id));
+    for (const [id, items] of grouped) {
+      if (known.has(id)) continue;
+      rows.push({ category: { id, name: items[0]?.categoryName || 'Egyéb', channelCount: items.length } as Category, items });
+    }
+    return rows;
+  }, [series, providerCategories]);
 
   // A kiválasztott sorozat mindig a legfrissebb adatból (a részek utólag
   // töltődnek be a szolgáltatótól).
@@ -147,97 +159,71 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
         )}
       </div>
 
-      {/* Series Grid – reszponzív */}
+      {/* Referencia-szerű sorozatkönyvtár: vízszintes kategóriapolcok és teljes kategóriarács. */}
       <div ref={seriesGridRef} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
-        {filteredSeries.length === 0 ? (
+        {selectedCategory === 'all' && !searchTerm.trim() ? (
+          categoryRows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
+              <Filter className="w-10 h-10 text-slate-600 mb-2" />
+              {series.length === 0 ? (
+                <><p className="text-sm font-semibold">A sorozatok betöltése folyamatban van…</p><p className="text-xs mt-1 max-w-xs leading-relaxed">A mentett sorozatlista megjelenik, amint a betöltés befejeződik.</p></>
+              ) : <p className="text-sm font-semibold">Nincs megjeleníthető sorozatkategória.</p>}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6 md:gap-8">
+              {categoryRows.map(({ category, items }) => (
+                <section key={category.id} className="min-w-0">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <h2 className="text-sm md:text-base font-black text-white truncate">{category.name}</h2>
+                    <button onClick={() => { setSelectedCategory(category.id); onSelectedCategoryChange?.(category.id); if (seriesGridRef.current) seriesGridRef.current.scrollTop = 0; }}
+                      className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0f2042] border border-cyan-900/60 text-cyan-300 text-xs font-bold hover:bg-[#162d5a]">
+                      Összes megtekintése ({items.length}) →
+                    </button>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2">
+                    {items.slice(0, 12).map((ser) => (
+                      <button key={ser.id} onClick={() => { setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); }}
+                        className="group shrink-0 w-28 sm:w-32 md:w-36 lg:w-40 text-left rounded-xl overflow-hidden bg-[#0b162f] border border-cyan-950/70 hover:border-cyan-400/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                        <div className="relative aspect-[2/3] bg-slate-900 overflow-hidden">
+                          <PosterImage src={ser.poster} title={ser.title} kind="tv" alt={ser.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        </div>
+                        <div className="p-2"><div className="text-white text-xs font-bold truncate">{ser.title}</div><div className="text-[10px] text-slate-400 mt-1">{ser.year || ''}</div></div>
+                      </button>
+                    ))}
+                    {items.length > 12 && (
+                      <button onClick={() => { setSelectedCategory(category.id); onSelectedCategoryChange?.(category.id); if (seriesGridRef.current) seriesGridRef.current.scrollTop = 0; }}
+                        className="shrink-0 w-28 sm:w-32 md:w-36 lg:w-40 rounded-xl border border-dashed border-cyan-700/60 bg-[#0d1d3d] text-cyan-300 font-black text-sm hover:bg-[#142850]">
+                        <span className="block text-2xl mb-2">•••</span>Mind a {items.length} sorozat
+                      </button>
+                    )}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )
+        ) : filteredSeries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
             <Filter className="w-10 h-10 text-slate-600 mb-2" />
             {series.length === 0 ? (
-              <>
-                <p className="text-sm font-semibold">Nincs betöltött sorozat</p>
-                <p className="text-xs mt-1 max-w-xs leading-relaxed">
-                  Nyisd meg a Menü → Listák fület, és add hozzá a szolgáltatód (Xtream Codes) adatait – utána
-                  megjelennek a sorozataid is.
-                </p>
-              </>
-            ) : (
-              <p className="text-sm font-semibold">Nincs találat a keresési feltételekre.</p>
-            )}
+              <><p className="text-sm font-semibold">A sorozatok betöltése folyamatban van…</p><p className="text-xs mt-1 max-w-xs leading-relaxed">A mentett sorozatlista megjelenik, amint a betöltés befejeződik.</p></>
+            ) : <p className="text-sm font-semibold">Nincs találat a keresési feltételekre.</p>}
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-3 md:gap-4 lg:gap-4 xl:gap-5">
             {visibleSeries.map((ser) => (
-              <div
-                key={ser.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  setSelectedSeriesId(ser.id);
-                  setSelectedSeasonNumber(1);
-                  if (onOpenSeries) onOpenSeries(ser);
-                  setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1);
-                }}
-                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); if (onOpenSeries) onOpenSeries(ser); } }}
-                className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/60 md:hover:border-cyan-400/80 transition-all duration-200 hover:-translate-y-1 lg:hover:-translate-y-1.5 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070e1e]"
-              >
-                {/* Poster */}
-                <div className="relative aspect-2/3 w-full bg-slate-900 overflow-hidden">
-                  <PosterImage
-                    src={ser.poster}
-                    title={ser.title}
-                    kind="tv"
-                    alt={ser.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-
-                  {/* Rating */}
-                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1">
-                    <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                    <span>{ser.rating}</span>
-                  </div>
-
-                  {/* Play overlay hover */}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shadow-lg shadow-cyan-400/40 group-hover:scale-110 transition-transform">
-                      <Tv className="w-5 h-5" />
-                    </div>
-                  </div>
+              <div key={ser.id} role="button" tabIndex={0}
+                onClick={() => { setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); }}
+                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); } }}
+                className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
+                  <PosterImage src={ser.poster} title={ser.title} kind="tv" alt={ser.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{ser.rating}</span></div>
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Tv className="w-5 h-5" /></div></div>
                 </div>
-
-                {/* Info */}
-                <div className="p-2.5 flex-1 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-white font-bold text-xs truncate group-hover:text-cyan-300 transition-colors">
-                      {ser.title}
-                    </h3>
-                    <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400">
-                      <span>{ser.year}</span>
-                      <span>•</span>
-                      <span>{ser.seasonsCount} évad</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 flex items-center gap-1">
-                    <span className="px-1.5 py-0.5 rounded-sm bg-cyan-500/20 text-cyan-300 text-[9px] font-bold border border-cyan-500/30">
-                      {ser.episodesCount} Rész
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-300 text-[9px] font-bold border border-amber-500/30">
-                      FULL HD
-                    </span>
-                  </div>
-                </div>
+                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-xs truncate">{ser.title}</h3><div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400"><span>{ser.year}</span><span>•</span><span>{ser.seasonsCount || ser.seasons.length} évad</span></div></div>
               </div>
             ))}
           </div>
-        )}
-
-        {filteredSeries.length > visibleSeries.length && (
-          <button
-            onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-            className="w-full mt-4 py-3 rounded-2xl bg-[#112347] hover:bg-[#172e5c] text-cyan-300 border border-cyan-600/40 text-xs font-black active:scale-[0.98] transition-all"
-          >
-            További sorozatok betöltése ({visibleSeries.length} / {filteredSeries.length})
-          </button>
         )}
       </div>
 
@@ -350,8 +336,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
                         seriesReturnSnapshot = {
                           searchTerm,
                           scrollTop: seriesGridRef.current?.scrollTop ?? 0,
-                          visibleCount,
-                        };
+                              };
                         setSelectedSeriesId('');
                         onPlayEpisode(ser, ep);
                       }}
