@@ -47,7 +47,22 @@ export const FullscreenLiveOsd: React.FC<{ channel: Channel | null; displayNumbe
     : '';
 
   return (
-    <div className="fixed inset-0 z-[10000] flex flex-col justify-between pointer-events-none text-white" aria-live="polite">
+    /*
+     * A TELJES KÉPERNYŐS OSD RÉTEGZÉSE.
+     *
+     * A teljes képernyős lejátszó doboza `fixed` és a webOS TV CSS-e
+     * 2147483000-re teszi a z-indexét – a korábbi `z-[10000]` OSD tehát
+     * MINDIG a kép MÖGÖTT volt, ezért nem lehetett látni (csak a
+     * főoldalra visszatérve villant fel, ahol a lejátszó már nem fixed).
+     * Az OSD a kép FÖLÖTT van, de nem fogja el a távirányítót
+     * (pointer-events-none), és a fókusz sem kerülhet rá.
+     */
+    <div
+      data-fullscreen-osd=""
+      className="fixed inset-0 flex flex-col justify-between pointer-events-none text-white"
+      style={{ zIndex: 2147483001 }}
+      aria-live="polite"
+    >
       <div className="flex items-start justify-between bg-gradient-to-b from-black/85 via-black/40 to-transparent px-8 pt-6 pb-12">
         <div className="flex min-w-0 items-center gap-3">
           <span className="shrink-0 text-lg font-bold tabular-nums text-white/90">{displayNumber ?? channel.num}</span>

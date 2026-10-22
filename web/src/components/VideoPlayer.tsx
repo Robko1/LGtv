@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
 import { Play, Pause, Volume2, VolumeX, Rewind, FastForward, Languages, Captions, Clock, Film, X, Mic2, Check } from 'lucide-react';
 import { appLog } from '../services/appLog';
+import { ChannelLogo } from './ChannelLogo';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 
@@ -661,6 +662,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [hasError, isLive, isVod, isFullscreen, onPrevChannel, onNextChannel, onCloseVod]);
   const [nativeHandoff, setNativeHandoff] = useState<boolean>(false);
+  /*
+   * Az első képkocka megérkezett-e.
+   *
+   * A főoldal takaréképe addig marad a képernyőn, amíg ez be nem áll (lásd
+   * main.tsx: videoSettled) – így nem villan fel a FEKETE TV-terület a
+   * rendszerindítás végén. Amíg ide nem ér, a doboz a csatorna logóját
+   * mutatja a fekete kép helyett.
+   */
+  const [firstFrameShown, setFirstFrameShown] = useState<boolean>(false);
   const [, setNativeMessage] = useState<string>('');
 
   const [vodCurrentTime, setVodCurrentTime] = useState(0);
@@ -2040,6 +2050,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       style={isFullscreen ? { width: '100vw', height: '100dvh', maxHeight: 'none', aspectRatio: 'auto' } : { width: '100%', height: '100%', minHeight: 0, maxHeight: 'none', aspectRatio: 'auto' }}
     >
       {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
+      {/* Amíg az első képkocka meg nem érkezik, a doboz NEM fekete: a
+          csatorna nevét és logóját mutatja. Így a rendszerindítás végén nem
+          villan fel üres fekete TV-terület. */}
+      {!isVod && !firstFrameShown && (
+        <div
+          data-player-poster=""
+          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-[#0a1220] pointer-events-none"
+        >
+          <div className="h-16 w-16 md:h-24 md:w-24 flex items-center justify-center overflow-hidden rounded-xl border border-cyan-800/50 bg-[#0e1e3e]">
+            <ChannelLogo url={channel?.logo} name={channel?.name || ''} retryKey={channel?.id} />
+          </div>
+          <div className="max-w-[80%] truncate text-center text-lg font-bold text-slate-300 md:text-2xl">
+            {channel?.name || 'Kapcsolódás…'}
+          </div>
+        </div>
+      )}
+
       <div
         ref={videoSurfaceRef}
         className="absolute inset-0 bg-transparent pointer-events-none"
@@ -2057,6 +2084,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             preload="auto"
             onPlaying={(event) => {
               playbackStartedRef.current = true;
+              // A főoldal ebből tudja, hogy a TV-kép kész (nincs fekete doboz).
+              try {
+                (window as any).__IPTV_VIDEO_READY__ = true;
+              } catch { /* nincs window */ }
+              setFirstFrameShown((previous) => previous || true);
               if (!isVod) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.completed) {

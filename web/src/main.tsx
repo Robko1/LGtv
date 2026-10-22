@@ -86,6 +86,42 @@ try {
     !!document.querySelector('[role="dialog"]');
 
   /*
+   * A KÉSZ FŐOLDAL FELTÉTELEI – a korábbi "2 másodperc után elég a fejléc"
+   * ág volt a fokozatos felépülés oka: a takarékép lement, aztán a néző
+   * látta, ahogy a sorok, az EPG és a logók egymás után megjelennek.
+   *
+   * Mostantól a megjelenéshez mindez kell (vagy egy hosszú biztonsági idő):
+   *   • fejléc ÉS a kedvencek mappasávja is kirajzolódott,
+   *   • a csatornalista sorai ott vannak,
+   *   • a látható logók betöltődtek (korlátozott ideig várunk rájuk),
+   *   • az élő kép első kockája megérkezett (különben fekete TV-terület
+   *     villanna fel) – legfeljebb VIDEO_WAIT_MS ideig várunk rá.
+   */
+  const VIDEO_WAIT_MS = 3500;
+  const LOGO_WAIT_MS = 900;
+
+  const chromeReady = () => {
+    return headerReady() && !!document.querySelector("[data-tv-folders]");
+  };
+
+  const logosSettled = () => {
+    const images = Array.prototype.slice.call(
+      document.querySelectorAll('[role="listbox"] [role="option"] img')
+    ) as HTMLImageElement[];
+    if (!images.length) return true;
+    const pending = images.filter((img) => !img.complete && img.currentSrc !== "");
+    return pending.length === 0;
+  };
+
+  const videoSettled = () => {
+    // A lejátszó az első képkockánál __IPTV_VIDEO_READY__-t állít.
+    // Ha nincs lejátszó (pl. nincs szolgáltató), nincs mit várni.
+    const hasPlayer = !!document.querySelector('video[data-iptv-player="true"]');
+    if (!hasPlayer) return true;
+    return !!(window as any).__IPTV_VIDEO_READY__;
+  };
+
+  /*
    * A megjelenés csak akkor történhet meg, ha a KÉSZ oldal már a képernyőn
    * van. Ezért a megjelenés előtt két animációs kép várakozik: az első
    * képben a rejtett (#root) felület már a DOM-ban és a méretezés után van,
@@ -110,27 +146,31 @@ try {
     reveal(reason);
   };
 
+  const logoStartedAt = { value: 0 };
+
   const checkRendered = () => {
     if (revealed) return;
     const elapsed = Date.now() - startedAt;
 
-    if (headerReady() && listReady()) {
-      afterPaint(() => revealNow("kész főoldal"));
-      return;
+    // Nincs beállított szolgáltató: a felület egy ablakot mutat, és ez már
+    // a teljes, kész állapot – nincs mire várni.
+    const onlyDialog = !!document.querySelector('[role="dialog"]');
+
+    if (chromeReady() && (listReady() || onlyDialog)) {
+      if (logoStartedAt.value === 0) logoStartedAt.value = Date.now();
+      const logosOk = logosSettled() || Date.now() - logoStartedAt.value > LOGO_WAIT_MS;
+      const videoOk = videoSettled() || elapsed > 2500 + VIDEO_WAIT_MS;
+      if (logosOk && videoOk) {
+        afterPaint(() => revealNow("kész főoldal"));
+        return;
+      }
     }
 
-    if (headerReady() && elapsed > 2000) {
-      // Van felület, de nincs (vagy még nincs) lista - pl. nincs beállított
-      // szolgáltató. Nem várakoztatjuk tovább a nézőt.
-      afterPaint(() => revealNow("lista nélkül"));
-      return;
-    }
-
-    if (elapsed > 8000) {
-      // Kemény felső korlát: hibaüzenet helyett inkább látszódjon a felület
-      // (az index.html 7 mp-es hálója ezt amúgy is megtenné).
+    if (elapsed > 9000) {
+      // Kemény felső korlát: semmi nem maradhat a takarékép mögött.
+      // (Az index.html 7 mp-es hálója ezt amúgy is megtenné.)
       reveal("időtúllépés");
-      if (!headerReady()) fail("A felület 8 másodperc alatt nem rajzolódott ki.");
+      if (!headerReady()) fail("A felület 9 másodperc alatt nem rajzolódott ki.");
       return;
     }
 
@@ -146,7 +186,7 @@ try {
   if (rootElement && typeof MutationObserver !== "undefined") {
     const observer = new MutationObserver(() => {
       if (revealed) { observer.disconnect(); return; }
-      if (headerReady() && listReady()) observer.disconnect();
+      if (chromeReady() && listReady()) observer.disconnect();
     });
     observer.observe(rootElement, { childList: true, subtree: true });
   }
