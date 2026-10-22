@@ -29,6 +29,56 @@ interface ChannelControlsProps {
   onOpenChannelDetails?: () => void;
 }
 
+/** Fekvő teljes képernyős élő TV OSD – a Sharktie elrendezéséhez igazítva. */
+export const FullscreenLiveOsd: React.FC<{ channel: Channel | null; displayNumber?: number }> = ({ channel, displayNumber }) => {
+  const [clock, setClock] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (!channel) return null;
+
+  const start = channel.epgNow?.startTimestamp;
+  const end = channel.epgNow?.endTimestamp;
+  const hasProgress = typeof start === 'number' && typeof end === 'number' && end > start;
+  const progress = hasProgress ? Math.min(100, Math.max(0, ((clock / 1000 - start!) / (end! - start!)) * 100)) : 0;
+  const time = (value?: number) => typeof value === 'number' && value > 0
+    ? new Date(value * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  return (
+    <div className="fixed inset-0 z-[80] flex flex-col justify-between pointer-events-none text-white" aria-live="polite">
+      <div className="flex items-start justify-between bg-gradient-to-b from-black/85 via-black/40 to-transparent px-8 pt-6 pb-12">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="shrink-0 text-lg font-bold tabular-nums text-white/90">{displayNumber ?? channel.num}</span>
+          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-black/30">
+            <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
+          </div>
+          <span className="max-w-[55vw] truncate text-xl font-semibold drop-shadow-lg">{channel.name}</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col items-center bg-gradient-to-t from-black/90 via-black/55 to-transparent px-8 pt-14 pb-7 text-center">
+        <div className="flex w-full max-w-5xl flex-col items-center gap-3">
+          <div className="flex w-full items-center justify-center gap-4">
+            <span className="shrink-0 rounded-md bg-amber-400 px-3 py-1 text-base font-black tracking-wide text-slate-950">MOST</span>
+            <span className="min-w-0 text-xl font-semibold drop-shadow-lg">{channel.epgNow?.title || 'Műsoradat nem érhető el'}</span>
+            <span className="shrink-0 text-base text-white/80">{time(start)}{start && end ? ' – ' : ''}{time(end)}</span>
+          </div>
+          <div className="flex w-full items-center justify-center gap-4">
+            <span className="shrink-0 rounded-md bg-amber-400 px-3 py-1 text-base font-black tracking-wide text-slate-950">KÖVETKEZŐ</span>
+            <span className="min-w-0 text-lg text-white/85">{channel.epgNext?.title || 'Nincs következő műsoradat'}</span>
+            <span className="shrink-0 text-base text-white/65">{channel.epgNext?.time || ''}</span>
+          </div>
+          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/25">
+            <div className="h-full rounded-full bg-amber-400 transition-[width] duration-500" style={{ width: `${hasProgress ? progress : 0}%` }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const ChannelControls: React.FC<ChannelControlsProps> = ({
   channel,
   displayNumber,
