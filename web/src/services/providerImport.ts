@@ -338,8 +338,15 @@ export async function importXtreamProvider(
   );
   const info = auth.user_info;
   const expTimestamp = info?.exp_date ? parseInt(String(info.exp_date), 10) : 0;
-  const expireDate = expTimestamp
-    ? new Date(expTimestamp * 1000).toISOString().slice(0, 10).replace(/-/g, '. ') + '.'
+  const expireDate = expTimestamp > 0
+    ? new Date(expTimestamp * 1000).toLocaleString('hu-HU', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
     : 'Korlátlan';
 
   const provider: ProviderRef = {
