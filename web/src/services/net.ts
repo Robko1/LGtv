@@ -230,7 +230,10 @@ function hasSensitiveProviderData(rawUrl: string, depth = 0): boolean {
     }
     const parts = url.pathname.split('/').filter(Boolean);
     for (let i = 0; i < parts.length; i += 1) {
-      if (/^(live|movie|series)$/i.test(parts[i]) && parts[i + 1] && parts[i + 2]) return true;
+      // A film/sorozat FELIRAT-fájlok útja is tartalmazza a belépési adatokat:
+      // …/subtitle/<felhasználó>/<jelszó>/<felirat>.srt – ezt ugyanúgy nem
+      // küldjük ki nyilvános CORS-proxyra, mint a stream-útvonalakat.
+      if (/^(live|movie|series|subtitle)$/i.test(parts[i]) && parts[i + 1] && parts[i + 2]) return true;
     }
     return /(?:get|player_api)\.php$/i.test(url.pathname) && /(?:username|password)=/i.test(url.search);
   } catch {

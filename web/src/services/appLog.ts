@@ -21,6 +21,14 @@ let chars = 0;
 let restoreAttempted = false;
 let saveTimer: number | null = null;
 
+/*
+ * MÉRÉS-ABLAK: a SÁRGA gombos QR-hibadiagnózis „Frissítés” gombja nullázza
+ * ezeket a számlálókat, és új, látható kezdő időponttal indít mérést.
+ * A deklaráció szándékosan az `appLog` ELŐTT van (a számlálókat ott növeljük).
+ */
+let measurementStartedAt = Date.now();
+const measurementCounters = { logLines: 0, errors: 0, longTasks: 0, critical: 0 };
+
 function nowStamp(): string {
   return new Date().toISOString();
 }
@@ -137,6 +145,7 @@ export function clearAppLog(): void {
 /** Egy sor hozzáadása a webes naplóhoz. */
 export function appLog(message: string): void {
   restore();
+  measurementCounters.logLines += 1;
   const safe = String(message ?? '').replace(/\s+/g, ' ').slice(0, 600);
   const line = `${nowStamp()} ${safe}`;
   lines.push(line);
@@ -189,12 +198,89 @@ export function logMemory(label: string): void {
   appLog(`MEMÓRIA [${label}] ${memorySnapshot()}`);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * MÉRÉS-ABLAK (2.5.32)
+ *
+ * A SÁRGA gombon megnyíló QR-hibadiagnózis „Frissítés” gombja ÚJ MÉRÉST indít:
+ *   • a mért értékek (naplósorok, hibák, hosszú feladatok) 0-ra állnak,
+ *   • a mérés kezdete látható időpont lesz (a felugró ablakban és a naplóban is),
+ *   • a naplóba egy jól látható, elválasztott sor kerül a kezdő időponttal,
+ *   • az idővonal (15 mp) és a hosszú feladat mérése is innentől számol.
+ * Így a QR-kóddal megnyitott naplóban ellenőrizhető, hogy a nullázás megtörtént.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+export interface MeasurementSnapshot {
+  /** A mérés kezdete (Date.now(), ezredmásodperc). */
+  startedAt: number;
+  /** A mérés kezdete ember által olvashatóan (HH:MM:SS). */
+  startedAtText: string;
+  /** A kezdet óta eltelt idő ezredmásodpercben. */
+  elapsedMs: number;
+  /** A kezdet óta írt naplósorok száma. */
+  logLines: number;
+  /** A kezdet óta rögzített hibák (JS-hiba / kezeletlen ígérethiba). */
+  errors: number;
+  /** A kezdet óta rögzített hosszú feladatok (fagyásgyanú). */
+  longTasks: number;
+  /** A kezdet óta rögzített kritikus (azonnal mentett) sorok. */
+  critical: number;
+}
+
+/** Óra:perc:másodperc alak (a TV helyi ideje szerint). */
+export function clockText(at: number = Date.now()): string {
+  const date = new Date(at);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+/** A pillanatnyi mérés-ablak (a nullázás óta mért értékek). */
+export function measurementSnapshot(): MeasurementSnapshot {
+  const now = Date.now();
+  return {
+    startedAt: measurementStartedAt,
+    startedAtText: clockText(measurementStartedAt),
+    elapsedMs: Math.max(0, now - measurementStartedAt),
+    logLines: measurementCounters.logLines,
+    errors: measurementCounters.errors,
+    longTasks: measurementCounters.longTasks,
+    critical: measurementCounters.critical,
+  };
+}
+
+/**
+ * ÚJ MÉRÉS indítása: minden mért érték 0-ra áll, a kezdő időpont pedig
+ * láthatóan bekerül a naplóba (és a felugró ablakban is megjelenik).
+ */
+export function resetMeasurements(reason: string = 'kézi frissítés'): MeasurementSnapshot {
+  const startedAt = Date.now();
+  measurementStartedAt = startedAt;
+  const iso = new Date(startedAt).toISOString();
+  // A sor a nullázás ELŐTT íródik ki, hogy a számlálók valóban 0-ról induljanak.
+  appLog(`=== ÚJ MÉRÉS KEZDETE: ${iso} (${clockText(startedAt)}); minden korábbi mért érték nullázva (${reason}) ===`);
+  measurementCounters.logLines = 0;
+  measurementCounters.errors = 0;
+  measurementCounters.longTasks = 0;
+  measurementCounters.critical = 0;
+  // Az idővonal (15 mp) és a hosszú feladat szűrője is innentől számol.
+  try {
+    lastTimelineAt = startedAt;
+    lastLongTaskAt = 0;
+  } catch {
+    /* a figyelő még nem indult el */
+  }
+  appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt)}]: naplósorok=0, hibák=0, hosszú feladatok=0; ${memorySnapshot()}; ${uiStateSnapshot()}`);
+  // A friss mérés-ablak első sorai ne számítsanak bele a mért értékekbe.
+  measurementCounters.logLines = 0;
+  return measurementSnapshot();
+}
+
 /** A napló teljes szövege (a hibakeresési lapon megjelenítve és másolva). */
 export function getAppLogText(): string {
   restore();
   trimExpired();
   trim();
-  const header = `--- WEBOS NAPLÓ (${lines.length} sor; max. 24 óra; max. 60 KB) ---`;
+  const measure = measurementSnapshot();
+  const header = `--- WEBOS NAPLÓ (${lines.length} sor; max. 24 óra; max. 60 KB) | MÉRÉS KEZDETE: ${measure.startedAtText} ---`;
   return [header, ...lines].join('\n');
 }
 
@@ -233,6 +319,7 @@ const BOOT_AT = (typeof performance !== 'undefined' && typeof performance.now ==
  */
 export function appLogCritical(message: string): void {
   appLog(message);
+  measurementCounters.critical += 1;
   persistNow(true);
 }
 
@@ -335,6 +422,7 @@ export function startRuntimeWatchdog(): void {
           const now = Date.now();
           if (now - lastLongTaskAt < 4000) continue;
           lastLongTaskAt = now;
+          measurementCounters.longTasks += 1;
           appLogCritical(`HOSSZÚ FELADAT: ${Math.round(entry.duration)} ms (${entry.name || 'ismeretlen'}). ${uiStateSnapshot()}`);
         }
       });
@@ -358,6 +446,7 @@ export function startRuntimeWatchdog(): void {
 export function installCrashHandlers(): void {
   try {
     window.addEventListener('error', (event) => {
+      measurementCounters.errors += 1;
       const message = String((event as ErrorEvent)?.message || 'ismeretlen hiba');
       const where = `${(event as ErrorEvent)?.filename || ''}:${(event as ErrorEvent)?.lineno || 0}`;
       appLogCritical(`ÖSSZEOMLÁS: ${message} @ ${where}; ${uiStateSnapshot()}`);
@@ -366,6 +455,7 @@ export function installCrashHandlers(): void {
 
   try {
     window.addEventListener('unhandledrejection', (event) => {
+      measurementCounters.errors += 1;
       const reason = (event as PromiseRejectionEvent)?.reason;
       const text = reason instanceof Error
         ? `${reason.name}: ${reason.message}`

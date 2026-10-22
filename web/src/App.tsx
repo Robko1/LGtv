@@ -949,10 +949,12 @@ export function App() {
     const list = filteredChannels;
     if (list.length === 0) return;
     const currentIndex = list.findIndex((c) => c.id === activeChannelId);
-    if (currentIndex < 0) {
-      handleSelectChannel(list[0]);
-      return;
-    }
+    /*
+     * Ha a jelenleg nézett csatorna nincs a szűrt listában (másik ország /
+     * mappa / keresés), KORÁBBAN a lista ELSŐ csatornájára váltott – ez volt a
+     * „magától másik csatornára ugrik” hiba egyik útja. Ilyenkor nem váltunk.
+     */
+    if (currentIndex < 0) return;
     if (currentIndex >= list.length - 1) return;
     handleSelectChannel(list[currentIndex + 1]);
   }, [filteredChannels, activeChannelId, handleSelectChannel, settings.closeListOnZap]);
@@ -962,10 +964,8 @@ export function App() {
     const list = filteredChannels;
     if (list.length === 0) return;
     const currentIndex = list.findIndex((c) => c.id === activeChannelId);
-    if (currentIndex < 0) {
-      handleSelectChannel(list[0]);
-      return;
-    }
+    // Ugyanaz, mint a CH+-nál: ismeretlen csatorna esetén nem ugrunk az elsőre.
+    if (currentIndex < 0) return;
     if (currentIndex <= 0) return;
     handleSelectChannel(list[currentIndex - 1]);
   }, [filteredChannels, activeChannelId, handleSelectChannel, settings.closeListOnZap]);
@@ -2223,9 +2223,16 @@ export function App() {
         // ide soha nem vihetjük a kijelölőt, mert a távirányító megragadna.
         if (document.querySelector('[data-view-pane]:not([data-view-hidden])')?.getAttribute('data-view-pane') !== 'live') return;
         if (list.contains(active)) return;
-        // A fókusz egy CSATORNASORRA kerül. A lista doboza nem fókuszolható:
-        // a teljes csatornalista kijelölése nem létezik.
-        const selected = document.querySelector<HTMLElement>('[data-channel-id] [role="option"]');
+        /*
+         * A fókusz a KIVÁLASZTOTT csatorna sorára kerül – nem az első sorra.
+         *
+         * HIVA: korábban ez a keresés `[data-channel-id] [role="option"]` volt,
+         * ami a lista ELSŐ sorát adta vissza (a kiválasztottit nem). Teljes
+         * képernyőről visszatérve a néző így az első sorra lépett, és a
+         * következő OK már egy másik csatornára váltott – „magától átugrott”.
+         * A kijelölést a sor `aria-selected="true"` jelzése hordozza.
+         */
+        const selected = document.querySelector<HTMLElement>('[role="listbox"] [role="option"][aria-selected="true"]');
         const first = document.querySelector<HTMLElement>('[role="listbox"] [role="option"]');
         const target = selected || first;
         if (target) {
@@ -2251,9 +2258,13 @@ export function App() {
           // miatt) – a rejtett csatornalistára nem visszük vissza.
           if (isVideoFullscreen) return;
           if (document.querySelector('[data-view-pane]:not([data-view-hidden])')?.getAttribute('data-view-pane') !== 'live') return;
-          // A fókusz a CSATORNASORRA kerül, nem a lista dobozára: a teljes
-          // csatornalista soha nem jelölhető ki.
-          const selected = document.querySelector<HTMLElement>('[data-channel-id] [role="option"]');
+          // A fókusz a KIVÁLASZTOTT csatornasorra kerül (aria-selected), nem a
+          // lista első sorára – különben a kilépés utáni OK másik csatornát
+          // indítana. A lista doboza soha nem fókuszolható.
+          const activeRow = document.activeElement as HTMLElement | null;
+          if (activeRow && activeRow.getAttribute && activeRow.getAttribute('role') === 'option'
+              && activeRow.getAttribute('aria-selected') === 'true') return;
+          const selected = document.querySelector<HTMLElement>('[role="listbox"] [role="option"][aria-selected="true"]');
           const first = document.querySelector<HTMLElement>('[role="listbox"] [role="option"]');
           const target = selected || first;
           if (target) {

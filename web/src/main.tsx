@@ -6,7 +6,7 @@ document.body.classList.add('webos-theme', 'webos-tv', 'lg-webos');
 import App from "./App";
 import {
   appLog, appLogCritical, clearAppLog, getAppLogText, installCrashHandlers, logPhase, logStartup,
-  startRuntimeWatchdog, uiStateSnapshot,
+  measurementSnapshot, resetMeasurements, startRuntimeWatchdog, uiStateSnapshot,
 } from "./services/appLog";
 import { WEB_VERSION } from "./appVersion";
 
@@ -39,6 +39,9 @@ try {
     state: () => uiStateSnapshot(),
     text: () => getAppLogText(),
     clear: () => clearAppLog(),
+    // SÁRGA gomb → QR-hibadiagnózis: a „Frissítés” ezt hívja (mérések nullázása).
+    measure: () => measurementSnapshot(),
+    resetMeasure: (reason?: string) => resetMeasurements(reason ? String(reason) : 'kézi frissítés'),
   };
 } catch { /* nincs window (SSR) */ }
 

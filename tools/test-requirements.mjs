@@ -972,3 +972,101 @@ test('12. a gyorsítótár törlése a formátum-emlékezetet is törli', () => 
   assert.match(STORAGE, /import \{ clearFormatMemory \} from '\.\/liveFormatMemory';/);
   assert.match(STORAGE, /clearContent\(\);\s*\n\s*\/\/ A csatornánkénti formátum-emlékezet[\s\S]{0,200}?clearFormatMemory\(\);/);
 });
+
+/* ══════════════ 13. Film-felirat (CC), csatorna-megtartás, QR-diagnózis ══════════════ */
+
+const NET = read('web/src/services/net.ts');
+const SUBTITLES = read('web/src/services/subtitleService.ts');
+const APPLOG = read('web/src/services/appLog.ts');
+const DIAG_MODAL = read('web/src/components/DiagnosticShareModal.tsx');
+const WEBOS = read('webos/webos.js');
+
+test('13. a film felirata (CC) akkor is bekapcsol, ha a stream nem tesz közzé muxolt sávot', () => {
+  /*
+   * HIBA: az automatikus feliratválasztó korán kilépett, ha a lejátszó nem
+   * adott muxolt hangsávot/feliratsávot. Egy egyszerű filmnél (egy hangsáv,
+   * nincs beégetett felirat) ezért a szolgáltatótól letöltött CC soha nem
+   * kapcsolódott be – az OSD-ben „Felirat kikapcsolva” maradt.
+   */
+  assert.doesNotMatch(PLAYER, /if \(!audioSignature && !subtitleSignature\) return;/);
+  assert.match(PLAYER, /const providerSignature = providerSubtitleTracks\.map/);
+  assert.match(PLAYER, /if \(!audioSignature && !subtitleSignature && !providerSignature\) return;/);
+  // A szolgáltatói felirat a muxolt sávtól függetlenül kiválasztható.
+  assert.match(PLAYER, /findPreferredVodTrack\(providerSubtitleTracks, preferredSubtitle\)/);
+  assert.match(PLAYER, /selectVodSubtitleRef\.current\?\.\(providerTrack\);/);
+});
+
+test('13. a CC a natív lejátszón is bekapcsol (a hangot nem piszkálja)', () => {
+  // A hatás nem lép ki a natív motor miatt: már csak a HTML <track> figyelője
+  // fut kizárólag HTML5 motoron.
+  assert.equal((PLAYER.match(/if \(!isVod \|\| nativeHandoff\) return;/g) || []).length, 1,
+    'az automatikus feliratválasztó natív motoron is lefut');
+  assert.match(PLAYER, /useEffect\(\(\) => \{\s*\n\s*if \(!isVod\) return;\s*\n\s*const audioSignature/);
+  assert.match(PLAYER, /if \(!nativeHandoff\s*\n\s*&& userVodAudioChoiceRef\.current === null && vodAudioTracks\.length > 1\)/);
+  // Natív motornál a sávot a lejátszó kapcsolja be, nem a HTML <track>.
+  assert.match(PLAYER, /if \(nativeHandoff\) \{\s*\n\s*\/\/ Natív motor: a sávot a lejátszó kapcsolja be/);
+  assert.match(PLAYER, /Automatikus film-felirat \(natív\)/);
+  // Natív motornál a HTML videó ideje 0 – a felirat a lejátszó pozíciójából megy.
+  assert.match(PLAYER, /positionRef=\{vodSubtitleClockRef\}/);
+  assert.match(PLAYER, /const reported = positionRef \? Math\.max\(0, Number\(positionRef\.current \|\| 0\)\) : 0;/);
+  assert.match(PLAYER, /vodSubtitleClockRef\.current = position;/);
+});
+
+test('13. a szolgáltatói feliratot a muxolt sávok 1,5 mp-es olvasása nem kapcsolja ki', () => {
+  assert.match(PLAYER, /const providerSubtitleActiveRef = useRef\(false\);/);
+  assert.match(PLAYER, /providerSubtitleActiveRef\.current = true;/);
+  assert.match(PLAYER, /if \(!providerSubtitleActiveRef\.current\) setActiveVodSubtitleId\(active \? active\.id : null\);/);
+});
+
+test('13. a felirat-fájl címe (jelszóval) nem megy ki nyilvános proxyra, és nem kerül a naplóba', () => {
+  // A /subtitle/<user>/<pass>/<id>.srt út érzékeny: nincs allorigins/corsproxy.
+  assert.match(NET, /\/\^\(live\|movie\|series\|subtitle\)\$\/i\.test\(parts\[i\]\)/);
+  // A napló csak a fájlnevet tartalmazza, a teljes URL-t nem.
+  assert.match(SUBTITLES, /function safeSubtitleUrl\(url: string\): string/);
+  assert.match(SUBTITLES, /appLog\(`Felirat betöltve: \$\{cues\.length\} sor \(\$\{safeSubtitleUrl\(url\)\}\)\.`\);/);
+  // A szolgáltatói sáv azonosítója `cc:` előtagú (nem ütközik a muxolt sorszámokkal).
+  assert.match(SUBTITLES, /id: `cc:\$\{candidate\.id\}`/);
+});
+
+test('13. teljes képernyőről visszatérve a fókusz a KIVÁLASZTOTT csatornasorra kerül', () => {
+  // A lista doboza megmondja, melyik csatorna van kiválasztva.
+  assert.match(LIST, /data-selected-id=\{selectedChannelId \|\| undefined\}/);
+  // Az App nem az első sorra, hanem az aria-selected sorra fókuszál.
+  assert.match(APP, /\[role="listbox"\] \[role="option"\]\[aria-selected="true"\]/);
+  assert.equal((APP.match(/\[role="listbox"\] \[role="option"\]\[aria-selected="true"\]/g) || []).length, 2,
+    'mindkét fókusz-visszaállító a kiválasztott sort keresi');
+  // A webOS kezelő is a kiválasztottat részesíti előnyben.
+  assert.match(WEBOS, /var aria = list\.querySelector\('\[role="option"\]\[aria-selected="true"\]'\);/);
+  assert.match(WEBOS, /if \(selectedId && !allowFallback\) \{\s*\n\s*\/\/ OK fókusz nélkül/);
+  assert.match(WEBOS, /function firstChannelRow\(allowFallback\)/);
+});
+
+test('13. CH+/CH- nem ugrik a lista első csatornájára, ha a nézett csatorna nincs a szűrt listában', () => {
+  assert.doesNotMatch(APP, /if \(currentIndex < 0\) \{\s*\n\s*handleSelectChannel\(list\[0\]\);/);
+  assert.equal((APP.match(/if \(currentIndex < 0\) return;/g) || []).length, 2,
+    'a CH+ és a CH- is csendben kilép');
+});
+
+test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és látható kezdő időpontot ír', () => {
+  // A napló mérés-ablaka: 0-ról induló számlálók + látható kezdő időpont.
+  assert.match(APPLOG, /export function resetMeasurements\(reason: string = 'kézi frissítés'\): MeasurementSnapshot/);
+  assert.match(APPLOG, /measurementCounters\.logLines = 0;\s*\n\s*measurementCounters\.errors = 0;\s*\n\s*measurementCounters\.longTasks = 0;/);
+  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{iso\} \(\$\{clockText\(startedAt\)\}\); minden korábbi mért érték nullázva/);
+  assert.match(APPLOG, /MÉRÉS KEZDETE: \$\{measure\.startedAtText\}/);
+  // A felugró ablak a Frissítéskor nulláz, és kiírja a kezdő időpontot.
+  assert.match(DIAG_MODAL, /const fresh = resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\);/);
+  assert.match(DIAG_MODAL, /data-diagnostic-measure-start=/);
+  assert.match(DIAG_MODAL, /A mérések nullázva \(0\)\. Új mérés kezdete: \$\{fresh\.startedAtText\}/);
+  // A teszthez/diagnosztikához a híd is elérhető.
+  assert.match(MAIN, /resetMeasure: \(reason\?: string\) => resetMeasurements/);
+});
+
+test('13. a QR-kód sötétebb és kisebb, de a hivatkozás (a kód tartalma) változatlan', () => {
+  assert.match(DIAG_MODAL, /size=\{208\}/);
+  assert.match(DIAG_MODAL, /bgColor="#dfe6f1"/);
+  assert.match(DIAG_MODAL, /fgColor="#05080f"/);
+  // A tartalom továbbra is a szerverről kapott hivatkozás, a csendes zóna megvan.
+  assert.match(DIAG_MODAL, /value=\{share\.url\}/);
+  assert.match(DIAG_MODAL, /marginSize=\{4\}/);
+  assert.match(DIAG_MODAL, /level="M"/);
+});
