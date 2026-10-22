@@ -126,7 +126,7 @@ function hungaryFirst(list: Channel[]): Channel[] {
 }
 import { Header } from './components/Header';
 import { VideoPlayer } from './components/VideoPlayer';
-import { ChannelControls } from './components/ChannelControls';
+import { ChannelControls, FullscreenLiveOsd } from './components/ChannelControls';
 import { ChannelList } from './components/ChannelList';
 import { CategoriesModal } from './components/CategoriesModal';
 import { MenuSettingsModal } from './components/MenuSettingsModal';
@@ -279,6 +279,19 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isOsdVisible, setIsOsdVisible] = useState<boolean>(true);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
+  const [isFullscreenLiveOsdVisible, setIsFullscreenLiveOsdVisible] = useState<boolean>(false);
+
+  // A teljes képernyős élő TV OSD az OSD-eltűnés rendszerbeállítását használja.
+  // Csatornaváltáskor újra megjelenik, majd a kiválasztott idő után eltűnik.
+  useEffect(() => {
+    if (!isVideoFullscreen || customStreamUrl || settings.osdHideDelay <= 0) {
+      setIsFullscreenLiveOsdVisible(false);
+      return;
+    }
+    setIsFullscreenLiveOsdVisible(true);
+    const timer = window.setTimeout(() => setIsFullscreenLiveOsdVisible(false), settings.osdHideDelay * 1000);
+    return () => window.clearTimeout(timer);
+  }, [isVideoFullscreen, activeChannelId, customStreamUrl, settings.osdHideDelay]);
 
   const mainPlayerToggleRef = useRef<(() => void) | null>(null);
   const mainPlayerCastRef = useRef<(() => void) | null>(null);
@@ -1961,6 +1974,10 @@ export function App() {
             onSubtitleTracksChange={setLiveSubtitleTracks}
             onRegisterSubtitleTrackSelector={registerMainPlayerSubtitleSelector}
           />
+
+          {isVideoFullscreen && !customStreamUrl && isFullscreenLiveOsdVisible && (
+            <FullscreenLiveOsd channel={activeChannel} displayNumber={activeChannelDisplayNumber} />
+          )}
 
           {/* TV-only channel controls: film/sorozat közben a VOD OSD az egyetlen lejátszóvezérlő. */}
           {!customStreamUrl && !isVideoFullscreen && isOsdVisible && <ChannelControls
