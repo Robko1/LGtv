@@ -81,8 +81,12 @@
       }
       /* SAJÁT TAKARÉKÉP-RÉTEG.
          A webOS rendszerindító képe a notifyAppLoaded()-ig látszik; ez a
-         réteg alatta ugyanazt a képet mutatja (nincs színugrás a
-         váltáskor), és a kész felülettel EGYÜTT tűnik el. */
+         réteg alatta UGYANAZT A KÉPET mutatja (a webOS indítóképének
+         képkockáját: splash-bg.jpg, a logóval). Korábban csak a színátmenet
+         volt itt, ezért látszott a rendszerindítás után egy üres ZÖLD
+         képernyő a kész főoldal előtt. A képet a lentebbi szkript injektálja
+         (a Vite feloldaná a HTML CSS-ében a url()-t); a színátmenet csak
+         tartalék arra az esetre, ha a kép nem érhető el. */
       #tv-curtain {
         position: fixed;
         left: 0;
@@ -165,11 +169,21 @@
         }
         window.__IPTV_STARTUP_STAGE_SET__ = show;
 
-        // A webOS indítóképével azonos háttér (a build készíti: splash-bg.jpg).
+        // A webOS indítóképével AZONOS háttér (a build készíti: splash-bg.jpg).
+        // FONTOS: a #tv-curtain rétegre is ezt tesszük, nem csak a body-ra.
+        // A takarékép réteg fedi a body-t, ezért korábban csak a zöld
+        // színátmenet látszott belőle – ez volt a "zöld üres képernyő" a
+        // rendszerindítás után. Most a logós kép látszik egészen addig, amíg
+        // a kész főoldal meg nem jelenik, egyetlen váltással.
         try {
           var bgStyle = document.createElement('style');
-          bgStyle.textContent = "html.iptv-booting body{background-image:url('splash-bg.jpg')," +
-            "linear-gradient(135deg,#5fe3b6 0%,#4fd8e0 45%,#63bdf3 100%);" +
+          var splashLayer =
+            "url('splash-bg.jpg'),linear-gradient(135deg,#5fe3b6 0%,#4fd8e0 45%,#63bdf3 100%)";
+          bgStyle.textContent =
+            "html.iptv-booting body{background-image:" + splashLayer + ";" +
+            "background-position:center center,center center;background-size:cover,cover;" +
+            "background-repeat:no-repeat,no-repeat;}" +
+            "#tv-curtain{background-image:" + splashLayer + ";" +
             "background-position:center center,center center;background-size:cover,cover;" +
             "background-repeat:no-repeat,no-repeat;}";
           (document.head || document.documentElement).appendChild(bgStyle);

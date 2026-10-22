@@ -94,11 +94,14 @@ try {
    *   • fejléc ÉS a kedvencek mappasávja is kirajzolódott,
    *   • a csatornalista sorai ott vannak,
    *   • a látható logók betöltődtek (korlátozott ideig várunk rájuk),
-   *   • az élő kép első kockája megérkezett (különben fekete TV-terület
-   *     villanna fel) – legfeljebb VIDEO_WAIT_MS ideig várunk rá.
+   *   • az élő kép első kockája megérkezett – DE csak rövid ideig várunk rá:
+   *     addig a lejátszó borítóképe (poszter) látszik, tehát nincs fekete
+   *     terület. A korábbi 3,5 mp-es (a listához képest összesen 6 mp-es)
+   *     várakozás volt az oka, hogy a rendszerindítás után másodpercekig
+   *     takarékép (zöld kép) látszott a kész főoldal helyett.
    */
-  const VIDEO_WAIT_MS = 3500;
-  const LOGO_WAIT_MS = 900;
+  const VIDEO_WAIT_MS = 1200;
+  const LOGO_WAIT_MS = 600;
 
   const chromeReady = () => {
     return headerReady() && !!document.querySelector("[data-tv-folders]");
@@ -157,9 +160,14 @@ try {
     const onlyDialog = !!document.querySelector('[role="dialog"]');
 
     if (chromeReady() && (listReady() || onlyDialog)) {
+      // A logókra és az első képkockára a LISTA megjelenésétől számítunk:
+      // így a korábbi lépések (bundle betöltése, tár olvasása) nem
+      // "eszik meg" a várakozási időt, és a takarékép nem marad fent
+      // feleslegesen másodpercekig.
       if (logoStartedAt.value === 0) logoStartedAt.value = Date.now();
-      const logosOk = logosSettled() || Date.now() - logoStartedAt.value > LOGO_WAIT_MS;
-      const videoOk = videoSettled() || elapsed > 2500 + VIDEO_WAIT_MS;
+      const waited = Date.now() - logoStartedAt.value;
+      const logosOk = logosSettled() || waited > LOGO_WAIT_MS;
+      const videoOk = videoSettled() || waited > VIDEO_WAIT_MS;
       if (logosOk && videoOk) {
         afterPaint(() => revealNow("kész főoldal"));
         return;

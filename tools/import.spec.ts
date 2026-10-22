@@ -118,24 +118,23 @@ function m3uServer(): Promise<{ server: http.Server; port: number }> {
 
 /* ------------------------------------------------------- környezet */
 
-// Az APK-beli natív tároló szimulálása (memóriában).
-const nativeFiles = new Map<string, string>();
+// A böngésző localStorage szimulálása (memóriában).
+// A webOS alkalmazás a helyi tárba ment; a régi natív (Android) híd már
+// nincs a programban, ezért a próbának is a localStorage-ot kell utánoznia.
+const storageFiles = new Map<string, string>();
 (globalThis as Record<string, unknown>).window = {
-  IPTVNative: {
-    isAndroid: true,
-    store: {
-      get: (key: string) => nativeFiles.get(key) || '',
-      put: (key: string, value: string) => {
-        nativeFiles.set(key, value);
-        return true;
-      },
-      remove: (key: string) => nativeFiles.delete(key),
-    },
-  },
   localStorage: {
-    getItem: () => null,
-    setItem: () => undefined,
-    removeItem: () => undefined,
+    getItem: (key: string) => storageFiles.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      storageFiles.set(key, String(value));
+    },
+    removeItem: (key: string) => {
+      storageFiles.delete(key);
+    },
+    key: (index: number) => Array.from(storageFiles.keys())[index] ?? null,
+    get length() {
+      return storageFiles.size;
+    },
   },
 };
 
@@ -207,6 +206,18 @@ async function main() {
     live.channels.find((channel) => channel.name === 'M1 HD')?.streamUrl === `${base}/live/teszt/titok/101.ts`
   );
   check('a kategóriák is visszatöltődtek', live.categories.length === 3, `(${live.categories.length})`);
+
+  /*
+   * Tároló-takarítás: félbe maradt (elárvult) adag nem maradhat bent, a
+   * mentett, érvényes adagok viszont nem tűnhetnek el. Így a TV kis
+   * kvótájából nem foglal helyet szemét, és nem veszik el a lista.
+   */
+  const orphanKey = 'iptv_rt_content-live-chunk-v1-0-0-0'; // soha nem íródott ki metaadat
+  storageFiles.set(orphanKey, JSON.stringify({ rows: [['x']] }));
+  const beforeSweep = store.loadLive().channels.length;
+  const removed = store.sweepStorage();
+  check('a takarítás törölte az elárvult adagot', !storageFiles.has(orphanKey), `(törölt: ${removed})`);
+  check('a takarítás nem érintette az érvényes listát', beforeSweep === 4 && store.loadLive().channels.length === 4);
 
   store.clearContent();
   check('törlés után üres a tár', store.readSummary() === null && store.loadLive().channels.length === 0);

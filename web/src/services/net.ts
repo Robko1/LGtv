@@ -150,7 +150,11 @@ export function resetNetworkBreaker(): void {
 
 /** Hálózati szintű hiba? (nem jött válasz: DNS, időtúllépés, megszakadt kapcsolat) */
 export function isTransportFailure(message: string): boolean {
-  return /Failed to fetch|NetworkError|Load failed|timeout|timed out|aborted|AbortError|ERR_|net::/i.test(
+  // A magyar nyelvű, már lefordított üzeneteket is felismerjük: a
+  // httpGetText a hálózati hibát magyar szöveggel dobja tovább, és a
+  // hívók (pl. az import gyors leállítása) ebből ismerik fel a hálózati
+  // szintű hibát.
+  return /Failed to fetch|NetworkError|Load failed|timeout|timed out|aborted|AbortError|ERR_|net::|Nem sikerült elérni a szervert|Nem érhető el a szolgáltató/i.test(
     message
   );
 }
@@ -299,6 +303,17 @@ async function fetchOnce(url: string, timeoutMs: number): Promise<string> {
 
 export interface HttpOptions {
   timeoutMs?: number;
+  /**
+   * A kéréssor megkerülése (legfeljebb egy ilyen kérés futhat egyszerre).
+   *
+   * Kizárólag a szolgáltatói BEJELENTKEZÉS használja: ez a kérés dönti el,
+   * hogy a szerver egyáltalán válaszol-e (a referencia is így tesz a
+   * bejelentkezésnél). Ha a sor végén várna, egy nem válaszoló szolgáltatónál
+   * a teljes időtúllépés a sorban állással együtt 30-40 másodperc lenne,
+   * mielőtt a néző bármilyen hibaüzenetet lát. Így a hiba 10 másodperc alatt
+   * kiderül, a csatornakérések pedig azonnal megszakadnak.
+   */
+  bypassQueue?: boolean;
 }
 
 /**
@@ -338,7 +353,8 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
   for (let index = 0; index < attempts.length; index++) {
     const target = attempts[index];
     const attemptStarted = Date.now();
-    await acquire();
+    const bypass = Boolean(options.bypassQueue);
+    if (!bypass) await acquire();
     try {
       const gap = MIN_GAP_MS - (Date.now() - lastRequestAt);
       if (gap > 0) await sleep(gap);
@@ -365,8 +381,15 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
         break;
       }
     } finally {
-      release();
+      if (!bypass) release();
     }
+  }
+  // A hálózati szintű hibát megkülönböztethető típusként dobjuk tovább: a
+  // hívó így tudja, hogy a szerver NEM válaszolt (gyors leállítás, megszakítás),
+  // szemben azzal, amikor a szerver válaszolt, csak hibásan.
+  const lastMessage = lastError instanceof Error ? lastError.message : String(lastError);
+  if (isTransportFailure(lastMessage)) {
+    throw new ProviderUnreachableError(describe(lastError, url));
   }
   throw new Error(describe(lastError, url));
 }

@@ -124,6 +124,9 @@ export const xtreamService = {
     const authUrl = this.playerApiBase(serverUrl, username, password);
     const data = await httpGetJson<XtreamAuthResponse & { user_info?: XtreamUserInfo }>(authUrl, {
       timeoutMs: 10000,
+      // A bejelentkezés nem várhat a kéréssorban: ez dönti el, hogy a
+      // szerver egyáltalán válaszol-e (lásd net.ts HttpOptions.bypassQueue).
+      bypassQueue: true,
     });
 
     const info = data?.user_info;
