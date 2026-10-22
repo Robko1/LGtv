@@ -11,12 +11,10 @@ import { normalizeLogoUrl } from './logoUrl';
  *
  * KÍMÉLŐ HÁLÓZATI ÜZEMMÓD
  * ----------------------
- * A kérések SZIGORÚAN egymás után mennek (egyszerre egy kapcsolat), a
- * kérések között pedig egy kis szünet van. Ez azért van, mert a korábbi
- * párhuzamos változat túlterhelte az otthoni routereket: ha a szolgáltató egy
- * adott hálózaton nem elérhető (pl. az internetszolgáltató blokkolja), a sok
- * elakadt kapcsolat teleírta a router kapcsolatnyilvántartását, amitől az
- * egész otthoni internet lefagyott.
+ * A független alaplisták párhuzamosan, a kategóriánkénti VOD-kérések
+ * legfeljebb két workerrel futnak. A net.ts globális korlátja továbbra is
+ * legfeljebb két aktív kapcsolatot enged, időtúllépéssel és megszakítóval:
+ * így gyorsabb a betöltés, de nem indulhat korlátlan kapcsolatözön.
  *
  * Ezért ezen kívül:
  *   - egy kérést legfeljebb 2 alkalommal indítunk,
@@ -436,17 +434,24 @@ export async function importXtreamProvider(
       percent: 40,
     });
   } else {
-    onProgress({ phase: 'Élő kategóriák letöltése…', percent: 10 });
-    const liveCats = await providerRequest(
-      () => xtreamService.liveCategories(server, user, pass),
-      'Élő kategóriák'
-    );
-
-    onProgress({ phase: 'Élő csatornák letöltése…', detail: 'A szolgáltató élő listája töltődik', percent: 18 });
-    const liveStreams = await providerRequest(
-      () => xtreamService.liveStreams(server, user, pass),
-      'Élő csatornalista'
-    );
+    onProgress({
+      phase: 'Élő csatornák és kategóriák letöltése…',
+      detail: 'A két alaplista párhuzamosan töltődik',
+      percent: 12,
+    });
+    // A referencia is egyszerre kéri le a csatornákat és a kategóriákat.
+    // Ezek egymástól független API-végpontok: a soros várakozás csak növelte
+    // a hidegindítás idejét, miközben nem adott plusz biztonságot.
+    const [liveCats, liveStreams] = await Promise.all([
+      providerRequest(
+        () => xtreamService.liveCategories(server, user, pass),
+        'Élő kategóriák'
+      ),
+      providerRequest(
+        () => xtreamService.liveStreams(server, user, pass),
+        'Élő csatornalista'
+      ),
+    ]);
     const liveCategoryMap = makeCategoryMap(liveCats);
     const liveRows: Array<Array<string | number>> = [];
     const liveCounts = new Map<string, number>();
