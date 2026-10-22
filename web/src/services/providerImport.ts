@@ -37,6 +37,7 @@ import {
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { storageService } from './storageService';
+import { cancelNetworkRequests, isTransportFailure } from './net';
 
 // webOS TV gyors betöltés detektálás
 export interface ImportProgress {
@@ -80,8 +81,18 @@ const MAX_SERIES = 15000;
  * Most 500/500: fele annyi callback, kevesebb főszál blokkolás, de még mindig nem fagy le.
  */
 const PROGRESS_UPDATE_EVERY = 500;
-/** Hosszú feldolgozás közben időnként visszaadjuk a vezérlést a böngészőfelület-nak. */
-const UI_YIELD_EVERY = 500;
+/**
+ * Hosszú feldolgozás közben időnként visszaadjuk a vezérlést a böngészőnek.
+ *
+ * KORÁBBAN 500 elemenként adtuk vissza, és a visszaadás `requestIdleCallback`
+ * volt 50 ms-os felső korláttal. A TV-n a böngésző szinte soha nem volt
+ * „üresjáratban” (folyamatos a videó és az óra), ezért a callback rendszerint
+ * a TELJES 50 ms-ot kivárta: 20 000 csatornánál 40 × 50 ms = 2 másodperc,
+ * 60 000-nél 6 másodperc ment el pusztán várakozással – a feldolgozás
+ * mellett. Most 3000 elemenként egyszer adunk át egy valódi, azonnali
+ * macrotaszkot (MessageChannel), ami a festésnek is elég, de nem vár.
+ */
+const UI_YIELD_EVERY = 3000;
 
 /**
  * Ennyi csatorna feldolgozása után jelenik meg az első használható adag.
@@ -89,14 +100,49 @@ const UI_YIELD_EVERY = 500;
  */
 const FIRST_BATCH_CHANNELS = 1500;
 
-function yieldToUi(): Promise<void> {
-  // requestIdleCallback ha van, különben setTimeout 0 – kíméli a UI szálat
-  return new Promise<void>((resolve) => {
-    if (typeof (window as any).requestIdleCallback === 'function') {
-      (window as any).requestIdleCallback(() => resolve(), { timeout: 50 });
-    } else {
-      setTimeout(resolve, 0);
+/**
+ * Azonnali „lélegzés” a főszálnak.
+ *
+ * A MessageChannel macrotaszkja a lehető leghamarabb (következő eseményhurok)
+ * fut le, és közben a böngészőnek módja van kirajzolni – ellentétben a
+ * requestIdleCallback-kel, ami a TV-n 50 ms-ot várt minden egyes adagnál.
+ * Régi webOS motoron (Chrome 38) a MessageChannel létezik; ha mégsem,
+ * a setTimeout(0) a tartalék.
+ */
+const yieldPorts: { send: MessagePort; receive: MessagePort } | null = (() => {
+  try {
+    if (typeof MessageChannel === 'function') {
+      const channel = new MessageChannel();
+      return { send: channel.port1, receive: channel.port2 };
     }
+  } catch {
+    /* régi motor: MessageChannel nélkül */
+  }
+  return null;
+})();
+let pendingYields: Array<() => void> = [];
+if (yieldPorts) {
+  yieldPorts.receive.onmessage = () => {
+    const queue = pendingYields;
+    pendingYields = [];
+    for (const resolve of queue) resolve();
+  };
+  // Node (tesztek): az onmessage hozzárendelése életben tartaná a folyamatot.
+  (yieldPorts.receive as MessagePort & { unref?: () => void }).unref?.();
+  (yieldPorts.send as MessagePort & { unref?: () => void }).unref?.();
+}
+
+function yieldToUi(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const ports = yieldPorts;
+    if (!ports) {
+      setTimeout(resolve, 0);
+      return;
+    }
+    pendingYields.push(resolve);
+    // postMessage: az eseményhurok következő körében fut le, a festés előtt –
+    // a requestIdleCallback-kel ellentétben NEM vár 50 ms-ot.
+    ports.send.postMessage(0);
   });
 }
 
@@ -369,6 +415,22 @@ export async function importXtreamProvider(
     (error: unknown) => ({ ok: false as const, error })
   );
 
+  /*
+   * GYORS LEÁLLÁS NEM VÁLASZOLÓ SZOLGÁLTATÓNÁL.
+   *
+   * A blokkolt/elérhetetlen panel kérése a hálózati réteg 30 másodperces
+   * időtúllépéséig „lóg”. A bejelentkezés-próba viszont 10 másodperc alatt
+   * eldől, és ha az sem kap választ, a szerver biztos, hogy nem él ezen a
+   * hálózaton: ilyenkor a folyamatban lévő kéréseket azonnal megszakítjuk.
+   * Így a néző 10 másodperc után érthető hibaüzenetet kap (nem 40 mp után),
+   * és a hálózat sem marad foglalt kapcsolatokkal.
+   */
+  void authPromise.then((probe) => {
+    if (probe.ok) return;
+    const message = probe.error instanceof Error ? probe.error.message : String(probe.error);
+    if (isTransportFailure(message)) cancelNetworkRequests();
+  });
+
   onProgress({ phase: 'Csatornák letöltése…', percent: 6 });
 
   const provider: ProviderRef = {
@@ -608,6 +670,7 @@ export async function importXtreamProvider(
    * Sorozat a TV-n. A teljes betöltés fut mindenhol; az élő csatornák így is
    * elsőként, azonnal a felületre kerülnek (onPartial), a filmek/sorozatok a
    * háttérben töltődnek tovább. */
+  const loadMoviesPhase = async (): Promise<void> => {
   try {
     onProgress({ phase: 'Film kategóriák letöltése…', percent: 45 });
     const vodCategories = await providerRequest(
@@ -752,6 +815,7 @@ export async function importXtreamProvider(
       `A filmek listája nem töltődött le: ${error instanceof Error ? error.message : String(error)}`
     );
   }
+  };
 
   /* ---- 3. szakasz: sorozatok --------------------------------------
    * Gyorsítás: először megpróbáljuk egyben lekérni az összes sorozatot.
@@ -761,6 +825,7 @@ export async function importXtreamProvider(
   let series: Series[] = [];
   let seriesCats: Category[] = [];
   let seriesTotal = 0;
+  const loadSeriesPhase = async (): Promise<void> => {
   try {
     onProgress({ phase: 'Sorozat kategóriák letöltése…', percent: 74 });
     const seriesCategories = await providerRequest(
@@ -896,6 +961,21 @@ export async function importXtreamProvider(
       `A sorozatok listája nem töltődött le: ${error instanceof Error ? error.message : String(error)}`
     );
   }
+  };
+
+  /*
+   * A FILM- ÉS SOROZATLISTA PÁRHUZAMOSAN TÖLTŐDIK.
+   *
+   * Korábban a sorozatok csak a TELJES filmkatalógus letöltése és feldolgozása
+   * után indultak: 40 000 film letöltése (több MB letöltés + JSON-feldolgozás)
+   * után jött a sorozat, így a „Sorozat” menü akár fél percig üres maradt.
+   * A két lista egymástól független (külön végpont, külön kategóriák), ezért
+   * egyszerre indulnak; a net.ts továbbra is legfeljebb 2 párhuzamos
+   * kapcsolatot enged, tehát a szolgáltató/ router terhelése nem nő.
+   * A hibakezelés külön-külön marad: az egyik lista hibája nem viszi magával
+   * a másikat, és a figyelmeztetések is a végén jelennek meg.
+   */
+  await Promise.all([loadMoviesPhase(), loadSeriesPhase()]);
 
   /*
    * A fiókadatok (lejárat, kapcsolatszám, státusz) a végén: a bejelentkezés

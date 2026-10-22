@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Season, Series, WatchHistoryItem } from './types/iptv';
 import { storageService } from './services/storageService';
 import {
@@ -12,6 +12,7 @@ import {
   saveLiveContent,
   saveSeriesContent,
   saveVodContent,
+  sweepStorage,
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logStartup } from './services/appLog';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
@@ -108,21 +109,67 @@ function findHungaryCategoryId(categories: Category[]): string | undefined {
   )?.id;
 }
 
+/**
+ * A magyar csatornák előre, a többi mögötte – a lista eredeti sorrendjének
+ * megtartásával.
+ *
+ * TELJESÍTMÉNY: korábban `map` + `sort` volt, a comparatoron belül pedig
+ * csatornánként (minden összehasonlításnál!) egy reguláris kifejezés futott.
+ * 20–60 ezer csatornánál ez több százezer regex-illesztést és egy
+ * O(n log n) rendezést jelentett – a TV-n másodpercekig tartott, és minden
+ * betöltési szakasz (előnézet, végleges lista, frissítés) után lefutott.
+ * A magyar besorolást most EGYSZER számoljuk ki, a szétválasztás pedig
+ * stabil, lineáris (O(n)) művelet.
+ */
 function hungaryFirst(list: Channel[]): Channel[] {
-  return list
-    .map((channel, index) => ({ channel, index }))
-    .sort((a, b) => {
-      const isHungary = (channel: Channel) =>
-        channel.countryCode?.toUpperCase() === 'HU' ||
-        channel.country === 'Magyarország' ||
-        /\b(magyarország|hungary|hungarian)\b/i.test(channel.categoryName || '');
+  if (list.length === 0) return list;
+  const hungarian: Channel[] = [];
+  const rest: Channel[] = [];
+  for (let index = 0; index < list.length; index++) {
+    const channel = list[index];
+    const isHungary =
+      channel.countryCode?.toUpperCase() === 'HU' ||
+      channel.country === 'Magyarország' ||
+      /\b(magyarország|hungary|hungarian)\b/i.test(channel.categoryName || '');
+    if (isHungary) hungarian.push(channel);
+    else rest.push(channel);
+  }
+  if (rest.length === 0) return hungarian;
+  if (hungarian.length === 0) return rest;
+  return hungarian.concat(rest);
+}
 
-      const aHu = isHungary(a.channel);
-      const bHu = isHungary(b.channel);
-      if (aHu !== bHu) return aHu ? -1 : 1;
-      return a.index - b.index;
-    })
-    .map(({ channel }) => channel);
+/**
+ * Két kategórialista ugyanaz-e (azonosító + név szerint)?
+ *
+ * A szolgáltatói frissítés minden szakaszban ÚJ tömböt ad vissza akkor is,
+ * ha a kategóriák nem változtak. Ha ezt változatlanul beírjuk az állapotba,
+ * a kategóriamodál és a fejléc (országok) feleslegesen újrarajzolódik –
+ * a távirányítóval görgetett lista pedig visszaugrik az elejére. Ezért csak
+ * akkor frissítünk, ha a lista tartalma tényleg más.
+ */
+function sameCategories(current: Category[], next: Category[]): boolean {
+  if (current === next) return true;
+  if (current.length !== next.length) return false;
+  for (let index = 0; index < current.length; index++) {
+    if (current[index].id !== next[index].id || current[index].name !== next[index].name) return false;
+  }
+  return true;
+}
+
+/**
+ * Egy listát csak akkor írunk a felületre, ha NEM üresítjük ki vele a már
+ * megjelenített, jó listát.
+ *
+ * A szolgáltató előfordul, hogy átmenetileg üres választ ad (karbantartás,
+ * kapcsolathiba). A referencia alkalmazás is így tesz: `if (!fresh.length)
+ * return` – a jó, mentett lista marad a képernyőn, nem lesz „nincs adat”
+ * villanás, és nem írjuk felül a mentett listát sem üres tartalommal.
+ */
+function keepIfFilled<T>(current: T[], next: T[] | undefined): T[] | null {
+  if (!next) return null;
+  if (next.length === 0 && current.length > 0) return null;
+  return next;
 }
 import { Header } from './components/Header';
 import { VideoPlayer } from './components/VideoPlayer';
@@ -175,6 +222,34 @@ export function App() {
   const diagnosticEventsRef = useRef<NetworkDiagnosticEvent[]>([]);
   const refreshLivePromptShownRef = useRef(false);
   const diagnosticFinishedRef = useRef(false);
+  /**
+   * A diagnosztika felületre írásának ritkítása (lásd handleRefreshProvider).
+   * A napló a memóriában azonnal gyűlik; a React csak 250 ms-onként rajzol.
+   */
+  const DIAGNOSTIC_FLUSH_MS = 250;
+  const diagFlushTimerRef = useRef<number | null>(null);
+  const lastProgressPaintRef = useRef(0);
+  const pushDiagnosticEvents = useCallback(() => {
+    diagFlushTimerRef.current = null;
+    setDiagnosticEvents(diagnosticEventsRef.current);
+    setLastImportDiagnostic((current) => (current && !current.finished)
+      ? { ...current, events: diagnosticEventsRef.current }
+      : current);
+  }, []);
+  const scheduleDiagnosticFlush = useCallback(() => {
+    if (diagFlushTimerRef.current !== null) return;
+    diagFlushTimerRef.current = window.setTimeout(pushDiagnosticEvents, DIAGNOSTIC_FLUSH_MS);
+  }, [pushDiagnosticEvents]);
+  const cancelDiagnosticFlush = useCallback(() => {
+    if (diagFlushTimerRef.current !== null) {
+      window.clearTimeout(diagFlushTimerRef.current);
+      diagFlushTimerRef.current = null;
+    }
+  }, []);
+  const flushDiagnosticNow = useCallback(() => {
+    cancelDiagnosticFlush();
+    setDiagnosticEvents(diagnosticEventsRef.current);
+  }, [cancelDiagnosticFlush]);
   const providerRefreshActiveRef = useRef(false);
   /**
    * Automatikus újrapróbálkozás: ha a szolgáltató szervere nem válaszol
@@ -204,6 +279,19 @@ export function App() {
   // Navigation & Active View state – сохраняjuk a GitHub web-frissítés előtti nézetet.
   const savedUiState = useRef(storageService.getUiState());
   const [activeView, setActiveView] = useState<'live' | 'movies' | 'series'>(savedUiState.current.activeView || 'live');
+  /**
+   * Már MEGNYITOTT nézetek.
+   *
+   * A Mozi és a Sorozat nézet a legelső megnyitás után a DOM-ban marad (csak
+   * elrejtjük), így a fejléc TV/Mozi/Sorozat gombjai közti váltás azonnali:
+   * nincs teljes újraépítés, nincs újra-betöltés, nincs villanás. A keresés,
+   * a kategória és a görgetési pozíció is megmarad, amikor visszatérünk.
+   * Első megnyitáskor épül fel egyszer (ez az egyetlen költség).
+   */
+  const [visitedViews, setVisitedViews] = useState<Record<string, boolean>>(() => ({
+    live: true,
+    [savedUiState.current.activeView || 'live']: true,
+  }));
   // VOD bezárásakor ugyanahhoz a könyvtárnézethez és kategóriához térünk vissza.
   const vodReturnViewRef = useRef<'movies' | 'series'>('movies');
   const movieCategoryRef = useRef('all');
@@ -543,74 +631,77 @@ export function App() {
     };
   }, [activeChannel?.id, activeProvider?.id]);
 
-  // A filmek és sorozatok betöltése a mentett tárból – a kezdőképernyő
-  // megjelenése után.
-  //
-  // FONTOS (a telefon lefagyásának javítása): a lista adagonként töltődik be,
-  // adagok között a felület visszakapja a vezérlést. Korábban a teljes,
-  // több tízezer elemű lista egyetlen, hosszú műveletben készült el, ezért a
-  // felület ilyenkor látszólag megfagyott.
+  /*
+   * A filmek és sorozatok betöltése a mentett tárból.
+   *
+   * FONTOS (indulás és a Mozi/Sorozat megnyitásának gyorsasága):
+   *  - a betöltés NEM a legelső képkocka előtt indul, hanem a főoldal
+   *    megjelenése után, üresjáratban (1,2 mp),
+   *  - és NEM is kell kivárni: amint a néző a Mozi vagy a Sorozat menüre
+   *    lép, az `ensureVodLoaded()` azonnal elindítja (lásd handleViewChange).
+   *  - adagonként töltődik, adagok között a felület visszakapja a vezérlést,
+   *    így a TV nem fagy le a több tízezer elemű lista olvasásakor.
+   * Csak EGYSZER fut le (az első kérésre), utána a memóriában lévő listát
+   * használjuk – nincs ismételt betöltés nézetváltáskor.
+   */
+  const vodLoadStartedRef = useRef(false);
+  const ensureVodLoaded = useCallback(() => {
+    if (vodLoadStartedRef.current) return;
+    const provider = bootLive.provider;
+    if (!provider) return;
+    vodLoadStartedRef.current = true;
+    logStartup();
+    appLog(`Mentett tartalom betöltése indul (tároló: ${provider.id}).`);
+    logMemory('tartalom betöltése előtt');
+    const vodTask = (async () => {
+      try {
+        const vod = await loadVodAsync(provider);
+        setMovies(vod.movies);
+        setVodCategories(vod.categories);
+        appLog(`Filmek a felületen: ${vod.movies.length}.`);
+      } catch (error) {
+        appLogError('Filmek betöltése', error);
+      }
+    })();
+    const seriesTask = (async () => {
+      // A sorozat-cache külön, a filmek után indul, hogy egyszerre csak egy
+      // nagy tár-olvasás fusson.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      try {
+        const ser = await loadSeriesAsync(provider);
+        setSeries(ser.series);
+        setSeriesCategories(ser.categories);
+        appLog(`Sorozatok a felületen: ${ser.series.length}.`);
+      } catch (error) {
+        appLogError('Sorozatok betöltése', error);
+      }
+    })();
+    void Promise.all([vodTask, seriesTask]).finally(() => logMemory('tartalom betöltése után'));
+  }, []);
+
   useEffect(() => {
     if (!bootLive.provider) return;
-    const provider = bootLive.provider;
-    let cancelled = false;
-    logStartup();
-    appLog(`Mentett tartalom betöltése indul (tároló: ${bootLive.provider.id}).`);
-    logMemory('tartalom betöltése előtt');
-    /*
-     * A film- és sorozatlista a HÁTTÉRBEN töltődik, de csak akkor, ha a
-     * böngészőnek van szabad ideje.
-     *
-     * Korábban `setTimeout(0)` volt: a nagy JSON-ok beolvasása azonnal a
-     * első kirajzolás után indult, és a TV-n épp a főoldal megjelenése
-     * (a csatornalista kirajzolása és az első kép elindulása) közben
-     * foglalta a főszálat – ez volt a "fokozatosan felépülő" indulás egyik
-     * oka. A requestIdleCallback a festés UTÁN adja át a vezérlést
-     * (2 másodperces felső korláttal, hogy gyors gépen se maradjon el).
-     */
-    const idle = (callback: () => void) => {
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === 'function') ric(callback, { timeout: 2000 });
-      else window.setTimeout(callback, 300);
-    };
-    const timer = { id: 0 as number };
-    timer.id = window.setTimeout(() => {
-      idle(() => startBackgroundLoad());
-    }, 0);
-    function startBackgroundLoad() {
-      // A film- és sorozatlista egymástól független: ne kelljen megvárni a
-      // teljes filmkatalógust ahhoz, hogy a sorozatok megjelenhessenek.
-      const vodTask = (async () => {
+    const ric = (window as any).requestIdleCallback;
+    let timer = 0;
+    // A késleltetés szándékos: a lejátszás elindulása és az első képkocka
+    // előzi meg a nagy JSON-ok beolvasását. Ha a néző közben a Mozi/Sorozat
+    // menüre lép, az ensureVodLoaded() azonnal elindítja.
+    timer = window.setTimeout(() => {
+      const start = () => {
+        // A félbe maradt, elárvult tároló-adagok törlése (egyszer, induláskor):
+        // helyet ad a következő mentésnek és nem lassítja a betöltést.
         try {
-          const vod = await loadVodAsync(provider);
-          if (cancelled) return;
-          setMovies(vod.movies);
-          setVodCategories(vod.categories);
-          appLog(`Filmek a felületen: ${vod.movies.length}.`);
-        } catch (error) {
-          appLogError('Filmek betöltése', error);
+          sweepStorage();
+        } catch {
+          /* a takarítás sosem akadályozhatja az indulást */
         }
-      })();
-      const seriesTask = (async () => {
-        // Engedjük, hogy az első nézet kirajzolódjon, majd külön induljon a sorozat-cache.
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-        try {
-          const ser = await loadSeriesAsync(provider);
-          if (cancelled) return;
-          setSeries(ser.series);
-          setSeriesCategories(ser.categories);
-          appLog(`Sorozatok a felületen: ${ser.series.length}.`);
-        } catch (error) {
-          appLogError('Sorozatok betöltése', error);
-        }
-      })();
-      void Promise.all([vodTask, seriesTask]).finally(() => logMemory('tartalom betöltése után'));
-    }
-    return () => {
-      cancelled = true;
-      clearTimeout(timer.id);
-    };
-  }, []);
+        ensureVodLoaded();
+      };
+      if (typeof ric === 'function') ric(start, { timeout: 2000 });
+      else start();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [ensureVodLoaded]);
 
   // Kedvencek / sorrend módosítása után mentsük a tartalmat (késleltetve).
   //
@@ -666,6 +757,46 @@ export function App() {
       return updated;
     });
   }, []);
+
+  /**
+   * Nézetváltás (TV / Mozi / Sorozat) – AZONNALI.
+   *
+   * A nézetek a legelső megnyitás után a DOM-ban maradnak (lásd visitedViews),
+   * ezért a váltás csak láthatóságot kapcsol: nincs újraépítés, nincs
+   * újra-betöltés, nincs villanás. A film/sorozat lista betöltése az első
+   * megnyitáskor indul (ha még nem futott), nem a váltásra vár.
+   */
+  const handleViewChange = useCallback((view: 'live' | 'movies' | 'series') => {
+    setVisitedViews((previous) => (previous[view] ? previous : { ...previous, [view]: true }));
+    setActiveView(view);
+    setCustomStreamUrl(undefined);
+    setCustomStreamTitle(undefined);
+    // Élő nézetben újra a legutóbbi csatorna megy; böngészés közben nem fut a háttérben.
+    setIsPlaying(view === 'live');
+    if (view !== 'live') {
+      // A film/sorozat lista betöltése már a menü megnyomásakor elindul.
+      window.setTimeout(ensureVodLoaded, 0);
+    }
+  }, [ensureVodLoaded]);
+
+  const handleOpenCategories = useCallback(() => setIsCategoriesOpen(true), []);
+  const handleOpenSettings = useCallback((tab?: 'channels' | 'lists' | 'favorites' | 'system') => {
+    // A Beállítások gomb alapból közvetlenül a Kedvencek fülre nyit.
+    // Csak a kifejezetten kért fül (pl. Rendszer) nyíljon meg külön.
+    setSettingsTab(!tab ? 'favorites' : tab === 'channels' ? 'system' : tab);
+    setIsSettingsOpen(true);
+  }, []);
+
+  /**
+   * A rejtett nézetek stílusa: a láthatóságot kapcsoljuk (nem unmountolunk),
+   * így a görgetési pozíció, a keresés és a kategória is megmarad. A rejtett
+   * nézet nem kap egeret és a távirányítós kijelölő sem lép rá
+   * (data-view-hidden, lásd webos.js).
+   */
+  const paneStyle = useCallback((isActive: boolean): React.CSSProperties => ({
+    visibility: isActive ? 'visible' : 'hidden',
+    pointerEvents: isActive ? 'auto' : 'none',
+  }), []);
 
   // Switch Active Channel
   /**
@@ -1010,7 +1141,7 @@ export function App() {
           seriesCount: 0,
           lastUpdated: new Date().toLocaleString('hu-HU'),
           expireDate: 'N/A',
-          maxConnections: 'N/A'
+          maxConnections: 0
         };
         handleAddProvider(newProvider);
         // A provider mentése után automatikusan induljon a teljes listaimport.
@@ -1030,7 +1161,7 @@ export function App() {
           seriesCount: 0,
           lastUpdated: new Date().toLocaleString('hu-HU'),
           expireDate: 'N/A',
-          maxConnections: 'N/A'
+          maxConnections: 0
         };
         handleAddProvider(newProvider);
         // M3U esetén is automatikusan induljon a beolvasás a mentés után.
@@ -1110,11 +1241,21 @@ export function App() {
     refreshLivePromptShownRef.current = false;
     diagnosticFinishedRef.current = false;
     setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: initialProgress, events: [], error: null, startedAt: refreshStartedAt, finished: false });
+    /*
+     * A diagnosztika FRISSÍTÉSE RITKÍTVA.
+     *
+     * Korábban minden egyes hálózati esemény (kérés indult / sikerült /
+     * hibázott) és minden haladásjelzés két állapotfrissítést hozott, azaz a
+     * teljes App újrarajzolását – egy 20-40 ezer elemű lista mellett ez a
+     * betöltés alatt másodpercenként több tucatszor futott le, és éppen a
+     * csatornalista feldolgozásátől vette el az időt. Most a napló a
+     * memóriában gyűlik (azonnal, adatvesztés nélkül), a felületre pedig
+     * legfeljebb 4-szer másodpercenként kerül ki.
+     */
+    lastProgressPaintRef.current = 0;
     setNetworkDiagnosticSink((event) => {
-      const next = [...diagnosticEventsRef.current, event].slice(-250);
-      diagnosticEventsRef.current = next;
-      setDiagnosticEvents(next);
-      setLastImportDiagnostic((current) => ({ providerId: id, providerName: provider.name, progress: current?.providerId === id ? current.progress : initialProgress, events: next, error: null, startedAt: refreshStartedAt, finished: false }));
+      diagnosticEventsRef.current = [...diagnosticEventsRef.current, event].slice(-250);
+      scheduleDiagnosticFlush();
     });
 
     // A betöltés közben folyamatosan épülő tartalom (a szakaszonkénti mentéshez).
@@ -1140,7 +1281,8 @@ export function App() {
     /** Egy-egy szakasz azonnal a felületre és a tárolóba kerül. */
     const applyPartial = async (partial: PartialContent): Promise<void> => {
       if (partial.totals) draft.totals = { ...draft.totals, ...partial.totals };
-      if (partial.channels) {
+      // Üres szakasz soha nem törölheti a már megjelenített (mentett) listát.
+      if (partial.channels && (partial.channels.length > 0 || channels.length === 0)) {
         draft.channels = preserveChannelPreferences(partial.channels, channels);
         setActiveProvider(draft.provider);
         // A frissítés részletekben érkezik. Ha a jelenleg nézett csatorna
@@ -1158,23 +1300,30 @@ export function App() {
       }
       if (partial.liveCategories) {
         draft.liveCategories = partial.liveCategories;
-        setCategories(partial.liveCategories);
+        // Csak tartalmi változásnál rajzoljuk újra a kategóriákat.
+        setCategories((current) => (sameCategories(current, partial.liveCategories!) ? current : partial.liveCategories!));
       }
       if (partial.movies) {
-        draft.movies = partial.movies;
-        setMovies(partial.movies);
+        const nextMovies = keepIfFilled(movies, partial.movies);
+        if (nextMovies) {
+          draft.movies = nextMovies;
+          setMovies(nextMovies);
+        }
       }
       if (partial.vodCategories) {
         draft.vodCategories = partial.vodCategories;
-        setVodCategories(partial.vodCategories);
+        setVodCategories((current) => (sameCategories(current, partial.vodCategories!) ? current : partial.vodCategories!));
       }
       if (partial.series) {
-        draft.series = partial.series;
-        setSeries(partial.series);
+        const nextSeries = keepIfFilled(series, partial.series);
+        if (nextSeries) {
+          draft.series = nextSeries;
+          setSeries(nextSeries);
+        }
       }
       if (partial.seriesCategories) {
         draft.seriesCategories = partial.seriesCategories;
-        setSeriesCategories(partial.seriesCategories);
+        setSeriesCategories((current) => (sameCategories(current, partial.seriesCategories!) ? current : partial.seriesCategories!));
       }
       setTotalCounts({ ...draft.totals });
 
@@ -1212,10 +1361,14 @@ export function App() {
       const result = await refreshProviderContent(
         provider,
         (progress) => {
-          if (!diagnosticFinishedRef.current && progress.percent < 100) {
-            setDiagnosticProgress(progress);
-            setLastImportDiagnostic(() => ({ providerId: id, providerName: provider.name, progress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: false }));
-          }
+          if (diagnosticFinishedRef.current || progress.percent >= 100) return;
+          const now = performance.now();
+          // 250 ms-os ritkítás: a folyamatjelző ennyi alatt is folyamatosnak
+          // látszik, a főszál viszont a feldolgozással foglalkozhat.
+          if (progress.percent < 99 && now - lastProgressPaintRef.current < DIAGNOSTIC_FLUSH_MS) return;
+          lastProgressPaintRef.current = now;
+          setDiagnosticProgress(progress);
+          setLastImportDiagnostic(() => ({ providerId: id, providerName: provider.name, progress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: false }));
         },
         applyPartial
       );
@@ -1249,12 +1402,15 @@ export function App() {
         : refreshedChannels;
       const refreshedContent: ImportedContent = { ...content, channels: refreshedChannels };
       setActiveProvider(refreshedContent.provider);
-      setChannels(hungaryFirst(channelsForDisplay));
-      setCategories(refreshedContent.liveCategories);
-      setMovies(refreshedContent.movies);
-      setVodCategories(refreshedContent.vodCategories);
-      setSeries(refreshedContent.series);
-      setSeriesCategories(refreshedContent.seriesCategories);
+      const liveToShow = keepIfFilled(channels, hungaryFirst(channelsForDisplay));
+      const moviesToShow = keepIfFilled(movies, refreshedContent.movies);
+      const seriesToShow = keepIfFilled(series, refreshedContent.series);
+      if (liveToShow) setChannels(liveToShow);
+      setCategories((current) => (sameCategories(current, refreshedContent.liveCategories) ? current : refreshedContent.liveCategories));
+      if (moviesToShow) setMovies(moviesToShow);
+      setVodCategories((current) => (sameCategories(current, refreshedContent.vodCategories) ? current : refreshedContent.vodCategories));
+      if (seriesToShow) setSeries(seriesToShow);
+      setSeriesCategories((current) => (sameCategories(current, refreshedContent.seriesCategories) ? current : refreshedContent.seriesCategories));
       setTotalCounts(refreshedContent.totals);
       // A live/film/sorozat részeket az applyPartial már külön elmentette.
       // Ne írjuk ki még egyszer a teljes több tízezres listát a fő szálon.
@@ -1276,11 +1432,13 @@ export function App() {
       };
       setDiagnosticProgress(finalProgress);
       setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: true });
+      flushDiagnosticNow();
       setNetworkDiagnosticSink(null);
       providerRefreshActiveRef.current = false;
     } catch (error) {
       diagnosticFinishedRef.current = true;
       setProviderContentReady(false);
+      flushDiagnosticNow();
       setNetworkDiagnosticSink(null);
       const message = error instanceof Error ? error.message : 'A frissítés nem sikerült.';
       setDiagnosticError(message);
@@ -1363,6 +1521,7 @@ export function App() {
 
   const closeRefreshDiagnostic = () => {
     diagnosticFinishedRef.current = true;
+    cancelDiagnosticFlush();
     setNetworkDiagnosticSink(null);
     setDiagnosticOpen(false);
     setDiagnosticEvents([]);
@@ -1930,73 +2089,38 @@ export function App() {
   return (
     <div data-app-root="" className="flex flex-col h-[100dvh] min-h-[100dvh] w-full min-w-0 max-w-none bg-[#080d1a] text-slate-100 overflow-hidden font-sans select-none shadow-2xl border-x border-cyan-950/40">
       
-      {/* Top Header Bar (Exact match to screenshot 1/2/3/4/5/6) */}
-      {!isVideoFullscreen && <Header
+      {/*
+        A FEJLÉC MINDIG A DOM-BAN VAN.
+        Korábban teljes képernyőn kikerült (unmount), és a kilépéskor a
+        React újraépítette – ez volt az egyik oka a teljes képernyőből való
+        visszatérés lassúságának. Teljes képernyőn a webOS CSS (webos.js)
+        és a lejátszó átfedése rejti el; a mount/unmount nem kell hozzá.
+      */}
+      <Header
         clockOffsetHours={settings.clockOffsetHours}
         activeView={activeView}
-        onViewChange={(view) => {
-          setActiveView(view);
-          if (view === 'live') {
-            // Visszatéréskor mindig az utoljára nézett élő csatorna töltődjön be újra.
-            setCustomStreamUrl(undefined);
-            setCustomStreamTitle(undefined);
-            setIsPlaying(true);
-          } else {
-            // Filmek/sorozatok böngészése közben az élő adás ne fusson a háttérben.
-            setIsPlaying(false);
-            setCustomStreamUrl(undefined);
-            setCustomStreamTitle(undefined);
-          }
-        }}
-        onOpenCategories={() => setIsCategoriesOpen(true)}
-        onOpenSettings={(tab) => {
-          // A Beállítások gomb alapból közvetlenül a Kedvencek fülre nyit.
-          // Csak a kifejezetten kért fül (pl. Rendszer) nyíljon meg külön.
-          setSettingsTab(!tab ? 'favorites' : tab === 'channels' ? 'system' : tab);
-          setIsSettingsOpen(true);
-        }}
-      />}
+        onViewChange={handleViewChange}
+        onOpenCategories={handleOpenCategories}
+        onOpenSettings={handleOpenSettings}
+      />
 
-      {/* Main View Switcher */}
+      {/*
+        NÉZET-TÁROLÓ. A három nézet egymás fölött, abszolút pozícióban él;
+        a váltás csak a láthatóságot kapcsolja. Így a TV ↔ Mozi ↔ Sorozat
+        váltás azonnali, és a Mozi/Sorozat nézet görgetési pozíciója,
+        keresése is megmarad.
+      */}
+      <div className="relative flex-1 flex flex-col min-h-0">
 
-      {activeView === 'movies' ? (
-        <MoviesView
-          movies={movies}
-          categories={vodCategories}
-          totalCount={totalCounts.vod}
-          settings={settings}
-          onPlayMovie={handlePlayMovie}
-          selectedCategoryId={movieCategoryRef.current}
-          onSelectedCategoryChange={(categoryId) => { movieCategoryRef.current = categoryId; }}
-          onBackToLive={() => {
-            setCustomStreamUrl(undefined);
-            setCustomStreamTitle(undefined);
-            setActiveView('live');
-            setIsPlaying(true);
-          }}
-          onToggleFavoriteMovie={handleToggleFavoriteMovie}
-        />
-      ) : activeView === 'series' ? (
-        <SeriesView
-          series={series}
-          categories={seriesCategories}
-          totalCount={totalCounts.series}
-          loadingSeriesId={loadingSeriesId}
-          onOpenSeries={handleLoadSeriesInfo}
-          settings={settings}
-          onPlayEpisode={handlePlayEpisode}
-          selectedCategoryId={seriesCategoryRef.current}
-          onSelectedCategoryChange={(categoryId) => { seriesCategoryRef.current = categoryId; }}
-          onBackToLive={() => {
-            setCustomStreamUrl(undefined);
-            setCustomStreamTitle(undefined);
-            setActiveView('live');
-            setIsPlaying(true);
-          }}
-          onToggleFavoriteSeries={handleToggleFavoriteSeries}
-        />
-      ) : (
-        /* Live TV View – reszponzív: mobilon egymás alatt, tablet/laptop/TV-n egymás mellett */
+      {/* ===== ÉLŐ TV NÉZET ===== */}
+      <div
+        data-view-pane="live"
+        data-view-hidden={activeView === 'live' ? undefined : ''}
+        className="absolute inset-0 flex flex-col min-h-0"
+        style={paneStyle(activeView === 'live')}
+      >
+
+        {/* Live TV View – reszponzív: mobilon egymás alatt, tablet/laptop/TV-n egymás mellett */}
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
           {/* Video + Controls – mobilon felül, desktopon bal oldalt rugalmas */}
           <div className="flex-1 flex flex-col overflow-hidden min-h-0 md:min-w-0">
@@ -2091,9 +2215,16 @@ export function App() {
             }}
           />}
           </div>
-          {/* Virtualized Fast Channel List – reszponzív oldalsáv */}
-          {!isVideoFullscreen && !customStreamUrl && (
-            <div className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 bg-[#070e1e]">
+          {/* Virtualized Fast Channel List – reszponzív oldalsáv.
+              FONTOS: a lista NEM kerül ki a DOM-ból teljes képernyőn vagy
+              film lejátszásakor (csak elrejtjük): így a visszatérés nem jár
+              újraépítéssel és a sárga kijelölés/görgetés is megmarad. */}
+          <div
+              className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 bg-[#070e1e]"
+              style={{ visibility: isVideoFullscreen || customStreamUrl ? 'hidden' : 'visible' }}
+              data-view-hidden={isVideoFullscreen || customStreamUrl ? '' : undefined}
+              aria-hidden={isVideoFullscreen || customStreamUrl ? true : undefined}
+            >
               <ChannelList
                 channels={filteredChannels}
                 activeProvider={activeProvider}
@@ -2115,9 +2246,58 @@ export function App() {
                 onSelectFavoriteFolder={handleSelectFavoriteFolder}
               />
             </div>
-          )}
+        </div>
+      </div>
+      {/* ===== ÉLŐ TV NÉZET VÉGE ===== */}
+
+      {/* ===== MOZI NÉZET (az első megnyitás után a DOM-ban marad) ===== */}
+      {visitedViews.movies && (
+        <div
+          data-view-pane="movies"
+          data-view-hidden={activeView === 'movies' ? undefined : ''}
+          className="absolute inset-0 flex flex-col min-h-0"
+          style={paneStyle(activeView === 'movies')}
+        >
+          <MoviesView
+            movies={movies}
+            categories={vodCategories}
+            totalCount={totalCounts.vod}
+            settings={settings}
+            onPlayMovie={handlePlayMovie}
+            selectedCategoryId={movieCategoryRef.current}
+            onSelectedCategoryChange={(categoryId) => { movieCategoryRef.current = categoryId; }}
+            onBackToLive={() => handleViewChange('live')}
+            onToggleFavoriteMovie={handleToggleFavoriteMovie}
+          />
         </div>
       )}
+
+      {/* ===== SOROZAT NÉZET (az első megnyitás után a DOM-ban marad) ===== */}
+      {visitedViews.series && (
+        <div
+          data-view-pane="series"
+          data-view-hidden={activeView === 'series' ? undefined : ''}
+          className="absolute inset-0 flex flex-col min-h-0"
+          style={paneStyle(activeView === 'series')}
+        >
+          <SeriesView
+            series={series}
+            categories={seriesCategories}
+            totalCount={totalCounts.series}
+            loadingSeriesId={loadingSeriesId}
+            onOpenSeries={handleLoadSeriesInfo}
+            settings={settings}
+            onPlayEpisode={handlePlayEpisode}
+            selectedCategoryId={seriesCategoryRef.current}
+            onSelectedCategoryChange={(categoryId) => { seriesCategoryRef.current = categoryId; }}
+            onBackToLive={() => handleViewChange('live')}
+            onToggleFavoriteSeries={handleToggleFavoriteSeries}
+          />
+        </div>
+      )}
+
+      </div>
+      {/* ===== NÉZET-TÁROLÓ VÉGE ===== */}
 
       {/* ================= MODALS & DRAWERS ================= */}
 

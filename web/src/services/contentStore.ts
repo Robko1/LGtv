@@ -58,6 +58,14 @@ const SERIES_CHUNK_PREFIX = 'content-series-chunk-';
 const VOD_GENERATION_PREFIX = 'content-vod-chunk-v2-';
 const SERIES_GENERATION_PREFIX = 'content-series-chunk-v2-';
 
+/**
+ * Éppen írás alatt álló generációk. A takarítás ezekhez NEM nyúlhat: a
+ * félkész adagok csak a mentés befejezése után válnak érvényessé (a metaadat
+ * íródik ki utoljára), ilyenkor viszont még nem szerepelnek a `keep`
+ * halmazban – enélkül a kvótahiba utáni takarítás törölné a friss adagokat.
+ */
+const activeGenerations = new Set<string>();
+
 let seriesSaveQueue: Promise<void> = Promise.resolve();
 let vodSaveQueue: Promise<void> = Promise.resolve();
 /** Adagolt mentések sorszáma (a generációs előtag egyedisége miatt). */
@@ -120,6 +128,8 @@ interface Backend {
   get(key: string): string;
   put(key: string, value: string): boolean;
   remove(key: string): void;
+  /** Az összes mentett kulcs (a tartalom-előtag nélkül). */
+  keys(): string[];
 }
 
 const memory = new Map<string, string>();
@@ -140,6 +150,18 @@ const backend: Backend = (() => {
         }
       },
       remove: (key) => window.localStorage.removeItem(LOCAL_PREFIX + key),
+      keys: () => {
+        const keys: string[] = [];
+        try {
+          for (let index = 0; index < window.localStorage.length; index++) {
+            const key = window.localStorage.key(index);
+            if (key && key.startsWith(LOCAL_PREFIX)) keys.push(key.slice(LOCAL_PREFIX.length));
+          }
+        } catch {
+          /* a felsorolás hibája nem akadályozhatja a mentést */
+        }
+        return keys;
+      },
     };
   } catch {
     return {
@@ -152,6 +174,7 @@ const backend: Backend = (() => {
       remove: (key) => {
         memory.delete(key);
       },
+      keys: () => Array.from(memory.keys()),
     };
   }
 })();
@@ -348,7 +371,7 @@ export const decodeSeriesForImport = decodeSeries;
 
 function write(key: string, payload: unknown): boolean {
   let text = JSON.stringify(payload);
-  if (text.length > LOCAL_BUDGET && backend.name !== 'native') {
+  if (text.length > LOCAL_BUDGET) {
     // Böngészőben (localStorage) nem fér el minden – csonkoljuk a listát.
     // A nagy JSON visszaolvasása fölösleges plusz memóriacsúcsot okozna.
     const source = payload as { rows?: Row[] };
@@ -371,6 +394,15 @@ function write(key: string, payload: unknown): boolean {
     }
     if (ok && rows) {
       appLog(`Tároló: a teljes lista nem fért el, szűkített mentés: ${key} (${rows.length} sor).`);
+    }
+  }
+  if (!ok) {
+    // Utolsó próba: a félbe maradt, elárvult adagok törlése után a hely
+    // felszabadulhat (a reference alkalmazás is így tesz a kvótahibánál).
+    try {
+      if (sweepStorage() > 0) ok = backend.put(key, text);
+    } catch {
+      /* marad a csökkentett mentés */
     }
   }
   if (!ok) {
@@ -405,11 +437,15 @@ export function saveLiveContent(content: ImportedContent): void {
   const chunkCount = Math.ceil(channels.length / CHUNK_SIZE);
   const generationPrefix = LIVE_GENERATION_PREFIX + Date.now() + '-' + (++writeSequence) + '-';
   const previousKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
+  for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
 
   for (let index = 0; index < chunkCount; index++) {
     const rows = encodeChannels(channels.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE));
     if (!write(generationPrefix + index, { rows })) {
-      for (let cleanup = 0; cleanup < chunkCount; cleanup++) backend.remove(generationPrefix + cleanup);
+      for (let cleanup = 0; cleanup < chunkCount; cleanup++) {
+        backend.remove(generationPrefix + cleanup);
+        activeGenerations.delete(generationPrefix + cleanup);
+      }
       appLog('Élő csatornák adagolt mentése nem sikerült (' + (index + 1) + '/' + chunkCount + '); a korábbi cache marad érvényben.');
       return;
     }
@@ -425,10 +461,14 @@ export function saveLiveContent(content: ImportedContent): void {
     chunkPrefix: generationPrefix,
   };
   if (!write(LIVE_META_KEY, meta)) {
-    for (let index = 0; index < chunkCount; index++) backend.remove(generationPrefix + index);
+    for (let index = 0; index < chunkCount; index++) {
+      backend.remove(generationPrefix + index);
+      activeGenerations.delete(generationPrefix + index);
+    }
     appLog('Élő csatornák cache-fejlécének mentése nem sikerült; a korábbi cache marad érvényben.');
     return;
   }
+  for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
 
   backend.remove(LIVE_KEY);
   for (const key of previousKeys) backend.remove(key);
@@ -461,6 +501,7 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
   const chunkCount = Math.ceil(options.total / CHUNK_SIZE);
   const generationPrefix = options.generationPrefix + Date.now() + '-' + (++writeSequence) + '-';
   const previousKeys = readChunkKeys(options.metaKey, options.legacyPrefix);
+  for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
 
   try {
     for (let index = 0; index < chunkCount; index++) {
@@ -481,10 +522,14 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
       throw new Error(`${options.label}: a lista fejléce nem menthető el.`);
     }
   } catch (error) {
-    for (let index = 0; index < chunkCount; index++) backend.remove(generationPrefix + index);
+    for (let index = 0; index < chunkCount; index++) {
+      backend.remove(generationPrefix + index);
+      activeGenerations.delete(generationPrefix + index);
+    }
     appLogError(`${options.label} mentése sikertelen`, error);
     throw error;
   }
+  for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
 
   // Siker: a régi adagok és a régi, egykulcsos változat törölhető.
   backend.remove(options.legacyKey);
@@ -506,6 +551,46 @@ function readChunkKeys(metaKey: string, legacyPrefix: string): string[] {
     /* régi vagy sérült metaadat */
   }
   return keys;
+}
+
+/**
+ * A tároló kitakarítása – INDULÁSKOR egyszer.
+ *
+ * Ha az alkalmazás mentés közben állt le (kikapcsolt TV, áramszünet), a félbe
+ * maradt generáció adagjai bent ragadhatnak a localStorage-ban, és a TV kis
+ * kvótájából több száz kilobájtot foglalnak örökre. Ezért induláskor
+ * összegyűjtjük az ÉRVÉNYES adagkulcsokat (a három metaadat-fejléc alapján),
+ * és minden más, tartalomhoz tartozó kulcsot törlünk. Csak a saját
+ * `content-*` kulcsainkhoz nyúlunk, a beállításokhoz és a kedvencekhez nem.
+ */
+export function sweepStorage(): number {
+  const keep = new Set<string>();
+  const metas: Array<[string, string]> = [
+    [LIVE_META_KEY, LIVE_CHUNK_PREFIX],
+    [VOD_META_KEY, VOD_CHUNK_PREFIX],
+    [SERIES_META_KEY, SERIES_CHUNK_PREFIX],
+  ];
+  for (const [metaKey, legacyPrefix] of metas) {
+    for (const key of readChunkKeys(metaKey, legacyPrefix)) keep.add(key);
+  }
+  const prefixes = [
+    LIVE_GENERATION_PREFIX, VOD_GENERATION_PREFIX, SERIES_GENERATION_PREFIX,
+    LIVE_CHUNK_PREFIX, VOD_CHUNK_PREFIX, SERIES_CHUNK_PREFIX,
+  ];
+  let removed = 0;
+  try {
+    for (const key of backend.keys()) {
+      if (activeGenerations.has(key) || keep.has(key)) continue;
+      if (prefixes.some((prefix) => key.startsWith(prefix))) {
+        backend.remove(key);
+        removed++;
+      }
+    }
+  } catch {
+    /* a takarítás hibája nem akadályozhatja az indulást */
+  }
+  if (removed > 0) appLog(`Tároló takarítás: ${removed} elárvult adag törölve.`);
+  return removed;
 }
 
 /** A sorozatmentések sorban futnak, nem írhatják felül egymás félkész adagjait. */
@@ -719,6 +804,63 @@ export function loadLive(): LoadedLive {
     appLogError('Élő lista betöltése', error);
     return empty;
   }
+}
+
+/* -------------------------------------------------- régi (egy kulcsos) tár */
+/*
+ * A korábbi verziók a film- és sorozatlistát EGYETLEN kulcsban mentették.
+ * Ezek a visszatöltők ezt a formátumot olvassák, hogy egy frissítés után se
+ * vesszen el a felhasználó listája. (Korábban a hívások megmaradtak, a
+ * függvények viszont nem – ezért a betöltés ReferenceError-ral elszállt.)
+ */
+
+function loadLegacyVod(provider: ProviderRef): { movies: Movie[]; categories: Category[] } {
+  const raw = backend.get(VOD_KEY);
+  if (!raw) return { movies: [], categories: [] };
+  try {
+    const parsed = JSON.parse(raw) as VodPart;
+    return {
+      movies: decodeMovies(Array.isArray(parsed.rows) ? parsed.rows : [], provider),
+      categories: decodeCategories(parsed.cats, 'movie'),
+    };
+  } catch (error) {
+    appLogError('A régi filmlista betöltése', error);
+    return { movies: [], categories: [] };
+  }
+}
+
+function loadLegacySeries(provider: ProviderRef): { series: Series[]; categories: Category[] } {
+  const raw = backend.get(SERIES_KEY);
+  if (!raw) return { series: [], categories: [] };
+  try {
+    const parsed = JSON.parse(raw) as SeriesPart;
+    return {
+      series: decodeSeries(Array.isArray(parsed.rows) ? parsed.rows : [], provider),
+      categories: decodeCategories(parsed.cats, 'series'),
+    };
+  } catch (error) {
+    appLogError('A régi sorozatlista betöltése', error);
+    return { series: [], categories: [] };
+  }
+}
+
+/** Filmlista betöltése szinkron (kis listákhoz, tesztekhez). */
+export function loadVod(provider: ProviderRef): { movies: Movie[]; categories: Category[] } {
+  const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX);
+  if (!meta) return loadLegacyVod(provider);
+  const movies: Movie[] = [];
+  let offset = 0;
+  for (let index = 0; index < meta.chunks; index++) {
+    const rows = meta.readChunk(index);
+    for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
+    offset += rows.length;
+  }
+  const categories = readChunkedCategories(VOD_META_KEY, 'movie');
+  if (movies.length === 0) {
+    const legacy = loadLegacyVod(provider);
+    if (legacy.movies.length > 0) return legacy;
+  }
+  return { movies, categories };
 }
 
 export async function loadVodAsync(
