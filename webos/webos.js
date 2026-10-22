@@ -132,7 +132,7 @@
   //  - a TV böngészőmotorját,
   //  - betöltődött-e a React felület,
   //  - az utoljára lenyomott távirányító-gombot (keyCode + név).
-  // A PIROS színes gombbal bármikor elő-/eltüntethető.
+  // A külön képernyős diagnosztika csak felülethiba esetén jelenik meg; a piros gomb a napló QR-kódját nyitja.
   var diag = {
     el: null, keyLine: null, uiLine: null, mouseLine: null,
     keyCount: 0, mouseMoves: 0, clicks: 0, hideTimer: 0, uiLoaded: false, forced: false
@@ -218,13 +218,6 @@
     diag.hideTimer = setTimeout(function() {
       if (diag.el && diag.uiLoaded && !diag.forced) diag.el.style.display = 'none';
     }, 120000);
-  }
-
-  function diagToggle() {
-    if (!diagEnsure()) return;
-    var hidden = diag.el.style.display === 'none';
-    diag.forced = hidden;
-    diag.el.style.display = hidden ? 'block' : 'none';
   }
 
   function diagKey(e, normalized) {
@@ -1122,10 +1115,8 @@
     try {
       document.body.classList.add('webos-tv', 'lg-webos', 'tv-mode');
     } catch (e) {}
-    // Képernyős diagnosztika: induláskor NEM jelenik meg (a bal alsó sarokban
-    // nem zavarhatja a nézést). Kizárólag a PIROS gombbal hozható elő.
-    // Egyetlen kivétel: ha a felület 12 mp alatt sem töltődik be, hibaüzenet
-    // marad a képernyőn (az valódi hibajelzés, nem diagnosztika).
+    // Képernyős diagnosztika: normál működéskor rejtve marad, és csak akkor
+    // jelenik meg, ha a felület 12 mp alatt sem töltődik be.
     diagUiCheck();
     var uiPoll = setInterval(function() {
       diagUiCheck();
