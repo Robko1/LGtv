@@ -606,9 +606,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       return;
     }
     if (key === 'ArrowLeft') {
-      // BALRA: a TV lejátszó doboz NEM fókuszcél többé - a jelölő a listán marad.
+      // A referenciához hasonlóan balra visszalépünk a kategória/mappa választóhoz.
+      // A lejátszó és a csatornalista külső kerete nem kap külön kijelölést.
       e.preventDefault();
       e.stopPropagation();
+      focusFolderBar();
       return;
     }
     if (visibleChannels.length === 0) {
@@ -627,7 +629,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     // Map-keresés O(1): nem fut végig a teljes csatornalistán minden gombnyomáskor.
     const currentIndex = channelIndexById.get(highlightedId)
       ?? channelIndexById.get(selectedChannelId)
-      ?? 0;
+      ?? -1;
     const moveHighlight = (target: number) => {
       const next = visibleChannels[target];
       if (!next) return;
