@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
-import { Play, Pause, Volume2, VolumeX, Rewind, FastForward, Languages, Captions, Clock, Film, X, Mic2, Check } from 'lucide-react';
+import { Rewind, FastForward, Clock } from 'lucide-react';
 import { appLog } from '../services/appLog';
 import { ChannelLogo } from './ChannelLogo';
 import { normalizeTvKey } from '../utils/tvKeys';
+import { VodOsd } from './VodOsd';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 
 interface NativeApi {
@@ -60,6 +61,55 @@ function readNativeMediaTracks(api: NativeApi | null) {
   } catch {
     return [];
   }
+}
+
+/**
+ * A filmbe muxolt feliratok (HTML5 `textTracks`) kiolvasása.
+ * A `mode` értékkel lehet be- és kikapcsolni őket.
+ */
+function readHtmlSubtitleTracks(video: HTMLVideoElement | null): SubtitleTrack[] {
+  if (!video) return [];
+  try {
+    return Array.from(video.textTracks || []).map((track, index) => ({
+      id: index,
+      name: track.label || track.language || `Felirat ${index + 1}`,
+      lang: track.language || '',
+      selected: track.mode === 'showing',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A beállításokban megadott nyelvhez (alapból Magyar) tartozó sáv megkeresése.
+ * A nyelvkódokat és a sávneveket is összeveti, mert a szolgáltatók hol `hu`,
+ * hol `hun`, hol `Magyar` alakban adják meg ugyanazt.
+ */
+const VOD_LANGUAGE_ALIASES: Record<string, string[]> = {
+  magyar: ['hu', 'hun', 'magyar', 'hungarian'],
+  angol: ['en', 'eng', 'english', 'original'],
+  német: ['de', 'deu', 'ger', 'german', 'deutsch'],
+  nemet: ['de', 'deu', 'ger', 'german', 'deutsch'],
+  francia: ['fr', 'fra', 'fre', 'french', 'francais'],
+  olasz: ['it', 'ita', 'italian', 'italiano'],
+  spanyol: ['es', 'spa', 'spanish', 'espanol'],
+};
+
+function findPreferredVodTrack<T extends { lang?: string; name?: string }>(
+  tracks: T[],
+  preferred: string,
+): T | null {
+  const normalize = (value: unknown) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const wanted = normalize(preferred);
+  if (!wanted || wanted === 'kikapcsolva' || wanted === 'off') return null;
+  const aliases = VOD_LANGUAGE_ALIASES[wanted] || [wanted];
+  return tracks.find((track) => [track.lang, track.name].some((value) => {
+    const text = normalize(value);
+    if (!text) return false;
+    const words = text.split(/[^a-z]+/).filter(Boolean);
+    return aliases.some((alias) => text === alias || text.includes(alias) || words.includes(alias));
+  })) || null;
 }
 
 /** A webOS HTMLMediaElement may expose selectable audio tracks through AudioTrackList. */
@@ -344,7 +394,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // A watchdog csak a korábban ütemezett időzítőt törli.
     clearBufferWatchdog();
   }, [clearBufferWatchdog]);
-  const isMuted = volume <= 0;
 
   // A HTML5 videót a React-komponens eltűnésekor nézetváltáskor
   // ténylegesen leállítjuk, és elrejtjük a natív videófelületet. Visszatéréskor
@@ -381,10 +430,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setShowControlsOverlay(true);
     }
   }, [isVod]);
-  const [vodOsdHeight, setVodOsdHeight] = useState<number>(0);
   const [showFullscreenEpg, setShowFullscreenEpg] = useState<boolean>(false);
   const osdHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [vodTrackMenu, setVodTrackMenu] = useState<'audio' | 'subtitle' | null>(null);
+  /**
+   * Film/sorozat OSD: minden felhasználói művelet (gombnyomás, tekerés)
+   * újraindítja az eltűnési időzítőt – így nem tűnik el a kezünk alól.
+   */
+  const [vodOsdActivity, setVodOsdActivity] = useState<number>(0);
+  const handleVodOsdActivity = useCallback(() => {
+    setShowControlsOverlay(true);
+    setVodOsdActivity((value) => value + 1);
+  }, []);
 
   /**
    * Az OSD viselkedése új specifikáció szerint:
@@ -562,7 +619,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         osdHideTimerRef.current = null;
       }
     };
-  }, [canToggleOsd, showControlsOverlay, settings.osdHideDelay, vodTrackMenu]);
+  }, [canToggleOsd, showControlsOverlay, settings.osdHideDelay, vodTrackMenu, vodOsdActivity]);
 
   useEffect(() => {
     onOverlayVisibilityChange?.(showControlsOverlay);
@@ -665,6 +722,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // a Vissza/OK és a csatornaváltó nyilak hibaüzenet mellett is működjenek.
     // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, OK=13, VISSZA=461) is jöhet.
     const key = normalizeTvKey(e);
+    /*
+     * FILM / SOROZAT: ha az OSD rejtve van (vagy a fókusz nem az OSD-n van),
+     * a távirányító bármelyik nyila hozza elő a vezérlőket. Korábban ilyenkor
+     * semmi nem történt, és a felhasználó nem tudta „megfogni” az idővonalat.
+     */
+    if (isVod && isFullscreen && !vodTrackMenu
+        && (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown')) {
+      const osdRoot = vodOsdRef.current;
+      const focusInsideOsd = Boolean(osdRoot && document.activeElement && osdRoot.contains(document.activeElement));
+      if (!focusInsideOsd) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowControlsOverlay(true);
+        window.requestAnimationFrame(() => {
+          vodOsdRef.current?.querySelector<HTMLElement>('[data-vod-osd-play]')
+            ?.focus({ preventScroll: true } as any);
+        });
+        return;
+      }
+    }
     if (key === 'Enter' && isVod && isFullscreen) {
       // Az OK előhozza az OSD-t, és az első vezérlőre helyezi a fókuszt.
       // Ha már egy OSD-gombon áll a fókusz, az OSD belső kezelője kapja az OK-t.
@@ -672,7 +749,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       e.stopPropagation();
       setShowControlsOverlay(true);
       window.requestAnimationFrame(() => {
-        const first = vodOsdRef.current?.querySelector<HTMLElement>('button, input[type="range"]');
+        const first = vodOsdRef.current?.querySelector<HTMLElement>('[data-vod-osd-play]');
         first?.focus({ preventScroll: true } as any);
       });
     } else if (key === ' ' || key === 'Enter') {
@@ -754,88 +831,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const onEndedRef = useRef<(() => void) | undefined>(undefined);
   onEndedRef.current = onEnded;
   const userAudioChoiceRef = useRef<number | null>(null);
+  /** Film/sorozat: a felhasználó kézzel választott hang- és feliratsávja. */
+  const userVodAudioChoiceRef = useRef<string | null>(null);
+  const userVodSubtitleChoiceRef = useRef<string | null>(null);
+  /** Egyszer futó automatikus (preferált nyelv) kiválasztás streamenként. */
+  const vodTrackAutoSelectKeyRef = useRef<string>('');
   const [, setShowTvAudioMenu] = useState(false);
-  // A főoldali OSD-vel egyező hangerőgomb: egy kattintás némít, dupla kattintás csúszkát nyit.
-  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
-  const volumeControlRef = useRef<HTMLDivElement | null>(null);
-  const volumeClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (volumeClickTimer.current) clearTimeout(volumeClickTimer.current); }, []);
-  useEffect(() => {
-    if (!showVolumeSlider) return;
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (volumeControlRef.current && !volumeControlRef.current.contains(event.target as Node)) {
-        setShowVolumeSlider(false);
-      }
-    };
-    document.addEventListener('pointerdown', closeOnOutsideClick);
-    return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
-  }, [showVolumeSlider]);
-  const handleVolumeButtonClick = () => {
-    if (showVolumeSlider) {
-      if (volumeClickTimer.current) {
-        clearTimeout(volumeClickTimer.current);
-        volumeClickTimer.current = null;
-      }
-      setShowVolumeSlider(false);
-      return;
-    }
-    if (volumeClickTimer.current) {
-      clearTimeout(volumeClickTimer.current);
-      volumeClickTimer.current = null;
-      setShowVolumeSlider(true);
-      return;
-    }
-    volumeClickTimer.current = setTimeout(() => {
-      volumeClickTimer.current = null;
-      onToggleMute();
-    }, 260);
-  };
   const [vodSubtitleTracks, setVodSubtitleTracks] = useState<SubtitleTrack[]>(providedSubtitleTracks || []);
   const [tvSubtitleTracks, setTvSubtitleTracks] = useState<SubtitleTrack[]>([]);
 
-  // A film/sorozat OSD panel magassága. Natív lejátszásnál a natív videó
-  // ennyivel rövidebb lesz, hogy az OSD – pontosan a főoldali kinézet –
-  // látható maradjon a kép alatt (a natív kép egyébként elfedi a webes
-  // felületet a videóablak területén).
-  useEffect(() => {
-    if (!isVod) {
-      setVodOsdHeight(0);
-      return;
-    }
-    const element = vodOsdRef.current;
-    if (!element) return;
-    const measure = () => {
-      const height = Math.round(element.getBoundingClientRect().height);
-      setVodOsdHeight((current) => (Math.abs(current - height) > 1 ? height : current));
-    };
-    measure();
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    observer?.observe(element);
-    window.addEventListener('resize', measure);
-    window.addEventListener('orientationchange', measure);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('orientationchange', measure);
-    };
-  }, [isVod, streamUrl, showControlsOverlay, vodTrackMenu]);
-
-  /**
-   * A videóablak alján szabadon hagyott sáv (film/sorozat nem teljes képernyős nézetében).
-   * Teljes képernyőben (álló és fekvő) az OSD a képen kívülre kerül vagy fölötte úszik,
-   * ezért nem méretezzük át a képet – így álló teljes képernyőben is 16:9 keret marad
-   * mint élő TV-nél (a felhasználó kérése).
+  /*
+   * Az új film/sorozat OSD a referenciához hasonlóan a KÉP FÖLÖTT úszik
+   * (átmenetes sötétítéssel), ezért nem kell helyet hagyni alatta: a kép
+   * végig kitölti a rendelkezésre álló területet. Korábban az OSD egy külön
+   * panelsáv volt a kép alatt, és a natív videót ennyivel rövidítettük –
+   * erre a felépítésre már nincs szükség.
    */
-  const osdReserveForNative = Math.round(vodOsdHeight + 8);
-  /**
-   * Csak a film/sorozat NEM teljes képernyős nézetében hagyunk helyet az OSD-nek.
-   * Teljes képernyőben (álló és fekvő) a kép kitölti a rendelkezésre álló területet:
-   *  - állóban 16:9 keret középen (élő TV-vel azonos),
-   *  - fekvőben teljes kijelző.
-   */
-  const nativeOsdReserve = nativeHandoff && showControlsOverlay && isVod && !isFullscreen
-    ? Math.max(0, osdReserveForNative)
-    : 0;
+  const nativeOsdReserve = 0;
 
   // PiP-ből visszatéréskor a böngésző helyreállíthatja a lejátszó felületét,
   // de a React teljesképernyő-állapota különben a PiP előtti értéken maradhat.
@@ -1120,6 +1132,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setVodSubtitleTracks(providedSubtitleTracks || []);
     setVodTrackMenu(null);
     setActiveVodSubtitleId(null);
+    // Új filmnél a kézi sávválasztás is újraindul, hogy a Beállítások →
+    // Mozi & Sorozat szerinti alapértelmezett (magyar) nyelv érvényesüljön.
+    userVodAudioChoiceRef.current = null;
+    userVodSubtitleChoiceRef.current = null;
+    vodTrackAutoSelectKeyRef.current = '';
   }, [providedAudioTracks, providedSubtitleTracks, customStreamUrl]);
 
   // Film/sorozat idővonal: natív motorból vagy HTML5 videóból olvassuk.
@@ -1157,14 +1174,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => window.clearInterval(timer);
   }, [isVod, nativeHandoff, streamUrl, onProgress, initialPositionSeconds, showControlsOverlay]);
 
-  const formatVodTime = (seconds: number) => {
-    const total = Math.max(0, Math.floor(seconds || 0));
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  };
-
   const seekVod = (seconds: number) => {
     const target = Math.max(0, Math.min(vodDuration || Infinity, seconds));
     const api = nativeApi();
@@ -1185,16 +1194,47 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     seekVod(currentSeconds + direction * settings.seekStep);
   };
 
+  /**
+   * HTML5 hangsávváltás film/sorozat közben.
+   *
+   * A webOS a legtöbb többnyelvű VOD-streamnél az `audioTracks` listát teszi
+   * közzé; a kiválasztott sávot az `enabled` beállításával lehet átkapcsolni.
+   * FONTOS: itt szándékosan NINCS forrás-újranyitás (azt az élő TV-nél kell),
+   * mert a film újratöltése a lejátszási helyzetet vesztené el.
+   */
+  const switchHtmlVodAudio = useCallback((index: number) => {
+    const video = htmlVideoRef.current as (HTMLVideoElement & { audioTracks?: ArrayLike<any> }) | null;
+    const list = video?.audioTracks;
+    if (!video || !list || !Number.isInteger(index) || index < 0 || index >= list.length) return false;
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const enabled = i === index;
+        if (Boolean(list[i]?.enabled) !== enabled) list[i].enabled = enabled;
+      }
+      setVodAudioTracks(readHtmlAudioTracks(video));
+      return true;
+    } catch (error) {
+      appLog('Film hangsávváltási hiba: ' + String(error));
+      return false;
+    }
+  }, []);
+
   const selectVodAudio = (track: AudioTrack) => {
     // A hangsávlista lejátszóazonosítót tartalmaz; a selectTrack indexet várna,
     // ami eltérhet, ezért a HTML5 videó-azonosító szerinti API-t használjuk.
     const mpvId = typeof track.id === 'number' ? track.id : Number(track.id);
     const nativeIndex = Number((track as AudioTrack & { nativeIndex?: number }).nativeIndex);
     const api = nativeApi();
+    // A kézi választás felülírja az automatikus (preferált nyelv) választást.
+    userVodAudioChoiceRef.current = String(track.id);
     if (nativeHandoff && Number.isFinite(mpvId)) {
       api?.selectTrackById?.('audio', mpvId, Number.isFinite(nativeIndex) ? nativeIndex : undefined);
       appLog(`Film/sorozat hangsáv kiválasztva: track id=${mpvId}`
         + (Number.isFinite(nativeIndex) ? `, sorszám=${nativeIndex}` : ''));
+    } else if (Number.isFinite(mpvId)) {
+      const switched = switchHtmlVodAudio(mpvId);
+      appLog(`Film/sorozat hangsáv kiválasztva (HTML5): sáv=${mpvId}, siker=${switched}.`);
+      if (!switched) nativeApi()?.toast?.('A lejátszó nem tudta átkapcsolni a hangsávot.');
     }
     setVodTrackMenu(null);
   };
@@ -1323,7 +1363,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => onRegisterSubtitleTrackSelector?.(null);
   }, [onRegisterSubtitleTrackSelector, selectTvSubtitle]);
 
+  /**
+   * HTML5 feliratsávok (a filmbe muxolt feliratok) kiolvasása.
+   * A böngésző `textTracks` listája a `mode` értékkel kapcsolható.
+   */
+  const switchHtmlVodSubtitle = (index: number | null) => {
+    const video = htmlVideoRef.current;
+    if (!video) return false;
+    try {
+      const list = video.textTracks;
+      for (let i = 0; i < list.length; i++) {
+        list[i].mode = index !== null && i === index ? 'showing' : 'disabled';
+      }
+      setVodSubtitleTracks(readHtmlSubtitleTracks(video));
+      return true;
+    } catch (error) {
+      appLog('Film feliratváltási hiba: ' + String(error));
+      return false;
+    }
+  };
+
   const selectVodSubtitle = (track: SubtitleTrack | null) => {
+    userVodSubtitleChoiceRef.current = track ? String(track.id) : 'off';
     if (nativeHandoff) {
       const current = activeVodSubtitleId != null ? Number(activeVodSubtitleId) : NaN;
       if (track && Number.isFinite(Number(track.id))) {
@@ -1333,6 +1394,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         nativeApi()?.deselectTrack?.('subtitle', Number.isFinite(current) ? current : -1);
         setActiveVodSubtitleId(null);
       }
+    } else {
+      const index = track && Number.isFinite(Number(track.id)) ? Number(track.id) : null;
+      switchHtmlVodSubtitle(index);
+      setActiveVodSubtitleId(index);
+      appLog(index === null ? 'Film felirat kikapcsolva.' : `Film felirat kiválasztva: sáv=${index}.`);
     }
     setVodTrackMenu(null);
   };
@@ -1453,6 +1519,81 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('canplay', refreshHtmlAudioTracks);
     };
   }, [nativeHandoff, streamUrl]);
+
+  /*
+   * FILM / SOROZAT – HTML5 feliratsávok figyelése.
+   *
+   * A filmbe muxolt feliratok a böngésző `textTracks` listájában jelennek meg
+   * (ezek kapcsolhatók be a CC gombbal). A lista késve is érkezhet, ezért a
+   * metaadat és az első képkockák után is újraolvassuk.
+   */
+  useEffect(() => {
+    if (!isVod || nativeHandoff) return;
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    const refresh = () => {
+      const mapped = readHtmlSubtitleTracks(video);
+      setVodSubtitleTracks((previous) => (
+        previous.length === mapped.length && previous.every((track, index) =>
+          String(track.id) === String(mapped[index]?.id) &&
+          track.name === mapped[index]?.name &&
+          track.lang === mapped[index]?.lang &&
+          track.selected === mapped[index]?.selected
+        ) ? previous : mapped
+      ));
+      const active = mapped.find((track) => track.selected === true);
+      setActiveVodSubtitleId(active ? active.id : null);
+    };
+    refresh();
+    video.addEventListener('loadedmetadata', refresh);
+    video.addEventListener('canplay', refresh);
+    const timer = window.setInterval(refresh, 1500);
+    return () => {
+      window.clearInterval(timer);
+      video.removeEventListener('loadedmetadata', refresh);
+      video.removeEventListener('canplay', refresh);
+    };
+  }, [isVod, nativeHandoff, streamUrl]);
+
+  /*
+   * FILM / SOROZAT – ALAPÉRTELMEZETT NYELV (Beállítások → Mozi & Sorozat).
+   *
+   * A felhasználó kérése: a film alap hangja és felirata MAGYAR legyen, ha a
+   * stream kínál ilyet. A választás egyszer fut le streamenként, és csak
+   * addig, amíg a felhasználó kézzel nem választott sávot az OSD-ben.
+   */
+  useEffect(() => {
+    if (!isVod || nativeHandoff) return;
+    const audioSignature = vodAudioTracks.map((track) => `${track.id}:${track.lang}:${track.name}`).join('|');
+    const subtitleSignature = vodSubtitleTracks.map((track) => `${track.id}:${track.lang}:${track.name}`).join('|');
+    if (!audioSignature && !subtitleSignature) return;
+    const key = [streamUrl, settings.preferredAudioLang, settings.preferredSubtitle, audioSignature, subtitleSignature].join('~');
+    if (key === vodTrackAutoSelectKeyRef.current) return;
+    vodTrackAutoSelectKeyRef.current = key;
+
+    if (userVodAudioChoiceRef.current === null && vodAudioTracks.length > 1) {
+      const activeAudio = vodAudioTracks.find((track) => track.selected === true);
+      const preferredAudio = findPreferredVodTrack(vodAudioTracks, settings.preferredAudioLang || 'Magyar');
+      if (preferredAudio && String(preferredAudio.id) !== String(activeAudio?.id)) {
+        switchHtmlVodAudio(Number(preferredAudio.id));
+        appLog(`Automatikus film-hangsáv: ${preferredAudio.lang || preferredAudio.name} (beállítás: ${settings.preferredAudioLang}).`);
+        return; // a frissült sávlista alapján a felirat a következő körben jön
+      }
+    }
+
+    const preferredSubtitle = (settings.preferredSubtitle || 'Magyar').trim();
+    if (userVodSubtitleChoiceRef.current === null && preferredSubtitle.toLowerCase() !== 'kikapcsolva') {
+      const activeSubtitle = vodSubtitleTracks.find((track) => track.selected === true);
+      const preferredTrack = findPreferredVodTrack(vodSubtitleTracks, preferredSubtitle);
+      if (preferredTrack && !activeSubtitle) {
+        switchHtmlVodSubtitle(Number(preferredTrack.id));
+        appLog(`Automatikus film-felirat: ${preferredTrack.lang || preferredTrack.name} (beállítás: ${preferredSubtitle}).`);
+      }
+    }
+  }, [
+    isVod, nativeHandoff, streamUrl, vodAudioTracks, vodSubtitleTracks,
+    settings.preferredAudioLang, settings.preferredSubtitle, switchHtmlVodAudio,
+  ]);
 
   // A natív track-list késve is megérkezhet (csatornánként eltérő időben).
   // Amíg a natív motor fut, rendszeresen újraolvassuk, hogy a gomb és a lista
@@ -2348,359 +2489,41 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       */}
       <div
         data-player-osd=""
-        className={`absolute inset-0 bg-linear-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 flex flex-col justify-between p-3 pointer-events-none ${
-          showControlsOverlay ? 'opacity-100 visible' : 'opacity-0 invisible'
-        }`}
+        className={`absolute inset-0 transition-opacity duration-300 flex flex-col justify-between pointer-events-none ${
+          isVod ? '' : 'bg-linear-to-t from-black/80 via-transparent to-black/40 p-3'
+        } ${showControlsOverlay ? 'opacity-100 visible' : 'opacity-0 invisible'}`}
       >
         {isVod ? (
-          /* Film/sorozat OSD: kék panel, idővonal, lejátszás, hangsáv és felirat. */
-          <div
-            ref={vodOsdRef}
-            className="absolute inset-x-2 bottom-2 z-40 pointer-events-auto [&_button:focus]:outline-none [&_button:focus]:ring-2 [&_button:focus]:ring-yellow-400 [&_input:focus]:outline-none [&_input:focus]:ring-2 [&_input:focus]:ring-yellow-400"
-            onKeyDown={(e) => {
-              const key = normalizeTvKey(e);
-              const root = vodOsdRef.current;
-              if (!root) return;
-              if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
-                const controls = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), input[type="range"]:not([disabled])'));
-                if (!controls.length) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const active = document.activeElement as HTMLElement | null;
-                const current = active && controls.includes(active) ? active : null;
-                if (!current) {
-                  controls[0].focus({ preventScroll: true } as any);
-                  return;
-                }
-                const a = current.getBoundingClientRect();
-                const ax = a.left + a.width / 2;
-                const ay = a.top + a.height / 2;
-                const candidates = controls.filter((el) => el !== current).map((el) => {
-                  const r = el.getBoundingClientRect();
-                  const dx = r.left + r.width / 2 - ax;
-                  const dy = r.top + r.height / 2 - ay;
-                  return { el, dx, dy, vertical: Math.abs(dy), horizontal: Math.abs(dx) };
-                }).filter((p) => {
-                  if (key === 'ArrowLeft') return p.dx < -2 && p.vertical <= Math.max(24, a.height / 2);
-                  if (key === 'ArrowRight') return p.dx > 2 && p.vertical <= Math.max(24, a.height / 2);
-                  if (key === 'ArrowUp') return p.dy < -2;
-                  return p.dy > 2;
-                }).sort((p, q) => {
-                  if (key === 'ArrowLeft' || key === 'ArrowRight') return p.horizontal - q.horizontal || p.vertical - q.vertical;
-                  return p.vertical - q.vertical || p.horizontal - q.horizontal;
-                });
-                if (candidates[0]) candidates[0].el.focus({ preventScroll: true } as any);
-              } else if (key === 'Enter' || key === ' ') {
-                e.stopPropagation();
-              }
-            }}
-          >
-            {vodTrackMenu && (
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-label="Hang és felirat választó"
-                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setVodTrackMenu(null); } }}
-                onClick={() => setVodTrackMenu(null)}
-                className="fixed inset-0 z-[10000] flex items-center justify-center p-3 md:p-4 bg-black/80 backdrop-blur-sm pointer-events-auto"
-                style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
-              >
-                <div onClick={(e) => e.stopPropagation()} className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-                  <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {vodTrackMenu === 'audio'
-                        ? <Mic2 className="w-5 h-5 text-rose-400 stroke-[2.5]" />
-                        : <Captions className="w-5 h-5 text-cyan-300 stroke-[2.5]" />}
-                      <h2 className="text-base sm:text-lg font-black text-white tracking-wide">
-                        {vodTrackMenu === 'audio' ? 'HANGSÁV' : 'FELIRAT'}
-                      </h2>
-                    </div>
-                    <button
-                      onClick={() => setVodTrackMenu(null)}
-                      aria-label="Bezárás"
-                      className="p-1.5 rounded-full border-2 border-cyan-500/60 bg-[#0e1d3b] hover:bg-[#16274b] text-cyan-300 active:scale-90 transition-all"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {vodTrackMenu === 'subtitle' && (
-                      <div className="space-y-2">
-                        <h3 className="text-xs font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <Captions className="w-3.5 h-3.5" />
-                          <span>Felirat választása</span>
-                        </h3>
-                        <button
-                          onClick={() => selectVodSubtitle(null)}
-                          className="p-3 w-full rounded-2xl flex items-center justify-between cursor-pointer border border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042] transition-all"
-                        >
-                          <span className="text-xs sm:text-sm font-bold">Felirat kikapcsolva</span>
-                        </button>
-                      </div>
-                    )}
-                    {vodTrackMenu === 'audio' && (
-                      <div className="space-y-2">
-                        <h3 className="text-xs font-black text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Mic2 className="w-3.5 h-3.5" />
-                          <span>Hangsáv választása</span>
-                        </h3>
-                        <div className="space-y-1.5">
-                          {vodAudioTracks.length === 0 ? (
-                            <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">
-                              A lejátszó nem jelzett választható hangsávot ehhez a filmhez vagy sorozathoz.
-                            </p>
-                          ) : vodAudioTracks.map((track) => {
-                            const languageNames: Record<string, string> = {
-                              hu: 'Magyar', hun: 'Magyar', magyar: 'Magyar', hungarian: 'Magyar',
-                              en: 'Angol', eng: 'Angol', english: 'Angol', original: 'Eredeti hangsáv',
-                              fr: 'Francia', fra: 'Francia', fre: 'Francia', french: 'Francia',
-                              de: 'Német', deu: 'Német', ger: 'Német', german: 'Német', deutsch: 'Német',
-                              es: 'Spanyol', spa: 'Spanyol', spanish: 'Spanyol',
-                              it: 'Olasz', ita: 'Olasz', italian: 'Olasz',
-                              pl: 'Lengyel', pol: 'Lengyel', pt: 'Portugál', por: 'Portugál',
-                              ro: 'Román', ron: 'Román', rus: 'Orosz', ru: 'Orosz',
-                              uk: 'Ukrán', ukr: 'Ukrán', nl: 'Holland', nld: 'Holland',
-                              cs: 'Cseh', ces: 'Cseh', sk: 'Szlovák', slk: 'Szlovák',
-                              hr: 'Horvát', hrv: 'Horvát', sr: 'Szerb', srp: 'Szerb',
-                              sv: 'Svéd', swe: 'Svéd', da: 'Dán', dan: 'Dán',
-                              no: 'Norvég', nor: 'Norvég', fi: 'Finn', fin: 'Finn',
-                              tr: 'Török', tur: 'Török', ar: 'Arab', ara: 'Arab',
-                              el: 'Görög', ell: 'Görög', ja: 'Japán', jpn: 'Japán',
-                              ko: 'Koreai', kor: 'Koreai', zh: 'Kínai', zho: 'Kínai',
-                            };
-                            const rawName = String(track.name || '').trim();
-                            const rawLang = String(track.lang || '').trim();
-                            const normalize = (value: string) => value.toLowerCase().replace(/_/g, '-');
-                            const languageKey = normalize(rawLang);
-                            const nameKey = normalize(rawName);
-                            const isShortLanguageCode = /^[a-z]{2,3}(?:-[a-z]{2,4})?$/i.test(rawName);
-                            const isGenericTrackName = /^(?:hangsáv|audio|track|sáv)\\s*#?\\s*\\d+$/i.test(rawName);
-                            const displayName = (rawName && !isShortLanguageCode && !isGenericTrackName
-                              ? rawName
-                              : languageNames[languageKey] || languageNames[languageKey.split('-')[0]] ||
-                                languageNames[nameKey] || languageNames[nameKey.split('-')[0]] ||
-                                (!isGenericTrackName ? rawName : '') || rawLang || 'Eredeti hangsáv');
-                            const hasNativeSelection = vodAudioTracks.some((item) => item.selected === true);
-                            const isSelected = track.selected === true
-                              || (!hasNativeSelection && String(track.id) === String(vodAudioTracks[0]?.id));
-                            const audioMeta = [
-                              rawLang && rawLang.toLowerCase() !== displayName.toLowerCase() ? rawLang.toUpperCase() : '',
-                              (track as AudioTrack).codec,
-                              (track as AudioTrack).channels,
-                            ].filter(Boolean).join(' / ');
-                            return (
-                              <button
-                                key={String(track.id)}
-                                onClick={() => selectVodAudio(track)}
-                                className={`p-3 w-full rounded-2xl flex items-center justify-between cursor-pointer border transition-all ${
-                                  isSelected
-                                    ? 'bg-[#0f244a] border-cyan-400 text-white shadow-md ring-1 ring-cyan-400/40'
-                                    : 'bg-[#0a152d] border-slate-800 text-slate-300 hover:bg-[#102042]'
-                                }`}
-                              >
-                                <div className="min-w-0 text-left">
-                                  <span className="block text-xs sm:text-sm font-bold">{displayName}</span>
-                                  <span className="block text-[11px] text-slate-400 font-mono mt-0.5">
-                                    {audioMeta || 'Elérhető hangsáv'}
-                                  </span>
-                                </div>
-                                {isSelected && <span className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0"><Check className="w-4 h-4 stroke-[3]" /></span>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {vodTrackMenu === 'subtitle' && (
-                      <div className="space-y-1.5">
-                        {vodSubtitleTracks.length === 0 ? (
-                          <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">
-                            A lejátszó nem jelzett választható feliratsávot ehhez a filmhez vagy sorozathoz.
-                          </p>
-                        ) : vodSubtitleTracks.map((track) => {
-                          const langCode = String(track.lang || '').trim().toLowerCase();
-                          const languageNames: Record<string, string> = {
-                            hu: 'Magyar', hun: 'Magyar', magyar: 'Magyar', en: 'Angol', eng: 'Angol', english: 'Angol',
-                            fr: 'Francia', fra: 'Francia', fre: 'Francia', french: 'Francia', de: 'Német', deu: 'Német',
-                            ger: 'Német', german: 'Német', es: 'Spanyol', spa: 'Spanyol', spanish: 'Spanyol',
-                            it: 'Olasz', ita: 'Olasz', italian: 'Olasz', pl: 'Lengyel', pol: 'Lengyel',
-                            pt: 'Portugál', por: 'Portugál', ro: 'Román', ron: 'Román', ru: 'Orosz', rus: 'Orosz',
-                            uk: 'Ukrán', ukr: 'Ukrán', nl: 'Holland', nld: 'Holland', cs: 'Cseh', ces: 'Cseh',
-                            sk: 'Szlovák', slk: 'Szlovák', hr: 'Horvát', hrv: 'Horvát', sr: 'Szerb', srp: 'Szerb',
-                            sv: 'Svéd', swe: 'Svéd', da: 'Dán', dan: 'Dán', no: 'Norvég', nor: 'Norvég',
-                            fi: 'Finn', fin: 'Finn', tr: 'Török', tur: 'Török', ar: 'Arab', ara: 'Arab',
-                            el: 'Görög', ell: 'Görög', ja: 'Japán', jpn: 'Japán', ko: 'Koreai', kor: 'Koreai',
-                            zh: 'Kínai', zho: 'Kínai',
-                          };
-                          const rawName = String(track.name || '').trim();
-                          const displayName = rawName && !/^[a-z]{2,3}$/i.test(rawName)
-                            ? rawName
-                            : languageNames[langCode] || languageNames[rawName.toLowerCase()] || rawName || 'Felirat';
-                          return (
-                            <button
-                              key={String(track.id)}
-                              onClick={() => selectVodSubtitle(track)}
-                              className="p-3 w-full rounded-2xl flex items-center justify-between cursor-pointer border border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042] transition-all"
-                            >
-                              <div className="min-w-0 text-left">
-                                <span className="block text-xs sm:text-sm font-bold text-white">{displayName}</span>
-                                <span className="block text-[11px] text-slate-400 font-mono mt-0.5">
-                                  {String(track.lang || '').trim() && String(track.lang).toLowerCase() !== displayName.toLowerCase() ? String(track.lang).toUpperCase() : 'Lejátszó feliratsáv'}
-                                </span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+          /*
+            FILM / SOROZAT OSD – a referencia VOD-OSD felépítése KÉK kiemeléssel.
+            A cím az OSD felső sávjában van (ezért az OSD-vel együtt tűnik el,
+            a Beállításokban megadott OSD-idő után), a „sebesség” gomb helyén
+            pedig a PIROS ✕ áll, ami visszalép a filmválasztáshoz.
+          */
+          <VodOsd
+            title={customTitle || 'Film / Sorozat'}
+            currentTime={vodCurrentTime}
+            duration={vodDuration}
+            isPlaying={isPlaying}
+            volume={volume}
+            seekStep={settings.seekStep}
+            audioTracks={vodAudioTracks}
+            subtitleTracks={vodSubtitleTracks}
+            activeSubtitleId={activeVodSubtitleId}
+            menu={vodTrackMenu}
+            onMenuChange={setVodTrackMenu}
+            onTogglePlay={togglePlay}
+            onSeekBy={seekVodByConfiguredStep}
+            onSeekTo={seekVod}
+            onSelectAudio={selectVodAudio}
+            onSelectSubtitle={selectVodSubtitle}
+            onClose={() => onCloseVod?.()}
+            onVolumeChange={onVolumeChange}
+            onToggleMute={onToggleMute}
+            onActivity={handleVodOsdActivity}
+            rootRef={vodOsdRef}
+          />
 
-            <div className="bg-[#0e1d3b]/95 border-2 border-cyan-500/60 rounded-xl p-3 flex flex-col gap-2.5 shadow-2xl select-none">
-              {/* Fejléc */}
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
-                  <div className="shrink-0 w-11 h-9 rounded-lg bg-[#0e1e3e] border border-cyan-800/40 flex items-center justify-center overflow-hidden shadow-inner">
-                    <Film className="w-5 h-5 text-cyan-300" />
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <h2 className="text-white font-black text-sm sm:text-base truncate tracking-tight">
-                      {customTitle || 'Film / Sorozat'}
-                    </h2>
-                    <div className="flex items-center gap-1.5 text-xs min-w-0">
-                      <span className="text-cyan-300 font-bold shrink-0">Film / Sorozat</span>
-                      <span className="text-slate-500 shrink-0">•</span>
-                      <span className="text-slate-200 font-mono truncate">
-                        {formatVodTime(vodCurrentTime)} / {formatVodTime(vodDuration)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onCloseVod?.(); }}
-                    className="w-10 h-10 rounded-xl border border-red-500/60 bg-[#35121b] hover:bg-[#571824] text-red-400 hover:text-red-300 flex items-center justify-center active:scale-90 transition-all shadow-md"
-                    title="Film / sorozat bezárása"
-                    aria-label="Film / sorozat bezárása"
-                  >
-                    <X className="w-4 h-4 text-red-400" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Csúsztatható időválasztó */}
-              <div className="flex items-center gap-2">
-                <span className="w-14 shrink-0 text-right text-[11px] font-mono text-slate-200">
-                  {formatVodTime(vodCurrentTime)}
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.max(vodDuration, 0.1)}
-                  step="0.5"
-                  value={Math.min(vodCurrentTime, Math.max(vodDuration, 0.1))}
-                  onClick={(e) => e.stopPropagation()}
-                  onInput={(e) => seekVod(Number((e.target as HTMLInputElement).value))}
-                  onChange={(e) => seekVod(Number(e.target.value))}
-                  onPointerDown={(e) => { e.stopPropagation(); vodSeekDraggingRef.current = true; }}
-                  onPointerUp={(e) => { e.stopPropagation(); vodSeekDraggingRef.current = false; setShowControlsOverlay(true); }}
-                  onPointerCancel={() => { vodSeekDraggingRef.current = false; }}
-                  className="h-2 flex-1 cursor-pointer accent-cyan-400 touch-none"
-                  aria-label="Film idővonala"
-                />
-                <span className="w-14 shrink-0 text-[11px] font-mono text-slate-200">
-                  {formatVodTime(vodDuration)}
-                </span>
-              </div>
-
-              {/* Fő vezérlősor: tekerés/lejátszás és hangerő, a főoldali OSD mintájára */}
-              <div className="flex items-center gap-1.5 pt-0.5">
-                <div className="flex flex-1 items-center justify-center gap-1.5 sm:gap-2 min-w-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); seekVodByConfiguredStep(-1); }}
-                    className="w-10 h-10 rounded-xl bg-[#0f1d3a] hover:bg-[#16274b] text-slate-200 border border-slate-700/60 flex items-center justify-center active:scale-90 transition-all shadow-md"
-                    title={`Vissza ${settings.seekStep} mp`}
-                  >
-                    <Rewind className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-                    className="w-10 h-10 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-cyan-400/25"
-                    title={isPlaying ? 'Szünet' : 'Lejátszás'}
-                    aria-label={isPlaying ? 'Szünet' : 'Lejátszás'}
-                  >
-                    {isPlaying ? <Pause className="w-4 h-4 fill-current stroke-[2.5]" /> : <Play className="w-4 h-4 fill-current stroke-[2.5]" />}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); seekVodByConfiguredStep(1); }}
-                    className="w-10 h-10 rounded-xl bg-[#0f1d3a] hover:bg-[#16274b] text-slate-200 border border-slate-700/60 flex items-center justify-center active:scale-90 transition-all shadow-md"
-                    title={`Előre ${settings.seekStep} mp`}
-                  >
-                    <FastForward className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="relative" ref={volumeControlRef}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleVolumeButtonClick(); }}
-                    className={`w-10 h-10 rounded-xl border flex items-center justify-center active:scale-90 transition-all shadow-md ${isMuted ? 'bg-red-600/20 text-red-400 border-red-500/60' : 'bg-[#0f1d3a] hover:bg-[#16274b] text-slate-200 border-slate-700/60'}`}
-                    title={isMuted ? "Dupla kattintás: hangerőcsúszka" : "Egy kattintás: némítás; dupla kattintás: hangerőcsúszka"}
-                    aria-label={isMuted ? 'Hang bekapcsolása' : 'Hang némítása'}
-                  >
-                    {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5 text-cyan-300" />}
-                  </button>
-                  {showVolumeSlider && (
-                    <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[120] min-w-[68px] rounded-xl border border-cyan-700/60 bg-[#081226] px-4 py-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-                      <input type="range" min="0" max="1" step="0.01" value={volume}
-                        onChange={(event) => onVolumeChange(Number(event.target.value))}
-                        className="h-24 w-2 cursor-pointer accent-cyan-400" style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
-                        aria-label="Hangerő" />
-                      <div className="mt-1 text-center text-[10px] text-slate-300">{Math.round(volume * 100)}%</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Legalsó sor: Audio + CC. A PiP és TV-küldés funkciókódja megmarad, a gombok rejtve vannak. */}
-              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (vodAudioTracks.length <= 1) {
-                      nativeApi()?.toast?.('Ehhez a filmhez nincs másik hangsáv.');
-                      return;
-                    }
-                    setVodTrackMenu(vodTrackMenu === 'audio' ? null : 'audio');
-                  }}
-                  className={`flex items-center justify-center gap-1 py-2 px-1 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-sm border ${vodAudioTracks.length > 1 ? 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-500/50' : 'bg-[#121f3d] hover:bg-[#17274c] text-rose-300 border-rose-500/30'}`}
-                  title={vodAudioTracks.length > 1 ? `${vodAudioTracks.length} hangsáv (nyelv) választható` : 'Nincs több hangsáv ennél a filmnél'}
-                  aria-label="Hangsáv választása"
-                >
-                  <Languages className="w-3.5 h-3.5" />
-                  <span>Audio</span>
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (vodSubtitleTracks.length === 0) {
-                      nativeApi()?.toast?.('Ehhez a filmhez nincs felirat.');
-                      return;
-                    }
-                    setVodTrackMenu(vodTrackMenu === 'subtitle' ? null : 'subtitle');
-                  }}
-                  className={`flex items-center justify-center gap-1 py-2 px-1 rounded-xl bg-[#121f3d] hover:bg-[#17274c] text-slate-200 border border-slate-700/60 text-xs font-bold active:scale-95 transition-all shadow-sm ${vodSubtitleTracks.length > 0 ? '' : 'text-slate-500 border-slate-800'}`}
-                  title={vodSubtitleTracks.length > 0 ? 'Felirat választása' : 'Nincs felirat ehhez a filmhez'}
-                  aria-label="Felirat választása"
-                >
-                  <Captions className="w-3.5 h-3.5 text-cyan-300" />
-                  <span>CC</span>
-                </button>
-                {/* PiP és TV-küldés gomb rejtve; a funkciókód és kezelőfüggvények megmaradnak. */}
-              </div>
-            </div>
-          </div>
         ) : (
           <>
             {/* Fekvő teljes képernyős élő TV – érintésre semmi ne jelenjen meg, teljesen inaktív */}

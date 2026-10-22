@@ -957,10 +957,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 {/* Preferált hangsáv nyelve */}
                 <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="text-xs font-bold text-white block">
-                    Preferált hangsáv nyelve
+                    Alap hangsáv (film / sorozat)
                   </label>
                   <p className="text-[11px] text-slate-400 leading-tight">
-                    Ha a stream több nyelvet ad, automatikusan ezt választja.
+                    A film indításakor automatikusan ezt a hangsávot választja, ha a stream
+                    kínál ilyet. A lejátszó OSD Audio gombjával bármikor átváltható – a gomb
+                    ZÖLD, ha több hangsáv közül lehet választani.
                   </p>
                   <select
                     value={settings.preferredAudioLang}
@@ -979,8 +981,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 {/* Preferált felirat */}
                 <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="text-xs font-bold text-white block">
-                    Preferált felirat
+                    Alap felirat (film / sorozat)
                   </label>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    A film indításakor ezt a feliratot kapcsolja be. A lejátszó OSD CC gombja
+                    ZÖLD, ha van választható felirat; ott bármikor átváltható vagy kikapcsolható.
+                  </p>
                   <select
                     value={settings.preferredSubtitle}
                     onChange={(e) => onUpdateSettings({ preferredSubtitle: e.target.value })}

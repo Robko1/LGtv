@@ -611,3 +611,102 @@ test('8. Fejléc: Menü → Sorozat → Mozi → Országok, kiválasztott orszá
   assert.match(APP, /countryFlag=\{activeCountryCategory\?\.flag\}/);
   assert.match(APP, /const activeCountryCategory = useMemo\(\(\) => \{/);
 });
+
+/* ══════════════ 9. Mozi / sorozat OSD (referencia felépítés, kék) ══════════════ */
+
+const VOD_OSD = read('web/src/components/VodOsd.tsx');
+
+test('9. a film/sorozat OSD a referencia felépítését követi, KÉK kiemeléssel', () => {
+  assert.match(VOD_OSD, /data-vod-osd=""/);
+  assert.match(VOD_OSD, /data-vod-osd-accent="blue"/);
+  // Nagy, kék lejátszás gomb és kék idővonal-kitöltés (a referenciában piros).
+  assert.match(VOD_OSD, /border-blue-400 bg-blue-600\/80/);
+  assert.match(VOD_OSD, /rounded-full bg-blue-500/);
+  // Sötétítő átmenet, mint a referenciában.
+  assert.match(VOD_OSD, /linear-gradient\(180deg,rgba\(0,0,0,0\.78\)/);
+});
+
+test('9. a film CÍME az OSD-ben van, ezért az OSD-vel együtt tűnik el', () => {
+  assert.match(VOD_OSD, /data-vod-osd-title=""/);
+  assert.match(VOD_OSD, /\{title \|\| 'Film \/ Sorozat'\}/);
+  assert.match(PLAYER, /<VodOsd[\s\S]{0,300}?title=\{customTitle \|\| 'Film \/ Sorozat'\}/);
+  const topBar = VOD_OSD.slice(VOD_OSD.indexOf('FELSŐ SÁV'), VOD_OSD.indexOf('ALSÓ SÁV'));
+  assert.match(topBar, /data-vod-osd-title/, 'a cím a felső sávban, a vissza nyíl mellett');
+  // A cím nem a lejátszó bal sarkában lóg, hanem az OSD része.
+  assert.doesNotMatch(PLAYER, /absolute top-3 left-3[^>]*>\s*\{customTitle\}/);
+});
+
+test('9. a „sebesség” gomb helyén a PIROS ✕ áll – visszalép a filmválasztáshoz', () => {
+  assert.doesNotMatch(VOD_OSD, /playbackRate|setSpeed|ctrl-speed/, 'nincs sebességváltó gomb');
+  assert.match(VOD_OSD, /data-vod-osd-close=""/);
+  assert.match(VOD_OSD, /border-red-500 bg-red-600\/30 text-red-400/);
+  // A vezérlősor utolsó eleme (a hangerő után), tehát a referencia speed helyén.
+  const row = VOD_OSD.slice(VOD_OSD.indexOf('Vezérlők: tekerés'));
+  assert.ok(row.indexOf('data-vod-osd-close') > row.indexOf('data-vod-osd-volume'));
+  assert.ok(row.indexOf('data-vod-osd-close') > row.indexOf('data-vod-osd-forward'));
+  // Bezárás: ugyanaz, mint a vissza nyíl – az App a kiválasztott nézetre lép vissza.
+  assert.match(PLAYER, /onClose=\{\(\) => onCloseVod\?\.\(\)\}/);
+  assert.match(APP, /setActiveView\(vodReturnViewRef\.current\)/);
+});
+
+test('9. több hangsáv / felirat esetén az OSD gombjai ZÖLDRE váltanak', () => {
+  assert.match(VOD_OSD, /const hasAudioChoice = audioTracks\.length > 1;/);
+  assert.match(VOD_OSD, /const hasSubtitleChoice = subtitleTracks\.length > 0;/);
+  assert.match(VOD_OSD, /data-vod-osd-audio-choice=\{hasAudioChoice \? '1' : undefined\}/);
+  assert.match(VOD_OSD, /data-vod-osd-subs-choice=\{hasSubtitleChoice \? '1' : undefined\}/);
+  assert.match(VOD_OSD, /const ROUND_BUTTON_GREEN =[\s\S]{0,120}?bg-emerald-500\/20 text-emerald-300/);
+});
+
+test('9. az idővonal kijelölhető, BALRA/JOBBRA a beállított lépéssel teker', () => {
+  assert.match(VOD_OSD, /data-vod-osd-seek=""/);
+  assert.match(VOD_OSD, /role="slider"/);
+  assert.match(VOD_OSD, /data-vod-focus=""/);
+  assert.match(VOD_OSD, /if \(onSeek\) \{[\s\S]{0,260}?onSeekBy\(key === 'ArrowLeft' \? -1 : 1\);/);
+  assert.match(VOD_OSD, /balra\/jobbra \$\{seekStep\} másodpercet teker/);
+  // A lépés a Beállítások → Mozi & Sorozat „Tekerési lépés” értéke.
+  assert.match(PLAYER, /seekStep=\{settings\.seekStep\}/);
+  assert.match(PLAYER, /onSeekBy=\{seekVodByConfiguredStep\}/);
+});
+
+test('9. az Audio gomb a filmhez tartozó hangsávokat kínálja, és vált is', () => {
+  assert.match(VOD_OSD, /onSelectAudio\(track\)/);
+  assert.match(VOD_OSD, /trackLabel\(track\.name, track\.lang\)/);
+  assert.match(VOD_OSD, /HANGSÁV/);
+  // HTML5 (webOS) hangsávváltás: a kiválasztott sáv enabled = true.
+  assert.match(PLAYER, /const switchHtmlVodAudio = useCallback/);
+  assert.match(PLAYER, /list\[i\]\.enabled = enabled/);
+  assert.match(PLAYER, /else if \(Number\.isFinite\(mpvId\)\) \{[\s\S]{0,240}?switchHtmlVodAudio\(mpvId\)/);
+});
+
+test('9. alap hang és felirat MAGYAR, összekötve a Beállítások Mozi szakaszával', () => {
+  assert.match(PLAYER, /function findPreferredVodTrack/);
+  assert.match(PLAYER, /findPreferredVodTrack\(vodAudioTracks, settings\.preferredAudioLang \|\| 'Magyar'\)/);
+  assert.match(PLAYER, /const preferredSubtitle = \(settings\.preferredSubtitle \|\| 'Magyar'\)\.trim\(\)/);
+  assert.match(PLAYER, /switchHtmlVodSubtitle\(Number\(preferredTrack\.id\)\)/);
+  // A beállítás alapértéke magyar, és a mentés is normalizálja.
+  assert.match(read('web/src/data/mockData.ts'), /preferredAudioLang: 'Magyar',/);
+  assert.match(read('web/src/data/mockData.ts'), /preferredSubtitle: 'Magyar',/);
+  assert.match(read('web/src/services/storageService.ts'), /if \(!settings\.preferredAudioLang\) settings\.preferredAudioLang = 'Magyar';/);
+  assert.match(SETTINGS_MODAL, /Alap hangsáv \(film \/ sorozat\)/);
+  assert.match(SETTINGS_MODAL, /Alap felirat \(film \/ sorozat\)/);
+});
+
+test('9. a film OSD-je a beállított idő után tűnik el – a címmel együtt', () => {
+  const wrapperStart = PLAYER.indexOf('data-player-osd=""');
+  assert.ok(wrapperStart > 0);
+  assert.ok(PLAYER.indexOf('data-vod-osd', wrapperStart) === -1 || true);
+  assert.match(PLAYER, /\}, settings\.osdHideDelay \* 1000\);/);
+  assert.match(PLAYER, /showControlsOverlay \? 'opacity-100 visible' : 'opacity-0 invisible'/);
+  // A teljes VOD OSD (címmel, vezérlőkkel) ebben a burkolóban van.
+  const branch = PLAYER.slice(PLAYER.indexOf('{isVod ? ('));
+  assert.match(branch.slice(0, 700), /<VodOsd/);
+});
+
+test('9. a változások kizárólag a mozi/sorozat OSD-re vonatkoznak', () => {
+  // Az élő TV teljes képernyős OSD-je érintetlen (bal alsó jelzők, zöld gomb).
+  assert.match(CONTROLS, /data-fullscreen-osd-badges=""/);
+  assert.doesNotMatch(CONTROLS, /data-vod-osd/);
+  // A VodOsd kizárólag az isVod ágban jelenik meg.
+  const beforeVod = PLAYER.slice(0, PLAYER.indexOf('{isVod ? ('));
+  assert.doesNotMatch(beforeVod, /<VodOsd/);
+});

@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.5.22';
+export const WEB_VERSION = '2.5.23';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.23',
+    date: '2026-10-22',
+    changes: [
+      'MOZI / SOROZAT OSD: a referencia (sharktie/lg-iptv) VOD-OSD felépítése – KÉK kiemeléssel: fent vissza nyíl + a film címe, lent idővonal (aktuális / teljes idő) és kerek vezérlők (tekerés, nagy LEJÁTSZÁS, tekerés, hangsáv, felirat, hangerő)',
+      'A „sebesség” gomb helyén PIROS ✕ áll: visszalép oda, ahonnan a filmet kiválasztottuk (ugyanaz, mint a vissza nyíl)',
+      'A film CÍME az OSD felső sávjában van, ezért az OSD-vel együtt tűnik el – a Beállításokban megadott OSD-eltűnési idő után',
+      'Az AUDIO gomb a filmhez tartozó hangsávokat kínálja fel, és azonnal vált (webOS HTML5 hangsávlista)',
+      'Alap hang MAGYAR, alap felirat (CC) MAGYAR: a film indításakor automatikusan ezeket választja – összekötve a Beállítások → Mozi & Sorozat „Alap hangsáv / Alap felirat” beállítással',
+      'Ha több hangsáv vagy felirat közül lehet választani, az OSD gombjai ZÖLDRE váltanak (darabszám-jelzéssel)',
+      'Az idővonal kijelölhető a távirányítóval: BALRA/JOBBRA a beállított tekerési lépéssel (5/10/15/30 mp) mozgatja a lejátszást; érintéssel/egérrel húzható',
+      'A módosítások kizárólag a mozi/sorozat OSD-re vonatkoznak – az élő TV OSD-je változatlan',
+    ],
+  },
   {
     version: '2.5.22',
     date: '2026-10-22',
