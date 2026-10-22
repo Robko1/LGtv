@@ -817,13 +817,16 @@ export async function loadSeriesAsync(
 }
 
 export function clearContent(): void {
+  const liveKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
+  const vodKeys = readChunkKeys(VOD_META_KEY, VOD_CHUNK_PREFIX);
+  const seriesKeys = readChunkKeys(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
   backend.remove(LIVE_KEY);
   backend.remove(LIVE_META_KEY);
-  for (const key of readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX)) backend.remove(key);
+  for (const key of liveKeys) backend.remove(key);
   backend.remove(VOD_KEY);
   backend.remove(SERIES_KEY);
-  for (const key of readChunkKeys(VOD_META_KEY, VOD_CHUNK_PREFIX)) backend.remove(key);
-  for (const key of readChunkKeys(SERIES_META_KEY, SERIES_CHUNK_PREFIX)) backend.remove(key);
+  for (const key of vodKeys) backend.remove(key);
+  for (const key of seriesKeys) backend.remove(key);
   backend.remove(VOD_META_KEY);
   backend.remove(SERIES_META_KEY);
 }
