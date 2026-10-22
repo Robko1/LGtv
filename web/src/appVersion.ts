@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.13';
+export const WEB_VERSION = '2.5.14';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.13',
+    version: '2.5.14',
     date: '2026-10-22',
     changes: [
       'NINCS TÖBB ZÖLD ÜRES KÉPERNYŐ: a rendszerindítás után a logós indítókép marad látható, amíg a kész főoldal meg nem jelenik – egyetlen váltással',
