@@ -196,7 +196,7 @@
         storLine.setAttribute('style', 'color:#f87171;');
       }
       var hint = document.createElement('div');
-      hint.textContent = 'PIROS: diag ki/be \u00b7 Z\u00d6LD: Be\u00e1ll\u00edt\u00e1sok \u00b7 S\u00c1RGA: M\u0171sor\u00fajs\u00e1g \u00b7 K\u00c9K: Kateg\u00f3ri\u00e1k';
+      hint.textContent = 'PIROS: napló QR · ZÖLD: hangsáv · SÁRGA: kedvenc · KÉK: csatornamozgatás';
       hint.setAttribute('style', 'color:#64748b;font-size:16px;margin-top:4px;');
       box.appendChild(title);
       box.appendChild(diag.uiLine);
@@ -659,17 +659,14 @@
 
     // Diagnosztika: minden gombnyomás látszik a képernyős sávban.
     diagKey(e, key);
-    // PIROS gomb (403): diagnosztika be/ki
-    if (kc === 403) { diagToggle(); return; }
-    // ZÖLD/SÁRGA/KÉK gomb: közvetlen menük. Itt, a legkorábbi ponton kezeljük
-    // és egyedi eseményként adjuk át a Reactnek – így minden fókuszhelyzetben
-    // megbízhatóan működik (gombon, listán, modalban is).
-    if (kc === 404 || kc === 405 || kc === 406) {
+    // A színes gombokat a legkorábbi ponton egyedi eseményként adjuk át a Reactnek,
+    // hogy minden fókuszhelyzetben megbízhatóan működjenek.
+    if (kc === 403 || kc === 404 || kc === 405 || kc === 406) {
       e.preventDefault();
       e.stopPropagation();
-      // ZÖLD (404) = hangsáv-választó, SÁRGA (405) = kedvenc mappához adás,
-      // KÉK (406) = csatorna mozgatás mód a listában.
-      var tvAction = kc === 404 ? 'audio' : (kc === 405 ? 'favorite' : 'move');
+      // PIROS (403) = naplómegosztó QR; ZÖLD (404) = hangsáv; SÁRGA (405) = kedvenc;
+      // KÉK (406) = csatornamozgatás mód a listában.
+      var tvAction = kc === 403 ? 'diagnostic-share' : (kc === 404 ? 'audio' : (kc === 405 ? 'favorite' : 'move'));
       var evAction = null;
       try {
         evAction = new CustomEvent('iptv-tv-action', { detail: { action: tvAction } });
