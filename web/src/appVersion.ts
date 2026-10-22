@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.18';
+export const WEB_VERSION = '2.5.19';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.18',
+    version: '2.5.19',
     date: '2026-10-22',
     changes: [
       'MOZI / SOROZAT NAVIGÁCIÓ JAVÍTVA: a távirányító nyilai mostantól a megnyitott nézetben mozognak – a fejléc „zóna” szabályai ugyanis minden nézetben lefutottak, ezért a LE nyíl hatástalan volt, és a nézetben egyáltalán nem lehetett mozogni',
