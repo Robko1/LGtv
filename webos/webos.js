@@ -406,6 +406,16 @@
         // ugorhat át a főoldalról - csak teljes képernyőn (.fixed) él a doboz.
         var playerBox = el.closest ? el.closest('[data-tv-player]') : null;
         if (playerBox && playerBox.className.indexOf('fixed') === -1) return false;
+        // A TV / Mozi / Sorozat nézetek a DOM-ban maradnak (csak elrejtve),
+        // hogy a váltás azonnali legyen. A rejtett nézet dobozai viszont
+        // MÉRETEZETTEK maradnak (visibility:hidden), ezért a kijelölő
+        // korábban át tudott lépni egy nem látható nézet gombjára. A
+        // data-view-hidden jelölés és a számított láthatóság kizárja őket.
+        var hiddenPane = el.closest ? el.closest('[data-view-hidden]') : null;
+        if (hiddenPane) return false;
+        var view = null;
+        try { view = window.getComputedStyle(el).visibility; } catch (e) { view = null; }
+        if (view === 'hidden' || view === 'collapse') return false;
         return !el.hasAttribute('disabled') && el.getClientRects().length > 0 &&
           !hiddenAncestor && el.getAttribute('aria-hidden') !== 'true';
       });
@@ -419,6 +429,11 @@
    */
   function visibleOrAll(items) {
     var visible = items.filter(function(el) {
+      if (el.closest && el.closest('[data-view-hidden]')) return false;
+      try {
+        var view = window.getComputedStyle(el).visibility;
+        if (view === 'hidden' || view === 'collapse') return false;
+      } catch (e) { /* régi motor: marad a méret-ellenőrzés */ }
       return el.getClientRects && el.getClientRects().length > 0;
     });
     return visible.length ? visible : items;
