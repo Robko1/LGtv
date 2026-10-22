@@ -800,10 +800,12 @@ const ChannelListView: React.FC<ChannelListProps> = ({
               setHighlightedId(first.id);
               const list = channelScrollRef.current;
               if (list) list.scrollTop = 0;
-              requestAnimationFrame(() => {
-                const numberBox = document.querySelector<HTMLElement>(`[data-channel-id="${first.id}"] [data-channel-number]`);
-                numberBox?.focus({ preventScroll: true } as any);
-              });
+              // A csatornasor saját fókuszát kapja meg, ne a teljes lista
+            // külső listboxa maradjon kijelölve. A sorszám-doboz nem fókuszelem.
+            requestAnimationFrame(() => {
+              const row = document.querySelector<HTMLElement>(`[data-channel-id="${first.id}"] [role="option"]`);
+              row?.focus({ preventScroll: true } as any);
+            });
             } else {
               channelScrollRef.current?.focus({ preventScroll: true } as any);
             }
