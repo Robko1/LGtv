@@ -34,7 +34,7 @@ function uuidV4(): string {
 }
 function randomToken(): string {
   // Rövidebb, 96 bites véletlen token: a QR csak ezt az azonosítót hordozza.
-  const bytes = new Uint8Array(12);
+  const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -69,7 +69,7 @@ export async function ensureProvisionChannel(): Promise<ProvisionChannel | null>
 export function getProvisionUrl(tvId: string, code: string, channel?: ProvisionChannel | null, token = ''): string {
   // A HTML űrlap statikus weboldalon fut; a Supabase csak a párosítási API-t kezeli.
   const t = token || (() => { try { return localStorage.getItem('qr_token') || ''; } catch { return ''; } })();
-  return `${FORM_URL}?s=${encodeURIComponent(t)}`;
+  return `${FORM_URL}?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}&token=${encodeURIComponent(t)}`;
 }
 export async function pollForProvider(tvId: string, channel?: ProvisionChannel | null, token?: string): Promise<QrProviderPayload | null> {
   try {
