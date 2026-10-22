@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.30';
+export const WEB_VERSION = '2.5.31';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.30',
+    version: '2.5.31',
     date: '2026-10-22',
     changes: [
       'CSATORNAVÁLTÁS – „Format error” javítás: a lejátszó mostantól CSATORNÁNKÉNT jegyzi meg, melyik streamformátum (MPEG-TS vagy HLS) indult el, és legközelebb azzal kezd (eddig csak egy globális emlékezet volt, ezért az a csatorna, amelyik az egyik formátummal nem indult, minden váltásnál ugyanúgy elhalt – a naplóban pl. „[HU] ATV … Format error” háromszor egymás után)',
