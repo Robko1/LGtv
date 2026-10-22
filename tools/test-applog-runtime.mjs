@@ -165,6 +165,25 @@ check(!/TESZT-KRITIKUS-SOR/.test(diag.text()), 'a törlés kiüríti a naplót')
 diag.log('TESZT-TÖRLÉS-UTÁN');
 check(/TESZT-TÖRLÉS-UTÁN/.test(diag.text()), 'törlés után is lehet új sort írni');
 
+/* ── 8. Mérés-ablak nullázása (SÁRGA QR → Frissítés) ───────────────────── */
+check(typeof diag.measure === 'function' && typeof diag.resetMeasure === 'function',
+  'a mérés-ablak elérhető a diagnosztikai hídon');
+diag.log('TESZT-MÉRÉS-SOR-1');
+diag.log('TESZT-MÉRÉS-SOR-2');
+const dirty = diag.measure();
+check(dirty.logLines >= 2, `a mért naplósorok száma nő (${dirty.logLines})`);
+const reset = diag.resetMeasure('teszt-frissítés');
+check(reset.logLines === 0 && reset.errors === 0 && reset.longTasks === 0,
+  `a Frissítés nullázza a mért értékeket (sor=${reset.logLines}, hiba=${reset.errors}, feladat=${reset.longTasks})`);
+check(/^\d{2}:\d{2}:\d{2}$/.test(reset.startedAtText),
+  `a mérés kezdete látható időpont (${reset.startedAtText})`);
+check(/=== ÚJ MÉRÉS KEZDETE: \S+ \(\d{2}:\d{2}:\d{2}\); minden korábbi mért érték nullázva/.test(diag.text()),
+  'a naplóban látható az új mérés kezdő időpontja');
+check(/MÉRÉS KEZDETE: \d{2}:\d{2}:\d{2}/.test(diag.text()),
+  'a napló fejléce is mutatja a mérés kezdetét');
+diag.log('TESZT-MÉRÉS-UTÁN');
+check(diag.measure().logLines === 1, 'a nullázás után a számlálás 0-ról indul újra');
+
 try { window.close(); } catch { /* nem kritikus */ }
 clearTimeout(killer);
 finish();

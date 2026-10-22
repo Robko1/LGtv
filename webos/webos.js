@@ -522,15 +522,35 @@
     return null;
   }
 
-  /** A lista első (vagy a kiválasztott) csatornasora. */
-  function firstChannelRow() {
+  /**
+   * A KIVÁLASZTOTT csatornasor (vagy – ha nincs kijelölés – az első sor).
+   *
+   * FONTOS („magától másik csatornára ugrik” hiba): a fókusz-visszaállítók
+   * ezt használják. Korábban a lista data-selected-id jelölése hiányzott,
+   * ezért mindig az ELSŐ látható sorra léptek – teljes képernyőről visszatérve
+   * a következő OK már egy másik csatornát indított.
+   */
+  function firstChannelRow(allowFallback) {
     var list = channelsListBox();
     if (!list) return null;
     var selectedId = null;
     try { selectedId = list.getAttribute('data-selected-id'); } catch (e) {}
     if (selectedId) {
-      var sel = list.querySelector('[data-channel-id="' + selectedId + '"] [role="option"]');
+      var sel = list.querySelector('[data-channel-id="' + selectedId + '"] [role="option"]')
+        || list.querySelector('[data-channel-id="' + selectedId + '"]');
       if (sel) return sel;
+    }
+    // A React a kiválasztott soron aria-selected="true" jelzést tart.
+    var aria = list.querySelector('[role="option"][aria-selected="true"]');
+    if (aria) return aria;
+    // Ha van kiválasztott csatorna, de a sora éppen nincs kirajzolva (ablakos
+    // lista), NEM lépünk az első sorra – az másik csatornát indítana. Ilyenkor
+    // a hívó a kijelölést kéri visszaállítani.
+    if (selectedId && !allowFallback) {
+      // OK fókusz nélkül: inkább visszakérjük a kijelölést, mint hogy egy
+      // MÁSIK csatornát indítsunk.
+      try { window.dispatchEvent(new CustomEvent('iptv-focus-selected-channel')); } catch (eSel) {}
+      return null;
     }
     return list.querySelector('[data-channel-id] [role="option"]')
       || list.querySelector('[role="option"]');
@@ -823,7 +843,7 @@
         var hdrBtn = document.querySelector('header button');
         if (hdrBtn) hdrBtn.focus({preventScroll:true});
         else {
-          var row0 = firstChannelRow();
+          var row0 = firstChannelRow(true);
           if (row0) row0.focus({preventScroll:true});
         }
       }
@@ -1000,7 +1020,7 @@
         // CH+/CH- a KIJELÖLT SORBÓL indul (nem a listadobozból).
         var curRow = document.activeElement;
         if (!curRow || !curRow.closest || !curRow.closest('[role="listbox"]')) {
-          curRow = firstChannelRow();
+          curRow = firstChannelRow(true);
         }
         if (!curRow) return;
         curRow.focus({preventScroll:true});
@@ -1195,7 +1215,7 @@
           // Beállítások → lefelé → Kedvencek mappasáv → lefelé → első csatorna.
           if (folderItems.length) {
             focusAndReveal(folderItems[0]);
-          } else if (!focusAndReveal(firstChannelRow())) {
+          } else if (!focusAndReveal(firstChannelRow(true))) {
             focusAndReveal(contentItems()[0]);
           }
           return;
@@ -1233,7 +1253,7 @@
           // A mappasávból lefelé AZ ELSŐ CSATORNASOR következik.
           // Korábban itt focusAndReveal(listEl) állt: az egész listadoboz
           // kapta a kijelölést, ezért maradt ki az első csatorna.
-          if (!focusAndReveal(firstChannelRow())) {
+          if (!focusAndReveal(firstChannelRow(true))) {
             // Nincs csatorna (üres lista): a fejléc menüje következik.
             focusAndReveal(headerDefault || headerItems[headerItems.length - 1]);
           }
@@ -1300,7 +1320,7 @@
         e.preventDefault();
         e.stopPropagation();
         // Az első csatornasorra visszük a kijelölőt – a dobozra soha.
-        if (!focusAndReveal(firstChannelRow())) {
+        if (!focusAndReveal(firstChannelRow(true))) {
           focusAndReveal(headerDefault || headerItems[headerItems.length - 1]);
         }
         return;

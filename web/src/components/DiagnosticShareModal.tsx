@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { QrCode, RefreshCw, RotateCcw, X, AlertTriangle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { appLog, getAppLogText } from '../services/appLog';
+import {
+  appLog,
+  getAppLogText,
+  measurementSnapshot,
+  resetMeasurements,
+  type MeasurementSnapshot,
+} from '../services/appLog';
 import {
   createDiagnosticShare,
   refreshDiagnosticShare,
@@ -20,6 +26,12 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  /*
+   * MÉRÉS-ABLAK: a dobozban látható mért értékek. A „Frissítés” gomb ezeket
+   * nullázza (0), és új, látható kezdő időponttal indít mérést – így a
+   * távirányítóval is ellenőrizhető, hogy a nullázás megtörtént.
+   */
+  const [measure, setMeasure] = useState<MeasurementSnapshot>(() => measurementSnapshot());
   const generationRef = useRef(0);
   const shareRef = useRef<DiagnosticShare | null>(null);
   const { modalRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(isOpen, onClose);
@@ -54,19 +66,28 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const refreshLog = async () => {
     const current = shareRef.current;
     if (!current) {
+      // Még nincs hivatkozás: a Frissítés is új méréssel, nullázott értékekkel indul.
+      setMeasure(resetMeasurements('QR-hibadiagnózis: Frissítés gomb (új kód)'));
       await createNewQr();
       return;
     }
     setBusy(true);
     setError('');
     setNotice('');
+    /*
+     * ÚJ MÉRÉS: a mért értékek előbb 0-ra állnak, és a kezdő időpont láthatóvá
+     * válik – a dobozban ÉS a naplóban is. Csak ezután készül a friss napló,
+     * így a QR-kóddal megnyitott szöveg elején ott van a nullázás bizonyítéka.
+     */
+    const fresh = resetMeasurements('QR-hibadiagnózis: Frissítés gomb');
+    setMeasure(fresh);
     try {
-      appLog('Diagnosztikai napló frissítése a QR-hivatkozáson.');
+      appLog('Diagnosztikai napló frissítése a QR-hivatkozáson (mérések nullázva).');
       const expiresAt = await refreshDiagnosticShare(current.token, getAppLogText().slice(-59000));
       const updated = { ...current, expiresAt };
       setShare(updated);
       shareRef.current = updated;
-      setNotice('A napló frissült. A QR-kód változatlan, a legfrissebb naplót nyitja meg.');
+      setNotice(`A mérések nullázva (0). Új mérés kezdete: ${fresh.startedAtText} – a napló innentől mér.`);
     } catch (cause) {
       setError('A frissítés nem sikerült. Készíts új QR-kódot.');
       appLog('Diagnosztikai QR-napló frissítése sikertelen: ' + String(cause).slice(0, 180));
@@ -86,6 +107,15 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  // A mérés-ablak élő kijelzése: amíg a doboz nyitva van, másodpercenként
+  // frissül az eltelt idő (a kezdő időpont és a mért értékek láthatók maradnak).
+  useEffect(() => {
+    if (!isOpen) return;
+    setMeasure(measurementSnapshot());
+    const timer = window.setInterval(() => setMeasure(measurementSnapshot()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) {
       generationRef.current += 1;
@@ -103,6 +133,14 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
 
   if (!isOpen) return null;
   const expiry = share?.expiresAt ? new Date(share.expiresAt).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) : '';
+  // Eltelt idő a mérés kezdetétől (mm:ss) – a nullázás óta mérve.
+  const elapsedSeconds = Math.max(0, Math.floor(measure.elapsedMs / 1000));
+  const elapsedText = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
+  const measuredCells = [
+    { label: 'NAPLÓSOR', value: measure.logLines },
+    { label: 'HIBA', value: measure.errors },
+    { label: 'HOSSZÚ FELADAT', value: measure.longTasks },
+  ];
 
   return (
     <div
@@ -132,9 +170,20 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
         </div>
 
         <div className="flex flex-col items-center gap-3 py-5">
-          <div className="flex min-h-[280px] w-[280px] max-w-full items-center justify-center rounded-xl bg-white p-3">
+          {/* SÖTÉTEBB, KISEBB QR: a TV-n nem vakít, és kisebb helyet foglal.
+              A kód TARTALMA (share.url) és a hibaszint (M) VÁLTOZATLAN, a
+              csendes zóna (marginSize=4) megmarad – a beolvasás nem sérül. */}
+          <div className="flex min-h-[236px] w-[236px] max-w-full items-center justify-center rounded-xl border border-slate-600/70 bg-[#0a1120] p-2.5">
             {share?.url ? (
-              <QRCodeSVG value={share.url} size={256} level="M" marginSize={4} title="Diagnosztikai napló megosztása QR-kóddal" />
+              <QRCodeSVG
+                value={share.url}
+                size={208}
+                level="M"
+                marginSize={4}
+                bgColor="#dfe6f1"
+                fgColor="#05080f"
+                title="Diagnosztikai napló megosztása QR-kóddal"
+              />
             ) : (
               <div className="flex flex-col items-center gap-3 text-center text-slate-600">
                 {error ? <AlertTriangle className="h-10 w-10 text-rose-500" /> : <RefreshCw className="h-10 w-10 animate-spin" />}
@@ -146,6 +195,30 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             {share?.url || (busy ? 'Kapcsolódás a Supabase naplómegosztóhoz…' : 'Nincs aktív QR-hivatkozás.')}
           </p>
           {expiry && <p className="text-sm text-emerald-300">Lejárat: {expiry} (1 órás hivatkozás)</p>}
+
+          {/* MÉRÉS-ABLAK: a Frissítés gomb ezt nullázza (0), és új kezdő
+              időponttal indít mérést – a nullázás itt láthatóan ellenőrizhető. */}
+          <div data-diagnostic-measure="" className="w-full rounded-xl border border-cyan-500/40 bg-[#0a152d] px-3 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <span className="text-[11px] font-black tracking-widest text-cyan-300">MÉRÉS</span>
+              <span className="font-mono text-[11px] text-slate-300">
+                kezdete: <span data-diagnostic-measure-start="" className="font-bold text-cyan-200">{measure.startedAtText}</span>
+                {' · '}eltelt: {elapsedText}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {measuredCells.map((cell) => (
+                <div key={cell.label} className="rounded-lg border border-slate-700/70 bg-[#081226] py-1.5 text-center">
+                  <div data-diagnostic-measure-value="" className="font-mono text-lg font-black leading-none text-white">{cell.value}</div>
+                  <div className="mt-1 text-[9px] font-bold tracking-wider text-slate-400">{cell.label}</div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
+              A „Frissítés” a mért értékeket 0-ra állítja, és új mérést indít a fenti kezdő időponttól.
+            </p>
+          </div>
+
           {notice && <p role="status" className="text-center text-sm text-emerald-300">{notice}</p>}
           {error && <p role="alert" className="max-w-lg text-center text-sm text-rose-300">{error}</p>}
         </div>

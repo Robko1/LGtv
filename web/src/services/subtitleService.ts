@@ -42,6 +42,21 @@ export interface SubtitleCue {
 const PROBE_TIMEOUT_MS = 8000;
 const MAX_SUBTITLES = 8;
 
+/**
+ * A naplóba NEM kerülhet a belépési adat: a felirat URL-je a felhasználónevet
+ * és a jelszót is tartalmazza (`…/subtitle/<user>/<pass>/<id>.srt`). A naplót
+ * a QR-kóddal bárki megnyithatja, ezért csak a fájlnév és a sorszám látszik.
+ */
+function safeSubtitleUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const file = parsed.pathname.split('/').filter(Boolean).pop() || '';
+    return `${parsed.host}/…/${file}`;
+  } catch {
+    return 'felirat';
+  }
+}
+
 function cleanBase(serverUrl: string): string {
   const base = String(serverUrl || '')
     .trim()
@@ -140,7 +155,8 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
           if (!Array.isArray(list)) return;
           list.forEach((episode) => {
             const record = episode as Record<string, unknown>;
-            if (String(record?.id ?? '') === String(source.episodeId)) {
+            const episodeIds = [record?.id, record?.episode_id, record?.episodeId];
+            if (episodeIds.some((value) => value !== undefined && value !== null && String(value) === String(source.episodeId))) {
               collectSubtitleEntries(record, entries);
             }
           });
@@ -154,7 +170,13 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
     return [];
   }
 
-  if (entries.length === 0) return [];
+  if (entries.length === 0) {
+    // Nem hiba: a szolgáltató egyszerűen nem tárol feliratot ehhez a filmhez.
+    // A naplóból így később látszik, hogy a CC miért maradt üres.
+    appLog(`Feliratkeresés (CC): a szolgáltató nem sorolt fel feliratot (${source.vodId ? `vod=${source.vodId}` : `sorozat=${source.seriesId}`}).`);
+    return [];
+  }
+  appLog(`Feliratkeresés (CC): ${entries.length} bejegyzés a szolgáltató válaszában.`);
 
   const urlPrefixes = [
     `${base}/subtitle/${encodeURIComponent(source.username)}/${encodeURIComponent(source.password)}`,
@@ -191,7 +213,12 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
       try {
         const text = await httpGetText(url, { timeoutMs: PROBE_TIMEOUT_MS, bypassQueue: true });
         if (looksLikeSubtitle(text)) {
-          return { id: candidate.id, name: candidate.name, lang: candidate.lang, url };
+          /*
+           * A szolgáltatói felirat azonosítója `cc:` előtagot kap: a muxolt és
+           * a natív sávok azonosítói is számok, így azonos értéknél a felirat
+           * kiszorította volna a szolgáltatói tételt a listából.
+           */
+          return { id: `cc:${candidate.id}`, name: candidate.name, lang: candidate.lang, url };
         }
       } catch {
         // 404/403: a következő mintát próbáljuk – ez normális, nem hiba.
@@ -201,7 +228,11 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
   }));
 
   const tracks = resolved.filter(Boolean) as SubtitleTrack[];
-  if (tracks.length > 0) appLog(`Szolgáltatói feliratok: ${tracks.length} elérhető.`);
+  if (tracks.length > 0) {
+    appLog(`Szolgáltatói feliratok: ${tracks.length} elérhető (${tracks.map((track) => track.lang || track.name).join(', ')}).`);
+  } else {
+    appLog(`Szolgáltatói felirat nem tölthető le (${candidates.length} jelölt, egyik fájl sem felirat).`);
+  }
   return tracks;
 }
 
@@ -247,7 +278,7 @@ export async function loadSubtitleCues(url: string): Promise<SubtitleCue[]> {
   try {
     const text = await httpGetText(url, { timeoutMs: 15000 });
     const cues = parseSubtitleText(text);
-    appLog(`Felirat betöltve: ${cues.length} sor (${url}).`);
+    appLog(`Felirat betöltve: ${cues.length} sor (${safeSubtitleUrl(url)}).`);
     return cues;
   } catch (error) {
     appLog('Felirat letöltése sikertelen: ' + String(error));

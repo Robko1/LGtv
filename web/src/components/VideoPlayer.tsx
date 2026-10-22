@@ -166,9 +166,17 @@ function readHtmlAudioTracks(video: HTMLVideoElement | null): AudioTrack[] {
 const SubtitleOverlay: React.FC<{
   cues: SubtitleCue[];
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  /**
+   * A lejátszás pillanatnyi helyzete másodpercben.
+   *
+   * NATÍV MOTOR: ilyenkor nem a HTML <video> játssza a filmet, ezért a
+   * `video.currentTime` 0 marad – a felirat soha nem jelent volna meg, pedig a
+   * sáv be van kapcsolva. A szülő ezért a natív lejátszó pozícióját is ide írja.
+   */
+  positionRef?: React.RefObject<number>;
   scalePercent: number;
   raised: boolean;
-}> = ({ cues, videoRef, scalePercent, raised }) => {
+}> = ({ cues, videoRef, positionRef, scalePercent, raised }) => {
   const [text, setText] = useState('');
   useEffect(() => {
     if (cues.length === 0) {
@@ -176,14 +184,15 @@ const SubtitleOverlay: React.FC<{
       return;
     }
     const update = () => {
-      const time = Number(videoRef.current?.currentTime || 0);
+      const reported = positionRef ? Math.max(0, Number(positionRef.current || 0)) : 0;
+      const time = reported > 0 ? reported : Number(videoRef.current?.currentTime || 0);
       const next = cueAt(cues, time);
       setText((previous) => (previous === next ? previous : next));
     };
     update();
     const timer = window.setInterval(update, 200);
     return () => window.clearInterval(timer);
-  }, [cues, videoRef]);
+  }, [cues, videoRef, positionRef]);
 
   if (!text) return null;
   const fontSize = Math.max(16, Math.round(22 * (scalePercent / 100)));
@@ -940,6 +949,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const [vodCurrentTime, setVodCurrentTime] = useState(0);
   const [vodDuration, setVodDuration] = useState(0);
+  /** A film pillanatnyi helyzete a felirat kirajzolásához (natív motornál is). */
+  const vodSubtitleClockRef = useRef(0);
   // Csúsztatás közben a 250 ms-os időzítő ne rángassa vissza a csúszkát.
   const vodSeekDraggingRef = useRef(false);
   const lastReportedProgressRef = useRef(-1);
@@ -960,6 +971,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /** Film/sorozat: a felhasználó kézzel választott hang- és feliratsávja. */
   const userVodAudioChoiceRef = useRef<string | null>(null);
   const userVodSubtitleChoiceRef = useRef<string | null>(null);
+  /**
+   * Szolgáltatói (saját kirajzolású) felirat van-e kiválasztva.
+   *
+   * A filmhez muxolt `<track>` lista 1,5 másodpercenként újraolvasódik; enélkül
+   * a jelölő nélkül az olvasás a szolgáltatói feliratot „kikapcsolta” (az aktív
+   * azonosítót nullára állította), pedig a felirat a képen látszott – az OSD
+   * így azt mutatta, hogy a felirat ki van kapcsolva.
+   */
+  const providerSubtitleActiveRef = useRef(false);
   /** Egyszer futó automatikus (preferált nyelv) kiválasztás streamenként. */
   const vodTrackAutoSelectKeyRef = useRef<string>('');
   const [, setShowTvAudioMenu] = useState(false);
@@ -1273,6 +1293,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Mozi & Sorozat szerinti alapértelmezett (magyar) nyelv érvényesüljön.
     userVodAudioChoiceRef.current = null;
     userVodSubtitleChoiceRef.current = null;
+    providerSubtitleActiveRef.current = false;
     vodTrackAutoSelectKeyRef.current = '';
   }, [providedAudioTracks, providedSubtitleTracks, customStreamUrl]);
 
@@ -1298,6 +1319,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         position = target;
         setVodCurrentTime(target);
       }
+      // A felirat kirajzolója ezt használja (natív motornál a videóé 0 marad).
+      vodSubtitleClockRef.current = position;
       if (Math.floor(position) !== lastReportedProgressRef.current) {
         lastReportedProgressRef.current = Math.floor(position);
         onProgress?.(position, duration);
@@ -1559,21 +1582,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   ];
 
   const selectVodSubtitleRef = useRef<((track: SubtitleTrack | null) => void) | null>(null);
-
   const selectVodSubtitle = (track: SubtitleTrack | null) => {
     userVodSubtitleChoiceRef.current = track ? String(track.id) : 'off';
     // SZOLGÁLTATÓI FELIRAT: letöltjük, és a lejátszó rajzolja ki.
     if (track?.url) {
+      providerSubtitleActiveRef.current = true;
       switchHtmlVodSubtitle(null);
       setActiveVodSubtitleId(track.id);
       setVodSubtitleCues([]);
       setVodTrackMenu(null);
+      appLog(`Film felirat kiválasztva: szolgáltatói sáv=${track.name || track.lang || track.id}.`);
       void loadSubtitleCues(track.url).then((cues) => {
         // Csak akkor tesszük ki, ha közben nem váltottunk másikra.
         setVodSubtitleCues((previous) => (userVodSubtitleChoiceRef.current === String(track.id) ? cues : previous));
+        if (userVodSubtitleChoiceRef.current === String(track.id) && cues.length === 0) {
+          appLog(`A kiválasztott felirat üres vagy nem olvasható: ${track.name || track.lang || track.id}.`);
+        }
       });
       return;
     }
+    providerSubtitleActiveRef.current = false;
     if (!track) setVodSubtitleCues([]);
     if (nativeHandoff) {
       const current = activeVodSubtitleId != null ? Number(activeVodSubtitleId) : NaN;
@@ -1737,7 +1765,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ) ? previous : mapped
       ));
       const active = mapped.find((track) => track.selected === true);
-      setActiveVodSubtitleId(active ? active.id : null);
+      // Szolgáltatói (saját kirajzolású) felirat alatt az aktív azonosítót nem
+      // írjuk felül – különben az OSD „kikapcsolva” állapotot mutatna.
+      if (!providerSubtitleActiveRef.current) setActiveVodSubtitleId(active ? active.id : null);
     };
     refresh();
     video.addEventListener('loadedmetadata', refresh);
@@ -1807,17 +1837,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * A felhasználó kérése: a film alap hangja és felirata MAGYAR legyen, ha a
    * stream kínál ilyet. A választás egyszer fut le streamenként, és csak
    * addig, amíg a felhasználó kézzel nem választott sávot az OSD-ben.
+   *
+   * FONTOS (a CC „ki van kapcsolva” hiba): korábban ez a hatás korán kilépett,
+   * ha a lejátszó NEM tett közzé muxolt sávot, illetve ha a natív motor futott.
+   * Egy egyszerű (egy hangsávos, muxolt felirat nélküli) filmnél ezért a
+   * szolgáltatótól letölthető felirat SOHA nem kapcsolódott be: az OSD-ben a
+   * „Felirat kikapcsolva” sor maradt kijelölve, a CC gombon nem volt jelzés.
    */
   useEffect(() => {
-    if (!isVod || nativeHandoff) return;
+    if (!isVod) return;
     const audioSignature = vodAudioTracks.map((track) => `${track.id}:${track.lang}:${track.name}`).join('|');
     const subtitleSignature = vodSubtitleTracks.map((track) => `${track.id}:${track.lang}:${track.name}`).join('|');
-    if (!audioSignature && !subtitleSignature) return;
-    const key = [streamUrl, settings.preferredAudioLang, settings.preferredSubtitle, audioSignature, subtitleSignature].join('~');
+    const providerSignature = providerSubtitleTracks.map((track) => `${track.id}:${track.lang}:${track.name}`).join('|');
+    if (!audioSignature && !subtitleSignature && !providerSignature) return;
+    const key = [
+      streamUrl, settings.preferredAudioLang, settings.preferredSubtitle,
+      audioSignature, subtitleSignature, providerSignature, nativeHandoff ? 'n' : 'h',
+    ].join('~');
     if (key === vodTrackAutoSelectKeyRef.current) return;
     vodTrackAutoSelectKeyRef.current = key;
 
-    if (userVodAudioChoiceRef.current === null && vodAudioTracks.length > 1) {
+    // 1) HANGSÁV: itt csak a HTML5 motor sávjait váltjuk. A natív lejátszó
+    //    maga választja ki az alapértelmezett hangsávot – azt nem piszkáljuk
+    //    (a hang jelenleg hibátlanul működik).
+    if (!nativeHandoff
+        && userVodAudioChoiceRef.current === null && vodAudioTracks.length > 1) {
       const activeAudio = vodAudioTracks.find((track) => track.selected === true);
       const preferredAudio = findPreferredVodTrack(vodAudioTracks, settings.preferredAudioLang || 'Magyar');
       if (preferredAudio && String(preferredAudio.id) !== String(activeAudio?.id)) {
@@ -1827,23 +1871,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     }
 
+    // 2) FELIRAT: a kézi választást és a már bekapcsolt feliratot nem írjuk felül.
     const preferredSubtitle = (settings.preferredSubtitle || 'Magyar').trim();
-    if (userVodSubtitleChoiceRef.current === null && preferredSubtitle.toLowerCase() !== 'kikapcsolva') {
-      const activeSubtitle = vodSubtitleTracks.find((track) => track.selected === true);
-      const preferredTrack = findPreferredVodTrack(vodSubtitleTracks, preferredSubtitle);
-      if (preferredTrack && !activeSubtitle) {
+    const subtitlesOff = preferredSubtitle.toLowerCase() === 'kikapcsolva';
+    if (subtitlesOff || userVodSubtitleChoiceRef.current !== null) return;
+    if (providerSubtitleActiveRef.current || vodSubtitleCues.length > 0) return;
+    if (vodSubtitleTracks.some((track) => track.selected === true)) return;
+
+    // 2a) A streambe MUXOLT (a lejátszó saját sávlistájában szereplő) felirat.
+    const preferredTrack = findPreferredVodTrack(vodSubtitleTracks, preferredSubtitle);
+    if (preferredTrack) {
+      if (nativeHandoff) {
+        // Natív motor: a sávot a lejátszó kapcsolja be, nem a HTML <track>.
+        selectVodSubtitleRef.current?.(preferredTrack);
+        appLog(`Automatikus film-felirat (natív): ${preferredTrack.lang || preferredTrack.name} (beállítás: ${preferredSubtitle}).`);
+      } else {
         switchHtmlVodSubtitle(Number(preferredTrack.id));
         appLog(`Automatikus film-felirat: ${preferredTrack.lang || preferredTrack.name} (beállítás: ${preferredSubtitle}).`);
-        return;
       }
-      // Nincs muxolt felirat: a szolgáltatói (letölthető) feliratot választjuk.
-      if (!activeSubtitle && vodSubtitleCues.length === 0) {
-        const providerTrack = findPreferredVodTrack(providerSubtitleTracks, preferredSubtitle);
-        if (providerTrack && userVodSubtitleChoiceRef.current === null) {
-          selectVodSubtitleRef.current?.(providerTrack);
-          appLog(`Automatikus szolgáltatói felirat: ${providerTrack.lang || providerTrack.name} (beállítás: ${preferredSubtitle}).`);
-        }
-      }
+      return;
+    }
+
+    // 2b) Nincs (megfelelő) muxolt felirat: a szolgáltatótól letöltött CC.
+    //     Ha a beállított nyelven nincs, de csak EGY felirat van, azt kapcsoljuk
+    //     be – a felhasználó kérése, hogy a CC ne maradjon kikapcsolva.
+    const providerTrack = findPreferredVodTrack(providerSubtitleTracks, preferredSubtitle)
+      || (providerSubtitleTracks.length === 1 ? providerSubtitleTracks[0] : null);
+    if (providerTrack) {
+      selectVodSubtitleRef.current?.(providerTrack);
+      appLog(`Automatikus szolgáltatói felirat: ${providerTrack.lang || providerTrack.name} (beállítás: ${preferredSubtitle}).`);
+    } else if (providerSubtitleTracks.length > 1) {
+      appLog(`Szolgáltatói felirat: nincs „${preferredSubtitle}” sáv (${providerSubtitleTracks.map((track) => track.lang || track.name).join(', ')}); a CC gombbal választható.`);
     }
   }, [
     isVod, nativeHandoff, streamUrl, vodAudioTracks, vodSubtitleTracks,
@@ -2827,6 +2885,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <SubtitleOverlay
           cues={vodSubtitleCues}
           videoRef={htmlVideoRef}
+          positionRef={vodSubtitleClockRef}
           scalePercent={Number(String(settings.subtitleSize || '100%').replace('%', '')) || 100}
           raised={showControlsOverlay}
         />

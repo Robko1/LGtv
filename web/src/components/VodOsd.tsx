@@ -696,6 +696,13 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                     <span className="text-xs sm:text-sm font-bold">Felirat kikapcsolva</span>
                   </button>
 
+                  {subtitleTracks.length === 0 && (
+                    <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs leading-relaxed text-slate-400">
+                      Ehhez a filmhez a lejátszó nem jelez feliratsávot, és a szolgáltató sem tett közzé
+                      letölthető feliratot.
+                    </p>
+                  )}
+
                   {subtitleTracks.map((track) => {
                     const selected = String(track.id) === String(activeSubtitleId) || track.selected === true;
                     return (

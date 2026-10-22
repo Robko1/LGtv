@@ -1,10 +1,25 @@
-export const WEB_VERSION = '2.5.31';
+export const WEB_VERSION = '2.5.32';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.32',
+    date: '2026-10-23',
+    changes: [
+      'MOZI/SOROZAT FELIRAT (CC) – a film felirata mostantól magától bekapcsol: eddig az automatikus választó kilépett, ha a stream nem tett közzé beégetett (muxolt) hangsávot/feliratsávot, illetve ha a natív lejátszó futott – ezért maradt az OSD-ben a „Felirat kikapcsolva”',
+      'A szolgáltatótól letölthető magyar felirat a képre kerül (a lejátszó maga rajzolja ki), a hangsávok működése változatlan',
+      'A muxolt feliratok 1,5 másodpercenkénti újraolvasása nem kapcsolja ki a szolgáltatói feliratot (eddig az OSD 1,5 mp után ismét „kikapcsolva” állapotot mutatott, pedig a felirat látszott)',
+      'A felirat sáv csak akkor lesz „Felirat kikapcsolva”, ha a néző maga kapcsolja ki; ha nincs felirat, a CC doboz ezt ki is írja',
+      'A film-felirat címe (a benne lévő belépési adatokkal) nem kerül a naplóba, és nem megy ki nyilvános CORS-proxyra sem',
+      'TELJES KÉPERNYŐ → FŐOLDAL: a kijelölő mindig a KIVÁLASZTOTT csatorna sorára tér vissza (eddig a lista ELSŐ sorára lépett, ezért a következő OK már másik csatornát indított – „magától átugrott”)',
+      'A CH+/CH- nem ugrik a lista első csatornájára, ha a nézett csatorna éppen nincs a szűrt listában (másik ország / mappa / keresés)',
+      'SÁRGA gomb → QR-hibadiagnózis: a „Frissítés” mostantól NULLÁZZA a mért értékeket (naplósorok, hibák, hosszú feladatok = 0), új mérést indít, és látható kezdő időpontot ír a dobozba és a naplóba is (pl. „=== ÚJ MÉRÉS KEZDETE: 21:52:03 …”)',
+      'A QR-kód sötétebb és kisebb lett (nem vakít a TV-n), a hivatkozás és a beolvashatóság változatlan',
+    ],
+  },
   {
     version: '2.5.31',
     date: '2026-10-22',

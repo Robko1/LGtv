@@ -752,9 +752,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       row.focus({ preventScroll: true } as any);
     };
     const onRestore = () => {
-      // Két lépés: először a lista újrarenderelődik, utána fókuszálunk.
+      // Három lépés: a lista újrarenderelődik, majd a lassú webOS-on a sorok
+      // is késve épülnek fel – a harmadik próba ezt fogja meg.
       window.setTimeout(restore, 30);
       window.setTimeout(restore, 220);
+      window.setTimeout(restore, 620);
     };
     window.addEventListener('iptv-focus-selected-channel', onRestore);
     return () => window.removeEventListener('iptv-focus-selected-channel', onRestore);
@@ -920,6 +922,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       <div
         ref={channelScrollRef}
         data-scroll-keep=""
+        /* A KIVÁLASZTOTT csatorna azonosítója a listadobozon: a webOS kezelő
+           (webos.js) ebből tudja, melyik sorra tegye a fókuszt, amikor a
+           teljes képernyőről visszatérve még senkinek nincs fókusza. Enélkül
+           az ELSŐ sorra lépett, és a következő OK már másik csatornára váltott. */
+        data-selected-id={selectedChannelId || undefined}
         onKeyDown={handleListKeyDown}
         onScroll={(event) => saveChannelScrollPosition(event.currentTarget)}
         className="flex-1 min-h-0 overflow-y-auto focus:outline-none md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"
