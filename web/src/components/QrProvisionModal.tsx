@@ -131,7 +131,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
         ref={modalRef}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="w-full max-w-md md:max-w-lg lg:max-w-xl bg-[#071124] border-2 border-cyan-500/70 rounded-3xl shadow-2xl flex flex-col overflow-hidden focus:outline-none animate-scaleUp"
+        className="w-full max-w-md md:max-w-lg bg-[#071124] border-2 border-cyan-500/70 rounded-3xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh] focus:outline-none animate-scaleUp"
       >
         {/* Header */}
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
@@ -148,7 +148,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
           </button>
         </div>
 
-        <div className="p-5 space-y-4 overflow-y-auto">
+        <div className="p-3 sm:p-4 space-y-3 overflow-y-auto">
           {/* Kód kijelző */}
           <div className="flex flex-col items-center gap-3">
             <div className="flex items-center gap-2 text-amber-400">
@@ -172,25 +172,25 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
               <QrCode className="w-5 h-5" />
               <span className="text-xs font-bold uppercase tracking-wider">Olvasd be telefonnal</span>
             </div>
-            <div className="p-2 sm:p-3 rounded-xl bg-white border border-cyan-400/40 shadow-lg">
+            <div className="p-1.5 rounded-xl bg-white border border-cyan-400/40 shadow-lg shrink-0">
               {provisionUrl ? (
                 <QRCodeSVG
                   value={provisionUrl}
-                  size={420}
+                  size={210}
                   level="L"
                   boostLevel={false}
                   marginSize={4}
                   bgColor="#ffffff"
                   fgColor="#000000"
                   title="IPTV telefonos párosítás QR-kód"
-                  style={{ display: 'block', width: 'min(70vw, 420px)', height: 'auto', maxWidth: '100%' }}
+                  style={{ display: 'block', width: 'min(42vw, 210px)', height: 'auto', maxWidth: '100%' }}
                 />
               ) : (
-                <div className="w-[min(70vw,420px)] aspect-square flex items-center justify-center bg-white text-slate-500 text-xs">QR generálás...</div>
+                <div className="w-[min(42vw,210px)] aspect-square flex items-center justify-center bg-white text-slate-500 text-xs">QR generálás...</div>
               )}
             </div>
             <p className="text-xs text-slate-300 text-center max-w-xs leading-relaxed">
-              Irányítsd a telefon kameráját a nagy, fekete-fehér kódra. Ha nem olvassa be, növeld a TV fényerejét, és tartsd a telefont kb. 20–40 cm-re.
+              Olvasd be a kódot a telefon kamerájával. Tartsd a telefont kb. 20–40 cm-re.
             </p>
           </div>
 
