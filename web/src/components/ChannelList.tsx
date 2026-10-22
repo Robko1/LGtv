@@ -118,6 +118,14 @@ const ChannelListView: React.FC<ChannelListProps> = ({
 
   const visibleChannels = sortedChannels;
 
+  // A referenciához hasonlóan a távirányítós léptetés index alapján működik:
+  // ne keressük végig a teljes (akár több tízezres) listát minden nyílgombnál.
+  const channelIndexById = useMemo(() => {
+    const index = new Map<string, number>();
+    visibleChannels.forEach((channel, i) => index.set(channel.id, i));
+    return index;
+  }, [visibleChannels]);
+
   // A fő OSD ugyanazt a megjelenítési sorszámot használja, mint a lista –
   // a kedvenc mappák sorszám szerinti rendezésénél is.
   useEffect(() => {
@@ -616,23 +624,28 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     }
     // A fel/le nyíl CSAK a sárga kijelölést mozgatja (felsorolás),
     // csatornát nem vált - váltani az OK/Enter gombbal lehet.
-    const highlightIndex = visibleChannels.findIndex((c) => c.id === highlightedId);
-    const currentIndex = highlightIndex >= 0
-      ? highlightIndex
-      : visibleChannels.findIndex((c) => c.id === selectedChannelId);
+    // Map-keresés O(1): nem fut végig a teljes csatornalistán minden gombnyomáskor.
+    const currentIndex = channelIndexById.get(highlightedId)
+      ?? channelIndexById.get(selectedChannelId)
+      ?? 0;
     const moveHighlight = (target: number) => {
       const next = visibleChannels[target];
       if (!next) return;
       setHighlightedId(next.id);
-      // A fókusz a teljes csatornasoron marad, hogy a kijelölés az egész dobozon látszódjon.
-      (e.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true } as any);
+      const list = channelScrollRef.current;
+      if (list) {
+        const rowTop = LIST_PADDING + target * rowPitch;
+        const rowBottom = rowTop + rowHeight;
+        if (rowTop < list.scrollTop) list.scrollTop = Math.max(0, rowTop - LIST_PADDING);
+        else if (rowBottom > list.scrollTop + list.clientHeight) list.scrollTop = rowBottom - list.clientHeight + LIST_PADDING;
+        // Az ablakot azonnal szinkronizáljuk, így a cél-sor már a következő
+        // rajzoláskor a DOM-ban van; nem várunk a scroll eseményre.
+        computeWindow();
+        list.focus({ preventScroll: true } as any);
+      }
       requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-channel-id="${next.id}"]`) as HTMLElement | null;
-        if (!el) return;
-        const legacy = el as HTMLElement & { scrollIntoViewIfNeeded?: (center?: boolean) => void };
-        if (typeof legacy.scrollIntoViewIfNeeded === 'function') legacy.scrollIntoViewIfNeeded(false);
-        else if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-        el.focus({ preventScroll: true } as any);
+        const el = document.querySelector(`[data-channel-id="${next.id}"] [role="option"]`) as HTMLElement | null;
+        el?.focus({ preventScroll: true } as any);
       });
     };
     if (key === 'ArrowUp' && currentIndex <= 0) {
