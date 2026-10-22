@@ -149,6 +149,7 @@ import {
 import { ChannelOrderModal } from './components/ChannelOrderModal';
 import { ResumeHistoryModal } from './components/ResumeHistoryModal';
 import { QrProvisionModal } from './components/QrProvisionModal';
+import { DiagnosticShareModal } from './components/DiagnosticShareModal';
 
 export function App() {
   // Persistent state
@@ -343,6 +344,7 @@ export function App() {
   const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderAccount | null>(null);
   const [isQrProvisionOpen, setIsQrProvisionOpen] = useState(false);
+  const [isDiagnosticShareOpen, setIsDiagnosticShareOpen] = useState(false);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [favoriteChannelId, setFavoriteChannelId] = useState<string | null>(null);
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
@@ -1792,6 +1794,7 @@ export function App() {
       else if (action === 'settings') setIsSettingsOpen((prev) => !prev);
       else if (action === 'epg') setIsEpgOpen((prev) => !prev);
       else if (action === 'categories') setIsCategoriesOpen((prev) => !prev);
+      else if (action === 'diagnostic-share') setIsDiagnosticShareOpen(true);
     };
     window.addEventListener('iptv-tv-action', onTvAction);
     return () => window.removeEventListener('iptv-tv-action', onTvAction);
@@ -2160,6 +2163,11 @@ export function App() {
         isOpen={isQrProvisionOpen}
         onClose={() => setIsQrProvisionOpen(false)}
         onProviderReceived={handleQrProviderReceived}
+      />
+
+      <DiagnosticShareModal
+        isOpen={isDiagnosticShareOpen}
+        onClose={() => setIsDiagnosticShareOpen(false)}
       />
 
       {/* 4. EPG Guide Modal */}
