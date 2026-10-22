@@ -1,4 +1,5 @@
 import { AppSettings, FavoriteFolder, ProviderAccount, WatchHistoryItem } from '../types/iptv';
+import { clearFormatMemory } from './liveFormatMemory';
 import { clearContent } from './contentStore';
 import { INITIAL_SETTINGS } from '../data/mockData';
 
@@ -192,6 +193,9 @@ export const storageService = {
   /** Gyorsítótár és minden mentett beállítás törlése (Menü → hibakeresés). */
   clearCache(): void {
     clearContent();
+    // A csatornánkénti formátum-emlékezet is a gyorsítótár része: törlés után
+    // minden csatorna a beállított alapformátummal indul.
+    clearFormatMemory();
     localStorage.removeItem(SETTINGS_KEY);
     localStorage.removeItem(PROVIDERS_KEY);
     localStorage.removeItem(FOLDERS_KEY);

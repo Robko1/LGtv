@@ -13,6 +13,15 @@ import {
   cueAt,
 } from '../services/subtitleService';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
+import {
+  alternativeUrl,
+  formatOfUrl,
+  forgetFormatFor,
+  rememberFormatFor,
+  rememberGlobalFormat,
+  rememberedFormatFor,
+  rememberedGlobalFormat,
+} from '../services/liveFormatMemory';
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
@@ -355,6 +364,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
   const bufferWatchdogRef = useRef<number | null>(null);
   const playbackStartedRef = useRef(false);
+  /*
+   * ÉLŐ: csatornánkénti formátum-tartalék (a napló „Format error” hibáihoz).
+   * A `liveFallbackRef` a MÁSIK formátum címe, a `liveFallbackUsedRef` pedig
+   * azt jelzi, hogy ebben a csatornaváltásban már megpróbáltuk-e.
+   */
+  const liveFallbackRef = useRef<{ url: string; format: 'ts' | 'hls' } | null>(null);
+  const liveFallbackUsedRef = useRef(false);
+  /** Két élő betöltés között legalább ennyi ms teljen el (dekóder-felszabadítás). */
+  const lastLiveLoadAtRef = useRef(0);
+  const pendingLiveLoadTimerRef = useRef<number | null>(null);
   // Csatornaváltási generáció: a régi stream későn érkező eseményei ne írják felül az új csatorna állapotát.
   const streamLoadGenerationRef = useRef(0);
   const channelSwitchDiagnosticRef = useRef<{
@@ -397,6 +416,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const playerEngine: 'html5' | 'native' = settings.playerEngine === 'native' ? 'native' : 'html5';
   const playerEngineRef = useRef(playerEngine);
   playerEngineRef.current = playerEngine;
+  /** Az éppen kiválasztott csatorna (a hibakezeléshez, dependency nélkül). */
+  const channelRef = useRef<typeof channel>(channel);
+  channelRef.current = channel;
   /** Natív módban hányszor próbáltuk újraindítani ugyanazt a címet. */
   const nativeRetryCountRef = useRef(0);
   const bufferTiming = () => {
@@ -411,9 +433,41 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // hiba esetén nem váltunk át csendben a másikra. A másik formátum
     // a Rendszer beállításában választható ki.
     if (!isVodRef.current) {
+      /*
+       * ÉLŐ TV – FORMÁTUM-VISSZAESÉS.
+       *
+       * Korábban itt AZONNAL hibaüzenet jött („a Rendszer beállításában
+       * próbáld ki a másik formátumot”), ezért az a csatorna, amelyik az
+       * egyik formátummal nem indult, minden váltásnál ugyanúgy elhalt
+       * (a naplóban: „[HU] ATV … Format error” háromszor egymás után).
+       * Most a lejátszó MAGA próbálja ki a másik formátumot (TS ↔ HLS),
+       * csatornánként EGYSZER; ha az sem megy, akkor jelez hibát.
+       */
+      const fallback = liveFallbackRef.current;
+      if (fallback && !liveFallbackUsedRef.current) {
+        liveFallbackUsedRef.current = true;
+        const channelName = channelSwitchDiagnosticRef.current?.channelName || 'élő adás';
+        retryPlanRef.current = { originalUrl: fallback.url, stage: 'primary' };
+        pendingStreamUrlRef.current = fallback.url;
+        setHasError(false);
+        setErrorMessage('');
+        setIsLoading(true);
+        setIsPlaying(false);
+        appLog(`FORMÁTUM-VISSZAESÉS; csatorna=${channelName}; ${fallback.format === 'hls' ? 'HLS (.m3u8)' : 'MPEG-TS (.ts)'} próba következik.`);
+        autoRetryTimerRef.current = window.setTimeout(() => {
+          autoRetryTimerRef.current = null;
+          retryStreamRef.current?.();
+        }, 200);
+        return;
+      }
+      // Egyik formátum sem indult el: a csatorna emlékét töröljük, hogy a
+      // következő próba a beállított (alap) formátummal induljon.
+      if (channelSwitchDiagnosticRef.current?.channelName) {
+        forgetFormatFor(channelRef.current?.id);
+      }
       setIsLoading(false);
       setHasError(true);
-      setErrorMessage('Ez a streamformátum nem indult el. A Rendszer beállításában próbáld ki a másik formátumot.');
+      setErrorMessage('Ez a csatorna egyik streamformátummal sem indult el. Válassz másik csatornát, vagy állítsd át a formátumot a Rendszer beállításában.');
       return;
     }
     const plan = retryPlanRef.current;
@@ -2001,6 +2055,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Egyetlen lejátszómotor: LG webOS-en a TV HTML5/HLS videóeleme játssza le az adatfolyamot.
   const loadStream = useCallback((url: string) => {
+    /*
+     * ZAPPOLÁSI KORLÁT (fagyás-védelem).
+     *
+     * A napló szerint a néző ~3 perc alatt kb. 40 csatornát váltott. A webOS
+     * médiamotorja minden váltásnál új dekódert nyit, a régit pedig csak
+     * később engedi el; sűrű váltásnál ez a TV-n az egész app lefagyásához
+     * vezethet. Ezért két élő betöltés között legalább 300 ms telik el, és a
+     * közben érkező kéréseket ÖSSZEVONJUK (mindig a legfrissebb cím indul).
+     */
+    if (!isVodRef.current && !customStreamUrl) {
+      const now = Date.now();
+      const since = now - lastLiveLoadAtRef.current;
+      if (since >= 0 && since < 300) {
+        if (pendingLiveLoadTimerRef.current !== null) {
+          window.clearTimeout(pendingLiveLoadTimerRef.current);
+        }
+        const wait = 300 - since;
+        pendingLiveLoadTimerRef.current = window.setTimeout(() => {
+          pendingLiveLoadTimerRef.current = null;
+          loadStreamRef.current?.(url);
+        }, wait);
+        appLog(`VÁLTÁS ÖSSZEVONÁS: ${wait} ms várakozás a dekóder felszabadítására.`);
+        return;
+      }
+      lastLiveLoadAtRef.current = now;
+    }
     const loadGeneration = ++streamLoadGenerationRef.current;
     const isCurrentLoad = () => loadGeneration === streamLoadGenerationRef.current;
     clearZapWatchdog();
@@ -2051,9 +2131,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           canPlayLogged: false,
           completed: false,
         };
-        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; formátum-emlék=${rememberedFormatFor(channel?.id) || 'nincs (alap)'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
       }
       video.pause();
+      /*
+       * HIBAÁLLAPOT TÖRLÉSE.
+       *
+       * A naplóban a következő csatorna indítása így nézett ki:
+       *   „paused=true; error=4:MEDIA_ELEMENT_ERROR: Format error”
+       * vagyis a videóelem MEGTARTOTTA az előző csatorna hibáját, és a
+       * következő `src` beállítása ezzel a hibával indult. Ilyenkor (és csak
+       * ilyenkor) teljesen lebontjuk a forrást, mert különben a webOS a
+       * hibás állapotot viszi tovább az új adásra.
+       */
+      if (video.error) {
+        try {
+          video.removeAttribute('src');
+          video.load();
+          appLog('Lejátszó hibaállapot törlése a csatornaváltás előtt (a forrás lebontása).');
+        } catch { /* régi motor */ }
+      }
       // GYORS VÁLTÁS: korábban itt `removeAttribute('src')` + `load()` állt,
       // ami a lejátszó teljes lebontását és újraindítását kényszerítette
       // (webOS-on 0,3-1 másodperc). A `src` felülírása ugyanúgy megszakítja a
@@ -2144,10 +2241,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // korábbi próba eltárolva. Hibánál a meglévő zap-őr próbálkozik tovább.
     let rememberedFormat: 'ts' | 'hls' | null = null;
     if (!isVod) {
-      try {
-        const stored = window.localStorage.getItem('iptv_rt_live-format');
-        if (stored === 'ts' || stored === 'hls') rememberedFormat = stored;
-      } catch { /* helyi tárhely nélkül a beállított formátum marad */ }
+      /*
+       * CSATORNÁNKÉNTI EMLÉKEZET elsőbbséggel: ha ezt a csatornát legutóbb
+       * HLS-sel sikerült elindítani, most is azzal kezdünk (és fordítva).
+       * Csak ha a csatornához még nincs bejegyzés, a globális emlékezet jön.
+       */
+      rememberedFormat = rememberedFormatFor(channel?.id);
+      if (!rememberedFormat) rememberedFormat = rememberedGlobalFormat();
     }
     const primaryFormat = rememberedFormat || selectedFormat;
     const primaryUrl = isVod
@@ -2155,6 +2255,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
     pendingStreamUrlRef.current = primaryUrl;
     retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
+    // A MÁSIK formátum címe: hibánál ezt próbálja ki a lejátszó egyszer.
+    liveFallbackRef.current = isVod ? null : alternativeUrl(primaryUrl);
+    liveFallbackUsedRef.current = false;
     /*
      * HÁTTÉR-BENNENTARTÁS: ha nem az élő nézet látszik (Mozi/Sorozat), az élő
      * adást el sem indítjuk – sem kép, sem hang nem megy a háttérben.
@@ -2180,6 +2283,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       clearBufferWatchdog();
       playbackStartedRef.current = false;
       clearAutoRetry(false);
+      // A következő csatorna már úgyis indul: a várakozó (összevont) betöltést
+      // eldobjuk, nehogy a lecserélt csatornát indítsa el később.
+      if (pendingLiveLoadTimerRef.current !== null) {
+        window.clearTimeout(pendingLiveLoadTimerRef.current);
+        pendingLiveLoadTimerRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadKey, clearAutoRetry, clearBufferWatchdog, settings.streamFormat, playbackActive]);
@@ -2561,10 +2670,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               nativeRetryCountRef.current = 0;
               // A sikeresen elindult élő formátumot megjegyezzük a gyors zappoláshoz.
               if (!isVod && !customStreamUrl) {
-                try {
-                  const url = pendingStreamUrlRef.current || '';
-                  window.localStorage.setItem('iptv_rt_live-format', /\.ts(?=([?#]|$))/i.test(url) ? 'ts' : 'hls');
-                } catch { /* tároló nélkül is működik */ }
+                /*
+                 * SIKERES FORMÁTUM MEGJEGYZÉSE – csatornánként ÉS globálisan.
+                 * A csatornánkénti bejegyzés miatt a következő váltásnál
+                 * rögtön a működő formátummal indul (nincs újabb hiba).
+                 */
+                const url = pendingStreamUrlRef.current || '';
+                const format = formatOfUrl(url);
+                if (format) {
+                  rememberGlobalFormat(format);
+                  if (channel?.id) rememberFormatFor(channel.id, format);
+                }
               }
               clearZapWatchdog();
               clearAutoRetry();

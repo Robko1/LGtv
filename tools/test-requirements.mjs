@@ -914,3 +914,61 @@ test('11. fagyás-diagnosztika: idővonal, leállás-figyelő, összeomlás- és
   assert.match(IMPORT, /logPhase\(\s*`Xtream import kész/);
   assert.match(IMPORT, /logMemory\('import után'\)/);
 });
+
+/* ══════════════ 12. Csatornánkénti formátum-emlékezet (napló: „Format error” csatornák) ══════════════ */
+
+test('12. ugyanaz a csatorna nem esik el minden váltásnál ugyanazzal a formátumhibával', () => {
+  const MEMORY = read('web/src/services/liveFormatMemory.ts');
+  // A modul csatornánként tárol, korlátozott mérettel, hibatűrően.
+  assert.match(MEMORY, /const MEMORY_KEY = 'iptv_rt_live-format-memory-v1';/);
+  assert.match(MEMORY, /const MAX_ENTRIES = 3000;/);
+  assert.match(MEMORY, /export function rememberedFormatFor/);
+  assert.match(MEMORY, /export function rememberFormatFor/);
+  assert.match(MEMORY, /export function forgetFormatFor/);
+  assert.match(MEMORY, /export function alternativeUrl/);
+  // A régi globális kulcs is megmarad (visszafelé kompatibilitás).
+  assert.match(MEMORY, /const GLOBAL_KEY = 'iptv_rt_live-format';/);
+
+  // A lejátszó először a CSATORNA emlékét nézi, csak utána a globálist.
+  assert.match(PLAYER, /rememberedFormat = rememberedFormatFor\(channel\?\.id\);/);
+  assert.match(PLAYER, /if \(!rememberedFormat\) rememberedFormat = rememberedGlobalFormat\(\);/);
+  // Sikeres indításnál csatornánként jegyezzük meg.
+  assert.match(PLAYER, /rememberGlobalFormat\(format\);\s*\n\s*if \(channel\?\.id\) rememberFormatFor\(channel\.id, format\);/);
+  // A tartalék cím kiszámítása csatornaváltáskor.
+  assert.match(PLAYER, /liveFallbackRef\.current = isVod \? null : alternativeUrl\(primaryUrl\);/);
+  assert.match(PLAYER, /liveFallbackUsedRef\.current = false;/);
+});
+
+test('12. hiba esetén a lejátszó MAGA próbálja a másik formátumot (nem kér Beállítást)', () => {
+  // A korábbi viselkedés: azonnali hibaüzenet, formátumváltás nélkül.
+  assert.doesNotMatch(PLAYER, /Ez a streamformátum nem indult el\. A Rendszer beállításában/);
+  const retry = PLAYER.slice(PLAYER.indexOf('const scheduleAutoRetry'), PLAYER.indexOf('const clearAutoRetry'));
+  assert.match(retry, /const fallback = liveFallbackRef\.current;/);
+  assert.match(retry, /if \(fallback && !liveFallbackUsedRef\.current\) \{/);
+  assert.match(retry, /FORMÁTUM-VISSZAESÉS; csatorna=\$\{channelName\}/);
+  assert.match(retry, /retryPlanRef\.current = \{ originalUrl: fallback\.url, stage: 'primary' \};/);
+  assert.match(retry, /pendingStreamUrlRef\.current = fallback\.url;/);
+  // Ha a második formátum sem megy, a csatorna emléke törlődik.
+  assert.match(retry, /forgetFormatFor\(channelRef\.current\?\.id\);/);
+});
+
+test('12. a videóelem hibaállapota nem öröklődik a következő csatornára', () => {
+  assert.match(PLAYER, /if \(video\.error\) \{[\s\S]{0,220}?video\.removeAttribute\('src'\);[\s\S]{0,120}?video\.load\(\);/);
+  assert.match(PLAYER, /Lejátszó hibaállapot törlése a csatornaváltás előtt/);
+});
+
+test('12. sűrű zappolásnál a betöltések összevonódnak (dekóder-felszabadítás, fagyás-védelem)', () => {
+  assert.match(PLAYER, /const lastLiveLoadAtRef = useRef\(0\);/);
+  assert.match(PLAYER, /const pendingLiveLoadTimerRef = useRef<number \| null>\(null\);/);
+  assert.match(PLAYER, /if \(since >= 0 && since < 300\) \{/);
+  assert.match(PLAYER, /VÁLTÁS ÖSSZEVONÁS: \$\{wait\} ms várakozás a dekóder felszabadítására\./);
+  assert.match(PLAYER, /loadStreamRef\.current\?\.\(url\);/);
+  // Csatornaváltáskor a várakozó betöltés eldobódik.
+  assert.match(PLAYER, /if \(pendingLiveLoadTimerRef\.current !== null\) \{\s*\n\s*window\.clearTimeout\(pendingLiveLoadTimerRef\.current\);/);
+});
+
+test('12. a gyorsítótár törlése a formátum-emlékezetet is törli', () => {
+  const STORAGE = read('web/src/services/storageService.ts');
+  assert.match(STORAGE, /import \{ clearFormatMemory \} from '\.\/liveFormatMemory';/);
+  assert.match(STORAGE, /clearContent\(\);\s*\n\s*\/\/ A csatornánkénti formátum-emlékezet[\s\S]{0,200}?clearFormatMemory\(\);/);
+});
