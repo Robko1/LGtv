@@ -10,6 +10,8 @@
  */
 
 const MAX_LINES = 400;
+// Naplózási korlátok: legfeljebb 24 óra és 60 KB / 400 sor.
+const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_CHARS = 60000;
 const STORE_KEY = 'app-log';
 const DEFAULT_APP_VERSION = 'IPTV R.T webOS 2.3.1';
@@ -20,9 +22,23 @@ let restoreAttempted = false;
 let saveTimer: number | null = null;
 
 function nowStamp(): string {
-  const now = new Date();
-  const pad = (value: number, size = 2) => String(value).padStart(size, '0');
-  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`;
+  return new Date().toISOString();
+}
+
+/** Csak a dátummal ellátott, elmúlt 24 órán belüli sorokat tartjuk meg. */
+function trimExpired(): void {
+  const cutoff = Date.now() - MAX_AGE_MS;
+  const fresh: string[] = [];
+  for (const line of lines) {
+    const timestamp = Date.parse(line.slice(0, 24));
+    // A régi, dátum nélküli formátum korát nem lehet megbízhatóan megállapítani,
+    // ezért nem tartjuk meg az új, 24 órás naplóban.
+    if (Number.isFinite(timestamp) && timestamp >= cutoff && timestamp <= Date.now() + 60_000) {
+      fresh.push(line);
+    }
+  }
+  lines = fresh;
+  chars = lines.reduce((total, line) => total + line.length + 1, 0);
 }
 
 function trim(): void {
@@ -45,8 +61,8 @@ function restore(): void {
       lines.push(line);
       chars += line.length + 1;
     }
+    trimExpired();
     trim();
-    appLog('--- a napló folytatódik az előző munkamenet után ---');
   } catch {
     /* a napló visszaolvasása nem kritikus */
   }
@@ -95,6 +111,7 @@ export function appLog(message: string): void {
   const line = `${nowStamp()} ${safe}`;
   lines.push(line);
   chars += line.length + 1;
+  trimExpired();
   trim();
   persistSoon();
 }
@@ -145,7 +162,9 @@ export function logMemory(label: string): void {
 /** A napló teljes szövege (a hibakeresési lapon megjelenítve és másolva). */
 export function getAppLogText(): string {
   restore();
-  const header = `--- WEBES NAPLÓ (${lines.length} sor) ---`;
+  trimExpired();
+  trim();
+  const header = `--- WEBOS NAPLÓ (${lines.length} sor; max. 24 óra; max. 60 KB) ---`;
   return [header, ...lines].join('\n');
 }
 
