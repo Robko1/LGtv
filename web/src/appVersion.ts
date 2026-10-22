@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.16';
+export const WEB_VERSION = '2.5.17';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.16',
+    version: '2.5.17',
     date: '2026-10-22',
     changes: [
       'TELJES KÉPERNYŐ JAVÍTVA: a lejátszó doboza ismét kitölti a teljes kijelzőt – a főoldali 16:9-es keret mérése ugyanis inline `position: relative`-t írt rá, ami erősebb volt a `fixed` osztálynál, ezért a kép a fejléc alatt maradt',
