@@ -83,6 +83,45 @@ function release(): void {
   if (next) next();
 }
 
+/**
+ * Hely kérése RÖVID várakozással (a szolgáltatói bejelentkezés-probe).
+ *
+ * Normál esetben ugyanazt a sort használja, mint minden más kérés, tehát
+ * továbbra is legfeljebb 2 kapcsolat él egyszerre. Ha viszont a két helyet
+ * elakadt (nem válaszoló) kérések foglalják, a várakozás után MÉGIS elindul:
+ * ez a kérés dönti el, hogy a szerver egyáltalán él-e, és így 10 másodperc
+ * alatt érthető hibaüzenet születik (a sor végén 30-40 mp lenne).
+ *
+ * @returns true, ha helyet foglalt (ilyenkor `release()` kell a végén),
+ *          false, ha soron kívül indult.
+ */
+const BYPASS_WAIT_MS = 1500;
+async function acquireWithin(ms: number): Promise<boolean> {
+  if (inFlight < MAX_CONCURRENT) {
+    inFlight++;
+    return true;
+  }
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    let timer = 0;
+    const grant = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      inFlight++;
+      resolve(true);
+    };
+    queue.push(grant);
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const index = queue.indexOf(grant);
+      if (index >= 0) queue.splice(index, 1);
+      resolve(false);
+    }, ms) as unknown as number;
+  });
+}
+
 /* ------------------------------------------------------- megszakító */
 
 /** Ennyi egymás utáni hálózati hiba után leállunk egy időre. */
@@ -304,14 +343,18 @@ async function fetchOnce(url: string, timeoutMs: number): Promise<string> {
 export interface HttpOptions {
   timeoutMs?: number;
   /**
-   * A kéréssor megkerülése (legfeljebb egy ilyen kérés futhat egyszerre).
+   * Rövid várakozás után soron kívül is indulhat (a bejelentkezés-probe).
    *
    * Kizárólag a szolgáltatói BEJELENTKEZÉS használja: ez a kérés dönti el,
    * hogy a szerver egyáltalán válaszol-e (a referencia is így tesz a
    * bejelentkezésnél). Ha a sor végén várna, egy nem válaszoló szolgáltatónál
    * a teljes időtúllépés a sorban állással együtt 30-40 másodperc lenne,
-   * mielőtt a néző bármilyen hibaüzenetet lát. Így a hiba 10 másodperc alatt
-   * kiderül, a csatornakérések pedig azonnal megszakadnak.
+   * mielőtt a néző bármilyen hibaüzenetet lát.
+   *
+   * Normál (működő) szolgáltatónál a kérés a szokásos sort használja, így
+   * NEM nyílik harmadik kapcsolat. Csak akkor lép előre, ha a két helyet
+   * elakadt kérések foglalják (BYPASS_WAIT_MS után) – ilyenkor viszont 10
+   * másodperc alatt kiderül a hiba, és a csatornakérések megszakadnak.
    */
   bypassQueue?: boolean;
 }
@@ -353,8 +396,10 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
   for (let index = 0; index < attempts.length; index++) {
     const target = attempts[index];
     const attemptStarted = Date.now();
+    // A bejelentkezés-probe rövid várakozás után soron kívül is indulhat;
+    // minden más kérés a szokásos (legfeljebb 2 kapcsolatos) sorba áll.
     const bypass = Boolean(options.bypassQueue);
-    if (!bypass) await acquire();
+    const holdingSlot = bypass ? await acquireWithin(BYPASS_WAIT_MS) : (await acquire(), true);
     try {
       const gap = MIN_GAP_MS - (Date.now() - lastRequestAt);
       if (gap > 0) await sleep(gap);
@@ -381,7 +426,7 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
         break;
       }
     } finally {
-      if (!bypass) release();
+      if (holdingSlot) release();
     }
   }
   // A hálózati szintű hibát megkülönböztethető típusként dobjuk tovább: a
