@@ -1,6 +1,7 @@
 import { ChannelLogo } from './ChannelLogo';
 import { APP_ICON_DATA_URL } from '../generatedIcon';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AppSettings, Channel, FavoriteFolder, ProviderAccount, BufferMode, SubtitleSize, WatchHistoryItem } from '../types/iptv';
 import {
   SlidersHorizontal,
@@ -23,8 +24,7 @@ import {
   Clock,
   Cast,
   ListOrdered,
-  MousePointerClick,
-  FlipHorizontal2
+  MousePointerClick
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { normalizeTvKey } from '../utils/tvKeys';
@@ -259,7 +259,19 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     window.location.reload();
   };
 
-  return (
+  /**
+   * A PANEL MÉRETE MINDKÉT OLDALON AZONOS.
+   *
+   * Korábban a tükrözött (bal oldali) menü „szétcsúszott”: a panel a
+   * tükrözött soron belüli ősöktől örökölt geometriát kapott. A megoldás:
+   *  • a menü PORTÁLBAN, közvetlenül a <body> alá kerül (nincs örökölt
+   *    flex/transform beállítás),
+   *  • a szélesség egyetlen, mindkét oldalon UGYANAZOKKAL az osztályokkal
+   *    megadott érték, `shrink-0`-val, hogy a flex ne nyújtsa/nyomja össze.
+   */
+  const panelSizeClass = 'w-full max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl h-full shrink-0 min-w-0 bg-[#071124] flex flex-col shadow-2xl overflow-hidden focus:outline-none';
+
+  const modal = (
     <div
       data-mirror-menu={settings.mirrorLayout ? '1' : undefined}
       className={`fixed inset-0 z-50 flex bg-black/75 backdrop-blur-xs select-none lg:select-auto ${settings.mirrorLayout ? 'justify-start' : 'justify-end'}`}
@@ -270,15 +282,15 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     >
       {/*
         TÜKRÖZÖTT ELRENDEZÉS: a menü a BAL oldalon nyílik ki (a csatornalista
-        oldalán), nem a jobbon – így a tükrözéssel együtt a menü oldala is
-        átfordul. A belső fülkék sorrendje változatlan.
+        oldalán), nem a jobbon – a panel MÉRETE viszont pontosan ugyanaz,
+        mint a jobb oldalon (lásd a panelSizeClass magyarázatát).
       */}
       <div
         ref={modalRef}
         tabIndex={-1}
         onKeyDown={handleModalKeyDown}
         data-mirror-panel={settings.mirrorLayout ? '1' : undefined}
-        className={`w-full max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl h-full bg-[#071124] flex flex-col shadow-2xl overflow-hidden focus:outline-none ${
+        className={`${panelSizeClass} ${
           settings.mirrorLayout ? 'border-r border-cyan-900/40' : 'border-l border-cyan-900/40'
         }`}
       >
@@ -885,23 +897,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Toggle: Tükrözött elrendezés (a PIROS / Record gomb is kapcsolja) */}
-                <div data-tv-box="" tabIndex={0} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
-                  <div className="flex min-w-0 items-start gap-2.5 pr-3">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><FlipHorizontal2 className="h-4 w-4 text-cyan-300" /></span>
-                    <div className="min-w-0">
-                      <span className="text-xs font-bold text-white block">Tükrözött elrendezés</span>
-                      <span className="text-[11px] text-slate-400 block">A csatornalista balra, a lejátszó és az OSD jobbra kerül. A PIROS (Record) gombbal is kapcsolható.</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => onUpdateSettings({ mirrorLayout: !settings.mirrorLayout })}
-                    aria-pressed={Boolean(settings.mirrorLayout)}
-                    className={`shrink-0 px-4 py-2 rounded-xl text-xs font-black transition-all ${settings.mirrorLayout ? 'bg-amber-400 text-slate-950' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60'}`}
-                  >
-                    {settings.mirrorLayout ? 'BE' : 'KI'}
-                  </button>
-                </div>
+                {/*
+                  A tükrözés-sor a Rendszer fülről ELTÁVOLÍTVA (a felhasználó
+                  kérése: vizuálisan ne legyen ott). A funkció változatlanul
+                  működik: a PIROS (Record) gomb kapcsolja, és a beállítás
+                  továbbra is a tárolóban marad.
+                */}
 
                 {/* Toggle: Kék óra mindig látszódjon */}
                 <div data-tv-box="" tabIndex={0} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
@@ -1183,4 +1184,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       </div>
     </div>
   );
+
+  // A portál a <body>-ba teszi a menüt: így a Mozi/Sorozat tükrözött
+  // elrendezése (flex-row-reverse) nem tudja eltorzítani a panel méretét.
+  return typeof document !== 'undefined' ? createPortal(modal, document.body) : modal;
 };

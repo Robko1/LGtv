@@ -146,20 +146,22 @@ export const VodOsd: React.FC<VodOsdProps> = ({
 }) => {
   const localRef = useRef<HTMLDivElement | null>(null);
   const osdRef = rootRef || localRef;
+  /**
+   * A HANGSÁV / FELIRAT választó doboza.
+   *
+   * A doboz a távirányítóval vezérelhető: nyíláskor az első (vagy a kiválasztott)
+   * sor kapja a fókuszt, FEL/LE a sorok között lép, az OK azonnal vált és bezár.
+   * A billentyűket egy CAPTURE fázisú figyelő veszi át, hogy a webOS saját
+   * térbeli kijelölője ne léphessen ki a dobozból (korábban ezért „nem lehetett
+   * kiválasztani és alkalmazni” a hangsávot a TV-n).
+   */
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const seekRef = useRef<HTMLDivElement | null>(null);
   const volumeRef = useRef<HTMLDivElement | null>(null);
   const volumeClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [previewTime, setPreviewTime] = useState<number | null>(null);
-  /** Rövid visszajelzés az OSD alján (pl. „ehhez a filmhez nincs másik hangsáv”). */
-  const [hint, setHint] = useState<string | null>(null);
-  useEffect(() => {
-    if (!hint) return;
-    const timer = window.setTimeout(() => setHint(null), 2600);
-    return () => window.clearTimeout(timer);
-  }, [hint]);
-
   useEffect(() => () => {
     if (volumeClickTimer.current) clearTimeout(volumeClickTimer.current);
   }, []);
@@ -315,6 +317,72 @@ export const VodOsd: React.FC<VodOsdProps> = ({
     if (typeof target === 'number') onSeekTo(target);
     setPreviewTime(null);
   };
+
+  /**
+   * A választó doboz billentyűkezelése (CAPTURE).
+   *
+   * Csak akkor fut, ha a doboz nyitva van. A színes gombokat (403–406) NEM
+   * nyeli el – így a ZÖLD/KÉK gombbal is lehet váltani a két lista között –,
+   * a VISSZA gomb viszont a dobozt zárja (nem a lejátszót).
+   */
+  useEffect(() => {
+    if (!menu) return;
+    const items = () => Array.from(
+      menuRef.current?.querySelectorAll<HTMLElement>('[data-vod-menu-item]') || []
+    ).filter((element) => element.getClientRects().length > 0);
+
+    // Nyitáskor a KIVÁLASZTOTT sor (vagy az első) kapja a fókuszt.
+    window.requestAnimationFrame(() => {
+      const list = items();
+      const selected = list.find((element) => element.hasAttribute('data-vod-menu-selected'));
+      (selected || list[0])?.focus({ preventScroll: false } as FocusOptions);
+    });
+
+    const step = (direction: 1 | -1) => {
+      const list = items();
+      if (list.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const index = active ? list.indexOf(active) : -1;
+      const next = index < 0 ? 0 : (index + direction + list.length) % list.length;
+      list[next]?.focus({ preventScroll: false } as FocusOptions);
+    };
+
+    const handler = (event: KeyboardEvent) => {
+      const raw = Number((event as KeyboardEvent).keyCode || 0);
+      // A színes gombok és a webOS saját gombjai maradjanak a webos.js-nek.
+      if (raw === 403 || raw === 404 || raw === 405 || raw === 406) return;
+      const key = normalizeTvKey(event);
+      if (key === 'ArrowDown' || key === 'ArrowRight') {
+        event.preventDefault();
+        event.stopPropagation();
+        onActivity?.();
+        step(1);
+        return;
+      }
+      if (key === 'ArrowUp' || key === 'ArrowLeft') {
+        event.preventDefault();
+        event.stopPropagation();
+        onActivity?.();
+        step(-1);
+        return;
+      }
+      if (key === 'Enter' || key === ' ') {
+        event.preventDefault();
+        event.stopPropagation();
+        onActivity?.();
+        const active = document.activeElement as HTMLElement | null;
+        if (active && menuRef.current?.contains(active)) active.click();
+        return;
+      }
+      if (key === 'Escape' || key === 'Backspace' || raw === 461) {
+        event.preventDefault();
+        event.stopPropagation();
+        onMenuChange(null);
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [menu, onMenuChange, onActivity]);
 
   const menuTitle = menu === 'audio' ? 'HANGSÁV' : 'FELIRAT';
 
@@ -472,10 +540,10 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             data-vod-osd-audio-choice={hasAudioChoice ? '1' : undefined}
             onClick={() => {
               onActivity?.();
-              if (!hasAudioChoice) {
-                setHint('Ehhez a filmhez a lejátszó csak egy hangsávot jelez.');
-                return;
-              }
+              /*
+               * A doboz MINDIG kinyílik (a felhasználó kérése): a listában
+               * akkor is látszik, hány hangsáv van, ha a TV csak egyet jelez.
+               */
               onMenuChange(menu === 'audio' ? null : 'audio');
             }}
             className={`${ROUND_BUTTON_BASE} ${hasAudioChoice ? ROUND_BUTTON_GREEN : ROUND_BUTTON_IDLE} relative w-[2.85rem] h-[2.85rem] md:w-[3.25rem] md:h-[3.25rem] ${hasAudioChoice ? '' : 'opacity-80'}`}
@@ -498,10 +566,7 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             data-vod-osd-subs-choice={hasSubtitleChoice ? '1' : undefined}
             onClick={() => {
               onActivity?.();
-              if (!hasSubtitleChoice) {
-                setHint('Ehhez a filmhez a lejátszó nem jelez feliratsávot.');
-                return;
-              }
+              // A felirat-doboz is mindig kinyílik (CC gomb / KÉK gomb).
               onMenuChange(menu === 'subtitle' ? null : 'subtitle');
             }}
             className={`${ROUND_BUTTON_BASE} ${hasSubtitleChoice ? ROUND_BUTTON_GREEN : ROUND_BUTTON_IDLE} relative w-[2.85rem] h-[2.85rem] md:w-[3.25rem] md:h-[3.25rem] ${hasSubtitleChoice ? '' : 'opacity-80'}`}
@@ -563,12 +628,6 @@ export const VodOsd: React.FC<VodOsdProps> = ({
           </button>
         </div>
 
-        {hint && (
-          <p className="mx-auto max-w-[80%] rounded-full border border-white/15 bg-black/70 px-4 py-1.5 text-center text-xs font-semibold text-slate-200">
-            {hint}
-          </p>
-        )}
-
         {!hasDuration && (
           <p className="text-center text-[11px] text-white/60">
             A film időtartama még nem ismert – a tekerés az első képkockák után válik elérhetővé.
@@ -579,6 +638,8 @@ export const VodOsd: React.FC<VodOsdProps> = ({
       {/* ── HANGSÁV / FELIRAT választó ─────────────────────────────────────── */}
       {menu && (
         <div
+          ref={menuRef}
+          data-vod-menu=""
           role="dialog"
           aria-modal="true"
           aria-label={menu === 'audio' ? 'Hangsáv választó' : 'Felirat választó'}
@@ -623,8 +684,10 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                 <>
                   <button
                     type="button"
-                    onClick={() => { onActivity?.(); onSelectSubtitle(null); }}
-                    className={`w-full rounded-2xl border p-3 text-left transition-all ${
+                    data-vod-menu-item=""
+                    data-vod-menu-selected={activeSubtitleId === null || activeSubtitleId === undefined ? '1' : undefined}
+                    onClick={() => { onActivity?.(); onSelectSubtitle(null); onMenuChange(null); }}
+                    className={`w-full rounded-2xl border p-3 text-left transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
                       activeSubtitleId === null || activeSubtitleId === undefined
                         ? 'border-blue-400 bg-[#0f244a] text-white ring-1 ring-blue-400/40'
                         : 'border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042]'
@@ -639,8 +702,10 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                       <button
                         key={String(track.id)}
                         type="button"
-                        onClick={() => { onActivity?.(); onSelectSubtitle(track); }}
-                        className={`w-full rounded-2xl border p-3 text-left transition-all ${
+                        data-vod-menu-item=""
+                        data-vod-menu-selected={selected ? '1' : undefined}
+                        onClick={() => { onActivity?.(); onSelectSubtitle(track); onMenuChange(null); }}
+                        className={`w-full rounded-2xl border p-3 text-left transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
                           selected
                             ? 'border-blue-400 bg-[#0f244a] text-white ring-1 ring-blue-400/40'
                             : 'border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042]'
@@ -682,8 +747,10 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                       <button
                         key={String(track.id)}
                         type="button"
-                        onClick={() => { onActivity?.(); onSelectAudio(track); }}
-                        className={`w-full rounded-2xl border p-3 text-left transition-all ${
+                        data-vod-menu-item=""
+                        data-vod-menu-selected={selected ? '1' : undefined}
+                        onClick={() => { onActivity?.(); onSelectAudio(track); onMenuChange(null); }}
+                        className={`w-full rounded-2xl border p-3 text-left transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
                           selected
                             ? 'border-blue-400 bg-[#0f244a] text-white ring-1 ring-blue-400/40'
                             : 'border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042]'
@@ -713,6 +780,15 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                   </p>
                 </>
               )}
+            </div>
+
+            {/* Távirányító-súgó: a színes gombok közvetlenül ezt a dobozt nyitják. */}
+            <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-blue-900/60 bg-[#071227] px-4 py-2 text-[11px] font-bold text-slate-400">
+              <span><span className="text-emerald-400">ZÖLD</span> = hangsáv</span>
+              <span><span className="text-blue-400">KÉK</span> = felirat</span>
+              <span>▲▼ = választás</span>
+              <span><span className="text-amber-400">OK</span> = alkalmaz</span>
+              <span>VISSZA = bezár</span>
             </div>
           </div>
         </div>

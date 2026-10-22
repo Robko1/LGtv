@@ -773,11 +773,20 @@
       e.preventDefault();
       e.stopPropagation();
       // PIROS / Record (403) = TÜKRÖZÖTT elrendezés be/ki (a felhasználó
-      // kérésére); ZÖLD (404) = hangsáv (teljes képernyőn is);
-      // SÁRGA (405) = HIBAKIJELZŐ felugró QR-kóddal (ezt a funkciót kérte
-      // ide a felhasználó – korábban a PIROS gombon volt);
-      // KÉK (406) = csatornamozgatás mód a listában.
-      var tvAction = kc === 403 ? 'mirror' : (kc === 404 ? 'audio' : (kc === 405 ? 'diagnostic-share' : 'move'));
+      // kérésére); SÁRGA (405) = HIBAKIJELZŐ felugró QR-kóddal.
+      //
+      // FILM / SOROZAT alatt a ZÖLD és a KÉK gomb a LEJÁTSZÓ kék OSD-jének
+      // választóját nyitja: ZÖLD = hangsávok, KÉK = feliratok (CC). Élő TV-n
+      // ugyanezek a gombok a régi funkciót viszik: ZÖLD = hangsáv-ablak,
+      // KÉK = csatornamozgatás a listában. A felismerés a lejátszó
+      // data-vod-active jelölésén alapul (csak film/sorozat alatt van ott).
+      var vodActive = false;
+      try {
+        vodActive = !!document.querySelector('[data-tv-player][data-vod-active]');
+      } catch (eVod) { vodActive = false; }
+      var tvAction = kc === 403 ? 'mirror'
+        : (kc === 404 ? (vodActive ? 'vod-audio' : 'audio')
+        : (kc === 405 ? 'diagnostic-share' : (vodActive ? 'vod-subtitles' : 'move')));
       var evAction = null;
       try {
         evAction = new CustomEvent('iptv-tv-action', { detail: { action: tvAction } });

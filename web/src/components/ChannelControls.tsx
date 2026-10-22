@@ -87,17 +87,37 @@ export const FullscreenLiveOsd: React.FC<{
       </div>
 
       <div className="flex flex-col items-center bg-gradient-to-t from-black/90 via-black/55 to-transparent px-8 pt-14 pb-7 text-center">
+        {/*
+          MOST / KÖVETKEZŐ – FIX, EGYMÁSHOZ IGAZÍTOTT RÁCS.
+
+          Korábban a két sor két külön flex-sor volt, ezért a hosszabb műsorcím
+          eltolta a jobb szélt, és a dobozok „ugráltak”. Most egyetlen 3 oszlopos
+          rácsban vannak (jelvény | műsorcím | idő), így a MOST és a KÖVETKEZŐ
+          jobb széle pixelre egy vonalban van, és a sorok nem mozdulnak el.
+          A jelvény KÉK (nem sárga), a műsorcím SÁRGA és nagyobb, hogy TV-ről
+          is jól olvasható legyen.
+        */}
         <div className="flex w-full max-w-5xl flex-col items-center gap-3">
-          <div className="flex w-full items-center justify-center gap-4">
-            <span className="shrink-0 rounded-md bg-amber-400 px-3 py-1 text-base font-black tracking-wide text-slate-950">MOST</span>
-            <span className="min-w-0 text-xl font-semibold drop-shadow-lg">{channel.epgNow?.title || 'Műsoradat nem érhető el'}</span>
-            <span className="shrink-0 text-base text-white/80">{time(start)}{start && end ? ' – ' : ''}{time(end)}</span>
-          </div>
-          <div className="flex w-full items-center justify-center gap-4">
-            <span className="shrink-0 rounded-md bg-amber-400 px-3 py-1 text-base font-black tracking-wide text-slate-950">KÖVETKEZŐ</span>
-            <span className="min-w-0 text-lg text-white/85">{channel.epgNext?.title || 'Nincs következő műsoradat'}</span>
-            <span className="shrink-0 text-base text-white/65">{channel.epgNext?.time || ''}</span>
-          </div>
+        <div
+          data-fullscreen-osd-epg=""
+          className="grid w-full grid-cols-[7rem_minmax(0,1fr)_7.5rem] items-center gap-x-4 gap-y-2"
+        >
+          <span className="min-w-0 rounded-md bg-blue-600 px-3 py-1 text-center text-base font-black tracking-wide text-white shadow-md shadow-blue-950/50">MOST</span>
+          <span className="min-w-0 truncate text-left text-2xl font-bold leading-8 text-amber-300 drop-shadow-lg">
+            {channel.epgNow?.title || 'Műsoradat nem érhető el'}
+          </span>
+          <span className="justify-self-end whitespace-nowrap text-right text-base font-semibold tabular-nums text-white/80">
+            {time(start)}{start && end ? ' – ' : ''}{time(end)}
+          </span>
+
+          <span className="min-w-0 rounded-md bg-blue-700 px-3 py-1 text-center text-base font-black tracking-wide text-white shadow-md shadow-blue-950/50">KÖVETKEZŐ</span>
+          <span className="min-w-0 truncate text-left text-2xl font-bold leading-8 text-amber-300/90 drop-shadow-lg">
+            {channel.epgNext?.title || 'Nincs következő műsoradat'}
+          </span>
+          <span className="justify-self-end whitespace-nowrap text-right text-base font-semibold tabular-nums text-white/70">
+            {channel.epgNext?.time || ''}
+          </span>
+        </div>
           <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/25">
             <div className="h-full rounded-full bg-amber-400 transition-[width] duration-500" style={{ width: `${hasProgress ? progress : 0}%` }} />
           </div>

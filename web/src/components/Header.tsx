@@ -61,7 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
         ugyanott legyen. A Beállítások (Menü) dobozról LEFELÉ lehet indulni:
         onnan a kedvencek mappasávja, onnan a csatornalista.
       */}
-      <div className="flex flex-1 items-center gap-1 md:gap-1.5 lg:gap-2 flex-nowrap min-w-0 mr-1">
+      <div className="flex flex-1 items-center gap-2 md:gap-3 lg:gap-4 flex-nowrap min-w-0 mr-1">
         {/* Az óra önálló, keret és háttér nélküli elem, a fejléc bal széléhez igazítva. */}
         <div className="flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 text-amber-300 font-mono font-semibold tracking-wider">
           <Clock className="hidden w-4 h-4 md:w-5 md:h-5 text-amber-400 animate-pulse shrink-0" />
@@ -73,42 +73,54 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => onViewChange('live')}
             data-tv-header=""
             data-tv-header-kind="live"
-            className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-cyan-600 hover:bg-cyan-500 md:hover:bg-cyan-500 text-white border-cyan-400/60 shadow-lg shadow-cyan-900/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
+            data-tv-header-default=""
+            /*
+             * A TV gomb a Mozi/Sorozat nézetben SEM kap világoskék kiemelést
+             * (a felhasználó kérése): ugyanolyan semleges doboz, mint a többi.
+             */
+            className="flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
             aria-label="TV"
             title="TV"
           >
-            <Tv className="w-10 h-10 md:w-12 md:h-12 text-white" />
+            <Tv className="w-8 h-8 md:w-10 md:h-10 text-cyan-400" />
             <span>TV</span>
           </button>
         )}
 
-        {/* 1. MENÜ (Beállítások) – sárga fogaskerék ikonnal */}
-        <button
-          data-tv-header-default=""
-          data-tv-header=""
-          data-tv-header-kind="settings"
-          onClick={() => onOpenSettings()}
-          className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
-          title="Menü"
-          aria-label="Menü"
-        >
-          <Settings className="w-8 h-8 shrink-0 text-amber-400" />
-          <span>Menü</span>
-        </button>
+        {/*
+          1. MENÜ (Beállítások) – KIZÁRÓLAG az élő nézetben.
+          Mozi/Sorozat nézetben a doboz NEM látszik (a felhasználó kérése);
+          onnan a TV gombbal lehet visszalépni. A Beállítások a PIROS/SÁRGA/
+          KÉK gombokkal és a főoldali menüből továbbra is elérhető.
+        */}
+        {activeView === 'live' && (
+          <button
+            data-tv-header-default=""
+            data-tv-header=""
+            data-tv-header-kind="settings"
+            onClick={() => onOpenSettings()}
+            className="flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
+            title="Menü"
+            aria-label="Menü"
+          >
+            <Settings className="w-8 h-8 shrink-0 text-amber-400" />
+            <span>Menü</span>
+          </button>
+        )}
 
         {/* 2. SOROZAT */}
         <button
           onClick={() => onViewChange('series')}
           data-tv-header=""
           data-tv-header-kind="series"
-          className={`flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
+          className={`flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
             activeView === 'series'
               ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
           }`}
         >
           <Layers className="w-8 h-8 md:w-10 md:h-10 text-cyan-400" />
-          <span>Sorozat</span>
+          <span>Sorozatok</span>
         </button>
 
         {/* 3. MOZI */}
@@ -116,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onViewChange('movies')}
           data-tv-header=""
           data-tv-header-kind="movies"
-          className={`flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
+          className={`flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
             activeView === 'movies'
               ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-lg shadow-amber-950/40'
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
@@ -133,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({
             data-tv-header=""
             data-tv-header-kind="countries"
             data-country-flag={countryFlag || ''}
-            className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer"
+            className="flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer"
             title={countryName ? `Országok – most: ${countryName}` : 'Országok – kategóriák és csatornalisták'}
           >
             {countryFlag ? (
