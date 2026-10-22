@@ -21,7 +21,19 @@ WEBOS_DIR="$PROJECT_DIR/webos"
 BUILD_DIR="$PROJECT_DIR/build/webos"
 WEB_BUILD="$PROJECT_DIR/build/web/index.html"
 
-VERSION="${VERSION:-2.5.1}"
+# A verzió ALAPÉRTELMEZÉSBEN a webes felület verziója (web/src/appVersion.ts):
+# így a kézzel épített IPK sosem lesz RÉGEBBI a TV-n már telepített változatnál
+# (a webOS a régebbi verziót nem engedi telepíteni).
+if [[ -z "${VERSION:-}" ]]; then
+  VERSION="$(python3 - <<'PYVER'
+import re
+from pathlib import Path
+src = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
+m = re.search(r"WEB_VERSION\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'", src)
+print(m.group(1) if m else "2.5.13")
+PYVER
+)"
+fi
 APP_ID="hu.rt.iptv.webos"
 APP_TITLE="TV"
 
