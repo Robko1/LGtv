@@ -315,3 +315,51 @@ test('8. a build verzióeltérésnél szinkronizál, nem áll le hibával', () =
   // Az appinfo.json a szinkron után is ugyanarra a verzióra lép, mint a forrás.
   assert.match(workflow, /manifest\["version"\] = old[\s\S]{0,80}manifest\["version"\] = new/);
 });
+
+/* ────────── Teljes képernyő: kitöltés és csatornaváltás (2.5.15) ────────── */
+
+/*
+ * A 2.5.13/2.5.14-ben a teljes képernyő elromlott: a főoldali 16:9-es keret
+ * mérése INLINE `position: relative`-t írt a lejátszó dobozára, ami erősebb a
+ * `fixed` osztálynál – így a doboz a fejléc alatt maradt, és a kép nem
+ * töltötte ki a kijelzőt. A régi webOS Chrome a `dvh`/`inset` értékeket sem
+ * ismeri. Ezek a próbák a javítást rögzítik.
+ */
+test('5. teljes képernyőn a doboz INLINE is fixed, 100vh-val (régi webOS Chrome)', () => {
+  // A stílus-objektumban közvetlenül ott kell lennie a fix tájolásnak.
+  assert.match(PLAYER, /position: 'fixed'/, 'a teljes képernyős geometria inline position: fixed');
+  assert.match(PLAYER, /height: '100vh'/, 'a magasság vh-ban (a dvh-t a régi webOS nem ismeri)');
+  // A dvh-t a régi webOS Chrome (3.x/4.x/5.x) nem ismeri – csak kommentben maradhat.
+  assert.doesNotMatch(PLAYER, /'100dvh'|h-\[100dvh\]/, 'nem maradhat dvh a teljes képernyős méretekben');
+  assert.match(PLAYER, /zIndex: 2147483000/, 'a lejátszó a legfelső réteg');
+  // A 16:9-es keret mérése teljes képernyőn NEM futhat.
+  assert.match(PLAYER, /if \(isVod \|\| isFullscreen\) return;/);
+});
+
+test('5. teljes képernyőn a fókusz a lejátszón marad (nem a rejtett listán)', () => {
+  assert.match(PLAYER, /const assertFocus = \(\) => \{/);
+  assert.match(PLAYER, /if \(active && active !== container && container\.contains\(active\)\) return;/);
+  // Több időpontban is ellenőrzünk, hogy egy késői újrarajzolás ne vigye el.
+  assert.match(PLAYER, /\[0, 80, 260, 600\]\.map\(\(delay\) => window\.setTimeout\(assertFocus, delay\)\)/);
+});
+
+test('5. a webOS gombkezelő csak a LÁTHATÓ csatornalistát használja', () => {
+  const webos = read('webos/webos.js');
+  assert.match(webos, /function isHiddenEl\(el\) \{/, 'van láthatóság-ellenőrzés');
+  assert.match(webos, /function channelsListBox\(\) \{[\s\S]{0,300}?isHiddenEl\(list\) \? null : list/, 'a rejtett lista "nincs"');
+  // Sehol nem lehet nyers listbox-keresés (az mindig a rejtett listát is megtalálná).
+  const rawLookups = webos.match(/document\.querySelector\('\[role="listbox"\]'\)/g) || [];
+  assert.equal(rawLookups.length, 1, 'csak a channelsListBox() kereshet listát');
+});
+
+test('5. teljes képernyőn a gomb a lejátszóhoz megy (CH+/CH- = FEL/LE)', () => {
+  const webos = read('webos/webos.js');
+  assert.match(webos, /var fsPlayer = null;[\s\S]{0,200}?\[data-tv-player\]\.fixed/, 'megkeresi a teljes képernyős lejátszót');
+  assert.match(webos, /var fsKey = key === 'PageUp' \? 'ArrowUp' : \(key === 'PageDown' \? 'ArrowDown' : key\);/);
+  assert.match(webos, /fsPlayer\.dispatchEvent\(evFs\);/);
+});
+
+test('5. a rejtett csatornalista nem dolgozza fel a gombokat', () => {
+  const list = read('web/src/components/ChannelList.tsx');
+  assert.match(list, /host\.closest\('\[data-view-hidden\]'\)/, 'a rejtett lista kilép a gombkezelésből');
+});
