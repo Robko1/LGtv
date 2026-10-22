@@ -85,24 +85,44 @@ try {
     document.querySelectorAll('[role="listbox"] [role="option"]').length >= 3 ||
     !!document.querySelector('[role="dialog"]');
 
+  /*
+   * A megjelenés csak akkor történhet meg, ha a KÉSZ oldal már a képernyőn
+   * van. Ezért a megjelenés előtt két animációs kép várakozik: az első
+   * képben a rejtett (#root) felület már a DOM-ban és a méretezés után van,
+   * a második képben pedig a böngésző biztosan kirajzolta. Aki a
+   * megjelenés előtt váltana képernyőt, a félkész oldalt mutatná a
+   * nézőnek – pontosan ezt a villanást szünteti meg a két kép.
+   */
+  const afterPaint = (fn: () => void) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => fn());
+    });
+  };
+
+  let revealed = false;
+  const revealNow = (reason: string) => {
+    if (revealed) return;
+    revealed = true;
+    stage(6, "App állapot / Storage");
+    stage(7, "Főképernyő kész");
+    try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
+    // A webOS indítóképe és a kész főoldal egyetlen váltással cserélődik.
+    reveal(reason);
+  };
+
   const checkRendered = () => {
+    if (revealed) return;
     const elapsed = Date.now() - startedAt;
 
     if (headerReady() && listReady()) {
-      stage(6, "App állapot / Storage");
-      stage(7, "Főképernyő kész");
-      try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
-      reveal("kész főoldal");
+      afterPaint(() => revealNow("kész főoldal"));
       return;
     }
 
     if (headerReady() && elapsed > 2000) {
       // Van felület, de nincs (vagy még nincs) lista - pl. nincs beállított
       // szolgáltató. Nem várakoztatjuk tovább a nézőt.
-      stage(6, "App állapot / Storage");
-      stage(7, "Főképernyő kész");
-      try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
-      reveal("lista nélkül");
+      afterPaint(() => revealNow("lista nélkül"));
       return;
     }
 
@@ -114,10 +134,24 @@ try {
       return;
     }
 
-    window.setTimeout(checkRendered, 120);
+    window.setTimeout(checkRendered, 60);
   };
 
-  window.setTimeout(checkRendered, 120);
+  /*
+   * A sorok megjelenését figyeljük, nem egy időzítőre várunk: így a
+   * megjelenés a lehető legkésőbbi pillanatban, de egyetlen váltással
+   * történik – se korábbi, se későbbi félkép nincs.
+   */
+  const rootElement = document.getElementById("root");
+  if (rootElement && typeof MutationObserver !== "undefined") {
+    const observer = new MutationObserver(() => {
+      if (revealed) { observer.disconnect(); return; }
+      if (headerReady() && listReady()) observer.disconnect();
+    });
+    observer.observe(rootElement, { childList: true, subtree: true });
+  }
+
+  window.setTimeout(checkRendered, 60);
 } catch (e) {
   fail(e);
 }

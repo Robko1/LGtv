@@ -144,6 +144,16 @@ jobs:
           print("OK: a jóváhagyott kis és nagy ikon használatra előkészítve.")
           PY
 
+      - name: 5b. A hét követelmény tesztjei
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Minden javítás tesztelve: indítókép/villanás, képkitöltés,
+          # navigáció (a csatornalista doboza soha nem jelölhető ki),
+          # teljes képernyős OSD, CSS-átfedéses teljes képernyő,
+          # újrarajzolás-szám, és a szolgáltatói betöltés sorrendje.
+          npm test
+
       - name: 6. Kézi diagnosztika – forrás, webOS frissítő és csomagoló
         shell: bash
         run: |

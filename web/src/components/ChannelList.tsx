@@ -504,17 +504,48 @@ const ChannelListView: React.FC<ChannelListProps> = ({
    * TV: a mappasáv (Kedvencek / Összes / mappák) az egyetlen "felső" szomszéd
    * a csatornalista fölött. A kijelölő a lista végéről/tetejéről ide lép, innen
    * felfelé pedig a fejléc (Beállítások) következik.
+   *
+   * A SÁV SOHA nem kap fókuszt: csak a mappák gombjai. Ha a sáv maga lenne
+   * fókuszolható, a távirányító kijelölné a teljes dobozt – pont az a
+   * hiba, ami miatt a "csatornalista kijelölése" funkciót el kellett
+   * törölni. Ha nincs egyetlen mappa sem, a fejléc menüje következik.
    */
   const focusFolderBar = () => {
     const bar = document.querySelector<HTMLElement>('[data-tv-folders]');
-    const target = bar?.querySelector<HTMLElement>('[data-tv-folder]') || bar;
+    const target = bar?.querySelector<HTMLElement>('[data-tv-folder]');
     if (target) {
-      if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '0');
       target.focus({ preventScroll: true } as any);
       try { target.scrollIntoView({ block: 'nearest', behavior: 'auto' as any }); } catch {}
       return true;
     }
-    return false;
+    return focusHeaderMenu();
+  };
+
+  /**
+   * A fókusz mindig egy CSATORNASORRA kerül, soha a lista dobozára.
+   *
+   * A lista konténere (role="listbox") nem fókuszolható: nincs tabindexe,
+   * és semmi nem hívja meg a .focus() metódusát. Így a távirányító
+   * bármilyen úton érkezik is a listához, mindig egy konkrét csatorna lesz
+   * kijelölve – a teljes doboz soha.
+   */
+  const focusChannelRow = (channelId: string): boolean => {
+    if (!channelId) return false;
+    const row = document.querySelector<HTMLElement>(`[data-channel-id="${channelId}"] [role="option"]`)
+      || document.querySelector<HTMLElement>(`[data-channel-id="${channelId}"]`);
+    if (!row) return false;
+    row.focus({ preventScroll: true } as any);
+    return true;
+  };
+
+  /** A lista elejére (vagy a kijelölt csatornára) ugrás – mindig sorra. */
+  const focusFirstChannelRow = (): boolean => {
+    const preferred = highlightedId || selectedChannelId;
+    if (preferred && focusChannelRow(preferred)) return true;
+    const first = visibleChannels[0];
+    if (!first) return false;
+    setHighlightedId(first.id);
+    return focusChannelRow(first.id);
   };
 
   // TV távirányító színes gombjai (webos.js-ből): KÉK = mozgatás mód a
@@ -531,7 +562,10 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         setFavoritePickChannelId(null);
         setMovingChannelId((previous) => (previous ? null : targetId));
         setMoveCursor('up');
-        channelScrollRef.current?.focus({ preventScroll: true } as any);
+        // A mozgatás módban is a SORRA kerül a fókusz (a gombesemények
+        //buborékolnak a listához, így a nyilak így is működnek) – a doboz
+        //soha nem jelölhető ki.
+        if (!focusChannelRow(targetId)) focusFirstChannelRow();
       } else {
         setMovingChannelId(null);
         setFavoritePickChannelId(targetId);
@@ -643,11 +677,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         // Az ablakot azonnal szinkronizáljuk, így a cél-sor már a következő
         // rajzoláskor a DOM-ban van; nem várunk a scroll eseményre.
         computeWindow();
-        list.focus({ preventScroll: true } as any);
       }
       requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-channel-id="${next.id}"] [role="option"]`) as HTMLElement | null;
-        el?.focus({ preventScroll: true } as any);
+        // A fókusz a SORRA kerül, nem a lista dobozára: a doboz soha nem
+        // lehet kijelölve (lásd a fókuszmodell leírását fent).
+        focusChannelRow(next.id);
       });
     };
     if (key === 'ArrowUp' && currentIndex <= 0) {
@@ -726,7 +760,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         // visszarántotta a fókuszt a listára ("magától visszaugrik" hiba).
         const active = document.activeElement as HTMLElement | null;
         if (active && active !== document.body && active !== document.documentElement) return;
-        el.focus({ preventScroll: true } as any);
+        // A fókusz a SORRA kerül, nem a lista dobozára.
+        if (!focusFirstChannelRow()) {
+          // Nincs (még) csatorna: a mappasáv következik, az is egy gomb.
+          if (!focusFolderBar()) focusHeaderMenu();
+        }
         // Ha van kiválasztott csatorna, görgess oda
         if (selectedChannelId) {
           const sel = document.querySelector(`[data-channel-id="${selectedChannelId}"]`) as HTMLElement;
@@ -803,11 +841,12 @@ const ChannelListView: React.FC<ChannelListProps> = ({
               // A csatornasor saját fókuszát kapja meg, ne a teljes lista
             // külső listboxa maradjon kijelölve. A sorszám-doboz nem fókuszelem.
             requestAnimationFrame(() => {
-              const row = document.querySelector<HTMLElement>(`[data-channel-id="${first.id}"] [role="option"]`);
-              row?.focus({ preventScroll: true } as any);
+              focusChannelRow(first.id);
             });
             } else {
-              channelScrollRef.current?.focus({ preventScroll: true } as any);
+              // Nincs csatorna: a fejléc menüje a következő lépés. A lista
+              // doboza semmiképp sem kaphat fókuszt.
+              focusHeaderMenu();
             }
           }
         }}
@@ -861,9 +900,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       </div>
 
       {/* Channel Rows – csak a látható sáv rajzolódik ki (ablakos lista). Reszponzív + egér + billentyűzet */}
+      {/* A lista doboza NEM fókuszolható: nincs tabindexe, és semmi nem
+          fókuszolja. A távirányító így mindig egy konkrét csatornasorra
+          lép – a "teljes csatornalista kijelölése" funkció nem létezik. */}
       <div
         ref={channelScrollRef}
-        tabIndex={0}
         onKeyDown={handleListKeyDown}
         onScroll={(event) => saveChannelScrollPosition(event.currentTarget)}
         className="flex-1 min-h-0 overflow-y-auto focus:outline-none md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"
@@ -1119,7 +1160,8 @@ const ChannelListView: React.FC<ChannelListProps> = ({
           || visibleChannels.find((c) => c.id === favoritePickChannelId);
         const close = () => {
           setFavoritePickChannelId(null);
-          channelScrollRef.current?.focus({ preventScroll: true } as any);
+          // Vissza a csatornasorra, nem a lista dobozára.
+          if (!focusChannelRow(channel?.id || '')) focusFirstChannelRow();
         };
         return (
           <div

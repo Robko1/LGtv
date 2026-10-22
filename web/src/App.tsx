@@ -320,17 +320,51 @@ export function App() {
   const [customStreamUrl, setCustomStreamUrl] = useState<string | undefined>(undefined);
   const [customStreamTitle, setCustomStreamTitle] = useState<string | undefined>(undefined);
 
-  // A teljes képernyős élő TV OSD az OSD-eltűnés rendszerbeállítását használja.
-  // Csatornaváltáskor újra megjelenik, majd a kiválasztott idő után eltűnik.
+  /*
+   * A TELJES KÉPERNYŐS ÉLŐ TV OSD.
+   *
+   * Az OSD a teljes képernyős nézetben MINDIG megjelenik: a csatorna neve,
+   * a MOST/KÖVETKEZő műsor és a haladáspont a képen van, ugyanott, ahol a
+   * főoldali OSD. Korábban a 0 másodperces "OSD-eltűnés" beállítással az
+   * OSD egyáltalán nem jelent meg teljes képernyőn – a néző csak egy
+   * fekete képet látott, csatornainformáció nélkül.
+   *
+   * Az "eltűnés" ideje mostantól a MEGJELENÉS UTÁNI várakozás: 0 = soha
+   * ne tűnjön el, 5 = öt másodperc múlva tűnik (de új gombnyomásra
+   * azonnal visszatér). Ez a set-top box-ok szokása.
+   */
+  const fullscreenOsdTimerRef = useRef<number | null>(null);
+  const showFullscreenLiveOsd = useCallback(() => {
+    setIsFullscreenLiveOsdVisible(true);
+    if (fullscreenOsdTimerRef.current !== null) {
+      window.clearTimeout(fullscreenOsdTimerRef.current);
+      fullscreenOsdTimerRef.current = null;
+    }
+    if (settings.osdHideDelay > 0) {
+      fullscreenOsdTimerRef.current = window.setTimeout(() => {
+        setIsFullscreenLiveOsdVisible(false);
+        fullscreenOsdTimerRef.current = null;
+      }, settings.osdHideDelay * 1000);
+    }
+  }, [settings.osdHideDelay]);
+
   useEffect(() => {
-    if (!isVideoFullscreen || customStreamUrl || settings.osdHideDelay <= 0) {
+    if (!isVideoFullscreen || customStreamUrl) {
       setIsFullscreenLiveOsdVisible(false);
+      if (fullscreenOsdTimerRef.current !== null) {
+        window.clearTimeout(fullscreenOsdTimerRef.current);
+        fullscreenOsdTimerRef.current = null;
+      }
       return;
     }
-    setIsFullscreenLiveOsdVisible(true);
-    const timer = window.setTimeout(() => setIsFullscreenLiveOsdVisible(false), settings.osdHideDelay * 1000);
-    return () => window.clearTimeout(timer);
-  }, [isVideoFullscreen, activeChannelId, customStreamUrl, settings.osdHideDelay]);
+    showFullscreenLiveOsd();
+    return () => {
+      if (fullscreenOsdTimerRef.current !== null) {
+        window.clearTimeout(fullscreenOsdTimerRef.current);
+        fullscreenOsdTimerRef.current = null;
+      }
+    };
+  }, [isVideoFullscreen, activeChannelId, customStreamUrl, showFullscreenLiveOsd]);
   const [nextEpisodeToPlay, setNextEpisodeToPlay] = useState<{ series: Series; episode: Episode } | null>(null);
 
   // Modals state
@@ -1604,6 +1638,14 @@ export function App() {
       const target = e.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
 
+      // Teljes képernyőben bármely gomb visszahozza az OSD-t (és újraindítja
+      // az eltűnési időzítőt) – a set-top box-ok szokása. A hívás akkor sem
+      // rajzol újra semmit, ha az OSD már látszik: a React azonos értéknél
+      // nem renderel.
+      if (isVideoFullscreen && !customStreamUrl) {
+        showFullscreenLiveOsd();
+      }
+
       // LG webOS-en nincs minden modellen automatikus D-pad fókuszléptetés:
       // gomb/hivatkozás fókuszánál a nyilakkal a legközelebbi vezérlőre lépünk.
       if (target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.getAttribute('role') === 'button')) {
@@ -1636,16 +1678,18 @@ export function App() {
               e.stopPropagation();
               best.focus({ preventScroll: true });
             } else if (key === 'ArrowDown' && target.closest('header')) {
-              // A felső menüsor aljáról lefelé: vissza a csatornalistára.
-              const list = document.querySelector<HTMLElement>('[role="listbox"]');
-              if (list) {
+              // A felső menüsor aljáról lefelé: a kedvenc mappák sávjára
+              // (Kedvencek / Összes / mappák). Innen egy lefelé lépés a
+              // csatornalista ELSŐ SORÁRA visz – a lista dobozára soha.
+              const folder = document.querySelector<HTMLElement>('[data-tv-folders] [data-tv-folder]');
+              if (folder) {
                 e.preventDefault();
                 e.stopPropagation();
-                list.focus({ preventScroll: true });
+                folder.focus({ preventScroll: true } as any);
               }
             }
+            }
           }
-        }
         return;
       }
       const active = document.activeElement as HTMLElement | null;
@@ -1781,7 +1825,7 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep]);
+  }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep, showFullscreenLiveOsd]);
 
   // TV távirányító: ZÖLD/SÁRGA/KÉK gyorsgombok a webos.js-ből egyedi
   // eseményként érkeznek (minden fókuszhelyzetben megbízható).
@@ -1811,8 +1855,17 @@ export function App() {
         // SEMMINEK nincs fókusza. Korábban a menüben navigáló nézőtől is
         // visszarántotta a fókuszt a csatornalistára ("magától leugrik" hiba).
         if (active && active !== document.body && active !== document.documentElement) return;
-        if (!list.contains(active)) {
-          list.focus({ preventScroll: true } as any);
+        if (list.contains(active)) return;
+        // A fókusz egy CSATORNASORRA kerül. A lista doboza nem fókuszolható:
+        // a teljes csatornalista kijelölése nem létezik.
+        const selected = document.querySelector<HTMLElement>('[data-channel-id] [role="option"]');
+        const first = document.querySelector<HTMLElement>('[role="listbox"] [role="option"]');
+        const target = selected || first;
+        if (target) {
+          target.focus({ preventScroll: true } as any);
+        } else {
+          const folder = document.querySelector<HTMLElement>('[data-tv-folders] [data-tv-folder]');
+          if (folder) folder.focus({ preventScroll: true } as any);
         }
       } catch {}
     };
@@ -1827,14 +1880,16 @@ export function App() {
     if (!isCategoriesOpen && !isSettingsOpen && !isEpgOpen && !isAudioModalOpen && !isSubtitlesModalOpen) {
       const focusBack = () => {
         try {
-          const list = document.querySelector('[role="listbox"]') as HTMLElement | null;
-          if (list) {
-            list.focus({ preventScroll: true } as any);
-            // Ha van kiválasztott csatorna, görgess oda
-            const active = document.activeElement as HTMLElement | null;
-            if (active?.closest?.('[role="dialog"]')) {
-              list.focus();
-            }
+          // A fókusz a CSATORNASORRA kerül, nem a lista dobozára: a teljes
+          // csatornalista soha nem jelölhető ki.
+          const selected = document.querySelector<HTMLElement>('[data-channel-id] [role="option"]');
+          const first = document.querySelector<HTMLElement>('[role="listbox"] [role="option"]');
+          const target = selected || first;
+          if (target) {
+            target.focus({ preventScroll: true } as any);
+          } else {
+            const folder = document.querySelector<HTMLElement>('[data-tv-folders] [data-tv-folder]');
+            if (folder) folder.focus({ preventScroll: true } as any);
           }
         } catch {}
       };

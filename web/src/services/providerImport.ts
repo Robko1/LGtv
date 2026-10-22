@@ -331,23 +331,33 @@ export async function importXtreamProvider(
    */
   const warnings: string[] = [];
 
-  onProgress({ phase: 'Bejelentkezés a szerverre…', percent: 4 });
-  const auth = await providerRequest(
+  /*
+   * A BEJELENTKEZÉS NEM BLOKKOLJA A CSATORNÁK BETÖLTÉSÉT.
+   *
+   * A panel csatorna-végpontja (player_api.php?action=get_live_streams)
+   * csak a felhasználónevet és a jelszót kéri, ugyanúgy, mint a
+   * hitelesítő végpont. Ezért az első kérés maga lehet a csatornakérés:
+   * a bejelentkezés-probe feleslegesen egy teljes hálózati kört töltött
+   * (a lassú kódú paneleken ez másodpercek).
+   *
+   * A REFERENCIA MŰKÖDÉSI LOGIKÁJA: a bejelentkezés-probe csak akkor
+   * fut, ha a csatornák üresek voltak – és akkor megmondja, hogy "rossz
+   * a jelszó" vagy "nem érhető el a szerver": a kettő nem ugyanaz a
+   * hiba, és a néző másképp érti őket.
+   *
+   * Itt a probe a háttérben, PÁRHUZAMOSAN fut a csatornákkal: a
+   * fiókadatok (lejárathoz, kapcsolatszámhoz) csak a végén kellnek, és
+   * addigra jóval hamarabb megjönnek, mint egy külön körút.
+   */
+  const authPromise = providerRequest(
     () => xtreamService.authenticate(server, user, pass),
     'Bejelentkezés'
+  ).then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error })
   );
-  const info = auth.user_info;
-  const expTimestamp = info?.exp_date ? parseInt(String(info.exp_date), 10) : 0;
-  const expireDate = expTimestamp > 0
-    ? new Date(expTimestamp * 1000).toLocaleString('hu-HU', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })
-    : 'Korlátlan';
+
+  onProgress({ phase: 'Csatornák letöltése…', percent: 6 });
 
   const provider: ProviderRef = {
     id: `prov-${Date.now()}`,
@@ -458,7 +468,14 @@ export async function importXtreamProvider(
         () => xtreamService.liveStreams(server, user, pass),
         'Élő csatornalista'
       ),
-    ]);
+    ]).catch(async (error: unknown) => {
+      // Nem jött a csatornalista: ha a bejelentkezés is elbukott, annak
+      // a hibája sokkal érthetőbb ("rossz a jelszó" / "a szerver nem
+      // érhető el"), mint a csatornakérésé. Ez a referencia viselkedése.
+      const probe = await authPromise;
+      if (!probe.ok) throw probe.error;
+      throw error;
+    });
     const liveCategoryMap = makeCategoryMap(liveCats);
     const liveRows: Array<Array<string | number>> = [];
     const liveCounts = new Map<string, number>();
@@ -833,6 +850,27 @@ export async function importXtreamProvider(
       `A sorozatok listája nem töltődött le: ${error instanceof Error ? error.message : String(error)}`
     );
   }
+
+  /*
+   * A fiókadatok (lejárat, kapcsolatszám, státusz) a végén: a bejelentkezés
+   * a háttérben futott a csatornák mellett, és a csatornák már a felületen
+   * vannak, amikor ez ideér. Ha a probe hibázott, a csatornák ettől még
+   * hibátlanok – a lejárathoz ekkor a korábbi érték (nincs/„Korlátlan") marad.
+   */
+  const authResult = await authPromise;
+  const auth = authResult.ok ? authResult.value : null;
+  const info = auth?.user_info;
+  const expTimestamp = info?.exp_date ? parseInt(String(info.exp_date), 10) : 0;
+  const expireDate = expTimestamp > 0
+    ? new Date(expTimestamp * 1000).toLocaleString('hu-HU', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    : 'Korlátlan';
 
   const content: ImportedContent = {
     provider,

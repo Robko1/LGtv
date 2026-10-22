@@ -155,6 +155,12 @@
         // ---------- Egy pillanat alatti megjelenés ----------
         // A #root addig rejtve van (a webOS indítókép látszik), amíg a
         // teljes főoldal fel nem épült. Ekkor EGYBEN jelenik meg.
+        //
+        // A webOS indítóképét a webOSSystem.notifyAppLoaded() hívás emeli le.
+        // Ez a hívás UGYANEBBEN a feladatban fut, mint a megjelenítés: a
+        // takarékép eltűnése és a kész főoldal megjelenése egyetlen
+        // képernyőváltás. Ha a hívás később (vagy korábban) történne, a
+        // képernyő villogna: egyszer a félkész felület, egyszer a kész.
         window.__IPTV_REVEALED__ = false;
         window.__IPTV_REVEAL__ = function (reason) {
           if (window.__IPTV_REVEALED__) return;
@@ -165,6 +171,13 @@
               .replace(/\biptv-booting\b/, 'iptv-revealed')
               .replace(/\s+/g, ' ')
               .replace(/^ | $/g, '');
+          } catch (e) {}
+          // A platform indítóképe pontosan itt, a kész főoldal mellett
+          // tűnik el – egyetlen váltás, nincs villanás.
+          try {
+            if (window.webOSSystem && typeof window.webOSSystem.notifyAppLoaded === 'function') {
+              window.webOSSystem.notifyAppLoaded();
+            }
           } catch (e) {}
           try { console.log('REVEAL ' + (Date.now() - started) + ' ms (' + (reason || '') + ')'); } catch (e) {}
         };
