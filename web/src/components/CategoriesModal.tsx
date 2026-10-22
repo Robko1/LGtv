@@ -109,8 +109,6 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
-
   const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
 
   /**
@@ -182,6 +180,10 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   }, [channels]);
 
   const homeCategory = categories.find((cat) => cat.id === 'country-HU') || categories[0];
+
+  // A feltételes visszatérés csak az összes hook után lehet: különben a modal
+  // nyitásakor/zárásakor változik a hookok száma, ami React futásidejű hibát okoz.
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-xs animate-fadeIn select-none lg:select-auto" role="dialog" aria-modal="true" aria-label="Kategóriák" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
