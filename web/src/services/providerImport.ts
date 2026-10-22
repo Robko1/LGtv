@@ -133,7 +133,7 @@ function isRetryable(error: unknown): boolean {
 
 /**
  * Egy szolgáltatói kérés. A tényleges hálózati munkát a net.ts végzi
- * (egyszerre egy kérés, kis szünettel, rövid időtúllépéssel).
+ * (legfeljebb két párhuzamos kéréssel, kis szünettel és időtúllépéssel).
  */
 async function providerRequest<T>(task: () => Promise<T>, label: string): Promise<T> {
   let lastError: unknown = null;
@@ -455,7 +455,7 @@ export async function importXtreamProvider(
     const liveCategoryMap = makeCategoryMap(liveCats);
     const liveRows: Array<Array<string | number>> = [];
     const liveCounts = new Map<string, number>();
-    const liveStreamCount = liveStreams.length;
+    liveStreamCount = liveStreams.length;
     const liveProcessTotal = Math.min(liveStreamCount, MAX_CHANNELS);
     let liveProcessed = 0;
 
