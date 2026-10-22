@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.28';
+export const WEB_VERSION = '2.5.29';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.28',
+    version: '2.5.29',
     date: '2026-10-22',
     changes: [
       'MOZI / SOROZAT – a ZÖLD gomb mostantól a film kék OSD-jében nyitja a HANGSÁV-dobozt (a hangsávok listájával, azonnali váltással), a KÉK gomb pedig a FELIRAT-dobozt (CC)',
