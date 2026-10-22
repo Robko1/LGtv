@@ -1602,25 +1602,6 @@ export function App() {
       const target = e.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
 
-      // LG távirányító SZÍNES gombjai – közvetlen menük, bármilyen fókusznál:
-      // ZÖLD = Beállítások, SÁRGA = Műsorújság (EPG), KÉK = Kategóriák.
-      // (A PIROS a képernyős diagnosztikát kapcsolja, azt a webos.js kezeli.)
-      if (key === 'ColorF1Green') {
-        e.preventDefault();
-        setIsSettingsOpen((prev) => !prev);
-        return;
-      }
-      if (key === 'ColorF2Yellow') {
-        e.preventDefault();
-        setIsEpgOpen((prev) => !prev);
-        return;
-      }
-      if (key === 'ColorF3Blue') {
-        e.preventDefault();
-        setIsCategoriesOpen((prev) => !prev);
-        return;
-      }
-
       // LG webOS-en nincs minden modellen automatikus D-pad fókuszléptetés:
       // gomb/hivatkozás fókuszánál a nyilakkal a legközelebbi vezérlőre lépünk.
       if (target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.getAttribute('role') === 'button')) {
