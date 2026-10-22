@@ -91,18 +91,51 @@ Nem kell TV távirányítóval URL-t, usert, passt pötyögni:
 
 Részletek: [QR-TELEFONOS-BEALLITAS.md](QR-TELEFONOS-BEALLITAS.md) + `provision.html`
 
+## A hét javított hiba (v2.5.10)
+
+| # | hiba | hol | mitől jó most |
+|---|---|---|---|
+| 1 | a webOS indítókép **nem tűnt el**, a félkész felület villant | `web/index.html`, `web/src/main.tsx` | a `webOSSystem.notifyAppLoaded()` az `__IPTV_REVEAL__` része, és a megjelenítés két animációs kép után történik: a kész kép már a képernyőn van → egyetlen váltás |
+| 2 | az élő kép **üres sávot** hagyott | `VideoPlayer.tsx` | `object-fit: cover` élő képnél (kitölt, de nem torzít); a VOD maradt `contain`/`fill` |
+| 3 | a **teljes csatornalista kijelölhető** volt | `ChannelList.tsx`, `App.tsx` | a listbox dobozának nincs `tabindex`-e, semmi nem hívja a `.focus()`-át, a mappasáv csak a mappa-gombokra fókuszol; a fókusz mindig egy csatornasorra kerül |
+| 4 | teljes képernyőn **nem jelent meg az OSD** | `App.tsx` | `osdHideDelay = 0` = „soha ne tűnjön el" (korábban: soha ne jelenjen meg); gombnyomásra visszajön |
+| 5 | teljes képernyőre váltás = **új oldal, új stream** | `VideoPlayer.tsx` | CSS-átfedés ugyanazon a `<video>` elemen; a natív Fullscreen API-t kivettük (nullázza a webOS dekódolót) |
+| 6 | csatornaváltáskor **9 felesleges újraelrendezés** | `VideoPlayer.tsx` | 1 kényszerített mérés + 1 animációs kép + 1 időzítő (korábban 4 időzítő, 3 egymásba ágyazott kép, 2 mérés) |
+| 7 | a **bejelentkezés blokkolta** a csatornalistát | `providerImport.ts` | a hitelesítés a háttérben fut a csatornakérés mellett; a fiókadatokat csak a csatornák után olvassuk ki |
+
+A javítások **mindegyike tesztelve** van:
+
+```bash
+npm test        # tools/test-requirements.mjs – 17 teszt, a hét pontra
+```
+
+A GitHub Actions IPK-build (`.github/workflows/webos-build.yml`) az **5b**
+lépésben lefuttatja ezeket, és a build nem indul tovább, ha bármelyik bukik.
+
 ## Fejlesztés
 
 ```bash
 git clone https://github.com/Robko1/LGtv.git && cd LGtv
+npm install --no-audit --no-fund
 cd web && npm install --no-audit --no-fund && VITE_WEBOS=true npm run build
 # IPK építés
-VERSION=2.5.1 bash ../tools/build-webos.sh
+VERSION=2.5.10 bash ../tools/build-webos.sh
 # Kimenet: webos/IPTV-RT.ipk
+```
+
+A javítások ellenőrzése a kész csomagban (a GitHubon kiadott IPK-n):
+
+```bash
+ar p IPTV-RT.ipk data.tar.gz > d.tar.gz
+tar xzf d.tar.gz ./usr/palm/applications/hu.rt.iptv.webos/index.html
+grep -c notifyAppLoaded  usr/palm/applications/hu.rt.iptv.webos/index.html   # 1. pont
+grep -c 'objectFit:"cover"' usr/palm/applications/hu.rt.iptv.webos/index.html # 2. pont
+grep -c requestFullscreen usr/palm/applications/hu.rt.iptv.webos/index.html   # 0 = 5. pont
 ```
 
 ## Verzió
 
+- **v2.5.10** – a hét hiba javítása: indítókép egyetlen váltással (`notifyAppLoaded`), kitöltő élő kép, a csatornalista doboza nem jelölhető ki, teljes képernyős OSD, CSS-átfedéses teljes képernyő, kevesebb újrarajzolás, nem blokkoló bejelentkezés + 17 teszt
 - **v2.5.1** – egy pillanat alatti indulás (a kész felület egyszerre jelenik meg), kisebb csomag
 - **v2.5.0** – induló videó kivéve: a logó képkockája az indítókép, utána azonnal a főoldal; kisebb IPK
 - **v2.4.10** – az induló videó visszaállítva a bevált (body-inline) felállásra
