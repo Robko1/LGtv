@@ -16,7 +16,8 @@ interface MoviesViewProps {
   onToggleFavoriteMovie: (movieId: string) => void;
 }
 
-let movieReturnSnapshot: { searchTerm: string; scrollTop: number } | null = null;
+const PAGE_SIZE = 120;
+let movieReturnSnapshot: { searchTerm: string; scrollTop: number; visibleCount: number } | null = null;
 
 export const MoviesView: React.FC<MoviesViewProps> = ({
   movies,
@@ -30,6 +31,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
   const [isSearchEditing, setIsSearchEditing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const movieGridRef = useRef<HTMLDivElement | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
 
@@ -55,17 +57,23 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
   }), [movies, selectedCategory, searchTerm]);
 
   useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+    if (movieGridRef.current) movieGridRef.current.scrollTop = 0;
+  }, [selectedCategory, searchTerm]);
+
+  useEffect(() => {
     const snapshot = movieReturnSnapshot;
     if (!snapshot) return;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         if (movieGridRef.current) movieGridRef.current.scrollTop = snapshot.scrollTop;
+        setVisibleCount(snapshot.visibleCount);
       });
     });
     movieReturnSnapshot = null;
   }, []);
 
-  const visibleMovies = filteredMovies;
+  const visibleMovies = filteredMovies.slice(0, visibleCount);
 
   // A referenciához igazított könyvtárnézet: kategóriánkénti vízszintes polcok,
   // a teljes kategória csak az „Összes megtekintése” elemre nyílik meg.
@@ -149,7 +157,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       </div>
 
       {/* Referencia-szerű könyvtár: kategóriapolcok, lusta poszterbetöltéssel. */}
-      <div ref={movieGridRef} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
+      <div ref={movieGridRef} onScroll={(e) => { const el = e.currentTarget; if ((selectedCategory !== 'all' || searchTerm.trim()) && el.scrollHeight - el.scrollTop - el.clientHeight < 700 && visibleCount < filteredMovies.length) setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length)); }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
         {selectedCategory === 'all' && !searchTerm.trim() ? (
           categoryRows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
@@ -268,6 +276,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
                   movieReturnSnapshot = {
                     searchTerm,
                     scrollTop: movieGridRef.current?.scrollTop ?? 0,
+                    visibleCount,
                   };
                   setSelectedMovie(null);
                   onPlayMovie(mov);
