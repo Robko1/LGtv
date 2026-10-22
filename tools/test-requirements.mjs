@@ -94,6 +94,36 @@ test('1. a megjelenítés két animációs kép után történik (a kész kép m
   assert.match(MAIN, /revealNow\(/);
 });
 
+test('1. a takarékép-réteg eltűnik a megjelenéskor, és nincs beúszás (nincs villogás)', () => {
+  const { window, dom, calls } = bootPage();
+  try {
+    const curtain = window.document.getElementById('tv-curtain');
+    assert.ok(curtain, 'a saját takarékép-réteg létezik');
+    assert.equal(window.getComputedStyle(curtain).display !== 'none', true);
+    window.__IPTV_REVEAL__('teszt');
+    assert.equal(window.document.getElementById('tv-curtain'), null, 'a réteg a váltáskor eltűnik');
+    assert.equal(calls.length, 1, 'a webOS indítóképét ugyanekkor emeljük le');
+    // A korábbi 140 ms-os áttűnés volt a "villogás": nem maradhat.
+    assert.doesNotMatch(PAGE, /animation:\s*iptvReveal/);
+    assert.doesNotMatch(PAGE, /@keyframes iptvReveal/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('1. nincs "2 másodperc után elég a fejléc" korai megjelenés (ez okozta a fokozatos felépülést)', () => {
+  assert.doesNotMatch(MAIN, /elapsed > 2000/, 'a korai megjelenés nem létezhet');
+  assert.match(MAIN, /const chromeReady = \(\) =>/, 'a fejléc ÉS a mappasáv kell a megjelenéshez');
+  assert.match(MAIN, /const logosSettled = \(\) =>/, 'a logók betöltésére is várunk');
+  assert.match(MAIN, /const videoSettled = \(\) =>/, 'az első képkockára is várunk (nincs fekete TV-terület)');
+});
+
+test('1. a lejátszó jelzi az első képkockát, és addig nem fekete a TV-terület', () => {
+  assert.match(PLAYER, /__IPTV_VIDEO_READY__ = true/);
+  assert.match(PLAYER, /data-player-poster=""/);
+  assert.match(PLAYER, /!isVod && !firstFrameShown/);
+});
+
 /* ───────────────────────── 2. A kép méretezése ───────────────────── */
 
 test('2. az élő kép kitölti a területet és megtartja az arányát (cover, nem contain)', () => {
@@ -156,6 +186,17 @@ test('4. teljes képernyőn az OSD akkor is megjelenik, ha az eltűnés 0 másod
   assert.match(APP, /if \(settings\.osdHideDelay > 0\) \{[\s\S]{0,200}?setIsFullscreenLiveOsdVisible\(false\)/);
 });
 
+test('4. a teljes képernyős OSD a kép FÖLÖTT van (nem a lejátszó mögött)', () => {
+  const OSD = read('web/src/components/ChannelControls.tsx');
+  // A webOS TV CSS a teljes képernyős lejátszót 2147483000-re teszi; az OSD
+  // korábbi z-10000 értéke ezért MINDIG a kép mögé került.
+  const osdSource = OSD.slice(OSD.indexOf('FullscreenLiveOsd'), OSD.indexOf('export const ChannelControls'));
+  assert.match(osdSource, /data-fullscreen-osd=""/);
+  assert.match(osdSource, /zIndex: 2147483001/);
+  // A régi, kép mögötti Tailwind z-index osztály nem maradhat a JSX-ben.
+  assert.doesNotMatch(osdSource, /className="[^"]*z-\[10000\]/, 'a régi, kép mögötti z-index nem maradhat');
+});
+
 test('4. teljes képernyőn bármely gomb visszahozza az OSD-t', () => {
   const keys = APP.slice(APP.indexOf('const handleKeyDown = (e: KeyboardEvent) => {'));
   assert.match(keys.slice(0, 1600), /if \(isVideoFullscreen && !customStreamUrl\) \{\s*showFullscreenLiveOsd\(\);/);
@@ -205,11 +246,28 @@ test('6. a csatornakeresés térképen fut, nem lineáris kereséssel', () => {
 
 test('7. a bejelentkezés nem blokkolja a csatornalistát (a probe a háttérben fut)', () => {
   const authIndex = IMPORT.indexOf('const authPromise = providerRequest(');
-  const liveIndex = IMPORT.indexOf('const [liveCats, liveStreams] = await Promise.all(');
+  const liveIndex = IMPORT.indexOf('const liveStreams = await Promise.all(');
   const awaitIndex = IMPORT.indexOf('const authResult = await authPromise;');
   assert.ok(authIndex > 0 && liveIndex > 0 && awaitIndex > 0);
   assert.ok(authIndex < liveIndex, 'a probe a csatornakérés előtt INDUL, de nem várunk rá');
   assert.ok(awaitIndex > liveIndex, 'a fiókadatokra csak a csatornák után várunk');
+});
+
+test('7. a csatornák nem várnak a kategóriákra (a kategóriavégpont külön ígéret)', () => {
+  const catsIndex = IMPORT.indexOf('const liveCatsPromise = providerRequest(');
+  const streamsIndex = IMPORT.indexOf('const liveStreams = await Promise.all(');
+  assert.ok(catsIndex > 0, 'a kategóriák külön ígéretként indulnak');
+  assert.ok(catsIndex < streamsIndex, 'a kategórialetöltés a csatornák ELŐTT indul');
+  // A kategóriákra csak a feldolgozás után várunk, és hiba esetén üres lista.
+  assert.match(IMPORT, /const liveCats = await liveCatsPromise;/);
+  assert.match(IMPORT, /\.catch\(\(\) => \[\] as XtreamCategory\[\]\)/, 'kategóriahiba nem állítja meg a csatornákat');
+});
+
+test('7. az első használható csatornaadag azonnal megjelenik (előnézet)', () => {
+  assert.match(IMPORT, /const FIRST_BATCH_CHANNELS = \d+;/);
+  assert.match(IMPORT, /if \(liveProcessed === FIRST_BATCH_CHANNELS\) \{[\s\S]{0,400}?preview: true/);
+  // Az előnézet NEM íródik a tárolóba (nincs félkész mentés, nincs adatvesztés).
+  assert.match(APP, /if \(!partial\.preview\) \{[\s\S]{0,200}?saveLiveContent\(draft\)/);
 });
 
 test('7. ha a csatornák nem jönnek, a bejelentkezés hibája a hasznosabb üzenet', () => {

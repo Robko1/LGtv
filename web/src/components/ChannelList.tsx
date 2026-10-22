@@ -805,7 +805,10 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       {/* Az „Összes” után közvetlenül a létrehozott kedvenc mappák jelennek meg; nincs csatornakategória vagy külön mappanyitó. */}
       <div
         data-tv-folders=""
-        tabIndex={0}
+        /* A mappasáv DOBOZA sem fókuszolható (mint a csatornalista doboza):
+           a kijelölő mindig egy konkrét mappára vagy csatornasorra kerül.
+           A billentyűkezelő megmarad arra az esetre, ha a fókusz a sávon
+           belüli gombon áll (az esemény felbuborékol ide). */
         onKeyDown={(e) => {
           // TV: a mappasávon balra/jobbra a mappák között lépkedünk, felfelé a
           // fejléc (Beállítások), lefelé a csatornalista következik.

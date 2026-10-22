@@ -52,6 +52,12 @@ export type ProgressFn = (progress: ImportProgress) => void;
  * kerül, így a felhasználó nem vár a teljes (több perces) betöltés végére.
  */
 export interface PartialContent {
+  /**
+   * Előnézet: a lista MÉG NEM teljes, csak hogy a néző már választhasson
+   * csatornát. Ilyenkor a felület NEM menti a tárolóba (nincs félkész
+   * mentés, nincs adatvesztés), csak megjeleníti.
+   */
+  preview?: boolean;
   channels?: Channel[];
   liveCategories?: Category[];
   movies?: Movie[];
@@ -76,6 +82,12 @@ const MAX_SERIES = 15000;
 const PROGRESS_UPDATE_EVERY = 500;
 /** Hosszú feldolgozás közben időnként visszaadjuk a vezérlést a böngészőfelület-nak. */
 const UI_YIELD_EVERY = 500;
+
+/**
+ * Ennyi csatorna feldolgozása után jelenik meg az első használható adag.
+ * 1500 csatorna már bőven elég a nézéshez, és a feldolgozása gyors.
+ */
+const FIRST_BATCH_CHANNELS = 1500;
 
 function yieldToUi(): Promise<void> {
   // requestIdleCallback ha van, különben setTimeout 0 – kíméli a UI szálat
@@ -459,16 +471,28 @@ export async function importXtreamProvider(
     // A referencia is egyszerre kéri le a csatornákat és a kategóriákat.
     // Ezek egymástól független API-végpontok: a soros várakozás csak növelte
     // a hidegindítás idejét, miközben nem adott plusz biztonságot.
-    const [liveCats, liveStreams] = await Promise.all([
-      providerRequest(
-        () => xtreamService.liveCategories(server, user, pass),
-        'Élő kategóriák'
-      ),
+    /*
+     * A KÉT ALAPLISTA PÁRHUZAMOSAN, de a csatornák NEM VÁRNAK a kategóriákra.
+     *
+     * A csatornavégpont a nagy válasz (20 000 csatorna), a kategóriavégpont
+     * kicsi. Korábban a Promise.all a LASSABBAT várta meg mindkettőnél, és a
+     * csatornák feldolgozása csak utána indulhatott. Most a kategóriák külön
+     * ígéretként futnak; a kategórianeveket csak a sorok összeállításakor
+     * használjuk, addigra rendszerint megjönnek. Ha nem, a csatorna
+     * kategórianeve a stream saját category_id-jából képződik – nem lesz
+     * hiányos lista.
+     */
+    const liveCatsPromise = providerRequest(
+      () => xtreamService.liveCategories(server, user, pass),
+      'Élő kategóriák'
+    ).catch(() => [] as XtreamCategory[]);
+    const liveStreams = await Promise.all([
       providerRequest(
         () => xtreamService.liveStreams(server, user, pass),
         'Élő csatornalista'
       ),
-    ]).catch(async (error: unknown) => {
+      liveCatsPromise.then(() => null),
+    ]).then(([streams]) => streams).catch(async (error: unknown) => {
       // Nem jött a csatornalista: ha a bejelentkezés is elbukott, annak
       // a hibája sokkal érthetőbb ("rossz a jelszó" / "a szerver nem
       // érhető el"), mint a csatornakérésé. Ez a referencia viselkedése.
@@ -476,6 +500,7 @@ export async function importXtreamProvider(
       if (!probe.ok) throw probe.error;
       throw error;
     });
+    const liveCats = await liveCatsPromise;
     const liveCategoryMap = makeCategoryMap(liveCats);
     const liveRows: Array<Array<string | number>> = [];
     const liveCounts = new Map<string, number>();
@@ -509,6 +534,27 @@ export async function importXtreamProvider(
         stream.epg_channel_id || '',
       ]);
       liveProcessed++;
+
+      /*
+       * ELSŐ HASZNÁLHATÓ ADAG.
+       *
+       * A csatornalista feldolgozása 20 000 csatornánál másodpercekig tart,
+       * és eddig a néző csak a folyamatjelzőt látta. Most az első 1500
+       * csatorna feldolgozása után AZONNAL megjelenik egy előnézet: a TV
+       * már nézhető, miközben a többi csatorna, majd a filmek és sorozatok
+       * a háttérben tovább töltődnek. Az előnézetet a felület nem menti
+       * (preview: true), és a végleges, teljes lista felülírja – nem
+       * maradhat hiányos lista.
+       */
+      if (liveProcessed === FIRST_BATCH_CHANNELS) {
+        await onPartial({
+          preview: true,
+          channels: decodeChannelsForImport(liveRows.slice(), provider),
+          liveCategories: buildCategories(liveCats, 'lc-', 'live', liveCounts),
+          totals: { live: liveStreamCount },
+        });
+      }
+
       if (liveProcessed % PROGRESS_UPDATE_EVERY === 0 || liveProcessed === liveProcessTotal) {
         onProgress({
           phase: 'Élő csatornák feldolgozása…',

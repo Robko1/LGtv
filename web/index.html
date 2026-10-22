@@ -71,13 +71,34 @@
       html.iptv-booting #root {
         visibility: hidden;
       }
-      /* A megjelenés pillanata: nagyon rövid, kontúr nélküli beúszás. */
+      /* NINCS BEÚSZÁS. A korábbi 140 ms-os áttűnés alatt a felület
+         áttetsző volt, és alatta a takarékép háttér látszott – ez volt a
+         "villogás" a rendszerindítás végén. A megjelenés mostantól
+         egyetlen, azonnali váltás: a takarékép eltűnik, a kész felület
+         ott van. */
       html.iptv-revealed #root {
-        animation: iptvReveal 140ms ease-out 1;
+        visibility: visible;
       }
-      @keyframes iptvReveal {
-        from { opacity: 0; }
-        to { opacity: 1; }
+      /* SAJÁT TAKARÉKÉP-RÉTEG.
+         A webOS rendszerindító képe a notifyAppLoaded()-ig látszik; ez a
+         réteg alatta ugyanazt a képet mutatja (nincs színugrás a
+         váltáskor), és a kész felülettel EGYÜTT tűnik el. */
+      #tv-curtain {
+        position: fixed;
+        left: 0;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2147483000;
+        background-color: #0d1b2a;
+        background-image: linear-gradient(135deg, #5fe3b6 0%, #4fd8e0 45%, #63bdf3 100%);
+        background-position: center center;
+        background-size: cover;
+        background-repeat: no-repeat;
+        pointer-events: none;
+      }
+      html.iptv-revealed #tv-curtain {
+        display: none;
       }
       /* INDULÓ VIDEÓ NINCS (2.5.0): a webOS saját indítóképernyője a logó
          képkockáját mutatja (splashBackground), utána azonnal a főoldal jön.
@@ -121,6 +142,8 @@
          képkockáját mutatja (appinfo.json: splashBackground), majd a program
          azonnal a főoldallal indul. Az itteni szkript csak az indulási
          lépés/hiba jelzéshez kell (a TV-n is olvasható hibaüzenet). -->
+    <!-- A takarékép rétege: a kész felület megjelenéséig fedi a képernyőt. -->
+    <div id="tv-curtain" aria-hidden="true"></div>
     <div id="root"></div>
     <div id="boot-error-screen">
       <div id="boot-stage" class="boot-stage"></div>
@@ -166,6 +189,13 @@
           if (window.__IPTV_REVEALED__) return;
           window.__IPTV_REVEALED__ = true;
           try {
+            // A három művelet EGYETLEN feladatban fut, hogy a böngésző egy
+            // festésben hajtsa végre őket: nincs félkész kép, nincs villanás.
+            //   1) a saját takarékép-réteg eltűnik,
+            //   2) a #root láthatóvá válik,
+            //   3) a html osztály iptv-revealed lesz.
+            var splash = document.getElementById('tv-curtain');
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
             var h = document.documentElement;
             h.className = h.className
               .replace(/\biptv-booting\b/, 'iptv-revealed')

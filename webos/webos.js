@@ -362,9 +362,12 @@
         '/* A fejlec es a mappasav kijeloloje is sarga (ugyanaz, mint a soroké). */',
         '.webos-tv header [data-tv-header]:focus, .webos-tv [data-tv-folders]:focus,',
         '.webos-tv [data-tv-folder]:focus { outline:3px solid #fbbf24 !important; outline-offset:2px; box-shadow:0 0 0 4px rgba(251,191,36,0.30) !important; }',
+        '/* A csatornasorok kijelolöje SARGA - ugyanaz, mint a fejlecen es a',
+        '   kedvencek mappain. Korabban itt kek (#06b6d4) volt, ezert veszett',
+        '   el a sarga kijelolo a listarol. */',
         '.webos-tv [role="option"]:focus, .webos-tv [role="option"]:focus-visible {',
-        '  outline:3px solid #06b6d4 !important; outline-offset:2px;',
-        '  box-shadow:0 0 0 6px rgba(6,182,212,0.3), 0 0 20px rgba(6,182,212,0.2) !important;',
+        '  outline:3px solid #fbbf24 !important; outline-offset:3px;',
+        '  box-shadow:0 0 0 6px rgba(251,191,36,0.30), 0 0 20px rgba(251,191,36,0.18) !important;',
         '  z-index:10;',
         '}',
         '.webos-tv button:focus-visible, .webos-tv [role="button"]:focus-visible {',
@@ -421,6 +424,34 @@
     return visible.length ? visible : items;
   }
 
+  /**
+   * A csatornalista EGY SORA – a kijelölő mindig ide lép, SOHA a lista
+   * dobozára.
+   *
+   * MIÉRT: a [role=listbox] konténer korábban kapott tabindexet és
+   * fókuszt (focusFirstChannelList / focusAndReveal(listEl)), ezért a
+   * távirányító "a teljes, kilenc csatornát tartalmazó listát" jelölte ki,
+   * és az ELSŐ CSATORNA kimaradt. A doboz semmilyen navigációval nem
+   * jelölhető ki: nincs tabindexe, és ide mindig egy sor azonosítója megy.
+   */
+  function channelsListBox() {
+    return document.querySelector('[role="listbox"]');
+  }
+
+  /** A lista első (vagy a kiválasztott) csatornasora. */
+  function firstChannelRow() {
+    var list = channelsListBox();
+    if (!list) return null;
+    var selectedId = null;
+    try { selectedId = list.getAttribute('data-selected-id'); } catch (e) {}
+    if (selectedId) {
+      var sel = list.querySelector('[data-channel-id="' + selectedId + '"] [role="option"]');
+      if (sel) return sel;
+    }
+    return list.querySelector('[data-channel-id] [role="option"]')
+      || list.querySelector('[role="option"]');
+  }
+
   function focusFirstChannelList() {
     try {
       // FONTOS – fókuszrablás tiltása: korábban ez a függvény akkor is
@@ -443,23 +474,20 @@
         dialog.focus();
         return true;
       }
-      var list = document.querySelector('[role="listbox"]');
+      var list = channelsListBox();
       if (list) {
-        if (!list.hasAttribute('tabindex')) list.setAttribute('tabindex', '0');
         var active = document.activeElement;
         if (active && active.tagName === 'INPUT') return false;
         if (active && active.closest && active.closest('[role="dialog"]')) return false;
-        if (!list.contains(active)) {
-          list.focus({preventScroll:true});
-          var selId = null;
-          try { selId = list.getAttribute('data-selected-id'); } catch (e) {}
-          if (!selId) {
-            // Próbáljuk meg az első csatornát fókuszba
-            var first = document.querySelector('[data-channel-id]');
-            if (first && first.scrollIntoView) first.scrollIntoView({block:'nearest'});
-          }
+        if (list.contains(active)) return true;
+        // A doboz NEM kap tabindexet és fókuszt: az első csatornasorra lépünk.
+        var row = firstChannelRow();
+        if (row) {
+          row.focus({preventScroll:true});
+          revealEl(row);
+          return true;
         }
-        return true;
+        return false;
       }
       var firstFocusable = arrayFind(getFocusable(document), function(el) {
         return !(el.closest && el.closest('[role="dialog"]'));
@@ -694,9 +722,11 @@
         }
       } else {
         var hdrBtn = document.querySelector('header button');
-        var lst = document.querySelector('[role="listbox"]');
         if (hdrBtn) hdrBtn.focus({preventScroll:true});
-        else if (lst) lst.focus({preventScroll:true});
+        else {
+          var row0 = firstChannelRow();
+          if (row0) row0.focus({preventScroll:true});
+        }
       }
       return;
     }
@@ -763,15 +793,17 @@
         (!active || active === document.body || active === document.documentElement) &&
         (isArrow || isConfirm)) {
       var listAtStart = document.querySelector('[role="listbox"]');
-      if (listAtStart) {
+      var rowAtStart = firstChannelRow();
+      if (listAtStart && rowAtStart) {
         e.preventDefault();
         e.stopPropagation();
-        if (!listAtStart.hasAttribute('tabindex')) listAtStart.setAttribute('tabindex', '0');
-        listAtStart.focus({preventScroll:true});
+        // A SOR kapja a fókuszt (a doboz soha), és a lenyomott gombot a sor
+        // kapja meg – így az első gombnyomás nem vész el.
+        rowAtStart.focus({preventScroll:true});
         var normalizedKey = isConfirm ? 'Enter' : key;
         var normalizedCode = KEY_TO_KEYCODE[normalizedKey] || kc;
         var evList = makeKeyEvent(normalizedKey, normalizedCode);
-        if (evList) listAtStart.dispatchEvent(evList);
+        if (evList) rowAtStart.dispatchEvent(evList);
         return;
       }
     }
@@ -782,9 +814,15 @@
       if (listForOk && (!focused || focused === document.body || focused === document.documentElement || listForOk.contains(focused))) {
         e.preventDefault();
         e.stopPropagation();
-        listForOk.focus({preventScroll:true});
+        // Az OK a KIJELÖLT CSATORNASORRA megy, nem a lista dobozára: a doboz
+        // nem fókuszolható (a "teljes csatornalista kijelölése" nem létezik).
+        var rowForOk = (focused && focused.getAttribute && focused.getAttribute('role') === 'option')
+          ? focused
+          : firstChannelRow();
+        if (!rowForOk) return;
+        rowForOk.focus({preventScroll:true});
         var evOk = makeKeyEvent('Enter', 13);
-        if (evOk) listForOk.dispatchEvent(evOk);
+        if (evOk) rowForOk.dispatchEvent(evOk);
         return;
       }
       if (focused && (focused.tagName === 'BUTTON' || focused.tagName === 'A' || focused.getAttribute('role') === 'button')) {
@@ -825,10 +863,16 @@
       if (channelList && !dialogAtStart) {
         e.preventDefault();
         e.stopPropagation();
-        channelList.focus({preventScroll:true});
+        // CH+/CH- a KIJELÖLT SORBÓL indul (nem a listadobozból).
+        var curRow = document.activeElement;
+        if (!curRow || !curRow.closest || !curRow.closest('[role="listbox"]')) {
+          curRow = firstChannelRow();
+        }
+        if (!curRow) return;
+        curRow.focus({preventScroll:true});
         var up = key === 'PageUp';
         var evCh = makeKeyEvent(up ? 'ArrowUp' : 'ArrowDown', up ? 38 : 40);
-        if (evCh) channelList.dispatchEvent(evCh);
+        if (evCh) curRow.dispatchEvent(evCh);
         return;
       }
     }
@@ -959,6 +1003,13 @@
 
       var focusAndReveal = function(el) {
         if (!el) return false;
+        // A csatornalista DOBOZA soha nem kaphat fókuszt/tabindexet: a kijelölő
+        // mindig egy csatornasorra kerül (lásd firstChannelRow).
+        if (el.getAttribute && el.getAttribute('role') === 'listbox') {
+          var row = firstChannelRow();
+          if (!row) return false;
+          el = row;
+        }
         if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
         el.focus({preventScroll:true});
         revealEl(el);
@@ -997,7 +1048,10 @@
           // onnan a csatornalista 1. sorára. A Mozi/Sorozat/Országok/X gombokról
           // NEM lehet lefelé menni (a kijelölő nem ugorhat a lejátszóra/OSD-re).
           if (kind !== 'settings') return;
-          if (!focusAndReveal(folderItems[0] || folderBar) && !focusAndReveal(listEl)) {
+          // Beállítások → lefelé → Kedvencek mappasáv → lefelé → első csatorna.
+          if (folderItems.length) {
+            focusAndReveal(folderItems[0]);
+          } else if (!focusAndReveal(firstChannelRow())) {
             focusAndReveal(contentItems()[0]);
           }
           return;
@@ -1021,7 +1075,13 @@
         } else if (key === 'ArrowUp') {
           focusAndReveal(headerDefault || headerItems[headerItems.length - 1]);
         } else if (key === 'ArrowDown') {
-          focusAndReveal(listEl);
+          // A mappasávból lefelé AZ ELSŐ CSATORNASOR következik.
+          // Korábban itt focusAndReveal(listEl) állt: az egész listadoboz
+          // kapta a kijelölést, ezért maradt ki az első csatorna.
+          if (!focusAndReveal(firstChannelRow())) {
+            // Nincs csatorna (üres lista): a fejléc menüje következik.
+            focusAndReveal(headerDefault || headerItems[headerItems.length - 1]);
+          }
         }
         return;
       }
@@ -1047,7 +1107,10 @@
       if (listEl) {
         e.preventDefault();
         e.stopPropagation();
-        focusAndReveal(listEl);
+        // Az első csatornasorra visszük a kijelölőt – a dobozra soha.
+        if (!focusAndReveal(firstChannelRow())) {
+          focusAndReveal(headerDefault || headerItems[headerItems.length - 1]);
+        }
         return;
       }
     }
@@ -1126,11 +1189,23 @@
       clearInterval(uiPoll);
       if (!diag.uiLoaded) diagUiFail();
     }, 12000);
-    // Többszöri fókusz próbálkozás – lista később töltődik
-    setTimeout(focusFirstChannelList, 300);
-    setTimeout(focusFirstChannelList, 1000);
-    setTimeout(focusFirstChannelList, 2500);
-    setTimeout(focusFirstChannelList, 4000);
+    /*
+     * EGYETLEN fókusz-próba, a lehető legkésőbb induló időpontban.
+     *
+     * Korábban NÉGY időzítő futott (300 / 1000 / 2500 / 4000 ms): mindegyik
+     * végigjárta a DOM-ot (querySelectorAll + getClientRects), és a negyedik
+     * a hálózatról érkező lista ÚJRARAJZOLÁSA közben foglalta a főszálat –
+     * a TV-n ez látható akadás volt indításkor. Egy próba elég: a lista
+     * megjelenését amúgy is figyeli a MutationObserver lentebb, és a
+     * görgetés/kijelölés a React kezelőjében történik.
+     */
+    var focusRetry = 0;
+    var tryFocus = function() {
+      focusRetry++;
+      if (focusFirstChannelList() || focusRetry >= 4) return;
+      setTimeout(tryFocus, 500);
+    };
+    setTimeout(tryFocus, 400);
 
     // Figyeljük a dialog megjelenését – ha nyílik, fókusz rá
     try {

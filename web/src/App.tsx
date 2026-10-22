@@ -557,7 +557,27 @@ export function App() {
     logStartup();
     appLog(`Mentett tartalom betöltése indul (tároló: ${bootLive.provider.id}).`);
     logMemory('tartalom betöltése előtt');
-    const timer = window.setTimeout(() => {
+    /*
+     * A film- és sorozatlista a HÁTTÉRBEN töltődik, de csak akkor, ha a
+     * böngészőnek van szabad ideje.
+     *
+     * Korábban `setTimeout(0)` volt: a nagy JSON-ok beolvasása azonnal a
+     * első kirajzolás után indult, és a TV-n épp a főoldal megjelenése
+     * (a csatornalista kirajzolása és az első kép elindulása) közben
+     * foglalta a főszálat – ez volt a "fokozatosan felépülő" indulás egyik
+     * oka. A requestIdleCallback a festés UTÁN adja át a vezérlést
+     * (2 másodperces felső korláttal, hogy gyors gépen se maradjon el).
+     */
+    const idle = (callback: () => void) => {
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === 'function') ric(callback, { timeout: 2000 });
+      else window.setTimeout(callback, 300);
+    };
+    const timer = { id: 0 as number };
+    timer.id = window.setTimeout(() => {
+      idle(() => startBackgroundLoad());
+    }, 0);
+    function startBackgroundLoad() {
       // A film- és sorozatlista egymástól független: ne kelljen megvárni a
       // teljes filmkatalógust ahhoz, hogy a sorozatok megjelenhessenek.
       const vodTask = (async () => {
@@ -585,10 +605,10 @@ export function App() {
         }
       })();
       void Promise.all([vodTask, seriesTask]).finally(() => logMemory('tartalom betöltése után'));
-    }, 0);
+    }
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      clearTimeout(timer.id);
     };
   }, []);
 
@@ -1163,9 +1183,14 @@ export function App() {
       if (partial.channels || partial.movies || partial.series) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       }
-      if (partial.channels) saveLiveContent(draft);
-      if (partial.movies) await saveVodContent(draft);
-      if (partial.series) await saveSeriesContent(draft);
+      // ELŐNÉZET (a teljes lista még töltődik): csak megjelenítés, hogy a
+      // néző azonnal választhasson csatornát. Félkész listát NEM mentünk a
+      // tárolóba – így nem maradhat hiányos adat a TV-n.
+      if (!partial.preview) {
+        if (partial.channels) saveLiveContent(draft);
+        if (partial.movies) await saveVodContent(draft);
+        if (partial.series) await saveSeriesContent(draft);
+      }
 
       const updatedProviders = providersForRefresh.map((p) =>
         p.id === id
