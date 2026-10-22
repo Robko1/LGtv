@@ -65,14 +65,10 @@ export async function ensureProvisionChannel(): Promise<ProvisionChannel | null>
   return { kind: 'supabase', id: 'qr-provision' };
 }
 export function getProvisionUrl(tvId: string, code: string, channel?: ProvisionChannel | null, token = ''): string {
-  let base = '';
-  try {
-    const origin = window.location.origin;
-    base = origin && origin !== 'null' && !origin.startsWith('file://')
-      ? origin : 'https://robko1.github.io/LGtv';
-  } catch { base = 'https://robko1.github.io/LGtv'; }
+  // A telefonos űrlapot maga a Supabase Edge Function szolgálja ki:
+  // nem függ GitHub Pages-től, ezért TV-n file:// alól és IPK-ból is működik.
   const t = token || (() => { try { return localStorage.getItem('qr_token') || ''; } catch { return ''; } })();
-  return `${base}/provision.html?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}&token=${encodeURIComponent(t)}`;
+  return `${API_URL}?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}&token=${encodeURIComponent(t)}`;
 }
 export async function pollForProvider(tvId: string, channel?: ProvisionChannel | null, token?: string): Promise<QrProviderPayload | null> {
   try {
