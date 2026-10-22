@@ -16,7 +16,7 @@ export interface QrProviderPayload {
 export interface ProvisionChannel { kind: 'supabase'; id: string; }
 export interface ProvisionSession { tvId: string; code: string; token: string; expiresAt: number; }
 
-const API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/qr-provision';
+const API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/qr-provision-form';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
 const POLL_INTERVAL = 3000;
 const CODE_TTL_MS = 5 * 60 * 1000;
