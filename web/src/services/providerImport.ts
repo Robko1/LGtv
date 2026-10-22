@@ -1,4 +1,5 @@
 import { normalizeLogoUrl } from './logoUrl';
+import { logMemory, logPhase } from './appLog';
 /**
  * Szolgáltatói lista betöltése: Xtream Codes API vagy M3U/M3U8.
  *
@@ -382,6 +383,10 @@ export async function importXtreamProvider(
   const server = xtreamService.cleanUrl(input.serverUrl);
   const user = input.username.trim();
   const pass = input.password.trim();
+  // Diagnosztika: az ELSŐ indítás legnehezebb lépése az import – minden
+  // szakasz elejét/végét naplózzuk, hogy egy fagyás után látszódjon, hol állt meg.
+  logPhase(`Xtream import indul; szerver=${server}`);
+  logMemory('import előtt');
 
   /**
    * A figyelmeztetések (hiányos kategóriák) a betöltés végén a felületre
@@ -1012,6 +1017,11 @@ export async function importXtreamProvider(
   };
 
   const totalMs = Math.round(performance.now() - startedAt);
+  logPhase(
+    `Xtream import kész: ${content.channels.length} csatorna, ${content.movies.length} film, ` +
+    `${content.series.length} sorozat, ${totalMs} ms`
+  );
+  logMemory('import után');
   onProgress({
     phase: warnings.length ? 'Részben kész' : 'Kész',
     detail:
@@ -1053,6 +1063,7 @@ export async function importM3UProvider(
   onPartial: PartialFn = () => {}
 ): Promise<ImportedContent> {
   const startedAt = performance.now();
+  logPhase('M3U import indul');
   let text = (input.m3uText || '').trim();
 
   if (!text) {
@@ -1175,6 +1186,7 @@ export async function importM3UProvider(
   await onPartial({ movies: content.movies, vodCategories: vodCats, totals: { vod: movies.length } });
 
   const totalMs = Math.round(performance.now() - startedAt);
+  logPhase(`M3U import kész: ${totalMs} ms`);
   onProgress({
     phase: m3uWarnings.length ? 'Részben kész' : 'Kész',
     detail:

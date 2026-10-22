@@ -1697,6 +1697,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isVod, nativeHandoff, streamUrl]);
 
   /*
+   * TÁVIRANYÍTÓ: ZÖLD (hangsáv) / KÉK (felirat) gomb film közben.
+   *
+   * A webos.js a színes gombot minden fókuszhelyzetben elkapja, ezért a
+   * lejátszó külön eseményt kap – így a kék választó doboz akkor is kinyílik,
+   * ha az OSD éppen rejtve volt, és a fókusz rögtön a kiválasztott sorra kerül.
+   */
+  useEffect(() => {
+    if (!isVod) return;
+    const onVodMenu = (event: Event) => {
+      const menu = (event as CustomEvent)?.detail?.menu;
+      if (menu !== 'audio' && menu !== 'subtitle') return;
+      setVodTrackMenu(menu);
+      setShowControlsOverlay(true);
+      setVodOsdActivity((value) => value + 1);
+    };
+    window.addEventListener('iptv-vod-menu', onVodMenu);
+    return () => window.removeEventListener('iptv-vod-menu', onVodMenu);
+  }, [isVod]);
+
+  /*
    * SZOLGÁLTATÓI FELIRATOK (CC) keresése a film/sorozat indításakor.
    *
    * Csak akkor indul, ha a stream NEM tesz közzé muxolt feliratot – ilyenkor
@@ -2448,6 +2468,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     <div
       ref={containerRef}
       data-tv-player=""
+      /* Film/sorozat alatt ez a jelölés mondja meg a webos.js-nek, hogy a
+         ZÖLD/KÉK gomb a lejátszó kék OSD-jét nyitja (hangsáv / felirat). */
+      data-vod-active={isVod ? '1' : undefined}
       data-player-engine={playerEngine}
       tabIndex={isFullscreen ? 0 : -1}
       onKeyDown={handleKeyDown}

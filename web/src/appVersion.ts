@@ -1,10 +1,25 @@
-export const WEB_VERSION = '2.5.27';
+export const WEB_VERSION = '2.5.28';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.28',
+    date: '2026-10-22',
+    changes: [
+      'MOZI / SOROZAT – a ZÖLD gomb mostantól a film kék OSD-jében nyitja a HANGSÁV-dobozt (a hangsávok listájával, azonnali váltással), a KÉK gomb pedig a FELIRAT-dobozt (CC)',
+      'A kék választó doboz a távirányítóval működik: FEL/LE a listában, OK = kiválasztás és alkalmazás, VISSZA = bezárás; nyitáskor a kiválasztott sor kapja a fókuszt',
+      'Élő TV-n a színes gombok megtartják a régi funkciójukat (ZÖLD = hangsáv-ablak, KÉK = csatornamozgatás)',
+      'A tükrözött Beállítások-ablak mérete pontosan ugyanaz, mint a jobb oldalon (a menü portálban, a <body> alatt nyílik)',
+      'A Rendszer fülről eltűnt a tükrözés-sor (a PIROS gombos tükrözés változatlanul működik)',
+      'Élő TV teljes képernyős OSD: a MOST / KÖVETKEZŐ sor fix, egymáshoz igazított; a jelvény KÉK, a műsorcím SÁRGA és nagyobb',
+      'Mozi/Sorozat nézet fejléce: TV → Sorozatok → Mozi, Menü-doboz nélkül; a TV doboz semleges (nincs világoskék), a dobozok mérete és térköze egységes; az óra és a Kilépés a helyén marad',
+      'KIEGÉSZÍTETT HIBA-DIAGNOSZTIKA a naplóban: 15 másodpercenkénti idővonal (memória, DOM, lejátszó), LEÁLLÁS-figyelő, hosszú feladatok, JS-hiba / kezeletlen ígérethiba, valamint az app kilépése (pagehide) – mindez a SÁRGA gomb QR-kódján olvasható ki',
+      'Az import szakaszai is naplózva (Xtream / M3U indul–kész, memória) az első indítás utáni fagyás vizsgálatához',
+    ],
+  },
   {
     version: '2.5.27',
     date: '2026-10-22',

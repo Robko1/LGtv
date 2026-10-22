@@ -4,6 +4,43 @@ import "./index.css";
 import "./themes/webos.css";
 document.body.classList.add('webos-theme', 'webos-tv', 'lg-webos');
 import App from "./App";
+import {
+  appLog, appLogCritical, clearAppLog, getAppLogText, installCrashHandlers, logPhase, logStartup,
+  startRuntimeWatchdog, uiStateSnapshot,
+} from "./services/appLog";
+import { WEB_VERSION } from "./appVersion";
+
+/*
+ * FAGYÁS-/ÖSSZEOMLÁS-DIAGNOSZTIKA.
+ *
+ * Még a felület felépítése ELŐTT elindul a hibakezelő és a fagyásfigyelő:
+ * ha a TV az első indítás után ~3 percnél leáll, a napló (SÁRGA gomb → QR)
+ * megmutatja az utolsó állapotot, a memóriát és a hibaüzenetet.
+ */
+installCrashHandlers();
+startRuntimeWatchdog();
+logStartup(WEB_VERSION);
+logPhase('bundle betöltve (main.tsx)');
+
+/*
+ * DIAGNOSZTIKAI HÍD.
+ *
+ * A napló a SÁRGA (teletext) gombon megnyíló QR-kóddal olvasható ki, de a
+ * fejlesztéshez/teszthez egy kis híd is kell: innen lehet a naplót írni,
+ * kiolvasni és törölni a TV böngésző-konzoljából vagy automatizált teszttel.
+ * Csak olvas/naplóz – a felület működését nem befolyásolja.
+ */
+try {
+  (window as any).__IPTV_DIAG__ = {
+    version: WEB_VERSION,
+    log: (message: string) => appLog(String(message)),
+    critical: (message: string) => appLogCritical(String(message)),
+    phase: (label: string) => logPhase(String(label)),
+    state: () => uiStateSnapshot(),
+    text: () => getAppLogText(),
+    clear: () => clearAppLog(),
+  };
+} catch { /* nincs window (SSR) */ }
 
 /*
  * LG webOS TV – csak TV kinézet, mindig webos-theme
@@ -13,6 +50,7 @@ const stage = (n: number, label: string) => {
   try { (window as any).__IPTV_STARTUP_STAGE_SET__?.(n, label); } catch {}
 };
 const fail = (e: unknown) => {
+  try { appLogCritical(`INDULÁSI HIBA: ${e instanceof Error ? (e.message + ' | ' + (e.stack || '').split('\n').slice(1, 3).join(' ')) : String(e)}`); } catch {}
   try { (window as any).__IPTV_STARTUP_FAIL__?.(e instanceof Error ? (e.stack || e.message) : String(e)); } catch {}
 };
 
@@ -144,6 +182,7 @@ try {
     revealed = true;
     stage(6, "App állapot / Storage");
     stage(7, "Főképernyő kész");
+    logPhase('főoldal kész és kirajzolva');
     try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
     // A webOS indítóképe és a kész főoldal egyetlen váltással cserélődik.
     reveal(reason);

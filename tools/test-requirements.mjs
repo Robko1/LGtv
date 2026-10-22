@@ -529,8 +529,9 @@ test('8. a ZÖLD gomb teljes képernyőn is megnyitja a hangsáv-választót (a 
   // A lejátszó z-indexe 2147483000 – az ablak ennél magasabbra kerül.
   assert.match(modal, /z-\[2147483010\]/);
   assert.match(modal, /2147483000/, 'a magyarázat rögzíti, miért kell magasabbra');
-  // A webOS a ZÖLD (404) gombot 'audio' eseményként küldi.
-  assert.match(read('webos/webos.js'), /404 \? 'audio'/);
+  // A webOS a ZÖLD (404) gombot 'audio' eseményként küldi (film alatt
+  // 'vod-audio', ami a lejátszó kék OSD-jét nyitja – lásd a 11. szakaszt).
+  assert.match(read('webos/webos.js'), /404 \? \(vodActive \? 'vod-audio' : 'audio'\)/);
 });
 
 test('8. OSD eltűnés: 6 / 8 / 10 / 12 másodperc választható, és a teljes képernyő ezt használja', () => {
@@ -553,9 +554,11 @@ test('8. PIROS (Record) gomb: tükrözött elrendezés be/ki', () => {
   assert.match(APP, /\$\{settings\.mirrorLayout \? 'md:flex-row-reverse' : 'md:flex-row'\}/);
   // A felső menüsor NEM változik (nincs mirror a Headerben).
   assert.doesNotMatch(HEADER, /mirrorLayout|flex-row-reverse/);
-  // A beállításokban is kapcsolható.
-  assert.match(SETTINGS_MODAL, /Tükrözött elrendezés/);
-  assert.match(SETTINGS_MODAL, /onUpdateSettings\(\{ mirrorLayout: !settings\.mirrorLayout \}\)/);
+  // 2.5.28: a „Tükrözött elrendezés” sor VIZUÁLISAN eltűnt a Rendszer fülről,
+  // de a beállítás és a PIROS gomb működése változatlan.
+  assert.doesNotMatch(SETTINGS_MODAL, /Tükrözött elrendezés/);
+  assert.doesNotMatch(SETTINGS_MODAL, /onUpdateSettings\(\{ mirrorLayout: !settings\.mirrorLayout \}\)/);
+  assert.match(read('web/src/types/iptv.ts'), /mirrorLayout\??: boolean;/);
   // A PIROS gomb korábbi funkciója (diagnosztika QR) NEM veszett el: a
   // Rendszer fülre került át.
   assert.match(SETTINGS_MODAL, /onOpenDiagnosticShare\?: \(\) => void;/);
@@ -720,7 +723,7 @@ const WEBOS_JS = read('webos/webos.js');
 test('10. a SÁRGA teletext gomb a hibakijelző QR ablakot nyitja, a PIROS marad tükrözés', () => {
   assert.match(WEBOS_JS, /kc === 405 \? 'diagnostic-share'/);
   assert.match(WEBOS_JS, /kc === 403 \? 'mirror'/);
-  assert.match(WEBOS_JS, /kc === 404 \? 'audio'/);
+  assert.match(WEBOS_JS, /kc === 404 \? \(vodActive \? 'vod-audio' : 'audio'\)/);
   // Az App a régi diagnosztika-ablakot nyitja meg rá.
   assert.match(APP, /else if \(action === 'diagnostic-share'\) setIsDiagnosticShareOpen\(true\);/);
   assert.match(APP, /DiagnosticShareModal/);
@@ -808,4 +811,106 @@ test('10. a film/sorozat bezárásakor a fókusz a kiválasztás helyére tér v
   // Bezáráskor a nézet a VOD-ot indító nézetre áll vissza, és a fókusz oda lép.
   assert.match(APP, /const returnView = vodReturnViewRef\.current;\s*\n\s*setActiveView\(returnView\);/);
   assert.match(APP, /scope\.querySelector<HTMLElement>\(`\[data-vod-episode="\$\{selection\.episodeId\}"\]`\)/);
+});
+
+/* ══════════════ 11. VOD OSD hang/felirat, fejléc, teljes képernyős OSD, naplózás ══════════════ */
+
+test('11. a film OSD hangsáv/felirat doboza távirányítóval választható és alkalmazható', () => {
+  // A sorok külön fókuszálhatók, a kiválasztott meg van jelölve.
+  assert.match(VOD_OSD, /data-vod-menu-item=""/);
+  assert.match(VOD_OSD, /data-vod-menu-selected=/);
+  // A doboz CAPTURE fázisban veszi át a billentyűket (a webOS kijelölője nem lép ki).
+  assert.match(VOD_OSD, /window\.addEventListener\('keydown', handler, true\)/);
+  assert.match(VOD_OSD, /window\.removeEventListener\('keydown', handler, true\)/);
+  // FEL/LE a sorok között, OK = kattintás (alkalmazás), VISSZA = bezárás.
+  assert.match(VOD_OSD, /const step = \(direction: 1 \| -1\) => \{/);
+  assert.match(VOD_OSD, /if \(active && menuRef\.current\?\.contains\(active\)\) active\.click\(\);/);
+  assert.match(VOD_OSD, /raw === 404 \|\| raw === 405 \|\| raw === 406\) return;/);
+  // Választás után a doboz bezárul, a lejátszó kapja a választást.
+  assert.match(VOD_OSD, /onSelectAudio\(track\); onMenuChange\(null\);/);
+  assert.match(VOD_OSD, /onSelectSubtitle\(track\); onMenuChange\(null\);/);
+  // A hang/felirat gomb MINDIG kinyitja a dobozt (nem csak több sáv esetén).
+  assert.match(VOD_OSD, /onMenuChange\(menu === 'audio' \? null : 'audio'\);/);
+  assert.match(VOD_OSD, /onMenuChange\(menu === 'subtitle' \? null : 'subtitle'\);/);
+});
+
+test('11. ZÖLD = hangsáv, KÉK = felirat (CC) a film alatt; élő TV-n a régi funkciók', () => {
+  assert.match(WEBOS_JS, /vodActive = !!document\.querySelector\('\[data-tv-player\]\[data-vod-active\]'\);/);
+  assert.match(WEBOS_JS, /kc === 404 \? \(vodActive \? 'vod-audio' : 'audio'\)/);
+  assert.match(WEBOS_JS, /vodActive \? 'vod-subtitles' : 'move'/);
+  // Az App az eseményt a lejátszónak adja tovább.
+  assert.match(APP, /action === 'vod-audio'[\s\S]{0,180}?new CustomEvent\('iptv-vod-menu', \{ detail: \{ menu: 'audio' \} \}\)/);
+  assert.match(APP, /action === 'vod-subtitles'[\s\S]{0,180}?new CustomEvent\('iptv-vod-menu', \{ detail: \{ menu: 'subtitle' \} \}\)/);
+  // A lejátszó jelölése és eseménykezelése.
+  assert.match(PLAYER, /data-vod-active=\{isVod \? '1' : undefined\}/);
+  assert.match(PLAYER, /window\.addEventListener\('iptv-vod-menu', onVodMenu\)/);
+  assert.match(PLAYER, /setVodTrackMenu\(menu\);\s*\n\s*setShowControlsOverlay\(true\);/);
+});
+
+test('11. a tükrözött Beállítások panel MÉRETE azonos a jobb oldalival (portál + fix szélesség)', () => {
+  assert.match(SETTINGS_MODAL, /import \{ createPortal \} from 'react-dom';/);
+  assert.match(SETTINGS_MODAL, /const panelSizeClass = 'w-full max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl h-full shrink-0 min-w-0/);
+  assert.match(SETTINGS_MODAL, /className=\{\`\$\{panelSizeClass\} \$\{/);
+  // A portál a body alá teszi: a tükrözött flex-sor nem torzíthatja.
+  assert.match(SETTINGS_MODAL, /createPortal\(modal, document\.body\)/);
+});
+
+test('11. Mozi/Sorozat nézet: TV → Sorozatok → Mozi, Menü nélkül, semleges TV doboz', () => {
+  // A Menü doboz csak az élő nézetben látszik.
+  assert.match(HEADER, /\{activeView === 'live' && \(\s*\n\s*<button\s*\n\s*data-tv-header-default=""/);
+  // A TV gomb nem világoskék, ugyanolyan semleges doboz.
+  assert.doesNotMatch(HEADER, /bg-cyan-600/);
+  assert.match(HEADER, /data-tv-header-kind="live"[\s\S]{0,900}?bg-\[#0f1b35\] text-slate-200 border-slate-700\/60/);
+  // Egységes, nem változó dobozméret + egyenletes térköz.
+  assert.match(HEADER, /flex-1 basis-0 min-w-0 max-w-\[15rem\]/);
+  assert.match(HEADER, /flex flex-1 items-center gap-2 md:gap-3 lg:gap-4/);
+  // A felirat: Sorozatok.
+  assert.match(HEADER, /<span>Sorozatok<\/span>/);
+});
+
+test('11. teljes képernyős élő OSD: MOST/KÖVETKEZŐ fix rács, kék jelvény, sárga nagyobb cím', () => {
+  const CONTROLS = read('web/src/components/ChannelControls.tsx');
+  assert.match(CONTROLS, /data-fullscreen-osd-epg=""/);
+  // Egyetlen rács, ezért a két sor jobb széle egy vonalban van.
+  assert.match(CONTROLS, /grid w-full grid-cols-\[7rem_minmax\(0,1fr\)_7\.5rem\] items-center gap-x-4 gap-y-2/);
+  // Kék jelvény (nem sárga).
+  assert.match(CONTROLS, /rounded-md bg-blue-600 px-3 py-1 text-center text-base font-black tracking-wide text-white[^"]*">MOST</);
+  assert.match(CONTROLS, /rounded-md bg-blue-700 px-3 py-1 text-center text-base font-black tracking-wide text-white[^"]*">KÖVETKEZŐ</);
+  assert.doesNotMatch(CONTROLS, /bg-amber-400 px-3 py-1 text-base font-black tracking-wide text-slate-950">MOST</);
+  // A műsorcím sárga és nagyobb.
+  assert.match(CONTROLS, /text-2xl font-bold leading-8 text-amber-300 drop-shadow-lg/);
+  assert.match(CONTROLS, /text-2xl font-bold leading-8 text-amber-300\/90 drop-shadow-lg/);
+});
+
+test('11. fagyás-diagnosztika: idővonal, leállás-figyelő, összeomlás- és kilépésnapló', () => {
+  const LOG = read('web/src/services/appLog.ts');
+  assert.match(LOG, /export function startRuntimeWatchdog\(\): void/);
+  assert.match(LOG, /export function installCrashHandlers\(\): void/);
+  assert.match(LOG, /export function logPhase\(label: string\): void/);
+  assert.match(LOG, /export function appLogCritical\(message: string\): void/);
+  assert.match(LOG, /export function uiStateSnapshot\(\): string/);
+  // 1 mp-es szívverés, 2,5 mp-nél LEÁLLÁS, 15 mp-enként IDŐVONAL.
+  assert.match(LOG, /const STALL_MS = 2500;/);
+  assert.match(LOG, /const TIMELINE_MS = 15000;/);
+  assert.match(LOG, /LEÁLLÁS: a fő szál \$\{gap\} ms-ig nem futott/);
+  assert.match(LOG, /IDŐVONAL: \$\{memorySnapshot\(\)\}; \$\{uiStateSnapshot\(\)\}/);
+  // Hosszú feladat mérése, ha a motor támogatja.
+  assert.match(LOG, /entryTypes: \['longtask'\]/);
+  assert.match(LOG, /HOSSZÚ FELADAT:/);
+  // Összeomlás / ígérethiba / kilépés.
+  assert.match(LOG, /window\.addEventListener\('error'/);
+  assert.match(LOG, /window\.addEventListener\('unhandledrejection'/);
+  assert.match(LOG, /window\.addEventListener\('pagehide'/);
+  assert.match(LOG, /document\.addEventListener\('visibilitychange'/);
+  // Bekötés a belépési ponton (még a felület előtt) + verziós fejléc.
+  const MAIN = read('web/src/main.tsx');
+  assert.match(MAIN, /installCrashHandlers\(\);/);
+  assert.match(MAIN, /startRuntimeWatchdog\(\);/);
+  assert.match(MAIN, /logStartup\(WEB_VERSION\);/);
+  assert.match(MAIN, /logPhase\('főoldal kész és kirajzolva'\)/);
+  // Az import szakaszai is naplózva (első indítás legnehezebb lépése).
+  const IMPORT = read('web/src/services/providerImport.ts');
+  assert.match(IMPORT, /logPhase\(`Xtream import indul/);
+  assert.match(IMPORT, /logPhase\(\s*`Xtream import kész/);
+  assert.match(IMPORT, /logMemory\('import után'\)/);
 });

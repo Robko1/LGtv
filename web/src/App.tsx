@@ -14,7 +14,7 @@ import {
   saveVodContent,
   sweepStorage,
 } from './services/contentStore';
-import { appLog, appLogError, logMemory, logStartup } from './services/appLog';
+import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { PartialContent, refreshProviderContent } from './services/providerImport';
 import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
@@ -24,6 +24,7 @@ import { xtreamService } from './services/xtreamService';
 // helyett üres listát mutatunk, és a felület felhívja a figyelmet a lista
 // hozzáadására (Menü → Listák).
 const bootLive = loadLive();
+logPhase('mentett élő lista beolvasva (App modul)');
 // A betöltött tár régi vagy sérült adatait már az állapot létrehozásakor normalizáljuk.
 const bootChannels = Array.isArray(bootLive.channels) ? bootLive.channels : [];
 
@@ -668,7 +669,7 @@ export function App() {
     const provider = bootLive.provider;
     if (!provider) return;
     vodLoadStartedRef.current = true;
-    logStartup();
+    // Az indulási fejlécet (verzióval) a main.tsx naplózza – itt már nem kell.
     appLog(`Mentett tartalom betöltése indul (tároló: ${provider.id}).`);
     logMemory('tartalom betöltése előtt');
     const vodTask = (async () => {
@@ -677,6 +678,7 @@ export function App() {
         setMovies(vod.movies);
         setVodCategories(vod.categories);
         appLog(`Filmek a felületen: ${vod.movies.length}.`);
+        logPhase(`filmek betöltve a felületre (${vod.movies.length} db)`);
       } catch (error) {
         appLogError('Filmek betöltése', error);
       }
@@ -690,6 +692,7 @@ export function App() {
         setSeries(ser.series);
         setSeriesCategories(ser.categories);
         appLog(`Sorozatok a felületen: ${ser.series.length}.`);
+        logPhase(`sorozatok betöltve a felületre (${ser.series.length} db)`);
       } catch (error) {
         appLogError('Sorozatok betöltése', error);
       }
@@ -2188,6 +2191,18 @@ export function App() {
       // elrendezést fordítja meg (csatornalista balra, OSD jobbra).
       else if (action === 'mirror') handleToggleMirrorLayout();
       else if (action === 'diagnostic-share') setIsDiagnosticShareOpen(true);
+      /*
+       * FILM / SOROZAT alatt a ZÖLD és a KÉK gomb a lejátszó KÉK OSD-dobozát
+       * nyitja (hangsáv / felirat). A webos.js csak akkor küldi ezeket, ha a
+       * lejátszó data-vod-active jelölése ott van – élő TV-n tehát a régi
+       * funkciók (hangválasztó ablak / csatornamozgatás) maradnak.
+       */
+      else if (action === 'vod-audio') {
+        window.dispatchEvent(new CustomEvent('iptv-vod-menu', { detail: { menu: 'audio' } }));
+      }
+      else if (action === 'vod-subtitles') {
+        window.dispatchEvent(new CustomEvent('iptv-vod-menu', { detail: { menu: 'subtitle' } }));
+      }
     };
     window.addEventListener('iptv-tv-action', onTvAction);
     return () => window.removeEventListener('iptv-tv-action', onTvAction);

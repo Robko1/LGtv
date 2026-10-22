@@ -14,7 +14,7 @@ const MAX_LINES = 400;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_CHARS = 60000;
 const STORE_KEY = 'app-log';
-const DEFAULT_APP_VERSION = 'IPTV R.T webOS 2.3.1';
+const DEFAULT_APP_VERSION = 'IPTV R.T webOS';
 
 let lines: string[] = [];
 let chars = 0;
@@ -81,6 +81,36 @@ function persistSoon(): void {
     }, 1500);
   } catch {
     saveTimer = null;
+  }
+}
+
+/**
+ * AZONNALI mentés (a késleltetés megkerülésével).
+ *
+ * Fagyás / összeomlás előtt nincs idő az 1,5 másodperces késleltetésre: a
+ * kritikus sorokat (LEÁLLÁS, IDŐVONAL, ÖSSZEOMLÁS) rögtön kiírjuk, hogy a
+ * következő indításnál – és a QR-kódon megnyitható naplóban – ott legyen.
+ * Nagy naplónál (30 KB felett) csak ritkán írunk, hogy a szinkron írás ne
+ * lassítsa a TV-t.
+ */
+let lastPersistAt = 0;
+
+function persistNow(force = false): void {
+  try {
+    if (!force && chars > 30000) return;
+    // Legfeljebb 30 másodpercenként írunk ki azonnal – a webOS localStorage
+    // írása szinkron, és a lejátszás alatt nem akarunk plusz akadozást.
+    if (!force && Date.now() - lastPersistAt < 30000) return;
+  } catch { /* nem elérhető */ }
+  lastPersistAt = Date.now();
+  if (saveTimer !== null) {
+    try { window.clearTimeout(saveTimer); } catch { /* nem elérhető */ }
+    saveTimer = null;
+  }
+  try {
+    localStorage.setItem(`iptv_rt_${STORE_KEY}`, lines.join('\n'));
+  } catch {
+    /* a TV tárhelyhibája nem akadályozhatja a működést */
   }
 }
 
@@ -173,4 +203,190 @@ export function logStartup(version: string = DEFAULT_APP_VERSION): void {
   appLog(`=== IPTV indul; verzió=${version}; felület=${location.href.split('/').pop() || ''} ===`);
   appLog(`Eszköz: ${navigator.userAgent}`);
   logMemory('indulás');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * FAGYÁS- ÉS ÖSSZEOMLÁS-DIAGNOSZTIKA (2.5.28)
+ *
+ * A felhasználó jelzése: az IPK telepítése utáni ELSŐ indításnál kb. 3 perc
+ * után megfagy / kilép az app, a második indítás után viszont hibátlanul fut.
+ * Ehhez kellenek a naplóban:
+ *   • IDŐVONAL sorok 15 másodpercenként (memória + DOM + lejátszó állapot),
+ *   • LEÁLLÁS sor, ha a fő szál 2,5 másodpercnél tovább nem futott,
+ *   • ÖSSZEOMLÁS / ÍGÉRETHIBA sor a tényleges hibaüzenettel és veremmel,
+ *   • INDULÁS sorok ezredmásodperces időbélyeggel (melyik fázis mennyi ideig tartott),
+ *   • OLDAL ELHAGYÁSA sor, ha a webOS kilépteti az appot (pagehide/visibility).
+ *
+ * A sorok a SÁRGA (teletext) gombon megnyitható QR-naplóba kerülnek, tehát a
+ * TV-n semmit nem kell gépelni – a QR-kódot beolvasva másolható a teljes napló.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+const BOOT_AT = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+  ? performance.now()
+  : 0;
+
+/**
+ * Kritikus sor: azonnal (késleltetés nélkül) a tárolóba is kiíródik, hogy
+ * fagyás / kilövés előtt is megmaradjon. Csak valódi eseménynél hívjuk
+ * (JS-hiba, összeomlás, leállás, hosszú feladat, kilépés), ezért a szinkron
+ * írás belefér.
+ */
+export function appLogCritical(message: string): void {
+  appLog(message);
+  persistNow(true);
+}
+
+/** Indulási fázis ezredmásodperccel (a bundle betöltésétől számítva). */
+export function logPhase(label: string): void {
+  let elapsed = 0;
+  try {
+    elapsed = Math.round(performance.now() - BOOT_AT);
+  } catch { elapsed = 0; }
+  appLog(`INDULÁS [${elapsed} ms] ${label}`);
+}
+
+/**
+ * A pillanatnyi felület állapota egy sorban: melyik nézet látszik, hány DOM
+ * csomópont van, és mit csinál a videó. Fagyás után ebből derül ki, hol állt meg.
+ */
+export function uiStateSnapshot(): string {
+  const parts: string[] = [];
+  try {
+    const pane = document.querySelector('[data-view-pane]:not([data-view-hidden])');
+    parts.push(`nézet=${pane ? pane.getAttribute('data-view-pane') || '?' : '?'}`);
+  } catch { /* nem elérhető */ }
+  try {
+    parts.push(`DOM=${document.getElementsByTagName('*').length} csomópont`);
+  } catch { /* nem elérhető */ }
+  try {
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    if (video) {
+      const source = String(video.currentSrc || video.src || '').split('?')[0].slice(-48);
+      parts.push(
+        `videó=${video.paused ? 'áll' : 'megy'}` +
+        `, pozíció=${Math.round(Number(video.currentTime) || 0)} s` +
+        `, kész=${video.readyState}` +
+        (source ? `, forrás=…${source}` : '')
+      );
+    } else {
+      parts.push('videó=nincs');
+    }
+  } catch { /* nem elérhető */ }
+  try {
+    const dialog = document.querySelector('[role="dialog"]');
+    if (dialog) parts.push(`nyitott ablak=${dialog.getAttribute('aria-label') || 'igen'}`);
+  } catch { /* nem elérhető */ }
+  return parts.join(', ');
+}
+
+let watchdogStarted = false;
+let lastTickAt = 0;
+let lastTimelineAt = 0;
+let lastLongTaskAt = 0;
+/** Ennél hosszabb kimaradás = a fő szál állt (TV-n ez már látható fagyás). */
+const STALL_MS = 2500;
+/** Idővonal-sorok közötti idő (memória + állapot). */
+const TIMELINE_MS = 15000;
+
+/**
+ * Futásidejű fagyásfigyelő. 1 másodpercenként „szívverést” mér: ha a fő szál
+ * kimarad, a különbség megmutatja, mennyi ideig nem futott semmi. A hosszú
+ * feladatok (longtask) külön, pontos méréssel kerülnek a naplóba, ha a motor
+ * támogatja (webOS 5+ / Chrome 58+).
+ */
+export function startRuntimeWatchdog(): void {
+  if (watchdogStarted) return;
+  watchdogStarted = true;
+  lastTickAt = Date.now();
+  lastTimelineAt = lastTickAt;
+
+  const tick = () => {
+    const now = Date.now();
+    const gap = now - lastTickAt;
+    lastTickAt = now;
+    if (gap >= STALL_MS) {
+      appLogCritical(`LEÁLLÁS: a fő szál ${gap} ms-ig nem futott (várt: 1000 ms). ${uiStateSnapshot()}`);
+    }
+    if (now - lastTimelineAt >= TIMELINE_MS) {
+      lastTimelineAt = now;
+      // Sorként minden 15 mp-ben rögzítjük, de a tárolóba csak ~30 mp-enként
+      // írjuk ki (a webOS szinkron localStorage-írása ne akassza meg a képet).
+      appLog(`IDŐVONAL: ${memorySnapshot()}; ${uiStateSnapshot()}`);
+      persistNow();
+    }
+  };
+  try {
+    window.setInterval(tick, 1000);
+  } catch {
+    /* ha nincs időzítő, a többi naplózás akkor is működik */
+  }
+
+  try {
+    const Observer = (window as unknown as {
+      PerformanceObserver?: new (callback: (list: { getEntries: () => Array<{ duration: number; name: string }> }) => void) => {
+        observe: (options: { entryTypes: string[] }) => void;
+      };
+    }).PerformanceObserver;
+    if (Observer) {
+      const observer = new Observer((list) => {
+        const entries = list.getEntries();
+        for (const entry of entries) {
+          if (entry.duration < 1200) continue;
+          const now = Date.now();
+          if (now - lastLongTaskAt < 4000) continue;
+          lastLongTaskAt = now;
+          appLogCritical(`HOSSZÚ FELADAT: ${Math.round(entry.duration)} ms (${entry.name || 'ismeretlen'}). ${uiStateSnapshot()}`);
+        }
+      });
+      observer.observe({ entryTypes: ['longtask'] });
+    }
+  } catch {
+    /* a motor nem támogatja a longtask mérést */
+  }
+
+  appLogCritical(`FIGYELŐ ELINDULT; ${memorySnapshot()}; ${uiStateSnapshot()}`);
+}
+
+/**
+ * Összeomlás- és kilépésfigyelő.
+ *
+ * A `pagehide` / `visibilitychange` sorok bizonyítják, hogy a webOS kiléptette
+ * az appot (nem a felület fagyott le örökre), a hibakezelők pedig a tényleges
+ * JS-hibát írják a naplóba – a QR-kóddal átadható naplóból ez alapján lehet
+ * pontosan javítani.
+ */
+export function installCrashHandlers(): void {
+  try {
+    window.addEventListener('error', (event) => {
+      const message = String((event as ErrorEvent)?.message || 'ismeretlen hiba');
+      const where = `${(event as ErrorEvent)?.filename || ''}:${(event as ErrorEvent)?.lineno || 0}`;
+      appLogCritical(`ÖSSZEOMLÁS: ${message} @ ${where}; ${uiStateSnapshot()}`);
+    });
+  } catch { /* nem elérhető */ }
+
+  try {
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = (event as PromiseRejectionEvent)?.reason;
+      const text = reason instanceof Error
+        ? `${reason.name}: ${reason.message}`
+        : String(reason).slice(0, 300);
+      appLogCritical(`KEZELETLEN ÍGÉRETHIBA: ${text}; ${uiStateSnapshot()}`);
+    });
+  } catch { /* nem elérhető */ }
+
+  try {
+    window.addEventListener('pagehide', () => {
+      appLogCritical(`OLDAL ELHAGYÁSA (pagehide) – az app leáll vagy kilépett. ${uiStateSnapshot()}`);
+    });
+  } catch { /* nem elérhető */ }
+
+  try {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        appLogCritical(`HÁTTÉRBE KERÜLT (visibilitychange); ${uiStateSnapshot()}`);
+      } else {
+        appLog('ELŐTÉRBE KERÜLT (visibilitychange).');
+      }
+    });
+  } catch { /* nem elérhető */ }
 }
