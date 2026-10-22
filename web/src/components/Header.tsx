@@ -9,6 +9,15 @@ interface HeaderProps {
   onOpenSettings: (tab?: 'channels' | 'lists' | 'favorites' | 'system') => void;
   /** Óra eltolása órában (0 = a készülék órája). */
   clockOffsetHours?: number;
+  /**
+   * A csatornalistában KIVÁLASZTOTT ország zászlaja (emoji).
+   *
+   * A főoldalon az „Országok” gomb előtt mindig ez látszik – korábban ott
+   * beégetett magyar zászló állt, függetlenül a kiválasztott országtól.
+   */
+  countryFlag?: string;
+  /** A kiválasztott ország neve (tipp szöveghez). */
+  countryName?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,6 +26,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCategories,
   onOpenSettings,
   clockOffsetHours = 0,
+  countryFlag,
+  countryName,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
 
@@ -42,11 +53,13 @@ export const Header: React.FC<HeaderProps> = ({
     <header
       className="sticky top-0 z-40 bg-[#070d1d]/95 backdrop-blur-md border-b border-cyan-950/40 pl-0 pr-2 py-2 md:py-2.5 lg:py-3 flex items-center justify-between gap-2 md:gap-3 lg:gap-4 shadow-md">
       {/*
-        TV-n a kijelölő SZIGORÚAN balról jobbra halad:
-          Sorozat -> Mozi -> Országok -> [Beállítások] -> [X]  (körbe)
-        A Beállításokról LEFELÉ lehet indulni - onnan a kedvencek
-        mappasávjába, onnan a csatornalistára. A Sorozat a sor eleje, ezért
-        onnan csak jobbra lehet lépni.
+        A NÉGY DOBOZ SORRENDJE (a sárga óra mellett):
+          Menü -> Sorozat -> Mozi -> Országok
+
+        Csak a HELYÜK változott – a méretük nem. A TV gomb (amikor nem az
+        élő nézetben vagyunk) a sor elején marad, hogy a visszalépés mindig
+        ugyanott legyen. A Beállítások (Menü) dobozról LEFELÉ lehet indulni:
+        onnan a kedvencek mappasávja, onnan a csatornalista.
       */}
       <div className="flex flex-1 items-center gap-1 md:gap-1.5 lg:gap-2 flex-nowrap min-w-0 mr-1">
         {/* Az óra önálló, keret és háttér nélküli elem, a fejléc bal széléhez igazítva. */}
@@ -69,6 +82,21 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* 1. MENÜ (Beállítások) – sárga fogaskerék ikonnal */}
+        <button
+          data-tv-header-default=""
+          data-tv-header=""
+          data-tv-header-kind="settings"
+          onClick={() => onOpenSettings()}
+          className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
+          title="Menü"
+          aria-label="Menü"
+        >
+          <Settings className="w-8 h-8 shrink-0 text-amber-400" />
+          <span>Menü</span>
+        </button>
+
+        {/* 2. SOROZAT */}
         <button
           onClick={() => onViewChange('series')}
           data-tv-header=""
@@ -83,6 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
           <span>Sorozat</span>
         </button>
 
+        {/* 3. MOZI */}
         <button
           onClick={() => onViewChange('movies')}
           data-tv-header=""
@@ -97,35 +126,28 @@ export const Header: React.FC<HeaderProps> = ({
           <span>Mozi</span>
         </button>
 
+        {/* 4. ORSZÁGOK – a KIVÁLASZTOTT ország zászlajával */}
         {activeView === 'live' && (
           <button
             onClick={onOpenCategories}
             data-tv-header=""
             data-tv-header-kind="countries"
+            data-country-flag={countryFlag || ''}
             className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer"
-            title="Országok – kategóriák és csatornalisták"
+            title={countryName ? `Országok – most: ${countryName}` : 'Országok – kategóriák és csatornalisták'}
           >
-            <svg viewBox="0 0 24 16" className="w-12 h-8 rounded-[3px] shrink-0" aria-hidden="true">
-              <rect width="24" height="16" fill="#ffffff" />
-              <rect width="24" height="5.33" fill="#ce2939" />
-              <rect y="10.67" width="24" height="5.33" fill="#477050" />
-            </svg>
+            {countryFlag ? (
+              <span className="text-3xl leading-none shrink-0" aria-hidden="true">{countryFlag}</span>
+            ) : (
+              <svg viewBox="0 0 24 16" className="w-12 h-8 rounded-[3px] shrink-0" aria-hidden="true">
+                <rect width="24" height="16" fill="#ffffff" />
+                <rect width="24" height="5.33" fill="#ce2939" />
+                <rect y="10.67" width="24" height="5.33" fill="#477050" />
+              </svg>
+            )}
             <span>Országok</span>
           </button>
         )}
-
-        <button
-          data-tv-header-default=""
-          data-tv-header=""
-          data-tv-header-kind="settings"
-          onClick={() => onOpenSettings()}
-          className="flex flex-1 min-w-0 items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer"
-          title="Menü"
-          aria-label="Menü"
-        >
-          <Settings className="w-8 h-8 shrink-0" />
-          <span>Menü</span>
-        </button>
       </div>
 
       {/* Kilépés az alkalmazásból */}

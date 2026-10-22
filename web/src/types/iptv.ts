@@ -192,7 +192,12 @@ export interface AppSettings {
   closeListOnZap: boolean;
   swipeToZap: boolean;
   alwaysShowBlueClock: boolean;
-  osdHideDelay: number; // 2, 3, 4, 5 másodperc
+  osdHideDelay: number; // 6, 8, 10, 12 másodperc (0 = soha ne tűnjön el)
+  /**
+   * Tükrözött főoldali elrendezés (PIROS / Record gomb): a csatornalista
+   * a bal, a lejátszó és az OSD a jobb oldalra kerül. A menüsor nem változik.
+   */
+  mirrorLayout?: boolean;
   aspectRatio: AspectRatioMode;
   seekStep: number; // 5, 10, 15, 30
   autoNextEpisode: boolean;

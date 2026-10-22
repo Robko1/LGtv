@@ -6,6 +6,23 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
+    version: '2.5.20',
+    date: '2026-10-22',
+    changes: [
+      'TELJES KÉPERNYŐS OSD: a BAL ALSÓ sarokban, a főoldali OSD-vel azonos méretben megjelenik a hangsáv (mikrofon ikon + Audio) és a felirat jelző – az eltűnő OSD részeként, a beállított idő után a képpel együtt tűnik el',
+      'A ZÖLD gomb teljes képernyőn is megnyitja a hangsáv-választót (eddig a lejátszó MÖGÖTT nyílt meg, ezért „nem történt semmi”)',
+      'OSD eltűnés: 6 / 8 / 10 / 12 másodperc választható (Beállítások → Rendszer), és ugyanezt használja a teljes képernyős OSD is',
+      'PIROS (Record) gomb: TÜKRÖZÖTT elrendezés be/ki – a csatornalista a bal oldalra, a lejátszó és az OSD a jobb oldalra kerül, a felső menüsor változatlan; újra megnyomva visszaáll',
+      'MOZI / SOROZAT: egyszerre 5 NAGY poszter egy sorban (a korábbi 8–9 kicsi helyett), görgetéssel tovább',
+      'A keresőmező és a „Poszterek” gomb megszűnt a Mozi/Sorozat nézet tetején (kérés szerint)',
+      'VILLÁMGYORS Mozi ↔ Sorozat váltás: a polcok lépcsősen épülnek (egyszerre 5 kategória), kisebb az első köteg, és üres szűrőnél nincs végigszűrés a teljes listán',
+      'KATEGÓRIÁK: sokkal nagyobb országnév (a doboz méretében, de nem lóg ki), nagyobb zászló, a csatorna- és kategóriaszám a név MELLETT; a lenyíló alkategóriák is nagyobbak',
+      'A főoldalon az „Országok” gomb előtt mindig a KIVÁLASZTOTT ország zászlaja látszik',
+      'A Menü fogaskerék ikonja sárga, a dobozok sorrendje: Menü → Sorozat → Mozi → Országok (csak a helyük változott, a méretük nem)',
+      'A diagnosztika-megosztás (QR) a Rendszer fülre került, mert a PIROS gomb most a tükrözést kapcsolja',
+    ],
+  },
+  {
     version: '2.5.19',
     date: '2026-10-22',
     changes: [

@@ -23,7 +23,8 @@ import {
   Clock,
   Cast,
   ListOrdered,
-  MousePointerClick
+  MousePointerClick,
+  FlipHorizontal2
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { normalizeTvKey } from '../utils/tvKeys';
@@ -52,6 +53,14 @@ interface MenuSettingsModalProps {
   onRemoveChannelFromFolder: (folderId: string, channelId: string) => void;
   onOpenEpgModal: () => void;
   onOpenQrProvision: () => void;
+  /**
+   * Diagnosztika megosztása QR-kóddal.
+   *
+   * A PIROS (Record) gomb a felhasználó kérésére a TÜKRÖZÖTT elrendezést
+   * kapcsolja, ezért a diagnosztika-megosztás ide, a Rendszer fülre került –
+   * így a funkció nem veszett el.
+   */
+  onOpenDiagnosticShare?: () => void;
   watchHistory: WatchHistoryItem[];
   onContinueWatching: (item: WatchHistoryItem) => void;
   onRemoveWatchHistoryItem: (id: string) => void;
@@ -72,6 +81,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   onRefreshProvider,
   onOpenImportDiagnostic,
   onOpenQrProvision,
+  onOpenDiagnosticShare,
   folders,
   onOpenAddFolder,
   onDeleteFolder,
@@ -835,10 +845,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <span>OSD automatikus elrejtése</span>
                   </label>
                   <p className="text-[11px] text-slate-400 leading-tight">
-                    A lejátszó vezérlőmenüje ennyi idő után automatikusan eltűnik.
+                    A lejátszó vezérlőmenüje (és a teljes képernyős OSD) ennyi idő után automatikusan eltűnik.
                   </p>
-                  <div className="grid grid-cols-5 gap-1.5 pt-1">
-                    {[0, 2, 3, 4, 5].map((seconds) => (
+                  <div className="grid grid-cols-4 gap-1.5 pt-1">
+                    {/* Kérés szerint: 6 / 8 / 10 / 12 másodperc választható. */}
+                    {[6, 8, 10, 12].map((seconds) => (
                       <button
                         key={seconds}
                         onClick={() => onUpdateSettings({ osdHideDelay: seconds })}
@@ -848,10 +859,28 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
                         }`}
                       >
-                        {seconds === 0 ? 'Ki' : `${seconds} mp`}
+                        {seconds} mp
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Toggle: Tükrözött elrendezés (a PIROS / Record gomb is kapcsolja) */}
+                <div data-tv-box="" tabIndex={0} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <div className="flex min-w-0 items-start gap-2.5 pr-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><FlipHorizontal2 className="h-4 w-4 text-cyan-300" /></span>
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-white block">Tükrözött elrendezés</span>
+                      <span className="text-[11px] text-slate-400 block">A csatornalista balra, a lejátszó és az OSD jobbra kerül. A PIROS (Record) gombbal is kapcsolható.</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onUpdateSettings({ mirrorLayout: !settings.mirrorLayout })}
+                    aria-pressed={Boolean(settings.mirrorLayout)}
+                    className={`shrink-0 px-4 py-2 rounded-xl text-xs font-black transition-all ${settings.mirrorLayout ? 'bg-amber-400 text-slate-950' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60'}`}
+                  >
+                    {settings.mirrorLayout ? 'BE' : 'KI'}
+                  </button>
                 </div>
 
                 {/* Toggle: Kék óra mindig látszódjon */}
@@ -1052,6 +1081,18 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     </p>
                   </div>
                 </div>
+
+                {onOpenDiagnosticShare && (
+                  <button
+                    data-tv-default=""
+                    onClick={onOpenDiagnosticShare}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#0e1f3f] hover:bg-[#142b56] text-cyan-200 border border-cyan-800/50 text-xs font-bold active:scale-95 transition-all"
+                    title="Diagnosztika megosztása QR-kóddal (korábban a PIROS gomb)"
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    <span>Diagnosztika megosztása (QR)</span>
+                  </button>
+                )}
 
                 {showVersionHistory && (
                   <div className="p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5">

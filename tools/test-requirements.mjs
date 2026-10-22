@@ -501,3 +501,113 @@ test('7. a sorozat epizódjai távirányítóval is elindíthatók', () => {
   // A mozi részletek-ablakában a „Film Indítása” gomb az elsődleges cél.
   assert.match(read('web/src/components/MoviesView.tsx'), /data-dialog-primary=""/);
 });
+
+/* ══════════════ 8. Teljes képernyős OSD, tükrözés, Mozi/Sorozat, fejléc ══════════════ */
+
+const CONTROLS = read('web/src/components/ChannelControls.tsx');
+const HEADER = read('web/src/components/Header.tsx');
+const CATEGORIES = read('web/src/components/CategoriesModal.tsx');
+const MOVIES = read('web/src/components/MoviesView.tsx');
+const SERIES = read('web/src/components/SeriesView.tsx');
+const SETTINGS_MODAL = read('web/src/components/MenuSettingsModal.tsx');
+
+test('8. teljes képernyős OSD: hangsáv + felirat jelző a BAL ALSÓ sarokban, főoldali méretben', () => {
+  // A jelzők a teljes képernyős OSD részei → a beállított idő után együtt tűnnek el.
+  assert.match(CONTROLS, /data-fullscreen-osd-badges=""/);
+  assert.match(CONTROLS, /absolute bottom-6 left-8/, 'a bal alsó sarokban');
+  // Ugyanaz a méret, mint a főoldali (compact) OSD-ben.
+  assert.match(CONTROLS, /text-sm font-bold text-slate-200/);
+  assert.match(CONTROLS, /<Mic2 className=\{`w-4 h-4/);
+  assert.match(CONTROLS, /<Subtitles className=\{`w-4 h-4/);
+  // Az App átadja a valódi állapotot (több hangsáv / aktív felirat).
+  assert.match(APP, /hasMultipleAudioTracks=\{liveAudioTracks\.length > 1\}/);
+  assert.match(APP, /hasActiveSubtitle=\{liveSubtitleTracks\.some\(\(track\) => track\.selected === true\)\}/);
+});
+
+test('8. a ZÖLD gomb teljes képernyőn is megnyitja a hangsáv-választót (a kép FÖLÖTT)', () => {
+  const modal = read('web/src/components/AudioSubtitlesModal.tsx');
+  // A lejátszó z-indexe 2147483000 – az ablak ennél magasabbra kerül.
+  assert.match(modal, /z-\[2147483010\]/);
+  assert.match(modal, /2147483000/, 'a magyarázat rögzíti, miért kell magasabbra');
+  // A webOS a ZÖLD (404) gombot 'audio' eseményként küldi.
+  assert.match(read('webos/webos.js'), /404 \? 'audio'/);
+});
+
+test('8. OSD eltűnés: 6 / 8 / 10 / 12 másodperc választható, és a teljes képernyő ezt használja', () => {
+  assert.match(SETTINGS_MODAL, /\{\[6, 8, 10, 12\]\.map\(\(seconds\) => \(/);
+  assert.match(SETTINGS_MODAL, /grid grid-cols-4 gap-1\.5 pt-1/);
+  // A teljes képernyős OSD időzítője ugyanazt a beállítást használja.
+  assert.match(APP, /fullscreenOsdTimerRef\.current = window\.setTimeout\(\(\) => \{[\s\S]{0,200}?\}, settings\.osdHideDelay \* 1000\)/);
+  // Régi (2–5 mp) mentett érték a legközelebbi engedélyezett értékre kerekedik.
+  const storage = read('web/src/services/storageService.ts');
+  assert.match(storage, /const OSD_CHOICES = \[6, 8, 10, 12\];/);
+  assert.match(read('web/src/data/mockData.ts'), /osdHideDelay: 8,/);
+});
+
+test('8. PIROS (Record) gomb: tükrözött elrendezés be/ki', () => {
+  assert.match(read('webos/webos.js'), /kc === 403 \? 'mirror'/);
+  assert.match(APP, /else if \(action === 'mirror'\) handleToggleMirrorLayout\(\);/);
+  assert.match(APP, /const handleToggleMirrorLayout = useCallback\(\(\) => \{/);
+  // A főoldali sor iránya fordul meg: csatornalista balra, lejátszó + OSD jobbra.
+  assert.match(APP, /data-live-main-row=""/);
+  assert.match(APP, /\$\{settings\.mirrorLayout \? 'md:flex-row-reverse' : 'md:flex-row'\}/);
+  // A felső menüsor NEM változik (nincs mirror a Headerben).
+  assert.doesNotMatch(HEADER, /mirrorLayout|flex-row-reverse/);
+  // A beállításokban is kapcsolható.
+  assert.match(SETTINGS_MODAL, /Tükrözött elrendezés/);
+  assert.match(SETTINGS_MODAL, /onUpdateSettings\(\{ mirrorLayout: !settings\.mirrorLayout \}\)/);
+  // A PIROS gomb korábbi funkciója (diagnosztika QR) NEM veszett el: a
+  // Rendszer fülre került át.
+  assert.match(SETTINGS_MODAL, /onOpenDiagnosticShare\?: \(\) => void;/);
+  assert.match(SETTINGS_MODAL, /Diagnosztika megosztása \(QR\)/);
+  assert.match(APP, /onOpenDiagnosticShare=\{\(\) => setIsDiagnosticShareOpen\(true\)\}/);
+});
+
+test('8. Mozi/Sorozat: 5 nagy poszter, nincs kereső és nincs „Poszterek” gomb', () => {
+  for (const source of [MOVIES, SERIES]) {
+    assert.match(source, /grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5/,
+      'egyszerre 5 poszter (a korábbi 8 kicsi helyett)');
+    // Pontosan 5 kártya fér el egy sorban (4 db 12 px-es hézag = 3rem).
+    assert.match(source, /w-\[calc\(\(100%-3rem\)\/5\)\]/, 'nagy polckártya, 5 egy sorban');
+    assert.doesNotMatch(source, /<input[\s\S]{0,400}?placeholder="(Film|Sorozat) keresése/, 'nincs keresőmező');
+    assert.doesNotMatch(source, /PosterSettingsButton/, 'nincs „Poszterek” gomb');
+    assert.match(source, /const PAGE_SIZE = 50;/, 'kisebb első köteg → gyorsabb nézetváltás');
+    assert.match(source, /categoryRows\.slice\(0, visibleRails\)/, 'a polcok lépcsősen épülnek');
+    assert.match(source, /setVisibleRails\(\(count\) => \(count < categoryRows\.length \? count \+ RAIL_STEP : count\)\)/);
+  }
+  // Az üres szűrőnél nincs végigszűrés (a nézetváltás azonnali).
+  assert.match(MOVIES, /\(\) => \(selectedCategory === 'all'\s*\? movies/);
+  assert.match(SERIES, /\(\) => \(selectedCategory === 'all'\s*\? series/);
+});
+
+test('8. Kategóriák: nagy országnév, nagy zászló, a darabszámok a név MELLETT', () => {
+  assert.match(CATEGORIES, /w-14 h-14 sm:w-16 sm:h-16 rounded-2xl[\s\S]{0,120}?text-3xl sm:text-4xl/);
+  assert.match(CATEGORIES, /text-lg sm:text-xl lg:text-2xl group-hover:text-cyan-300/, 'nagy országnév');
+  assert.match(CATEGORIES, /truncate text-white font-black/, 'a név nem lóghat ki a dobozból');
+  // A számok a név mellett (flex-wrap sorban), nem alatta.
+  assert.match(CATEGORIES, /flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1/);
+  assert.match(CATEGORIES, /\{cat\.channelCount\} csatorna/);
+  assert.match(CATEGORIES, /\{cat\.subCategoryCount\} kategória/);
+  // A lenyíló alkategóriák is nagyobbak.
+  assert.match(CATEGORIES, /px-4 py-3 text-left text-base sm:text-lg font-black text-amber-200/);
+  assert.match(CATEGORIES, /px-4 py-3 text-left text-base sm:text-lg font-bold text-slate-100/);
+});
+
+test('8. Fejléc: Menü → Sorozat → Mozi → Országok, kiválasztott ország zászlaja, sárga fogaskerék', () => {
+  const menuAt = HEADER.indexOf('data-tv-header-kind="settings"');
+  const seriesAt = HEADER.indexOf('data-tv-header-kind="series"');
+  const moviesAt = HEADER.indexOf('data-tv-header-kind="movies"');
+  const countriesAt = HEADER.indexOf('data-tv-header-kind="countries"');
+  assert.ok(menuAt > 0 && seriesAt > menuAt, 'a Menü van legelöl');
+  assert.ok(moviesAt > seriesAt, 'Sorozat után Mozi');
+  assert.ok(countriesAt > moviesAt, 'Mozi után Országok');
+  // Csak a helyük változott – a gombok osztályai (méret) változatlanok.
+  assert.match(HEADER, /h-9 md:h-10 lg:h-11 rounded-lg text-\[22px\] font-bold/);
+  // Sárga fogaskerék.
+  assert.match(HEADER, /<Settings className="w-8 h-8 shrink-0 text-amber-400" \/>/);
+  // A kiválasztott ország zászlaja (nem beégetett magyar zászló).
+  assert.match(HEADER, /countryFlag\?: string;/);
+  assert.match(HEADER, /\{countryFlag \? \(/);
+  assert.match(APP, /countryFlag=\{activeCountryCategory\?\.flag\}/);
+  assert.match(APP, /const activeCountryCategory = useMemo\(\(\) => \{/);
+});

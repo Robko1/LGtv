@@ -29,8 +29,21 @@ interface ChannelControlsProps {
   onOpenChannelDetails?: () => void;
 }
 
-/** Fekvő teljes képernyős élő TV OSD – a Sharktie elrendezéséhez igazítva. */
-export const FullscreenLiveOsd: React.FC<{ channel: Channel | null; displayNumber?: number }> = ({ channel, displayNumber }) => {
+/**
+ * Fekvő teljes képernyős élő TV OSD – a Sharktie elrendezéséhez igazítva.
+ *
+ * A BAL ALSÓ SAROKBAN a főoldali OSD-vel AZONOS méretű hangsáv- és
+ * feliratjelző látszik (Audio mikrofon ikon + CC): így teljes képernyőn is
+ * látszik, hogy van-e több hangsáv / aktív felirat, pontosan úgy, mint a
+ * főoldalon. A jelzők az eltűnő OSD részei (a beállított idő után a képpel
+ * együtt tűnnek el).
+ */
+export const FullscreenLiveOsd: React.FC<{
+  channel: Channel | null;
+  displayNumber?: number;
+  hasMultipleAudioTracks?: boolean;
+  hasActiveSubtitle?: boolean;
+}> = ({ channel, displayNumber, hasMultipleAudioTracks = false, hasActiveSubtitle = false }) => {
   const [clock, setClock] = React.useState(() => Date.now());
   React.useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 10000);
@@ -88,6 +101,35 @@ export const FullscreenLiveOsd: React.FC<{ channel: Channel | null; displayNumbe
           <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/25">
             <div className="h-full rounded-full bg-amber-400 transition-[width] duration-500" style={{ width: `${hasProgress ? progress : 0}%` }} />
           </div>
+        </div>
+      </div>
+
+      {/*
+        HANGSÁV / FELIRAT JELZŐK – a teljes képernyő BAL ALSÓ sarkában,
+        ugyanolyan méretben, mint a főoldali OSD-ben (a compact OSD
+        `text-sm`, `w-4 h-4` ikonok, `px-2 py-1`, lekerekített keret).
+      */}
+      <div
+        data-fullscreen-osd-badges=""
+        className="pointer-events-none absolute bottom-6 left-8 flex items-center gap-2"
+      >
+        <div
+          className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200 ${
+            hasMultipleAudioTracks ? 'ring-1 ring-emerald-400/60' : ''
+          }`}
+          aria-label={hasMultipleAudioTracks ? 'Több hangsáv elérhető' : 'Audio'}
+        >
+          <Mic2 className={`w-4 h-4 ${hasMultipleAudioTracks ? 'text-emerald-400' : 'text-rose-400'}`} />
+          <span>Audio</span>
+        </div>
+        <div
+          className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200 ${
+            hasActiveSubtitle ? 'ring-1 ring-emerald-400/60' : ''
+          }`}
+          aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'Felirat'}
+        >
+          <Subtitles className={`w-4 h-4 ${hasActiveSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
+          <span>Felirat</span>
         </div>
       </div>
     </div>

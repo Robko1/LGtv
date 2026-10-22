@@ -188,7 +188,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-xs animate-fadeIn select-none lg:select-auto" role="dialog" aria-modal="true" aria-label="Kategóriák" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       {/* Drawer Container – reszponzív: telefon max-md, tablet lg, laptop xl, TV 2xl */}
-      <div ref={modalRef} tabIndex={-1} onKeyDown={handleModalKeyDown} className="w-full max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl 2xl:max-w-3xl h-full bg-[#081226] border-l border-cyan-900/40 flex flex-col shadow-2xl animate-slideLeft focus:outline-none">
+      <div ref={modalRef} tabIndex={-1} onKeyDown={handleModalKeyDown} className="w-full max-w-md md:max-w-lg lg:max-w-xl xl:max-w-3xl 2xl:max-w-4xl h-full bg-[#081226] border-l border-cyan-900/40 flex flex-col shadow-2xl animate-slideLeft focus:outline-none">
         {/* Header */}
         <div className="p-4 bg-[#0a1630] border-b border-cyan-950 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -308,22 +308,32 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                     : 'bg-[#0a1630] hover:bg-[#11244a] border border-cyan-900/30'
                 }`}
               >
-                {/* Left: Flag / Icon + Category Details */}
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#0e1e3e] border border-cyan-800/40 flex items-center justify-center text-2xl shadow-inner shrink-0">
+                {/*
+                  NAGY országnév: a név akkora, mint a doboz (text-lg → 2xl),
+                  de `truncate` + `min-w-0` miatt SOHA nem lóg ki belőle.
+                  A csatorna- és kategóriaszám a név MELLETT van (nem alatta),
+                  a zászló pedig jóval nagyobb, jól látható TV-ről is.
+                */}
+                <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-[#0e1e3e] border border-cyan-800/40 flex items-center justify-center text-3xl sm:text-4xl shadow-inner shrink-0">
                     {cat.flag || '📺'}
                   </div>
-                  <div>
-                    <h3 className="text-white font-bold text-sm group-hover:text-cyan-300 transition-colors">
-                      {cat.name}
-                    </h3>
-                    <p className="text-xs text-slate-400 font-medium">
-                      {cat.channelCount} csatorna • {cat.subCategoryCount} kategória
-                    </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                      <h3 className="min-w-0 max-w-full truncate text-white font-black leading-tight text-lg sm:text-xl lg:text-2xl group-hover:text-cyan-300 transition-colors">
+                        {cat.name}
+                      </h3>
+                      <span className="shrink-0 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-xs sm:text-sm font-black text-cyan-200">
+                        {cat.channelCount} csatorna
+                      </span>
+                      <span className="shrink-0 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs sm:text-sm font-black text-amber-200">
+                        {cat.subCategoryCount} kategória
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <ChevronRight className={`w-5 h-5 shrink-0 transition-transform group-hover:translate-x-1 ${isSelected ? 'text-cyan-300' : 'text-slate-500'}`} />
+                <ChevronRight className={`w-7 h-7 shrink-0 transition-transform group-hover:translate-x-1 ${isSelected ? 'text-cyan-300' : 'text-slate-500'}`} />
               </div>
               {expandedCountryId === cat.id && (() => {
                 const countryCode = cat.id.slice('country-'.length);
@@ -338,10 +348,10 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                         onSelectCategory(cat.id);
                         onClose();
                       }}
-                      className="w-full flex items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-2 text-left text-sm font-bold text-amber-200"
+                      className="w-full flex items-center justify-between gap-2 rounded-xl border-2 border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 px-4 py-3 text-left text-base sm:text-lg font-black text-amber-200"
                     >
-                      <span>Összes {cat.name}</span>
-                      <span className="text-xs text-amber-300">{cat.channelCount}</span>
+                      <span className="min-w-0 truncate">Összes {cat.name}</span>
+                      <span className="shrink-0 text-sm sm:text-base text-amber-300">{cat.channelCount}</span>
                     </button>
                     {subCategories.map((subCategory) => (
                       <button
@@ -352,10 +362,10 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                           onSelectSubCategory(cat.id, subCategory.id);
                           onClose();
                         }}
-                        className="w-full flex items-center justify-between gap-2 rounded-xl border border-cyan-900/40 bg-[#0b1b36] hover:bg-[#12305b] px-3 py-2 text-left text-sm text-slate-200"
+                        className="w-full flex items-center justify-between gap-2 rounded-xl border border-cyan-900/50 bg-[#0b1b36] hover:bg-[#12305b] px-4 py-3 text-left text-base sm:text-lg font-bold text-slate-100"
                       >
-                        <span>{subCategory.name}</span>
-                        <span className="text-xs text-slate-400">{subCategory.count}</span>
+                        <span className="min-w-0 truncate">{subCategory.name}</span>
+                        <span className="shrink-0 text-sm sm:text-base text-slate-300">{subCategory.count}</span>
                       </button>
                     ))}
                   </div>

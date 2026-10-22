@@ -155,7 +155,7 @@ export const EpgGuideModal: React.FC<EpgGuideModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto" role="dialog" aria-modal="true" aria-label="EPG műsorújság" onClick={handleBackdropClick}>
+    <div className="fixed inset-0 z-[2147483010] flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto" role="dialog" aria-modal="true" aria-label="EPG műsorújság" onClick={handleBackdropClick}>
       <div ref={modalRef} tabIndex={-1} onKeyDown={handleKeyDown} className="bg-[#081329] border border-cyan-800/60 rounded-3xl max-w-xl md:max-w-2xl lg:max-w-3xl xl:max-w-4xl w-full max-h-[85vh] lg:max-h-[80vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden focus:outline-none">
 
         {/* Header */}
