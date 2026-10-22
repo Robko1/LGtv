@@ -172,15 +172,25 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
               <QrCode className="w-5 h-5" />
               <span className="text-xs font-bold uppercase tracking-wider">Olvasd be telefonnal</span>
             </div>
-            <div className="p-4 rounded-2xl bg-white border-2 border-cyan-400/50 shadow-lg">
+            <div className="p-2 sm:p-3 rounded-xl bg-white border border-cyan-400/40 shadow-lg">
               {provisionUrl ? (
-                <QRCodeSVG value={provisionUrl} size={320} level="M" includeMargin={false} />
+                <QRCodeSVG
+                  value={provisionUrl}
+                  size={420}
+                  level="L"
+                  boostLevel={false}
+                  marginSize={4}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  title="IPTV telefonos párosítás QR-kód"
+                  style={{ display: 'block', width: 'min(70vw, 420px)', height: 'auto', maxWidth: '100%' }}
+                />
               ) : (
-                <div className="w-[320px] h-[320px] flex items-center justify-center bg-slate-100 text-slate-500 text-xs">QR generálás...</div>
+                <div className="w-[min(70vw,420px)] aspect-square flex items-center justify-center bg-white text-slate-500 text-xs">QR generálás...</div>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 text-center max-w-xs leading-relaxed break-all">
-              {provisionUrl || 'URL generálás...'}
+            <p className="text-xs text-slate-300 text-center max-w-xs leading-relaxed">
+              Irányítsd a telefon kameráját a nagy, fekete-fehér kódra. Ha nem olvassa be, növeld a TV fényerejét, és tartsd a telefont kb. 20–40 cm-re.
             </p>
           </div>
 
