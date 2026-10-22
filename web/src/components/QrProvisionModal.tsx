@@ -176,17 +176,17 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
               {provisionUrl ? (
                 <QRCodeSVG
                   value={provisionUrl}
-                  size={210}
-                  level="L"
+                  size={190}
+                  level="M"
                   boostLevel={false}
                   marginSize={4}
                   bgColor="#ffffff"
                   fgColor="#000000"
                   title="IPTV telefonos párosítás QR-kód"
-                  style={{ display: 'block', width: 'min(42vw, 210px)', height: 'auto', maxWidth: '100%' }}
+                  style={{ display: 'block', width: '190px', height: 'auto', maxWidth: '100%' }}
                 />
               ) : (
-                <div className="w-[min(42vw,210px)] aspect-square flex items-center justify-center bg-white text-slate-500 text-xs">QR generálás...</div>
+                <div className="w-[190px] aspect-square flex items-center justify-center bg-white text-slate-500 text-xs">QR generálás...</div>
               )}
             </div>
             <p className="text-xs text-slate-300 text-center max-w-xs leading-relaxed">
