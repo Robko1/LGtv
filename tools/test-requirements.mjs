@@ -336,6 +336,15 @@ test('5. teljes képernyőn a doboz INLINE is fixed, 100vh-val (régi webOS Chro
   assert.match(PLAYER, /if \(isVod \|\| isFullscreen\) return;/);
 });
 
+test('5. kilépéskor visszaáll a 16:9-es keret (a teljes képernyős geometria nem ragad be)', () => {
+  // A body-osztály a teljes képernyő igazsága: belépéskor felkerül, kilépéskor le.
+  assert.match(PLAYER, /document\.body\.classList\.toggle\('iptv-tv-fullscreen', isFullscreen\)/);
+  // A 16:9-es mérés teljes képernyőn (és késedelmes híváskor is) nem futhat le.
+  assert.match(PLAYER, /document\.body\.classList\.contains\('iptv-tv-fullscreen'\)/);
+  // A 16:9-es mérés a teljes képernyő és a VOD állapotára is figyel.
+  assert.match(PLAYER, /\}, \[isFullscreen, isVod, streamUrl\]\);/);
+});
+
 test('5. teljes képernyőn a fókusz a lejátszón marad (nem a rejtett listán)', () => {
   assert.match(PLAYER, /const assertFocus = \(\) => \{/);
   assert.match(PLAYER, /if \(active && active !== container && container\.contains\(active\)\) return;/);
