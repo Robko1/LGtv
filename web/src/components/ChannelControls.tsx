@@ -47,7 +47,7 @@ export const FullscreenLiveOsd: React.FC<{ channel: Channel | null; displayNumbe
     : '';
 
   return (
-    <div className="fixed inset-0 z-[80] flex flex-col justify-between pointer-events-none text-white" aria-live="polite">
+    <div className="fixed inset-0 z-[10000] flex flex-col justify-between pointer-events-none text-white" aria-live="polite">
       <div className="flex items-start justify-between bg-gradient-to-b from-black/85 via-black/40 to-transparent px-8 pt-6 pb-12">
         <div className="flex min-w-0 items-center gap-3">
           <span className="shrink-0 text-lg font-bold tabular-nums text-white/90">{displayNumber ?? channel.num}</span>
