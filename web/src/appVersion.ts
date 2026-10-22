@@ -1,10 +1,23 @@
-export const WEB_VERSION = '2.5.12';
+export const WEB_VERSION = '2.5.13';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
-try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = '2.5.1'; } catch { /* SSR/teszt környezetben nincs window */ }
+try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.13',
+    date: '2026-10-22',
+    changes: [
+      'NINCS TÖBB ZÖLD ÜRES KÉPERNYŐ: a rendszerindítás után a logós indítókép marad látható, amíg a kész főoldal meg nem jelenik – egyetlen váltással',
+      'AZONNALI NÉZETVÁLTÁS: a TV / Mozi / Sorozat nézetek a háttérben megmaradnak, a váltás csak láthatóságot kapcsol – nincs újraépítés, nincs villanás, a görgetés és a keresés megmarad',
+      'GYORSABB BETÖLTÉS: a film- és sorozatlista párhuzamosan töltődik, a feldolgozás nem vár 50 ms-okat – a csatornalista továbbra is elsőként, azonnal használható',
+      'NINCS ADATVESZTÉS: ha a szolgáltató átmenetileg üres listát ad, a korábbi jó lista marad a képernyőn és a tárolóban is',
+      'Nem válaszoló szolgáltató: 10 mp alatt érthető hibaüzenet (korábban akár 40 mp)',
+      'Tárolótakarítás induláskor: a félbe maradt mentések nem foglalják a TV kis tárhelyét',
+      'A távirányító kijelölője nem léphet a rejtett nézetek gombjaira',
+    ],
+  },
   {
     version: '2.5.12',
     date: '2026-10-21',
