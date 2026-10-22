@@ -449,8 +449,36 @@
    * és az ELSŐ CSATORNA kimaradt. A doboz semmilyen navigációval nem
    * jelölhető ki: nincs tabindexe, és ide mindig egy sor azonosítója megy.
    */
+  /**
+   * Láthatatlan-e az elem?
+   *
+   * A TV / Mozi / Sorozat nézetek az azonnali váltás miatt a DOM-ban
+   * maradnak (csak `visibility: hidden` + `data-view-hidden`), és a
+   * csatornalista is a DOM-ban marad teljes képernyőn. A kijelölőnek és a
+   * gombkezelőnek ezeket NEM szabad látnia: különben a távirányító nyilai a
+   * rejtett listára mennek, és teljes képernyőn nem lehet csatornát váltani.
+   */
+  function isHiddenEl(el) {
+    if (!el) return true;
+    try {
+      if (el.closest && el.closest('[data-view-hidden]')) return true;
+      var view = window.getComputedStyle(el).visibility;
+      if (view === 'hidden' || view === 'collapse') return true;
+      var display = window.getComputedStyle(el).display;
+      if (display === 'none') return true;
+    } catch (e) { /* régi motor: marad az alapszabály */ }
+    return false;
+  }
+
+  /**
+   * A LÁTHATÓ csatornalista. Teljes képernyőn (és a Mozi/Sorozat nézetben)
+   * a lista rejtve van: ilyenkor nincs lista, tehát a gombok a lejátszóhoz
+   * (teljes képernyőn) vagy a fejléc menüsorához mennek.
+   */
   function channelsListBox() {
-    return document.querySelector('[role="listbox"]');
+    var list = document.querySelector('[role="listbox"]');
+    if (!list) return null;
+    return isHiddenEl(list) ? null : list;
   }
 
   /** A lista első (vagy a kiválasztott) csatornasora. */
@@ -679,7 +707,7 @@
         var dialogTarget = topDialog();
         var dialogFocusable = dialogTarget ? getFocusable(dialogTarget) : [];
         target = (dialogFocusable.length ? dialogFocusable[0] : dialogTarget) ||
-          document.querySelector('[role="listbox"]') || document;
+          channelsListBox() || document;
       }
       // Egyszer küldjük ki a DOM-fába, így a React és a window/document kezelők
       // ugyanazt az eseményt kapják buborékolással, duplikálás nélkül.
@@ -771,6 +799,41 @@
     var isArrow = isArrowKey(key);
     var isConfirm = key === 'Enter';
 
+    /*
+     * TELJES KÉPERNYŐ: a LEJÁTSZÓ a gazda.
+     *
+     * A csatornalista teljes képernyőn is a DOM-ban marad (csak rejtve), ezért
+     * korábban a CH+/CH- (PageUp/PageDown) és a nyilak a REJTETT listára
+     * mentek: a kijelölés egy láthatatlan soron mozgott, a csatorna pedig nem
+     * váltott. Most, ha van teljes képernyős lejátszó és a fókusz nem nála
+     * (vagy egy rejtett elemen maradt), a gombot a lejátszónak adjuk tovább –
+     * ott a nyilak csatornát váltanak, az OK pedig visszalép.
+     */
+    if (!dialogAtStart) {
+      var fsPlayer = null;
+      try {
+        fsPlayer = document.querySelector('[data-tv-player].fixed');
+        if (fsPlayer && isHiddenEl(fsPlayer)) fsPlayer = null;
+      } catch (eFs) { fsPlayer = null; }
+      if (fsPlayer) {
+        var fsFocus = document.activeElement;
+        if (!fsFocus || fsFocus === document.body || fsFocus === document.documentElement || isHiddenEl(fsFocus)) {
+          try { fsPlayer.focus({preventScroll:true}); } catch (eFocus) {}
+          // A CH+/CH- (PageUp/PageDown) a lejátszóban FEL/LE nyíl, mert ott a
+          // nyilak váltanak csatornát (a lejátszó a saját kezelőjét használja).
+          var fsKey = key === 'PageUp' ? 'ArrowUp' : (key === 'PageDown' ? 'ArrowDown' : key);
+          var fsCode = KEY_TO_KEYCODE[fsKey] || kc;
+          var evFs = makeKeyEvent(fsKey, fsCode);
+          if (evFs) {
+            e.preventDefault();
+            e.stopPropagation();
+            fsPlayer.dispatchEvent(evFs);
+            return;
+          }
+        }
+      }
+    }
+
     // OK gomb egy kijelölt "dobozon" (data-tv-box): BELÉPÉS a dobozba –
     // a fókusz a doboz első vezérlőjére kerül, ott lehet választani.
     // Ha a dobozban EGYETLEN vezérlő van (pl. egy kapcsoló), az OK azonnal
@@ -807,7 +870,7 @@
     if (!dialogAtStart && !inTextEntry &&
         (!active || active === document.body || active === document.documentElement) &&
         (isArrow || isConfirm)) {
-      var listAtStart = document.querySelector('[role="listbox"]');
+      var listAtStart = channelsListBox();
       var rowAtStart = firstChannelRow();
       if (listAtStart && rowAtStart) {
         e.preventDefault();
@@ -825,7 +888,7 @@
     // OK/Select/Enter: a távirányító különböző kulcsneveit egységesítjük.
     if (isConfirm && rawKey !== 'Enter' && !inTextEntry) {
       var focused = document.activeElement;
-      var listForOk = document.querySelector('[role="listbox"]');
+      var listForOk = channelsListBox();
       if (listForOk && (!focused || focused === document.body || focused === document.documentElement || listForOk.contains(focused))) {
         e.preventDefault();
         e.stopPropagation();
@@ -874,7 +937,7 @@
     // Channel Up/Down (33/34): a listára küldjük, mert a documentre
     // dispatcholt esemény nem jut el a lista React onKeyDown kezelőjéhez.
     if (key === 'PageUp' || key === 'PageDown') {
-      var channelList = document.querySelector('[role="listbox"]');
+      var channelList = channelsListBox();
       if (channelList && !dialogAtStart) {
         e.preventDefault();
         e.stopPropagation();
@@ -987,7 +1050,7 @@
       // Teljes képernyős lejátszó: a lejátszó saját gombkezelése viszi a nyilakat.
       if (playerNow && playerNow.className.indexOf('fixed') !== -1) return;
 
-      var listEl = document.querySelector('[role="listbox"]');
+      var listEl = channelsListBox();
       var inList = listEl && focusedNow && (focusedNow === listEl || listEl.contains(focusedNow));
       if (inList) {
         // A lista saját React kezelője mozgatja a sárga kijelölést.

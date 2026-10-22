@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.5.14';
+export const WEB_VERSION = '2.5.15';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.15',
+    date: '2026-10-22',
+    changes: [
+      'TELJES KÉPERNYŐ JAVÍTVA: a lejátszó doboza ismét kitölti a teljes kijelzőt – a főoldali 16:9-es keret mérése ugyanis inline `position: relative`-t írt rá, ami erősebb volt a `fixed` osztálynál, ezért a kép a fejléc alatt maradt',
+      'A teljes képernyős méret most inline, `vh` egységgel készül (a régi webOS Chromium nem ismeri a `dvh`-t és az `inset` rövidítést)',
+      'CSATORNAVÁLTÁS TELJES KÉPERNYŐN JAVÍTVA: a rejtett csatornalista már „nem létezik” a távirányító számára, így a CH+/CH- és a nyilak a lejátszóhoz mennek – a csatorna tényleg vált',
+      'A fókusz teljes képernyőn a lejátszón marad (késői újrarajzolás sem viheti el), a rejtett lista pedig nem nyel el gombokat',
+      'Új próbák: teljes képernyős kitöltés, rejtett lista, gombok átirányítása (41 próba)',
+    ],
+  },
   {
     version: '2.5.14',
     date: '2026-10-22',

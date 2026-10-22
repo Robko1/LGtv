@@ -417,6 +417,68 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isFullscreen]);
 
+  /**
+   * TELJES KÉPERNYŐ: a doboz KÉNYSZERÍTETT teljes kijelzős geometriája.
+   *
+   * MIÉRT KELL: a főoldali 16:9-es keret mérése (`syncMainPageLayout`)
+   * INLINE `position: relative`, `inset: auto` és `aspectRatio: 16/9`
+   * értékeket ír a dobozra. Az inline stílus erősebb a `fixed` osztálynál,
+   * ezért a teljes képernyőre váltás után a doboz a régi helyén maradt (a
+   * fejléc alatt), és a kép nem töltötte ki a kijelzőt. Itt minden szükséges
+   * értéket felülírunk – a webOS régi Chromiumán is érvényes `vh` egységgel.
+   */
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const container = containerRef.current;
+    if (!container) return;
+    Object.assign(container.style, {
+      position: 'fixed',
+      left: '0px',
+      top: '0px',
+      right: '0px',
+      bottom: '0px',
+      width: '100vw',
+      height: '100vh',
+      minWidth: '0px',
+      minHeight: '0px',
+      maxWidth: 'none',
+      maxHeight: 'none',
+      margin: '0px',
+      padding: '0px',
+      border: '0px',
+      transform: 'none',
+      aspectRatio: 'auto',
+      zIndex: '2147483000',
+    });
+    // Egyetlen kényszerített újramérés: a videóréteg a webOS-on későn frissül.
+    void container.offsetHeight;
+  }, [isFullscreen]);
+
+  /**
+   * A fókusz a teljes képernyős dobozon MARAD.
+   *
+   * Ha a főoldal egy későbbi újrarajzolása (pl. a csatornalista frissülése)
+   * elviszi a fókuszt, a távirányító nyilai a rejtett listára mennének, és a
+   * csatornaváltás nem működne. Ezért a belépés után néhányszor ellenőrzünk:
+   * ha a fókusz nincs a dobozon (és nem is az OSD egy gombján), visszavisszük.
+   */
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const assertFocus = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active !== container && container.contains(active)) return; // OSD gomb – marad
+      try {
+        container.focus({ preventScroll: true } as any);
+      } catch {
+        /* régi motor */
+      }
+    };
+    const timers = [0, 80, 260, 600].map((delay) => window.setTimeout(assertFocus, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [isFullscreen]);
+
   // Teljes képernyőn a fókusz a lejátszóra kerül (így az OK/Vissza azonnal
   // kilép), kilépés után pedig a KIVÁLASZTOTT csatorna sora kapja a fókuszt.
   //
@@ -1855,6 +1917,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const settleTimers: number[] = [];
     const syncMainPageLayout = () => {
       if (isFullscreen) return;
+      // Biztonsági háló: a teljes képernyős állapot a body-osztályon is látszik,
+      // így egy korábban ütemezett (elavult) hívás sem teheti vissza a 16:9-es
+      // keretet a teljes képernyős dobozra.
+      try {
+        if (document.body.classList.contains('iptv-tv-fullscreen')) return;
+      } catch { /* régi motor */ }
       const container = containerRef.current;
       const video = htmlVideoRef.current;
       if (!container || !video) return;
@@ -2046,8 +2114,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onClick={handleSurfaceTap}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className={`relative w-full ${isFullscreen ? 'h-[100dvh] max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
-      style={isFullscreen ? { width: '100vw', height: '100dvh', maxHeight: 'none', aspectRatio: 'auto' } : { width: '100%', height: '100%', minHeight: 0, maxHeight: 'none', aspectRatio: 'auto' }}
+      className={`relative w-full ${isFullscreen ? 'h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
+      /*
+       * TELJES KÉPERNYŐ: a geometria INLINE, `vh` egységgel.
+       *
+       * A `100dvh` a régi webOS Chrome-on (webOS 3/4/5) nem létezik, a
+       * Tailwind `inset` shorthandje szintén újabb – ilyenkor a doboz nem
+       * töltötte ki a kijelzőt. A `position: fixed` és a bal/felső/alsó/jobb
+       * érték itt közvetlenül, minden motortól függetlenül érvényes.
+       */
+      style={isFullscreen
+        ? {
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            minWidth: 0,
+            minHeight: 0,
+            maxWidth: 'none',
+            maxHeight: 'none',
+            margin: 0,
+            padding: 0,
+            border: 0,
+            transform: 'none',
+            aspectRatio: 'auto',
+            zIndex: 2147483000,
+          }
+        : { width: '100%', height: '100%', minHeight: 0, maxHeight: 'none', aspectRatio: 'auto' }}
     >
       {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
       {/* Amíg az első képkocka meg nem érkezik, a doboz NEM fekete: a

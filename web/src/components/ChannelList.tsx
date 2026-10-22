@@ -597,6 +597,17 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   };
 
   const handleListKeyDown = (e: React.KeyboardEvent) => {
+    /*
+     * REJTETT LISTA: ne nyelje el a gombokat.
+     *
+     * A csatornalista teljes képernyőn és film lejátszásakor is a DOM-ban
+     * marad (csak rejtve), hogy a visszatérés azonnali legyen. Ha a fókusz
+     * véletlenül egy rejtett soron marad, a nyilak itt mozgatnák a láthatatlan
+     * kijelölést – a csatorna pedig nem váltana. Ezért rejtett állapotban a
+     * lista egyetlen gombot sem dolgoz fel (a teljes képernyős lejátszó veszi át).
+     */
+    const host = e.currentTarget as HTMLElement | null;
+    if (host && (host.closest('[data-view-hidden]') || host.style.visibility === 'hidden')) return;
     // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
     const key = normalizeTvKey(e);
     // MOZGATÁS MÓD (KÉK gomb): a sárga kurzor a piros nyilak/kuka között jár,
