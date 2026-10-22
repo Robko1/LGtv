@@ -10,7 +10,7 @@
  * indítani.
  *
  * Ezért:
- *   1. EGYSZERRE LEGFELJEBB EGY szolgáltatói kérés fut (kéréssor).
+ *   1. Legfeljebb KÉT szolgáltatói kérés futhat párhuzamosan.
  *   2. A kérések között van egy kis szünet (minimális távolság).
  *   3. Rövid időtúllépések: egy elakadt kérés nem foglalja a kapcsolatot
  *      percig, hanem legkésőbb 12-45 másodperc után megszakad.
@@ -50,19 +50,15 @@ export function cancelNetworkRequests(): void {
 /* --------------------------------------------------- kímélő kéréssor */
 
 /**
- * Egyszerre ennyi szolgáltatói kérés futhat.
- * Korábban 1 volt a router túlterhelés elkerülésére, de a 20k csatorna + 40k film + 15k sorozat
- * 23+ kategória esetén a szekvenciális 120ms gap 100+ másodperces betöltést okozott.
- * Most 2 concurrent engedélyezett, de továbbra is kímélő:
- * - csak VOD/sorozat kategóriáknál használjuk ki a 2-t, élőnél marad 1
- * - gap csökkentve 80ms-re (korábban 120ms)
- * - circuit breaker továbbra is 4 hiba után 60s cooldown
- * - retry csak 429/5xx esetén
- * Így a router terhelése minimális marad (2 kapcsolat), de a betöltés ~40%-kal gyorsabb.
+ * Egyszerre legfeljebb két szolgáltatói kérés futhat párhuzamosan.
+ * A kategóriák betöltése így átfedheti egymást, de nem nyitunk nagy
+ * kapcsolatrohamot. A referencia gyors listakezelését követve a kérések
+ * közötti szünetet 80 ms-ról 25 ms-ra csökkentjük; a megszakító és a
+ * korlátozott újrapróbálkozás változatlanul védi a hálózatot.
  */
 const MAX_CONCURRENT = 2;
 /** Két kérés között ennyi idő teljen el (a hirtelen kapcsolatözön ellen). */
-const MIN_GAP_MS = 80;
+const MIN_GAP_MS = 25;
 
 let inFlight = 0;
 let lastRequestAt = 0;
