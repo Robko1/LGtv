@@ -766,7 +766,75 @@ export function App() {
    * újra-betöltés, nincs villanás. A film/sorozat lista betöltése az első
    * megnyitáskor indul (ha még nem futott), nem a váltásra vár.
    */
+  const paneScrollStore = useRef<Record<string, number[]>>({});
+
+  /**
+   * Görgetési pozíció mentése/visszaállítása nézetváltáskor.
+   *
+   * A rejtett nézet `display: none`, ilyenkor a böngésző a görgetési
+   * pozíciót nem feltétlenül őrzi meg (a régi webOS Chromium nem teszi).
+   * Ezért a váltás előtt elmentjük a `[data-scroll-keep]` elemek helyzetét,
+   * visszatéréskor pedig visszaállítjuk – a felhasználó ott folytatja, ahol
+   * abbahagyta.
+   */
+  const capturePaneScroll = useCallback((view: string) => {
+    try {
+      const pane = document.querySelector(`[data-view-pane="${view}"]`);
+      if (!pane) return;
+      const values = Array.prototype.map.call(
+        pane.querySelectorAll('[data-scroll-keep]'),
+        (el: HTMLElement) => el.scrollTop || 0,
+      ) as number[];
+      paneScrollStore.current[view] = values;
+    } catch { /* régi motor */ }
+  }, []);
+
+  const restorePaneScroll = useCallback((view: string) => {
+    const values = paneScrollStore.current[view];
+    if (!values || values.length === 0) return;
+    try {
+      const pane = document.querySelector(`[data-view-pane="${view}"]`);
+      if (!pane) return;
+      const elements = pane.querySelectorAll<HTMLElement>('[data-scroll-keep]');
+      elements.forEach((el, index) => {
+        const value = values[index];
+        if (typeof value === 'number' && value > 0) el.scrollTop = value;
+      });
+    } catch { /* régi motor */ }
+  }, []);
+
+  /**
+   * Nézetváltáskor a távirányító kijelölője a NYITOTT NÉZETBE kerül.
+   *
+   * Enélkül a fókusz a fejléc gombján maradt, a webOS gombkezelő pedig a
+   * fejléc-szabályok szerint mozgatott: a Mozi/Sorozat nézetben a LE nyíl
+   * hatástalan volt, a nézetben egyáltalán nem lehetett mozogni.
+   */
+  useEffect(() => {
+    if (activeView === 'live') {
+      // Élő nézetben a csatornalista kijelölt sorára visszük a fókuszt.
+      const timer = window.setTimeout(() => {
+        const target = document.querySelector<HTMLElement>('[data-channel-id] [role="option"]')
+          || document.querySelector<HTMLElement>('[role="listbox"] [role="option"]');
+        target?.focus({ preventScroll: true } as FocusOptions);
+      }, 60);
+      return () => window.clearTimeout(timer);
+    }
+    const timer = window.setTimeout(() => {
+      const pane = document.querySelector<HTMLElement>(`[data-view-pane="${activeView}"]`);
+      if (!pane) return;
+      const first = pane.querySelector<HTMLElement>(
+        'button:not(:disabled), [href], input, [tabindex]:not([tabindex="-1"])'
+      );
+      first?.focus({ preventScroll: true } as FocusOptions);
+      restorePaneScroll(activeView);
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [activeView, restorePaneScroll]);
+
   const handleViewChange = useCallback((view: 'live' | 'movies' | 'series') => {
+    // A görgetést a váltás ELŐTT mentjük (a display:none után már 0 lenne).
+    capturePaneScroll(activeView);
     setVisitedViews((previous) => (previous[view] ? previous : { ...previous, [view]: true }));
     setActiveView(view);
     setCustomStreamUrl(undefined);
@@ -777,7 +845,17 @@ export function App() {
       // A film/sorozat lista betöltése már a menü megnyomásakor elindul.
       window.setTimeout(ensureVodLoaded, 0);
     }
-  }, [ensureVodLoaded]);
+  }, [ensureVodLoaded, activeView, capturePaneScroll]);
+
+  // A nézetek propjai STABILAK (a React.memo így tudja kihagyni az
+  // újrarajzolást, amikor csak a lejátszó teljes képernyős állapota változik).
+  const handleBackToLive = useCallback(() => handleViewChange('live'), [handleViewChange]);
+  const handleMoviesCategoryChange = useCallback((categoryId: string) => {
+    movieCategoryRef.current = categoryId;
+  }, []);
+  const handleSeriesCategoryChange = useCallback((categoryId: string) => {
+    seriesCategoryRef.current = categoryId;
+  }, []);
 
   const handleOpenCategories = useCallback(() => setIsCategoriesOpen(true), []);
   const handleOpenSettings = useCallback((tab?: 'channels' | 'lists' | 'favorites' | 'system') => {
@@ -794,8 +872,13 @@ export function App() {
    * (data-view-hidden, lásd webos.js).
    */
   const paneStyle = useCallback((isActive: boolean): React.CSSProperties => ({
-    visibility: isActive ? 'visible' : 'hidden',
-    pointerEvents: isActive ? 'auto' : 'none',
+    // A rejtett nézetet TELJESEN kivesszük a kirajzolásból (display:none).
+    // A `visibility: hidden` a TV kompozítorán maradék (beégett) képkockákat
+    // hagyott: a Mozi/Sorozat nézet hátterében ott maradtak az előző
+    // csatornalista logói. A display:none a React-állapotot NEM dobja el
+    // (a komponens mountolva marad), ezért a váltás továbbra is azonnali –
+    // a görgetési pozíciót pedig a paneScrollStore állítja vissza.
+    display: isActive ? undefined : 'none',
   }), []);
 
   // Switch Active Channel
@@ -947,22 +1030,20 @@ export function App() {
   }, [selectedFavoriteFolderId, folders, channels, handleSaveFolders, activeChannelId, filteredChannels, selectedCategoryId]);
 
   // Toggle Favorite for Movie
-  const handleToggleFavoriteMovie = (movieId: string) => {
-    const updated = movies.map((m) =>
+  const handleToggleFavoriteMovie = useCallback((movieId: string) => {
+    setMovies((previous) => previous.map((m) =>
       m.id === movieId ? { ...m, isFavorite: !m.isFavorite } : m
-    );
-    setMovies(updated);
+    ));
     dirtyRef.current = true;
-  };
+  }, []);
 
   // Toggle Favorite for Series
-  const handleToggleFavoriteSeries = (seriesId: string) => {
-    const updated = series.map((s) =>
+  const handleToggleFavoriteSeries = useCallback((seriesId: string) => {
+    setSeries((previous) => previous.map((s) =>
       s.id === seriesId ? { ...s, isFavorite: !s.isFavorite } : s
-    );
-    setSeries(updated);
+    ));
     dirtyRef.current = true;
-  };
+  }, []);
 
   // Kézi csatorna-sorrend: az aktuálisan látható listában egy hellyel fel/le mozgat.
   const handleMoveChannel = useCallback((channelId: string, direction: 'up' | 'down') => {
@@ -1613,7 +1694,7 @@ export function App() {
   );
 
   // Play Movie in Main Video Player
-  const handlePlayMovie = (movie: Movie) => {
+  const handlePlayMovie = useCallback((movie: Movie) => {
     vodReturnViewRef.current = 'movies';
     setNextEpisodeToPlay(null);
     setCustomStreamUrl(movie.streamUrl);
@@ -1634,13 +1715,15 @@ export function App() {
       lastWatchedAt: new Date().toISOString().slice(0, 10).replace(/-/g, '. ') + '.',
       streamUrl: movie.streamUrl,
     };
-    const updatedHistory = [historyItem, ...history.filter((h) => h.title !== movie.title)];
-    setHistory(updatedHistory);
-    storageService.saveHistory(updatedHistory);
-  };
+    setHistory((previous) => {
+      const updatedHistory = [historyItem, ...previous.filter((h) => h.title !== movie.title)];
+      storageService.saveHistory(updatedHistory);
+      return updatedHistory;
+    });
+  }, []);
 
   // Play Series Episode in Main Video Player
-  const handlePlayEpisode = (ser: Series, episode: Episode) => {
+  const handlePlayEpisode = useCallback((ser: Series, episode: Episode) => {
     vodReturnViewRef.current = 'series';
     const season = ser.seasons.find((s) => s.seasonNumber === episode.seasonNumber);
     const nextEpisode = season?.episodes.find((ep) => ep.episodeNumber === episode.episodeNumber + 1) || null;
@@ -1665,10 +1748,12 @@ export function App() {
       seriesId: ser.id,
       episodeId: episode.id,
     };
-    const updatedHistory = [historyItem, ...history.filter((h) => h.title !== historyItem.title)];
-    setHistory(updatedHistory);
-    storageService.saveHistory(updatedHistory);
-  };
+    setHistory((previous) => {
+      const updatedHistory = [historyItem, ...previous.filter((h) => h.title !== historyItem.title)];
+      storageService.saveHistory(updatedHistory);
+      return updatedHistory;
+    });
+  }, []);
 
   const handleRemoveWatchHistoryItem = (id: string) => {
     const updatedHistory = history.filter((item) => item.id !== id);
@@ -1882,12 +1967,17 @@ export function App() {
       switch (key) {
         case 'ArrowUp':
           if (isInChannelList) break; // ChannelList kezeli – ne váltson csatornát
+          // Mozi/Sorozat nézetben a nyilak a NÉZETBEN mozgatnak (webos.js):
+          // itt nem szabad csatornát váltani, különben a háttérben másik
+          // adás indulna böngészés közben.
+          if (activeView !== 'live') break;
           e.preventDefault();
           if (isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) break;
           handlePrevChannel();
           break;
         case 'ArrowDown':
           if (isInChannelList) break;
+          if (activeView !== 'live') break;
           e.preventDefault();
           if (isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) break;
           handleNextChannel();
@@ -1917,12 +2007,14 @@ export function App() {
           break;
         case 'PageUp':
           // LG távirányító CH+ gomb (keyCode 33)
+          if (activeView !== 'live') break;
           e.preventDefault();
           if (isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) break;
           handlePrevChannel();
           break;
         case 'PageDown':
           // LG távirányító CH- gomb (keyCode 34)
+          if (activeView !== 'live') break;
           e.preventDefault();
           if (isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) break;
           handleNextChannel();
@@ -1982,6 +2074,14 @@ export function App() {
             setCustomStreamUrl(undefined);
             setCustomStreamTitle(undefined);
             setActiveView(vodReturnViewRef.current);
+            break;
+          }
+          // Mozi/Sorozat nézetben a VISSZA gomb az élő nézetbe tér vissza.
+          // Korábban ehhez a fejléc TV gombjáig kellett visszanavigálni, a
+          // nézetből viszont nem lehetett kijutni.
+          if (activeView !== 'live') {
+            e.preventDefault();
+            handleViewChange('live');
           }
           break;
         case 'f':
@@ -2009,7 +2109,7 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep, showFullscreenLiveOsd]);
+  }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep, showFullscreenLiveOsd, activeView, handleViewChange]);
 
   // TV távirányító: ZÖLD/SÁRGA/KÉK gyorsgombok a webos.js-ből egyedi
   // eseményként érkeznek (minden fókuszhelyzetben megbízható).
@@ -2039,6 +2139,9 @@ export function App() {
         // SEMMINEK nincs fókusza. Korábban a menüben navigáló nézőtől is
         // visszarántotta a fókuszt a csatornalistára ("magától leugrik" hiba).
         if (active && active !== document.body && active !== document.documentElement) return;
+        // Mozi/Sorozat nézetben a csatornalista rejtve van (display:none) –
+        // ide soha nem vihetjük a kijelölőt, mert a távirányító megragadna.
+        if (document.querySelector('[data-view-pane]:not([data-view-hidden])')?.getAttribute('data-view-pane') !== 'live') return;
         if (list.contains(active)) return;
         // A fókusz egy CSATORNASORRA kerül. A lista doboza nem fókuszolható:
         // a teljes csatornalista kijelölése nem létezik.
@@ -2064,6 +2167,7 @@ export function App() {
     if (!isCategoriesOpen && !isSettingsOpen && !isEpgOpen && !isAudioModalOpen && !isSubtitlesModalOpen) {
       const focusBack = () => {
         try {
+          if (document.querySelector('[data-view-pane]:not([data-view-hidden])')?.getAttribute('data-view-pane') !== 'live') return;
           // A fókusz a CSATORNASORRA kerül, nem a lista dobozára: a teljes
           // csatornalista soha nem jelölhető ki.
           const selected = document.querySelector<HTMLElement>('[data-channel-id] [role="option"]');
@@ -2188,8 +2292,11 @@ export function App() {
             <FullscreenLiveOsd channel={activeChannel} displayNumber={activeChannelDisplayNumber} />
           )}
 
-          {/* TV-only channel controls: film/sorozat közben a VOD OSD az egyetlen lejátszóvezérlő. */}
-          {!customStreamUrl && !isVideoFullscreen && isOsdVisible && <ChannelControls
+          {/* TV-only channel controls: film/sorozat közben a VOD OSD az egyetlen lejátszóvezérlő.
+              Az OSD MOUNTOLVA MARAD teljes képernyő alatt is (csak rejtve):
+              korábban minden váltáskor lebontódott és újraépült, ezért a
+              visszatéréskor először az OSD „épült fel” a szem előtt. */}
+          {!customStreamUrl && <div style={{ display: isVideoFullscreen || !isOsdVisible ? 'none' : undefined }}><ChannelControls
             className="main-live-osd"
             channel={activeChannel}
             displayNumber={activeChannelDisplayNumber}
@@ -2213,15 +2320,23 @@ export function App() {
               setSettingsTab('system');
               setIsSettingsOpen(true);
             }}
-          />}
+          /></div>}
           </div>
           {/* Virtualized Fast Channel List – reszponzív oldalsáv.
               FONTOS: a lista NEM kerül ki a DOM-ból teljes képernyőn vagy
               film lejátszásakor (csak elrejtjük): így a visszatérés nem jár
               újraépítéssel és a sárga kijelölés/görgetés is megmarad. */}
           <div
+              data-live-sidebar=""
               className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 bg-[#070e1e]"
-              style={{ visibility: isVideoFullscreen || customStreamUrl ? 'hidden' : 'visible' }}
+              /*
+               * TELJES KÉPERNYŐ: az oldalsáv NEM tűnik el (nincs visibility
+               * kapcsolás). A lejátszó doboza `fixed`, teljes kijelzős és
+               * FEDETT – alatta nem látszik semmi. Korábban a visibility
+               * eldobta a csatornalista kirajzolt rétegét, ezért a
+               * visszatéréskor az egész lista újraépült (ez volt a lassú
+               * visszalépés). A data-view-hidden csak a fókuszból zárja ki.
+               */
               data-view-hidden={isVideoFullscreen || customStreamUrl ? '' : undefined}
               aria-hidden={isVideoFullscreen || customStreamUrl ? true : undefined}
             >
@@ -2265,8 +2380,8 @@ export function App() {
             settings={settings}
             onPlayMovie={handlePlayMovie}
             selectedCategoryId={movieCategoryRef.current}
-            onSelectedCategoryChange={(categoryId) => { movieCategoryRef.current = categoryId; }}
-            onBackToLive={() => handleViewChange('live')}
+            onSelectedCategoryChange={handleMoviesCategoryChange}
+            onBackToLive={handleBackToLive}
             onToggleFavoriteMovie={handleToggleFavoriteMovie}
           />
         </div>
@@ -2289,8 +2404,8 @@ export function App() {
             settings={settings}
             onPlayEpisode={handlePlayEpisode}
             selectedCategoryId={seriesCategoryRef.current}
-            onSelectedCategoryChange={(categoryId) => { seriesCategoryRef.current = categoryId; }}
-            onBackToLive={() => handleViewChange('live')}
+            onSelectedCategoryChange={handleSeriesCategoryChange}
+            onBackToLive={handleBackToLive}
             onToggleFavoriteSeries={handleToggleFavoriteSeries}
           />
         </div>

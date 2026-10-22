@@ -919,6 +919,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
           lép – a "teljes csatornalista kijelölése" funkció nem létezik. */}
       <div
         ref={channelScrollRef}
+        data-scroll-keep=""
         onKeyDown={handleListKeyDown}
         onScroll={(event) => saveChannelScrollPosition(event.currentTarget)}
         className="flex-1 min-h-0 overflow-y-auto focus:outline-none md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"

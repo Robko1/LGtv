@@ -19,7 +19,7 @@ interface MoviesViewProps {
 const PAGE_SIZE = 120;
 let movieReturnSnapshot: { searchTerm: string; scrollTop: number; visibleCount: number } | null = null;
 
-export const MoviesView: React.FC<MoviesViewProps> = ({
+const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   movies,
   categories: providerCategories,
   totalCount,
@@ -34,6 +34,28 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
   const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const movieGridRef = useRef<HTMLDivElement | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
+  /*
+   * A részletek-ablak fókusza: a távirányító OK gombjára megnyíló ablakban
+   * a kijelölőnek AZONNAL a „Film Indítása” gombra kell kerülnie – enélkül
+   * a fókusz a kártyán maradt, a webOS gombkezelő pedig a dialóguson belül
+   * keresett szomszédot (nem talált), így a nyilak nem mozgattak semmit.
+   */
+  const detailDialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!selectedMovie) {
+      const previous = previousFocusRef.current;
+      previousFocusRef.current = null;
+      if (previous && document.contains(previous)) previous.focus({ preventScroll: true } as FocusOptions);
+      return;
+    }
+    if (!previousFocusRef.current) previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const timer = window.setTimeout(() => {
+      const first = detailDialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)');
+      first?.focus({ preventScroll: true } as FocusOptions);
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [selectedMovie]);
 
   const categories = [
     { id: 'all', name: 'Összes film' },
@@ -157,7 +179,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       </div>
 
       {/* Referencia-szerű könyvtár: kategóriapolcok, lusta poszterbetöltéssel. */}
-      <div ref={movieGridRef} onScroll={(e) => { const el = e.currentTarget; if ((selectedCategory !== 'all' || searchTerm.trim()) && el.scrollHeight - el.scrollTop - el.clientHeight < 700 && visibleCount < filteredMovies.length) setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length)); }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
+      <div ref={movieGridRef} data-scroll-keep="" onScroll={(e) => { const el = e.currentTarget; if ((selectedCategory !== 'all' || searchTerm.trim()) && el.scrollHeight - el.scrollTop - el.clientHeight < 700 && visibleCount < filteredMovies.length) setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length)); }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
         {selectedCategory === 'all' && !searchTerm.trim() ? (
           categoryRows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
@@ -228,7 +250,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
 
       {/* Movie Details Modal */}
       {selectedMovie && (
-        <div role="dialog" aria-modal="true" aria-label="Film részletei" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setSelectedMovie(null); } }} className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
+        <div ref={detailDialogRef} role="dialog" aria-modal="true" aria-label="Film részletei" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setSelectedMovie(null); } }} className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
           <div className="bg-[#09152e] border border-cyan-800/60 rounded-3xl max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl w-full max-h-[90dvh] lg:max-h-[80vh] overflow-y-auto shadow-2xl animate-scaleUp">
             {/* Modal Backdrop Banner */}
             <div className="relative h-48 w-full bg-slate-900 overflow-hidden">
@@ -338,3 +360,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
     </div>
   );
 };
+
+/* A nézet memoizálva: a főoldal egyéb állapotváltozásai (pl. teljes
+   képernyős váltás) nem rajzolják újra a teljes filmkönyvtárat. */
+export const MoviesView = React.memo(MoviesViewComponent);

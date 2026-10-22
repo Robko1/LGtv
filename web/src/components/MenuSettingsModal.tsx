@@ -87,6 +87,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const showApplicationBox = true; // állandó rész, nem csukható
   const [expandedFavoriteFolderId, setExpandedFavoriteFolderId] = useState<string | null>(null);
+  /*
+   * TV-n a window.confirm() NEM működik: a webOS böngészője nem jelenít meg
+   * natív párbeszédablakot (a hívás azonnal false-szal tér vissza), ezért a
+   * kedvenc mappa TÖRLÉSE és a gyorsítótár törlése hatástalan volt.
+   * Helyette a felületen belüli, távirányítóval is elérhető kérdés jelenik meg.
+   */
+  const [pendingDeleteFolderId, setPendingDeleteFolderId] = useState<string | null>(null);
+  const [pendingClearCache, setPendingClearCache] = useState(false);
   const [movingFavoriteChannelId, setMovingFavoriteChannelId] = useState<string | null>(null);
   const favoriteLongPressTimer = useRef<number | null>(null);
   const suppressFavoriteClick = useRef(false);
@@ -210,6 +218,20 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         }
       } catch {}
     } else if (key === 'Escape' || key === 'Backspace') {
+      // TV Back / Esc: először a függő törlés-megerősítést vonja vissza,
+      // csak utána zárja be a teljes ablakot.
+      if (pendingDeleteFolderId) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPendingDeleteFolderId(null);
+        return;
+      }
+      if (pendingClearCache) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPendingClearCache(false);
+        return;
+      }
       // TV Back / Esc: modal bezárás
       e.preventDefault();
       e.stopPropagation();
@@ -223,10 +245,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   if (!isOpen) return null;
 
   const handleClearCache = () => {
-    if (confirm('Biztosan törlöd a gyorsítótárat és visszaállítod az alapértelmezett állapotot?')) {
-      storageService.clearCache();
-      window.location.reload();
-    }
+    storageService.clearCache();
+    window.location.reload();
   };
 
   return (
@@ -401,13 +421,37 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* Danger Zone: Clear all lists */}
-              <button
-                onClick={handleClearCache}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-rose-950/30 hover:bg-rose-950/60 text-rose-300 border border-rose-800/40 text-xs font-bold active:scale-95 transition-all"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Összes lista és tesztcsatorna törlése</span>
-              </button>
+              {!pendingClearCache ? (
+                <button
+                  onClick={() => setPendingClearCache(true)}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-rose-950/30 hover:bg-rose-950/60 text-rose-300 border border-rose-800/40 text-xs font-bold active:scale-95 transition-all"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Összes lista és tesztcsatorna törlése</span>
+                </button>
+              ) : (
+                <div className="rounded-xl border border-rose-800/50 bg-rose-950/25 p-3 space-y-2">
+                  <p className="text-xs font-bold text-rose-200">
+                    Biztosan törlöd a gyorsítótárat és visszaállítod az alapértelmezett állapotot?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      autoFocus
+                      onClick={handleClearCache}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Igen, törlés</span>
+                    </button>
+                    <button
+                      onClick={() => setPendingClearCache(false)}
+                      className="flex-1 py-2.5 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95"
+                    >
+                      Mégse
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -460,12 +504,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           </div>
                         </button>
                         <button
-                          onClick={() => {
-                            if (window.confirm(`Biztosan törlöd ezt a mappát: „${f.name}”?`)) {
-                              onDeleteFolder(f.id);
-                              if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
-                            }
-                          }}
+                          onClick={() => setPendingDeleteFolderId(pendingDeleteFolderId === f.id ? null : f.id)}
                           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/30 border border-rose-800/50 text-rose-300 hover:bg-rose-900/50 text-xs font-bold shrink-0"
                           title="Mappa törlése"
                         >
@@ -473,6 +512,35 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           <span>Törlés</span>
                         </button>
                       </div>
+                      {/* Törlés megerősítése – a távirányítóval is működik (nincs window.confirm). */}
+                      {pendingDeleteFolderId === f.id && (
+                        <div className="border-t border-rose-800/50 bg-rose-950/25 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-xs font-bold text-rose-200">
+                            Biztosan törlöd ezt a mappát: „{f.name}”?
+                          </p>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              autoFocus
+                              onClick={() => {
+                                onDeleteFolder(f.id);
+                                setPendingDeleteFolderId(null);
+                                if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
+                                setMovingFavoriteChannelId(null);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Igen, törlés</span>
+                            </button>
+                            <button
+                              onClick={() => setPendingDeleteFolderId(null)}
+                              className="px-3 py-2 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95"
+                            >
+                              Mégse
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {expanded && (
                         <div className={`border-t p-2 space-y-1.5 ${folderIndex % 2 === 0 ? 'border-cyan-500/50' : 'border-amber-400/50'}`}>
                           {folderChannels.length === 0 ? (

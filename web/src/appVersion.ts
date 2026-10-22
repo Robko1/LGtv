@@ -1,10 +1,23 @@
-export const WEB_VERSION = '2.5.17';
+export const WEB_VERSION = '2.5.18';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.18',
+    date: '2026-10-22',
+    changes: [
+      'MOZI / SOROZAT NAVIGÁCIÓ JAVÍTVA: a távirányító nyilai mostantól a megnyitott nézetben mozognak – a fejléc „zóna” szabályai ugyanis minden nézetben lefutottak, ezért a LE nyíl hatástalan volt, és a nézetben egyáltalán nem lehetett mozogni',
+      'A Mozi/Sorozat nézet megnyitásakor a kijelölő AZONNAL a nézet első vezérlőjére kerül, a részletek-ablakban pedig a „Film Indítása” gombra – nem kell találgatni, hol van a fókusz',
+      'A VISSZA gomb a Mozi/Sorozat nézetből visszatér az élő nézetbe (eddig csak a fejléc TV gombjával lehetett)',
+      'NINCS BEÉGETT CSATORNALOGÓ A HÁTTÉRBEN: a rejtett nézetet teljesen kivesszük a kirajzolásból (display:none), így a Mozi/Sorozat nézet mögött nem marad ott az előző csatornalista képe – a görgetési pozíciót a program állítja vissza',
+      'KEDVENC MAPPA TÖRLÉSE MŰKÖDIK: a TV nem jelenít meg natív megerősítő ablakot (window.confirm mindig „nem”), ezért a törlés hatástalan volt – most a felületen belül, távirányítóval választható kérdés jelenik meg (Igen, törlés / Mégse)',
+      'GYORSABB VISSZALÉPÉS TELJES KÉPERNYŐBŐL: az oldalsáv nem tűnik el (a lejátszó fedi), az OSD nem épül újra, a csatornalista/mozi/sorozat nézet memoizált, és a teljes képernyő nem rendezte újra az egész oldalt – nincs látható újraépítés',
+      'Böngészés közben a FEL/LE nyíl és a CH+/CH- nem vált csatornát a háttérben',
+    ],
+  },
   {
     version: '2.5.17',
     date: '2026-10-22',
