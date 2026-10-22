@@ -282,3 +282,36 @@ test('7. a csatornák a filmek előtt, önállóan kerülnek a felületre', () =
   // A film- és sorozatlista egymástól függetlenül töltődik (nem Promise.all mindenre).
   assert.doesNotMatch(IMPORT, /await Promise\.all\(\[[^\]]*importXtreamProvider/);
 });
+
+/*
+ * ── Kiadás előtti verzió-egyezés (a 2026-10-22-i buildhiba) ────────────
+ *
+ * Az „IPK építés” workflow a web/src/appVersion.ts WEB_VERSION-jét tekinti
+ * igazságforrásnak, és az appinfo.json verziójából indul ki. Amikor a webes
+ * verzió kézzel 2.5.13-ra lépett, de az appinfo.json 2.5.12 maradt, a build
+ * a 2. lépésben azonnal elhalt („appinfo.json verziója eltér a forrásétól”),
+ * és nem készült IPK. Ezt a két fájlt mostantól teszt őrzi.
+ */
+test('8. az appinfo.json verziója pontosan a webes verzió (a build nem áll meg)', () => {
+  const source = read('web/src/appVersion.ts');
+  const match = source.match(/WEB_VERSION\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'/);
+  assert.ok(match, 'a WEB_VERSION olvasható');
+  const manifest = JSON.parse(read('webos/appinfo.json'));
+  assert.equal(
+    manifest.version,
+    match[1],
+    `az appinfo.json (${manifest.version}) és a WEB_VERSION (${match[1]}) eltér – a build ezen elhasal`
+  );
+});
+
+test('8. a build verzióeltérésnél szinkronizál, nem áll le hibával', () => {
+  const workflow = read('.github/workflows/webos-build.yml');
+  assert.doesNotMatch(
+    workflow,
+    /eltér a forrásétól/,
+    'a workflow nem állhat meg verzióeltérésnél (szinkronizálnia kell)'
+  );
+  assert.match(workflow, /appinfo\.json szinkron a webes verzióhoz/);
+  // Az appinfo.json a szinkron után is ugyanarra a verzióra lép, mint a forrás.
+  assert.match(workflow, /manifest\["version"\] = old[\s\S]{0,80}manifest\["version"\] = new/);
+});

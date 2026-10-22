@@ -68,8 +68,12 @@ jobs:
           p.write_text(src, encoding="utf-8")
           manifest_path = Path("webos/appinfo.json")
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          # EGYETLEN igazságforrás a web/src/appVersion.ts WEB_VERSION-je.
+          # Ha valaki kézzel emelte a webes verziót és az appinfo.json nem
+          # követte, itt szinkronizáljuk (korábban ez a buildet is megállította).
           if manifest.get("version") != old:
-              raise SystemExit(f"HIBA: appinfo.json verziója ({manifest.get('version')}) eltér a forrásétól ({old}).")
+              print(f"appinfo.json szinkron a webes verzióhoz: {manifest.get('version')} -> {old}")
+              manifest["version"] = old
           manifest["version"] = new
           manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
           print(f"Verzió emelve: {old} -> {new}")
