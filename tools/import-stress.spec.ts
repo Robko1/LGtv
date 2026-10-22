@@ -357,7 +357,7 @@ async function main() {
   } else {
     console.log(`${failures} próba nem sikerült. ❌`);
   }
-  console.log('  (a próba azt is igazolja, hogy a betöltő egyszerre csak egy kapcsolatot használ)');
+  console.log('  (a próba azt is igazolja, hogy a betöltő legfeljebb 2 kapcsolatot használ, és nem válaszoló szervernél 10 mp alatt leáll)');
   process.exit(failures === 0 ? 0 : 1);
 }
 
