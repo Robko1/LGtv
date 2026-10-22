@@ -102,43 +102,13 @@
 const API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/qr-provision-form';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
 let currentType = 'xtream', tvId = '', code = '', token = '';
-async function getParams() {
+function getParams() {
   const url = new URL(window.location.href);
-  const shortToken = url.searchParams.get('s') || '';
-  const legacyTv = url.searchParams.get('tv') || '';
-  const legacyCode = url.searchParams.get('code') || '';
-  const legacyToken = url.searchParams.get('token') || '';
-  const setCode = (value) => {
-    code = value || '';
-    const display = document.getElementById('codeDisplay');
-    const info = document.getElementById('tvInfo');
-    if (display) display.textContent = code || '------';
-    if (info) info.textContent = code ? 'Párosítási kód: ' + code : 'A TV-kód hiányzik.';
-  };
-  if (/^[a-f0-9]{24}$/i.test(shortToken)) {
-    token = shortToken;
-    showStatus('Kapcsolódás a TV-hez…', '');
-    try {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: API_KEY },
-        body: JSON.stringify({ action: 'resolve', token })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.sessionId || !data.code) throw new Error(data.error || 'A párosítás nem található.');
-      tvId = data.sessionId;
-      setCode(data.code);
-      showStatus('Kapcsolódva a TV-hez. Add meg a szolgáltatói adatokat.', 'ok');
-      return;
-    } catch (e) {
-      showStatus('Nem sikerült kapcsolódni a TV-hez. Kérj új QR-kódot a tévén.', 'err');
-      document.getElementById('sendBtn').disabled = true;
-      return;
-    }
-  }
-  // Régi QR-hivatkozások támogatása a már megnyitott munkamenetekhez.
-  tvId = legacyTv; code = legacyCode; token = legacyToken;
-  setCode(code);
+  tvId = url.searchParams.get('tv') || '';
+  code = url.searchParams.get('code') || '';
+  token = url.searchParams.get('token') || '';
+  document.getElementById('codeDisplay').textContent = code || '------';
+  document.getElementById('tvInfo').textContent = code ? 'Párosítási kód: ' + code : 'A TV-kód hiányzik.';
   if (!tvId || !code || !/^[a-f0-9]{64}$/i.test(token)) {
     showStatus('Érvénytelen vagy hiányos QR-kód. Olvasd be újra a TV-n látható kódot.', 'err');
     document.getElementById('sendBtn').disabled = true;
