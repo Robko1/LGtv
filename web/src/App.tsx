@@ -281,18 +281,6 @@ export function App() {
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
   const [isFullscreenLiveOsdVisible, setIsFullscreenLiveOsdVisible] = useState<boolean>(false);
 
-  // A teljes képernyős élő TV OSD az OSD-eltűnés rendszerbeállítását használja.
-  // Csatornaváltáskor újra megjelenik, majd a kiválasztott idő után eltűnik.
-  useEffect(() => {
-    if (!isVideoFullscreen || customStreamUrl || settings.osdHideDelay <= 0) {
-      setIsFullscreenLiveOsdVisible(false);
-      return;
-    }
-    setIsFullscreenLiveOsdVisible(true);
-    const timer = window.setTimeout(() => setIsFullscreenLiveOsdVisible(false), settings.osdHideDelay * 1000);
-    return () => window.clearTimeout(timer);
-  }, [isVideoFullscreen, activeChannelId, customStreamUrl, settings.osdHideDelay]);
-
   const mainPlayerToggleRef = useRef<(() => void) | null>(null);
   const mainPlayerCastRef = useRef<(() => void) | null>(null);
   const mainPlayerPipRef = useRef<(() => void) | null>(null);
@@ -330,6 +318,18 @@ export function App() {
   }, [volume, handleVolumeChange]);
   const [customStreamUrl, setCustomStreamUrl] = useState<string | undefined>(undefined);
   const [customStreamTitle, setCustomStreamTitle] = useState<string | undefined>(undefined);
+
+  // A teljes képernyős élő TV OSD az OSD-eltűnés rendszerbeállítását használja.
+  // Csatornaváltáskor újra megjelenik, majd a kiválasztott idő után eltűnik.
+  useEffect(() => {
+    if (!isVideoFullscreen || customStreamUrl || settings.osdHideDelay <= 0) {
+      setIsFullscreenLiveOsdVisible(false);
+      return;
+    }
+    setIsFullscreenLiveOsdVisible(true);
+    const timer = window.setTimeout(() => setIsFullscreenLiveOsdVisible(false), settings.osdHideDelay * 1000);
+    return () => window.clearTimeout(timer);
+  }, [isVideoFullscreen, activeChannelId, customStreamUrl, settings.osdHideDelay]);
   const [nextEpisodeToPlay, setNextEpisodeToPlay] = useState<{ series: Series; episode: Episode } | null>(null);
 
   // Modals state
