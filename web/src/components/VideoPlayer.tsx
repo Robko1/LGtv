@@ -1634,7 +1634,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           canPlayLogged: false,
           completed: false,
         };
-        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
       }
       video.pause();
       // GYORS VÁLTÁS: korábban itt `removeAttribute('src')` + `load()` állt,
@@ -2050,11 +2050,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             style={{ objectFit: isVod && isFullscreen ? 'fill' : 'contain' }}
             playsInline
             preload="auto"
-            onPlaying={() => {
+            onPlaying={(event) => {
               playbackStartedRef.current = true;
               if (!isVod) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
-                if (diagnostic && !diagnostic.completed) {
+                if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.completed) {
                   diagnostic.completed = true;
                   appLog(`CSATORNAVÁLTÁS KÉP ELINDULT; csatorna=${diagnostic.channelName}; idő=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(htmlVideoRef.current || event.currentTarget, 'playing')}`);
                 }
