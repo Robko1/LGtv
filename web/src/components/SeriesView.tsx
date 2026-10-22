@@ -18,7 +18,8 @@ interface SeriesViewProps {
   onToggleFavoriteSeries: (seriesId: string) => void;
 }
 
-let seriesReturnSnapshot: { searchTerm: string; scrollTop: number } | null = null;
+const PAGE_SIZE = 120;
+let seriesReturnSnapshot: { searchTerm: string; scrollTop: number; visibleCount: number } | null = null;
 
 export const SeriesView: React.FC<SeriesViewProps> = ({
   series,
@@ -35,6 +36,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
+  const [visibleCount, setVisibleCount] = useState(() => seriesReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const seriesGridRef = useRef<HTMLDivElement | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
 
@@ -58,17 +60,23 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
   }), [series, selectedCategory, searchTerm]);
 
   useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+    if (seriesGridRef.current) seriesGridRef.current.scrollTop = 0;
+  }, [selectedCategory, searchTerm]);
+
+  useEffect(() => {
     const snapshot = seriesReturnSnapshot;
     if (!snapshot) return;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         if (seriesGridRef.current) seriesGridRef.current.scrollTop = snapshot.scrollTop;
+        setVisibleCount(snapshot.visibleCount);
       });
     });
     seriesReturnSnapshot = null;
   }, []);
 
-  const visibleSeries = filteredSeries;
+  const visibleSeries = filteredSeries.slice(0, visibleCount);
 
   // Referencia-szerű kategóriapolcok: a kategóriák sorrendjét a szolgáltató adja,
   // a címek eredeti sorrendjét megőrizzük; minden kategóriához egyetlen csoportosítás.
@@ -160,7 +168,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
       </div>
 
       {/* Referencia-szerű sorozatkönyvtár: vízszintes kategóriapolcok és teljes kategóriarács. */}
-      <div ref={seriesGridRef} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
+      <div ref={seriesGridRef} onScroll={(e) => { const el = e.currentTarget; if ((selectedCategory !== 'all' || searchTerm.trim()) && el.scrollHeight - el.scrollTop - el.clientHeight < 700 && visibleCount < filteredSeries.length) setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredSeries.length)); }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
         {selectedCategory === 'all' && !searchTerm.trim() ? (
           categoryRows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
@@ -336,6 +344,7 @@ export const SeriesView: React.FC<SeriesViewProps> = ({
                         seriesReturnSnapshot = {
                           searchTerm,
                           scrollTop: seriesGridRef.current?.scrollTop ?? 0,
+                    visibleCount,
                               };
                         setSelectedSeriesId('');
                         onPlayEpisode(ser, ep);
