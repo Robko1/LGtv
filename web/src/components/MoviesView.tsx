@@ -16,9 +16,7 @@ interface MoviesViewProps {
   onToggleFavoriteMovie: (movieId: string) => void;
 }
 
-const PAGE_SIZE = 60;
-
-let movieReturnSnapshot: { searchTerm: string; scrollTop: number; visibleCount: number } | null = null;
+let movieReturnSnapshot: { searchTerm: string; scrollTop: number } | null = null;
 
 export const MoviesView: React.FC<MoviesViewProps> = ({
   movies,
@@ -32,7 +30,6 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
   const [isSearchEditing, setIsSearchEditing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const movieGridRef = useRef<HTMLDivElement | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
 
@@ -58,22 +55,38 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
   }), [movies, selectedCategory, searchTerm]);
 
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [selectedCategory, searchTerm]);
-
-  useEffect(() => {
     const snapshot = movieReturnSnapshot;
     if (!snapshot) return;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         if (movieGridRef.current) movieGridRef.current.scrollTop = snapshot.scrollTop;
-        setVisibleCount(snapshot.visibleCount);
       });
     });
     movieReturnSnapshot = null;
   }, []);
 
-  const visibleMovies = filteredMovies.slice(0, visibleCount);
+  const visibleMovies = filteredMovies;
+
+  // A referenciához igazított könyvtárnézet: kategóriánkénti vízszintes polcok,
+  // a teljes kategória csak az „Összes megtekintése” elemre nyílik meg.
+  // Egyetlen lineáris csoportosítás, nem kategóriánkénti teljes lista-szűrés.
+  const categoryRows = useMemo(() => {
+    const grouped = new Map<string, Movie[]>();
+    for (const movie of movies) {
+      const key = movie.categoryId || 'uncategorized';
+      const list = grouped.get(key);
+      if (list) list.push(movie); else grouped.set(key, [movie]);
+    }
+    const rows = (providerCategories || [])
+      .map((category) => ({ category, items: grouped.get(category.id) || [] }))
+      .filter((row) => row.items.length > 0);
+    const known = new Set(rows.map((row) => row.category.id));
+    for (const [id, items] of grouped) {
+      if (known.has(id)) continue;
+      rows.push({ category: { id, name: items[0]?.categoryName || 'Egyéb', channelCount: items.length } as Category, items });
+    }
+    return rows;
+  }, [movies, providerCategories]);
 
   return (
     <div className="flex-1 flex flex-col bg-[#070e1e] overflow-hidden select-none lg:select-auto" onKeyDown={(e) => { if (normalizeTvKey(e) === 'Escape' && !isSearchEditing && isCategoryMenuOpen) { e.preventDefault(); e.stopPropagation(); setIsCategoryMenuOpen(false); } }}>
@@ -135,96 +148,73 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
         )}
       </div>
 
-      {/* Movies Grid – reszponzív: telefon 2, tablet 3-4, laptop 6, TV 7-8 oszlop, egér hover */}
+      {/* Referencia-szerű könyvtár: kategóriapolcok, lusta poszterbetöltéssel. */}
       <div ref={movieGridRef} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
-        {filteredMovies.length === 0 ? (
+        {selectedCategory === 'all' && !searchTerm.trim() ? (
+          categoryRows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
+              <Filter className="w-10 h-10 text-slate-600 mb-2" />
+              {movies.length === 0 ? (
+                <>
+                  <p className="text-sm font-semibold">A filmek betöltése folyamatban van…</p>
+                  <p className="text-xs mt-1 max-w-xs leading-relaxed">A mentett filmlista megjelenik, amint a betöltés befejeződik.</p>
+                </>
+              ) : <p className="text-sm font-semibold">Nincs megjeleníthető filmkategória.</p>}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6 md:gap-8">
+              {categoryRows.map(({ category, items }) => (
+                <section key={category.id} className="min-w-0">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <h2 className="text-sm md:text-base font-black text-white truncate">{category.name}</h2>
+                    <button onClick={() => { setSelectedCategory(category.id); onSelectedCategoryChange?.(category.id); if (movieGridRef.current) movieGridRef.current.scrollTop = 0; }}
+                      className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0f2042] border border-cyan-900/60 text-cyan-300 text-xs font-bold hover:bg-[#162d5a]">
+                      Összes megtekintése ({items.length}) →
+                    </button>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2">
+                    {items.slice(0, 12).map((mov) => (
+                      <button key={mov.id} onClick={() => setSelectedMovie(mov)}
+                        className="group shrink-0 w-28 sm:w-32 md:w-36 lg:w-40 text-left rounded-xl overflow-hidden bg-[#0b162f] border border-cyan-950/70 hover:border-cyan-400/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                        <div className="relative aspect-[2/3] bg-slate-900 overflow-hidden">
+                          <PosterImage src={mov.poster} title={mov.title} kind="movie" alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        </div>
+                        <div className="p-2"><div className="text-white text-xs font-bold truncate">{mov.title}</div><div className="text-[10px] text-slate-400 mt-1">{mov.year || ''}</div></div>
+                      </button>
+                    ))}
+                    {items.length > 12 && (
+                      <button onClick={() => { setSelectedCategory(category.id); onSelectedCategoryChange?.(category.id); if (movieGridRef.current) movieGridRef.current.scrollTop = 0; }}
+                        className="shrink-0 w-28 sm:w-32 md:w-36 lg:w-40 rounded-xl border border-dashed border-cyan-700/60 bg-[#0d1d3d] text-cyan-300 font-black text-sm hover:bg-[#142850]">
+                        <span className="block text-2xl mb-2">•••</span>Mind a {items.length} film
+                      </button>
+                    )}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )
+        ) : filteredMovies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
             <Filter className="w-10 h-10 text-slate-600 mb-2" />
             {movies.length === 0 ? (
-              <>
-                <p className="text-sm font-semibold">Nincs betöltött film</p>
-                <p className="text-xs mt-1 max-w-xs leading-relaxed">
-                  Nyisd meg a Menü → Listák fület, és add hozzá a szolgáltatód (Xtream Codes) adatait – utána
-                  megjelennek a filmjeid is.
-                </p>
-              </>
-            ) : (
-              <p className="text-sm font-semibold">Nincs találat a keresési feltételekre.</p>
-            )}
+              <><p className="text-sm font-semibold">A filmek betöltése folyamatban van…</p><p className="text-xs mt-1 max-w-xs leading-relaxed">A mentett filmlista megjelenik, amint a betöltés befejeződik.</p></>
+            ) : <p className="text-sm font-semibold">Nincs találat a keresési feltételekre.</p>}
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-3 md:gap-4 lg:gap-4 xl:gap-5">
             {visibleMovies.map((mov) => (
-              <div
-                key={mov.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelectedMovie(mov)}
+              <div key={mov.id} role="button" tabIndex={0} onClick={() => setSelectedMovie(mov)}
                 onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovie(mov); } }}
-                className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/60 md:hover:border-cyan-400/80 lg:hover:border-cyan-400/80 transition-all duration-200 hover:-translate-y-1 md:hover:-translate-y-1 lg:hover:-translate-y-1.5 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070e1e]"
-              >
-                {/* Poster Image */}
-                <div className="relative aspect-2/3 w-full bg-slate-900 overflow-hidden">
-                  <PosterImage
-                    src={mov.poster}
-                    title={mov.title}
-                    kind="movie"
-                    alt={mov.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-
-                  {/* Rating Badge */}
-                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1">
-                    <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                    <span>{mov.rating}</span>
-                  </div>
-
-                  {/* Play overlay hover */}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shadow-lg shadow-cyan-400/40 group-hover:scale-110 transition-transform">
-                      <Play className="w-5 h-5 fill-current ml-0.5" />
-                    </div>
-                  </div>
+                className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
+                  <PosterImage src={mov.poster} title={mov.title} kind="movie" alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{mov.rating}</span></div>
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Play className="w-5 h-5 fill-current ml-0.5" /></div></div>
                 </div>
-
-                {/* Info */}
-                <div className="p-2.5 flex-1 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-white font-bold text-xs truncate group-hover:text-cyan-300 transition-colors">
-                      {mov.title}
-                    </h3>
-                    <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400">
-                      <span>{mov.year}</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-0.5">
-                        <Clock className="w-3 h-3" />
-                        {mov.durationMinutes} perc
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Audio & Genres Pills */}
-                  <div className="mt-2 flex items-center gap-1 flex-wrap">
-                    <span className="px-1.5 py-0.5 rounded-sm bg-rose-500/20 text-rose-300 text-[9px] font-bold border border-rose-500/30">
-                      HUN DUB
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded-sm bg-cyan-500/20 text-cyan-300 text-[9px] font-bold border border-cyan-500/30">
-                      4K
-                    </span>
-                  </div>
-                </div>
+                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-xs truncate">{mov.title}</h3><div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400"><span>{mov.year}</span><span>•</span><span className="flex items-center gap-0.5"><Clock className="w-3 h-3" />{mov.durationMinutes} perc</span></div></div>
               </div>
             ))}
           </div>
-        )}
-
-        {filteredMovies.length > visibleMovies.length && (
-          <button
-            onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-            className="w-full mt-4 py-3 rounded-2xl bg-[#112347] hover:bg-[#172e5c] text-cyan-300 border border-cyan-600/40 text-xs font-black active:scale-[0.98] transition-all"
-          >
-            További filmek betöltése ({visibleMovies.length} / {filteredMovies.length})
-          </button>
         )}
       </div>
 
@@ -278,7 +268,6 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
                   movieReturnSnapshot = {
                     searchTerm,
                     scrollTop: movieGridRef.current?.scrollTop ?? 0,
-                    visibleCount,
                   };
                   setSelectedMovie(null);
                   onPlayMovie(mov);
