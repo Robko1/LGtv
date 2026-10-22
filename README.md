@@ -91,7 +91,27 @@ Nem kell TV távirányítóval URL-t, usert, passt pötyögni:
 
 Részletek: [QR-TELEFONOS-BEALLITAS.md](QR-TELEFONOS-BEALLITAS.md) + `provision.html`
 
-## A hét javított hiba (v2.5.10)
+## A hét javított hiba (v2.5.12) – a VALÓDI okok
+
+Az első kör (v2.5.10) a React oldalát javította, de a távirányító navigációt
+a **`webos/webos.js`** capture-fázisú ES5 kezelője végzi, a teljes képernyős
+OSD pedig a lejátszó **mögött** volt. Ezért nem látszott a változás a TV-n.
+
+| # | igazi ok | javítás |
+|---|---|---|
+| 3 | a `webos.js` **minden** útvonala a lista *dobozára* fókuszált (`focusAndReveal(listEl)`, `tabindex=0` + `listEl.focus()`, ENTER, CH+/-)\* | minden út a `firstChannelRow()`-ra visz; a `focusAndReveal` elutasítja a listboxot; a doboz semmilyen navigációval nem jelölhető ki |
+| 3 | a sorok kijelölője kék (`#06b6d4`) volt | visszaállítva **sárgára** (`#fbbf24`), mint a fejléc és a mappák |
+| 4 | az OSD `z-index: 10000`, a teljes képernyős lejátszó `2147483000` | az OSD `2147483001` – a kép **fölött** |
+| 1 | 140 ms-os beúszás + „2 mp után elég a fejléc" korai megjelenés | nincs beúszás; a megjelenéshez fejléc + mappasáv + sorok + logók + **első képkocka** kell; saját takarékép-réteg (`#tv-curtain`) tűnik el egyetlen váltással |
+| 1 | a TV-doboz fekete volt az első képkockáig | addig a csatorna logója látszik (`data-player-poster`) |
+| 5–6 | 4 fókusz-időzítő a `webos.js`-ben; film/sorozat lista `setTimeout(0)`-val a főoldal festése közben | 1 időzítő; `requestIdleCallback`; a főoldali kép 4 időzítő + 3 kép helyett 1 + 1 |
+| 7 | a `Promise.all` a lassabb kategóriavégpontra várt; a csatornák csak a teljes feldolgozás után jelentek meg | a kategóriák külön ígéret (hiba esetén üres); az első **1500 csatorna** után azonnali előnézet, a teljes lista felülírja (nincs félkész mentés) |
+
+A tesztek a valódi `webos.js`-t futtatják jsdom-ban
+(`tools/test-tv-navigation.mjs`), így a navigáció viselkedése mérhető:
+**29 teszt**, a workflow **5b** lépésében.
+
+## Korábbi kör (v2.5.10)
 
 | # | hiba | hol | mitől jó most |
 |---|---|---|---|
