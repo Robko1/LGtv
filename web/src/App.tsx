@@ -278,41 +278,7 @@ export function App() {
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isOsdVisible, setIsOsdVisible] = useState<boolean>(true);
-  // A teljes képernyős élő TV OSD saját időzítést kap, így a főoldali OSD
-  // helyzete és láthatósága csatornaváltáskor sem változik meg.
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
-  const [isFullscreenOsdVisible, setIsFullscreenOsdVisible] = useState<boolean>(false);
-  const fullscreenOsdTimerRef = useRef<number | null>(null);
-  // Fekvő teljes képernyős élő TV-nél a főoldali OSD-t is el kell rejteni.
-  // A webOS alkalmazás kizárólag fekvő tévés nézetet használ.
-  // A teljes képernyő állapotát közvetlenül követjük, nem várunk viewport-mérésre.
-  const isLandscapeFullscreen = isVideoFullscreen;
-  // Belépéskor és minden csatornaváltáskor jelenjen meg a teljes képernyős
-  // információs OSD, majd az aktuális beállítás szerinti idő után tűnjön el.
-  // Ez külön timer, ezért a főoldali OSD állapotát nem módosítja.
-  useEffect(() => {
-    if (fullscreenOsdTimerRef.current !== null) {
-      window.clearTimeout(fullscreenOsdTimerRef.current);
-      fullscreenOsdTimerRef.current = null;
-    }
-    if (!isVideoFullscreen || customStreamUrl || !activeChannel) {
-      setIsFullscreenOsdVisible(false);
-      return;
-    }
-    setIsFullscreenOsdVisible(true);
-    if (settings.osdHideDelay > 0) {
-      fullscreenOsdTimerRef.current = window.setTimeout(() => {
-        setIsFullscreenOsdVisible(false);
-        fullscreenOsdTimerRef.current = null;
-      }, settings.osdHideDelay * 1000);
-    }
-    return () => {
-      if (fullscreenOsdTimerRef.current !== null) {
-        window.clearTimeout(fullscreenOsdTimerRef.current);
-        fullscreenOsdTimerRef.current = null;
-      }
-    };
-  }, [isVideoFullscreen, isLandscapeFullscreen, activeChannelId, customStreamUrl, settings.osdHideDelay]);
 
   const mainPlayerToggleRef = useRef<(() => void) | null>(null);
   const mainPlayerCastRef = useRef<(() => void) | null>(null);
@@ -1995,42 +1961,6 @@ export function App() {
             onSubtitleTracksChange={setLiveSubtitleTracks}
             onRegisterSubtitleTrackSelector={registerMainPlayerSubtitleSelector}
           />
-
-          {/*
-            Teljes képernyős OSD élő TV-nél: pontosan a főoldali panel
-          */}
-          {!customStreamUrl && isVideoFullscreen && isFullscreenOsdVisible && activeChannel && (
-            <div data-osd="" className="fixed inset-x-2 bottom-2 z-[10000] mx-auto w-[calc(100%-1rem)] max-w-3xl pointer-events-none">
-              <div className="pointer-events-auto">
-                <ChannelControls
-                  channel={activeChannel}
-                  displayNumber={activeChannelDisplayNumber}
-                  isPlaying={isPlaying}
-                  onTogglePlay={() => mainPlayerToggleRef.current?.()}
-                  volume={volume}
-                  onVolumeChange={handleVolumeChange}
-                  onToggleMute={handleToggleMute}
-                  onPrevChannel={handlePrevChannel}
-                  onNextChannel={handleNextChannel}
-                  onToggleFavorite={handleToggleFavorite}
-                  onOpenAudioModal={() => setIsAudioModalOpen(true)}
-                  hasMultipleAudioTracks={liveAudioTracks.length > 1}
-                  hasActiveSubtitle={liveSubtitleTracks.some((track) => track.selected === true)}
-                  onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
-                  onCastToTv={() => mainPlayerCastRef.current?.()}
-                  onTogglePip={() => mainPlayerPipRef.current?.()}
-                  showPip={false}
-                  showCast={false}
-                  onOpenEpgModal={() => setIsEpgOpen(true)}
-                  onOpenChannelDetails={() => {
-                    setSettingsTab('system');
-                    setIsSettingsOpen(true);
-                  }}
-                  hideHeaderActions
-                />
-              </div>
-            </div>
-          )}
 
           {/* TV-only channel controls: film/sorozat közben a VOD OSD az egyetlen lejátszóvezérlő. */}
           {!customStreamUrl && !isVideoFullscreen && isOsdVisible && <ChannelControls
