@@ -77,6 +77,9 @@ export const storageService = {
           Math.abs(choice - osdDelay) < Math.abs(best - osdDelay) ? choice : best, OSD_CHOICES[0]);
       }
       if (typeof settings.mirrorLayout !== 'boolean') settings.mirrorLayout = false;
+      // Film/sorozat alap hangsáv-nyelve: régi mentésben hiányozhat – alapból magyar.
+      if (!settings.preferredAudioLang) settings.preferredAudioLang = 'Magyar';
+      if (!settings.preferredSubtitle) settings.preferredSubtitle = 'Magyar';
       // Csatornabetöltés módja: régi mentésekben még nincs - alapértelmezés API.
       if (settings.channelLoadMode !== 'api' && settings.channelLoadMode !== 'm3u') {
         settings.channelLoadMode = 'api';
