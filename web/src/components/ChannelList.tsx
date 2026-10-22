@@ -969,9 +969,9 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                       movingChannelId === ch.id
                         ? 'bg-emerald-700/90 border-2 border-emerald-300 shadow-lg shadow-emerald-950/60 ring-2 ring-emerald-400/60 scale-[1.01]'
                         : isHighlighted && !isSelected
-                          ? 'bg-[#13254b] border-2 border-amber-400/90 ring-2 ring-amber-400/40 shadow-lg shadow-amber-950/40'
+                          ? 'bg-[#13254b] shadow-lg shadow-amber-950/40'
                           : isSelected
-                            ? `bg-linear-to-r from-cyan-950/90 via-[#0e2752] to-[#0a1b38] border-2 ${isHighlighted ? 'border-amber-400/90 ring-2 ring-amber-400/40' : 'border-cyan-400/80 ring-1 ring-cyan-400/30'} shadow-lg shadow-cyan-950/60 scale-[1.01]`
+                            ? 'bg-linear-to-r from-cyan-950/90 via-[#0e2752] to-[#0a1b38] shadow-lg shadow-cyan-950/60'
                             : 'bg-[#0a152d]/80 hover:bg-[#112347] md:hover:bg-[#132a52] lg:hover:bg-[#132a52] xl:hover:bg-[#152e5c] border border-slate-800/40 hover:border-cyan-700/50'
                     }`}
                   >
