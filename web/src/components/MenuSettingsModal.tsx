@@ -260,8 +260,28 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-xs animate-fadeIn select-none lg:select-auto" role="dialog" aria-modal="true" aria-label="Menü és beállítások" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={modalRef} tabIndex={-1} onKeyDown={handleModalKeyDown} className="w-full max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl h-full bg-[#071124] border-l border-cyan-900/40 flex flex-col shadow-2xl animate-slideLeft overflow-hidden focus:outline-none">
+    <div
+      data-mirror-menu={settings.mirrorLayout ? '1' : undefined}
+      className={`fixed inset-0 z-50 flex bg-black/75 backdrop-blur-xs select-none lg:select-auto ${settings.mirrorLayout ? 'justify-start' : 'justify-end'}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Menü és beállítások"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {/*
+        TÜKRÖZÖTT ELRENDEZÉS: a menü a BAL oldalon nyílik ki (a csatornalista
+        oldalán), nem a jobbon – így a tükrözéssel együtt a menü oldala is
+        átfordul. A belső fülkék sorrendje változatlan.
+      */}
+      <div
+        ref={modalRef}
+        tabIndex={-1}
+        onKeyDown={handleModalKeyDown}
+        data-mirror-panel={settings.mirrorLayout ? '1' : undefined}
+        className={`w-full max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl h-full bg-[#071124] flex flex-col shadow-2xl overflow-hidden focus:outline-none ${
+          settings.mirrorLayout ? 'border-r border-cyan-900/40' : 'border-l border-cyan-900/40'
+        }`}
+      >
         
         {/* Header Modal Bar (Exact match to screenshot 1/2/3/4/5) */}
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">

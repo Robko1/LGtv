@@ -710,3 +710,102 @@ test('9. a változások kizárólag a mozi/sorozat OSD-re vonatkoznak', () => {
   const beforeVod = PLAYER.slice(0, PLAYER.indexOf('{isVod ? ('));
   assert.doesNotMatch(beforeVod, /<VodOsd/);
 });
+
+/* ══════════════ 10. Hang/felirat, tükrözött menü, háttér, csillag, SÁRGA gomb ══════════════ */
+
+const SUBTITLE_SERVICE = read('web/src/services/subtitleService.ts');
+const CHANNEL_LIST = read('web/src/components/ChannelList.tsx');
+const WEBOS_JS = read('webos/webos.js');
+
+test('10. a SÁRGA teletext gomb a hibakijelző QR ablakot nyitja, a PIROS marad tükrözés', () => {
+  assert.match(WEBOS_JS, /kc === 405 \? 'diagnostic-share'/);
+  assert.match(WEBOS_JS, /kc === 403 \? 'mirror'/);
+  assert.match(WEBOS_JS, /kc === 404 \? 'audio'/);
+  // Az App a régi diagnosztika-ablakot nyitja meg rá.
+  assert.match(APP, /else if \(action === 'diagnostic-share'\) setIsDiagnosticShareOpen\(true\);/);
+  assert.match(APP, /DiagnosticShareModal/);
+});
+
+test('10. tükrözésnél a Menü a BAL oldalon nyílik ki', () => {
+  assert.match(SETTINGS_MODAL, /data-mirror-menu=\{settings\.mirrorLayout \? '1' : undefined\}/);
+  assert.match(SETTINGS_MODAL, /\$\{settings\.mirrorLayout \? 'justify-start' : 'justify-end'\}/);
+  assert.match(SETTINGS_MODAL, /data-mirror-panel=\{settings\.mirrorLayout \? '1' : undefined\}/);
+  assert.match(SETTINGS_MODAL, /settings\.mirrorLayout \? 'border-r border-cyan-900\/40' : 'border-l border-cyan-900\/40'/);
+});
+
+test('10. Mozi/Sorozat nézetben az élő TV NEM indul el a háttérben', () => {
+  assert.match(PLAYER, /playbackActive\?: boolean;/);
+  assert.match(PLAYER, /if \(!isVod && !playbackActiveRef\.current\) return;/);
+  assert.match(PLAYER, /if \(!isVod && !playbackActive\) \{[\s\S]{0,320}?video\.removeAttribute\('src'\)/);
+  assert.match(PLAYER, /\}, \[loadKey, clearAutoRetry, clearBufferWatchdog, settings\.streamFormat, playbackActive\]\);/);
+  // Az App a látható nézetből vezérli.
+  assert.match(APP, /playbackActive=\{activeView === 'live'\}/);
+});
+
+test('10. a csatornasor csillagára külön rá lehet lépni, és előbb mappaválasztó jön', () => {
+  assert.match(CHANNEL_LIST, /data-favorite-star=\{ch\.id\}/);
+  assert.match(CHANNEL_LIST, /tabIndex=\{0\}[\s\S]{0,200}?data-favorite-star/);
+  assert.match(CHANNEL_LIST, /setFavoritePickChannelId\(ch\.id\);/);
+  // A sorból JOBBRA a csillagra lép.
+  assert.match(CHANNEL_LIST, /key === 'ArrowRight'[\s\S]{0,400}?data-favorite-star/);
+  assert.match(CHANNEL_LIST, /star\.focus\(\{ preventScroll: true \}/);
+  // A csillagról BALRA vissza a sorra.
+  assert.match(CHANNEL_LIST, /key === 'ArrowLeft'[\s\S]{0,260}?focusChannelRow\(ch\.id\)/);
+  // A mappaválasztóban a már kedvenc csatorna kivehető.
+  assert.match(CHANNEL_LIST, /Eltávolítás a kedvencekből/);
+});
+
+test('10. az Országok gombról lefelé is lehet lépni (tükrözött/jobb oldali listánál is)', () => {
+  assert.match(WEBOS_JS, /if \(kind !== 'settings' && kind !== 'countries'\) return;/);
+  // A mappasávból felfelé a TÉRBEN felette lévő fejléc-gomb (Országok) kapja a fókuszt.
+  assert.match(WEBOS_JS, /if \(!spatialPick\(focusedNow, 'ArrowUp', aboveItems\)\) \{/);
+});
+
+test('10. film/sorozat hang: a webOS forrás-újranyitással vált, pozíció megtartásával', () => {
+  const switcher = PLAYER.slice(PLAYER.indexOf('const switchHtmlVodAudio'), PLAYER.indexOf('const selectVodAudio'));
+  assert.match(switcher, /applyEnabled\(video\)/);
+  assert.match(switcher, /current\[i\]\.enabled = enabled/);
+  // Ha a TV nem igazolta vissza, a forrást újranyitjuk és visszaállunk a pozícióra.
+  assert.match(switcher, /const position = Number\(video\.currentTime \|\| 0\);/);
+  assert.match(switcher, /video\.addEventListener\('loadedmetadata', restore, \{ once: true \}\)/);
+  assert.match(switcher, /video\.src = url;/);
+  assert.match(switcher, /if \(wasPlaying\) void video\.play\(\)/);
+});
+
+test('10. film/sorozat felirat (CC): szolgáltatói feliratok + saját kirajzolás', () => {
+  assert.match(SUBTITLE_SERVICE, /export async function resolveVodSubtitles/);
+  assert.match(SUBTITLE_SERVICE, /get_vod_info&vod_id=/);
+  assert.match(SUBTITLE_SERVICE, /get_series_info&series_id=/);
+  assert.match(SUBTITLE_SERVICE, /collectSubtitleEntries/);
+  assert.match(SUBTITLE_SERVICE, /export function parseSubtitleText/);
+  assert.match(SUBTITLE_SERVICE, /export function cueAt/);
+  // A lejátszó betölti és kirajzolja.
+  assert.match(PLAYER, /resolveVodSubtitles\(subtitleSource\)/);
+  assert.match(PLAYER, /data-subtitle-overlay=""/);
+  assert.match(PLAYER, /<SubtitleOverlay/);
+  assert.match(PLAYER, /const availableVodSubtitleTracks: SubtitleTrack\[\] = \[/);
+  assert.match(PLAYER, /subtitleTracks=\{availableVodSubtitleTracks\}/);
+  // Az App átadja a film/epizód azonosítóit.
+  assert.match(APP, /subtitleSource=\{currentVodTracks\.subtitleSource\}/);
+  assert.match(APP, /vodId: movie\.streamId \?\? idFromUrl\(movie\.streamUrl\)/);
+  assert.match(APP, /seriesId: item\.seriesId, episodeId: idFromUrl\(episode\.streamUrl\)/);
+});
+
+test('10. az automatikus magyar felirat a szolgáltatói listát is figyeli', () => {
+  assert.match(PLAYER, /findPreferredVodTrack\(providerSubtitleTracks, preferredSubtitle\)/);
+  assert.match(PLAYER, /selectVodSubtitleRef\.current\?\.\(providerTrack\)/);
+  assert.match(PLAYER, /selectVodSubtitleRef\.current = selectVodSubtitle;/);
+});
+
+test('10. a film/sorozat bezárásakor a fókusz a kiválasztás helyére tér vissza', () => {
+  const MOVIES = read('web/src/components/MoviesView.tsx');
+  const SERIES = read('web/src/components/SeriesView.tsx');
+  assert.match(MOVIES, /data-vod-card=\{String\(mov\.id\)\}/);
+  assert.match(SERIES, /data-vod-card=\{String\(ser\.id\)\}/);
+  assert.match(SERIES, /data-vod-episode=\{String\(ep\.id\)\}/);
+  assert.match(APP, /lastVodSelectionRef\.current = \{ view: 'movies', cardId: String\(movie\.id\) \};/);
+  assert.match(APP, /lastVodSelectionRef\.current = \{ view: 'series', cardId: String\(ser\.id\), episodeId: String\(episode\.id\) \};/);
+  // Bezáráskor a nézet a VOD-ot indító nézetre áll vissza, és a fókusz oda lép.
+  assert.match(APP, /const returnView = vodReturnViewRef\.current;\s*\n\s*setActiveView\(returnView\);/);
+  assert.match(APP, /scope\.querySelector<HTMLElement>\(`\[data-vod-episode="\$\{selection\.episodeId\}"\]`\)/);
+});

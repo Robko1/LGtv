@@ -240,6 +240,8 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5 gap-3 md:gap-4 lg:gap-4 xl:gap-5">
             {visibleSeries.map((ser) => (
               <div key={ser.id} role="button" tabIndex={0}
+                /* A sorozat lejátszásának bezárásakor IDE tér vissza a fókusz. */
+                data-vod-card={String(ser.id)}
                 onClick={() => { setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); }}
                 onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
@@ -368,6 +370,8 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                       role="button"
                       tabIndex={0}
                       data-dialog-primary={epIndex === 0 ? '' : undefined}
+                      /* Bezáráskor a lejátszott EPIZÓDRA térünk vissza. */
+                      data-vod-episode={String(ep.id)}
                       onKeyDown={(e) => {
                         const key = normalizeTvKey(e);
                         if (key === 'Enter' || key === ' ') {

@@ -5,6 +5,13 @@ import { appLog } from '../services/appLog';
 import { ChannelLogo } from './ChannelLogo';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { VodOsd } from './VodOsd';
+import {
+  VodSubtitleSource,
+  SubtitleCue,
+  resolveVodSubtitles,
+  loadSubtitleCues,
+  cueAt,
+} from '../services/subtitleService';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 
 interface NativeApi {
@@ -140,6 +147,56 @@ function readHtmlAudioTracks(video: HTMLVideoElement | null): AudioTrack[] {
  * (nagy) lejátszó felületet. Korábban ez a lejátszó gyökérállapotában volt,
  * ezért a TV-n másodpercenként újrarajzolódott az egész OSD.
  */
+/**
+ * SZOLGÁLTATÓI FELIRAT KIRAJZOLÓ.
+ *
+ * A régi webOS Chromium nem mindig jeleníti meg a `<track>` elemeket, ezért a
+ * letöltött feliratot magunk rajzoljuk a kép fölé. Saját, 200 ms-os időzítővel
+ * dolgozik, így a másodpercenkénti újrarajzolás nem érinti a teljes lejátszót.
+ */
+const SubtitleOverlay: React.FC<{
+  cues: SubtitleCue[];
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  scalePercent: number;
+  raised: boolean;
+}> = ({ cues, videoRef, scalePercent, raised }) => {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    if (cues.length === 0) {
+      setText('');
+      return;
+    }
+    const update = () => {
+      const time = Number(videoRef.current?.currentTime || 0);
+      const next = cueAt(cues, time);
+      setText((previous) => (previous === next ? previous : next));
+    };
+    update();
+    const timer = window.setInterval(update, 200);
+    return () => window.clearInterval(timer);
+  }, [cues, videoRef]);
+
+  if (!text) return null;
+  const fontSize = Math.max(16, Math.round(22 * (scalePercent / 100)));
+  return (
+    <div
+      data-subtitle-overlay=""
+      className={`absolute inset-x-0 z-30 flex justify-center px-6 pointer-events-none transition-all duration-200 ${
+        raised ? 'bottom-[22%]' : 'bottom-[8%]'
+      }`}
+    >
+      <div
+        className="max-w-[90%] rounded-lg bg-black/70 px-3 py-1.5 text-center font-semibold leading-snug text-white"
+        style={{ fontSize: `${fontSize}px`, textShadow: '0 2px 6px rgba(0,0,0,0.95)' }}
+      >
+        {text.split('\n').map((line, index) => (
+          <span key={index} className="block">{line}</span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const BlueClock: React.FC<{ className?: string; offsetHours?: number }> = ({ className, offsetHours = 0 }) => {
   const [time, setTime] = useState('');
   const offset = normalizeClockOffset(offsetHours);
@@ -201,6 +258,17 @@ interface VideoPlayerProps {
   /** Film/sorozat lejátszásának bezárása és visszatérés a kiválasztási kategóriához. */
   onCloseVod?: () => void;
   /**
+   * Az ÉLŐ nézet aktív-e (a főoldal látszik).
+   *
+   * Ha a felhasználó Mozi/Sorozat nézetben van, az élő adás NEM indulhat el a
+   * háttérben (sem kép, sem hang) – korábban a stream betöltése után a
+   * lejátszó automatikusan elindult, és film bezárása után a háttérben már
+   * szólt is az élő TV.
+   */
+  playbackActive?: boolean;
+  /** A most játszott film/sorozat azonosítói a szolgáltatói FELIRAT (CC) kereséshez. */
+  subtitleSource?: VodSubtitleSource | null;
+  /**
    * A lejátszás végének jelzése (film/sorozat vége).
    *
    * A natív lejátszó a lejátszás végén `ended` eseményt küld, és bezárja a
@@ -240,12 +308,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   initialPositionSeconds = 0,
   onProgress,
   onEnded,
+  playbackActive = true,
+  subtitleSource,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoSurfaceRef = useRef<HTMLDivElement | null>(null);
   const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
   const isVodRef = useRef(Boolean(customStreamUrl));
   isVodRef.current = Boolean(customStreamUrl);
+  const playbackActiveRef = useRef(playbackActive);
+  playbackActiveRef.current = playbackActive;
 
   useEffect(() => {
     const video = htmlVideoRef.current;
@@ -839,6 +911,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [, setShowTvAudioMenu] = useState(false);
   const [vodSubtitleTracks, setVodSubtitleTracks] = useState<SubtitleTrack[]>(providedSubtitleTracks || []);
   const [tvSubtitleTracks, setTvSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  /**
+   * SZOLGÁLTATÓI FELIRATOK (CC).
+   *
+   * A webOS csak a streambe muxolt feliratokat látja; a filmekhez tartozó
+   * külön feliratfájlokat az Xtream válasza sorolja fel. Ezeket itt töltjük
+   * be, és a lejátszó maga rajzolja ki (SubtitleOverlay) – így a régi webOS
+   * Chromiumon is működik a felirat.
+   */
+  const [providerSubtitleTracks, setProviderSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  const [vodSubtitleCues, setVodSubtitleCues] = useState<SubtitleCue[]>([]);
+  const providerSubtitleRequestRef = useRef('');
 
   /*
    * Az új film/sorozat OSD a referenciához hasonlóan a KÉP FÖLÖTT úszik
@@ -1206,18 +1289,49 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = htmlVideoRef.current as (HTMLVideoElement & { audioTracks?: ArrayLike<any> }) | null;
     const list = video?.audioTracks;
     if (!video || !list || !Number.isInteger(index) || index < 0 || index >= list.length) return false;
-    try {
-      for (let i = 0; i < list.length; i++) {
+    const applyEnabled = (target: (HTMLVideoElement & { audioTracks?: ArrayLike<any> }) | null) => {
+      const current = target?.audioTracks;
+      if (!current) return;
+      for (let i = 0; i < current.length; i++) {
         const enabled = i === index;
-        if (Boolean(list[i]?.enabled) !== enabled) list[i].enabled = enabled;
+        if (Boolean(current[i]?.enabled) !== enabled) current[i].enabled = enabled;
       }
+    };
+    try {
+      applyEnabled(video);
       setVodAudioTracks(readHtmlAudioTracks(video));
+      /*
+       * AZ ÉLŐ TV LOGIKÁJA (ez működik a TV-n): a webOS a hangsávot gyakran
+       * csak a MÉDIAFORRÁS ÚJRANYITÁSÁVAL hajlandó ténylegesen átkapcsolni –
+       * a `enabled` beállítása önmagában „látszólag” sikerül, de a hang nem
+       * vált. Ilyenkor a forrást újratöltjük, majd a MEGŐRZÖTT pozícióra
+       * visszaállunk, és folytatjuk a lejátszást (filmnél ez a lényeg).
+       */
+      window.setTimeout(() => {
+        const active = video.audioTracks;
+        const applied = Boolean(active && active[index] && active[index].enabled);
+        if (applied) return;
+        const url = video.currentSrc || video.src || streamUrl;
+        if (!url) return;
+        const position = Number(video.currentTime || 0);
+        const wasPlaying = !video.paused;
+        const restore = () => {
+          applyEnabled(video);
+          try { video.currentTime = position; } catch { /* a TV motorja később állítja be */ }
+          if (wasPlaying) void video.play().catch(() => undefined);
+          setVodAudioTracks(readHtmlAudioTracks(video));
+        };
+        video.addEventListener('loadedmetadata', restore, { once: true });
+        video.src = url;
+        video.load();
+        appLog(`Film hangsávváltás forrás-újranyitással: sáv=${index}, pozíció=${Math.round(position)} mp.`);
+      }, 350);
       return true;
     } catch (error) {
       appLog('Film hangsávváltási hiba: ' + String(error));
       return false;
     }
-  }, []);
+  }, [streamUrl]);
 
   const selectVodAudio = (track: AudioTrack) => {
     // A hangsávlista lejátszóazonosítót tartalmaz; a selectTrack indexet várna,
@@ -1383,8 +1497,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
+  /** A muxolt + szolgáltatói feliratok együtt (ezt látja az OSD). */
+  const availableVodSubtitleTracks: SubtitleTrack[] = [
+    ...vodSubtitleTracks,
+    ...providerSubtitleTracks.filter((provider) =>
+      !vodSubtitleTracks.some((track) => String(track.id) === String(provider.id))),
+  ];
+
+  const selectVodSubtitleRef = useRef<((track: SubtitleTrack | null) => void) | null>(null);
+
   const selectVodSubtitle = (track: SubtitleTrack | null) => {
     userVodSubtitleChoiceRef.current = track ? String(track.id) : 'off';
+    // SZOLGÁLTATÓI FELIRAT: letöltjük, és a lejátszó rajzolja ki.
+    if (track?.url) {
+      switchHtmlVodSubtitle(null);
+      setActiveVodSubtitleId(track.id);
+      setVodSubtitleCues([]);
+      setVodTrackMenu(null);
+      void loadSubtitleCues(track.url).then((cues) => {
+        // Csak akkor tesszük ki, ha közben nem váltottunk másikra.
+        setVodSubtitleCues((previous) => (userVodSubtitleChoiceRef.current === String(track.id) ? cues : previous));
+      });
+      return;
+    }
+    if (!track) setVodSubtitleCues([]);
     if (nativeHandoff) {
       const current = activeVodSubtitleId != null ? Number(activeVodSubtitleId) : NaN;
       if (track && Number.isFinite(Number(track.id))) {
@@ -1398,10 +1534,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const index = track && Number.isFinite(Number(track.id)) ? Number(track.id) : null;
       switchHtmlVodSubtitle(index);
       setActiveVodSubtitleId(index);
+      setVodSubtitleCues([]);
       appLog(index === null ? 'Film felirat kikapcsolva.' : `Film felirat kiválasztva: sáv=${index}.`);
     }
     setVodTrackMenu(null);
   };
+
+  // A feliratválasztó mindig a legfrissebb állapotot látja (az automatikus
+  // magyar feliratválasztás ezen keresztül hívja).
+  selectVodSubtitleRef.current = selectVodSubtitle;
 
   // A natív lejátszó eseményei: ha bezárul vagy hibázik, a felület is kövesse.
   useEffect(() => {
@@ -1556,6 +1697,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isVod, nativeHandoff, streamUrl]);
 
   /*
+   * SZOLGÁLTATÓI FELIRATOK (CC) keresése a film/sorozat indításakor.
+   *
+   * Csak akkor indul, ha a stream NEM tesz közzé muxolt feliratot – ilyenkor
+   * a szolgáltatótól (Xtream) kérjük le a filmhez tartozó feliratfájlokat.
+   * Streamenként egyszer fut, és hálózati hiba esetén csendben feladja.
+   */
+  useEffect(() => {
+    if (!isVod || !subtitleSource) {
+      setProviderSubtitleTracks([]);
+      setVodSubtitleCues([]);
+      return;
+    }
+    const key = `${streamUrl}|${subtitleSource.vodId || ''}|${subtitleSource.seriesId || ''}|${subtitleSource.episodeId || ''}`;
+    if (providerSubtitleRequestRef.current === key) return;
+    providerSubtitleRequestRef.current = key;
+    let cancelled = false;
+    setProviderSubtitleTracks([]);
+    setVodSubtitleCues([]);
+    const timer = window.setTimeout(() => {
+      void resolveVodSubtitles(subtitleSource).then((tracks) => {
+        if (cancelled || tracks.length === 0) return;
+        setProviderSubtitleTracks(tracks);
+      });
+    }, 1200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isVod, streamUrl, subtitleSource]);
+
+  /*
    * FILM / SOROZAT – ALAPÉRTELMEZETT NYELV (Beállítások → Mozi & Sorozat).
    *
    * A felhasználó kérése: a film alap hangja és felirata MAGYAR legyen, ha a
@@ -1588,10 +1760,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (preferredTrack && !activeSubtitle) {
         switchHtmlVodSubtitle(Number(preferredTrack.id));
         appLog(`Automatikus film-felirat: ${preferredTrack.lang || preferredTrack.name} (beállítás: ${preferredSubtitle}).`);
+        return;
+      }
+      // Nincs muxolt felirat: a szolgáltatói (letölthető) feliratot választjuk.
+      if (!activeSubtitle && vodSubtitleCues.length === 0) {
+        const providerTrack = findPreferredVodTrack(providerSubtitleTracks, preferredSubtitle);
+        if (providerTrack && userVodSubtitleChoiceRef.current === null) {
+          selectVodSubtitleRef.current?.(providerTrack);
+          appLog(`Automatikus szolgáltatói felirat: ${providerTrack.lang || providerTrack.name} (beállítás: ${preferredSubtitle}).`);
+        }
       }
     }
   }, [
     isVod, nativeHandoff, streamUrl, vodAudioTracks, vodSubtitleTracks,
+    providerSubtitleTracks, vodSubtitleCues.length,
     settings.preferredAudioLang, settings.preferredSubtitle, switchHtmlVodAudio,
   ]);
 
@@ -1831,6 +2013,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     // LG webOS: lejátszás a TV HTML5/HLS videóelemével.
     const video = htmlVideoRef.current;
+    // Élő adás csak akkor indul, ha a főoldal (élő nézet) látszik.
+    if (!isVod && !playbackActiveRef.current) return;
     if (!video) {
       setIsLoading(false);
       setHasError(true);
@@ -1951,6 +2135,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
     pendingStreamUrlRef.current = primaryUrl;
     retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
+    /*
+     * HÁTTÉR-BENNENTARTÁS: ha nem az élő nézet látszik (Mozi/Sorozat), az élő
+     * adást el sem indítjuk – sem kép, sem hang nem megy a háttérben.
+     */
+    if (!isVod && !playbackActive) {
+      const video = htmlVideoRef.current;
+      if (video) {
+        try {
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+        } catch { /* régi motor */ }
+      }
+      playbackStartedRef.current = false;
+      setIsLoading(false);
+      setIsPlaying(false);
+      return;
+    }
     if (primaryUrl) {
       loadStreamRef.current(primaryUrl);
     }
@@ -1960,7 +2162,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       clearAutoRetry(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadKey, clearAutoRetry, clearBufferWatchdog, settings.streamFormat]);
+  }, [loadKey, clearAutoRetry, clearBufferWatchdog, settings.streamFormat, playbackActive]);
 
   // Play/pause: natív hídon vagy LG webOS HTML5 videón keresztül.
   const togglePlay = () => {
@@ -2481,6 +2683,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         />
       )}
 
+      {/* Szolgáltatói felirat (CC) – a kép fölött, az OSD alatt. */}
+      {isVod && vodSubtitleCues.length > 0 && (
+        <SubtitleOverlay
+          cues={vodSubtitleCues}
+          videoRef={htmlVideoRef}
+          scalePercent={Number(String(settings.subtitleSize || '100%').replace('%', '')) || 100}
+          raised={showControlsOverlay}
+        />
+      )}
+
       {/*
         Hover / koppintásra megjelenő OSD. Elrejtéskor nem csak áttetsző:
         a láthatatlan gombok sem foghatják el a koppintást (különben nem
@@ -2508,7 +2720,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             volume={volume}
             seekStep={settings.seekStep}
             audioTracks={vodAudioTracks}
-            subtitleTracks={vodSubtitleTracks}
+            subtitleTracks={availableVodSubtitleTracks}
             activeSubtitleId={activeVodSubtitleId}
             menu={vodTrackMenu}
             onMenuChange={setVodTrackMenu}
