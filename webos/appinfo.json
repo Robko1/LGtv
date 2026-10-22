@@ -5,7 +5,7 @@
   "type": "web",
   "main": "index.html",
   "title": "TV",
-  "icon": "icon-rt2.png",
+  "icon": "largeIcon-rt2.png",
   "largeIcon": "largeIcon-rt2.png",
   "iconColor": "#00BFFF",
   "bgColor": "#000000",
