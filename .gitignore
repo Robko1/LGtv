@@ -1,4 +1,6 @@
 # Építési melléktermékek
+__pycache__/
+*.pyc
 build/
 node_modules/
 web/node_modules/

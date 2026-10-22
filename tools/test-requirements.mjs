@@ -372,3 +372,51 @@ test('5. a rejtett csatornalista nem dolgozza fel a gombokat', () => {
   const list = read('web/src/components/ChannelList.tsx');
   assert.match(list, /host\.closest\('\[data-view-hidden\]'\)/, 'a rejtett lista kilép a gombkezelésből');
 });
+
+/* ────────── webOS ES5 őr (a CI 6. lépésének szabálya) ────────── */
+
+/*
+ * A `webos/webos.js` a régi LG TV-ken (Chrome 38–53) fut, ezért TILOS benne
+ * modern szintaxis: nyíl-függvény, template string (backtick), `catch {`,
+ * `let`/`const`. A CI 6. lépése pontosan ezt greppeli – és a 2.5.16 build
+ * el is hasalt rajta, mert egy MAGYARÁZÓ megjegyzésbe backtick került.
+ *
+ * A szabály most itt is fut, hogy a hiba már a `npm test` alatt kiderüljön
+ * (a CI-ban ez az 5b lépés), ne a csomagolásnál.
+ */
+test('6. a webos.js szigorúan ES5 (nincs =>, backtick, catch {, let/const)', () => {
+  const lines = read('webos/webos.js').split('\n');
+  const bad = [];
+  lines.forEach((line, index) => {
+    if (/=>|`|catch \{|catch\{|^[ \t]*(let|const) |[;{(=] ?(let|const) /.test(line)) {
+      bad.push(`  ${index + 1}. sor: ${line.trim()}`);
+    }
+  });
+  assert.deepEqual(bad, [], `modern JS szintaxis a webos.js-ben:\n${bad.join('\n')}`);
+});
+
+test('6. a CI 6. lépésének minden forrás-őre teljesül', () => {
+  const webos = read('webos/webos.js');
+  assert.match(read('web/src/services/webosUpdateService.ts'),
+    /https:\/\/api\.github\.com\/repos\/Robko1\/LGtv\/releases\/latest/);
+  for (const marker of ['normalizeKey', 'focusSpatially', 'KEYCODE_TO_KEY', 'makeKeyEvent']) {
+    assert.ok(webos.includes(marker), `hiányzó jelölő a webos.js-ben: ${marker}`);
+  }
+  // Más platformra utaló kód nem lehet a webOS forrásban.
+  const platform = [];
+  for (const rel of ['web/src', 'web/index.html']) {
+    const full = path.join(ROOT, rel);
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else if (/\.(ts|tsx|js|jsx|css|html)$/.test(entry.name)) platform.push(p);
+      }
+    };
+    const st = fs.statSync(full);
+    if (st.isDirectory()) walk(full); else platform.push(full);
+  }
+  const offenders = platform.filter((file) => /IPTVNative|Android|WebView|\.apk/i.test(fs.readFileSync(file, 'utf8')))
+    .map((file) => path.relative(ROOT, file));
+  assert.deepEqual(offenders, [], `más platformra utaló kód: ${offenders.join(', ')}`);
+});
