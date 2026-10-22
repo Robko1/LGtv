@@ -45,11 +45,14 @@ export interface ImportedContent {
 }
 
 const LIVE_KEY = 'content-live';
+const LIVE_META_KEY = 'content-live-meta';
 const VOD_KEY = 'content-vod';
 const SERIES_KEY = 'content-series';
 const VOD_META_KEY = 'content-vod-meta';
 const SERIES_META_KEY = 'content-series-meta';
 const CHUNK_SIZE = 400;
+const LIVE_CHUNK_PREFIX = 'content-live-chunk-';
+const LIVE_GENERATION_PREFIX = 'content-live-chunk-v1-';
 const VOD_CHUNK_PREFIX = 'content-vod-chunk-';
 const SERIES_CHUNK_PREFIX = 'content-series-chunk-';
 const VOD_GENERATION_PREFIX = 'content-vod-chunk-v2-';
@@ -75,6 +78,16 @@ interface LivePart {
   totals: { live: number; vod: number; series: number };
   cats: Row[];
   rows: Row[];
+}
+
+interface LiveChunkMeta {
+  v: 1;
+  provider: ProviderRef;
+  savedAt: string;
+  totals: { live: number; vod: number; series: number };
+  cats: Row[];
+  chunks: number;
+  chunkPrefix: string;
 }
 
 interface VodPart {
@@ -389,14 +402,41 @@ function hungarianFirstForSave(channels: Channel[]): Channel[] {
 }
 
 export function saveLiveContent(content: ImportedContent): void {
-  write(LIVE_KEY, {
+  // A teljes csatornalista egyetlen localStorage-kulcsban könnyen túllépi a
+  // böngésző kvótáját. Adagokban mentünk, és csak a teljes siker után váltunk
+  // az új generációra; megszakadt mentéskor a korábbi cache érvényes marad.
+  const channels = hungarianFirstForSave(content.channels);
+  const chunkCount = Math.ceil(channels.length / CHUNK_SIZE);
+  const generationPrefix = LIVE_GENERATION_PREFIX + Date.now() + '-' + (++writeSequence) + '-';
+  const previousKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
+
+  for (let index = 0; index < chunkCount; index++) {
+    const rows = encodeChannels(channels.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE));
+    if (!write(generationPrefix + index, { rows })) {
+      for (let cleanup = 0; cleanup < chunkCount; cleanup++) backend.remove(generationPrefix + cleanup);
+      appLog('Élő csatornák adagolt mentése nem sikerült (' + (index + 1) + '/' + chunkCount + '); a korábbi cache marad érvényben.');
+      return;
+    }
+  }
+
+  const meta: LiveChunkMeta = {
     v: 1,
     provider: content.provider,
     savedAt: content.savedAt,
     totals: content.totals,
     cats: encodeCategories(content.liveCategories),
-    rows: encodeChannels(hungarianFirstForSave(content.channels)),
-  } satisfies LivePart);
+    chunks: chunkCount,
+    chunkPrefix: generationPrefix,
+  };
+  if (!write(LIVE_META_KEY, meta)) {
+    for (let index = 0; index < chunkCount; index++) backend.remove(generationPrefix + index);
+    appLog('Élő csatornák cache-fejlécének mentése nem sikerült; a korábbi cache marad érvényben.');
+    return;
+  }
+
+  backend.remove(LIVE_KEY);
+  for (const key of previousKeys) backend.remove(key);
+  appLog('Élő csatornák elmentve: ' + channels.length + ' elem, ' + chunkCount + ' adag, tároló=' + backend.name);
 }
 
 /* ----------------------------------------------- adagolt (chunked) mentés */
@@ -600,15 +640,17 @@ export interface StoredSummary {
 }
 
 export function readSummary(): StoredSummary | null {
-  const raw = backend.get(LIVE_KEY);
+  const metaRaw = backend.get(LIVE_META_KEY);
+  const raw = metaRaw || backend.get(LIVE_KEY);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as LivePart;
+    const parsed = JSON.parse(raw) as LiveChunkMeta | LivePart;
     if (!parsed || !parsed.provider) return null;
+    const legacyRows = 'rows' in parsed ? parsed.rows : [];
     return {
       provider: parsed.provider,
       savedAt: parsed.savedAt || '',
-      totals: parsed.totals || { live: parsed.rows?.length || 0, vod: 0, series: 0 },
+      totals: parsed.totals || { live: legacyRows?.length || 0, vod: 0, series: 0 },
     };
   } catch {
     return null;
@@ -631,6 +673,41 @@ export function loadLive(): LoadedLive {
     provider: null,
     totals: { live: 0, vod: 0, series: 0 },
   };
+  const metaRaw = backend.get(LIVE_META_KEY);
+  if (metaRaw) {
+    try {
+      const meta = JSON.parse(metaRaw) as LiveChunkMeta;
+      if (meta.provider && Number.isFinite(meta.chunks) && meta.chunks >= 0) {
+        const channels: Channel[] = [];
+        let missing = 0;
+        for (let index = 0; index < meta.chunks; index++) {
+          const rawChunk = backend.get(meta.chunkPrefix + index);
+          if (!rawChunk) { missing++; continue; }
+          try {
+            const parsedChunk = JSON.parse(rawChunk) as { rows?: Row[] };
+            if (Array.isArray(parsedChunk.rows)) channels.push(...decodeChannels(parsedChunk.rows, meta.provider));
+            else missing++;
+          } catch {
+            missing++;
+          }
+        }
+        if (missing) appLog('Élő csatornalista: ' + missing + '/' + meta.chunks + ' adag hiányzik a cache-ből.');
+        if (channels.length || meta.chunks === 0) {
+          return {
+            channels,
+            categories: decodeCategories(meta.cats, 'live'),
+            savedAt: meta.savedAt || '',
+            provider: meta.provider,
+            totals: meta.totals || { live: channels.length, vod: 0, series: 0 },
+          };
+        }
+      }
+    } catch (error) {
+      appLogError('Élő lista adagolt fejlécének feldolgozása', error);
+    }
+  }
+
+  // Kompatibilitás a korábbi, egyetlen kulcsba mentett cache-sel.
   const raw = backend.get(LIVE_KEY);
   if (!raw) return empty;
   try {
@@ -648,64 +725,6 @@ export function loadLive(): LoadedLive {
   }
 }
 
-/** Régi, egykulcsos film lista (visszafelé kompatibilitás). */
-function loadLegacyVod(provider: ProviderRef): { movies: Movie[]; categories: Category[] } {
-  const raw = backend.get(VOD_KEY);
-  if (!raw) return { movies: [], categories: [] };
-  try {
-    const parsed = JSON.parse(raw) as VodPart;
-    return {
-      movies: decodeMovies(parsed.rows, provider),
-      categories: decodeCategories(parsed.cats, 'movie'),
-    };
-  } catch (error) {
-    appLogError('Régi filmlista betöltése', error);
-    return { movies: [], categories: [] };
-  }
-}
-
-function loadLegacySeries(provider: ProviderRef): { series: Series[]; categories: Category[] } {
-  const raw = backend.get(SERIES_KEY);
-  if (!raw) return { series: [], categories: [] };
-  try {
-    const parsed = JSON.parse(raw) as SeriesPart;
-    return {
-      series: decodeSeries(parsed.rows, provider),
-      categories: decodeCategories(parsed.cats, 'series'),
-    };
-  } catch (error) {
-    appLogError('Régi sorozatlista betöltése', error);
-    return { series: [], categories: [] };
-  }
-}
-
-/** Filmek betöltése (szinkron, kis listához és tesztekhez). */
-export function loadVod(provider: ProviderRef): { movies: Movie[]; categories: Category[] } {
-  const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX);
-  if (!meta) return loadLegacyVod(provider);
-  const movies: Movie[] = [];
-  let offset = 0;
-  const missing: number[] = [];
-  for (let index = 0; index < meta.chunks; index++) {
-    const rows = meta.readChunk(index);
-    if (rows.length === 0) missing.push(index);
-    movies.push(...decodeMovies(rows, provider, offset));
-    offset += rows.length;
-  }
-  if (missing.length) {
-    appLog(`Filmlista: ${missing.length}/${meta.chunks} adag hiányzott (${missing.slice(0, 6).join(', ')}).`);
-  }
-  const categories = readChunkedCategories(VOD_META_KEY, 'movie');
-  if (movies.length === 0) return loadLegacyVod(provider);
-  return { movies, categories };
-}
-
-/**
- * Filmek betöltése adagonként, a felületnek visszaadott vezérléssel.
- *
- * Ez a hivatalos útvonal induláskor: több tízezer filmnél a egyetlen nagy
- * feldolgozás korábban másodpercekre megfagyasztotta a böngészőfelületet.
- */
 export async function loadVodAsync(
   provider: ProviderRef,
   onProgress?: (loaded: number, total: number) => void
@@ -799,6 +818,8 @@ export async function loadSeriesAsync(
 
 export function clearContent(): void {
   backend.remove(LIVE_KEY);
+  backend.remove(LIVE_META_KEY);
+  for (const key of readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX)) backend.remove(key);
   backend.remove(VOD_KEY);
   backend.remove(SERIES_KEY);
   for (const key of readChunkKeys(VOD_META_KEY, VOD_CHUNK_PREFIX)) backend.remove(key);
