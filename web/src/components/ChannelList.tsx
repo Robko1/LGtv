@@ -1021,6 +1021,17 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         } else {
                           onSelectChannel(ch);
                         }
+                      } else if (key === 'ArrowRight') {
+                        // JOBBRA: a sor jobb szélén lévő KEDVENC-CSILLAGRA
+                        // lépünk (külön kijelölhető elem).
+                        const star = (e.currentTarget as HTMLElement)
+                          .querySelector<HTMLElement>('[data-favorite-star]');
+                        if (star) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setHighlightedId(ch.id);
+                          star.focus({ preventScroll: true } as FocusOptions);
+                        }
                       }
                     }}
                     className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none touch-pan-y focus:outline-none ${
@@ -1099,14 +1110,36 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         Kattintásra ugyanazt teszi, mint az OSD csillaga.
                         A távirányítós kijelölést nem zavarja (tabIndex -1).
                       */}
-                      {onToggleFavorite && movingChannelId !== ch.id && (
+                      {movingChannelId !== ch.id && (
                         <button
                           type="button"
-                          tabIndex={-1}
-                          data-tv-skip=""
+                          tabIndex={0}
+                          data-favorite-star={ch.id}
+                          /*
+                            A csillag KÜLÖN kijelölhető (a felhasználó kérése):
+                            a sor jobb szélén a távirányítóval is rá lehet lépni
+                            (jobbra a sorból), és az OK-ra ELŐBB a kedvenc
+                            mappaválasztó ugrik fel – csak utána kerül a
+                            csatorna a mappába.
+                          */
                           onClick={(e) => {
                             e.stopPropagation();
-                            onToggleFavorite(ch.id);
+                            setMovingChannelId(null);
+                            setFavoritePickChannelId(ch.id);
+                          }}
+                          onKeyDown={(e) => {
+                            const key = normalizeTvKey(e);
+                            if (key === 'Enter' || key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setMovingChannelId(null);
+                              setFavoritePickChannelId(ch.id);
+                            } else if (key === 'ArrowLeft') {
+                              // Balra vissza a csatornasorra.
+                              e.preventDefault();
+                              e.stopPropagation();
+                              focusChannelRow(ch.id);
+                            }
                           }}
                           onPointerDown={(e) => e.stopPropagation()}
                           className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-xl border transition-all active:scale-90 ${
@@ -1206,7 +1239,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                 {folders.length === 0 ? (
                   <p className="text-sm text-slate-400 leading-relaxed">
                     Még nincs kedvenc mappa. Hozz létre egyet a Menü → Kedvencek fülön,
-                    utána a SÁRGA gombbal ide tudod tenni a csatornákat.
+                    utána a csatornasor jobb szélén lévő ⭐ gombbal ide tudod tenni a csatornákat.
                   </p>
                 ) : folders.map((folder) => (
                   <button
@@ -1222,6 +1255,18 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                   </button>
                 ))}
               </div>
+              {channel?.isFavorite && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleFavorite(channel.id);
+                    close();
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-rose-950/50 border border-rose-700/60 text-rose-300 text-sm font-bold hover:bg-rose-900/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                >
+                  Eltávolítás a kedvencekből
+                </button>
+              )}
               <button
                 type="button"
                 onClick={close}

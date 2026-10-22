@@ -294,6 +294,11 @@ export function App() {
   }));
   // VOD bezárásakor ugyanahhoz a könyvtárnézethez és kategóriához térünk vissza.
   const vodReturnViewRef = useRef<'movies' | 'series'>('movies');
+  /**
+   * A LEGUTÓBB INDÍTOTT FILM/EPIZÓD – ide tér vissza a fókusz a lejátszó
+   * bezárásakor (a felhasználó kérése: „a kiválasztás helyére ugorjon”).
+   */
+  const lastVodSelectionRef = useRef<{ view: 'movies' | 'series'; cardId: string; episodeId?: string } | null>(null);
   const movieCategoryRef = useRef('all');
   const seriesCategoryRef = useRef('all');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() =>
@@ -1724,6 +1729,7 @@ export function App() {
   // Play Movie in Main Video Player
   const handlePlayMovie = useCallback((movie: Movie) => {
     vodReturnViewRef.current = 'movies';
+    lastVodSelectionRef.current = { view: 'movies', cardId: String(movie.id) };
     setNextEpisodeToPlay(null);
     setCustomStreamUrl(movie.streamUrl);
     setCustomStreamTitle(movie.title);
@@ -1753,6 +1759,7 @@ export function App() {
   // Play Series Episode in Main Video Player
   const handlePlayEpisode = useCallback((ser: Series, episode: Episode) => {
     vodReturnViewRef.current = 'series';
+    lastVodSelectionRef.current = { view: 'series', cardId: String(ser.id), episodeId: String(episode.id) };
     const season = ser.seasons.find((s) => s.seasonNumber === episode.seasonNumber);
     const nextEpisode = season?.episodes.find((ep) => ep.episodeNumber === episode.episodeNumber + 1) || null;
     setNextEpisodeToPlay(nextEpisode ? { series: ser, episode: nextEpisode } : null);
@@ -1815,22 +1822,48 @@ export function App() {
    * Most csak akkor fut le, ha maga a stream vagy a lista változik.
    */
   const currentVodTracks = useMemo(() => {
-    if (!customStreamUrl) return { audioTracks: undefined, subtitleTracks: undefined };
+    if (!customStreamUrl) return { audioTracks: undefined, subtitleTracks: undefined, subtitleSource: null };
+    /*
+     * A szolgáltatói FELIRAT (CC) kereséshez kellenek a film/epizód azonosítói.
+     * Xtream esetén ezek a stream URL-ből is kiolvashatók:
+     *   …/movie/<user>/<pass>/<vodId>.<ext>
+     *   …/series/<user>/<pass>/<episodeId>.<ext>
+     */
+    const provider = activeProvider;
+    const providerBase = provider && provider.type === 'xtream' && provider.serverUrl && provider.username && provider.password
+      ? { serverUrl: provider.serverUrl, username: provider.username, password: provider.password }
+      : null;
+    const idFromUrl = (url: string) => {
+      const clean = String(url || '').split(/[?#]/)[0];
+      const last = clean.split('/').filter(Boolean).pop() || '';
+      return last.replace(/\.[a-z0-9]+$/i, '');
+    };
+
     const movie = movies.find((item) => item.streamUrl === customStreamUrl);
     if (movie) {
-      return { audioTracks: movie.audioTracks, subtitleTracks: movie.subtitleTracks };
+      return {
+        audioTracks: movie.audioTracks,
+        subtitleTracks: movie.subtitleTracks,
+        subtitleSource: providerBase ? { ...providerBase, vodId: movie.streamId ?? idFromUrl(movie.streamUrl) } : null,
+      };
     }
     for (const item of series) {
       for (const season of item.seasons) {
         for (const episode of season.episodes) {
           if (episode.streamUrl === customStreamUrl) {
-            return { audioTracks: episode.audioTracks, subtitleTracks: episode.subtitleTracks };
+            return {
+              audioTracks: episode.audioTracks,
+              subtitleTracks: episode.subtitleTracks,
+              subtitleSource: providerBase
+                ? { ...providerBase, seriesId: item.seriesId, episodeId: idFromUrl(episode.streamUrl) }
+                : null,
+            };
           }
         }
       }
     }
-    return { audioTracks: undefined, subtitleTracks: undefined };
-  }, [customStreamUrl, movies, series]);
+    return { audioTracks: undefined, subtitleTracks: undefined, subtitleSource: null };
+  }, [customStreamUrl, movies, series, activeProvider]);
 
   /** Az előzmény mentésének legutóbbi időpontja (lásd handlePlaybackProgress). */
   const lastHistorySaveAtRef = useRef(0);
@@ -2281,6 +2314,9 @@ export function App() {
             channel={activeChannel}
             customStreamUrl={customStreamUrl}
             customTitle={customStreamTitle}
+            /* Élő adás csak a főoldalon (élő nézetben) indul – Mozi/Sorozat
+               nézetben a háttérben sem kép, sem hang nem megy. */
+            playbackActive={activeView === 'live'}
             onCloseVod={() => {
               // Az OSD piros X-e bezárja a VOD-lejátszót; az App saját
               // teljes képernyős állapotát is azonnal vissza kell állítani,
@@ -2291,14 +2327,31 @@ export function App() {
               setIsVideoFullscreen(false);
               setCustomStreamUrl(undefined);
               setCustomStreamTitle(undefined);
-              setActiveView(vodReturnViewRef.current);
+              const returnView = vodReturnViewRef.current;
+              setActiveView(returnView);
               setIsPlaying(false);
               setNextEpisodeToPlay(null);
+              /*
+               * VISSZATÉRÉS A KIVÁLASZTÁSHOZ: az OSD bezárásakor a fókusz a
+               * lejátszott film poszterére (sorozatnál az epizód sorára) lép,
+               * nem pedig a semmire. Így a távirányítóval azonnal onnan
+               * folytatható a böngészés, ahonnan a filmet elindítottuk.
+               */
+              const selection = lastVodSelectionRef.current;
+              window.setTimeout(() => {
+                const scope = document.querySelector<HTMLElement>(`[data-view-pane="${returnView}"]`) || document;
+                const target =
+                  (selection?.episodeId ? scope.querySelector<HTMLElement>(`[data-vod-episode="${selection.episodeId}"]`) : null)
+                  || scope.querySelector<HTMLElement>('[data-dialog-primary]')
+                  || (selection ? scope.querySelector<HTMLElement>(`[data-vod-card="${selection.cardId}"]`) : null);
+                try { target?.focus({ preventScroll: false }); } catch { target?.focus(); }
+              }, 60);
             }}
             initialPositionSeconds={initialPlaybackPosition}
             onProgress={handlePlaybackProgress}
             audioTracks={currentVodTracks.audioTracks}
             subtitleTracks={currentVodTracks.subtitleTracks}
+            subtitleSource={currentVodTracks.subtitleSource}
             settings={settings}
             onNextChannel={handleNextChannel}
             onPrevChannel={handlePrevChannel}

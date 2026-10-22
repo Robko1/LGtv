@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.5.24';
+export const WEB_VERSION = '2.5.25';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.25',
+    date: '2026-10-22',
+    changes: [
+      'MOZI / SOROZAT – HANGSÁV-VÁLTÁS: az AUDIO gomb ugyanazt a bevált logikát használja, mint az élő TV – ha a TV nem veszi át azonnal, a lejátszó újranyitja a forrást, és a film pontosan ott folytatódik, ahol tartott',
+      'MOZI / SOROZAT – FELIRAT (CC): a szolgáltató saját feliratait is felkínálja (Xtream film- és epizód-információ), a muxolt feliratokkal egy listában; a kiválasztott feliratot a lejátszó maga rajzolja ki, így a régebbi webOS készülékeken is látszik',
+      'A felirat alapból MAGYAR, ha van magyar változat; a Beállítások → Mozi & Sorozat „Alap felirat” értéke érvényesül',
+      'TÜKRÖZÉS: a főoldali Menü is a BAL oldalon nyílik ki, nem csak a többi panel',
+      'MOZI / SOROZAT nézetben az élő TV teljesen leáll a háttérben – sem kép, sem hang nem szólal meg; a film bezárása után a kiválasztás helyére lép vissza',
+      'A jobb oldali csatornalistában a mappasávból FELFELÉ az Országok gombra lehet lépni, onnan LEFELÉ pedig vissza a listára',
+      'A csatornasor melletti CSILLAG külön fókuszálható (a sorból JOBBRA lépve); megnyomásakor előbb a kedvenc-mappaválasztó ugrik fel, és onnan a csatorna kivehető a kedvencekből',
+      'A SÁRGA (teletext) gomb mostantól a QR-kódos hibakijelző / diagnosztika ablakot nyitja; a PIROS gomb marad a tükrözés',
+    ],
+  },
   {
     version: '2.5.24',
     date: '2026-10-22',

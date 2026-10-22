@@ -774,8 +774,10 @@
       e.stopPropagation();
       // PIROS / Record (403) = TÜKRÖZÖTT elrendezés be/ki (a felhasználó
       // kérésére); ZÖLD (404) = hangsáv (teljes képernyőn is);
-      // SÁRGA (405) = kedvenc; KÉK (406) = csatornamozgatás mód a listában.
-      var tvAction = kc === 403 ? 'mirror' : (kc === 404 ? 'audio' : (kc === 405 ? 'favorite' : 'move'));
+      // SÁRGA (405) = HIBAKIJELZŐ felugró QR-kóddal (ezt a funkciót kérte
+      // ide a felhasználó – korábban a PIROS gombon volt);
+      // KÉK (406) = csatornamozgatás mód a listában.
+      var tvAction = kc === 403 ? 'mirror' : (kc === 404 ? 'audio' : (kc === 405 ? 'diagnostic-share' : 'move'));
       var evAction = null;
       try {
         evAction = new CustomEvent('iptv-tv-action', { detail: { action: tvAction } });
@@ -1174,10 +1176,13 @@
         }
 
         if (key === 'ArrowDown') {
-          // LEFELÉ KIZÁRÓLAG a Beállításokról: onnan a kedvencek mappasávjára,
-          // onnan a csatornalista 1. sorára. A Mozi/Sorozat/Országok/X gombokról
-          // NEM lehet lefelé menni (a kijelölő nem ugorhat a lejátszóra/OSD-re).
-          if (kind !== 'settings') return;
+          // LEFELÉ a Beállításokról és az ORSZÁGOKRÓL: a kedvencek mappasávjára,
+          // onnan a csatornalista 1. sorára. Az Országok gomb közvetlenül a
+          // csatornalista fölött van, ezért innen is le kell tudni lépni
+          // (a felhasználó kérése: „az országokról le-felé is”).
+          // A Mozi/Sorozat/X gombokról NEM lehet lefelé menni (a kijelölő nem
+          // ugorhat a lejátszóra/OSD-re).
+          if (kind !== 'settings' && kind !== 'countries') return;
           // Beállítások → lefelé → Kedvencek mappasáv → lefelé → első csatorna.
           if (folderItems.length) {
             focusAndReveal(folderItems[0]);
@@ -1203,7 +1208,18 @@
         } else if (key === 'ArrowLeft') {
           if (folderItems.length) focusAndReveal(folderItems[Math.max(0, (fi < 0 ? folderItems.length : fi) - 1)]);
         } else if (key === 'ArrowUp') {
-          focusAndReveal(headerDefault || headerItems[headerItems.length - 1]);
+          /*
+           * FELFELÉ a TÉRBEN felette lévő fejléc-gombra lépünk (a mappasáv
+           * fölött az „Országok” van), nem pedig mindig a menüsor utolsó
+           * elemére. Így a jobb oldali csatornalistából fel lehet lépni az
+           * Országokra, onnan pedig lefelé vissza a listára.
+           */
+          var aboveItems = headerItems.filter(function(el) { return el !== focusedNow; });
+          // A spatialPick maga helyezi a fókuszt; csak akkor lépünk a
+          // tartalékra, ha térben nem talált felette semmit.
+          if (!spatialPick(focusedNow, 'ArrowUp', aboveItems)) {
+            focusAndReveal(headerDefault || headerItems[headerItems.length - 1]);
+          }
         } else if (key === 'ArrowDown') {
           // A mappasávból lefelé AZ ELSŐ CSATORNASOR következik.
           // Korábban itt focusAndReveal(listEl) állt: az egész listadoboz

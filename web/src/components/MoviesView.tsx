@@ -257,7 +257,10 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
           /* 5 NAGY poszter egy sorban (a korábbi 8 kicsi helyett). */
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5 gap-3 md:gap-4 lg:gap-4 xl:gap-5">
             {visibleMovies.map((mov) => (
-              <div key={mov.id} role="button" tabIndex={0} onClick={() => setSelectedMovie(mov)}
+              <div key={mov.id} role="button" tabIndex={0}
+                /* A film lejátszásának bezárásakor IDE tér vissza a fókusz. */
+                data-vod-card={String(mov.id)}
+                onClick={() => setSelectedMovie(mov)}
                 onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovie(mov); } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
