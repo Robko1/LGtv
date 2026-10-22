@@ -1842,8 +1842,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (isVod || isFullscreen) return;
 
     let frame1 = 0;
-    let frame2 = 0;
-    let frame3 = 0;
     const settleTimers: number[] = [];
     const syncMainPageLayout = () => {
       if (isFullscreen) return;
@@ -1877,27 +1875,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         maxWidth: 'none',
         maxHeight: 'none',
         aspectRatio: 'auto',
-        // A főoldali élő videó tartsa meg a forrás képarányát, mint a referencia-lejátszó.
-        objectFit: 'contain',
+        // A főoldali élő videó KITÖLTSE a keretet (nincs üres sáv), de
+        // tartsa meg a forrás képarányát (nincs torzítás): a `cover`
+        // pontosan ezt teszi, a `contain` üres sávot hagyna.
+        objectFit: 'cover',
       });
-      // Kényszerített újramérés a webOS Chromium későn frissülő videórétegéhez.
+      // Egyetlen kényszerített újramérés a webOS Chromium későn frissülő
+      // videórétegéhez. A korábbi két egymást követő mérés ugyanazt a
+      // kényszerített elrendezést verte ki – a második felesleges volt.
       void container.offsetHeight;
-      void video.getBoundingClientRect().width;
     };
+    /*
+     * Teljesítmény: minden csatornaváltáskor NINEZ kényszerített
+     * újramérés futott (4 időzítő + 4 animációs kép), és mindegyik
+     * újrarajzolta a teljes 16:9-es keretet. Ez feleslegesen lassította a
+     * csatornaváltást a tévén.
+     *
+     * Most: egy azonnali szinkron, egy animációs kép (a böngésző akkor
+     * végzi el az elrendezést) és EGY időzítő késői elrendezés-változásra.
+     * A ResizeObserver szintén csak akkor hívja meg, ha tényleg változott a
+     * méret – nem minden képkockánál.
+     */
     const syncAfterLayout = () => {
       syncMainPageLayout();
       frame1 = window.requestAnimationFrame(() => {
         syncMainPageLayout();
-        frame2 = window.requestAnimationFrame(() => {
-          syncMainPageLayout();
-          frame3 = window.requestAnimationFrame(syncMainPageLayout);
-        });
       });
       settleTimers.forEach((timer) => window.clearTimeout(timer));
       settleTimers.length = 0;
-      [80, 180, 350, 600].forEach((delay) => {
-        settleTimers.push(window.setTimeout(syncMainPageLayout, delay) as unknown as number);
-      });
+      settleTimers.push(window.setTimeout(syncMainPageLayout, 250) as unknown as number);
     };
 
     syncAfterLayout();
@@ -1914,8 +1920,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => {
       observer?.disconnect();
       window.cancelAnimationFrame(frame1);
-      window.cancelAnimationFrame(frame2);
-      window.cancelAnimationFrame(frame3);
       settleTimers.forEach((timer) => window.clearTimeout(timer));
       window.removeEventListener('resize', syncAfterLayout);
       window.removeEventListener('orientationchange', syncAfterLayout);
@@ -1925,34 +1929,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isFullscreen, isVod, streamUrl]);
 
+  /**
+   * Teljes képernyő: PURE CSS-ÁTFEDÉS, soha nem a böngésző Fullscreen API-ja.
+   *
+   * A referenciához (sharktie/lg-iptv) igazodva a teljes képernyő ugyanaz az
+   * oldal, ugyanaz a <video> elem és ugyanaz a stream: csak a `body`
+   * osztálya és a konténer mérete változik. Nincs új oldal, nincs új
+   * kapcsolat, nincs új dekóler – a váltás azonnali.
+   *
+   * A natív Fullscreen API webOS-on két okból rossz:
+   *   • az 5.40-es webOS-on félig tölti ki a képernyőt a videó, és a GUI
+   *     látható marad, miközben a teljes képernyőt JELENTI – vagyis
+   *     nem kimutatható és nem mérhető;
+   *   • a Chromium :fullscreen UA stíluslapja `transform: none !important`
+   *     kényszerít a teljes képernyős elemre, ami újraépíti a videó
+   *     kompozíciós rétegét és NULLÁZZA a hardveres dekódolót (a lejátszás
+   *     ~10 mp után "nem játszik" hibával leáll).
+   * A CSS-átfedés csak a pozíciót és a méretet változtatja, így a
+   * videóréteg sosem épül újra.
+   */
   const toggleFullscreen = () => {
     const container = containerRef.current;
     if (!container) return;
 
-    // LG webOS-en a videó a webes konténerben van, ezért a böngésző Fullscreen API-ja
-    // közvetlenül a videó elrendezését kezeli. A webes konténert
-    // méretezzük teljes képernyőre, és a bounds effect követi a natív képet.
-    if (nativeHandoff) {
-      // Natív kép: a webes konténer lesz teljes képernyős, a natív videó
-      // téglalapja a videóelemhez igazodik. Az OSD ilyenkor is ugyanaz a
-      // kezelőfelület marad (nem váltunk más kinézetre).
-      setIsFullscreen((previous) => !previous);
-      setShowControlsOverlay(true);
-      return;
-    }
-
-    if (!document.fullscreenElement) {
-      const request = container.requestFullscreen?.();
-      if (request) request.then(() => setIsFullscreen(true)).catch(() => {
-        // Fullscreen API hiányában is legyen használható a teljes képernyős nézet.
-        setIsFullscreen(true);
-      });
-      else setIsFullscreen(true);
-    } else {
-      const exit = document.exitFullscreen?.();
-      if (exit) exit.then(() => setIsFullscreen(false)).catch(() => setIsFullscreen(false));
-      else setIsFullscreen(false);
-    }
+    // Natív kép (a webOS hardveres lejátszója): a webes konténer lesz
+    // teljes képernyős, a natív videó téglalapja a videóelemhez igazodik.
+    // Az OSD ilyenkor is ugyanaz a kezelőfelület marad.
+    setIsFullscreen((previous) => !previous);
+    setShowControlsOverlay(true);
   };
 
   // Csatornaváltás csak egyértelmű, határozott függőleges húzásra történik – érintés + egér húzás
@@ -2045,9 +2049,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={htmlVideoRef}
             data-iptv-player="true"
             className="block h-full w-full bg-black"
-            // Élő TV-n a főoldali keretben is a teljes kép látszódjon, torzítás nélkül.
-            // A VOD teljes képernyős viselkedését változatlanul hagyjuk.
-            style={{ objectFit: isVod && isFullscreen ? 'fill' : 'contain' }}
+            // Élő TV: a kép KITÖLTI a területet (nincs üres sáv) és megtartja
+            // a stream saját arányát (nincs torzítás) – a `cover` vágja
+            // le a kilógó részt. A VOD viselkedését változatlanul hagyjuk.
+            style={{ objectFit: isVod ? (isFullscreen ? 'fill' : 'contain') : 'cover' }}
             playsInline
             preload="auto"
             onPlaying={(event) => {

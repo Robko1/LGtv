@@ -5,7 +5,8 @@
   "type": "module",
   "description": "IPTV R.T – kizárólag LG webOS TV IPK",
   "scripts": {
-    "smoke": "node tools/smoke-test.mjs build/webos/index.html"
+    "smoke": "node tools/smoke-test.mjs build/webos/index.html",
+    "test": "node --test tools/test-requirements.mjs"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"
