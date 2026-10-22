@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.25';
+export const WEB_VERSION = '2.5.26';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.25',
+    version: '2.5.26',
     date: '2026-10-22',
     changes: [
       'MOZI / SOROZAT – HANGSÁV-VÁLTÁS: az AUDIO gomb ugyanazt a bevált logikát használja, mint az élő TV – ha a TV nem veszi át azonnal, a lejátszó újranyitja a forrást, és a film pontosan ott folytatódik, ahol tartott',
