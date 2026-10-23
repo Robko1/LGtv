@@ -171,6 +171,39 @@ async function lookupTmdbPoster(title: string, kind: PosterKind): Promise<string
   }
 }
 
+
+/**
+ * Háttérbeli, nem tartós poszter-előtöltés. Csak a képcímet oldja fel
+ * (szolgáltatói URL vagy TMDB-találat), majd elengedi az Image objektumot;
+ * a képfájlokat nem írja külön localStorage-ba.
+ */
+export async function preloadPosterImage(
+  src: string | null | undefined,
+  title: string,
+  kind: PosterKind,
+): Promise<void> {
+  let imageUrl = typeof src === 'string' ? src.trim() : '';
+  if (!imageUrl) imageUrl = (await lookupTmdbPoster(title, kind)) || '';
+  if (!imageUrl) return;
+
+  await new Promise<void>((resolve) => {
+    const image = new Image();
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      image.onload = null;
+      image.onerror = null;
+      resolve();
+    };
+    image.decoding = 'async';
+    image.onload = finish;
+    image.onerror = finish;
+    image.src = imageUrl;
+    if (image.complete) finish();
+  });
+}
+
 export const PosterSettingsButton: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [apiKey, setApiKey] = useState(() => {
