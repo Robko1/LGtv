@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Film, Tv, Layers, Clock, Settings, X } from 'lucide-react';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
+import { normalizeTvKey } from '../utils/tvKeys';
 
 interface HeaderProps {
   activeView: 'live' | 'movies' | 'series';
@@ -51,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   // TV / Sorozatok / Mozi fülek közti vízszintes távirányítós navigáció.
   const handleHeaderDpad = (event: React.KeyboardEvent<HTMLButtonElement>, current: 'live' | 'series' | 'movies') => {
-    const key = event.key === 'Left' ? 'ArrowLeft' : event.key === 'Right' ? 'ArrowRight' : event.key;
+    const key = normalizeTvKey(event);
     if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
     const order: Array<'live' | 'series' | 'movies'> = ['live', 'series', 'movies'];
     const index = order.indexOf(current);
