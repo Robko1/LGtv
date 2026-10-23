@@ -1085,10 +1085,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [activeVodSubtitleId, setActiveVodSubtitleId] = useState<string | number | null>(null);
   const activeTvSubtitleIdRef = useRef<string | number | null>(null);
   // HTML5/webOS élő TV-n kézi feliratválasztás után ne írja felül azt az automata nyelvválasztás.
-  const userTvSubtitleChoiceRef = useRef<string | null>(null);
-  const nativeSubtitleTrackSignatureRef = useRef('');
-  const nativeSubtitleAutoSelectionKeyRef = useRef('');
-  const pendingTvSubtitleSelectionRef = useRef<{ id: number | null; startedAt: number } | null>(null);
   const nativeAudioTrackSignatureRef = useRef('');
   const pendingTvAudioSelectionRef = useRef<{ index: number; startedAt: number } | null>(null);
   // HTML5/webOS hangsávváltáskor megőrizzük a kiválasztott sáv sorszámát,
@@ -1568,12 +1564,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const current = activeTvSubtitleIdRef.current != null ? Number(activeTvSubtitleIdRef.current) : NaN;
       if (track && Number.isFinite(Number(track.id))) {
         const targetId = Number(track.id);
-        nativeSubtitleAutoSelectionKeyRef.current = `${streamUrl}|${nativeSubtitleTrackSignatureRef.current}|${String(track.lang || track.name || track.id).toLowerCase()}`;
-        pendingTvSubtitleSelectionRef.current = { id: targetId, startedAt: Date.now() };
         native.selectTrack?.('subtitle', targetId);
         appLog(`Élő felirat kiválasztása: sáv=${targetId}; visszaigazolásra vár.`);
       } else {
-        pendingTvSubtitleSelectionRef.current = { id: null, startedAt: Date.now() };
         native.deselectTrack?.('subtitle', Number.isFinite(current) ? current : -1);
         activeTvSubtitleIdRef.current = null;
         appLog('Élő felirat kikapcsolása kérve.');
@@ -1590,7 +1583,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       appLog(`Élő feliratváltás sikertelen: érvénytelen HTML5 sávindex=${index}.`);
       return;
     }
-    userTvSubtitleChoiceRef.current = track ? String(track.id) : 'off';
     try {
       for (let i = 0; i < list.length; i++) {
         list[i].mode = index !== null && i === index ? 'showing' : 'disabled';
@@ -1861,49 +1853,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
 
   /*
-   * ÉLŐ TV CC: csak a csatorna betöltésekor és a textTracks eseményeinél olvasunk.
-   * Nincs folyamatos polling; a régebbi webOS motor késleltetett track-felvételét
-   * néhány egyszeri ellenőrzés fedi le.
-   */
-  useEffect(() => {
-    if (isVod || nativeHandoff) return;
-    const video = htmlVideoRef.current;
-    if (!video) return;
-    const textTracks = video.textTracks;
-    const refresh = () => {
-      const mapped = readHtmlSubtitleTracks(video);
-      setTvSubtitleTracks((previous) => previous.length === mapped.length && previous.every((track, index) =>
-        String(track.id) === String(mapped[index]?.id) && track.name === mapped[index]?.name &&
-        track.lang === mapped[index]?.lang && track.selected === mapped[index]?.selected
-      ) ? previous : mapped);
-      activeTvSubtitleIdRef.current = mapped.find((track) => track.selected === true)?.id ?? null;
-    };
-    refresh();
-    video.addEventListener('loadedmetadata', refresh);
-    video.addEventListener('loadeddata', refresh);
-    video.addEventListener('canplay', refresh);
-    video.addEventListener('playing', refresh);
-    try {
-      textTracks?.addEventListener?.('addtrack', refresh);
-      textTracks?.addEventListener?.('removetrack', refresh);
-      textTracks?.addEventListener?.('change', refresh);
-    } catch { /* régebbi webOS */ }
-    const delayedChecks = [250, 750, 1500, 3000].map((delay) => window.setTimeout(refresh, delay));
-    return () => {
-      delayedChecks.forEach((timer) => window.clearTimeout(timer));
-      video.removeEventListener('loadedmetadata', refresh);
-      video.removeEventListener('loadeddata', refresh);
-      video.removeEventListener('canplay', refresh);
-      video.removeEventListener('playing', refresh);
-      try {
-        textTracks?.removeEventListener?.('addtrack', refresh);
-        textTracks?.removeEventListener?.('removetrack', refresh);
-        textTracks?.removeEventListener?.('change', refresh);
-      } catch { /* régebbi webOS */ }
-    };
-  }, [isVod, nativeHandoff, streamUrl]);
-
-  /*
    * TÁVIRANYÍTÓ: ZÖLD (hangsáv) / KÉK (felirat) gomb film közben.
    *
    * A webos.js a színes gombot minden fókuszhelyzetben elkapja, ezért a
@@ -2141,160 +2090,70 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => window.clearInterval(timer);
   }, [nativeHandoff, streamUrl, isVod, settings.preferredAudioLang]);
 
-  // Élő TV-feliratok: a natív lejátszó visszaigazolt állapotát folyamatosan olvassuk.
-  // Új csatornánál a Rendszer beállítás szerinti nyelvet (alapból Magyar) választjuk,
-  // de kézi váltás után nem írjuk felül ugyanazon a csatornán.
+  // Natív tartalékút: az aktuális feliratsávokat beolvassuk, de nem választunk automatikusan.
+  // A lejátszó állapot-eseményei frissítik a listát; nincs folyamatos CC-lekérdezés.
   useEffect(() => {
     if (!nativeHandoff || isVod) return;
     const api = nativeApi();
     if (!api?.mediaTracks) return;
-
-    const refreshNativeSubtitleTracks = () => {
-      const tracks = readNativeMediaTracks(api).filter((track) => track.type === 'subtitle');
-      const mapped: SubtitleTrack[] = tracks.map((track) => ({
-        id: track.index,
-        name: track.name || track.lang || 'Felirat',
-        lang: track.lang || '',
-        selected: track.selected === true,
-      }));
-      const signature = mapped.map((track) => `${track.id}:${track.lang}:${track.name}`).join('|');
-      nativeSubtitleTrackSignatureRef.current = signature;
-      setTvSubtitleTracks((previous) =>
-        previous.length === mapped.length && previous.every((track, index) =>
-          String(track.id) === String(mapped[index]?.id) &&
-          track.name === mapped[index]?.name && track.lang === mapped[index]?.lang &&
-          track.selected === mapped[index]?.selected
-        ) ? previous : mapped
-      );
-
-      const selectedTrack = mapped.find((track) => track.selected === true);
-      activeTvSubtitleIdRef.current = selectedTrack?.id ?? null;
-      const pending = pendingTvSubtitleSelectionRef.current;
-      if (pending) {
-        const confirmed = pending.id === null
-          ? !selectedTrack
-          : mapped.some((track) => Number(track.id) === pending.id && track.selected === true);
-        if (confirmed) {
-          pendingTvSubtitleSelectionRef.current = null;
-        } else if (Date.now() - pending.startedAt >= 6000) {
-          api.toast?.('A lejátszó nem igazolta vissza a kiválasztott felirat váltását.');
-          pendingTvSubtitleSelectionRef.current = null;
-        }
-      }
-
-      const preferred = (settings.preferredSubtitle || 'Magyar').trim();
-      const selectionKey = `${streamUrl}|${signature}|${preferred.toLowerCase()}`;
-      if (selectionKey === nativeSubtitleAutoSelectionKeyRef.current) return;
-      nativeSubtitleAutoSelectionKeyRef.current = selectionKey;
-
-      if (preferred.toLowerCase() === 'kikapcsolva') {
-        if (selectedTrack) api.deselectTrack?.('subtitle', Number(selectedTrack.id));
-        return;
-      }
-      const normalize = (value: unknown) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-      const wanted = normalize(preferred);
-      const aliases: Record<string, string[]> = {
-        magyar: ['hu', 'hun', 'magyar', 'hungarian'],
-        angol: ['en', 'eng', 'english'],
-        német: ['de', 'deu', 'ger', 'german', 'deutsch'],
-        nemet: ['de', 'deu', 'ger', 'german', 'deutsch'],
-        francia: ['fr', 'fra', 'fre', 'french', 'francais'],
-        olasz: ['it', 'ita', 'italian', 'italiano'],
-        spanyol: ['es', 'spa', 'spanish', 'espanol'],
-      };
-      const wantedAliases = aliases[wanted] || [wanted];
-      const target = mapped.find((track) => [track.lang, track.name].some((value) => {
-        const normalized = normalize(value);
-        return wantedAliases.some((alias) =>
-          normalized === alias || normalized.includes(alias) ||
-          normalized.split(/[^a-z]+/).includes(alias)
-        );
-      }));
-      if (target && target.selected !== true) {
-        pendingTvSubtitleSelectionRef.current = { id: Number(target.id), startedAt: Date.now() };
-        api.selectTrack?.('subtitle', Number(target.id));
-        appLog(`Automatikus élő feliratválasztás: ${target.lang || target.name} (beállítás: ${preferred}).`);
-      }
-    };
-
-    refreshNativeSubtitleTracks();
-    const timer = window.setInterval(refreshNativeSubtitleTracks, 1000);
-    return () => window.clearInterval(timer);
-  }, [nativeHandoff, isVod, streamUrl, settings.preferredSubtitle]);
+    const tracks = readNativeMediaTracks(api).filter((track) => track.type === 'subtitle');
+    const mapped: SubtitleTrack[] = tracks.map((track) => ({
+      id: track.index,
+      name: track.name || track.lang || 'Felirat',
+      lang: track.lang || '',
+      selected: track.selected === true,
+    }));
+    setTvSubtitleTracks((previous) => previous.length === mapped.length && previous.every((track, index) =>
+      String(track.id) === String(mapped[index]?.id) && track.name === mapped[index]?.name &&
+      track.lang === mapped[index]?.lang && track.selected === mapped[index]?.selected
+    ) ? previous : mapped);
+    activeTvSubtitleIdRef.current = mapped.find((track) => track.selected === true)?.id ?? null;
+  }, [nativeHandoff, isVod, streamUrl]);
 
   /*
-   * LG webOS – élő TV feliratsávok, ugyanazzal a nyelvpreferenciás és
-   * visszaellenőrző logikával, a webOS HTML5 TextTrack API-jára
-   * illesztve. A TV késve is közzéteheti a sávokat, ezért esemény + polling fut.
+   * LG webOS – élő TV feliratsávok.
+   * Csak az elérhető sávokat olvassuk; nincs automatikus nyelvválasztás és polling.
+   * Események + néhány egyszeri késleltetett ellenőrzés kezelik a későn megjelenő listát.
    */
   useEffect(() => {
     if (nativeHandoff || isVod) return;
     const video = htmlVideoRef.current;
     if (!video) return;
     const textTracks = video.textTracks;
-
-    const refreshHtmlTvSubtitleTracks = () => {
+    const refresh = () => {
       const mapped = readHtmlSubtitleTracks(video);
-      const signature = mapped.map((item) => `${item.id}:${item.lang}:${item.name}`).join('|');
-      nativeSubtitleTrackSignatureRef.current = signature;
-      setTvSubtitleTracks((previous) => (
-        previous.length === mapped.length && previous.every((item, index) =>
-          String(item.id) === String(mapped[index]?.id) &&
-          item.name === mapped[index]?.name &&
-          item.lang === mapped[index]?.lang &&
-          item.selected === mapped[index]?.selected
-        ) ? previous : mapped
-      ));
-      const active = mapped.find((item) => item.selected === true);
-      activeTvSubtitleIdRef.current = active?.id ?? null;
-
-      // Kézi választás (a felirat kikapcsolását is beleértve) maradjon érvényben
-      // az adott csatornán; automatikusan csak új csatorna/sávlista esetén választunk.
-      if (userTvSubtitleChoiceRef.current !== null) return;
-      const preferred = (settings.preferredSubtitle || 'Magyar').trim();
-      const selectionKey = `${streamUrl}|${signature}|${preferred.toLowerCase()}`;
-      if (selectionKey === nativeSubtitleAutoSelectionKeyRef.current) return;
-      nativeSubtitleAutoSelectionKeyRef.current = selectionKey;
-
-      if (preferred.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() === 'kikapcsolva') {
-        for (let i = 0; i < textTracks.length; i++) textTracks[i].mode = 'disabled';
-        setTvSubtitleTracks(readHtmlSubtitleTracks(video));
-        activeTvSubtitleIdRef.current = null;
-        return;
-      }
-      const target = findPreferredVodTrack(mapped, preferred) || mapped[0] || null;
-      if (target && target.selected !== true) {
-        const targetIndex = Number(target.id);
-        for (let i = 0; i < textTracks.length; i++) {
-          textTracks[i].mode = i === targetIndex ? 'showing' : 'disabled';
-        }
-        const refreshed = readHtmlSubtitleTracks(video);
-        setTvSubtitleTracks(refreshed);
-        activeTvSubtitleIdRef.current = target.id;
-        appLog(`Automatikus LG élő feliratválasztás: ${target.lang || target.name} (beállítás: ${preferred}).`);
-      }
+      setTvSubtitleTracks((previous) => previous.length === mapped.length && previous.every((track, index) =>
+        String(track.id) === String(mapped[index]?.id) &&
+        track.name === mapped[index]?.name &&
+        track.lang === mapped[index]?.lang &&
+        track.selected === mapped[index]?.selected
+      ) ? previous : mapped);
+      activeTvSubtitleIdRef.current = mapped.find((track) => track.selected === true)?.id ?? null;
     };
-
-    refreshHtmlTvSubtitleTracks();
-    video.addEventListener('loadedmetadata', refreshHtmlTvSubtitleTracks);
-    video.addEventListener('canplay', refreshHtmlTvSubtitleTracks);
+    refresh();
+    video.addEventListener('loadedmetadata', refresh);
+    video.addEventListener('loadeddata', refresh);
+    video.addEventListener('canplay', refresh);
+    video.addEventListener('playing', refresh);
     try {
-      textTracks?.addEventListener?.('addtrack', refreshHtmlTvSubtitleTracks);
-      textTracks?.addEventListener?.('removetrack', refreshHtmlTvSubtitleTracks);
-      textTracks?.addEventListener?.('change', refreshHtmlTvSubtitleTracks);
-    } catch { /* régebbi webOS: az időzített frissítés megmarad */ }
-    const timer = window.setInterval(refreshHtmlTvSubtitleTracks, 750);
+      textTracks?.addEventListener?.('addtrack', refresh);
+      textTracks?.addEventListener?.('removetrack', refresh);
+      textTracks?.addEventListener?.('change', refresh);
+    } catch { /* régebbi webOS */ }
+    const delayedChecks = [250, 750, 1500, 3000].map((delay) => window.setTimeout(refresh, delay));
     return () => {
-      window.clearInterval(timer);
-      video.removeEventListener('loadedmetadata', refreshHtmlTvSubtitleTracks);
-      video.removeEventListener('canplay', refreshHtmlTvSubtitleTracks);
+      delayedChecks.forEach((timer) => window.clearTimeout(timer));
+      video.removeEventListener('loadedmetadata', refresh);
+      video.removeEventListener('loadeddata', refresh);
+      video.removeEventListener('canplay', refresh);
+      video.removeEventListener('playing', refresh);
       try {
-        textTracks?.removeEventListener?.('addtrack', refreshHtmlTvSubtitleTracks);
-        textTracks?.removeEventListener?.('removetrack', refreshHtmlTvSubtitleTracks);
-        textTracks?.removeEventListener?.('change', refreshHtmlTvSubtitleTracks);
+        textTracks?.removeEventListener?.('addtrack', refresh);
+        textTracks?.removeEventListener?.('removetrack', refresh);
+        textTracks?.removeEventListener?.('change', refresh);
       } catch { /* régebbi webOS */ }
     };
-  }, [nativeHandoff, isVod, streamUrl, settings.preferredSubtitle]);
+  }, [nativeHandoff, isVod, streamUrl]);
 
   // Determine active stream URL
   // (A streamUrl már feljebb, a felhasználói előtt definiálva van – lásd a
@@ -2371,10 +2230,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setTvAudioTracks([]);
     setTvSubtitleTracks([]);
     activeTvSubtitleIdRef.current = null;
-    userTvSubtitleChoiceRef.current = null;
-    nativeSubtitleTrackSignatureRef.current = '';
-    nativeSubtitleAutoSelectionKeyRef.current = '';
-    pendingTvSubtitleSelectionRef.current = null;
     nativeAudioTrackSignatureRef.current = '';
     userAudioChoiceRef.current = null;
     setShowTvAudioMenu(false);
