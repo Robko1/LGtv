@@ -521,7 +521,8 @@ test('8. teljes képernyős OSD: hangsáv + felirat jelző a BAL ALSÓ sarokban,
   assert.match(CONTROLS, /<Subtitles className=\{`w-4 h-4/);
   // Az App átadja a valódi állapotot (több hangsáv / aktív felirat).
   assert.match(APP, /hasMultipleAudioTracks=\{liveAudioTracks\.length > 1\}/);
-  assert.match(APP, /hasActiveSubtitle=\{liveSubtitleTracks\.some\(\(track\) => track\.selected === true\)\}/);
+  // A CC jelző akkor zöld, ha van választható feliratsáv; nem kell aktívnak lennie.
+  assert.match(APP, /hasAvailableSubtitle=\{liveSubtitleTracks\.length > 0\}/);
 });
 
 test('8. a ZÖLD gomb teljes képernyőn is megnyitja a hangsáv-választót (a kép FÖLÖTT)', () => {
@@ -915,6 +916,21 @@ test('11. fagyás-diagnosztika: idővonal, leállás-figyelő, összeomlás- és
   assert.match(IMPORT, /logPhase\(`Xtream import indul/);
   assert.match(IMPORT, /logPhase\(\s*`Xtream import kész/);
   assert.match(IMPORT, /logMemory\('import után'\)/);
+});
+
+
+test('webOS újra-előtérbe hozás: a relaunch aktiválja az alkalmazást és visszaállítja a fókuszt', () => {
+  const WEBOS = read('webos/webos.js');
+  const MANIFEST = JSON.parse(read('webos/appinfo.json'));
+  assert.equal(MANIFEST.handlesRelaunch, true);
+  const relaunchStart = WEBOS.indexOf("window.addEventListener('webOSRelaunch'");
+  assert.notEqual(relaunchStart, -1, 'webOSRelaunch eseménykezelő szükséges');
+  const relaunch = WEBOS.slice(relaunchStart, relaunchStart + 1200);
+  assert.match(relaunch, /window\.webOSSystem && typeof window\.webOSSystem\.activate === 'function'/);
+  assert.match(relaunch, /window\.webOSSystem\.activate\(\)/);
+  assert.match(relaunch, /window\.PalmSystem && typeof window\.PalmSystem\.activate === 'function'/);
+  assert.match(relaunch, /window\.PalmSystem\.activate\(\)/);
+  assert.match(relaunch, /setTimeout\(focusFirstChannelList, 300\)/);
 });
 
 /* ══════════════ 12. Csatornánkénti formátum-emlékezet (napló: „Format error” csatornák) ══════════════ */
