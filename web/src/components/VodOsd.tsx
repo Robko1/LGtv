@@ -682,20 +682,6 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             <div className="flex-1 space-y-2 overflow-y-auto p-4">
               {menu === 'subtitle' && (
                 <>
-                  <button
-                    type="button"
-                    data-vod-menu-item=""
-                    data-vod-menu-selected={activeSubtitleId === null || activeSubtitleId === undefined ? '1' : undefined}
-                    onClick={() => { onActivity?.(); onSelectSubtitle(null); onMenuChange(null); }}
-                    className={`w-full rounded-2xl border p-3 text-left transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
-                      activeSubtitleId === null || activeSubtitleId === undefined
-                        ? 'border-blue-400 bg-[#0f244a] text-white ring-1 ring-blue-400/40'
-                        : 'border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042]'
-                    }`}
-                  >
-                    <span className="text-xs sm:text-sm font-bold">Felirat kikapcsolva</span>
-                  </button>
-
                   {subtitleTracks.length === 0 && (
                     <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs leading-relaxed text-slate-400">
                       Ehhez a filmhez a lejátszó nem jelez feliratsávot, és a szolgáltató sem tett közzé
