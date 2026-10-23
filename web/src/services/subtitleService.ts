@@ -151,16 +151,30 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
       // Epizód esetén csak a MOST játszott epizód feliratai kellenek.
       if (source.episodeId !== undefined && source.episodeId !== null) {
         const episodes = (info?.episodes || {}) as Record<string, unknown[]>;
+        const wantedEpisodeId = String(source.episodeId).replace(/\\.[a-z0-9]+$/i, '');
+        let matchedEpisode = false;
         Object.values(episodes).forEach((list) => {
           if (!Array.isArray(list)) return;
           list.forEach((episode) => {
             const record = episode as Record<string, unknown>;
-            const episodeIds = [record?.id, record?.episode_id, record?.episodeId];
-            if (episodeIds.some((value) => value !== undefined && value !== null && String(value) === String(source.episodeId))) {
+            // A különböző Xtream panelek eltérő néven adhatják vissza az epizód streamazonosítóját.
+            const episodeIds = [record?.id, record?.episode_id, record?.episodeId, record?.stream_id, record?.streamId];
+            if (episodeIds.some((value) =>
+              value !== undefined && value !== null &&
+              String(value).replace(/\\.[a-z0-9]+$/i, '') === wantedEpisodeId
+            )) {
+              matchedEpisode = true;
               collectSubtitleEntries(record, entries);
             }
           });
         });
+        // Egyes panelek a feliratokat a sorozat info objektumában adják meg,
+        // nem az epizódrekordban. Csak ezt az objektumot vizsgáljuk, nem a teljes
+        // episodes tömböt, nehogy egy másik epizód feliratát kínáljuk fel.
+        if (!matchedEpisode || entries.length === 0) {
+          const seriesInfo = (info?.info || {}) as Record<string, unknown>;
+          collectSubtitleEntries(seriesInfo, entries);
+        }
       } else {
         collectSubtitleEntries(info, entries);
       }
