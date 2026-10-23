@@ -5,6 +5,7 @@ import { normalizeTvKey } from '../utils/tvKeys';
 
 interface HeaderProps {
   activeView: 'live' | 'movies' | 'series';
+  liveAccent?: 'yellow' | 'red' | 'blue' | 'pink';
   onViewChange: (view: 'live' | 'movies' | 'series') => void;
   onOpenCategories: () => void;
   onOpenSettings: (tab?: 'channels' | 'lists' | 'favorites' | 'system') => void;
@@ -23,6 +24,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   activeView,
+  liveAccent = 'yellow',
   onViewChange,
   onOpenCategories,
   onOpenSettings,
@@ -67,6 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
+      data-live-accent={liveAccent}
       className="sticky top-0 z-40 bg-[#070d1d]/95 backdrop-blur-md border-b border-cyan-950/40 pl-0 pr-2 py-2 md:py-2.5 lg:py-3 flex items-center justify-between gap-2 md:gap-3 lg:gap-4 shadow-md">
       {/*
         A NÉGY DOBOZ SORRENDJE (a sárga óra mellett):
@@ -81,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Az óra önálló, keret és háttér nélküli elem, a fejléc bal széléhez igazítva. */}
         <div className="flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 text-amber-300 font-mono font-semibold tracking-wider">
           <Clock className="hidden w-4 h-4 md:w-5 md:h-5 text-amber-400 animate-pulse shrink-0" />
-          <span className="whitespace-nowrap text-2xl sm:text-3xl md:text-3xl lg:text-4xl leading-none">{currentTime || '02:15'}</span>
+          <span data-header-clock="" className="whitespace-nowrap text-2xl sm:text-3xl md:text-3xl lg:text-4xl leading-none">{currentTime || '02:15'}</span>
         </div>
 
         {activeView !== 'live' && (
