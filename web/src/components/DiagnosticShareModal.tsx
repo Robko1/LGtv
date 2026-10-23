@@ -90,7 +90,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
       setShare(created);
       shareRef.current = created;
       if (current?.token) void revokeDiagnosticShare(current.token);
-      setNotice(`Minden előzmény törölve. Új mérés kezdete: ${fresh.startedAtText}; új QR-hivatkozás készült az azóta naplózott eseményekkel.`);
+      setNotice(`Az előzmények törölve. Új mérés kezdete: ${fresh.startedAtText}; a QR csak az azóta keletkezett naplót tartalmazza`);
     } catch (cause) {
       setError('A frissítés nem sikerült. A mérés elindult, próbáld újra a QR frissítését.');
       appLog('Diagnosztikai QR-napló frissítése sikertelen: ' + String(cause).slice(0, 180));
