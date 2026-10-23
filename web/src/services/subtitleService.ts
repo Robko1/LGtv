@@ -238,7 +238,7 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
            * a natív sávok azonosítói is számok, így azonos értéknél a felirat
            * kiszorította volna a szolgáltatói tételt a listából.
            */
-          appLog(`CC fájlteszt SIKERES: ${candidate.name.slice(0, 55)} [${candidate.lang || 'nyelv ?'}]; azonosító=${String(candidate.id).slice(0, 35)}; formátum=${/\\.vtt(?:$|[?#])/i.test(url) ? 'VTT' : /\\.srt(?:$|[?#])/i.test(url) ? 'SRT' : 'egyéb'}.`);
+          appLog(`CC fájlteszt SIKERES: ${candidate.name.slice(0, 55)} [${candidate.lang || 'nyelv ?'}]; azonosító=${String(candidate.id).slice(0, 35)}; formátum=${/\.vtt(?:$|[?#])/i.test(url) ? 'VTT' : /\.srt(?:$|[?#])/i.test(url) ? 'SRT' : 'egyéb'}.`);
           return { id: `cc:${candidate.id}`, name: candidate.name, lang: candidate.lang, url };
         }
       } catch {
