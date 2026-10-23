@@ -926,7 +926,7 @@ test('11. fagyás-diagnosztika: idővonal, leállás-figyelő, összeomlás- és
 test('webOS újra-előtérbe hozás: a relaunch aktiválja az alkalmazást és visszaállítja a fókuszt', () => {
   const WEBOS = read('webos/webos.js');
   const MANIFEST = JSON.parse(read('webos/appinfo.json'));
-  assert.equal(MANIFEST.handlesRelaunch, true);
+  assert.equal(MANIFEST.handlesRelaunch, false, 'a webOS kezelje automatikusan az ikonról indított újraaktiválást');
   const relaunchStart = WEBOS.indexOf("window.addEventListener('webOSRelaunch'");
   assert.notEqual(relaunchStart, -1, 'webOSRelaunch eseménykezelő szükséges');
   const relaunch = WEBOS.slice(relaunchStart, relaunchStart + 1200);
