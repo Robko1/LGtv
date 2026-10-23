@@ -195,7 +195,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
         )}
       </div>
 
-      {/* Referencia-szerű sorozatkönyvtár: vízszintes kategóriapolcok és teljes kategóriarács. */}
+      {/* Függőleges sorozatposzter-rács, adagonként bővülő listával. */}
       <div ref={seriesGridRef} data-scroll-keep="" onScroll={(e) => {
         const el = e.currentTarget;
         const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
