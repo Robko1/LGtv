@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.44';
+export const WEB_VERSION = '2.5.45';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.44',
+    version: '2.5.45',
     date: '2026-10-23',
     changes: [
       'NAPLÓ – kétformátumos hiba: ha egy csatorna MPEG-TS-sel ÉS HLS-sel sem indul (a 2026-10-22-i naplóban: „HU - PAX TV”), mostantól egy külön sor zárja le: „MINDKÉT FORMÁTUM SIKERTELEN; csatorna=…; próbált formátumok=MPEG-TS + HLS”',
