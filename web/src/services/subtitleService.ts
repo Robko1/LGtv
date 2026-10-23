@@ -152,7 +152,6 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
       if (source.episodeId !== undefined && source.episodeId !== null) {
         const episodes = (info?.episodes || {}) as Record<string, unknown[]>;
         const wantedEpisodeId = String(source.episodeId).replace(/\.[a-z0-9]+$/i, '');
-        let matchedEpisode = false;
         Object.values(episodes).forEach((list) => {
           if (!Array.isArray(list)) return;
           list.forEach((episode) => {
@@ -163,18 +162,13 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
               value !== undefined && value !== null &&
               String(value).replace(/\.[a-z0-9]+$/i, '') === wantedEpisodeId
             )) {
-              matchedEpisode = true;
               collectSubtitleEntries(record, entries);
             }
           });
         });
-        // Egyes panelek a feliratokat a sorozat info objektumában adják meg,
-        // nem az epizódrekordban. Csak ezt az objektumot vizsgáljuk, nem a teljes
-        // episodes tömböt, nehogy egy másik epizód feliratát kínáljuk fel.
-        if (!matchedEpisode || entries.length === 0) {
-          const seriesInfo = (info?.info || {}) as Record<string, unknown>;
-          collectSubtitleEntries(seriesInfo, entries);
-        }
+        // Csak a lejátszott epizód saját feliratait kínáljuk fel.
+        // A sorozat általános info objektumából nem veszünk át más epizódhoz
+        // tartozó vagy nem egyértelműen azonosítható feliratot.
       } else {
         collectSubtitleEntries(info, entries);
       }
@@ -198,9 +192,12 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
     appLog(`CC szolgáltatói lista #${index + 1}: név=${name.slice(0, 55)}; nyelv=${lang.slice(0, 16)}; ID=${id.slice(0, 35)}.`);
   });
 
+  const subtitleResourceId = source.vodId ?? source.episodeId;
   const urlPrefixes = [
     `${base}/subtitle/${encodeURIComponent(source.username)}/${encodeURIComponent(source.password)}`,
-    `${base}/subtitle/${encodeURIComponent(source.username)}/${encodeURIComponent(source.password)}/${encodeURIComponent(String(source.vodId ?? ''))}`,
+    ...(subtitleResourceId !== undefined && subtitleResourceId !== null && String(subtitleResourceId)
+      ? [`${base}/subtitle/${encodeURIComponent(source.username)}/${encodeURIComponent(source.password)}/${encodeURIComponent(String(subtitleResourceId))}`]
+      : []),
   ];
 
   const seen = new Set<string>();
