@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Movie } from '../types/iptv';
-import { PosterImage } from './PosterImage';
+import { PosterImage, preloadPosterImage } from './PosterImage';
 import { Star, Play, Clock, Sparkles, Filter, ChevronDown, Mic2, Subtitles } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 
@@ -13,21 +13,11 @@ interface MoviesViewProps {
   onSelectedCategoryChange?: (categoryId: string) => void;
   onBackToLive: () => void;
   onToggleFavoriteMovie: (movieId: string) => void;
+  isActive: boolean;
 }
 
-/*
- * TELJESÍTMÉNY (villámgyors nézetváltás):
- *   • EGYSZERRE 5 nagy poszter látszik egy sorban (kérés szerint), a
- *     görgetéssel tovább töltődik;
- *   • az első köteg kisebb (50), így a Mozi/Sorozat váltás nem renderel
- *     több száz poszterkártyát;
- *   • a kategóriapolcok LÉPCSŐSEN épülnek (egyszerre 5), a görgetéshez
- *     közeledve bővül a lista – korábban MINDEN kategória 12 posztere
- *     egyszerre került a DOM-ba (több száz <img>).
- */
-const PAGE_SIZE = 50;
-const RAIL_STEP = 5;
-const RAIL_CARDS = 12;
+/* Függőleges, ötoszlopos rács; a poszterek 20-as adagokban jelennek meg. */
+const PAGE_SIZE = 20;
 let movieReturnSnapshot: { scrollTop: number; visibleCount: number } | null = null;
 
 const MoviesViewComponent: React.FC<MoviesViewProps> = ({
@@ -37,13 +27,16 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   onPlayMovie,
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
+  isActive,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   // Csak ennyi kategóriapolc van a DOM-ban; görgetésre nő (RAIL_STEP).
-  const [visibleRails, setVisibleRails] = useState<number>(RAIL_STEP);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const movieGridRef = useRef<HTMLDivElement | null>(null);
+  const preloadedThroughRef = useRef(0);
+  const visibleCountRef = useRef(visibleCount);
+  visibleCountRef.current = visibleCount;
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
   /*
    * A részletek-ablak fókusza: a távirányító OK gombjára megnyíló ablakban
@@ -100,8 +93,8 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
    */
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-    setVisibleRails(RAIL_STEP);
     if (movieGridRef.current) movieGridRef.current.scrollTop = 0;
+    preloadedThroughRef.current = 0;
   }, [selectedCategory]);
 
   useEffect(() => {
@@ -118,26 +111,42 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
 
   const visibleMovies = filteredMovies.slice(0, visibleCount);
 
-  // A referenciához igazított könyvtárnézet: kategóriánkénti vízszintes polcok,
-  // a teljes kategória csak az „Összes megtekintése” elemre nyílik meg.
-  // Egyetlen lineáris csoportosítás, nem kategóriánkénti teljes lista-szűrés.
-  const categoryRows = useMemo(() => {
-    const grouped = new Map<string, Movie[]>();
-    for (const movie of movies) {
-      const key = movie.categoryId || 'uncategorized';
-      const list = grouped.get(key);
-      if (list) list.push(movie); else grouped.set(key, [movie]);
-    }
-    const rows = (providerCategories || [])
-      .map((category) => ({ category, items: grouped.get(category.id) || [] }))
-      .filter((row) => row.items.length > 0);
-    const known = new Set(rows.map((row) => row.category.id));
-    for (const [id, items] of grouped) {
-      if (known.has(id)) continue;
-      rows.push({ category: { id, name: items[0]?.categoryName || 'Egyéb', channelCount: items.length } as Category, items });
-    }
-    return rows;
-  }, [movies, providerCategories]);
+  // Háttérben, fokozatosan előtöltjük a posztereket, de csak az aktív
+  // Mozi/Sorozat nézetben, rövid késleltetés és böngésző-üresjárat után.
+  useEffect(() => {
+    if (!isActive || preloadedThroughRef.current >= filteredMovies.length
+        || preloadedThroughRef.current >= visibleCount) return;
+    let cancelled = false;
+    let timer = 0;
+    let idleHandle: number | undefined;
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const start = () => {
+      if (cancelled) return;
+      const batchEnd = Math.min(preloadedThroughRef.current + 20, filteredMovies.length, visibleCountRef.current);
+      const tick = () => {
+        if (cancelled || preloadedThroughRef.current >= batchEnd) return;
+        const entry = filteredMovies[preloadedThroughRef.current];
+        preloadedThroughRef.current += 1;
+        if (entry) void preloadPosterImage(entry.poster, entry.title, 'movie');
+        if (preloadedThroughRef.current < batchEnd) timer = window.setTimeout(tick, 180);
+      };
+      tick();
+    };
+    timer = window.setTimeout(() => {
+      if (idleWindow.requestIdleCallback) idleHandle = idleWindow.requestIdleCallback(start, { timeout: 1200 });
+      else start();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle);
+    };
+  }, [isActive, selectedCategory, visibleCount, filteredMovies]);
+
+
 
   return (
     /*
@@ -191,62 +200,19 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
       {/* Referencia-szerű könyvtár: kategóriapolcok, lusta poszterbetöltéssel. */}
       <div ref={movieGridRef} data-scroll-keep="" onScroll={(e) => {
         const el = e.currentTarget;
-        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 900;
-        if (!nearBottom) return;
-        // Rács: a következő adag poszter.
-        if (selectedCategory !== 'all' && visibleCount < filteredMovies.length) {
+        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
+        if (nearBottom && visibleCount < filteredMovies.length) {
           setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length));
         }
-        // Polcok: a következő kategóriák (egyszerre RAIL_STEP) – így nem
-        // épül fel az összes kategória, amikor a nézet először megjelenik.
-        setVisibleRails((count) => (count < categoryRows.length ? count + RAIL_STEP : count));
+      }} onFocusCapture={(e) => {
+        const target = e.target as HTMLElement;
+        const card = target.closest<HTMLElement>('[data-poster-index]');
+        const index = Number(card?.dataset.posterIndex);
+        if (Number.isFinite(index) && index >= visibleCount - 5 && visibleCount < filteredMovies.length) {
+          setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length));
+        }
       }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
-        {selectedCategory === 'all' ? (
-          categoryRows.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
-              <Filter className="w-10 h-10 text-slate-600 mb-2" />
-              {movies.length === 0 ? (
-                <>
-                  <p className="text-sm font-semibold">A filmek betöltése folyamatban van…</p>
-                  <p className="text-xs mt-1 max-w-xs leading-relaxed">A mentett filmlista megjelenik, amint a betöltés befejeződik.</p>
-                </>
-              ) : <p className="text-sm font-semibold">Nincs megjeleníthető filmkategória.</p>}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-6 md:gap-8">
-              {categoryRows.slice(0, visibleRails).map(({ category, items }) => (
-                <section key={category.id} className="min-w-0">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <h2 className="text-sm md:text-base font-black text-white truncate">{category.name}</h2>
-                    <button onClick={() => { setSelectedCategory(category.id); onSelectedCategoryChange?.(category.id); if (movieGridRef.current) movieGridRef.current.scrollTop = 0; }}
-                      className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0f2042] border border-cyan-900/60 text-cyan-300 text-xs font-bold hover:bg-[#162d5a]">
-                      Összes megtekintése ({items.length}) →
-                    </button>
-                  </div>
-                  {/* 5 NAGY poszter egy sorban (a kártya szélessége ~18,5%), a
-                      többi vízszintes görgetéssel érhető el – ahogy eddig. */}
-                  <div className="flex gap-3 overflow-x-auto pb-2">
-                    {items.slice(0, RAIL_CARDS).map((mov) => (
-                      <button key={mov.id} onClick={() => setSelectedMovie(mov)}
-                        className="group shrink-0 w-[calc((100%-3rem)/5)] min-w-[8rem] text-left rounded-2xl overflow-hidden bg-[#0b162f] border border-cyan-950/70 hover:border-cyan-400/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
-                        <div className="relative aspect-[2/3] bg-slate-900 overflow-hidden">
-                          <PosterImage src={mov.poster} title={mov.title} kind="movie" alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        </div>
-                        <div className="p-2"><div className="text-white text-sm font-bold truncate">{mov.title}</div><div className="text-xs text-slate-400 mt-1">{mov.year || ''}</div></div>
-                      </button>
-                    ))}
-                    {items.length > RAIL_CARDS && (
-                      <button onClick={() => { setSelectedCategory(category.id); onSelectedCategoryChange?.(category.id); if (movieGridRef.current) movieGridRef.current.scrollTop = 0; }}
-                        className="shrink-0 w-[calc((100%-3rem)/5)] min-w-[8rem] rounded-2xl border border-dashed border-cyan-700/60 bg-[#0d1d3d] text-cyan-300 font-black text-sm hover:bg-[#142850]">
-                        <span className="block text-3xl mb-2">•••</span>Mind a {items.length} film
-                      </button>
-                    )}
-                  </div>
-                </section>
-              ))}
-            </div>
-          )
-        ) : filteredMovies.length === 0 ? (
+        {filteredMovies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
             <Filter className="w-10 h-10 text-slate-600 mb-2" />
             {movies.length === 0 ? (
@@ -254,11 +220,10 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
             ) : <p className="text-sm font-semibold">Ebben a kategóriában nincs film.</p>}
           </div>
         ) : (
-          /* 5 NAGY poszter egy sorban (a korábbi 8 kicsi helyett). */
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5 gap-3 md:gap-4 lg:gap-4 xl:gap-5">
-            {visibleMovies.map((mov) => (
+          <div className="grid grid-cols-5 gap-3 md:gap-4 lg:gap-4 xl:gap-5">
+            {visibleMovies.map((mov, index) => (
               <div key={mov.id} role="button" tabIndex={0}
-                /* A film lejátszásának bezárásakor IDE tér vissza a fókusz. */
+                data-poster-index={index}
                 data-vod-card={String(mov.id)}
                 onClick={() => setSelectedMovie(mov)}
                 onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovie(mov); } }}
