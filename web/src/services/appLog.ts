@@ -252,35 +252,33 @@ export function measurementSnapshot(): MeasurementSnapshot {
  * láthatóan bekerül a naplóba (és a felugró ablakban is megjelenik).
  */
 export function resetMeasurements(reason: string = 'kézi frissítés'): MeasurementSnapshot {
+  // A Frissítés egy valódi új mérési ablak: a korábbi sorok a memóriából és
+  // a tartós naplótárból is törlődnek. A 24 órás automatikus megőrzési szabály
+  // ettől függetlenül változatlan marad a normál naplózás során.
   const startedAt = Date.now();
-  // A nullázás ELŐTTI értékek: ezek bizonyítják a naplóban, hogy volt mit
-  // nullázni (enélkül utólag nem lehet megkülönböztetni a „nem történt semmit”
-  // esettől). A sor a számlálók nullázása előtt íródik ki.
-  const previous = measurementSnapshot();
+  clearAppLog();
   measurementStartedAt = startedAt;
-  const iso = new Date(startedAt).toISOString();
-  appLog(
-    `=== ÚJ MÉRÉS KEZDETE: ${iso} (${clockText(startedAt)}); minden korábbi mért érték nullázva (${reason}) ===`
-  );
-  appLog(
-    `MÉRÉS NULLÁZÁS ELŐTT [${previous.startedAtText} óta]: naplósorok=${previous.logLines}, ` +
-    `hibák=${previous.errors}, hosszú feladatok=${previous.longTasks}, kritikus=${previous.critical}, ` +
-    `eltelt=${Math.round(previous.elapsedMs / 1000)} s`
-  );
   measurementCounters.logLines = 0;
   measurementCounters.errors = 0;
   measurementCounters.longTasks = 0;
   measurementCounters.critical = 0;
-  // Az idővonal (15 mp) és a hosszú feladat szűrője is innentől számol.
+
+  // Az idővonal és a hosszú feladatok ritkítási ablaka is ettől az időponttól indul.
   try {
     lastTimelineAt = startedAt;
     lastLongTaskAt = 0;
+    lastTickAt = startedAt;
   } catch {
     /* a figyelő még nem indult el */
   }
-  appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt)}]: naplósorok=0, hibák=0, hosszú feladatok=0; ${memorySnapshot()}; ${uiStateSnapshot()}`);
-  // A friss mérés-ablak első sorai ne számítsanak bele a mért értékekbe.
+
+  appLog(`=== ÚJ MÉRÉS KEZDETE: ${new Date(startedAt).toISOString()} (${clockText(startedAt)}); előzmények törölve; ok: ${reason} ===`);
+  appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt)}]: számlálók nullázva; ${memorySnapshot()}; ${uiStateSnapshot()}`);
+  // A két kezdősor a QR-naplóban megmarad, de nem növeli a mérés számlálóját.
   measurementCounters.logLines = 0;
+  measurementCounters.errors = 0;
+  measurementCounters.longTasks = 0;
+  measurementCounters.critical = 0;
   return measurementSnapshot();
 }
 
@@ -290,8 +288,14 @@ export function getAppLogText(): string {
   trimExpired();
   trim();
   const measure = measurementSnapshot();
-  const header = `--- WEBOS NAPLÓ (${lines.length} sor; max. 24 óra; max. 60 KB) | MÉRÉS KEZDETE: ${measure.startedAtText} ---`;
-  return [header, ...lines].join('\n');
+  // A megosztás csak az aktuális mérési ablak sorait tartalmazza. A teljes
+  // helyi napló továbbra is megőrzi a legutóbbi 24 órát; a QR-export nem.
+  const sessionLines = lines.filter((line) => {
+    const timestamp = Date.parse(line.slice(0, 24));
+    return Number.isFinite(timestamp) && timestamp >= measurementStartedAt;
+  });
+  const header = `--- WEBOS NAPLÓ (${sessionLines.length} sor; mérési ablak; helyi naplómegőrzés: max. 24 óra / 60 KB) | MÉRÉS KEZDETE: ${measure.startedAtText} ---`;
+  return [header, ...sessionLines].join('\n');
 }
 
 /** Indulási sorok: verzió, eszköz, memória. */
