@@ -361,11 +361,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 <h3 className="text-base font-black text-slate-100 tracking-wider uppercase">
                   M3U / Xtream Listák
                 </h3>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                   <button
                     data-tv-default=""
                     onClick={onOpenQrProvision}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
+                    className="flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
                     title="Telefonnal beállítás QR kóddal – nem kell TV-n pötyögni"
                   >
                     <Smartphone className="w-6 h-6 shrink-0" />
@@ -373,7 +373,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </button>
                   <button
                     onClick={onOpenAddProvider}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-black active:scale-95 transition-all shadow-md shadow-cyan-400/25"
+                    className="flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-cyan-400/25"
                   >
                     <Plus className="w-4 h-4 stroke-[3]" />
                     <span>Új lista</span>
@@ -700,7 +700,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 ) : (
                   <div className="space-y-2.5">
                     {resumableHistory.map((item) => (
-                        <div key={item.id} className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3">
+                        <div key={item.id} role="group" tabIndex={0} data-resume-item={item.id} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onContinueWatching(item); onClose(); } }} className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3 focus:outline-none focus:ring-2 focus:ring-amber-400">
                           <div className="flex items-center gap-3">
                             <div className="w-14 h-[72px] shrink-0 rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
                               {item.poster ? (
