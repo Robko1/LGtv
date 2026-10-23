@@ -1858,7 +1858,14 @@ export function App() {
               audioTracks: episode.audioTracks,
               subtitleTracks: episode.subtitleTracks,
               subtitleSource: providerBase
-                ? { ...providerBase, seriesId: item.seriesId, episodeId: idFromUrl(episode.streamUrl) }
+                ? {
+                    ...providerBase,
+                    // Néhány importált sorozatnál a külön seriesId mező hiányozhat,
+                    // miközben az id mező az Xtream series_id értékét tartalmazza.
+                    seriesId: item.seriesId ?? item.id,
+                    // Az epizód stream URL-je az elsődleges forrás; az epizód id a tartalék.
+                    episodeId: idFromUrl(episode.streamUrl) || episode.id,
+                  }
                 : null,
             };
           }
