@@ -380,35 +380,43 @@ function write(key: string, payload: unknown): boolean {
       text = JSON.stringify({ ...source, rows: source.rows.slice(0, keep) });
     }
   }
+  const initialChars = text.length;
+  const initialRows = Array.isArray((payload as { rows?: unknown[] })?.rows)
+    ? (payload as { rows: unknown[] }).rows.length : 'n/a';
+  let retries = 0;
+  let sweptKeys = 0;
   let ok = backend.put(key, text);
   if (!ok) {
-    // TV-n a localStorage kvóta kisebb lehet - a mentés eddig CSENDBEN
-    // elveszett (újraindítás után üres volt a lista). Egyre kisebb
-    // adaggal újrapróbáljuk, hogy legalább a lista eleje megmaradjon.
+    // A webOS nem minden esetben ad vissza konkrét kvóta/hozzáférési hibát,
+    // ezért a napló a méretet, próbálkozásokat és mentési eredményt rögzíti.
+    appLog(`TÁROLÓ DIAG: első mentés sikertelen; kulcs=${key}; backend=${backend.name}; méret=${initialChars} karakter; sorok=${initialRows}; ok=kvóta/hozzáférés oka nem különíthető el.`);
+    // TV-n a localStorage kvóta kisebb lehet. Egyre kisebb adaggal újrapróbáljuk.
     const source = payload as { rows?: Row[] };
     let rows = Array.isArray(source?.rows) ? source.rows : null;
     while (!ok && rows && rows.length > 100) {
       rows = rows.slice(0, Math.floor(rows.length / 2));
       text = JSON.stringify({ ...source, rows });
+      retries += 1;
       ok = backend.put(key, text);
     }
     if (ok && rows) {
-      appLog(`Tároló: a teljes lista nem fért el, szűkített mentés: ${key} (${rows.length} sor).`);
+      appLog(`TÁROLÓ DIAG: szűkített mentés sikerült; kulcs=${key}; új méret=${text.length} karakter; megmaradt sorok=${rows.length}; csökkentések=${retries}.`);
     }
   }
   if (!ok) {
-    // Utolsó próba: a félbe maradt, elárvult adagok törlése után a hely
-    // felszabadulhat (a reference alkalmazás is így tesz a kvótahibánál).
+    // Utolsó próba: az elárvult adagok törlése után újra próbáljuk.
     try {
-      if (sweepStorage() > 0) ok = backend.put(key, text);
-    } catch {
-      /* marad a csökkentett mentés */
+      sweptKeys = sweepStorage();
+      if (sweptKeys > 0) ok = backend.put(key, text);
+      appLog(`TÁROLÓ DIAG: takarítási próba; kulcs=${key}; törölt kulcsok=${sweptKeys}; újrapróbálás=${ok ? 'sikerült' : 'sikertelen'}.`);
+    } catch (error) {
+      appLog(`TÁROLÓ DIAG: takarítási hiba; kulcs=${key}; részlet=${String(error).slice(0, 120)}.`);
     }
   }
   if (!ok) {
-    // Végső tartalék: memória, hogy legalább a munkamenetben megmaradjon.
+    // Végső tartalék: memória, így csak az aktuális munkamenetben marad meg.
     memory.set(key, text);
-    appLog(`Tároló HIBA: ${key} mentése nem sikerült (${backend.name}) - újraindítás után nem lesz meg!`);
+    appLog(`TÁROLÓ HIBA: ${key} mentése végleg sikertelen (${backend.name}); méret=${text.length} karakter; csökkentések=${retries}; takarított kulcsok=${sweptKeys}; memória-tartalék aktív, újraindítás után elveszhet.`);
   }
   return ok;
 }
