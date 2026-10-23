@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.34';
+export const WEB_VERSION = '2.5.35';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.34',
+    version: '2.5.35',
     date: '2026-10-23',
     changes: [
       'FELIRAT (CC) – a szolgáltatói feliratkeresés naplózása kiegészítve: a napló mostantól kiírja, honnantól és milyen azonosítóval indul a keresés („Feliratkeresés (CC) indul: sorozat=…, epizód=…”), hány bejegyzés jött a szolgáltatótól, és hogy egyáltalán van-e forrás',
