@@ -254,3 +254,63 @@ body.has-mouse [role="option"]:hover {
     border-color: rgb(34 211 238) !important;
   }
 }
+
+
+/* Élő TV kiemelőszín: kizárólag a fő csatornalistára és a két élő OSD-re hat.
+   A színválasztás nem módosít méretet, elrendezést vagy lejátszási logikát. */
+[data-live-accent="red"] {
+  --live-accent-solid: #ef4444;
+  --live-accent-text: #f87171;
+  --live-accent-soft: #fca5a5;
+  --live-accent-tint: rgb(239 68 68 / 20%);
+}
+[data-live-accent="blue"] {
+  --live-accent-solid: #3b82f6;
+  --live-accent-text: #60a5fa;
+  --live-accent-soft: #93c5fd;
+  --live-accent-tint: rgb(59 130 246 / 20%);
+}
+[data-live-accent="pink"] {
+  --live-accent-solid: #ec4899;
+  --live-accent-text: #f472b6;
+  --live-accent-soft: #f9a8d4;
+  --live-accent-tint: rgb(236 72 153 / 20%);
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-300"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-400"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-300"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-400"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-300"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-400"] {
+  color: var(--live-accent-text) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-400"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-400"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-400"] {
+  background-color: var(--live-accent-solid) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-400/"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-400/"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-400/"] {
+  background-color: var(--live-accent-tint) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-amber-"] {
+  border-color: var(--live-accent-text) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-amber-"] {
+  fill: var(--live-accent-text) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"] {
+  --tw-ring-color: var(--live-accent-text) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-linear-to-r"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-linear-to-r"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-linear-to-r"] {
+  background-image: linear-gradient(to right, var(--live-accent-solid), var(--live-accent-soft)) !important;
+}
