@@ -1961,9 +1961,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     // 2) FELIRAT: a kézi választást és a már bekapcsolt feliratot nem írjuk felül.
-    const preferredSubtitle = (settings.preferredSubtitle || 'Magyar').trim();
-    const subtitlesOff = preferredSubtitle.toLowerCase() === 'kikapcsolva';
-    if (subtitlesOff || userVodSubtitleChoiceRef.current !== null) return;
+    // A film/sorozat CC-választóban nincs „kikapcsolva” mód: a feliratlista
+    // ugyanúgy választható marad, mint az Android MPV sávlistája. Régi mentett
+    // „Kikapcsolva” beállítást Magyar alapnyelvre kezelünk, nem tiltásként.
+    const savedSubtitlePreference = (settings.preferredSubtitle || 'Magyar').trim();
+    const preferredSubtitle = /^kikapcsolva$/i.test(savedSubtitlePreference)
+      ? 'Magyar'
+      : savedSubtitlePreference;
+    if (userVodSubtitleChoiceRef.current !== null) return;
     if (providerSubtitleActiveRef.current || vodSubtitleCues.length > 0) return;
     if (vodSubtitleTracks.some((track) => track.selected === true)) return;
 
