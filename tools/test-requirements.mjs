@@ -1075,7 +1075,7 @@ test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és l�
   // A napló mérés-ablaka: 0-ról induló számlálók + látható kezdő időpont.
   assert.match(APPLOG, /export function resetMeasurements\(reason: string = 'kézi frissítés'\): MeasurementSnapshot/);
   assert.match(APPLOG, /measurementCounters\.logLines = 0;\s*\n\s*measurementCounters\.errors = 0;\s*\n\s*measurementCounters\.longTasks = 0;/);
-  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \\${dublinTimestamp\\(startedAt\\)} \\(\\${clockText\\(startedAt\\)}\\); előzmények törölve; ok: \\${reason}/);
+  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{dublinTimestamp\(startedAt\)\} \(\$\{clockText\(startedAt\)\}\); előzmények törölve; ok: \$\{reason\}/);
   assert.match(APPLOG, /MÉRÉS KEZDETE: \$\{measure\.startedAtText\}/);
   // A felugró ablak a Frissítéskor nulláz, és kiírja a kezdő időpontot.
   assert.match(DIAG_MODAL, /const fresh = resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\);/);
@@ -1086,17 +1086,16 @@ test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és l�
 });
 
 test('13. a QR-kód nagy, nagy kontrasztú és könnyen olvasható; a hivatkozás változatlan', () => {
-  assert.match(DIAG_MODAL, /size=\\{480\\}/);
+  assert.match(DIAG_MODAL, /size=\{480\}/);
   assert.match(DIAG_MODAL, /bgColor="#ffffff"/);
   assert.match(DIAG_MODAL, /fgColor="#05080f"/);
   // A tartalom továbbra is a szerverről kapott hivatkozás, a csendes zóna megvan.
-  assert.match(DIAG_MODAL, /value=\\{share\\.url\\}/);
+  assert.match(DIAG_MODAL, /value=\{share\.url\}/);
   assert.match(DIAG_MODAL, /marginSize=\\{4\\}/);
   assert.match(DIAG_MODAL, /level="L"/);
-  assert.match(DIAG_MODAL, /boostLevel=\\{false\\}/);
+  assert.match(DIAG_MODAL, /boostLevel=\{false\}/);
 });
 
-});
 
 /* ══════════════ 14. Feliratkeresés naplózása és kézi újrapróbálkozás ══════════════ */
 
