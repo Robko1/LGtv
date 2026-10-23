@@ -2195,7 +2195,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (selectionKey === nativeSubtitleAutoSelectionKeyRef.current) return;
       nativeSubtitleAutoSelectionKeyRef.current = selectionKey;
 
-      if (preferred.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase() === 'kikapcsolva') {
+      if (preferred.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() === 'kikapcsolva') {
         for (let i = 0; i < textTracks.length; i++) textTracks[i].mode = 'disabled';
         setTvSubtitleTracks(readHtmlSubtitleTracks(video));
         activeTvSubtitleIdRef.current = null;
