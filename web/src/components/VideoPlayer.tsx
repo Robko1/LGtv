@@ -1861,6 +1861,49 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
 
   /*
+   * ÉLŐ TV CC: csak a csatorna betöltésekor és a textTracks eseményeinél olvasunk.
+   * Nincs folyamatos polling; a régebbi webOS motor késleltetett track-felvételét
+   * néhány egyszeri ellenőrzés fedi le.
+   */
+  useEffect(() => {
+    if (isVod || nativeHandoff) return;
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    const textTracks = video.textTracks;
+    const refresh = () => {
+      const mapped = readHtmlSubtitleTracks(video);
+      setTvSubtitleTracks((previous) => previous.length === mapped.length && previous.every((track, index) =>
+        String(track.id) === String(mapped[index]?.id) && track.name === mapped[index]?.name &&
+        track.lang === mapped[index]?.lang && track.selected === mapped[index]?.selected
+      ) ? previous : mapped);
+      activeTvSubtitleIdRef.current = mapped.find((track) => track.selected === true)?.id ?? null;
+    };
+    refresh();
+    video.addEventListener('loadedmetadata', refresh);
+    video.addEventListener('loadeddata', refresh);
+    video.addEventListener('canplay', refresh);
+    video.addEventListener('playing', refresh);
+    try {
+      textTracks?.addEventListener?.('addtrack', refresh);
+      textTracks?.addEventListener?.('removetrack', refresh);
+      textTracks?.addEventListener?.('change', refresh);
+    } catch { /* régebbi webOS */ }
+    const delayedChecks = [250, 750, 1500, 3000].map((delay) => window.setTimeout(refresh, delay));
+    return () => {
+      delayedChecks.forEach((timer) => window.clearTimeout(timer));
+      video.removeEventListener('loadedmetadata', refresh);
+      video.removeEventListener('loadeddata', refresh);
+      video.removeEventListener('canplay', refresh);
+      video.removeEventListener('playing', refresh);
+      try {
+        textTracks?.removeEventListener?.('addtrack', refresh);
+        textTracks?.removeEventListener?.('removetrack', refresh);
+        textTracks?.removeEventListener?.('change', refresh);
+      } catch { /* régebbi webOS */ }
+    };
+  }, [isVod, nativeHandoff, streamUrl]);
+
+  /*
    * TÁVIRANYÍTÓ: ZÖLD (hangsáv) / KÉK (felirat) gomb film közben.
    *
    * A webos.js a színes gombot minden fókuszhelyzetben elkapja, ezért a
