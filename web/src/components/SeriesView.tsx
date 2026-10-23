@@ -226,7 +226,29 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                 data-poster-index={index}
                 data-vod-card={String(ser.id)}
                 onClick={() => { setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); }}
-                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); const index = Number((e.currentTarget as HTMLElement).dataset.posterIndex); const cards = Array.from(seriesGridRef.current?.querySelectorAll<HTMLElement>('[data-poster-index]') || []); const columns = 5; let target = index; if (key === 'ArrowUp') target = index >= columns ? index - columns : -1; if (key === 'ArrowDown') target = index + columns < cards.length ? index + columns : -1; if (key === 'ArrowLeft') target = index > 0 ? index - 1 : -1; if (key === 'ArrowRight') target = index + 1 < cards.length ? index + 1 : -1; if (target >= 0 && target !== index) cards[target]?.focus(); else if (key === 'ArrowUp' && index < columns) seriesGridRef.current?.closest('[data-view-pane="series"]')?.querySelector<HTMLElement>('[data-category-trigger]')?.focus(); } }}
+                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const index = Number((e.currentTarget as HTMLElement).dataset.posterIndex);
+                  const cards = Array.from(seriesGridRef.current?.querySelectorAll<HTMLElement>('[data-poster-index]') || []);
+                  const columns = 5;
+                  let target = index;
+                  if (key === 'ArrowUp') target = index >= columns ? index - columns : -1;
+                  if (key === 'ArrowDown') target = index + columns < cards.length ? index + columns : -1;
+                  if (key === 'ArrowLeft') target = index > 0 ? index - 1 : -1;
+                  if (key === 'ArrowRight') target = index + 1 < cards.length ? index + 1 : -1;
+                  if (target >= 0 && target !== index) {
+                    cards[target]?.focus({ preventScroll: true } as FocusOptions);
+                  } else if (key === 'ArrowDown' && index + columns >= cards.length && cards.length < filteredSeries.length) {
+                    // A következő sor még nincs kirajzolva: bővítjük a listát, majd arra a poszterre fókuszálunk.
+                    setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredSeries.length));
+                    window.requestAnimationFrame(() => {
+                      window.requestAnimationFrame(() => seriesGridRef.current?.querySelector<HTMLElement>(`[data-poster-index="${index + columns}"]`)?.focus({ preventScroll: true } as FocusOptions));
+                    });
+                  } else if (key === 'ArrowUp' && index < columns) {
+                    seriesGridRef.current?.closest('[data-view-pane="series"]')?.querySelector<HTMLElement>('[data-category-trigger]')?.focus({ preventScroll: true } as FocusOptions);
+                  }
+                } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
                   <PosterImage src={ser.poster} title={ser.title} kind="tv" alt={ser.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
