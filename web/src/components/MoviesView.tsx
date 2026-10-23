@@ -201,7 +201,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
       </div>
 
       {/* Függőleges poszterrács, adagonként bővülő listával. */}
-      <div ref={movieGridRef} data-scroll-keep="" onScroll={(e) => {
+      <div ref={movieGridRef} data-tv-navigation-owner="posters" data-scroll-keep="" onScroll={(e) => {
         const el = e.currentTarget;
         const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
         if (nearBottom && visibleCount < filteredMovies.length) {

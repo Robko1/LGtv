@@ -198,7 +198,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
       </div>
 
       {/* Függőleges sorozatposzter-rács, adagonként bővülő listával. */}
-      <div ref={seriesGridRef} data-scroll-keep="" onScroll={(e) => {
+      <div ref={seriesGridRef} data-tv-navigation-owner="posters" data-scroll-keep="" onScroll={(e) => {
         const el = e.currentTarget;
         const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
         if (nearBottom && visibleCount < filteredSeries.length) {

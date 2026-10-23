@@ -787,6 +787,17 @@
 
     // Diagnosztika: minden gombnyomás látszik a képernyős sávban.
     diagKey(e, key);
+    // A nézet saját D-pad-kezelője az elsődleges. A globális modal- és
+    // térbeli navigáció nem írhatja felül a poszterrács vagy a beállítások
+    // saját fókuszléptetését.
+    var navOwner = e.target && e.target.closest
+      ? e.target.closest('[data-tv-navigation-owner]')
+      : null;
+    if (navOwner && isArrowKey(key)) {
+      var ownerType = navOwner.getAttribute('data-tv-navigation-owner');
+      if (ownerType === 'posters') return;
+      if (ownerType === 'settings' && (key === 'ArrowUp' || key === 'ArrowDown')) return;
+    }
     // A színes gombokat a legkorábbi ponton egyedi eseményként adjuk át a Reactnek,
     // hogy minden fókuszhelyzetben megbízhatóan működjenek.
     if (kc === 403 || kc === 404 || kc === 405 || kc === 406) {

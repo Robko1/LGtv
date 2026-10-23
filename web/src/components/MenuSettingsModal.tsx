@@ -337,6 +337,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       */}
       <div
         ref={modalRef}
+        data-tv-navigation-owner="settings"
         tabIndex={-1}
         onKeyDown={handleModalKeyDown}
         data-mirror-panel={settings.mirrorLayout ? '1' : undefined}
