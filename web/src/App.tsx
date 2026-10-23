@@ -1874,7 +1874,7 @@ export function App() {
     }
     // Előzményből vagy részleges import közben is működjön a CC-keresés,
     // ha a film már lejátszható, de a teljes filmkártya-listában még nincs benne.
-    if (providerBase && /\\/movie\\//i.test(String(customStreamUrl).split(/[?#]/)[0])) {
+    if (providerBase && /\/movie\//i.test(String(customStreamUrl).split(/[?#]/)[0])) {
       return {
         audioTracks: undefined,
         subtitleTracks: undefined,
