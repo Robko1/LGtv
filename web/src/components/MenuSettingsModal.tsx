@@ -189,9 +189,10 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         // Nyitáskor az ÉPP AKTÍV fül pillje kapja a kijelölést (alapból a
         // Kedvencek, mert a menü azzal nyílik) – így a sárga jelölő és a
         // kék aktív fül mindig ugyanott van.
-        const opener = container.querySelector<HTMLElement>(`[data-tv-tabid="${activeTab}"]`)
+        const tab = container.querySelector<HTMLElement>(`[data-tv-tabid="${activeTab}"]`)
           || container.querySelector<HTMLElement>('[data-tv-open-focus]');
-        const box = opener || def || container.querySelector<HTMLElement>('[data-tv-box]');
+        // A megnyitott fül első teljes műveleti doboza kapja a fókuszt.
+        const box = def || tab || container.querySelector<HTMLElement>('[data-tv-box]');
         const buttons = Array.from(container.querySelectorAll<HTMLElement>('button'));
         const focusable = container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
         const target = box || buttons[1] || buttons[0] || focusable[0] || container;
@@ -357,7 +358,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             <div className="space-y-4 animate-fadeIn">
               {/* Header with [+ Új lista] button (Screenshot 4) */}
               <div className="flex items-center justify-between gap-2">
-                <h3 className="text-xs font-black text-slate-200 tracking-wider uppercase">
+                <h3 className="text-base font-black text-slate-100 tracking-wider uppercase">
                   M3U / Xtream Listák
                 </h3>
                 <div className="flex items-center gap-2">
@@ -367,7 +368,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
                     title="Telefonnal beállítás QR kóddal – nem kell TV-n pötyögni"
                   >
-                    <Smartphone className="w-4 h-4" />
+                    <Smartphone className="w-6 h-6 shrink-0" />
                     <span>📱 Telefon</span>
                   </button>
                   <button
@@ -415,7 +416,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       </div>
 
                       {/* Type & Date */}
-                      <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                      <div className="mt-1 text-sm text-slate-300 font-medium">
                         {p.type === 'xtream' ? 'Xtream Codes' : 'M3U Lista'} • frissítve {p.lastUpdated}
                       </div>
 
@@ -502,12 +503,13 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             <div className="space-y-4 animate-fadeIn">
               {/* Header with [Új mappa] button (Screenshot 3) */}
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-black text-slate-200 tracking-wider uppercase">
+                <h3 className="text-base font-black text-slate-100 tracking-wider uppercase">
                   Kedvenc Mappák
                 </h3>
                 <button
+                  data-tv-default=""
                   onClick={onOpenAddFolder}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
                 >
                   <FolderPlus className="w-4 h-4 stroke-[3]" />
                   <span>Új mappa</span>
@@ -757,7 +759,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </h3>
 
                 {/* Pufferelés */}
-                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                <div data-tv-default="" data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Waves className="h-4 w-4 text-cyan-300" /></span>
                     <span>Pufferelés</span>
@@ -1048,7 +1050,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               <div data-tv-box="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <div className="w-full flex items-center justify-between text-left rounded-xl py-1.5">
                   <span className="text-xs font-black text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
-                    <Smartphone className="w-3.5 h-3.5" />
+                    <Smartphone className="w-5 h-5 shrink-0" />
                     <span>LG webOS alkalmazás</span>
                   </span>
                 </div>
@@ -1116,7 +1118,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#0e1f3f] hover:bg-[#142b56] text-cyan-200 border border-cyan-800/50 text-xs font-bold active:scale-95 transition-all"
                     title="Diagnosztika megosztása QR-kóddal (korábban a PIROS gomb)"
                   >
-                    <Smartphone className="w-4 h-4" />
+                    <Smartphone className="w-6 h-6 shrink-0" />
                     <span>Diagnosztika megosztása (QR)</span>
                   </button>
                 )}
