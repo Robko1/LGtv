@@ -152,7 +152,7 @@ export const FullscreenLiveOsd: React.FC<{
           className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200 ${
             hasAvailableSubtitle ? 'ring-1 ring-emerald-400/60' : ''
           }`}
-          aria-label={hasAvailableSubtitle ? 'Felirat aktív' : 'Felirat'}
+          aria-label={hasAvailableSubtitle ? 'Felirat elérhető' : 'Felirat'}
         >
           <Subtitles className={`w-4 h-4 ${hasAvailableSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
           <span>Felirat</span>
