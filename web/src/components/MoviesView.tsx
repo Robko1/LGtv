@@ -229,7 +229,29 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                 data-poster-index={index}
                 data-vod-card={String(mov.id)}
                 onClick={() => setSelectedMovie(mov)}
-                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovie(mov); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); const index = Number((e.currentTarget as HTMLElement).dataset.posterIndex); const cards = Array.from(movieGridRef.current?.querySelectorAll<HTMLElement>('[data-poster-index]') || []); const columns = 5; let target = index; if (key === 'ArrowUp') target = index >= columns ? index - columns : -1; if (key === 'ArrowDown') target = index + columns < cards.length ? index + columns : -1; if (key === 'ArrowLeft') target = index > 0 ? index - 1 : -1; if (key === 'ArrowRight') target = index + 1 < cards.length ? index + 1 : -1; if (target >= 0 && target !== index) cards[target]?.focus(); else if (key === 'ArrowUp' && index < columns) movieGridRef.current?.closest('[data-view-pane="movies"]')?.querySelector<HTMLElement>('[data-category-trigger]')?.focus(); } }}
+                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovie(mov); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const index = Number((e.currentTarget as HTMLElement).dataset.posterIndex);
+                  const cards = Array.from(movieGridRef.current?.querySelectorAll<HTMLElement>('[data-poster-index]') || []);
+                  const columns = 5;
+                  let target = index;
+                  if (key === 'ArrowUp') target = index >= columns ? index - columns : -1;
+                  if (key === 'ArrowDown') target = index + columns < cards.length ? index + columns : -1;
+                  if (key === 'ArrowLeft') target = index > 0 ? index - 1 : -1;
+                  if (key === 'ArrowRight') target = index + 1 < cards.length ? index + 1 : -1;
+                  if (target >= 0 && target !== index) {
+                    cards[target]?.focus({ preventScroll: true } as FocusOptions);
+                  } else if (key === 'ArrowDown' && index + columns >= cards.length && cards.length < filteredMovies.length) {
+                    // A következő sor még nincs kirajzolva: bővítjük a listát, majd arra a poszterre fókuszálunk.
+                    setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length));
+                    window.requestAnimationFrame(() => {
+                      window.requestAnimationFrame(() => movieGridRef.current?.querySelector<HTMLElement>(`[data-poster-index="${index + columns}"]`)?.focus({ preventScroll: true } as FocusOptions));
+                    });
+                  } else if (key === 'ArrowUp' && index < columns) {
+                    movieGridRef.current?.closest('[data-view-pane="movies"]')?.querySelector<HTMLElement>('[data-category-trigger]')?.focus({ preventScroll: true } as FocusOptions);
+                  }
+                } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
                   <PosterImage src={mov.poster} title={mov.title} kind="movie" alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
