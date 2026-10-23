@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.32';
+export const WEB_VERSION = '2.5.33';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.32',
+    version: '2.5.33',
     date: '2026-10-23',
     changes: [
       'MOZI/SOROZAT FELIRAT (CC) – a film felirata mostantól magától bekapcsol: eddig az automatikus választó kilépett, ha a stream nem tett közzé beégetett (muxolt) hangsávot/feliratsávot, illetve ha a natív lejátszó futott – ezért maradt az OSD-ben a „Felirat kikapcsolva”',
