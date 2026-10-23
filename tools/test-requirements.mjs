@@ -511,10 +511,13 @@ const MOVIES = read('web/src/components/MoviesView.tsx');
 const SERIES = read('web/src/components/SeriesView.tsx');
 const SETTINGS_MODAL = read('web/src/components/MenuSettingsModal.tsx');
 
-test('8. teljes képernyős OSD: hangsáv + felirat jelző a BAL ALSÓ sarokban, főoldali méretben', () => {
+test('8. teljes képernyős OSD: hangsáv bal, felirat jobb alsó sarokban, főoldali méretben', () => {
   // A jelzők a teljes képernyős OSD részei → a beállított idő után együtt tűnnek el.
   assert.match(CONTROLS, /data-fullscreen-osd-badges=""/);
-  assert.match(CONTROLS, /absolute bottom-6 left-8/, 'a bal alsó sarokban');
+  // A hangsáv jelző a bal, a felirat jelző a jobb alsó sarokban (egy sor, széthúzva).
+  assert.match(CONTROLS, /absolute inset-x-8 bottom-6 flex items-center justify-between/, 'a két alsó sarokban');
+  const badgesSource = CONTROLS.slice(CONTROLS.indexOf('data-fullscreen-osd-badges'));
+  assert.ok(badgesSource.indexOf('<Mic2') < badgesSource.indexOf('<Subtitles'), 'Audio balra, CC jobbra');
   // Ugyanaz a méret, mint a főoldali (compact) OSD-ben.
   assert.match(CONTROLS, /text-sm font-bold text-slate-200/);
   assert.match(CONTROLS, /<Mic2 className=\{`w-4 h-4/);

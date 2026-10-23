@@ -129,9 +129,10 @@ export const FullscreenLiveOsd: React.FC<{
       </div>
 
       {/*
-        HANGSÁV / FELIRAT JELZŐK – a teljes képernyő BAL ALSÓ sarkában,
-        ugyanolyan méretben, mint a főoldali OSD-ben (a compact OSD
-        `text-sm`, `w-4 h-4` ikonok, `px-2 py-1`, lekerekített keret).
+        HANGSÁV / FELIRAT JELZŐK – a teljes képernyő alsó sarkaiban
+        (Audio a bal, CC a jobb oldalon), ugyanolyan méretben, mint a
+        főoldali OSD-ben (a compact OSD `text-sm`, `w-4 h-4` ikonok,
+        `px-2 py-1`, lekerekített keret).
       */}
       <div
         data-fullscreen-osd-badges=""
