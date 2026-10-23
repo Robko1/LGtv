@@ -213,20 +213,25 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       try {
         const container = modalRef.current;
         if (!container) return;
-        const focusable = Array.from(container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter(el => !el.hasAttribute('disabled') && (el as HTMLElement).offsetParent !== null);
-        if (focusable.length === 0) return;
+        // Logikai fókuszpontok: fülek és teljes dobozok/sorok, nem a bennük
+        // található minden egyes gomb. Így a D-pad nem ugrál a gyermekgombok között.
+        const focusable = Array.from(container.querySelectorAll<HTMLElement>(
+          '[data-tv-tabid], [data-tv-default], [data-tv-box], [data-favorite-folder], [data-favorite-channel]'
+        )).filter((el) => {
+          if (el.hasAttribute('disabled') || el.offsetParent === null) return false;
+          if (el.closest('[data-view-hidden]')) return false;
+          return true;
+        });
+        if (!focusable.length) return;
         const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
         e.preventDefault();
         e.stopPropagation();
-        if (key === 'ArrowDown') {
-          const next = focusable[(currentIndex + 1) % focusable.length];
-          next?.focus();
-          next?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-        } else {
-          const prev = focusable[(currentIndex - 1 + focusable.length) % focusable.length];
-          prev?.focus();
-          prev?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-        }
+        const nextIndex = key === 'ArrowDown'
+          ? Math.min(focusable.length - 1, currentIndex < 0 ? 0 : currentIndex + 1)
+          : Math.max(0, currentIndex < 0 ? 0 : currentIndex - 1);
+        const target = focusable[nextIndex];
+        target?.focus({ preventScroll: true } as any);
+        target?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
       } catch {}
     } else if (key === 'Escape' || key === 'Backspace') {
       // TV Back / Esc: először a függő törlés-megerősítést vonja vissza,
@@ -530,7 +535,24 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     .filter((channel): channel is Channel => Boolean(channel));
                   const expanded = expandedFavoriteFolderId === f.id;
                   return (
-                    <div key={f.id} className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
+                    <div key={f.id} data-favorite-folder={f.id} tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        const key = normalizeTvKey(event);
+                        if (key === 'Enter' || key === ' ') {
+                          event.preventDefault();
+                          setExpandedFavoriteFolderId(expanded ? null : f.id);
+                          setMovingFavoriteChannelId(null);
+                        } else if (key === 'ArrowRight') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          event.currentTarget.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus();
+                        } else if (key === 'ArrowDown' && expanded) {
+                          const firstChannel = event.currentTarget.querySelector<HTMLElement>('[data-favorite-channel]');
+                          if (firstChannel) { event.preventDefault(); event.stopPropagation(); firstChannel.focus(); }
+                        }
+                      }}
+                      className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber-400 focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
                       <div className="p-3.5 flex items-center justify-between gap-3">
                         <button
                           type="button"
@@ -594,6 +616,21 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             return (
                               <div
                                 key={channel.id}
+                                data-favorite-channel={channel.id}
+                                tabIndex={0}
+                                onKeyDown={(event) => {
+                                  if (event.target !== event.currentTarget) return;
+                                  const key = normalizeTvKey(event);
+                                  if (key === 'ArrowRight') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    event.currentTarget.querySelector<HTMLElement>('button[title="Eltávolítás a kedvenc mappából"]')?.focus();
+                                  } else if (key === 'ColorF3Blue') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setMovingFavoriteChannelId(movingFavoriteChannelId === channel.id ? null : channel.id);
+                                  }
+                                }}
                                 onClick={() => {
                                   if (suppressFavoriteClick.current) {
                                     suppressFavoriteClick.current = false;
