@@ -346,3 +346,14 @@ body.has-mouse [role="option"]:hover {
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
   background-image: linear-gradient(to right, var(--live-accent-solid), var(--live-accent-soft)) !important;
 }
+
+
+/* Kért, a mozi/sorozat könyvtárra szűkített TV-s olvashatóság. */
+@media (min-width: 1280px) {
+  [data-view-pane="movies"] [data-category-trigger],
+  [data-view-pane="series"] [data-category-trigger] { min-height: 48px; }
+  [data-view-pane="movies"] [data-poster-index] h3,
+  [data-view-pane="series"] [data-poster-index] h3 { line-height: 1.25; }
+  [data-view-pane="movies"] [data-poster-index] > div:last-child,
+  [data-view-pane="series"] [data-poster-index] > div:last-child { min-width: 0; overflow: hidden; }
+}
