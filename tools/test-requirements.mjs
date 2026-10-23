@@ -1091,7 +1091,7 @@ test('13. a QR-kód nagy, nagy kontrasztú és könnyen olvasható; a hivatkozá
   assert.match(DIAG_MODAL, /fgColor="#05080f"/);
   // A tartalom továbbra is a szerverről kapott hivatkozás, a csendes zóna megvan.
   assert.match(DIAG_MODAL, /value=\{share\.url\}/);
-  assert.match(DIAG_MODAL, /marginSize=\\{4\\}/);
+  assert.match(DIAG_MODAL, /marginSize=\{4\}/);
   assert.match(DIAG_MODAL, /level="L"/);
   assert.match(DIAG_MODAL, /boostLevel=\{false\}/);
 });
