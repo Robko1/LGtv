@@ -996,6 +996,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [providerSubtitleTracks, setProviderSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [vodSubtitleCues, setVodSubtitleCues] = useState<SubtitleCue[]>([]);
   const providerSubtitleRequestRef = useRef('');
+  /**
+   * Kézi újrapróbálkozás a szolgáltatói feliratkeresésre.
+   *
+   * A keresés streamenként egyszer fut (a szolgáltató válasza lassú lehet, és
+   * nem akarjuk minden OSD-nyitásnál terhelni). Ha a néző kinyitja a FELIRAT
+   * választót, és még nincs egyetlen sáv sem, ez a számláló újraindítja a
+   * keresést – így egy időtúllépéssel elvesztett próba nem marad végleges.
+   */
+  const [subtitleSearchNonce, setSubtitleSearchNonce] = useState(0);
 
   /*
    * Az új film/sorozat OSD a referenciához hasonlóan a KÉP FÖLÖTT úszik
@@ -1795,10 +1804,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setVodTrackMenu(menu);
       setShowControlsOverlay(true);
       setVodOsdActivity((value) => value + 1);
+      /*
+       * FELIRAT választó megnyitása üres listával = kézi újrapróbálkozás.
+       * Előfordulhat, hogy az induló keresés hálózati időtúllépésbe futott;
+       * ilyenkor a néző ne maradjon felirat nélkül task nélkül.
+       */
+      if (menu === 'subtitle' && vodSubtitleTracks.length === 0 && providerSubtitleTracks.length === 0) {
+        appLog('Felirat választó: nincs sáv – a szolgáltatói feliratkeresés újraindul.');
+        providerSubtitleRequestRef.current = '';
+        setSubtitleSearchNonce((value) => value + 1);
+      }
     };
     window.addEventListener('iptv-vod-menu', onVodMenu);
     return () => window.removeEventListener('iptv-vod-menu', onVodMenu);
-  }, [isVod]);
+  }, [isVod, vodSubtitleTracks.length, providerSubtitleTracks.length]);
 
   /*
    * SZOLGÁLTATÓI FELIRATOK (CC) keresése a film/sorozat indításakor.
@@ -1808,7 +1827,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * Streamenként egyszer fut, és hálózati hiba esetén csendben feladja.
    */
   useEffect(() => {
-    if (!isVod || !subtitleSource) {
+    if (!isVod) return;
+    if (!subtitleSource) {
+      /*
+       * Nincs honnan feliratot kérni (nem Xtream szolgáltató, vagy a film /
+       * epizód azonosítója nem állapítható meg). Ezt a naplóban jelezzük, hogy
+       * a következő hibajegyből kiderüljön: nem a letöltés hibázott.
+       */
+      const noSourceKey = `nincs-forras|${streamUrl}`;
+      if (providerSubtitleRequestRef.current !== noSourceKey) {
+        providerSubtitleRequestRef.current = noSourceKey;
+        appLog('Feliratkeresés (CC): nincs szolgáltatói forrás ehhez a filmhez (nem Xtream lista vagy hiányzó film/epizód azonosító).');
+      }
       setProviderSubtitleTracks([]);
       setVodSubtitleCues([]);
       return;
@@ -1820,6 +1850,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setProviderSubtitleTracks([]);
     setVodSubtitleCues([]);
     const timer = window.setTimeout(() => {
+      appLog(`Feliratkeresés (CC) indul: ${subtitleSource.vodId ? `vod=${subtitleSource.vodId}` : `sorozat=${subtitleSource.seriesId}, epizód=${subtitleSource.episodeId}`}.`);
       void resolveVodSubtitles(subtitleSource).then((tracks) => {
         if (cancelled || tracks.length === 0) return;
         setProviderSubtitleTracks(tracks);
@@ -1829,7 +1860,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isVod, streamUrl, subtitleSource]);
+  }, [isVod, streamUrl, subtitleSource, subtitleSearchNonce]);
 
   /*
    * FILM / SOROZAT – ALAPÉRTELMEZETT NYELV (Beállítások → Mozi & Sorozat).
