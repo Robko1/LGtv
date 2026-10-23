@@ -29,8 +29,33 @@ let saveTimer: number | null = null;
 let measurementStartedAt = Date.now();
 const measurementCounters = { logLines: 0, errors: 0, longTasks: 0, critical: 0 };
 
+/** A napló minden abszolút időpontját az ír időzónában írjuk ki, explicit UTC-eltolással. */
+function dublinTimestamp(at: number = Date.now()): string {
+  const date = new Date(at);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Dublin',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || '00';
+  const year = part('year');
+  const month = part('month');
+  const day = part('day');
+  const hour = part('hour');
+  const minute = part('minute');
+  const second = part('second');
+  const millis = String(date.getUTCMilliseconds()).padStart(3, '0');
+  const localAsUtc = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  const offsetMinutes = Math.round((localAsUtc - Math.floor(at / 1000) * 1000) / 60000);
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const offset = sign + String(Math.floor(absoluteOffset / 60)).padStart(2, '0') + ':' + String(absoluteOffset % 60).padStart(2, '0');
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}.${millis}${offset}`;
+}
+
 function nowStamp(): string {
-  return new Date().toISOString();
+  return dublinTimestamp();
 }
 
 /** Csak a dátummal ellátott, elmúlt 24 órán belüli sorokat tartjuk meg. */
@@ -38,7 +63,7 @@ function trimExpired(): void {
   const cutoff = Date.now() - MAX_AGE_MS;
   const fresh: string[] = [];
   for (const line of lines) {
-    const timestamp = Date.parse(line.slice(0, 24));
+    const timestamp = Date.parse(line.slice(0, line.indexOf(' ')));
     // A régi, dátum nélküli formátum korát nem lehet megbízhatóan megállapítani,
     // ezért nem tartjuk meg az új, 24 órás naplóban.
     if (Number.isFinite(timestamp) && timestamp >= cutoff && timestamp <= Date.now() + 60_000) {
@@ -230,7 +255,9 @@ export interface MeasurementSnapshot {
 export function clockText(at: number = Date.now()): string {
   const date = new Date(at);
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value || '00';
+  return `${value('hour')}:${value('minute')}:${value('second')}`;
 }
 
 /** A pillanatnyi mérés-ablak (a nullázás óta mért értékek). */
@@ -272,7 +299,7 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
     /* a figyelő még nem indult el */
   }
 
-  appLog(`=== ÚJ MÉRÉS KEZDETE: ${new Date(startedAt).toISOString()} (${clockText(startedAt)}); előzmények törölve; ok: ${reason} ===`);
+  appLog(`=== ÚJ MÉRÉS KEZDETE: ${dublinTimestamp(startedAt)} (${clockText(startedAt)}); előzmények törölve; ok: ${reason} ===`);
   appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt)}]: számlálók nullázva; ${memorySnapshot()}; ${uiStateSnapshot()}`);
   // A két kezdősor a QR-naplóban megmarad, de nem növeli a mérés számlálóját.
   measurementCounters.logLines = 0;
@@ -291,7 +318,7 @@ export function getAppLogText(): string {
   // A megosztás csak az aktuális mérési ablak sorait tartalmazza. A teljes
   // helyi napló továbbra is megőrzi a legutóbbi 24 órát; a QR-export nem.
   const sessionLines = lines.filter((line) => {
-    const timestamp = Date.parse(line.slice(0, 24));
+    const timestamp = Date.parse(line.slice(0, line.indexOf(' ')));
     return Number.isFinite(timestamp) && timestamp >= measurementStartedAt;
   });
   const header = `--- WEBOS NAPLÓ (${sessionLines.length} sor; mérési ablak; helyi naplómegőrzés: max. 24 óra / 60 KB) | MÉRÉS KEZDETE: ${measure.startedAtText} ---`;
