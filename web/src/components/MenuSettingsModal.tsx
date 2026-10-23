@@ -106,6 +106,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const [pendingDeleteFolderId, setPendingDeleteFolderId] = useState<string | null>(null);
   const [pendingClearCache, setPendingClearCache] = useState(false);
   const [movingFavoriteChannelId, setMovingFavoriteChannelId] = useState<string | null>(null);
+  const [favoriteMoveCursor, setFavoriteMoveCursor] = useState<'up' | 'down' | 'trash'>('up');
   const favoriteLongPressTimer = useRef<number | null>(null);
   const suppressFavoriteClick = useRef(false);
   const lastFavoriteReorderTapAt = useRef(0);
@@ -116,6 +117,24 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       favoriteLongPressTimer.current = null;
     }
   };
+
+  // A kék távirányító-gomb a Kedvencek fülön is aktiválja a csatorna-mozgatást.
+  // A webOS globális kezelője ezt az eseményt küldi ki a színes gombhoz.
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'favorites') return;
+    const onTvAction = (event: Event) => {
+      const action = (event as CustomEvent)?.detail?.action;
+      if (action !== 'move') return;
+      const active = document.activeElement as HTMLElement | null;
+      const row = active?.closest<HTMLElement>('[data-favorite-channel]');
+      const channelId = row?.getAttribute('data-favorite-channel');
+      if (!channelId) return;
+      setMovingFavoriteChannelId((current) => current === channelId ? null : channelId);
+      setFavoriteMoveCursor('up');
+    };
+    window.addEventListener('iptv-tv-action', onTvAction);
+    return () => window.removeEventListener('iptv-tv-action', onTvAction);
+  }, [isOpen, activeTab]);
 
   const checkWebOSUpdate = async () => {
     setReleaseCheckLoading(true);
@@ -688,6 +707,29 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 onKeyDown={(event) => {
                                   if (event.target !== event.currentTarget) return;
                                   const key = normalizeTvKey(event);
+                                  if (moving) {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    if (key === 'ArrowLeft') {
+                                      setFavoriteMoveCursor((cursor) => cursor === 'trash' ? 'down' : 'up');
+                                    } else if (key === 'ArrowRight') {
+                                      setFavoriteMoveCursor((cursor) => cursor === 'up' ? 'down' : 'trash');
+                                    } else if (key === 'ArrowUp') {
+                                      if (index > 0) onMoveFavoriteChannel(f.id, channel.id, 'up');
+                                    } else if (key === 'ArrowDown') {
+                                      if (index < folderChannels.length - 1) onMoveFavoriteChannel(f.id, channel.id, 'down');
+                                    } else if (key === 'Enter' || key === ' ') {
+                                      if (favoriteMoveCursor === 'up' && index > 0) onMoveFavoriteChannel(f.id, channel.id, 'up');
+                                      else if (favoriteMoveCursor === 'down' && index < folderChannels.length - 1) onMoveFavoriteChannel(f.id, channel.id, 'down');
+                                      else if (favoriteMoveCursor === 'trash') {
+                                        onRemoveChannelFromFolder(f.id, channel.id);
+                                        setMovingFavoriteChannelId(null);
+                                      }
+                                    } else if (key === 'Escape' || key === 'Backspace') {
+                                      setMovingFavoriteChannelId(null);
+                                    }
+                                    return;
+                                  }
                                   if (key === 'ArrowRight') {
                                     event.preventDefault();
                                     event.stopPropagation();
@@ -696,6 +738,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     event.preventDefault();
                                     event.stopPropagation();
                                     setMovingFavoriteChannelId(movingFavoriteChannelId === channel.id ? null : channel.id);
+                                    setFavoriteMoveCursor('up');
                                   }
                                 }}
                                 onClick={() => {
@@ -741,7 +784,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                       disabled={index === 0}
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onClick={(event) => { event.stopPropagation(); onMoveFavoriteChannel(f.id, channel.id, 'up'); }}
-                                      className="p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90"
+                                      className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90 ${favoriteMoveCursor === 'up' ? 'ring-2 ring-yellow-300' : ''}`}
                                       title="Mozgatás felfelé"
                                       aria-label={`${channel.name} mozgatása felfelé`}
                                     ><ArrowUp className="w-4 h-4" /></button>
@@ -750,7 +793,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                       disabled={index === folderChannels.length - 1}
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onClick={(event) => { event.stopPropagation(); onMoveFavoriteChannel(f.id, channel.id, 'down'); }}
-                                      className="p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90"
+                                      className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90 ${favoriteMoveCursor === 'down' ? 'ring-2 ring-yellow-300' : ''}`}
                                       title="Mozgatás lefelé"
                                       aria-label={`${channel.name} mozgatása lefelé`}
                                     ><ArrowDown className="w-4 h-4" /></button>
@@ -764,7 +807,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     onRemoveChannelFromFolder(f.id, channel.id);
                                     if (movingFavoriteChannelId === channel.id) setMovingFavoriteChannelId(null);
                                   }}
-                                  className="p-1.5 rounded-xl text-amber-400 hover:text-amber-300 active:scale-90"
+                                  className={`p-1.5 rounded-xl text-amber-400 hover:text-amber-300 active:scale-90 ${moving && favoriteMoveCursor === 'trash' ? 'ring-2 ring-yellow-300' : ''}`}
                                   title="Eltávolítás a kedvenc mappából"
                                   aria-label={`${channel.name} eltávolítása a kedvenc mappából`}
                                 ><Star className="w-4 h-4 fill-amber-400" /></button>
