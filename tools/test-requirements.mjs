@@ -792,7 +792,8 @@ test('10. film/sorozat felirat (CC): szolgáltatói feliratok + saját kirajzol�
   // Az App átadja a film/epizód azonosítóit.
   assert.match(APP, /subtitleSource=\{currentVodTracks\.subtitleSource\}/);
   assert.match(APP, /vodId: movie\.streamId \?\? idFromUrl\(movie\.streamUrl\)/);
-  assert.match(APP, /seriesId: item\.seriesId \?\? item\.id,/);\n  assert.match(APP, /episodeId: idFromUrl\(episode\.streamUrl\) \|\| episode\.id,/);
+  assert.match(APP, /seriesId: item\.seriesId \?\? item\.id,/);
+  assert.match(APP, /episodeId: idFromUrl\(episode\.streamUrl\) \|\| episode\.id,/);
 });
 
 test('10. az automatikus magyar felirat a szolgáltatói listát is figyeli', () => {
