@@ -1060,7 +1060,7 @@ test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és l�
   // A felugró ablak a Frissítéskor nulláz, és kiírja a kezdő időpontot.
   assert.match(DIAG_MODAL, /const fresh = resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\);/);
   assert.match(DIAG_MODAL, /data-diagnostic-measure-start=/);
-  assert.match(DIAG_MODAL, /A mérések nullázva \(0\)\. Új mérés kezdete: \$\{fresh\.startedAtText\}/);
+  assert.match(DIAG_MODAL, /Az előzmények törölve\. Új mérés kezdete: \$\{fresh\.startedAtText\}; a QR csak az azóta keletkezett naplót tartalmazza/);
   // A teszthez/diagnosztikához a híd is elérhető.
   assert.match(MAIN, /resetMeasure: \(reason\?: string\) => resetMeasurements/);
 });
