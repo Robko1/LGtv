@@ -214,8 +214,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     if (!next) return;
     event.preventDefault();
     event.stopPropagation();
-    setActiveTab(next);
-    window.setTimeout(() => modalRef.current?.querySelector<HTMLElement>(`[data-tv-tabid="${next}"]`)?.focus({ preventScroll: true } as any), 0);
+    // A nyílgomb csak a fül fókuszát mozgatja; OK aktiválja a fület.
+    modalRef.current?.querySelector<HTMLElement>(`[data-tv-tabid="${next}"]`)?.focus({ preventScroll: true } as any);
   };
 
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
