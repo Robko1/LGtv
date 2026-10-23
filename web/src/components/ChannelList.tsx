@@ -1016,6 +1016,9 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                     }}
                     onKeyDown={(e) => {
                       const key = normalizeTvKey(e);
+                      // Mozgatáskor a sor nem nyelheti el az OK-t vagy a nyilakat:
+                      // ezeket a lista kezelője dolgozza fel a piros nyíl/kuka kurzorhoz.
+                      if (movingChannelId) return;
                       if (key === 'Enter' || key === ' ') {
                         e.preventDefault();
                         e.stopPropagation();
