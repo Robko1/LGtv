@@ -190,7 +190,13 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
     appLog(`Feliratkeresés (CC): a szolgáltató nem sorolt fel feliratot (${source.vodId ? `vod=${source.vodId}` : `sorozat=${source.seriesId}`}).`);
     return [];
   }
-  appLog(`Feliratkeresés (CC): ${entries.length} bejegyzés a szolgáltató válaszában.`);
+  appLog(`Feliratkeresés (CC): ${entries.length} bejegyzés a szolgáltató válaszában; azonosító=${source.vodId ? `vod=${source.vodId}` : `sorozat=${source.seriesId}`}.`);
+  entries.slice(0, MAX_SUBTITLES).forEach((entry, index) => {
+    const id = pickString(entry, ['sub_id', 'subId', 'id', 'subtitle_id']) || 'nincs ID';
+    const name = pickString(entry, ['title', 'name', 'sub_name', 'language', 'lang']) || `Felirat ${index + 1}`;
+    const lang = pickString(entry, ['language', 'lang', 'code', 'language_code']) || 'ismeretlen';
+    appLog(`CC szolgáltatói lista #${index + 1}: név=${name.slice(0, 55)}; nyelv=${lang.slice(0, 16)}; ID=${id.slice(0, 35)}.`);
+  });
 
   const urlPrefixes = [
     `${base}/subtitle/${encodeURIComponent(source.username)}/${encodeURIComponent(source.password)}`,
@@ -232,12 +238,14 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
            * a natív sávok azonosítói is számok, így azonos értéknél a felirat
            * kiszorította volna a szolgáltatói tételt a listából.
            */
+          appLog(`CC fájlteszt SIKERES: ${candidate.name.slice(0, 55)} [${candidate.lang || 'nyelv ?'}]; azonosító=${String(candidate.id).slice(0, 35)}; formátum=${/\\.vtt(?:$|[?#])/i.test(url) ? 'VTT' : /\\.srt(?:$|[?#])/i.test(url) ? 'SRT' : 'egyéb'}.`);
           return { id: `cc:${candidate.id}`, name: candidate.name, lang: candidate.lang, url };
         }
       } catch {
         // 404/403: a következő mintát próbáljuk – ez normális, nem hiba.
       }
     }
+    appLog(`CC fájlteszt SIKERTELEN: ${candidate.name.slice(0, 55)} [${candidate.lang || 'nyelv ?'}]; azonosító=${String(candidate.id).slice(0, 35)}; próbált URL-ek=${candidate.urls.length}.`);
     return null;
   }));
 
