@@ -2357,6 +2357,7 @@ export function App() {
         és a lejátszó átfedése rejti el; a mount/unmount nem kell hozzá.
       */}
       <Header
+        liveAccent={liveAccent}
         clockOffsetHours={settings.clockOffsetHours}
         activeView={activeView}
         onViewChange={handleViewChange}
