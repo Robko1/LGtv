@@ -16,7 +16,7 @@
     "com.webos.media",
     "com.webos.service.networkinput.getPointerInputSocket"
   ],
-  "handlesRelaunch": true,
+  "handlesRelaunch": false,
   "closeOnRotation": false,
   "supportTouchMode": "virtual",
   "transparent": false,
