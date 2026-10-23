@@ -2563,6 +2563,7 @@ export function App() {
             onSelectedCategoryChange={handleMoviesCategoryChange}
             onBackToLive={handleBackToLive}
             onToggleFavoriteMovie={handleToggleFavoriteMovie}
+            isActive={activeView === 'movies'}
           />
         </div>
       )}
@@ -2586,6 +2587,7 @@ export function App() {
             onSelectedCategoryChange={handleSeriesCategoryChange}
             onBackToLive={handleBackToLive}
             onToggleFavoriteSeries={handleToggleFavoriteSeries}
+            isActive={activeView === 'series'}
           />
         </div>
       )}
