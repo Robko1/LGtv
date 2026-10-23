@@ -871,15 +871,15 @@ test('11. Mozi/Sorozat nézet: TV → Sorozatok → Mozi, Menü nélkül, semleg
   assert.match(HEADER, /<span>Sorozatok<\/span>/);
 });
 
-test('11. teljes képernyős élő OSD: MOST/KÖVETKEZŐ fix rács, kék jelvény, sárga nagyobb cím', () => {
+test('11. teljes képernyős élő OSD: MOST/KÖVETKEZŐ egyszerű fehér szöveg, igazított rács, sárga nagyobb cím', () => {
   const CONTROLS = read('web/src/components/ChannelControls.tsx');
   assert.match(CONTROLS, /data-fullscreen-osd-epg=""/);
-  // Egyetlen rács, ezért a két sor jobb széle egy vonalban van.
+  // A sorok igazítottak maradnak, de a MOST/KÖVETKEZŐ feliratokon nincs háttér vagy doboz.
   assert.match(CONTROLS, /grid w-full grid-cols-\[7rem_minmax\(0,1fr\)_7\.5rem\] items-center gap-x-4 gap-y-2/);
-  // Kék jelvény (nem sárga).
-  assert.match(CONTROLS, /rounded-md bg-blue-600 px-3 py-1 text-center text-base font-black tracking-wide text-white[^"]*">MOST</);
-  assert.match(CONTROLS, /rounded-md bg-blue-700 px-3 py-1 text-center text-base font-black tracking-wide text-white[^"]*">KÖVETKEZŐ</);
-  assert.doesNotMatch(CONTROLS, /bg-amber-400 px-3 py-1 text-base font-black tracking-wide text-slate-950">MOST</);
+  assert.match(CONTROLS, /className="min-w-0 text-center text-base font-black tracking-wide text-white">MOST</);
+  assert.match(CONTROLS, /className="min-w-0 text-center text-base font-black tracking-wide text-white">KÖVETKEZŐ</);
+  assert.doesNotMatch(CONTROLS, /bg-blue-600|bg-blue-700/);
+  assert.doesNotMatch(CONTROLS, /rounded-md bg-(?:blue|amber)-/);
   // A műsorcím sárga és nagyobb.
   assert.match(CONTROLS, /text-2xl font-bold leading-8 text-amber-300 drop-shadow-lg/);
   assert.match(CONTROLS, /text-2xl font-bold leading-8 text-amber-300\/90 drop-shadow-lg/);
