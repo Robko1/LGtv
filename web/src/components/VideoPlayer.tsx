@@ -407,9 +407,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoDiagnosticState = (video: HTMLVideoElement, reason: string): string => {
     const rect = video.getBoundingClientRect();
     const error = video.error;
+    const width = Number(video.videoWidth || 0);
+    const height = Number(video.videoHeight || 0);
+    const resolutionClass = !width || !height ? 'ismeretlen/indul' :
+      width >= 3840 || height >= 2160 ? '4K+' :
+      width >= 1920 || height >= 1080 ? 'Full-HD+' :
+      width >= 1280 || height >= 720 ? 'HD+' : 'SD';
+    const qualityVideo = video as HTMLVideoElement & {
+      getVideoPlaybackQuality?: () => { totalVideoFrames?: number; droppedVideoFrames?: number; corruptedVideoFrames?: number };
+      webkitDecodedFrameCount?: number;
+      webkitDroppedFrameCount?: number;
+    };
+    let frameStats = 'nem támogatott';
+    try {
+      if (typeof qualityVideo.getVideoPlaybackQuality === 'function') {
+        const stats = qualityVideo.getVideoPlaybackQuality();
+        frameStats = `total=${stats.totalVideoFrames ?? 'n/a'},dropped=${stats.droppedVideoFrames ?? 'n/a'},corrupted=${stats.corruptedVideoFrames ?? 'n/a'}`;
+      } else if (typeof qualityVideo.webkitDecodedFrameCount === 'number') {
+        frameStats = `decoded=${qualityVideo.webkitDecodedFrameCount},dropped=${qualityVideo.webkitDroppedFrameCount ?? 'n/a'}`;
+      }
+    } catch { frameStats = 'kiolvasási hiba'; }
+    let streamSupport = 'HLS=' + (video.canPlayType('application/vnd.apple.mpegurl') || 'nincs jelzés') +
+      ',MP4=' + (video.canPlayType('video/mp4') || 'nincs jelzés') +
+      ',TS=' + (video.canPlayType('video/mp2t') || 'nincs jelzés');
     return `${reason}; viewport=${Math.round(window.innerWidth)}x${Math.round(window.innerHeight)}; ` +
       `videoBox=${Math.round(rect.width)}x${Math.round(rect.height)}@${Math.round(rect.left)},${Math.round(rect.top)}; ` +
-      `videoSize=${video.videoWidth}x${video.videoHeight}; readyState=${video.readyState}; networkState=${video.networkState}; ` +
+      `videoSize=${width}x${height}; resolutionClass=${resolutionClass}; frameStats=[${frameStats}]; ` +
+      `fps=webOS HTMLVideoElement API-ból nem megbízhatóan kiolvasható; codec=közvetlen adat nem elérhető; ` +
+      `HDR=közvetlen metadata nem elérhető; canPlayType=[${streamSupport}]; ` +
+      `readyState=${video.readyState}; networkState=${video.networkState}; ` +
       `paused=${video.paused}; currentTime=${Number(video.currentTime || 0).toFixed(2)}; ` +
       `error=${error ? `${error.code}:${error.message || 'nincs részlet'}` : 'nincs'}`;
   };
