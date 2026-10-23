@@ -219,29 +219,60 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   };
 
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
-    // TV távirányító: D-pad navigáció a modalban.
-    // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, VISSZA=461) is jöhet.
+    // A fel/le navigáció mindig az éppen aktív fülön belül marad.
+    // Csak az adott fül legfelső dobozáról lehet visszalépni a saját fülére.
     const key = normalizeTvKey(e);
     if (key === 'ArrowDown' || key === 'ArrowUp') {
       try {
         const container = modalRef.current;
         if (!container) return;
-        // Logikai fókuszpontok: fülek és teljes dobozok/sorok, nem a bennük
-        // található minden egyes gomb. Így a D-pad nem ugrál a gyermekgombok között.
-        const focusable = Array.from(container.querySelectorAll<HTMLElement>(
-          '[data-tv-tabid], [data-tv-default], [data-tv-box], [data-favorite-folder], [data-favorite-channel]'
-        )).filter((el) => {
+
+        const activeElement = document.activeElement as HTMLElement | null;
+        const onTabs = !!activeElement?.closest('[data-tv-tabs]');
+        const activeTabButton = container.querySelector<HTMLElement>(`[data-tv-tabid="${activeTab}"]`);
+        const selector = activeTab === 'system'
+          ? '[data-tv-box]'
+          : activeTab === 'favorites'
+            ? '[data-tv-default], [data-favorite-folder], [data-favorite-channel]'
+            : '[data-tv-default], [data-tv-box], [data-resume-item]';
+        const focusable = Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((el) => {
           if (el.hasAttribute('disabled') || el.offsetParent === null) return false;
           if (el.closest('[data-view-hidden]')) return false;
           return true;
         });
-        if (!focusable.length) return;
-        const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+
         e.preventDefault();
         e.stopPropagation();
+
+        if (onTabs) {
+          if (key === 'ArrowDown') {
+            focusable[0]?.focus({ preventScroll: true } as any);
+            focusable[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          }
+          return;
+        }
+
+        // Ha egy gomb fókuszban van a dobozon belül, fel/le esetén a teljes
+        // dobozt tekintjük kijelöltnek.
+        const logicalCurrent = activeElement?.closest<HTMLElement>(
+          activeTab === 'system' ? '[data-tv-box]'
+            : activeTab === 'favorites' ? '[data-tv-default], [data-favorite-folder], [data-favorite-channel]'
+              : '[data-tv-default], [data-tv-box], [data-resume-item]'
+        ) || activeElement;
+        let currentIndex = focusable.indexOf(logicalCurrent as HTMLElement);
+        if (currentIndex < 0 && activeElement) {
+          currentIndex = focusable.findIndex((el) => el.contains(activeElement));
+        }
+
+        if (key === 'ArrowUp' && currentIndex <= 0) {
+          activeTabButton?.focus({ preventScroll: true } as any);
+          activeTabButton?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          return;
+        }
+
         const nextIndex = key === 'ArrowDown'
           ? Math.min(focusable.length - 1, currentIndex < 0 ? 0 : currentIndex + 1)
-          : Math.max(0, currentIndex < 0 ? 0 : currentIndex - 1);
+          : Math.max(0, currentIndex - 1);
         const target = focusable[nextIndex];
         target?.focus({ preventScroll: true } as any);
         target?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
@@ -408,6 +439,19 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   return (
                     <div
                       key={p.id}
+                      data-tv-box=""
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        const key = normalizeTvKey(event);
+                        if (key === 'Enter' || key === ' ') {
+                          const firstAction = event.currentTarget.querySelector<HTMLElement>('button');
+                          if (firstAction) {
+                            event.preventDefault();
+                            firstAction.focus({ preventScroll: true } as any);
+                          }
+                        }
+                      }}
                       className={`p-3.5 rounded-2xl border transition-all ${
                         p.isActive
                           ? 'bg-[#0d1d3d] border-cyan-500/60 shadow-lg shadow-cyan-950/50 ring-1 ring-cyan-500/20'
@@ -557,8 +601,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         const key = normalizeTvKey(event);
                         if (key === 'Enter' || key === ' ') {
                           event.preventDefault();
+                          const folderElement = event.currentTarget;
                           setExpandedFavoriteFolderId(expanded ? null : f.id);
                           setMovingFavoriteChannelId(null);
+                          if (!expanded) {
+                            window.setTimeout(() => {
+                              folderElement.querySelector<HTMLElement>('[data-favorite-channel]')?.focus({ preventScroll: true } as any);
+                            }, 0);
+                          }
                         } else if (key === 'ArrowRight') {
                           event.preventDefault();
                           event.stopPropagation();
