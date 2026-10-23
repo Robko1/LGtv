@@ -567,18 +567,22 @@ test('8. PIROS (Record) gomb: tükrözött elrendezés be/ki', () => {
   assert.match(APP, /onOpenDiagnosticShare=\{\(\) => setIsDiagnosticShareOpen\(true\)\}/);
 });
 
-test('8. Mozi/Sorozat: 5 nagy poszter, nincs kereső és nincs „Poszterek” gomb', () => {
+test('8. Mozi/Sorozat: függőleges 5 oszlopos rács és fokozatos poszterbetöltés', () => {
   for (const source of [MOVIES, SERIES]) {
-    assert.match(source, /grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5/,
-      'egyszerre 5 poszter (a korábbi 8 kicsi helyett)');
-    // Pontosan 5 kártya fér el egy sorban (4 db 12 px-es hézag = 3rem).
-    assert.match(source, /w-\[calc\(\(100%-3rem\)\/5\)\]/, 'nagy polckártya, 5 egy sorban');
+    assert.match(source, /grid grid-cols-5/, 'öt poszter oszloponként');
+    assert.doesNotMatch(source, /overflow-x-auto/, 'nincs vízszintes posztergörgetés');
     assert.doesNotMatch(source, /<input[\s\S]{0,400}?placeholder="(Film|Sorozat) keresése/, 'nincs keresőmező');
     assert.doesNotMatch(source, /PosterSettingsButton/, 'nincs „Poszterek” gomb');
-    assert.match(source, /const PAGE_SIZE = 50;/, 'kisebb első köteg → gyorsabb nézetváltás');
-    assert.match(source, /categoryRows\.slice\(0, visibleRails\)/, 'a polcok lépcsősen épülnek');
-    assert.match(source, /setVisibleRails\(\(count\) => \(count < categoryRows\.length \? count \+ RAIL_STEP : count\)\)/);
+    assert.match(source, /const PAGE_SIZE = 20;/, '20 elem jelenik meg egy adagban');
+    assert.match(source, /preloadPosterImage\(/, 'a poszterek háttérben előtölthetők');
+    assert.match(source, /await preloadPosterImage\(/, 'egyszerre csak egy poszter előtöltése fut');
+    assert.doesNotMatch(source, /visibleRails|RAIL_CARDS|categoryRows\.slice\(0, visibleRails\)/,
+      'nincsenek vízszintes kategóriapolcok');
   }
+  assert.match(MOVIES, /isActive, selectedCategory, visibleCount, filteredMovies/,
+    'a filmposzter-előtöltés csak az aktív nézetben indul');
+  assert.match(SERIES, /isActive, selectedCategory, visibleCount, filteredSeries/,
+    'a sorozatposzter-előtöltés csak az aktív nézetben indul');
   // Az üres szűrőnél nincs végigszűrés (a nézetváltás azonnali).
   assert.match(MOVIES, /\(\) => \(selectedCategory === 'all'\s*\? movies/);
   assert.match(SERIES, /\(\) => \(selectedCategory === 'all'\s*\? series/);
