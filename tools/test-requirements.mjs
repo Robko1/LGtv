@@ -1003,8 +1003,8 @@ test('13. a film felirata (CC) akkor is bekapcsol, ha a stream nem tesz közzé 
 test('13. a CC a natív lejátszón is bekapcsol (a hangot nem piszkálja)', () => {
   // A hatás nem lép ki a natív motor miatt: már csak a HTML <track> figyelője
   // fut kizárólag HTML5 motoron.
-  assert.equal((PLAYER.match(/if \(!isVod \|\| nativeHandoff\) return;/g) || []).length, 1,
-    'az automatikus feliratválasztó natív motoron is lefut');
+  assert.ok((PLAYER.match(/if \\(!isVod \\|\\| nativeHandoff\\) return;/g) || []).length >= 1,
+    'a HTML5 feliratfigyelő és a külön sávdiagnosztika is kihagyja a natív handoffot');
   assert.match(PLAYER, /useEffect\(\(\) => \{\s*\n\s*if \(!isVod\) return;\s*\n\s*const audioSignature/);
   assert.match(PLAYER, /if \(!nativeHandoff\s*\n\s*&& userVodAudioChoiceRef\.current === null && vodAudioTracks\.length > 1\)/);
   // Natív motornál a sávot a lejátszó kapcsolja be, nem a HTML <track>.
@@ -1118,15 +1118,19 @@ test('15. a QR-ablak távirányítóval egy OK-ra a Frissítést indítja, és m
   assert.match(DIAG_MODAL, /const onModalKeyDown = \(event: React\.KeyboardEvent\) => \{/);
   assert.match(DIAG_MODAL, /if \(active && modalRef\.current\?\.contains\(active\) && active\.tagName === 'BUTTON'\) \{/);
   assert.match(DIAG_MODAL, /onKeyDown=\{onModalKeyDown\}/);
-  // Minden művelet nyomot hagy a naplóban.
-  assert.match(DIAG_MODAL, /QR-diagnózis: FRISSÍTÉS gomb megnyomva – mérések nullázása\./);
-  assert.match(DIAG_MODAL, /QR-diagnózis: új QR-kód kérése – \$\{trigger\}\./);
+  // A Frissítés törli az előzményeket; az új mérés eseményei ezután naplózódnak.
+  assert.match(DIAG_MODAL, /resetMeasurements\\('QR-hibadiagnózis: Frissítés gomb'\\)/);
+  assert.match(DIAG_MODAL, /QR-diagnózis: új mérési ablak indult; az előző napló törölve\\./);
+  assert.match(DIAG_MODAL, /QR-diagnózis: új QR-kód kérése – \\$\\{trigger\\}\\./);
   assert.match(DIAG_MODAL, /QR-diagnózis bezárva\./);
   assert.match(DIAG_MODAL, /QR-diagnózis megnyitva; mérés kezdete=\$\{opened\.startedAtText\}/);
 });
 
-test('15. a mérés nullázása a nullázás ELŐTTI értékeket is a naplóba írja', () => {
-  assert.match(APPLOG, /const previous = measurementSnapshot\(\);/);
-  assert.match(APPLOG, /MÉRÉS NULLÁZÁS ELŐTT \[\$\{previous\.startedAtText\} óta\]: naplósorok=\$\{previous\.logLines\}/);
-  assert.match(APPLOG, /hibák=\$\{previous\.errors\}, hosszú feladatok=\$\{previous\.longTasks\}, kritikus=\$\{previous\.critical\}/);
+test('15. a mérés nullázása törli az előzményeket, és csak az új mérési ablakot exportálja', () => {
+  assert.match(APPLOG, /clearAppLog\\(\\);\\s*\\n\\s*measurementStartedAt = startedAt;/);
+  assert.match(APPLOG, /localStorage\\.removeItem\\(/);
+  assert.match(APPLOG, /measurementCounters\\.logLines = 0;/);
+  assert.match(APPLOG, /const sessionLines = lines\\.filter\\(\\(line\\) => \\{/);
+  assert.match(APPLOG, /timestamp >= measurementStartedAt/);
+  assert.match(APPLOG, /max\\. 24 óra \\/ 60 KB/);
 });
