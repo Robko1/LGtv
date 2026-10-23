@@ -190,7 +190,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
 
   return (
     <div
-      className="fixed inset-0 z-[220] flex items-center justify-center bg-black/85 p-4"
+      className="fixed inset-0 z-[220] flex items-center justify-center bg-black p-2"
       role="dialog"
       aria-modal="true"
       aria-label="Diagnosztikai napló QR-kód"
@@ -200,14 +200,14 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
         ref={modalRef}
         tabIndex={-1}
         onKeyDown={onModalKeyDown}
-        className="w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-2xl border-2 border-cyan-400/70 bg-[#071124] p-5 text-white shadow-2xl focus:outline-none"
+        className="w-full max-w-3xl max-h-[96vh] overflow-y-auto rounded-xl border border-slate-700 bg-black p-3 text-white focus:outline-none"
       >
-        <div className="flex items-center justify-between gap-3 border-b border-slate-700 pb-3">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
           <div className="flex items-center gap-3">
-            <QrCode className="h-7 w-7 text-cyan-300" />
+            <QrCode className="h-7 w-7 text-slate-400" />
             <div>
               <h2 className="text-xl font-black">HIBAKERESÉSI NAPLÓ QR-KÓD</h2>
-              <p className="text-sm text-slate-300">Olvasd be telefonnal a napló megnyitásához.</p>
+              <p className="text-sm text-slate-400">Olvasd be telefonnal a napló megnyitásához.</p>
             </div>
           </div>
           <button onClick={closeModal} className="rounded-lg p-3 text-slate-200 focus:outline-none focus:ring-4 focus:ring-amber-400" aria-label="Bezárás">
@@ -219,14 +219,14 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
           {/* SÖTÉTEBB, KISEBB QR: a TV-n nem vakít, és kisebb helyet foglal.
               A kód TARTALMA (share.url) és a hibaszint (M) VÁLTOZATLAN, a
               csendes zóna (marginSize=4) megmarad – a beolvasás nem sérül. */}
-          <div className="flex min-h-[236px] w-[236px] max-w-full items-center justify-center rounded-xl border border-slate-600/70 bg-[#0a1120] p-2.5">
+          <div className="flex min-h-[500px] w-[500px] max-w-full items-center justify-center rounded-lg border border-slate-700 bg-black p-2">
             {share?.url ? (
               <QRCodeSVG
                 value={share.url}
-                size={208}
+                size={480}
                 level="M"
                 marginSize={4}
-                bgColor="#dfe6f1"
+                bgColor="#ffffff"
                 fgColor="#05080f"
                 title="Diagnosztikai napló megosztása QR-kóddal"
               />
@@ -237,9 +237,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
               </div>
             )}
           </div>
-          <p className="max-w-lg break-all text-center text-xs text-slate-400">
-            {share?.url || (busy ? 'Kapcsolódás a Supabase naplómegosztóhoz…' : 'Nincs aktív QR-hivatkozás.')}
-          </p>
+          <p className="max-w-lg text-center text-xs text-slate-500">A fekete-fehér kód maradjon mozdulatlanul a képernyőn a beolvasásig.</p>
           {expiry && <p className="text-sm text-emerald-300">Lejárat: {expiry} (1 órás hivatkozás)</p>}
 
           {/* MÉRÉS-ABLAK: a Frissítés gomb ezt nullázza (0), és új kezdő
