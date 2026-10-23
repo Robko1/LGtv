@@ -814,7 +814,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   }, []);
 
   return (
-    <div className="flex-1 min-h-0 h-full flex flex-col bg-[#070e1e] overflow-hidden md:bg-[#070e1e] lg:bg-[#070e1e] xl:bg-[#070e1e] 2xl:bg-[#070e1e]">
+    <div data-live-sidebar="" className="flex-1 min-h-0 h-full flex flex-col bg-[#070e1e] overflow-hidden md:bg-[#070e1e] lg:bg-[#070e1e] xl:bg-[#070e1e] 2xl:bg-[#070e1e]">
       {/* Az „Összes” után közvetlenül a létrehozott kedvenc mappák jelennek meg; nincs csatornakategória vagy külön mappanyitó. */}
       <div
         data-tv-folders=""
