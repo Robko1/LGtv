@@ -2225,8 +2225,11 @@ export function App() {
   useEffect(() => {
     const onTvAction = (e: Event) => {
       const action = (e as CustomEvent)?.detail?.action;
-      // ZÖLD gomb: hangsáv-választó felugró (Audio).
-      if (action === 'audio') setIsAudioModalOpen((prev) => !prev);
+      // ZÖLD gomb: kizárólag élő TV-n nyílik meg az egyesített Audio + CC választó.
+      if (action === 'audio' && activeView === 'live' && !customStreamUrl) {
+        setIsSubtitlesModalOpen(false);
+        setIsAudioModalOpen((prev) => !prev);
+      }
       // A 'move' (KÉK) és 'favorite' (SÁRGA) eseményeket a csatornalista kezeli.
       else if (action === 'settings') setIsSettingsOpen((prev) => !prev);
       else if (action === 'epg') setIsEpgOpen((prev) => !prev);
@@ -2251,7 +2254,7 @@ export function App() {
     };
     window.addEventListener('iptv-tv-action', onTvAction);
     return () => window.removeEventListener('iptv-tv-action', onTvAction);
-  }, [handleToggleMirrorLayout]);
+  }, [handleToggleMirrorLayout, activeView, customStreamUrl]);
 
   // TV stick: induláskor és modal bezárásakor fókusz a csatornalistára, hogy D-pad azonnal működjön
   useEffect(() => {
@@ -2466,7 +2469,7 @@ export function App() {
               channel={activeChannel}
               displayNumber={activeChannelDisplayNumber}
               hasMultipleAudioTracks={liveAudioTracks.length > 1}
-              hasActiveSubtitle={liveSubtitleTracks.some((track) => track.selected === true)}
+              hasAvailableSubtitle={liveSubtitleTracks.length > 0}
             />
           )}
 
@@ -2488,7 +2491,7 @@ export function App() {
             onToggleFavorite={handleToggleFavorite}
             onOpenAudioModal={() => setIsAudioModalOpen(true)}
             hasMultipleAudioTracks={liveAudioTracks.length > 1}
-            hasActiveSubtitle={liveSubtitleTracks.some((track) => track.selected === true)}
+            hasAvailableSubtitle={liveSubtitleTracks.length > 0}
             onOpenSubtitlesModal={() => setIsSubtitlesModalOpen(true)}
             onCastToTv={() => mainPlayerCastRef.current?.()}
             onTogglePip={() => mainPlayerPipRef.current?.()}
@@ -2735,7 +2738,7 @@ export function App() {
       {/* 5. Audio & Subtitles Modal */}
       <AudioSubtitlesModal
         isOpen={isAudioModalOpen || isSubtitlesModalOpen}
-        mode={isSubtitlesModalOpen ? 'subtitle' : 'audio'}
+        mode="live"
         onClose={() => {
           setIsAudioModalOpen(false);
           setIsSubtitlesModalOpen(false);
