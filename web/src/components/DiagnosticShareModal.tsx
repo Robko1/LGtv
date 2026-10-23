@@ -178,7 +178,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   }, [isOpen]);
 
   if (!isOpen) return null;
-  const expiry = share?.expiresAt ? new Date(share.expiresAt).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) : '';
+  const expiry = share?.expiresAt ? new Date(share.expiresAt).toLocaleTimeString('hu-HU', { timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit' }) : '';
   // Eltelt idő a mérés kezdetétől (mm:ss) – a nullázás óta mérve.
   const elapsedSeconds = Math.max(0, Math.floor(measure.elapsedMs / 1000));
   const elapsedText = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
@@ -224,7 +224,8 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
               <QRCodeSVG
                 value={share.url}
                 size={480}
-                level="M"
+                level="L"
+                boostLevel={false}
                 marginSize={4}
                 bgColor="#ffffff"
                 fgColor="#05080f"
