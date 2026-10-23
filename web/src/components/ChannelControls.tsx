@@ -118,8 +118,14 @@ export const FullscreenLiveOsd: React.FC<{
             {channel.epgNext?.time || ''}
           </span>
         </div>
-          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/25">
-            <div className="h-full rounded-full bg-amber-400 transition-[width] duration-500" style={{ width: `${hasProgress ? progress : 0}%` }} />
+          <div className="relative mt-1 w-full">
+            <div className="absolute -top-6 left-0 right-0 flex items-center justify-between px-0.5 text-base font-semibold tabular-nums text-white drop-shadow-md">
+              <span>{time(start)}</span>
+              <span>{time(end)}</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/25">
+              <div className="h-full rounded-full bg-amber-400 transition-[width] duration-500" style={{ width: `${hasProgress ? progress : 0}%` }} />
+            </div>
           </div>
         </div>
       </div>
