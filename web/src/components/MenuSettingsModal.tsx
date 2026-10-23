@@ -725,9 +725,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     event.preventDefault();
                                     event.stopPropagation();
                                     if (key === 'ArrowLeft') {
-                                      setFavoriteMoveCursor((cursor) => cursor === 'up' ? 'down' : 'up');
+                                      setFavoriteMoveCursor('up');
                                     } else if (key === 'ArrowRight') {
-                                      setFavoriteMoveCursor((cursor) => cursor === 'up' ? 'down' : 'up');
+                                      setFavoriteMoveCursor('down');
                                     } else if (key === 'ArrowUp') {
                                       if (index > 0) onMoveFavoriteChannel(f.id, channel.id, 'up');
                                     } else if (key === 'ArrowDown') {
@@ -856,7 +856,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     onRemoveChannelFromFolder(f.id, channel.id);
                                     if (movingFavoriteChannelId === channel.id) setMovingFavoriteChannelId(null);
                                   }}
-                                  className={`p-1.5 rounded-xl text-amber-400 hover:text-amber-300 active:scale-90 ${moving && favoriteMoveCursor === 'trash' ? 'ring-2 ring-yellow-300' : ''}`}
+                                  className="p-1.5 rounded-xl text-amber-400 hover:text-amber-300 active:scale-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300"
                                   title="Eltávolítás a kedvenc mappából"
                                   aria-label={`${channel.name} eltávolítása a kedvenc mappából`}
                                 ><Star className="w-4 h-4 fill-amber-400" /></button>
