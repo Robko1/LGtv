@@ -86,12 +86,17 @@ function readNativeMediaTracks(api: NativeApi | null) {
 function readHtmlSubtitleTracks(video: HTMLVideoElement | null): SubtitleTrack[] {
   if (!video) return [];
   try {
-    return Array.from(video.textTracks || []).map((track, index) => ({
-      id: index,
-      name: track.label || track.language || `Felirat ${index + 1}`,
-      lang: track.language || '',
-      selected: track.mode === 'showing',
-    }));
+    // A CC-listába csak tényleges feliratsáv kerülhet; a chapter/metadata/
+    // description trackek nem választható feliratok.
+    return Array.from(video.textTracks || [])
+      .map((track, index) => ({ track, index }))
+      .filter(({ track }) => track.kind === 'subtitles' || track.kind === 'captions')
+      .map(({ track, index }) => ({
+        id: index,
+        name: track.label || track.language || `Felirat ${index + 1}`,
+        lang: track.language || '',
+        selected: track.mode === 'showing',
+      }));
   } catch {
     return [];
   }
@@ -1001,7 +1006,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const providerSubtitleActiveRef = useRef(false);
   /** Egyszer futó automatikus (preferált nyelv) kiválasztás streamenként. */
   const vodTrackAutoSelectKeyRef = useRef<string>('');
-  const vodTrackDiagnosticSignatureRef = useRef<string>('');
   const [, setShowTvAudioMenu] = useState(false);
   const [vodSubtitleTracks, setVodSubtitleTracks] = useState<SubtitleTrack[]>(providedSubtitleTracks || []);
   const [tvSubtitleTracks, setTvSubtitleTracks] = useState<SubtitleTrack[]>([]);
@@ -1803,10 +1807,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   /*
    * FILM / SOROZAT – HTML5 feliratsávok figyelése.
-   *
-   * A filmbe muxolt feliratok a böngésző `textTracks` listájában jelennek meg
-   * (ezek kapcsolhatók be a CC gombbal). A lista késve is érkezhet, ezért a
-   * metaadat és az első képkockák után is újraolvassuk.
+   * Kizárólag a VOD saját textTracks listáját frissíti, az élő TV CC-jétől külön.
+   * Eseményvezérelt, pár egyszeri késleltetett ellenőrzéssel; nincs 750 ms-os polling.
    */
   useEffect(() => {
     if (!isVod || nativeHandoff) return;
@@ -1814,7 +1816,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video) return;
     const textTracks = video.textTracks;
     const refresh = () => {
-      // webOS néha csak később teszi közzé a feliratsávokat, ezért újraolvassuk őket.
       const mapped = readHtmlSubtitleTracks(video);
       setVodSubtitleTracks((previous) => (
         previous.length === mapped.length && previous.every((track, index) =>
@@ -1825,7 +1826,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ) ? previous : mapped
       ));
       const active = mapped.find((track) => track.selected === true);
-      // A szolgáltatói felirat aktív azonosítóját ne írjuk felül.
       if (!providerSubtitleActiveRef.current) {
         setActiveVodSubtitleId((previous) => {
           const next = active ? active.id : null;
@@ -1835,17 +1835,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
     refresh();
     video.addEventListener('loadedmetadata', refresh);
+    video.addEventListener('loadeddata', refresh);
     video.addEventListener('canplay', refresh);
+    video.addEventListener('playing', refresh);
+    const delayedChecks = [250, 750, 1500, 3000].map((delay) => window.setTimeout(refresh, delay));
     try {
       textTracks?.addEventListener?.('addtrack', refresh);
       textTracks?.addEventListener?.('removetrack', refresh);
       textTracks?.addEventListener?.('change', refresh);
-    } catch { /* régebbi webOS: marad az időzített frissítés */ }
-    const timer = window.setInterval(refresh, 750);
+    } catch { /* régebbi webOS: az egyszeri késleltetett ellenőrzések megmaradnak */ }
     return () => {
-      window.clearInterval(timer);
+      delayedChecks.forEach((timer) => window.clearTimeout(timer));
       video.removeEventListener('loadedmetadata', refresh);
+      video.removeEventListener('loadeddata', refresh);
       video.removeEventListener('canplay', refresh);
+      video.removeEventListener('playing', refresh);
       try {
         textTracks?.removeEventListener?.('addtrack', refresh);
         textTracks?.removeEventListener?.('removetrack', refresh);
@@ -1854,84 +1858,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isVod, nativeHandoff, streamUrl]);
 
-  /*
-   * VOD HANG- ÉS FELIRATSÁV-DIAGNOSZTIKA.
-   * A tényleges HTML5 media track-listát naplózza, nem csak a szolgáltató
-   * feliratlistáját. A napló csak akkor ír új sávlistát, ha az megváltozik;
-   * a metadata/canplay/playing pontokon állapot-pillanatképet is készít.
-   */
-  useEffect(() => {
-    if (!isVod || nativeHandoff) return;
-    const video = htmlVideoRef.current;
-    if (!video) return;
-    vodTrackDiagnosticSignatureRef.current = '';
-    const shortTitle = String(customTitle || 'Film / sorozat').replace(/\s+/g, ' ').slice(0, 70);
-    const snapshot = (reason: string, force = false) => {
-      const audioList = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
-      const audioApiState = audioList && typeof audioList.length === 'number'
-        ? 'elérhető'
-        : 'API nem érhető el';
-      const audio = readHtmlAudioTracks(video);
-      const subtitles = readHtmlSubtitleTracks(video);
-      const signature = JSON.stringify({
-        audioApiState, audio, subtitles: subtitles.map((track) => ({ ...track,
-          kind: video.textTracks?.[Number(track.id)]?.kind || '',
-          mode: video.textTracks?.[Number(track.id)]?.mode || '',
-        })),
-      });
-      if (!force && signature === vodTrackDiagnosticSignatureRef.current) return;
-      vodTrackDiagnosticSignatureRef.current = signature;
-      const embeddedSubtitles = subtitles.length
-        ? subtitles.map((track, index) => ({
-            ...track,
-            kind: video.textTracks?.[index]?.kind || '',
-            mode: video.textTracks?.[index]?.mode || '',
-          }))
-        : [];
-      const file = String(video.currentSrc || video.src || streamUrl).split(/[?#]/)[0].split('/').pop() || 'ismeretlen';
-      appLog(
-        `VOD SÁVDIAG [${reason}]: cím=${shortTitle}; fájl=${file.slice(0, 60)}; readyState=${video.readyState}; networkState=${video.networkState}; hiba=${video.error ? `${video.error.code}:${video.error.message || ''}` : 'nincs'}; ` +
-        `hangsáv API=${audioApiState}; hangsávok száma=${audio.length}; beépített feliratok száma=${embeddedSubtitles.length}.`
-      );
-      if (audio.length === 0) {
-        appLog(`VOD HANGSÁVOK: nincs felsorolt HTML5 hangsáv; audioTracks API=${audioApiState}.`);
-      }
-      audio.forEach((track) => {
-        appLog(`VOD HANGSÁV #${track.id}: név=${String(track.name || 'névtelen').replace(/\s+/g, ' ').slice(0, 100)}; nyelv=${String(track.lang || 'ismeretlen').slice(0, 20)}; aktív=${track.selected ? 'igen' : 'nem'}.`);
-      });
-      if (embeddedSubtitles.length === 0) {
-        appLog('VOD BEÉPÍTETT FELIRATOK: a lejátszó 0 beépített feliratsávot jelentett.');
-      }
-      embeddedSubtitles.forEach((track) => {
-        appLog(`VOD BEÉPÍTETT FELIRAT #${track.id}: név=${String(track.name || 'névtelen').replace(/\s+/g, ' ').slice(0, 100)}; nyelv=${String(track.lang || 'ismeretlen').slice(0, 20)}; típus=${track.kind || 'ismeretlen'}; mód=${track.mode || 'ismeretlen'}; aktív=${track.selected ? 'igen' : 'nem'}.`);
-      });
-    };
-    const onMetadata = () => snapshot('loadedmetadata', true);
-    const onCanPlay = () => snapshot('canplay', true);
-    const onPlaying = () => snapshot('playing', true);
-    const textTracks = video.textTracks;
-    snapshot('indítás', true);
-    video.addEventListener('loadedmetadata', onMetadata);
-    video.addEventListener('canplay', onCanPlay);
-    video.addEventListener('playing', onPlaying);
-    const onTrackAdded = () => snapshot('feliratsáv hozzáadva', true);
-    const onTrackChanged = () => snapshot('feliratsáv változott', true);
-    try {
-      textTracks?.addEventListener?.('addtrack', onTrackAdded);
-      textTracks?.addEventListener?.('change', onTrackChanged);
-    } catch { /* régebbi webOS */ }
-    const timer = window.setInterval(() => snapshot('sávlista frissült'), 1500);
-    return () => {
-      window.clearInterval(timer);
-      video.removeEventListener('loadedmetadata', onMetadata);
-      video.removeEventListener('canplay', onCanPlay);
-      video.removeEventListener('playing', onPlaying);
-      try {
-        textTracks?.removeEventListener?.('addtrack', onTrackAdded);
-        textTracks?.removeEventListener?.('change', onTrackChanged);
-      } catch { /* régebbi webOS */ }
-    };
-  }, [isVod, nativeHandoff, streamUrl, customTitle]);
+
 
   /*
    * TÁVIRANYÍTÓ: ZÖLD (hangsáv) / KÉK (felirat) gomb film közben.
