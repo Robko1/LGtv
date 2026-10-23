@@ -387,6 +387,12 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isOsdVisible, setIsOsdVisible] = useState<boolean>(true);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
+  const [liveAccent, setLiveAccent] = useState<'yellow' | 'red' | 'blue' | 'pink'>(() => {
+    try {
+      const saved = localStorage.getItem('iptv-live-accent');
+      return saved === 'red' || saved === 'blue' || saved === 'pink' ? saved : 'yellow';
+    } catch { return 'yellow'; }
+  });
   const [isFullscreenLiveOsdVisible, setIsFullscreenLiveOsdVisible] = useState<boolean>(false);
 
   const mainPlayerToggleRef = useRef<(() => void) | null>(null);
@@ -1976,6 +1982,28 @@ export function App() {
   };
 
   // Global Keyboard Shortcuts – TV remote, laptop, tablet billentyűzet + egér
+  // A négy színgyorsgomb kizárólag az Élő TV nézetben működik; nem módosít csatorna- vagy lejátszóállapotot.
+  useEffect(() => {
+    const onAccentKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      if (activeView !== 'live' || customStreamUrl || isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) return;
+      const key = event.key;
+      const next = key === '1' || key === 'Digit1' ? 'red'
+        : key === '2' || key === 'Digit2' ? 'blue'
+        : key === '3' || key === 'Digit3' ? 'pink'
+        : key === '4' || key === 'Digit4' ? 'yellow' : null;
+      if (!next) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setLiveAccent(next);
+      try { localStorage.setItem('iptv-live-accent', next); } catch { /* a színváltás tároló nélkül is működik */ }
+      if (isVideoFullscreen) showFullscreenLiveOsd();
+    };
+    window.addEventListener('keydown', onAccentKey, true);
+    return () => window.removeEventListener('keydown', onAccentKey, true);
+  }, [activeView, customStreamUrl, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, showFullscreenLiveOsd]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // LG webOS: a távirányító régi kulcsnevet ('Up') vagy csak keyCode-ot
@@ -2331,6 +2359,7 @@ export function App() {
       {/* ===== ÉLŐ TV NÉZET ===== */}
       <div
         data-view-pane="live"
+        data-live-accent={liveAccent}
         data-view-hidden={activeView === 'live' ? undefined : ''}
         className="absolute inset-0 flex flex-col min-h-0"
         style={paneStyle(activeView === 'live')}
@@ -2444,7 +2473,7 @@ export function App() {
               Az OSD MOUNTOLVA MARAD teljes képernyő alatt is (csak rejtve):
               korábban minden váltáskor lebontódott és újraépült, ezért a
               visszatéréskor először az OSD „épült fel” a szem előtt. */}
-          {!customStreamUrl && <div style={{ display: isVideoFullscreen || !isOsdVisible ? 'none' : undefined }}><ChannelControls
+          {!customStreamUrl && <div data-live-osd="" style={{ display: isVideoFullscreen || !isOsdVisible ? 'none' : undefined }}><ChannelControls
             className="main-live-osd"
             channel={activeChannel}
             displayNumber={activeChannelDisplayNumber}
