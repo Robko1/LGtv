@@ -178,7 +178,9 @@ const SubtitleOverlay: React.FC<{
   raised: boolean;
 }> = ({ cues, videoRef, positionRef, scalePercent, raised }) => {
   const [text, setText] = useState('');
+  const firstVisibleLoggedRef = useRef(false);
   useEffect(() => {
+    firstVisibleLoggedRef.current = false;
     if (cues.length === 0) {
       setText('');
       return;
@@ -187,6 +189,10 @@ const SubtitleOverlay: React.FC<{
       const reported = positionRef ? Math.max(0, Number(positionRef.current || 0)) : 0;
       const time = reported > 0 ? reported : Number(videoRef.current?.currentTime || 0);
       const next = cueAt(cues, time);
+      if (next && !firstVisibleLoggedRef.current) {
+        firstVisibleLoggedRef.current = true;
+        appLog(`FELIRAT MEGJELENIK: az első feliratsor kirajzolódott; videóidő=${time.toFixed(2)} s; cue-k=${cues.length}.`);
+      }
       setText((previous) => (previous === next ? previous : next));
     };
     update();
@@ -995,6 +1001,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const providerSubtitleActiveRef = useRef(false);
   /** Egyszer futó automatikus (preferált nyelv) kiválasztás streamenként. */
   const vodTrackAutoSelectKeyRef = useRef<string>('');
+  const vodTrackDiagnosticSignatureRef = useRef<string>('');
   const [, setShowTvAudioMenu] = useState(false);
   const [vodSubtitleTracks, setVodSubtitleTracks] = useState<SubtitleTrack[]>(providedSubtitleTracks || []);
   const [tvSubtitleTracks, setTvSubtitleTracks] = useState<SubtitleTrack[]>([]);
@@ -1846,6 +1853,78 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       } catch { /* régebbi webOS */ }
     };
   }, [isVod, nativeHandoff, streamUrl]);
+
+  /*
+   * VOD HANG- ÉS FELIRATSÁV-DIAGNOSZTIKA.
+   * A tényleges HTML5 media track-listát naplózza, nem csak a szolgáltató
+   * feliratlistáját. A napló csak akkor ír új sávlistát, ha az megváltozik;
+   * a metadata/canplay/playing pontokon állapot-pillanatképet is készít.
+   */
+  useEffect(() => {
+    if (!isVod || nativeHandoff) return;
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    vodTrackDiagnosticSignatureRef.current = '';
+    const shortTitle = String(customTitle || 'Film / sorozat').replace(/\\s+/g, ' ').slice(0, 70);
+    const audioList = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
+    const audioApiState = audioList && typeof audioList.length === 'number'
+      ? 'elérhető'
+      : 'API nem érhető el';
+    const formatTracks = (tracks: Array<{ id: string | number; name?: string; lang?: string; selected?: boolean }>) =>
+      tracks.length
+        ? tracks.map((track) =>
+            `#${track.id} ${String(track.name || 'névtelen').replace(/\\s+/g, ' ').slice(0, 35)}[${String(track.lang || '?').slice(0, 8)}]${track.selected ? '*AKTÍV*' : ''}`
+          ).join(' | ')
+        : '0 sáv';
+    const snapshot = (reason: string, force = false) => {
+      const audio = readHtmlAudioTracks(video);
+      const subtitles = readHtmlSubtitleTracks(video);
+      const signature = JSON.stringify({
+        audioApiState, audio, subtitles: subtitles.map((track) => ({ ...track,
+          kind: video.textTracks?.[Number(track.id)]?.kind || '',
+          mode: video.textTracks?.[Number(track.id)]?.mode || '',
+        })),
+      });
+      if (!force && signature === vodTrackDiagnosticSignatureRef.current) return;
+      vodTrackDiagnosticSignatureRef.current = signature;
+      const embeddedSubtitles = subtitles.length
+        ? subtitles.map((track, index) => ({
+            ...track,
+            kind: video.textTracks?.[index]?.kind || '',
+            mode: video.textTracks?.[index]?.mode || '',
+          }))
+        : [];
+      const subtitleText = embeddedSubtitles.length
+        ? embeddedSubtitles.map((track) =>
+            `#${track.id} ${String(track.name || 'névtelen').replace(/\\s+/g, ' ').slice(0, 35)}[${String(track.lang || '?').slice(0, 8)};kind=${track.kind || '?'};mode=${track.mode || '?'}]${track.selected ? '*AKTÍV*' : ''}`
+          ).join(' | ')
+        : (video.textTracks ? '0 beépített sáv' : 'textTracks API nem érhető el');
+      const file = String(video.currentSrc || video.src || streamUrl).split(/[?#]/)[0].split('/').pop() || 'ismeretlen';
+      appLog(
+        `VOD SÁVDIAG [${reason}]: cím=${shortTitle}; fájl=${file.slice(0, 60)}; readyState=${video.readyState}; networkState=${video.networkState}; hiba=${video.error ? `${video.error.code}:${video.error.message || ''}` : 'nincs'}; ` +
+        `hangsáv API=${audioApiState}; hangsávok=${formatTracks(audio)}; beépített feliratok=${subtitleText}.`
+      );
+    };
+    const onMetadata = () => snapshot('loadedmetadata', true);
+    const onCanPlay = () => snapshot('canplay', true);
+    const onPlaying = () => snapshot('playing', true);
+    const textTracks = video.textTracks;
+    snapshot('indítás', true);
+    video.addEventListener('loadedmetadata', onMetadata);
+    video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('playing', onPlaying);
+    try {
+      textTracks?.addEventListener?.('addtrack', () => snapshot('feliratsáv hozzáadva', true));
+      textTracks?.addEventListener?.('change', () => snapshot('feliratsáv változott', true));
+    } catch { /* régebbi webOS */ }
+    const timer = window.setInterval(() => snapshot('sávlista frissült'), 1500);
+    return () => {
+      window.clearInterval(timer);
+      video.removeEventListener('loadedmetadata', onMetadata);
+      video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('playing', onPlaying);
+    };
+  }, [isVod, nativeHandoff, streamUrl, customTitle]);
 
   /*
    * TÁVIRANYÍTÓ: ZÖLD (hangsáv) / KÉK (felirat) gomb film közben.
