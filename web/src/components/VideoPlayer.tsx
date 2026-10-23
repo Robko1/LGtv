@@ -1866,10 +1866,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video) return;
     vodTrackDiagnosticSignatureRef.current = '';
     const shortTitle = String(customTitle || 'Film / sorozat').replace(/\\s+/g, ' ').slice(0, 70);
-    const audioList = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
-    const audioApiState = audioList && typeof audioList.length === 'number'
-      ? 'elérhető'
-      : 'API nem érhető el';
     const formatTracks = (tracks: Array<{ id: string | number; name?: string; lang?: string; selected?: boolean }>) =>
       tracks.length
         ? tracks.map((track) =>
@@ -1877,6 +1873,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           ).join(' | ')
         : '0 sáv';
     const snapshot = (reason: string, force = false) => {
+      const audioList = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
+      const audioApiState = audioList && typeof audioList.length === 'number'
+        ? 'elérhető'
+        : 'API nem érhető el';
       const audio = readHtmlAudioTracks(video);
       const subtitles = readHtmlSubtitleTracks(video);
       const signature = JSON.stringify({
@@ -1913,9 +1913,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('loadedmetadata', onMetadata);
     video.addEventListener('canplay', onCanPlay);
     video.addEventListener('playing', onPlaying);
+    const onTrackAdded = () => snapshot('feliratsáv hozzáadva', true);
+    const onTrackChanged = () => snapshot('feliratsáv változott', true);
     try {
-      textTracks?.addEventListener?.('addtrack', () => snapshot('feliratsáv hozzáadva', true));
-      textTracks?.addEventListener?.('change', () => snapshot('feliratsáv változott', true));
+      textTracks?.addEventListener?.('addtrack', onTrackAdded);
+      textTracks?.addEventListener?.('change', onTrackChanged);
     } catch { /* régebbi webOS */ }
     const timer = window.setInterval(() => snapshot('sávlista frissült'), 1500);
     return () => {
@@ -1923,6 +1925,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('loadedmetadata', onMetadata);
       video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('playing', onPlaying);
+      try {
+        textTracks?.removeEventListener?.('addtrack', onTrackAdded);
+        textTracks?.removeEventListener?.('change', onTrackChanged);
+      } catch { /* régebbi webOS */ }
     };
   }, [isVod, nativeHandoff, streamUrl, customTitle]);
 
