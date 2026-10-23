@@ -30,7 +30,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   isActive,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
-  // Csak ennyi kategóriapolc van a DOM-ban; görgetésre nő (RAIL_STEP).
+  // A rács csak a megjelenített adag kártyáit tartalmazza.
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const movieGridRef = useRef<HTMLDivElement | null>(null);
@@ -198,7 +198,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
         )}
       </div>
 
-      {/* Referencia-szerű könyvtár: kategóriapolcok, lusta poszterbetöltéssel. */}
+      {/* Függőleges poszterrács, adagonként bővülő listával. */}
       <div ref={movieGridRef} data-scroll-keep="" onScroll={(e) => {
         const el = e.currentTarget;
         const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
