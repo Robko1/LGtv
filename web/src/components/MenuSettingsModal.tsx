@@ -315,7 +315,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           <button
             data-tv-tabid="lists"
             onClick={() => setActiveTab('lists')}
-            className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-xs font-black transition-all text-center truncate ${
+            className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
               activeTab === 'lists'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
@@ -328,7 +328,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             data-tv-open-focus=""
             data-tv-tabid="favorites"
             onClick={() => setActiveTab('favorites')}
-            className={`flex-1 min-w-[85px] py-2 px-2.5 rounded-xl text-xs font-black transition-all text-center truncate ${
+            className={`flex-1 min-w-[85px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
               activeTab === 'favorites'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
@@ -340,7 +340,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           <button
             data-tv-tabid="system"
             onClick={() => setActiveTab('system')}
-            className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-xs font-black transition-all text-center truncate ${
+            className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
               activeTab === 'system'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
@@ -530,7 +530,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     .filter((channel): channel is Channel => Boolean(channel));
                   const expanded = expandedFavoriteFolderId === f.id;
                   return (
-                    <div key={f.id} className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
+                    <div key={f.id} className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
                       <div className="p-3.5 flex items-center justify-between gap-3">
                         <button
                           type="button"
