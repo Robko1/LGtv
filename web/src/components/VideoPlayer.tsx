@@ -1776,7 +1776,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!isVod || nativeHandoff) return;
     const video = htmlVideoRef.current;
     if (!video) return;
+    const textTracks = video.textTracks;
     const refresh = () => {
+      // webOS néha csak később teszi közzé a feliratsávokat, ezért újraolvassuk őket.
       const mapped = readHtmlSubtitleTracks(video);
       setVodSubtitleTracks((previous) => (
         previous.length === mapped.length && previous.every((track, index) =>
@@ -1787,18 +1789,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ) ? previous : mapped
       ));
       const active = mapped.find((track) => track.selected === true);
-      // Szolgáltatói (saját kirajzolású) felirat alatt az aktív azonosítót nem
-      // írjuk felül – különben az OSD „kikapcsolva” állapotot mutatna.
-      if (!providerSubtitleActiveRef.current) setActiveVodSubtitleId(active ? active.id : null);
+      // A szolgáltatói felirat aktív azonosítóját ne írjuk felül.
+      if (!providerSubtitleActiveRef.current) {
+        setActiveVodSubtitleId((previous) => {
+          const next = active ? active.id : null;
+          return String(previous ?? '') === String(next ?? '') ? previous : next;
+        });
+      }
     };
     refresh();
     video.addEventListener('loadedmetadata', refresh);
     video.addEventListener('canplay', refresh);
-    const timer = window.setInterval(refresh, 1500);
+    try {
+      textTracks?.addEventListener?.('addtrack', refresh);
+      textTracks?.addEventListener?.('removetrack', refresh);
+      textTracks?.addEventListener?.('change', refresh);
+    } catch { /* régebbi webOS: marad az időzített frissítés */ }
+    const timer = window.setInterval(refresh, 750);
     return () => {
       window.clearInterval(timer);
       video.removeEventListener('loadedmetadata', refresh);
       video.removeEventListener('canplay', refresh);
+      try {
+        textTracks?.removeEventListener?.('addtrack', refresh);
+        textTracks?.removeEventListener?.('removetrack', refresh);
+        textTracks?.removeEventListener?.('change', refresh);
+      } catch { /* régebbi webOS */ }
     };
   }, [isVod, nativeHandoff, streamUrl]);
 
