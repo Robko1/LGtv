@@ -95,7 +95,7 @@ function readHtmlSubtitleTracks(video: HTMLVideoElement | null): SubtitleTrack[]
         id: index,
         name: track.label || track.language || `Felirat ${index + 1}`,
         lang: track.language || '',
-        selected: track.mode === 'showing',
+        selected: track.mode !== 'disabled',
       }));
   } catch {
     return [];
@@ -221,6 +221,62 @@ const SubtitleOverlay: React.FC<{
         {text.split('\n').map((line, index) => (
           <span key={index} className="block">{line}</span>
         ))}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Beépített VOD-feliratok kirajzolása saját rétegen.
+ * A webOS régebbi HTML5 lejátszója nem mindig rajzolja ki megbízhatóan
+ * a TextTrack feliratot. A kiválasztott sáv hidden módban marad, így a cue-k
+ * olvashatók, de a böngésző nem rajzolja ki őket kétszer.
+ */
+const HtmlVodSubtitleOverlay: React.FC<{
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  trackId: string | number | null;
+  scalePercent: number;
+  raised: boolean;
+}> = ({ videoRef, trackId, scalePercent, raised }) => {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    const update = () => {
+      const video = videoRef.current;
+      const index = trackId == null ? -1 : Number(trackId);
+      const track = video?.textTracks && Number.isInteger(index) ? video.textTracks[index] : null;
+      const cues = track?.activeCues;
+      const next = cues ? Array.from(cues).map((cue) => {
+        const raw = String((cue as TextTrackCue & { text?: string }).text || '');
+        return raw.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim();
+      }).filter(Boolean).join('\n') : '';
+      setText((previous) => previous === next ? previous : next);
+    };
+    update();
+    const timer = window.setInterval(update, 200);
+    const video = videoRef.current;
+    video?.addEventListener('timeupdate', update);
+    video?.addEventListener('seeked', update);
+    return () => {
+      window.clearInterval(timer);
+      video?.removeEventListener('timeupdate', update);
+      video?.removeEventListener('seeked', update);
+    };
+  }, [videoRef, trackId]);
+
+  if (!text || trackId == null) return null;
+  const fontSize = Math.max(16, Math.round(22 * (scalePercent / 100)));
+  return (
+    <div
+      data-subtitle-overlay="html-vod"
+      className={`absolute inset-x-0 z-30 flex justify-center px-6 pointer-events-none transition-all duration-200 ${
+        raised ? 'bottom-[22%]' : 'bottom-[8%]'
+      }`}
+    >
+      <div
+        className="max-w-[90%] rounded-lg bg-black/70 px-3 py-1.5 text-center font-semibold leading-snug text-white"
+        style={{ fontSize: `${fontSize}px`, textShadow: '0 2px 6px rgba(0,0,0,0.95)' }}
+      >
+        {text.split('\n').map((line, index) => <span key={index} className="block">{line}</span>)}
       </div>
     </div>
   );
@@ -1645,7 +1701,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       const list = video.textTracks;
       for (let i = 0; i < list.length; i++) {
-        list[i].mode = index !== null && i === index ? 'showing' : 'disabled';
+        list[i].mode = index !== null && i === index ? 'hidden' : 'disabled';
       }
       setVodSubtitleTracks(readHtmlSubtitleTracks(video));
       return true;
@@ -3015,6 +3071,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <BlueClock
           offsetHours={settings.clockOffsetHours}
           className={`absolute top-3 z-40 box-border max-w-[calc(100%-1.5rem)] flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-4 py-2 font-mono text-2xl font-semibold tracking-wider text-cyan-200 shadow-lg pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
+        />
+      )}
+
+      {/* VOD CC: a muxolt felirat is az OSD-hez kötött saját rétegen jelenik meg. */}
+      {isVod && vodSubtitleCues.length === 0 && !providerSubtitleActiveRef.current && (
+        <HtmlVodSubtitleOverlay
+          videoRef={htmlVideoRef}
+          trackId={activeVodSubtitleId}
+          scalePercent={Number(String(settings.subtitleSize || '100%').replace('%', '')) || 100}
+          raised={showControlsOverlay}
         />
       )}
 
