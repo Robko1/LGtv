@@ -10,7 +10,6 @@ import {
 } from '../services/appLog';
 import {
   createDiagnosticShare,
-  refreshDiagnosticShare,
   revokeDiagnosticShare,
   type DiagnosticShare,
 } from '../services/diagnosticShareService';
@@ -83,17 +82,15 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     setMeasure(fresh);
     try {
       appLog('QR-diagnózis: új mérési ablak indult; az előző napló törölve.');
-      if (current) {
-        appLog('Diagnosztikai napló frissítése a QR-hivatkozáson az új mérési ablakkal.');
-        const expiresAt = await refreshDiagnosticShare(current.token, getAppLogText().slice(-59000));
-        const updated = { ...current, expiresAt };
-        setShare(updated);
-        shareRef.current = updated;
-      } else {
-        // QR még nincs: csak létrehozzuk a hivatkozást az aktuális mérési ablakból.
-        await createNewQr('Frissítés gomb (új mérési ablak)');
-      }
-      setNotice(`Az előzmények törölve. Új mérés kezdete: ${fresh.startedAtText}; a QR csak az azóta keletkezett naplót tartalmazza.`);
+      // Mindig ÚJ megosztási tokent és URL-t készítünk. Így a telefon nem
+      // olvashatja vissza a korábbi QR-hivatkozás tartalmát; az új linkbe
+      // kizárólag a reset után összegyűlt teljes mérési napló kerül.
+      appLog('Diagnosztikai QR: új hivatkozás készítése a nullázás utáni naplóból.');
+      const created = await createDiagnosticShare(getAppLogText().slice(-59000));
+      setShare(created);
+      shareRef.current = created;
+      if (current?.token) void revokeDiagnosticShare(current.token);
+      setNotice(`Minden előzmény törölve. Új mérés kezdete: ${fresh.startedAtText}; új QR-hivatkozás készült az azóta naplózott eseményekkel.`);
     } catch (cause) {
       setError('A frissítés nem sikerült. A mérés elindult, próbáld újra a QR frissítését.');
       appLog('Diagnosztikai QR-napló frissítése sikertelen: ' + String(cause).slice(0, 180));
