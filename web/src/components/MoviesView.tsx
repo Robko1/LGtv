@@ -126,14 +126,15 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     const start = () => {
       if (cancelled) return;
       const batchEnd = Math.min(preloadedThroughRef.current + 20, filteredMovies.length, visibleCountRef.current);
-      const tick = () => {
+      const tick = async () => {
         if (cancelled || preloadedThroughRef.current >= batchEnd) return;
         const entry = filteredMovies[preloadedThroughRef.current];
+        if (entry) await preloadPosterImage(entry.poster, entry.title, 'movie');
+        if (cancelled) return;
         preloadedThroughRef.current += 1;
-        if (entry) void preloadPosterImage(entry.poster, entry.title, 'movie');
-        if (preloadedThroughRef.current < batchEnd) timer = window.setTimeout(tick, 180);
+        if (preloadedThroughRef.current < batchEnd) timer = window.setTimeout(() => { void tick(); }, 180);
       };
-      tick();
+      void tick();
     };
     timer = window.setTimeout(() => {
       if (idleWindow.requestIdleCallback) idleHandle = idleWindow.requestIdleCallback(start, { timeout: 1200 });
