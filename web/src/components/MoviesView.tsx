@@ -242,11 +242,16 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                   if (key === 'ArrowRight') target = index + 1 < cards.length ? index + 1 : -1;
                   if (target >= 0 && target !== index) {
                     cards[target]?.focus({ preventScroll: true } as FocusOptions);
+                    cards[target]?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
                   } else if (key === 'ArrowDown' && index + columns >= cards.length && cards.length < filteredMovies.length) {
                     // A következő sor még nincs kirajzolva: bővítjük a listát, majd arra a poszterre fókuszálunk.
                     setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length));
                     window.requestAnimationFrame(() => {
-                      window.requestAnimationFrame(() => movieGridRef.current?.querySelector<HTMLElement>(`[data-poster-index="${index + columns}"]`)?.focus({ preventScroll: true } as FocusOptions));
+                      window.requestAnimationFrame(() => {
+                        const nextPoster = movieGridRef.current?.querySelector<HTMLElement>(`[data-poster-index="${index + columns}"]`);
+                        nextPoster?.focus({ preventScroll: true } as FocusOptions);
+                        nextPoster?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+                      });
                     });
                   } else if (key === 'ArrowUp' && index < columns) {
                     movieGridRef.current?.closest('[data-view-pane="movies"]')?.querySelector<HTMLElement>('[data-category-trigger]')?.focus({ preventScroll: true } as FocusOptions);
