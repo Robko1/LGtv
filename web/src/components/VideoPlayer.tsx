@@ -24,6 +24,8 @@ import {
   disableLiveSubtitle,
   subscribeLiveSubtitleTracks,
   probeLiveSubtitles,
+  canonicalLiveLang,
+  LiveSubtitleRequest,
 } from '../services/liveSubtitleService';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 import {
@@ -1155,6 +1157,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const lunaTvActiveRef = useRef(false);
   const userTvSubtitleChoiceRef = useRef<string | null>(null);
   const liveAutoSubtitleKeyRef = useRef<string>('');
+  /** Az élő Luna-sávok részletei (nyelv/fajta) azonosítónként, a TV-listához illesztéshez. */
+  const lunaTvTrackInfoRef = useRef<Map<string, EmbeddedSubtitle>>(new Map());
+  /** A néző által kért élő felirat (nyelv szerint), hogy a TV listájának megérkeztekor újra érvényesíthessük. */
+  const desiredLiveSubRef = useRef<{ id: string; lang: string; codec: string; ordinalInLang: number } | null>(null);
+  const liveSubApplyingRef = useRef(false);
+  /** A feliratméret refje (az élő újraérvényesítésből is elérhető). */
+  const subtitleScaleRef = useRef(100);
   /**
    * SZOLGÁLTATÓI FELIRATOK (CC).
    *
@@ -1717,6 +1726,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => onRegisterAudioTrackSelector?.(null);
   }, [onRegisterAudioTrackSelector, selectTvAudio]);
 
+  /*
+   * Az élő feliratválasztás érvényesítése a TV médiaszolgáltatásán. A
+   * szolgáltatás a TV saját listája alapján, nyelv szerint keresi meg a
+   * sorszámot és köröket ismétel, amíg a TV vissza nem igazolja. Ha végül
+   * sem sikerül, a választó ne mutassa bekapcsoltnak a sávot.
+   */
+  const applyLiveSubtitleSelection = (
+    videoElement: HTMLVideoElement,
+    request: LiveSubtitleRequest,
+    selectionId: string,
+  ) => {
+    liveSubApplyingRef.current = true;
+    void selectLiveSubtitle(videoElement, request, subtitleScaleRef.current).then((applied) => {
+      liveSubApplyingRef.current = false;
+      if (applied) return;
+      if (desiredLiveSubRef.current?.id !== selectionId) return; // közben más kérés érkezett
+      desiredLiveSubRef.current = null;
+      lunaTvActiveRef.current = false;
+      if (userTvSubtitleChoiceRef.current === selectionId) {
+        userTvSubtitleChoiceRef.current = null;
+        activeTvSubtitleIdRef.current = null;
+      }
+      setLunaTvSubtitleTracks((previous) => previous.map((item) => ({ ...item, selected: false })));
+    });
+  };
+
   const selectTvSubtitleRef = useRef<((track: SubtitleTrack | null) => void) | null>(null);
   const selectTvSubtitle = useCallback((track: SubtitleTrack | null) => {
     userTvSubtitleChoiceRef.current = track ? String(track.id) : 'off';
@@ -1758,21 +1793,42 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         selected: String(item.id) === String(track.id),
       })));
       appLog(`LG webOS élő felirat kiválasztva (TV): ${track?.lang || track?.name || 'Felirat'}.`);
-      const scalePercent = Number(String(settings.subtitleSize || '100%').replace('%', '')) || 100;
-      void selectLiveSubtitle(video, lunaTvIndex, scalePercent).then((applied) => {
-        if (!applied && userTvSubtitleChoiceRef.current === String(track.id)) {
-          // A TV nem kapcsolta be: ne mutassa a választó bekapcsoltnak.
-          lunaTvActiveRef.current = false;
-          userTvSubtitleChoiceRef.current = null;
-          activeTvSubtitleIdRef.current = null;
-          setLunaTvSubtitleTracks((previous) => previous.map((item) => ({ ...item, selected: false })));
-        }
-      });
+      /*
+       * A TV a saját listáját más sorrendben/sorszámozással ismerheti, mint
+       * a stream fejlécéből olvasott (PMT) lista – ezért a választást nyelv
+       * + nyelv szerinti sorszám alapján adjuk át, a szolgáltatás ebből
+       * számolja a TV-beli sorszámot. A kérés megmarad, hogy a TV
+       * listájának megérkeztekor újra érvényesíthető legyen.
+       */
+      const info = lunaTvTrackInfoRef.current.get(String(track.id));
+      const wantLang = canonicalLiveLang(info?.lang || track.lang || '');
+      let ordinalInLang = 0;
+      [...lunaTvTrackInfoRef.current.values()]
+        .sort((a, b) => a.lunaIndex - b.lunaIndex)
+        .forEach((item) => {
+          if (item.lunaIndex < lunaTvIndex && wantLang && canonicalLiveLang(item.lang) === wantLang) {
+            ordinalInLang += 1;
+          }
+        });
+      const request: LiveSubtitleRequest = {
+        lang: info?.lang || track.lang || '',
+        codec: info?.codec || '',
+        indexHint: lunaTvIndex,
+        ordinalInLang,
+      };
+      desiredLiveSubRef.current = {
+        id: String(track.id),
+        lang: request.lang || '',
+        codec: request.codec || '',
+        ordinalInLang,
+      };
+      applyLiveSubtitleSelection(video, request, String(track.id));
       return;
     }
     // Más választásnál (HTML sáv vagy kikapcsolás) a TV feliratát lekapcsoljuk.
-    if (lunaTvActiveRef.current) {
+    if (lunaTvActiveRef.current || desiredLiveSubRef.current) {
       lunaTvActiveRef.current = false;
+      desiredLiveSubRef.current = null;
       setLunaTvSubtitleTracks((previous) => previous.map((item) => (
         item.selected ? { ...item, selected: false } : item
       )));
@@ -1798,8 +1854,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } catch (error) {
       appLog('LG webOS élő feliratváltási hiba: ' + String(error));
     }
-  }, [nativeHandoff, streamUrl, settings.subtitleSize]);
+  }, [nativeHandoff, streamUrl]);
   selectTvSubtitleRef.current = selectTvSubtitle;
+  subtitleScaleRef.current = Number(String(settings.subtitleSize || '100%').replace('%', '')) || 100;
 
   /*
    * Az élő CC-választó (zöld gomb) és az élő OSD CC ikon közös listája:
@@ -2486,22 +2543,61 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video) return undefined;
     let cancelled = false;
     setLunaTvSubtitleTracks([]);
+    lunaTvTrackInfoRef.current = new Map();
+    const registerLunaTvTrackInfo = (tracks: EmbeddedSubtitle[]) => {
+      const infoMap = new Map<string, EmbeddedSubtitle>();
+      tracks.forEach((track) => infoMap.set(`luna-tv:${track.lunaIndex}`, track));
+      lunaTvTrackInfoRef.current = infoMap;
+    };
     const unsubscribe = subscribeLiveSubtitleTracks(video, (tracks) => {
       if (cancelled) return;
-      setLunaTvSubtitleTracks((previous) => tracks.map((track) => ({
-        ...lunaTvToSubtitleTrack(track),
-        selected: previous.some((item) => item.selected
-          && lunaTvIndexFromTrack(item) === track.lunaIndex),
-      })));
+      registerLunaTvTrackInfo(tracks);
+      const desired = desiredLiveSubRef.current;
+      setLunaTvSubtitleTracks((previous) => tracks.map((track, position) => {
+        let selected = previous.some((item) => item.selected
+          && lunaTvIndexFromTrack(item) === track.lunaIndex);
+        if (!selected && desired) {
+          // A kért feliratot nyelv + nyelv szerinti sorszám alapján jelöljük
+          // az új listában is (a TV sorrendje eltérhet a fejléc-listáétól).
+          const want = canonicalLiveLang(desired.lang);
+          if (want && canonicalLiveLang(track.lang) === want) {
+            const ordinal = tracks
+              .slice(0, position)
+              .filter((item) => canonicalLiveLang(item.lang) === want).length;
+            selected = ordinal === desired.ordinalInLang;
+          }
+        }
+        return { ...lunaTvToSubtitleTrack(track), selected };
+      }));
+      /*
+       * Ha a néző már választott (például a fejlécből olvasott listából),
+       * a TV saját listájának megérkeztekor a választást újra
+       * érvényesítjük – ekkor már a TV számozása alapján.
+       */
+      if (desired && !liveSubApplyingRef.current) {
+        const want = canonicalLiveLang(desired.lang);
+        const matches = tracks.filter((track) => want && canonicalLiveLang(track.lang) === want);
+        const pick = matches.length > 0
+          ? matches[Math.min(desired.ordinalInLang, matches.length - 1)]
+          : null;
+        applyLiveSubtitleSelection(video, {
+          lang: desired.lang,
+          codec: desired.codec,
+          indexHint: pick ? pick.lunaIndex : 0,
+          ordinalInLang: desired.ordinalInLang,
+        }, desired.id);
+      }
     });
     const probeTimer = window.setTimeout(() => {
       setLunaTvSubtitleTracks((previous) => {
         if (previous.length === 0) {
           void probeLiveSubtitles(streamUrl).then((tracks) => {
             if (cancelled || tracks.length === 0) return;
-            setLunaTvSubtitleTracks((current) => (current.length === 0
-              ? tracks.map(lunaTvToSubtitleTrack)
-              : current));
+            setLunaTvSubtitleTracks((current) => {
+              if (current.length !== 0) return current;
+              registerLunaTvTrackInfo(tracks);
+              return tracks.map(lunaTvToSubtitleTrack);
+            });
           }).catch(() => { /* a fejléc nem olvasható: marad a HTML lista */ });
         }
         return previous;
@@ -2616,6 +2712,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lunaTvActiveRef.current = false;
     userTvSubtitleChoiceRef.current = null;
     liveAutoSubtitleKeyRef.current = '';
+    lunaTvTrackInfoRef.current = new Map();
+    desiredLiveSubRef.current = null;
+    liveSubApplyingRef.current = false;
     nativeAudioTrackSignatureRef.current = '';
     userAudioChoiceRef.current = null;
     setShowTvAudioMenu(false);

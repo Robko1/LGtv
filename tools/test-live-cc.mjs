@@ -21,6 +21,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { JSDOM } from 'jsdom';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -156,7 +157,7 @@ before(async () => {
   await esbuild.build({
     stdin: {
       contents:
-        "export { parseTsSubtitleTracks, parseHlsSubtitleTracks } from './web/src/services/liveSubtitleService.ts';\n",
+        "export { parseTsSubtitleTracks, parseHlsSubtitleTracks, canonicalLiveLang, extractLiveSourceInfoTracks, buildLiveCandidateIndexes, selectLiveSubtitle, disableLiveSubtitle } from './web/src/services/liveSubtitleService.ts';\n",
       resolveDir: ROOT,
       sourcefile: 'live-cc-entry.ts',
       loader: 'ts',
@@ -262,12 +263,176 @@ test('HLS: nem lejátszási lista null, média-lista felirat nélkül üres', ()
   assert.deepEqual(svc.parseHlsSubtitleTracks(media), []);
 });
 
+/* ───────────────────────── Élő bekapcsolás (Luna) ───────────────────────── */
+
+test('Élő CC: nyelvkódok egységesítése (hun / Hungary / Magyar ugyanaz)', () => {
+  assert.equal(svc.canonicalLiveLang('hun'), 'hu');
+  assert.equal(svc.canonicalLiveLang('hu-HU'), 'hu');
+  assert.equal(svc.canonicalLiveLang('Hungary'), 'hu');
+  assert.equal(svc.canonicalLiveLang('hungarian'), 'hu');
+  assert.equal(svc.canonicalLiveLang('Magyar'), 'hu');
+  assert.equal(svc.canonicalLiveLang('Magyar (DVB)'), 'hu');
+  assert.equal(svc.canonicalLiveLang('eng'), 'en');
+  assert.equal(svc.canonicalLiveLang('English'), 'en');
+  assert.equal(svc.canonicalLiveLang('deu'), 'de');
+  assert.equal(svc.canonicalLiveLang(''), '');
+  assert.equal(svc.canonicalLiveLang(undefined), '');
+});
+
+test('Élő CC: a TV sourceInfo listája a képalapú (DVB) sávokkal együtt', () => {
+  const payload = {
+    sourceInfo: {
+      numSubtitleTracks: 3,
+      subtitleTrackInfo: [
+        { language: 'eng', type: 'image' },
+        { language: 'hun', type: 'text' },
+        { language: 'hun', type: 'DVB' },
+      ],
+    },
+  };
+  const tracks = svc.extractLiveSourceInfoTracks(payload);
+  assert.equal(tracks.length, 3);
+  assert.deepEqual(tracks.map((t) => t.isBitmap), [true, false, true]);
+  assert.equal(tracks[1].lang, 'hun');
+  const counted = svc.extractLiveSourceInfoTracks({ sourceInfo: { numSubtitleTracks: 2 } });
+  assert.equal(counted.length, 2);
+  assert.equal(svc.extractLiveSourceInfoTracks({ mas: 'adat' }), null);
+});
+
+test('Élő CC: TV-sorszám jelöltek a TV listája alapján, nyelv szerint', () => {
+  const tv = [
+    { lang: 'eng', name: '', type: 'image', isBitmap: true },
+    { lang: 'hun', name: '', type: 'text', isBitmap: false },
+    { lang: 'hun', name: '', type: 'DVB', isBitmap: true },
+  ];
+  // szöveges magyar (a PMT-ben az 1. helyen): előbb a csak-szöveges sorszám (0), majd a teljes (1)
+  assert.deepEqual(svc.buildLiveCandidateIndexes({ lang: 'hu', indexHint: 1, ordinalInLang: 0 }, tv), [0, 1]);
+  // második magyar a képalapú: csak a teljes sorszám
+  assert.deepEqual(svc.buildLiveCandidateIndexes({ lang: 'Hungary', indexHint: 2, ordinalInLang: 1 }, tv), [2]);
+  // nincs ilyen nyelv a TV listájában: a saját sorszám, a lista hosszához szorítva
+  assert.deepEqual(svc.buildLiveCandidateIndexes({ lang: 'de', indexHint: 9, ordinalInLang: 0 }, tv), [2]);
+  // TV-lista nélkül a PMT sorszám a jelölt
+  assert.deepEqual(svc.buildLiveCandidateIndexes({ lang: 'hun', indexHint: 2 }, null), [2]);
+});
+
+function makeLiveWindow() {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://tv.local/' });
+  globalThis.window = dom.window;
+  return dom.window;
+}
+
+function installFakeMedia(win, behavior) {
+  const calls = [];
+  win.webOS = {
+    service: {
+      request(uri, options) {
+        calls.push([options.method, options.parameters]);
+        const succeed = (payload = {}) => setTimeout(() => options.onSuccess?.({ returnValue: true, ...payload }), 0);
+        const reject = (text = 'elutasítva') => setTimeout(() => options.onFailure?.({ returnValue: false, errorText: text }), 0);
+        behavior({ method: options.method, parameters: options.parameters, succeed, reject });
+      },
+    },
+  };
+  return calls;
+}
+
+test('Élő CC bekapcsolás: a TV listája alapján, nyelv szerint választ (PMT sorszám helyett)', async () => {
+  const win = makeLiveWindow();
+  const calls = installFakeMedia(win, ({ method, parameters, succeed, reject }) => {
+    if (method === 'subscribe') {
+      succeed({
+        sourceInfo: {
+          subtitleTrackInfo: [
+            { language: 'eng', type: 'image' },
+            { language: 'hun', type: 'text' },
+          ],
+        },
+      });
+      return;
+    }
+    // A TV csak a csak-szöveges sorszámozást fogadja el: a magyar a 0.
+    if (method === 'selectTrack') {
+      if (parameters.type === 'text' && parameters.index === 0) succeed(); else reject('invalid index');
+      return;
+    }
+    succeed();
+  });
+  const ok = await svc.selectLiveSubtitle(
+    { mediaId: '_live1' },
+    { lang: 'hun', codec: 'Teletext', indexHint: 1, ordinalInLang: 0 },
+    100,
+    { retryDelaysMs: [0], enableSettleMs: 1, queryTimeoutMs: 300 },
+  );
+  assert.equal(ok, true);
+  const methods = calls.map(([method]) => method);
+  assert.ok(methods.indexOf('setSubtitleEnable') < methods.indexOf('selectTrack'), 'előbb bekapcsol, utána választ');
+  const selects = calls.filter(([method]) => method === 'selectTrack').map(([, p]) => [p.type, p.index]);
+  assert.deepEqual(selects, [['text', 0]]);
+});
+
+test('Élő CC bekapcsolás: ha a text hívást a TV elutasítja, a dokumentált subtitle alakkal próbálkozik', async () => {
+  const win = makeLiveWindow();
+  const calls = installFakeMedia(win, ({ method, parameters, succeed, reject }) => {
+    if (method === 'subscribe') {
+      succeed({ sourceInfo: { subtitleTrackInfo: [{ language: 'hun', type: 'DVB' }] } });
+      return;
+    }
+    if (method === 'selectTrack') {
+      if (parameters.type === 'subtitle' && parameters.index === 0) succeed(); else reject('unknown type');
+      return;
+    }
+    succeed();
+  });
+  const ok = await svc.selectLiveSubtitle(
+    { mediaId: '_live2' },
+    { lang: 'Hungary', codec: 'DVB', indexHint: 0, ordinalInLang: 0 },
+    100,
+    { retryDelaysMs: [0], enableSettleMs: 1, queryTimeoutMs: 300 },
+  );
+  assert.equal(ok, true);
+  const types = calls.filter(([method]) => method === 'selectTrack').map(([, p]) => p.type);
+  assert.deepEqual(types, ['text', 'subtitle']);
+});
+
+test('Élő CC bekapcsolás: minden próbálkozás elutasítva → hibát jelez és lekapcsol', async () => {
+  const win = makeLiveWindow();
+  const calls = installFakeMedia(win, ({ method, succeed, reject }) => {
+    if (method === 'subscribe') return; // nem jön sourceInfo: a PMT sorszám a tartalék
+    if (method === 'selectTrack') { reject('no track'); return; }
+    succeed();
+  });
+  const ok = await svc.selectLiveSubtitle(
+    { mediaId: '_live3' },
+    { lang: 'hun', codec: 'DVB', indexHint: 1, ordinalInLang: 0 },
+    100,
+    { retryDelaysMs: [0, 1], enableSettleMs: 1, queryTimeoutMs: 30 },
+  );
+  assert.equal(ok, false);
+  const selects = calls.filter(([method]) => method === 'selectTrack');
+  assert.equal(selects.length, 4); // 2 kör × 2 hívásalak
+  const lastEnable = [...calls].reverse().find(([method]) => method === 'setSubtitleEnable');
+  assert.equal(lastEnable[1].enable, false);
+
+  await svc.disableLiveSubtitle({ mediaId: '_live3' });
+  const enables = calls.filter(([method]) => method === 'setSubtitleEnable').map(([, p]) => p.enable);
+  assert.equal(enables[enables.length - 1], false);
+});
+
+test('Élő CC bekapcsolás: Luna híd nélkül gyorsan hibát ad (nem akad el)', async () => {
+  makeLiveWindow();
+  const started = Date.now();
+  assert.equal(await svc.selectLiveSubtitle(null, { lang: 'hun', indexHint: 0 }), false);
+  assert.ok(Date.now() - started < 3000);
+});
+
 test('A forrásfájlok a helyükön vannak (éles kódút ellenőrzés)', () => {
   const live = fs.readFileSync(path.join(ROOT, 'web', 'src', 'services', 'liveSubtitleService.ts'), 'utf8');
   assert.match(live, /export function parseTsSubtitleTracks/);
   assert.match(live, /export async function probeLiveSubtitles/);
   const player = fs.readFileSync(path.join(ROOT, 'web', 'src', 'components', 'VideoPlayer.tsx'), 'utf8');
   assert.match(player, /luna-tv:/);
-  assert.match(player, /selectLiveSubtitle\(video, lunaTvIndex/);
+  assert.match(player, /selectLiveSubtitle\(videoElement, request/);
+  assert.match(player, /desiredLiveSubRef/);
+  assert.match(live, /export function buildLiveCandidateIndexes/);
   assert.match(player, /subscribeLiveSubtitleTracks\(video/);
 });
