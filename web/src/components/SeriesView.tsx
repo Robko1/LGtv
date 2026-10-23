@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Series, Episode } from '../types/iptv';
-import { PosterImage } from './PosterImage';
+import { PosterImage, preloadPosterImage } from './PosterImage';
 import { Star, Play, Clock, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2 } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 
@@ -15,13 +15,11 @@ interface SeriesViewProps {
   onSelectedCategoryChange?: (categoryId: string) => void;
   onBackToLive: () => void;
   onToggleFavoriteSeries: (seriesId: string) => void;
+  isActive: boolean;
 }
 
-/* Villámgyors nézetváltás: 5 NAGY poszter, kisebb első köteg, lépcsős
-   kategóriapolcok (lásd MoviesView, ugyanaz az elv). */
-const PAGE_SIZE = 50;
-const RAIL_STEP = 5;
-const RAIL_CARDS = 12;
+/* Függőleges, ötoszlopos rács; a poszterek 20-as adagokban jelennek meg. */
+const PAGE_SIZE = 20;
 let seriesReturnSnapshot: { scrollTop: number; visibleCount: number } | null = null;
 
 const SeriesViewComponent: React.FC<SeriesViewProps> = ({
@@ -33,13 +31,16 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   onPlayEpisode,
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
+  isActive,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
-  const [visibleRails, setVisibleRails] = useState<number>(RAIL_STEP);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
   const [visibleCount, setVisibleCount] = useState(() => seriesReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const seriesGridRef = useRef<HTMLDivElement | null>(null);
+  const preloadedThroughRef = useRef(0);
+  const visibleCountRef = useRef(visibleCount);
+  visibleCountRef.current = visibleCount;
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
   // A részletek-ablak fókusza – lásd MoviesView (a távirányítónak azonnal
   // egy gombon kell lennie, különben a dialógusban nem lehet mozogni).
@@ -86,8 +87,8 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
    */
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-    setVisibleRails(RAIL_STEP);
     if (seriesGridRef.current) seriesGridRef.current.scrollTop = 0;
+    preloadedThroughRef.current = 0;
   }, [selectedCategory]);
 
   useEffect(() => {
@@ -104,25 +105,40 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
 
   const visibleSeries = filteredSeries.slice(0, visibleCount);
 
-  // Referencia-szerű kategóriapolcok: a kategóriák sorrendjét a szolgáltató adja,
-  // a címek eredeti sorrendjét megőrizzük; minden kategóriához egyetlen csoportosítás.
-  const categoryRows = useMemo(() => {
-    const grouped = new Map<string, Series[]>();
-    for (const item of series) {
-      const key = item.categoryId || 'uncategorized';
-      const list = grouped.get(key);
-      if (list) list.push(item); else grouped.set(key, [item]);
-    }
-    const rows = (providerCategories || [])
-      .map((category) => ({ category, items: grouped.get(category.id) || [] }))
-      .filter((row) => row.items.length > 0);
-    const known = new Set(rows.map((row) => row.category.id));
-    for (const [id, items] of grouped) {
-      if (known.has(id)) continue;
-      rows.push({ category: { id, name: items[0]?.categoryName || 'Egyéb', channelCount: items.length } as Category, items });
-    }
-    return rows;
-  }, [series, providerCategories]);
+  // Háttérben, fokozatosan előtöltjük a posztereket, de csak az aktív
+  // Mozi/Sorozat nézetben, rövid késleltetés és böngésző-üresjárat után.
+  useEffect(() => {
+    if (!isActive || preloadedThroughRef.current >= filteredSeries.length
+        || preloadedThroughRef.current >= visibleCount) return;
+    let cancelled = false;
+    let timer = 0;
+    let idleHandle: number | undefined;
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const start = () => {
+      if (cancelled) return;
+      const batchEnd = Math.min(preloadedThroughRef.current + 20, filteredSeries.length, visibleCountRef.current);
+      const tick = () => {
+        if (cancelled || preloadedThroughRef.current >= batchEnd) return;
+        const entry = filteredSeries[preloadedThroughRef.current];
+        preloadedThroughRef.current += 1;
+        if (entry) void preloadPosterImage(entry.poster, entry.title, 'tv');
+        if (preloadedThroughRef.current < batchEnd) timer = window.setTimeout(tick, 180);
+      };
+      tick();
+    };
+    timer = window.setTimeout(() => {
+      if (idleWindow.requestIdleCallback) idleHandle = idleWindow.requestIdleCallback(start, { timeout: 1200 });
+      else start();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle);
+    };
+  }, [isActive, selectedCategory, visibleCount, filteredSeries]);
 
   // A kiválasztott sorozat mindig a legfrissebb adatból (a részek utólag
   // töltődnek be a szolgáltatótól).
@@ -181,55 +197,19 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
       {/* Referencia-szerű sorozatkönyvtár: vízszintes kategóriapolcok és teljes kategóriarács. */}
       <div ref={seriesGridRef} data-scroll-keep="" onScroll={(e) => {
         const el = e.currentTarget;
-        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 900;
-        if (!nearBottom) return;
-        if (selectedCategory !== 'all' && visibleCount < filteredSeries.length) {
+        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
+        if (nearBottom && visibleCount < filteredSeries.length) {
           setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredSeries.length));
         }
-        setVisibleRails((count) => (count < categoryRows.length ? count + RAIL_STEP : count));
+      }} onFocusCapture={(e) => {
+        const target = e.target as HTMLElement;
+        const card = target.closest<HTMLElement>('[data-poster-index]');
+        const index = Number(card?.dataset.posterIndex);
+        if (Number.isFinite(index) && index >= visibleCount - 5 && visibleCount < filteredSeries.length) {
+          setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredSeries.length));
+        }
       }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
-        {selectedCategory === 'all' ? (
-          categoryRows.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
-              <Filter className="w-10 h-10 text-slate-600 mb-2" />
-              {series.length === 0 ? (
-                <><p className="text-sm font-semibold">A sorozatok betöltése folyamatban van…</p><p className="text-xs mt-1 max-w-xs leading-relaxed">A mentett sorozatlista megjelenik, amint a betöltés befejeződik.</p></>
-              ) : <p className="text-sm font-semibold">Nincs megjeleníthető sorozatkategória.</p>}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-6 md:gap-8">
-              {categoryRows.slice(0, visibleRails).map(({ category, items }) => (
-                <section key={category.id} className="min-w-0">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <h2 className="text-sm md:text-base font-black text-white truncate">{category.name}</h2>
-                    <button onClick={() => { setSelectedCategory(category.id); onSelectedCategoryChange?.(category.id); if (seriesGridRef.current) seriesGridRef.current.scrollTop = 0; }}
-                      className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0f2042] border border-cyan-900/60 text-cyan-300 text-xs font-bold hover:bg-[#162d5a]">
-                      Összes megtekintése ({items.length}) →
-                    </button>
-                  </div>
-                  {/* 5 NAGY poszter egy sorban, vízszintes görgetéssel. */}
-                  <div className="flex gap-3 overflow-x-auto pb-2">
-                    {items.slice(0, RAIL_CARDS).map((ser) => (
-                      <button key={ser.id} onClick={() => { setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); }}
-                        className="group shrink-0 w-[calc((100%-3rem)/5)] min-w-[8rem] text-left rounded-2xl overflow-hidden bg-[#0b162f] border border-cyan-950/70 hover:border-cyan-400/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
-                        <div className="relative aspect-[2/3] bg-slate-900 overflow-hidden">
-                          <PosterImage src={ser.poster} title={ser.title} kind="tv" alt={ser.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        </div>
-                        <div className="p-2"><div className="text-white text-sm font-bold truncate">{ser.title}</div><div className="text-xs text-slate-400 mt-1">{ser.year || ''}</div></div>
-                      </button>
-                    ))}
-                    {items.length > RAIL_CARDS && (
-                      <button onClick={() => { setSelectedCategory(category.id); onSelectedCategoryChange?.(category.id); if (seriesGridRef.current) seriesGridRef.current.scrollTop = 0; }}
-                        className="shrink-0 w-[calc((100%-3rem)/5)] min-w-[8rem] rounded-2xl border border-dashed border-cyan-700/60 bg-[#0d1d3d] text-cyan-300 font-black text-sm hover:bg-[#142850]">
-                        <span className="block text-2xl mb-2">•••</span>Mind a {items.length} sorozat
-                      </button>
-                    )}
-                  </div>
-                </section>
-              ))}
-            </div>
-          )
-        ) : filteredSeries.length === 0 ? (
+        {filteredSeries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
             <Filter className="w-10 h-10 text-slate-600 mb-2" />
             {series.length === 0 ? (
@@ -237,10 +217,10 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
             ) : <p className="text-sm font-semibold">Ebben a kategóriában nincs sorozat.</p>}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5 gap-3 md:gap-4 lg:gap-4 xl:gap-5">
-            {visibleSeries.map((ser) => (
+          <div className="grid grid-cols-5 gap-3 md:gap-4 lg:gap-4 xl:gap-5">
+            {visibleSeries.map((ser, index) => (
               <div key={ser.id} role="button" tabIndex={0}
-                /* A sorozat lejátszásának bezárásakor IDE tér vissza a fókusz. */
+                data-poster-index={index}
                 data-vod-card={String(ser.id)}
                 onClick={() => { setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); }}
                 onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); } }}
