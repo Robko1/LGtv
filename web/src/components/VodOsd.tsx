@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AudioTrack, SubtitleTrack } from '../types/iptv';
 import {
-  ArrowLeft, Captions, Check, FastForward, Languages, Pause, Play,
-  Plus, Rewind, Volume2, VolumeX, X,
+  ArrowLeft, Captions, Check, FastForward, Languages, Mic2, Pause, Play,
+  Plus, Rewind, Subtitles, Volume2, VolumeX, X,
 } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 
@@ -550,7 +550,7 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             title={hasAudioChoice ? `${audioTracks.length} hangsáv – választás` : 'Nincs másik hangsáv'}
             aria-label="Hangsáv választása"
           >
-            <Languages className="w-[22px] h-[22px]" />
+            <Mic2 className="w-[22px] h-[22px]" />
             {hasAudioChoice && (
               <span className="absolute -top-1 -right-1 min-w-[1.05rem] h-[1.05rem] px-1 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black flex items-center justify-center">
                 {audioTracks.length}
@@ -573,7 +573,7 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             title={hasSubtitleChoice ? `${subtitleTracks.length} felirat – választás` : 'Nincs felirat ehhez a filmhez'}
             aria-label="Felirat választása"
           >
-            <Captions className="w-[22px] h-[22px]" />
+            <Subtitles className="w-[22px] h-[22px]" />
             {activeSubtitleId !== null && activeSubtitleId !== undefined && (
               <span className="absolute -top-1 -right-1 w-[0.7rem] h-[0.7rem] rounded-full bg-emerald-400 shadow" aria-hidden="true" />
             )}
