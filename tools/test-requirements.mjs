@@ -684,7 +684,8 @@ test('9. az Audio gomb a filmhez tartozó hangsávokat kínálja, és vált is',
 test('9. alap hang és felirat MAGYAR, összekötve a Beállítások Mozi szakaszával', () => {
   assert.match(PLAYER, /function findPreferredVodTrack/);
   assert.match(PLAYER, /findPreferredVodTrack\(vodAudioTracks, settings\.preferredAudioLang \|\| 'Magyar'\)/);
-  assert.match(PLAYER, /const preferredSubtitle = \(settings\.preferredSubtitle \|\| 'Magyar'\)\.trim\(\)/);
+  assert.match(PLAYER, /const savedSubtitlePreference = \(settings\.preferredSubtitle \|\| 'Magyar'\)\.trim\(\)/);
+  assert.match(PLAYER, /const preferredSubtitle = \/\^kikapcsolva\$\/i\.test\(savedSubtitlePreference\)/);
   assert.match(PLAYER, /switchHtmlVodSubtitle\(Number\(preferredTrack\.id\)\)/);
   // A beállítás alapértéke magyar, és a mentés is normalizálja.
   assert.match(read('web/src/data/mockData.ts'), /preferredAudioLang: 'Magyar',/);
@@ -791,7 +792,7 @@ test('10. film/sorozat felirat (CC): szolgáltatói feliratok + saját kirajzol�
   // Az App átadja a film/epizód azonosítóit.
   assert.match(APP, /subtitleSource=\{currentVodTracks\.subtitleSource\}/);
   assert.match(APP, /vodId: movie\.streamId \?\? idFromUrl\(movie\.streamUrl\)/);
-  assert.match(APP, /seriesId: item\.seriesId, episodeId: idFromUrl\(episode\.streamUrl\)/);
+  assert.match(APP, /seriesId: item\.seriesId \?\? item\.id,/);\n  assert.match(APP, /episodeId: idFromUrl\(episode\.streamUrl\) \|\| episode\.id,/);
 });
 
 test('10. az automatikus magyar felirat a szolgáltatói listát is figyeli', () => {
