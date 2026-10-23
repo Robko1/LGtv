@@ -1017,7 +1017,7 @@ test('13. a CC a natív lejátszón is bekapcsol (a hangot nem piszkálja)', () 
 test('13. a szolgáltatói feliratot a muxolt sávok 1,5 mp-es olvasása nem kapcsolja ki', () => {
   assert.match(PLAYER, /const providerSubtitleActiveRef = useRef\(false\);/);
   assert.match(PLAYER, /providerSubtitleActiveRef\.current = true;/);
-  assert.match(PLAYER, /if \\(!providerSubtitleActiveRef\\.current\\) \\{\\s*setActiveVodSubtitleId\\(\\(previous\\) => \\{\\s*const next = active \\? active\\.id : null;\\s*return String\\(previous \\?\\? ''\\) === String\\(next \\?\\? ''\\) \\? previous : next;\\s*\\}\\);\\s*\\}/);
+  assert.match(PLAYER, /if \(!providerSubtitleActiveRef\.current\) \{\s*setActiveVodSubtitleId\(\(previous\) => \{\s*const next = active \? active\.id : null;\s*return String\(previous \?\? ''\) === String\(next \?\? ''\) \? previous : next;\s*\}\);\s*\}/);
 });
 
 test('13. a felirat-fájl címe (jelszóval) nem megy ki nyilvános proxyra, és nem kerül a naplóba', () => {
