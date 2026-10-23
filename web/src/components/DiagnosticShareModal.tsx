@@ -71,33 +71,31 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   };
 
   const refreshLog = async () => {
-    appLog('QR-diagnózis: FRISSÍTÉS gomb megnyomva – mérések nullázása.');
     const current = shareRef.current;
-    if (!current) {
-      // Még nincs hivatkozás: a Frissítés is új méréssel, nullázott értékekkel indul.
-      setMeasure(resetMeasurements('QR-hibadiagnózis: Frissítés gomb (új kód)'));
-      await createNewQr('Frissítés gomb (még nincs aktív kód)');
-      return;
-    }
     setBusy(true);
     setError('');
     setNotice('');
-    /*
-     * ÚJ MÉRÉS: a mért értékek előbb 0-ra állnak, és a kezdő időpont láthatóvá
-     * válik – a dobozban ÉS a naplóban is. Csak ezután készül a friss napló,
-     * így a QR-kóddal megnyitott szöveg elején ott van a nullázás bizonyítéka.
-     */
+
+    // A Frissítés azonnal, a gombnyomáskor törli az előző mérési ablakot,
+    // majd nullázott számlálókkal indít újat. Az egy napos automatikus
+    // naplómegőrzési mechanizmust nem módosítjuk.
     const fresh = resetMeasurements('QR-hibadiagnózis: Frissítés gomb');
     setMeasure(fresh);
     try {
-      appLog('Diagnosztikai napló frissítése a QR-hivatkozáson (mérések nullázva).');
-      const expiresAt = await refreshDiagnosticShare(current.token, getAppLogText().slice(-59000));
-      const updated = { ...current, expiresAt };
-      setShare(updated);
-      shareRef.current = updated;
-      setNotice(`A mérések nullázva (0). Új mérés kezdete: ${fresh.startedAtText} – a napló innentől mér.`);
+      appLog('QR-diagnózis: új mérési ablak indult; az előző napló törölve.');
+      if (current) {
+        appLog('Diagnosztikai napló frissítése a QR-hivatkozáson az új mérési ablakkal.');
+        const expiresAt = await refreshDiagnosticShare(current.token, getAppLogText().slice(-59000));
+        const updated = { ...current, expiresAt };
+        setShare(updated);
+        shareRef.current = updated;
+      } else {
+        // QR még nincs: csak létrehozzuk a hivatkozást az aktuális mérési ablakból.
+        await createNewQr('Frissítés gomb (új mérési ablak)');
+      }
+      setNotice(`Az előzmények törölve. Új mérés kezdete: ${fresh.startedAtText}; a QR csak az azóta keletkezett naplót tartalmazza.`);
     } catch (cause) {
-      setError('A frissítés nem sikerült. Készíts új QR-kódot.');
+      setError('A frissítés nem sikerült. A mérés elindult, próbáld újra a QR frissítését.');
       appLog('Diagnosztikai QR-napló frissítése sikertelen: ' + String(cause).slice(0, 180));
       console.warn('[diagnostic-qr] refresh failed', cause);
     } finally {
