@@ -49,6 +49,21 @@ export const Header: React.FC<HeaderProps> = ({
     window.close();
   };
 
+  // TV / Sorozatok / Mozi fülek közti vízszintes távirányítós navigáció.
+  const handleHeaderDpad = (event: React.KeyboardEvent<HTMLButtonElement>, current: 'live' | 'series' | 'movies') => {
+    const key = event.key === 'Left' ? 'ArrowLeft' : event.key === 'Right' ? 'ArrowRight' : event.key;
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
+    const order: Array<'live' | 'series' | 'movies'> = ['live', 'series', 'movies'];
+    const index = order.indexOf(current);
+    const next = order[index + (key === 'ArrowRight' ? 1 : -1)];
+    if (!next) return;
+    const target = document.querySelector<HTMLElement>(`[data-tv-header-kind="${next}"]`);
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    target.focus({ preventScroll: true });
+  };
+
   return (
     <header
       className="sticky top-0 z-40 bg-[#070d1d]/95 backdrop-blur-md border-b border-cyan-950/40 pl-0 pr-2 py-2 md:py-2.5 lg:py-3 flex items-center justify-between gap-2 md:gap-3 lg:gap-4 shadow-md">
@@ -74,6 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
             data-tv-header=""
             data-tv-header-kind="live"
             data-tv-header-default=""
+            onKeyDown={(e) => handleHeaderDpad(e, 'live')}
             /*
              * A TV gomb a Mozi/Sorozat nézetben SEM kap világoskék kiemelést
              * (a felhasználó kérése): ugyanolyan semleges doboz, mint a többi.
@@ -113,6 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onViewChange('series')}
           data-tv-header=""
           data-tv-header-kind="series"
+          onKeyDown={(e) => handleHeaderDpad(e, 'series')}
           className={`flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
             activeView === 'series'
               ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
@@ -128,6 +145,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onViewChange('movies')}
           data-tv-header=""
           data-tv-header-kind="movies"
+          onKeyDown={(e) => handleHeaderDpad(e, 'movies')}
           className={`flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
             activeView === 'movies'
               ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-lg shadow-amber-950/40'
