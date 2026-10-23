@@ -151,7 +151,7 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
       // Epizód esetén csak a MOST játszott epizód feliratai kellenek.
       if (source.episodeId !== undefined && source.episodeId !== null) {
         const episodes = (info?.episodes || {}) as Record<string, unknown[]>;
-        const wantedEpisodeId = String(source.episodeId).replace(/\\.[a-z0-9]+$/i, '');
+        const wantedEpisodeId = String(source.episodeId).replace(/\.[a-z0-9]+$/i, '');
         let matchedEpisode = false;
         Object.values(episodes).forEach((list) => {
           if (!Array.isArray(list)) return;
@@ -161,7 +161,7 @@ export async function resolveVodSubtitles(source: VodSubtitleSource | null | und
             const episodeIds = [record?.id, record?.episode_id, record?.episodeId, record?.stream_id, record?.streamId];
             if (episodeIds.some((value) =>
               value !== undefined && value !== null &&
-              String(value).replace(/\\.[a-z0-9]+$/i, '') === wantedEpisodeId
+              String(value).replace(/\.[a-z0-9]+$/i, '') === wantedEpisodeId
             )) {
               matchedEpisode = true;
               collectSubtitleEntries(record, entries);
