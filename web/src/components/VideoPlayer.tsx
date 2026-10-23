@@ -2491,7 +2491,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setLunaTvSubtitleTracks((previous) => tracks.map((track) => ({
         ...lunaTvToSubtitleTrack(track),
         selected: previous.some((item) => item.selected
-          && lunaTvIndexFromTrack(item) === track.Luna Index),
+          && lunaTvIndexFromTrack(item) === track.lunaIndex),
       })));
     });
     const probeTimer = window.setTimeout(() => {
