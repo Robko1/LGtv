@@ -205,6 +205,19 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [isOpen, activeTab]);
 
+  const handleTabDpad = (event: React.KeyboardEvent<HTMLButtonElement>, current: 'lists' | 'favorites' | 'system') => {
+    const key = normalizeTvKey(event);
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
+    const order: Array<'lists' | 'favorites' | 'system'> = ['lists', 'favorites', 'system'];
+    const index = order.indexOf(current);
+    const next = order[index + (key === 'ArrowRight' ? 1 : -1)];
+    if (!next) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveTab(next);
+    window.setTimeout(() => modalRef.current?.querySelector<HTMLElement>(`[data-tv-tabid="${next}"]`)?.focus({ preventScroll: true } as any), 0);
+  };
+
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
     // TV távirányító: D-pad navigáció a modalban.
     // LG webOS: régi kulcsnév ('Up') vagy csak keyCode (37-40, VISSZA=461) is jöhet.
@@ -319,6 +332,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
           <button
             data-tv-tabid="lists"
+            onKeyDown={(event) => handleTabDpad(event, 'lists')}
             onClick={() => setActiveTab('lists')}
             className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
               activeTab === 'lists'
@@ -332,6 +346,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           <button
             data-tv-open-focus=""
             data-tv-tabid="favorites"
+            onKeyDown={(event) => handleTabDpad(event, 'favorites')}
             onClick={() => setActiveTab('favorites')}
             className={`flex-1 min-w-[85px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
               activeTab === 'favorites'
@@ -344,6 +359,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
           <button
             data-tv-tabid="system"
+            onKeyDown={(event) => handleTabDpad(event, 'system')}
             onClick={() => setActiveTab('system')}
             className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
               activeTab === 'system'
