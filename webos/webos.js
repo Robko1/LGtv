@@ -1374,6 +1374,20 @@
     try { console.log('[webOS] webOS API elérhető'); } catch (e) {}
     window.addEventListener('webOSRelaunch', function(e) {
       try { console.log('[webOS] Relaunch:', e); } catch (e2) {}
+      // handlesRelaunch=true esetén a webOS csak az activate() hívás után
+      // hozza vissza az alkalmazást az előtérbe. Újabb TV-ken webOSSystem,
+      // régebbi webOS 4.x és alatta PalmSystem használható.
+      try {
+        if (window.webOSSystem && typeof window.webOSSystem.activate === 'function') {
+          window.webOSSystem.activate();
+        } else if (window.PalmSystem && typeof window.PalmSystem.activate === 'function') {
+          window.PalmSystem.activate();
+        } else {
+          console.warn('[webOS] Relaunch: activate API nem érhető el');
+        }
+      } catch (activateError) {
+        try { console.warn('[webOS] Relaunch activate hiba:', activateError); } catch (e3) {}
+      }
       setTimeout(focusFirstChannelList, 300);
     });
     document.addEventListener('visibilitychange', function() {
