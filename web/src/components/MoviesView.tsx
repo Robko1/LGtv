@@ -34,6 +34,17 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const movieGridRef = useRef<HTMLDivElement | null>(null);
+  // A kijelölt poszter teljes egészében látható maradjon a görgethető rácsban.
+  const scrollPosterFullyIntoView = (card: HTMLElement | null) => {
+    const grid = movieGridRef.current;
+    if (!card || !grid) return;
+    const gridRect = grid.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const topEdge = gridRect.top + 16;
+    const bottomEdge = gridRect.bottom - 16;
+    if (cardRect.top < topEdge) grid.scrollTop -= topEdge - cardRect.top;
+    else if (cardRect.bottom > bottomEdge) grid.scrollTop += cardRect.bottom - bottomEdge;
+  };
   const preloadedThroughRef = useRef(0);
   const visibleCountRef = useRef(visibleCount);
   visibleCountRef.current = visibleCount;
@@ -214,7 +225,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
         if (Number.isFinite(index) && index >= visibleCount - 5 && visibleCount < filteredMovies.length) {
           setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length));
         }
-      }} className="flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 xl:p-6">
+      }} className="flex-1 overflow-y-auto px-3 pt-6 pb-6 md:px-4 md:pt-6 md:pb-6 lg:px-5 lg:pt-6 lg:pb-6 xl:px-6 xl:pt-6 xl:pb-6">
         {filteredMovies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
             <Filter className="w-10 h-10 text-slate-600 mb-2" />
@@ -242,7 +253,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                   if (key === 'ArrowRight') target = index + 1 < cards.length ? index + 1 : -1;
                   if (target >= 0 && target !== index) {
                     cards[target]?.focus({ preventScroll: true } as FocusOptions);
-                    cards[target]?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+                    scrollPosterFullyIntoView(cards[target] || null);
                   } else if (key === 'ArrowDown' && index + columns >= cards.length && cards.length < filteredMovies.length) {
                     // A következő sor még nincs kirajzolva: bővítjük a listát, majd arra a poszterre fókuszálunk.
                     setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredMovies.length));
@@ -250,7 +261,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                       window.requestAnimationFrame(() => {
                         const nextPoster = movieGridRef.current?.querySelector<HTMLElement>(`[data-poster-index="${index + columns}"]`);
                         nextPoster?.focus({ preventScroll: true } as FocusOptions);
-                        nextPoster?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+                        scrollPosterFullyIntoView(nextPoster || null);
                       });
                     });
                   } else if (key === 'ArrowUp' && index < columns) {
