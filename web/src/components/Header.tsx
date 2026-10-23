@@ -55,6 +55,16 @@ export const Header: React.FC<HeaderProps> = ({
   // TV / Sorozatok / Mozi fülek közti vízszintes távirányítós navigáció.
   const handleHeaderDpad = (event: React.KeyboardEvent<HTMLButtonElement>, current: 'live' | 'series' | 'movies') => {
     const key = normalizeTvKey(event);
+    if (key === 'ArrowDown') {
+      // A TV fülről nincs lefelé navigáció; csak a Mozi/Sorozatok nyitja meg a saját kategóriagombját.
+      if (current === 'live') return;
+      const category = document.querySelector<HTMLElement>(`[data-view-pane="${current}"] [data-category-trigger]`);
+      if (!category) return;
+      event.preventDefault();
+      event.stopPropagation();
+      category.focus({ preventScroll: true });
+      return;
+    }
     if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
     const order: Array<'live' | 'series' | 'movies'> = ['live', 'series', 'movies'];
     const index = order.indexOf(current);
