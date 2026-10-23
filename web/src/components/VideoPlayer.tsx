@@ -403,6 +403,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     waitingLogged: boolean;
     canPlayLogged: boolean;
     completed: boolean;
+    firstFrameLogged: boolean;
   } | null>(null);
   const videoDiagnosticState = (video: HTMLVideoElement, reason: string): string => {
     const rect = video.getBoundingClientRect();
@@ -2294,6 +2295,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           waitingLogged: false,
           canPlayLogged: false,
           completed: false,
+          firstFrameLogged: false,
         };
         const channelMemory = rememberedFormatFor(channel?.id);
         const globalMemory = rememberedGlobalFormat();
@@ -2828,9 +2830,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setFirstFrameShown((previous) => previous || true);
               if (!isVod) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
+                const video = event.currentTarget as HTMLVideoElement & {
+                  requestVideoFrameCallback?: (callback: (now: number, metadata: { mediaTime?: number; presentedFrames?: number }) => void) => number;
+                };
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.completed) {
                   diagnostic.completed = true;
-                  appLog(`CSATORNAVÁLTÁS KÉP ELINDULT; csatorna=${diagnostic.channelName}; idő=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(htmlVideoRef.current || event.currentTarget, 'playing')}`);
+                  appLog(`CSATORNAVÁLTÁS LEJÁTSZÁS ELINDULT; csatorna=${diagnostic.channelName}; idő=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'playing')}`);
+                }
+                if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.firstFrameLogged) {
+                  diagnostic.firstFrameLogged = true;
+                  if (typeof video.requestVideoFrameCallback === 'function') {
+                    video.requestVideoFrameCallback((_now, metadata) => {
+                      if (channelSwitchDiagnosticRef.current?.generation !== diagnostic.generation) return;
+                      appLog(`CSATORNAVÁLTÁS ELSŐ KÉPKOCKA; csatorna=${diagnostic.channelName}; idő=${Date.now() - diagnostic.startedAt} ms; mediaTime=${metadata.mediaTime ?? 'n/a'}; presentedFrames=${metadata.presentedFrames ?? 'n/a'}; ${videoDiagnosticState(video, 'requestVideoFrameCallback')}`);
+                    });
+                  } else {
+                    appLog(`CSATORNAVÁLTÁS ELSŐ KÉPKOCKA; csatorna=${diagnostic.channelName}; pontos képkocka-visszahívás nem támogatott ezen a webOS-en; lejátszásindítás=${Date.now() - diagnostic.startedAt} ms.`);
+                  }
                 }
               }
               nativeRetryCountRef.current = 0;
