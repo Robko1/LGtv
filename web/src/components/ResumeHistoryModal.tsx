@@ -50,11 +50,15 @@ export const ResumeHistoryModal: React.FC<ResumeHistoryModalProps> = ({
             history.map((item) => (
               <div
                 key={item.id}
+                role="button"
+                tabIndex={0}
+                data-resume-item={item.id}
                 onClick={() => {
                   onPlayItem(item);
                   onClose();
                 }}
-                className="group flex items-center justify-between p-3 rounded-2xl bg-[#0a1630] hover:bg-[#11244c] border border-cyan-900/40 cursor-pointer transition-all active:scale-[0.99]"
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onPlayItem(item); onClose(); } }}
+                className="group flex items-center justify-between p-3 rounded-2xl bg-[#0a1630] hover:bg-[#11244c] border border-cyan-900/40 cursor-pointer transition-all active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="relative w-16 h-20 rounded-xl bg-slate-800 overflow-hidden shrink-0 border border-slate-700">
@@ -72,10 +76,10 @@ export const ResumeHistoryModal: React.FC<ResumeHistoryModalProps> = ({
                     <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 text-[10px] font-black uppercase tracking-wider border border-cyan-500/30">
                       {item.mediaType === 'movie' ? 'Mozi Film' : 'Sorozat Epizód'}
                     </span>
-                    <h3 className="text-white font-bold text-sm truncate mt-1 group-hover:text-cyan-300">
+                    <h3 className="text-white font-bold text-base truncate mt-1 group-hover:text-cyan-300">
                       {item.title}
                     </h3>
-                    <p className="text-xs text-amber-400 font-mono mt-0.5 flex items-center gap-1">
+                    <p className="text-sm text-amber-400 font-mono mt-0.5 flex items-center gap-1">
                       <Clock className="w-3 h-3" />
                       <span>{item.subtitle || 'Folytatás'}</span>
                     </p>
