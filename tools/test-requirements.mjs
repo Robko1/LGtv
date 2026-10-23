@@ -570,7 +570,7 @@ test('8. PIROS (Record) gomb: tükrözött elrendezés be/ki', () => {
 test('8. Mozi/Sorozat: függőleges 5 oszlopos rács és fokozatos poszterbetöltés', () => {
   for (const source of [MOVIES, SERIES]) {
     assert.match(source, /grid grid-cols-5/, 'öt poszter oszloponként');
-    assert.doesNotMatch(source, /overflow-x-auto/, 'nincs vízszintes posztergörgetés');
+    assert.doesNotMatch(source, /items\.slice\(0,\s*RAIL_CARDS\)|visibleRails|RAIL_CARDS/, 'nincsenek vízszintes poszterpolcok');
     assert.doesNotMatch(source, /<input[\s\S]{0,400}?placeholder="(Film|Sorozat) keresése/, 'nincs keresőmező');
     assert.doesNotMatch(source, /PosterSettingsButton/, 'nincs „Poszterek” gomb');
     assert.match(source, /const PAGE_SIZE = 20;/, '20 elem jelenik meg egy adagban');
