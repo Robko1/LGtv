@@ -784,7 +784,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                       disabled={index === 0}
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onClick={(event) => { event.stopPropagation(); onMoveFavoriteChannel(f.id, channel.id, 'up'); }}
-                                      className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90 ${favoriteMoveCursor === 'up' ? 'ring-2 ring-yellow-300' : ''}`}
+                                      className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90 ${moving && favoriteMoveCursor === 'up' ? 'ring-2 ring-yellow-300' : ''}`}
                                       title="Mozgatás felfelé"
                                       aria-label={`${channel.name} mozgatása felfelé`}
                                     ><ArrowUp className="w-4 h-4" /></button>
@@ -793,7 +793,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                       disabled={index === folderChannels.length - 1}
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onClick={(event) => { event.stopPropagation(); onMoveFavoriteChannel(f.id, channel.id, 'down'); }}
-                                      className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90 ${favoriteMoveCursor === 'down' ? 'ring-2 ring-yellow-300' : ''}`}
+                                      className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90 ${moving && favoriteMoveCursor === 'down' ? 'ring-2 ring-yellow-300' : ''}`}
                                       title="Mozgatás lefelé"
                                       aria-label={`${channel.name} mozgatása lefelé`}
                                     ><ArrowDown className="w-4 h-4" /></button>
