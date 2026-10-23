@@ -13,7 +13,7 @@ interface ChannelControlsProps {
   onToggleFavorite: (channelId: string) => void;
   onOpenAudioModal: () => void;
   hasMultipleAudioTracks: boolean;
-  hasActiveSubtitle?: boolean;
+  hasAvailableSubtitle?: boolean;
   onOpenSubtitlesModal: () => void;
   onCastToTv: () => void;
   onTogglePip: () => void;
@@ -42,8 +42,8 @@ export const FullscreenLiveOsd: React.FC<{
   channel: Channel | null;
   displayNumber?: number;
   hasMultipleAudioTracks?: boolean;
-  hasActiveSubtitle?: boolean;
-}> = ({ channel, displayNumber, hasMultipleAudioTracks = false, hasActiveSubtitle = false }) => {
+  hasAvailableSubtitle?: boolean;
+}> = ({ channel, displayNumber, hasMultipleAudioTracks = false, hasAvailableSubtitle = false }) => {
   const [clock, setClock] = React.useState(() => Date.now());
   React.useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 10000);
@@ -150,11 +150,11 @@ export const FullscreenLiveOsd: React.FC<{
         </div>
         <div
           className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200 ${
-            hasActiveSubtitle ? 'ring-1 ring-emerald-400/60' : ''
+            hasAvailableSubtitle ? 'ring-1 ring-emerald-400/60' : ''
           }`}
-          aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'Felirat'}
+          aria-label={hasAvailableSubtitle ? 'Felirat aktív' : 'Felirat'}
         >
-          <Subtitles className={`w-4 h-4 ${hasActiveSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
+          <Subtitles className={`w-4 h-4 ${hasAvailableSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
           <span>Felirat</span>
         </div>
       </div>
@@ -168,7 +168,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
   onToggleFavorite,
   onOpenAudioModal,
   hasMultipleAudioTracks,
-  hasActiveSubtitle = false,
+  hasAvailableSubtitle = false,
   onOpenSubtitlesModal,
   onCastToTv,
   onTogglePip,
@@ -248,8 +248,8 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
             <Mic2 className={`w-4 h-4 ${hasMultipleAudioTracks ? 'text-emerald-400' : 'text-rose-400'}`} /><span>Audio</span>
           </div>
           <div className="min-w-0 text-center text-xs font-bold text-slate-400 truncate"> </div>
-          <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200" aria-label={hasActiveSubtitle ? 'Felirat aktív' : 'CC'}>
-            <Subtitles className={`w-4 h-4 ${hasActiveSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} /><span>CC</span>
+          <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200" aria-label={hasAvailableSubtitle ? 'Felirat aktív' : 'CC'}>
+            <Subtitles className={`w-4 h-4 ${hasAvailableSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} /><span>CC</span>
           </div>
         </div>
       )}
