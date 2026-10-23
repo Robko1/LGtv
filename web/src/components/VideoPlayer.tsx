@@ -3471,7 +3471,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
         <BlueClock
           offsetHours={settings.clockOffsetHours}
-          className={`absolute top-3 z-40 box-border flex h-12 w-32 items-center justify-center rounded-full border border-transparent bg-transparent p-0 font-mono text-3xl font-extrabold tracking-wider text-cyan-200 shadow-none pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
+          className={`absolute top-3 z-40 box-border flex h-12 w-32 items-center justify-center rounded-full border border-transparent bg-transparent p-0 font-mono text-4xl font-black tracking-wider text-cyan-200 shadow-none pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
         />
       )}
 
