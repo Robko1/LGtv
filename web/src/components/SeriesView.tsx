@@ -158,15 +158,17 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
       <div className="p-3 md:p-4 lg:p-4 xl:p-5 bg-[#09152e] border-b border-cyan-950/60 flex flex-col gap-2.5 md:gap-3">
         <div className="flex items-center justify-between gap-2">
           <button
+            data-category-trigger=""
+            onKeyDown={(e) => { if (normalizeTvKey(e) === "ArrowDown") { e.preventDefault(); seriesGridRef.current?.querySelector<HTMLElement>('[data-poster-index="0"]')?.focus(); } }}
             onClick={() => setIsCategoryMenuOpen((open) => !open)}
             aria-expanded={isCategoryMenuOpen}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0f2042] hover:bg-[#162d5a] text-cyan-300 border border-cyan-500/30 text-xs font-bold active:scale-95 transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0f2042] hover:bg-[#162d5a] text-cyan-300 border border-cyan-500/30 text-base font-bold active:scale-95 transition-all"
           >
             <ChevronDown className="w-4 h-4" />
             <span>Kategóriák</span>
           </button>
 
-          <div className="flex items-center gap-1.5 text-xs font-black text-cyan-400">
+          <div className="flex items-center gap-2 text-base font-black text-cyan-400">
             <Sparkles className="w-4 h-4 text-cyan-400" />
             <span>SOROZATOK KÖNYVTÁR ({totalCount && totalCount > series.length ? `${series.length} / ${totalCount}` : series.length})</span>
           </div>
@@ -182,7 +184,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                   onSelectedCategoryChange?.(cat.id);
                   setIsCategoryMenuOpen(false);
                 }}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                className={`w-full text-left px-4 py-3 rounded-lg text-base font-bold transition-all ${
                   selectedCategory === cat.id
                     ? 'bg-cyan-400 text-slate-950 font-black'
                     : 'bg-[#0e1d3a] text-slate-300 border border-slate-700/60 hover:bg-[#142850]'
@@ -224,14 +226,14 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                 data-poster-index={index}
                 data-vod-card={String(ser.id)}
                 onClick={() => { setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); }}
-                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); } }}
+                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); const index = Number((e.currentTarget as HTMLElement).dataset.posterIndex); const cards = Array.from(seriesGridRef.current?.querySelectorAll<HTMLElement>('[data-poster-index]') || []); const columns = 5; let target = index; if (key === 'ArrowUp') target = index >= columns ? index - columns : -1; if (key === 'ArrowDown') target = Math.min(cards.length - 1, index + columns); if (key === 'ArrowLeft') target = Math.max(0, index - 1); if (key === 'ArrowRight') target = Math.min(cards.length - 1, index + 1); if (target >= 0 && target !== index) cards[target]?.focus(); else if (key === 'ArrowUp' && index < columns) seriesGridRef.current?.closest('[data-view-pane="series"]')?.querySelector<HTMLElement>('[data-category-trigger]')?.focus(); } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
                   <PosterImage src={ser.poster} title={ser.title} kind="tv" alt={ser.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{ser.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Tv className="w-5 h-5" /></div></div>
                 </div>
-                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-xs truncate">{ser.title}</h3><div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400"><span>{ser.year}</span><span>•</span><span>{ser.seasonsCount || ser.seasons.length} évad</span></div></div>
+                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-base sm:text-lg truncate">{ser.title}</h3><div className="flex items-center gap-1.5 mt-1 text-sm text-slate-300"><span>{ser.year}</span><span>•</span><span>{ser.seasonsCount || ser.seasons.length} évad</span></div></div>
               </div>
             ))}
           </div>
