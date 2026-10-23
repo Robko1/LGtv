@@ -106,7 +106,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const [pendingDeleteFolderId, setPendingDeleteFolderId] = useState<string | null>(null);
   const [pendingClearCache, setPendingClearCache] = useState(false);
   const [movingFavoriteChannelId, setMovingFavoriteChannelId] = useState<string | null>(null);
-  const [favoriteMoveCursor, setFavoriteMoveCursor] = useState<'up' | 'down' | 'trash'>('up');
+  const [favoriteMoveCursor, setFavoriteMoveCursor] = useState<'up' | 'down'>('up');
   const favoriteLongPressTimer = useRef<number | null>(null);
   const suppressFavoriteClick = useRef(false);
   const lastFavoriteReorderTapAt = useRef(0);
@@ -252,7 +252,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         const selector = activeTab === 'system'
           ? '[data-tv-box]'
           : activeTab === 'favorites'
-            ? '[data-tv-default], [data-favorite-folder], [data-favorite-channel]'
+            ? '[data-tv-default], [data-favorite-folder], [data-favorite-channel], [data-tv-box]'
             : '[data-tv-default], [data-tv-box], [data-resume-item]';
         const focusable = Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((el) => {
           if (el.hasAttribute('disabled') || el.offsetParent === null) return false;
@@ -275,7 +275,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         // dobozt tekintjük kijelöltnek.
         const logicalCurrent = activeElement?.closest<HTMLElement>(
           activeTab === 'system' ? '[data-tv-box]'
-            : activeTab === 'favorites' ? '[data-tv-default], [data-favorite-folder], [data-favorite-channel]'
+            : activeTab === 'favorites' ? '[data-tv-default], [data-favorite-folder], [data-favorite-channel], [data-tv-box]'
               : '[data-tv-default], [data-tv-box], [data-resume-item]'
         ) || activeElement;
         let currentIndex = focusable.indexOf(logicalCurrent as HTMLElement);
@@ -656,6 +656,20 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           </div>
                         </button>
                         <button
+                          onKeyDown={(event) => {
+                            const key = normalizeTvKey(event);
+                            if (key === 'ArrowUp') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.focus({ preventScroll: true } as any);
+                            } else if (key === 'ArrowDown') {
+                              const folder = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
+                              const firstChannel = folder?.querySelector<HTMLElement>('[data-favorite-channel]');
+                              event.preventDefault();
+                              event.stopPropagation();
+                              (firstChannel || folder)?.focus({ preventScroll: true } as any);
+                            }
+                          }}
                           onClick={() => setPendingDeleteFolderId(pendingDeleteFolderId === f.id ? null : f.id)}
                           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/30 border border-rose-800/50 text-rose-300 hover:bg-rose-900/50 text-xs font-bold shrink-0"
                           title="Mappa törlése"
@@ -711,9 +725,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     event.preventDefault();
                                     event.stopPropagation();
                                     if (key === 'ArrowLeft') {
-                                      setFavoriteMoveCursor((cursor) => cursor === 'trash' ? 'down' : 'up');
+                                      setFavoriteMoveCursor((cursor) => cursor === 'up' ? 'down' : 'up');
                                     } else if (key === 'ArrowRight') {
-                                      setFavoriteMoveCursor((cursor) => cursor === 'up' ? 'down' : 'trash');
+                                      setFavoriteMoveCursor((cursor) => cursor === 'up' ? 'down' : 'up');
                                     } else if (key === 'ArrowUp') {
                                       if (index > 0) onMoveFavoriteChannel(f.id, channel.id, 'up');
                                     } else if (key === 'ArrowDown') {
@@ -721,16 +735,29 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     } else if (key === 'Enter' || key === ' ') {
                                       if (favoriteMoveCursor === 'up' && index > 0) onMoveFavoriteChannel(f.id, channel.id, 'up');
                                       else if (favoriteMoveCursor === 'down' && index < folderChannels.length - 1) onMoveFavoriteChannel(f.id, channel.id, 'down');
-                                      else if (favoriteMoveCursor === 'trash') {
-                                        onRemoveChannelFromFolder(f.id, channel.id);
-                                        setMovingFavoriteChannelId(null);
-                                      }
                                     } else if (key === 'Escape' || key === 'Backspace') {
                                       setMovingFavoriteChannelId(null);
                                     }
                                     return;
                                   }
-                                  if (key === 'ArrowRight') {
+                                  if (key === 'ArrowUp') {
+                                    if (index === 0) {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus();
+                                    } else {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[data-favorite-channel]')[index - 1]?.focus({ preventScroll: true } as any);
+                                    }
+                                  } else if (key === 'ArrowDown') {
+                                    const rows = event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[data-favorite-channel]');
+                                    if (rows && index < rows.length - 1) {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      rows[index + 1]?.focus({ preventScroll: true } as any);
+                                    }
+                                  } else if (key === 'ArrowRight') {
                                     event.preventDefault();
                                     event.stopPropagation();
                                     event.currentTarget.querySelector<HTMLElement>('button[title="Eltávolítás a kedvenc mappából"]')?.focus();
@@ -801,6 +828,28 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 )}
                                 <button
                                   type="button"
+                                  onKeyDown={(event) => {
+                                    const key = normalizeTvKey(event);
+                                    if (key === 'ArrowLeft') {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      event.currentTarget.closest<HTMLElement>('[data-favorite-channel]')?.focus({ preventScroll: true } as any);
+                                    } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+                                      const rows = Array.from(event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.querySelectorAll<HTMLElement>('[data-favorite-channel]') || []);
+                                      const row = event.currentTarget.closest<HTMLElement>('[data-favorite-channel]');
+                                      const index = rows.indexOf(row as HTMLElement);
+                                      const next = key === 'ArrowUp' ? index - 1 : index + 1;
+                                      if (key === 'ArrowUp' && index === 0) {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus({ preventScroll: true } as any);
+                                      } else if (next >= 0 && next < rows.length) {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        rows[next]?.querySelector<HTMLElement>('button[title="Eltávolítás a kedvenc mappából"]')?.focus({ preventScroll: true } as any);
+                                      }
+                                    }
+                                  }}
                                   onPointerDown={(event) => event.stopPropagation()}
                                   onClick={(event) => {
                                     event.stopPropagation();
@@ -825,7 +874,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* Folytatás: a félbehagyott filmek és sorozatrészek listája */}
-              <section className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20">
+              <section data-tv-box="" tabIndex={0} className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 shrink-0 rounded-xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center">
                     <Play className="w-5 h-5 text-cyan-300 fill-cyan-300" />
