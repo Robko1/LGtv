@@ -1055,7 +1055,7 @@ test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és l�
   // A napló mérés-ablaka: 0-ról induló számlálók + látható kezdő időpont.
   assert.match(APPLOG, /export function resetMeasurements\(reason: string = 'kézi frissítés'\): MeasurementSnapshot/);
   assert.match(APPLOG, /measurementCounters\.logLines = 0;\s*\n\s*measurementCounters\.errors = 0;\s*\n\s*measurementCounters\.longTasks = 0;/);
-  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{iso\} \(\$\{clockText\(startedAt\)\}\); minden korábbi mért érték nullázva/);
+  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{new Date\(startedAt\)\.toISOString\(\)\} \(\$\{clockText\(startedAt\)\}\); előzmények törölve; ok: \$\{reason\}/);
   assert.match(APPLOG, /MÉRÉS KEZDETE: \$\{measure\.startedAtText\}/);
   // A felugró ablak a Frissítéskor nulláz, és kiírja a kezdő időpontot.
   assert.match(DIAG_MODAL, /const fresh = resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\);/);
