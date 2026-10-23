@@ -1073,6 +1073,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [canToggleOsd]);
   const [activeVodSubtitleId, setActiveVodSubtitleId] = useState<string | number | null>(null);
   const activeTvSubtitleIdRef = useRef<string | number | null>(null);
+  // HTML5/webOS élő TV-n kézi feliratválasztás után ne írja felül azt az automata nyelvválasztás.
+  const userTvSubtitleChoiceRef = useRef<string | null>(null);
   const nativeSubtitleTrackSignatureRef = useRef('');
   const nativeSubtitleAutoSelectionKeyRef = useRef('');
   const pendingTvSubtitleSelectionRef = useRef<{ id: number | null; startedAt: number } | null>(null);
@@ -1551,19 +1553,46 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const selectTvSubtitle = useCallback((track: SubtitleTrack | null) => {
     const native = nativeApi();
-    if (!nativeHandoff || !native) return;
-    const current = activeTvSubtitleIdRef.current != null ? Number(activeTvSubtitleIdRef.current) : NaN;
-    if (track && Number.isFinite(Number(track.id))) {
-      const targetId = Number(track.id);
-      nativeSubtitleAutoSelectionKeyRef.current = `${streamUrl}|${nativeSubtitleTrackSignatureRef.current}|${String(track.lang || track.name || track.id).toLowerCase()}`;
-      pendingTvSubtitleSelectionRef.current = { id: targetId, startedAt: Date.now() };
-      native.selectTrack?.('subtitle', targetId);
-      appLog(`Élő felirat kiválasztása: sáv=${targetId}; visszaigazolásra vár.`);
-    } else {
-      pendingTvSubtitleSelectionRef.current = { id: null, startedAt: Date.now() };
-      native.deselectTrack?.('subtitle', Number.isFinite(current) ? current : -1);
-      activeTvSubtitleIdRef.current = null;
-      appLog('Élő felirat kikapcsolása kérve.');
+    if (nativeHandoff && native) {
+      const current = activeTvSubtitleIdRef.current != null ? Number(activeTvSubtitleIdRef.current) : NaN;
+      if (track && Number.isFinite(Number(track.id))) {
+        const targetId = Number(track.id);
+        nativeSubtitleAutoSelectionKeyRef.current = `${streamUrl}|${nativeSubtitleTrackSignatureRef.current}|${String(track.lang || track.name || track.id).toLowerCase()}`;
+        pendingTvSubtitleSelectionRef.current = { id: targetId, startedAt: Date.now() };
+        native.selectTrack?.('subtitle', targetId);
+        appLog(`Élő felirat kiválasztása: sáv=${targetId}; visszaigazolásra vár.`);
+      } else {
+        pendingTvSubtitleSelectionRef.current = { id: null, startedAt: Date.now() };
+        native.deselectTrack?.('subtitle', Number.isFinite(current) ? current : -1);
+        activeTvSubtitleIdRef.current = null;
+        appLog('Élő felirat kikapcsolása kérve.');
+      }
+      return;
+    }
+
+    // LG webOS: élő adásnál a HTML5 TextTrackList a tényleges feliratsáv-forrás.
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    const list = video.textTracks;
+    const index = track && Number.isInteger(Number(track.id)) ? Number(track.id) : null;
+    if (index !== null && (index < 0 || index >= list.length)) {
+      appLog(`Élő feliratváltás sikertelen: érvénytelen HTML5 sávindex=${index}.`);
+      return;
+    }
+    userTvSubtitleChoiceRef.current = track ? String(track.id) : 'off';
+    try {
+      for (let i = 0; i < list.length; i++) {
+        list[i].mode = index !== null && i === index ? 'showing' : 'disabled';
+      }
+      const mapped = readHtmlSubtitleTracks(video);
+      setTvSubtitleTracks(mapped);
+      const active = mapped.find((item) => item.selected === true);
+      activeTvSubtitleIdRef.current = active?.id ?? null;
+      appLog(index === null
+        ? 'LG webOS élő felirat kikapcsolva.'
+        : `LG webOS élő felirat kiválasztva: sáv=${index}; ${track?.lang || track?.name || 'Felirat'}.`);
+    } catch (error) {
+      appLog('LG webOS élő feliratváltási hiba: ' + String(error));
     }
   }, [nativeHandoff, streamUrl]);
 
@@ -2132,6 +2161,80 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => window.clearInterval(timer);
   }, [nativeHandoff, isVod, streamUrl, settings.preferredSubtitle]);
 
+  /*
+   * LG webOS – élő TV feliratsávok, ugyanazzal a nyelvpreferenciás és
+   * visszaellenőrző logikával, mint Androidon, a webOS HTML5 TextTrack API-jára
+   * illesztve. A TV késve is közzéteheti a sávokat, ezért esemény + polling fut.
+   */
+  useEffect(() => {
+    if (nativeHandoff || isVod) return;
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    const textTracks = video.textTracks;
+
+    const refreshHtmlTvSubtitleTracks = () => {
+      const mapped = readHtmlSubtitleTracks(video);
+      const signature = mapped.map((item) => `${item.id}:${item.lang}:${item.name}`).join('|');
+      nativeSubtitleTrackSignatureRef.current = signature;
+      setTvSubtitleTracks((previous) => (
+        previous.length === mapped.length && previous.every((item, index) =>
+          String(item.id) === String(mapped[index]?.id) &&
+          item.name === mapped[index]?.name &&
+          item.lang === mapped[index]?.lang &&
+          item.selected === mapped[index]?.selected
+        ) ? previous : mapped
+      ));
+      const active = mapped.find((item) => item.selected === true);
+      activeTvSubtitleIdRef.current = active?.id ?? null;
+
+      // Kézi választás (a felirat kikapcsolását is beleértve) maradjon érvényben
+      // az adott csatornán; automatikusan csak új csatorna/sávlista esetén választunk.
+      if (userTvSubtitleChoiceRef.current !== null) return;
+      const preferred = (settings.preferredSubtitle || 'Magyar').trim();
+      const selectionKey = `${streamUrl}|${signature}|${preferred.toLowerCase()}`;
+      if (selectionKey === nativeSubtitleAutoSelectionKeyRef.current) return;
+      nativeSubtitleAutoSelectionKeyRef.current = selectionKey;
+
+      if (preferred.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase() === 'kikapcsolva') {
+        for (let i = 0; i < textTracks.length; i++) textTracks[i].mode = 'disabled';
+        setTvSubtitleTracks(readHtmlSubtitleTracks(video));
+        activeTvSubtitleIdRef.current = null;
+        return;
+      }
+      const target = findPreferredVodTrack(mapped, preferred) || mapped[0] || null;
+      if (target && target.selected !== true) {
+        const targetIndex = Number(target.id);
+        for (let i = 0; i < textTracks.length; i++) {
+          textTracks[i].mode = i === targetIndex ? 'showing' : 'disabled';
+        }
+        const refreshed = readHtmlSubtitleTracks(video);
+        setTvSubtitleTracks(refreshed);
+        activeTvSubtitleIdRef.current = target.id;
+        appLog(`Automatikus LG élő feliratválasztás: ${target.lang || target.name} (beállítás: ${preferred}).`);
+      }
+    };
+
+    refreshHtmlTvSubtitleTracks();
+    video.addEventListener('loadedmetadata', refreshHtmlTvSubtitleTracks);
+    video.addEventListener('canplay', refreshHtmlTvSubtitleTracks);
+    try {
+      textTracks?.addEventListener?.('addtrack', refreshHtmlTvSubtitleTracks);
+      textTracks?.addEventListener?.('removetrack', refreshHtmlTvSubtitleTracks);
+      textTracks?.addEventListener?.('change', refreshHtmlTvSubtitleTracks);
+    } catch { /* régebbi webOS: az időzített frissítés megmarad */ }
+    const timer = window.setInterval(refreshHtmlTvSubtitleTracks, 750);
+    return () => {
+      window.clearInterval(timer);
+      video.removeEventListener('loadedmetadata', refreshHtmlTvSubtitleTracks);
+      video.removeEventListener('canplay', refreshHtmlTvSubtitleTracks);
+      try {
+        textTracks?.removeEventListener?.('addtrack', refreshHtmlTvSubtitleTracks);
+        textTracks?.removeEventListener?.('removetrack', refreshHtmlTvSubtitleTracks);
+        textTracks?.removeEventListener?.('change', refreshHtmlTvSubtitleTracks);
+      } catch { /* régebbi webOS */ }
+    };
+  }, [nativeHandoff, isVod, streamUrl, settings.preferredSubtitle]);
+
   // Determine active stream URL
   // (A streamUrl már feljebb, a felhasználói előtt definiálva van – lásd a
   // komponens elején a megjegyzést.)
@@ -2207,6 +2310,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setTvAudioTracks([]);
     setTvSubtitleTracks([]);
     activeTvSubtitleIdRef.current = null;
+    userTvSubtitleChoiceRef.current = null;
     nativeSubtitleTrackSignatureRef.current = '';
     nativeSubtitleAutoSelectionKeyRef.current = '';
     pendingTvSubtitleSelectionRef.current = null;
