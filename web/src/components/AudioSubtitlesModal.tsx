@@ -8,12 +8,128 @@ interface AudioSubtitlesModalProps {
   onClose: () => void;
   settings: AppSettings;
   onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
-  mode?: 'audio' | 'subtitle';
+  mode?: 'audio' | 'subtitle' | 'live';
   audioTracks?: AudioTrack[];
   onSelectAudioTrack?: (track: AudioTrack) => void;
   subtitleTracks?: SubtitleTrack[];
   onSelectSubtitleTrack?: (track: SubtitleTrack | null) => void;
 }
+
+type LiveAudioCcSelectorProps = Pick<AudioSubtitlesModalProps,
+  'isOpen' | 'onClose' | 'audioTracks' | 'onSelectAudioTrack' | 'subtitleTracks' | 'onSelectSubtitleTrack'
+>;
+
+/** Élő TV: egyetlen, kétoszlopos távirányítós hangsáv- és CC-választó. */
+const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
+  isOpen, onClose, audioTracks = [], onSelectAudioTrack, subtitleTracks = [], onSelectSubtitleTrack,
+}) => {
+  const [column, setColumn] = React.useState<'audio' | 'subtitle'>('audio');
+  const [audioId, setAudioId] = React.useState<string>('');
+  const [subtitleId, setSubtitleId] = React.useState<string>('');
+  const [pendingAudioId, setPendingAudioId] = React.useState<string | null>(null);
+  const [pendingSubtitleId, setPendingSubtitleId] = React.useState<string | null>(null);
+  const subtitleItems = React.useMemo<Array<SubtitleTrack | null>>(() => [...subtitleTracks, null], [subtitleTracks]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    setAudioId(String(audioTracks.find((track) => track.selected)?.id ?? audioTracks[0]?.id ?? ''));
+    setSubtitleId(String(subtitleTracks.find((track) => track.selected)?.id ?? (subtitleTracks.length ? subtitleTracks[0].id : 'off')));
+    setColumn('audio');
+  }, [isOpen, audioTracks, subtitleTracks]);
+
+  React.useEffect(() => {
+    if (isOpen && pendingAudioId !== null && audioTracks.some((track) => String(track.id) === pendingAudioId && track.selected)) {
+      setPendingAudioId(null); onClose();
+    }
+  }, [isOpen, pendingAudioId, audioTracks, onClose]);
+  React.useEffect(() => {
+    if (isOpen && pendingSubtitleId !== null && subtitleTracks.some((track) => String(track.id) === pendingSubtitleId && track.selected)) {
+      setPendingSubtitleId(null); onClose();
+    }
+  }, [isOpen, pendingSubtitleId, subtitleTracks, onClose]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = normalizeTvKey(event);
+      if (['Escape', 'Backspace', 'GoBack', 'BrowserBack'].includes(key)) {
+        event.preventDefault(); event.stopPropagation(); onClose(); return;
+      }
+      if (key === 'ArrowLeft' || key === 'ArrowRight') {
+        event.preventDefault(); event.stopPropagation(); setColumn(key === 'ArrowLeft' ? 'audio' : 'subtitle'); return;
+      }
+      if (key === 'ArrowUp' || key === 'ArrowDown') {
+        const listLength = column === 'audio' ? audioTracks.length : subtitleItems.length;
+        if (!listLength) return;
+        event.preventDefault(); event.stopPropagation();
+        if (column === 'audio') {
+          const index = audioTracks.findIndex((track) => String(track.id) === audioId);
+          const next = key === 'ArrowDown' ? Math.min(audioTracks.length - 1, Math.max(0, index) + 1) : Math.max(0, (index < 0 ? 0 : index) - 1);
+          setAudioId(String(audioTracks[next].id));
+        } else {
+          const index = subtitleItems.findIndex((track) => String(track?.id ?? 'off') === subtitleId);
+          const next = key === 'ArrowDown' ? Math.min(subtitleItems.length - 1, Math.max(0, index) + 1) : Math.max(0, (index < 0 ? 0 : index) - 1);
+          setSubtitleId(String(subtitleItems[next]?.id ?? 'off'));
+        }
+        return;
+      }
+      if (key === 'Enter' || key === ' ') {
+        event.preventDefault(); event.stopPropagation();
+        if (column === 'audio') {
+          const track = audioTracks.find((item) => String(item.id) === audioId);
+          if (!track) return;
+          setPendingAudioId(String(track.id)); onSelectAudioTrack?.(track);
+          if (track.selected) { setPendingAudioId(null); onClose(); }
+        } else {
+          const track = subtitleItems.find((item) => String(item?.id ?? 'off') === subtitleId) ?? null;
+          if (!track) { onSelectSubtitleTrack?.(null); setPendingSubtitleId(null); onClose(); return; }
+          setPendingSubtitleId(String(track.id)); onSelectSubtitleTrack?.(track);
+          if (track.selected) { setPendingSubtitleId(null); onClose(); }
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [isOpen, column, audioTracks, subtitleItems, audioId, subtitleId, onClose, onSelectAudioTrack, onSelectSubtitleTrack]);
+
+  if (!isOpen) return null;
+  const panel = 'min-w-0 rounded-xl border border-slate-700/70 bg-[#09152c] p-3 flex flex-col gap-2';
+  const rowClass = (focused: boolean, selected: boolean) => `p-3 w-full rounded-xl flex items-center justify-between text-left border transition-all ${focused ? 'bg-[#0f244a] border-yellow-400 text-white shadow-md ring-2 ring-yellow-400/80' : selected ? 'bg-[#0f244a] border-cyan-400 text-white shadow-md ring-1 ring-cyan-400/40' : 'bg-[#0a152d] border-slate-800 text-slate-300'}`;
+  return (
+    <div className="fixed inset-0 z-[2147483010] flex items-center justify-center p-3 md:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn select-none pointer-events-auto">
+      <div role="dialog" aria-modal="true" aria-label="Élő TV hangsáv és CC választás" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
+        <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
+          <div className="flex items-center gap-2"><Mic2 className="w-5 h-5 text-rose-400 stroke-[2.5]" /><Subtitles className="w-5 h-5 text-cyan-300 stroke-[2.5]" /><h2 className="text-base sm:text-lg font-black text-white tracking-wide">HANGSÁV / CC</h2></div>
+          <button onClick={onClose} aria-label="Bezárás" className="p-1.5 rounded-full border-2 border-cyan-500/60 bg-[#0e1d3b] text-cyan-300"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-3 p-3 md:p-4 overflow-hidden min-h-0">
+          <section className={panel}><h3 className="text-xs font-black text-rose-400 uppercase tracking-wider flex items-center gap-1.5"><Mic2 className="w-4 h-4" />HANGSÁV</h3>
+            <div className="overflow-y-auto min-h-0 space-y-1.5">
+              {audioTracks.length === 0 && <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">Nincs jelzett választható hangsáv.</p>}
+              {audioTracks.map((track) => { const id = String(track.id); const selected = track.selected === true; return <button key={id} onClick={() => { setColumn('audio'); setAudioId(id); setPendingAudioId(id); onSelectAudioTrack?.(track); if (selected) { setPendingAudioId(null); onClose(); } }} className={rowClass(column === 'audio' && audioId === id, selected)} aria-pressed={selected}>
+                <span className="min-w-0"><span className="block text-xs sm:text-sm font-bold">{track.name || track.lang || 'Hangsáv'}</span><span className="block text-[11px] text-slate-400 font-mono mt-0.5">{[track.lang, track.codec, track.channels].filter(Boolean).join(' / ') || 'Lejátszó hangsáv'}</span></span>
+                {selected && <span className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0"><Check className="w-4 h-4 stroke-[3]" /></span>}
+              </button>; })}
+            </div>
+          </section>
+          <section className={panel}><h3 className="text-xs font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1.5"><Subtitles className="w-4 h-4" />CC / FELIRAT</h3>
+            <div className="overflow-y-auto min-h-0 space-y-1.5">
+              {subtitleTracks.length === 0 && <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">Nincs jelzett választható felirat.</p>}
+              {subtitleItems.map((track) => { const id = String(track?.id ?? 'off'); const selected = track ? track.selected === true : !subtitleTracks.some((item) => item.selected === true); return <button key={id} onClick={() => {
+                setColumn('subtitle'); setSubtitleId(id);
+                if (!track) { onSelectSubtitleTrack?.(null); setPendingSubtitleId(null); onClose(); return; }
+                setPendingSubtitleId(id); onSelectSubtitleTrack?.(track); if (selected) { setPendingSubtitleId(null); onClose(); }
+              }} className={rowClass(column === 'subtitle' && subtitleId === id, selected)} aria-pressed={selected}>
+                <span className="text-xs sm:text-sm font-bold">{track ? (track.name || track.lang || 'Felirat') : 'Felirat kikapcsolva'}</span>
+                {selected && <span className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0"><Check className="w-4 h-4 stroke-[3]" /></span>}
+              </button>; })}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
   isOpen,
@@ -103,6 +219,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
   }, [isOpen, mode, pendingSubtitleTrackId, subtitleTracks, onClose]);
 
   if (!isOpen) return null;
+  if (mode === 'live') return <LiveAudioCcSelector isOpen={isOpen} onClose={onClose} audioTracks={audioTracks} onSelectAudioTrack={onSelectAudioTrack} subtitleTracks={subtitleTracks} onSelectSubtitleTrack={onSelectSubtitleTrack} />;
 
   // Csak a lejátszó által ténylegesen felismert sávokat mutatjuk.
   // A korábbi „Magyar/Angol/Automatikus” tartaléklista csak a preferenciát
