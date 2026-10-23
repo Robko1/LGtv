@@ -1,10 +1,19 @@
-export const WEB_VERSION = '2.5.33';
+export const WEB_VERSION = '2.5.34';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.34',
+    date: '2026-10-23',
+    changes: [
+      'FELIRAT (CC) – a szolgáltatói feliratkeresés naplózása kiegészítve: a napló mostantól kiírja, honnantól és milyen azonosítóval indul a keresés („Feliratkeresés (CC) indul: sorozat=…, epizód=…”), hány bejegyzés jött a szolgáltatótól, és hogy egyáltalán van-e forrás',
+      'Ha nincs honnan feliratot kérni (nem Xtream lista vagy hiányzó film/epizód azonosító), azt a napló külön mondja meg – így nem keveredik a letöltési hibával',
+      'A FELIRAT választó kinyitása üres listánál ÚJRAINDÍTJA a szolgáltatói feliratkeresést (ha az induló kérés hálózati időtúllépésbe futott, a néző nem marad felirat nélkül)',
+    ],
+  },
   {
     version: '2.5.33',
     date: '2026-10-23',

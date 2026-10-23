@@ -1070,3 +1070,24 @@ test('13. a QR-kód sötétebb és kisebb, de a hivatkozás (a kód tartalma) v�
   assert.match(DIAG_MODAL, /marginSize=\{4\}/);
   assert.match(DIAG_MODAL, /level="M"/);
 });
+
+/* ══════════════ 14. Feliratkeresés naplózása és kézi újrapróbálkozás ══════════════ */
+
+test('14. a feliratkeresés a naplóban kimutatható (forrás, azonosító, eredmény)', () => {
+  // Induláskor: melyik filmmel / epizóddal indul a keresés.
+  assert.match(PLAYER, /appLog\(`Feliratkeresés \(CC\) indul: \$\{subtitleSource\.vodId \? `vod=\$\{subtitleSource\.vodId\}` : `sorozat=\$\{subtitleSource\.seriesId\}, epizód=\$\{subtitleSource\.episodeId\}`\}\.`\);/);
+  // Ha nincs forrás (nem Xtream / hiányzó azonosító), az is a naplóba kerül.
+  assert.match(PLAYER, /Feliratkeresés \(CC\): nincs szolgáltatói forrás ehhez a filmhez/);
+  // A szolgáltató válasza és a letöltés eredménye is naplózott.
+  assert.match(SUBTITLES, /Feliratkeresés \(CC\): \$\{entries\.length\} bejegyzés/);
+  assert.match(SUBTITLES, /Szolgáltatói feliratok: \$\{tracks\.length\} elérhető/);
+  assert.match(SUBTITLES, /Szolgáltatói felirat nem tölthető le/);
+});
+
+test('14. üres feliratlistánál a választó kinyitása újraindítja a keresést', () => {
+  assert.match(PLAYER, /const \[subtitleSearchNonce, setSubtitleSearchNonce\] = useState\(0\);/);
+  assert.match(PLAYER, /if \(menu === 'subtitle' && vodSubtitleTracks\.length === 0 && providerSubtitleTracks\.length === 0\) \{[\s\S]{0,260}?providerSubtitleRequestRef\.current = '';\s*\n\s*setSubtitleSearchNonce\(\(value\) => value \+ 1\);/);
+  assert.match(PLAYER, /Felirat választó: nincs sáv – a szolgáltatói feliratkeresés újraindul\./);
+  // A kereső hatás figyeli a számlálót (különben nem indulna újra).
+  assert.match(PLAYER, /\}, \[isVod, streamUrl, subtitleSource, subtitleSearchNonce\]\);/);
+});
