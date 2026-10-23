@@ -78,7 +78,7 @@ export const FullscreenLiveOsd: React.FC<{
     >
       <div className="flex items-start justify-between bg-gradient-to-b from-black/85 via-black/40 to-transparent px-8 pt-6 pb-12">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="shrink-0 text-lg font-bold tabular-nums text-white/90">{displayNumber ?? channel.num}</span>
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center text-4xl font-black leading-none tabular-nums text-white/90">{displayNumber ?? channel.num}</span>
           <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-black/30">
             <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
           </div>
@@ -118,14 +118,12 @@ export const FullscreenLiveOsd: React.FC<{
             {channel.epgNext?.time || ''}
           </span>
         </div>
-          <div className="relative mt-1 w-full">
-            <div className="absolute -top-6 left-0 right-0 flex items-center justify-between px-0.5 text-base font-semibold tabular-nums text-white drop-shadow-md">
-              <span>{time(start)}</span>
-              <span>{time(end)}</span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/25">
+          <div className="mt-1 flex w-full items-center gap-3 text-base font-semibold tabular-nums text-white drop-shadow-md">
+            <span className="shrink-0 whitespace-nowrap text-left">{time(start)}</span>
+            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/25">
               <div className="h-full rounded-full bg-amber-400 transition-[width] duration-500" style={{ width: `${hasProgress ? progress : 0}%` }} />
             </div>
+            <span className="shrink-0 whitespace-nowrap text-right">{time(end)}</span>
           </div>
         </div>
       </div>
@@ -137,7 +135,7 @@ export const FullscreenLiveOsd: React.FC<{
       */}
       <div
         data-fullscreen-osd-badges=""
-        className="pointer-events-none absolute bottom-6 left-8 flex items-center gap-2"
+        className="pointer-events-none absolute inset-x-8 bottom-6 flex items-center justify-between"
       >
         <div
           className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-[#121f3d] px-2 py-1 text-sm font-bold text-slate-200 ${
@@ -155,7 +153,7 @@ export const FullscreenLiveOsd: React.FC<{
           aria-label={hasAvailableSubtitle ? 'Felirat elérhető' : 'Felirat'}
         >
           <Subtitles className={`w-4 h-4 ${hasAvailableSubtitle ? 'text-emerald-400' : 'text-cyan-300'}`} />
-          <span>Felirat</span>
+          <span>CC</span>
         </div>
       </div>
     </div>
