@@ -94,15 +94,15 @@ export const FullscreenLiveOsd: React.FC<{
           eltolta a jobb szélt, és a dobozok „ugráltak”. Most egyetlen 3 oszlopos
           rácsban vannak (jelvény | műsorcím | idő), így a MOST és a KÖVETKEZŐ
           jobb széle pixelre egy vonalban van, és a sorok nem mozdulnak el.
-          A jelvény KÉK (nem sárga), a műsorcím SÁRGA és nagyobb, hogy TV-ről
-          is jól olvasható legyen.
+          A MOST / KÖVETKEZŐ csak fehér szöveg, háttér és doboz nélkül;
+          a műsorcím sárga és nagyobb, hogy TV-ről is jól olvasható legyen.
         */}
         <div className="flex w-full max-w-5xl flex-col items-center gap-3">
         <div
           data-fullscreen-osd-epg=""
           className="grid w-full grid-cols-[7rem_minmax(0,1fr)_7.5rem] items-center gap-x-4 gap-y-2"
         >
-          <span className="rounded-md bg-blue-600 px-3 py-1 text-center text-base font-black tracking-wide text-white min-w-0">MOST</span>
+          <span className="min-w-0 text-center text-base font-black tracking-wide text-white">MOST</span>
           <span className="min-w-0 truncate text-left text-2xl font-bold leading-8 text-amber-300 drop-shadow-lg">
             {channel.epgNow?.title || 'Műsoradat nem érhető el'}
           </span>
@@ -110,7 +110,7 @@ export const FullscreenLiveOsd: React.FC<{
             {time(start)}{start && end ? ' – ' : ''}{time(end)}
           </span>
 
-          <span className="rounded-md bg-blue-700 px-3 py-1 text-center text-base font-black tracking-wide text-white min-w-0">KÖVETKEZŐ</span>
+          <span className="min-w-0 text-center text-base font-black tracking-wide text-white">KÖVETKEZŐ</span>
           <span className="min-w-0 truncate text-left text-2xl font-bold leading-8 text-amber-300/90 drop-shadow-lg">
             {channel.epgNext?.title || 'Nincs következő műsoradat'}
           </span>
