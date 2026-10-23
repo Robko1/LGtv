@@ -2163,7 +2163,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   /*
    * LG webOS – élő TV feliratsávok, ugyanazzal a nyelvpreferenciás és
-   * visszaellenőrző logikával, mint Androidon, a webOS HTML5 TextTrack API-jára
+   * visszaellenőrző logikával, a webOS HTML5 TextTrack API-jára
    * illesztve. A TV késve is közzéteheti a sávokat, ezért esemény + polling fut.
    */
   useEffect(() => {
