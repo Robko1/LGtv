@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
-import { Rewind, FastForward, Clock } from 'lucide-react';
+import { Rewind, FastForward } from 'lucide-react';
 import { appLog } from '../services/appLog';
 import { ChannelLogo } from './ChannelLogo';
 import { normalizeTvKey } from '../utils/tvKeys';
@@ -362,7 +362,6 @@ const BlueClock: React.FC<{ className?: string; offsetHours?: number }> = ({ cla
       className={className}
       aria-label={`Pontos idő: ${time}`}
     >
-      <Clock className="h-7 w-7 shrink-0 text-cyan-300" />
       <span>{time || '00:00'}</span>
     </div>
   );
@@ -3472,7 +3471,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
         <BlueClock
           offsetHours={settings.clockOffsetHours}
-          className={`absolute top-3 z-40 box-border max-w-[calc(100%-1.5rem)] flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#061329]/85 px-4 py-2 font-mono text-2xl font-semibold tracking-wider text-cyan-200 shadow-lg pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
+          className={`absolute top-3 z-40 box-border flex h-12 w-32 items-center justify-center rounded-full border border-transparent bg-transparent p-0 font-mono text-3xl font-extrabold tracking-wider text-cyan-200 shadow-none pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
         />
       )}
 
