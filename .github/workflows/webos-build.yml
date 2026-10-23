@@ -30,63 +30,6 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: 2. Verzió automatikus emelése és mentése
-        id: version
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # Minden kézi IPK-build új patch verziót kap. A verziót a main ágra
-          # is visszamentjük, hogy a következő build ne ugyanarról a régi számról induljon.
-          CURRENT="$(python3 - <<'PY'
-          import json, re
-          from pathlib import Path
-          src = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
-          m = re.search(r"WEB_VERSION\s*=\s*'([0-9]+)\.([0-9]+)\.([0-9]+)'", src)
-          if not m:
-              raise SystemExit("HIBA: nem olvasható a WEB_VERSION.")
-          print(".".join(m.groups()))
-          PY
-          )"
-          IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
-          export CURRENT NEXT
-          python3 - <<'PY'
-          import json, os, re
-          from pathlib import Path
-          old, new = os.environ["CURRENT"], os.environ["NEXT"]
-          p = Path("web/src/appVersion.ts")
-          src = p.read_text(encoding="utf-8")
-          src, count = re.subn(r"(WEB_VERSION\s*=\s*')[^']+(')", r"\g<1>" + new + r"\2", src, count=1)
-          if count != 1:
-              raise SystemExit("HIBA: WEB_VERSION frissítése nem sikerült.")
-          # A verziótörténet legelső bejegyzése az aktuális kiadás.
-          src, count = re.subn(r"(version:\s*')[^']+(')", r"\g<1>" + new + r"\2", src, count=1)
-          if count != 1:
-              raise SystemExit("HIBA: verziótörténet frissítése nem sikerült.")
-          p.write_text(src, encoding="utf-8")
-          manifest_path = Path("webos/appinfo.json")
-          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-          # EGYETLEN igazságforrás a web/src/appVersion.ts WEB_VERSION-je.
-          # Ha valaki kézzel emelte a webes verziót és az appinfo.json nem
-          # követte, itt szinkronizáljuk (korábban ez a buildet is megállította).
-          if manifest.get("version") != old:
-              print(f"appinfo.json szinkron a webes verzióhoz: {manifest.get('version')} -> {old}")
-              manifest["version"] = old
-          manifest["version"] = new
-          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-          print(f"Verzió emelve: {old} -> {new}")
-          PY
-          echo "VERSION=$NEXT" >> "$GITHUB_ENV"
-          echo "RELEASE_TAG=v$NEXT" >> "$GITHUB_ENV"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/src/appVersion.ts webos/appinfo.json
-          git commit -m "chore: bump webOS IPK version to v$NEXT"
-          git push origin HEAD:main
-          echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-
       - name: 3. Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -157,6 +100,63 @@ jobs:
           # teljes képernyős OSD, CSS-átfedéses teljes képernyő,
           # újrarajzolás-szám, és a szolgáltatói betöltés sorrendje.
           npm test
+
+      - name: 5c. Verzió automatikus emelése és mentése (csak sikeres tesztek után)
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Minden kézi IPK-build új patch verziót kap. A verziót a main ágra
+          # is visszamentjük, hogy a következő build ne ugyanarról a régi számról induljon.
+          CURRENT="$(python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          src = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
+          m = re.search(r"WEB_VERSION\s*=\s*'([0-9]+)\.([0-9]+)\.([0-9]+)'", src)
+          if not m:
+              raise SystemExit("HIBA: nem olvasható a WEB_VERSION.")
+          print(".".join(m.groups()))
+          PY
+          )"
+          IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
+          export CURRENT NEXT
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          old, new = os.environ["CURRENT"], os.environ["NEXT"]
+          p = Path("web/src/appVersion.ts")
+          src = p.read_text(encoding="utf-8")
+          src, count = re.subn(r"(WEB_VERSION\s*=\s*')[^']+(')", r"\g<1>" + new + r"\2", src, count=1)
+          if count != 1:
+              raise SystemExit("HIBA: WEB_VERSION frissítése nem sikerült.")
+          # A verziótörténet legelső bejegyzése az aktuális kiadás.
+          src, count = re.subn(r"(version:\s*')[^']+(')", r"\g<1>" + new + r"\2", src, count=1)
+          if count != 1:
+              raise SystemExit("HIBA: verziótörténet frissítése nem sikerült.")
+          p.write_text(src, encoding="utf-8")
+          manifest_path = Path("webos/appinfo.json")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          # EGYETLEN igazságforrás a web/src/appVersion.ts WEB_VERSION-je.
+          # Ha valaki kézzel emelte a webes verziót és az appinfo.json nem
+          # követte, itt szinkronizáljuk (korábban ez a buildet is megállította).
+          if manifest.get("version") != old:
+              print(f"appinfo.json szinkron a webes verzióhoz: {manifest.get('version')} -> {old}")
+              manifest["version"] = old
+          manifest["version"] = new
+          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(f"Verzió emelve: {old} -> {new}")
+          PY
+          echo "VERSION=$NEXT" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$NEXT" >> "$GITHUB_ENV"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/src/appVersion.ts webos/appinfo.json
+          git commit -m "chore: bump webOS IPK version to v$NEXT"
+          git push origin HEAD:main
+          echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: 6. Kézi diagnosztika – forrás, webOS frissítő és csomagoló
         shell: bash
