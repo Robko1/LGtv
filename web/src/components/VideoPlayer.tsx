@@ -1865,7 +1865,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = htmlVideoRef.current;
     if (!video) return;
     vodTrackDiagnosticSignatureRef.current = '';
-    const shortTitle = String(customTitle || 'Film / sorozat').replace(/\\s+/g, ' ').slice(0, 70);
+    const shortTitle = String(customTitle || 'Film / sorozat').replace(/\s+/g, ' ').slice(0, 70);
     const snapshot = (reason: string, force = false) => {
       const audioList = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
       const audioApiState = audioList && typeof audioList.length === 'number'
@@ -1888,11 +1888,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             mode: video.textTracks?.[index]?.mode || '',
           }))
         : [];
-      const subtitleText = embeddedSubtitles.length
-        ? embeddedSubtitles.map((track) =>
-            `#${track.id} ${String(track.name || 'névtelen').replace(/\\s+/g, ' ').slice(0, 35)}[${String(track.lang || '?').slice(0, 8)};kind=${track.kind || '?'};mode=${track.mode || '?'}]${track.selected ? '*AKTÍV*' : ''}`
-          ).join(' | ')
-        : (video.textTracks ? '0 beépített sáv' : 'textTracks API nem érhető el');
       const file = String(video.currentSrc || video.src || streamUrl).split(/[?#]/)[0].split('/').pop() || 'ismeretlen';
       appLog(
         `VOD SÁVDIAG [${reason}]: cím=${shortTitle}; fájl=${file.slice(0, 60)}; readyState=${video.readyState}; networkState=${video.networkState}; hiba=${video.error ? `${video.error.code}:${video.error.message || ''}` : 'nincs'}; ` +
@@ -1902,13 +1897,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         appLog(`VOD HANGSÁVOK: nincs felsorolt HTML5 hangsáv; audioTracks API=${audioApiState}.`);
       }
       audio.forEach((track) => {
-        appLog(`VOD HANGSÁV #${track.id}: név=${String(track.name || 'névtelen').replace(/\\s+/g, ' ').slice(0, 100)}; nyelv=${String(track.lang || 'ismeretlen').slice(0, 20)}; aktív=${track.selected ? 'igen' : 'nem'}.`);
+        appLog(`VOD HANGSÁV #${track.id}: név=${String(track.name || 'névtelen').replace(/\s+/g, ' ').slice(0, 100)}; nyelv=${String(track.lang || 'ismeretlen').slice(0, 20)}; aktív=${track.selected ? 'igen' : 'nem'}.`);
       });
       if (embeddedSubtitles.length === 0) {
         appLog('VOD BEÉPÍTETT FELIRATOK: a lejátszó 0 beépített feliratsávot jelentett.');
       }
       embeddedSubtitles.forEach((track) => {
-        appLog(`VOD BEÉPÍTETT FELIRAT #${track.id}: név=${String(track.name || 'névtelen').replace(/\\s+/g, ' ').slice(0, 100)}; nyelv=${String(track.lang || 'ismeretlen').slice(0, 20)}; típus=${track.kind || 'ismeretlen'}; mód=${track.mode || 'ismeretlen'}; aktív=${track.selected ? 'igen' : 'nem'}.`);
+        appLog(`VOD BEÉPÍTETT FELIRAT #${track.id}: név=${String(track.name || 'névtelen').replace(/\s+/g, ' ').slice(0, 100)}; nyelv=${String(track.lang || 'ismeretlen').slice(0, 20)}; típus=${track.kind || 'ismeretlen'}; mód=${track.mode || 'ismeretlen'}; aktív=${track.selected ? 'igen' : 'nem'}.`);
       });
     };
     const onMetadata = () => snapshot('loadedmetadata', true);
