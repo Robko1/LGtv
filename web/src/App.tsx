@@ -1839,9 +1839,23 @@ export function App() {
      *   …/series/<user>/<pass>/<episodeId>.<ext>
      */
     const provider = activeProvider;
+    /*
+     * Tartalék: ha a lista M3U-címmel került be (nem Xtream belépéssel), a
+     * szolgáltató adatai nincsenek külön eltárolva – pedig a film címe
+     * (…/movie/<felhasználó>/<jelszó>/<id>.mkv) tartalmazza őket. Enélkül
+     * M3U-s hozzáadásnál a szolgáltatói CC-keresés el sem indult.
+     */
+    const derivedProviderBase = (() => {
+      const match = String(customStreamUrl).match(/^(https?:\/\/[^/]+)\/(?:movie|series)\/([^/]+)\/([^/]+)\//i);
+      if (!match) return null;
+      const decode = (value: string) => {
+        try { return decodeURIComponent(value); } catch { return value; }
+      };
+      return { serverUrl: match[1], username: decode(match[2]), password: decode(match[3]) };
+    })();
     const providerBase = provider && provider.type === 'xtream' && provider.serverUrl && provider.username && provider.password
       ? { serverUrl: provider.serverUrl, username: provider.username, password: provider.password }
-      : null;
+      : derivedProviderBase;
     const idFromUrl = (url: string) => {
       const clean = String(url || '').split(/[?#]/)[0];
       const last = clean.split('/').filter(Boolean).pop() || '';

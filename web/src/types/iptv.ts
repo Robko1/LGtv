@@ -28,6 +28,12 @@ export interface SubtitleTrack {
   /** A natív lejátszó által visszaigazoltan aktív feliratsáv. */
   selected?: boolean;
   url?: string;
+  /**
+   * Szolgáltatói feliratnál a lehetséges fájlcímek sorrendben: választáskor
+   * az első valóban letölthető nyer, így a lista akkor is megjelenik, ha az
+   * előzetes próbaletöltés nem járt sikerrel.
+   */
+  urls?: string[];
 }
 
 export interface Channel {

@@ -12,6 +12,13 @@ import {
   loadSubtitleCues,
   cueAt,
 } from '../services/subtitleService';
+import {
+  EmbeddedSubtitle,
+  probeEmbeddedSubtitles,
+  selectEmbeddedSubtitle,
+  disableEmbeddedSubtitle,
+  subscribeSourceInfoSubtitles,
+} from '../services/embeddedSubtitleService';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 import {
   alternativeUrl,
@@ -100,6 +107,26 @@ function readHtmlSubtitleTracks(video: HTMLVideoElement | null): SubtitleTrack[]
   } catch {
     return [];
   }
+}
+
+/**
+ * A fájlba muxolt (Luna) feliratsáv átalakítása a közös sávlistához.
+ * Az azonosító `luna:` előtagot kap (a szolgáltatói `cc:` és a HTML
+ * számsorszám mellé), így a három feliratforrás sosem ütközik.
+ */
+function embeddedToSubtitleTrack(track: EmbeddedSubtitle): SubtitleTrack {
+  return {
+    id: `luna:${track.lunaIndex}`,
+    name: track.name || track.lang || `Felirat ${track.lunaIndex + 1}`,
+    lang: track.lang || '',
+  };
+}
+
+function lunaIndexFromTrack(track: SubtitleTrack | null | undefined): number | null {
+  const id = track ? String(track.id) : '';
+  if (!id.startsWith('luna:')) return null;
+  const index = Number(id.slice('luna:'.length));
+  return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
 /**
@@ -1101,6 +1128,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * Chromiumon is működik a felirat.
    */
   const [providerSubtitleTracks, setProviderSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  /**
+   * A fájlba muxolt (beágyazott) feliratsávok: MKV fejlécből / a TV
+   * médiaszolgáltatásából. A webOS ezeket a `textTracks` listában nem teszi
+   * közzé – ez volt az üres CC lista fő oka filmeknél.
+   */
+  const [embeddedSubtitleTracks, setEmbeddedSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  /** A TV (Luna) által kirajzolt beágyazott felirat van-e bekapcsolva. */
+  const lunaSubtitleActiveRef = useRef(false);
+  /** A beágyazott felirat automatikus (preferált nyelv) kiválasztása egyszer fut streamenként. */
+  const embeddedAutoSelectKeyRef = useRef<string>('');
   const [vodSubtitleCues, setVodSubtitleCues] = useState<SubtitleCue[]>([]);
   const providerSubtitleRequestRef = useRef('');
   /**
@@ -1408,6 +1445,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     userVodAudioChoiceRef.current = null;
     userVodSubtitleChoiceRef.current = null;
     providerSubtitleActiveRef.current = false;
+    lunaSubtitleActiveRef.current = false;
+    embeddedAutoSelectKeyRef.current = '';
+    setEmbeddedSubtitleTracks([]);
     vodTrackAutoSelectKeyRef.current = '';
   }, [providedAudioTracks, providedSubtitleTracks, customStreamUrl]);
 
@@ -1711,16 +1751,51 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  /** A muxolt + szolgáltatói feliratok együtt (ezt látja az OSD). */
+  /** A muxolt (HTML) + beágyazott (Luna) + szolgáltatói feliratok együtt (ezt látja az OSD). */
   const availableVodSubtitleTracks: SubtitleTrack[] = [
     ...vodSubtitleTracks,
+    ...embeddedSubtitleTracks.filter((embedded) =>
+      !vodSubtitleTracks.some((track) => String(track.id) === String(embedded.id))),
     ...providerSubtitleTracks.filter((provider) =>
-      !vodSubtitleTracks.some((track) => String(track.id) === String(provider.id))),
+      !vodSubtitleTracks.some((track) => String(track.id) === String(provider.id))
+      && !embeddedSubtitleTracks.some((track) => String(track.id) === String(provider.id))),
   ];
 
   const selectVodSubtitleRef = useRef<((track: SubtitleTrack | null) => void) | null>(null);
   const selectVodSubtitle = (track: SubtitleTrack | null) => {
     userVodSubtitleChoiceRef.current = track ? String(track.id) : 'off';
+    /*
+     * BEÁGYAZOTT FELIRAT (a fájlba muxolt sáv): a TV médiaszolgáltatása
+     * kapcsolja be és rajzolja ki – a HTML <video> ezeket a sávokat nem
+     * teszi közzé, ezért a textTracks kapcsolása itt nem működne.
+     */
+    const lunaIndex = lunaIndexFromTrack(track);
+    if (track && lunaIndex !== null) {
+      providerSubtitleActiveRef.current = false;
+      lunaSubtitleActiveRef.current = true;
+      switchHtmlVodSubtitle(null);
+      setActiveVodSubtitleId(track.id);
+      setVodSubtitleCues([]);
+      setVodTrackMenu(null);
+      appLog(`Film felirat kiválasztva: beágyazott sáv=${track.name || track.lang || track.id}.`);
+      const scalePercent = Number(String(settings.subtitleSize || '100%').replace('%', '')) || 100;
+      void selectEmbeddedSubtitle(htmlVideoRef.current, lunaIndex, scalePercent).then((applied) => {
+        if (!applied && userVodSubtitleChoiceRef.current === String(track.id)) {
+          // A TV nem kapcsolta be: az OSD ne mutassa bekapcsoltnak, és a
+          // sikertelen próbálkozás ne zárja el a többi feliratforrást sem.
+          lunaSubtitleActiveRef.current = false;
+          userVodSubtitleChoiceRef.current = null;
+          setActiveVodSubtitleId(null);
+        }
+      });
+      return;
+    }
+    // Bármilyen más választásnál a TV beágyazott feliratát ki kell kapcsolni,
+    // különben a kép felett tovább látszana az előző sáv.
+    if (lunaSubtitleActiveRef.current) {
+      lunaSubtitleActiveRef.current = false;
+      void disableEmbeddedSubtitle(htmlVideoRef.current);
+    }
     // SZOLGÁLTATÓI FELIRAT: letöltjük, és a lejátszó rajzolja ki.
     if (track?.url) {
       providerSubtitleActiveRef.current = true;
@@ -1729,7 +1804,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setVodSubtitleCues([]);
       setVodTrackMenu(null);
       appLog(`Film felirat kiválasztva: szolgáltatói sáv=${track.name || track.lang || track.id}.`);
-      void loadSubtitleCues(track.url).then((cues) => {
+      void loadSubtitleCues(track.urls && track.urls.length > 0 ? track.urls : track.url).then((cues) => {
         // Csak akkor tesszük ki, ha közben nem váltottunk másikra.
         setVodSubtitleCues((previous) => (userVodSubtitleChoiceRef.current === String(track.id) ? cues : previous));
         if (userVodSubtitleChoiceRef.current === String(track.id) && cues.length === 0) {
@@ -1901,11 +1976,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ) ? previous : mapped
       ));
       const active = mapped.find((track) => track.selected === true);
+      // Bekapcsolt beágyazott (Luna) feliratnál se írja felül az aktív jelölést.
+      if (!lunaSubtitleActiveRef.current) {
       if (!providerSubtitleActiveRef.current) {
         setActiveVodSubtitleId((previous) => {
           const next = active ? active.id : null;
           return String(previous ?? '') === String(next ?? '') ? previous : next;
         });
+      }
       }
     };
     refresh();
@@ -2007,6 +2085,68 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.clearTimeout(timer);
     };
   }, [isVod, streamUrl, subtitleSource, subtitleSearchNonce]);
+
+  /*
+   * BEÁGYAZOTT FELIRATOK (CC) felderítése a film fájljából.
+   *
+   * A VOD fájlok felirata szinte mindig a konténerben (MKV) van, amit a
+   * webOS HTML5 lejátszója nem tesz közzé – ezért a fejlécből olvassuk ki a
+   * sávokat. Ha a fejlécből nem derül ki semmi, a TV médiaszolgáltatásának
+   * sourceInfo eseménye a tartalék. A keresés kézi újraindítását ugyanaz a
+   * nonce végzi, mint a szolgáltatói feliratokét (üres CC-menü megnyitása).
+   */
+  useEffect(() => {
+    if (!isVod) return;
+    let cancelled = false;
+    let cancelSourceInfo: (() => void) | null = null;
+    setEmbeddedSubtitleTracks([]);
+    const timer = window.setTimeout(() => {
+      void probeEmbeddedSubtitles(streamUrl).then((list) => {
+        if (cancelled) return;
+        if (list.length > 0) {
+          setEmbeddedSubtitleTracks(list.map(embeddedToSubtitleTrack));
+          return;
+        }
+        cancelSourceInfo = subscribeSourceInfoSubtitles(htmlVideoRef.current, (tracks) => {
+          if (!cancelled && tracks.length > 0) {
+            setEmbeddedSubtitleTracks(tracks.map(embeddedToSubtitleTrack));
+          }
+        });
+      });
+    }, 900);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      cancelSourceInfo?.();
+    };
+  }, [isVod, streamUrl, subtitleSearchNonce]);
+
+  /*
+   * BEÁGYAZOTT FELIRAT – automatikus kiválasztás a beállított nyelv szerint.
+   * Külön, egyszer futó lépés, hogy a muxolt/szolgáltatói automatikus
+   * választás meglévő menete változatlan maradjon; kézi választást sosem
+   * ír felül, és csak akkor lép, ha még semmilyen felirat nem aktív.
+   */
+  useEffect(() => {
+    if (!isVod || embeddedSubtitleTracks.length === 0) return;
+    const signature = embeddedSubtitleTracks.map((track) => `${track.id}:${track.lang}:${track.name}`).join('|');
+    const key = `${streamUrl}~${settings.preferredSubtitle}~${signature}`;
+    if (key === embeddedAutoSelectKeyRef.current) return;
+    embeddedAutoSelectKeyRef.current = key;
+    if (userVodSubtitleChoiceRef.current !== null) return;
+    if (lunaSubtitleActiveRef.current || providerSubtitleActiveRef.current || vodSubtitleCues.length > 0) return;
+    if (vodSubtitleTracks.some((track) => track.selected === true)) return;
+    const savedSubtitlePreference = (settings.preferredSubtitle || 'Magyar').trim();
+    const preferred = /^kikapcsolva$/i.test(savedSubtitlePreference) ? 'Magyar' : savedSubtitlePreference;
+    const preferredTrack = findPreferredVodTrack(embeddedSubtitleTracks, preferred)
+      || (embeddedSubtitleTracks.length === 1 ? embeddedSubtitleTracks[0] : null);
+    if (preferredTrack) {
+      selectVodSubtitleRef.current?.(preferredTrack);
+      appLog(`Automatikus beágyazott felirat: ${preferredTrack.lang || preferredTrack.name} (beállítás: ${preferred}).`);
+    } else if (embeddedSubtitleTracks.length > 1) {
+      appLog(`Beágyazott felirat: nincs „${preferred}” sáv (${embeddedSubtitleTracks.map((track) => track.lang || track.name).join(', ')}); a CC gombbal választható.`);
+    }
+  }, [isVod, streamUrl, embeddedSubtitleTracks, vodSubtitleTracks, vodSubtitleCues.length, settings.preferredSubtitle]);
 
   /*
    * FILM / SOROZAT – ALAPÉRTELMEZETT NYELV (Beállítások → Mozi & Sorozat).
