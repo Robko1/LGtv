@@ -1989,10 +1989,11 @@ export function App() {
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
       if (activeView !== 'live' || customStreamUrl || isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) return;
       const key = event.key;
-      const next = key === '1' || key === 'Digit1' ? 'red'
-        : key === '2' || key === 'Digit2' ? 'blue'
-        : key === '3' || key === 'Digit3' ? 'pink'
-        : key === '4' || key === 'Digit4' ? 'yellow' : null;
+      const code = event.keyCode || event.which;
+      const next = key === '1' || key === 'Digit1' || code === 49 ? 'red'
+        : key === '2' || key === 'Digit2' || code === 50 ? 'blue'
+        : key === '3' || key === 'Digit3' || code === 51 ? 'pink'
+        : key === '4' || key === 'Digit4' || code === 52 ? 'yellow' : null;
       if (!next) return;
       event.preventDefault();
       event.stopPropagation();
