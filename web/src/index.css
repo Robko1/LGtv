@@ -72,9 +72,11 @@ textarea {
   max-width: 100%;
 }
 
-/* Az oldalsó kategória- és beállítási panelek mindig a tényleges
-   látható magassághoz igazodjanak, ne lógjanak ki a kijelzőről. */
-[class*="fixed"][class*="inset-0"][class*="justify-end"] > [class*="h-full"] {
+/* Az oldalsó kategória- és beállítási panelek mindkét oldalon
+   azonos szélességűek legyenek, és a tényleges látható magassághoz
+   igazodjanak. */
+[class*="fixed"][class*="inset-0"][class*="justify-end"] > [class*="h-full"],
+[class*="fixed"][class*="inset-0"][class*="justify-start"] > [class*="h-full"] {
   width: min(100%, 34rem);
   max-width: 100%;
   height: 100%;
