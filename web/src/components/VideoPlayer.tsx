@@ -19,6 +19,12 @@ import {
   disableEmbeddedSubtitle,
   subscribeSourceInfoSubtitles,
 } from '../services/embeddedSubtitleService';
+import {
+  selectLiveSubtitle,
+  disableLiveSubtitle,
+  subscribeLiveSubtitleTracks,
+  probeLiveSubtitles,
+} from '../services/liveSubtitleService';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 import {
   alternativeUrl,
@@ -126,6 +132,26 @@ function lunaIndexFromTrack(track: SubtitleTrack | null | undefined): number | n
   const id = track ? String(track.id) : '';
   if (!id.startsWith('luna:')) return null;
   const index = Number(id.slice('luna:'.length));
+  return Number.isInteger(index) && index >= 0 ? index : null;
+}
+
+/**
+ * Élő adás feliratsávja a közös élő listához – saját `luna-tv:` névtérrel,
+ * hogy az élő és a VOD (film/sorozat) feliratkezelés semmiben ne keveredjen.
+ */
+function lunaTvToSubtitleTrack(track: EmbeddedSubtitle): SubtitleTrack {
+  return {
+    id: `luna-tv:${track.lunaIndex}`,
+    name: track.name || track.lang || `Felirat ${track.lunaIndex + 1}`,
+    lang: track.lang || '',
+    selected: false,
+  };
+}
+
+function lunaTvIndexFromTrack(track: SubtitleTrack | null | undefined): number | null {
+  const id = track ? String(track.id) : '';
+  if (!id.startsWith('luna-tv:')) return null;
+  const index = Number(id.slice('luna-tv:'.length));
   return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
@@ -1120,6 +1146,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [vodSubtitleTracks, setVodSubtitleTracks] = useState<SubtitleTrack[]>(providedSubtitleTracks || []);
   const [tvSubtitleTracks, setTvSubtitleTracks] = useState<SubtitleTrack[]>([]);
   /**
+   * Élő adás feliratsávjai a TV médiaszolgáltatásától / a stream fejlécéből.
+   * A HTML5 textTracks az élő DVB/teletext feliratot nem teszi közzé, ezért
+   * ez a külön lista tölti meg a zöld gombos élő CC-választót – és ettől vált
+   * zöldre az élő OSD CC ikonja is (a VOD felirattól teljesen külön út).
+   */
+  const [lunaTvSubtitleTracks, setLunaTvSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  const lunaTvActiveRef = useRef(false);
+  const userTvSubtitleChoiceRef = useRef<string | null>(null);
+  const liveAutoSubtitleKeyRef = useRef<string>('');
+  /**
    * SZOLGÁLTATÓI FELIRATOK (CC).
    *
    * A webOS csak a streambe muxolt feliratokat látja; a filmekhez tartozó
@@ -1681,7 +1717,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => onRegisterAudioTrackSelector?.(null);
   }, [onRegisterAudioTrackSelector, selectTvAudio]);
 
+  const selectTvSubtitleRef = useRef<((track: SubtitleTrack | null) => void) | null>(null);
   const selectTvSubtitle = useCallback((track: SubtitleTrack | null) => {
+    userTvSubtitleChoiceRef.current = track ? String(track.id) : 'off';
     const native = nativeApi();
     if (nativeHandoff && native) {
       const current = activeTvSubtitleIdRef.current != null ? Number(activeTvSubtitleIdRef.current) : NaN;
@@ -1700,6 +1738,46 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // LG webOS: élő adásnál a HTML5 TextTrackList a tényleges feliratsáv-forrás.
     const video = htmlVideoRef.current;
     if (!video) return;
+
+    /*
+     * TV ÁLTAL KIRAJZOLT ÉLŐ FELIRAT (Luna): a DVB/teletext feliratsávokat a
+     * HTML5 textTracks nem sorolja fel – ezeket a TV médiaszolgáltatása
+     * kapcsolja be és választja ki. A film/sorozat (VOD) úttól külön ág.
+     */
+    const lunaTvIndex = lunaTvIndexFromTrack(track);
+    if (track && lunaTvIndex !== null) {
+      try {
+        const htmlList = video.textTracks;
+        for (let i = 0; i < htmlList.length; i++) htmlList[i].mode = 'disabled';
+        setTvSubtitleTracks(readHtmlSubtitleTracks(video));
+      } catch { /* a HTML lista ürítése nem kritikus */ }
+      lunaTvActiveRef.current = true;
+      activeTvSubtitleIdRef.current = track.id;
+      setLunaTvSubtitleTracks((previous) => previous.map((item) => ({
+        ...item,
+        selected: String(item.id) === String(track.id),
+      })));
+      appLog(`LG webOS élő felirat kiválasztva (TV): ${track?.lang || track?.name || 'Felirat'}.`);
+      const scalePercent = Number(String(settings.subtitleSize || '100%').replace('%', '')) || 100;
+      void selectLiveSubtitle(video, lunaTvIndex, scalePercent).then((applied) => {
+        if (!applied && userTvSubtitleChoiceRef.current === String(track.id)) {
+          // A TV nem kapcsolta be: ne mutassa a választó bekapcsoltnak.
+          lunaTvActiveRef.current = false;
+          userTvSubtitleChoiceRef.current = null;
+          activeTvSubtitleIdRef.current = null;
+          setLunaTvSubtitleTracks((previous) => previous.map((item) => ({ ...item, selected: false })));
+        }
+      });
+      return;
+    }
+    // Más választásnál (HTML sáv vagy kikapcsolás) a TV feliratát lekapcsoljuk.
+    if (lunaTvActiveRef.current) {
+      lunaTvActiveRef.current = false;
+      setLunaTvSubtitleTracks((previous) => previous.map((item) => (
+        item.selected ? { ...item, selected: false } : item
+      )));
+      void disableLiveSubtitle(video);
+    }
     const list = video.textTracks;
     const index = track && Number.isInteger(Number(track.id)) ? Number(track.id) : null;
     if (index !== null && (index < 0 || index >= list.length)) {
@@ -1720,11 +1798,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } catch (error) {
       appLog('LG webOS élő feliratváltási hiba: ' + String(error));
     }
-  }, [nativeHandoff, streamUrl]);
+  }, [nativeHandoff, streamUrl, settings.subtitleSize]);
+  selectTvSubtitleRef.current = selectTvSubtitle;
 
+  /*
+   * Az élő CC-választó (zöld gomb) és az élő OSD CC ikon közös listája:
+   * a HTML-feliratok és a TV által kirajzolt (DVB/teletext) feliratok együtt.
+   * Ha van benne elem, az App élő OSD CC ikonja zöldre vált.
+   */
   useEffect(() => {
-    onSubtitleTracksChange?.(tvSubtitleTracks);
-  }, [tvSubtitleTracks, onSubtitleTracksChange]);
+    const combined: SubtitleTrack[] = [];
+    const seenIds = new Set<string>();
+    [...tvSubtitleTracks, ...lunaTvSubtitleTracks].forEach((item) => {
+      const key = String(item.id);
+      if (!seenIds.has(key)) {
+        seenIds.add(key);
+        combined.push(item);
+      }
+    });
+    onSubtitleTracksChange?.(combined);
+  }, [tvSubtitleTracks, lunaTvSubtitleTracks, onSubtitleTracksChange]);
 
   useEffect(() => {
     onRegisterSubtitleTrackSelector?.(selectTvSubtitle);
@@ -2378,6 +2471,72 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [nativeHandoff, isVod, streamUrl]);
 
+  /*
+   * ÉLŐ ADÁS FELIRATSÁVJAINAK LISTÁZÁSA (TV médiaszolgáltatás + stream fejléc).
+   *
+   * A HTML5 textTracks az élő DVB/teletext feliratot nem sorolja fel – ugyanaz
+   * a hiba, mint filmeknél volt: üres a CC-lista, választani sem lehet. Itt
+   * előbb a TV médiaszolgáltatását kérdezzük (extra hálózati forgalom nélkül),
+   * ha néhány másodpercen belül nincs válasz, a stream elejéből olvassuk ki a
+   * feliratsávokat. Csak élő TV-n fut, a film/sorozat út érintetlen.
+   */
+  useEffect(() => {
+    if (isVod || nativeHandoff || !streamUrl) return undefined;
+    const video = htmlVideoRef.current;
+    if (!video) return undefined;
+    let cancelled = false;
+    setLunaTvSubtitleTracks([]);
+    const unsubscribe = subscribeLiveSubtitleTracks(video, (tracks) => {
+      if (cancelled) return;
+      setLunaTvSubtitleTracks((previous) => tracks.map((track) => ({
+        ...lunaTvToSubtitleTrack(track),
+        selected: previous.some((item) => item.selected
+          && lunaTvIndexFromTrack(item) === track.Luna Index),
+      })));
+    });
+    const probeTimer = window.setTimeout(() => {
+      setLunaTvSubtitleTracks((previous) => {
+        if (previous.length === 0) {
+          void probeLiveSubtitles(streamUrl).then((tracks) => {
+            if (cancelled || tracks.length === 0) return;
+            setLunaTvSubtitleTracks((current) => (current.length === 0
+              ? tracks.map(lunaTvToSubtitleTrack)
+              : current));
+          }).catch(() => { /* a fejléc nem olvasható: marad a HTML lista */ });
+        }
+        return previous;
+      });
+    }, 3500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(probeTimer);
+      if (unsubscribe) try { unsubscribe(); } catch { /* ignore */ }
+    };
+  }, [nativeHandoff, isVod, streamUrl]);
+
+  /*
+   * Élő adás alapértelmezett felirata: a beállításokbeli nyelv (magyar, ha a
+   * beállítás kikapcsolt) egyszer, csatornánként – csak akkor, ha a néző még
+   * nem választott magának ezen a legutóbbi csatornaváltáson.
+   */
+  useEffect(() => {
+    if (isVod || nativeHandoff || !streamUrl) return;
+    if (userTvSubtitleChoiceRef.current !== null) return;
+    const available = [...lunaTvSubtitleTracks, ...tvSubtitleTracks];
+    if (available.length === 0 || available.some((item) => item.selected)) return;
+    const key = `${streamUrl}|${available.map((item) => String(item.id)).join(',')}`;
+    if (liveAutoSubtitleKeyRef.current === key) return;
+    const preferred = (settings.preferredSubtitle || '').trim();
+    const effectivePreferred = !preferred || preferred.toLowerCase() === 'kikapcsolva'
+      ? 'Magyar'
+      : preferred;
+    const choice = findPreferredVodTrack(available, effectivePreferred);
+    liveAutoSubtitleKeyRef.current = key;
+    if (!choice) return;
+    appLog(`LG webOS élő felirat: alapértelmezett nyelv kiválasztva: ${choice.lang || choice.name || 'Felirat'}.`);
+    selectTvSubtitleRef.current?.(choice);
+  }, [isVod, nativeHandoff, streamUrl, lunaTvSubtitleTracks, tvSubtitleTracks, settings.preferredSubtitle]);
+
   // Determine active stream URL
   // (A streamUrl már feljebb, a felhasználói előtt definiálva van – lásd a
   // komponens elején a megjegyzést.)
@@ -2452,7 +2611,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     playbackStartedRef.current = false;
     setTvAudioTracks([]);
     setTvSubtitleTracks([]);
+    setLunaTvSubtitleTracks([]);
     activeTvSubtitleIdRef.current = null;
+    lunaTvActiveRef.current = false;
+    userTvSubtitleChoiceRef.current = null;
+    liveAutoSubtitleKeyRef.current = '';
     nativeAudioTrackSignatureRef.current = '';
     userAudioChoiceRef.current = null;
     setShowTvAudioMenu(false);
