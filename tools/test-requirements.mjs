@@ -932,8 +932,8 @@ test('12. ugyanaz a csatorna nem esik el minden váltásnál ugyanazzal a formá
   // A lejátszó először a CSATORNA emlékét nézi, csak utána a globálist.
   assert.match(PLAYER, /rememberedFormat = rememberedFormatFor\(channel\?\.id\);/);
   assert.match(PLAYER, /if \(!rememberedFormat\) rememberedFormat = rememberedGlobalFormat\(\);/);
-  // Sikeres indításnál csatornánként jegyezzük meg.
-  assert.match(PLAYER, /rememberGlobalFormat\(format\);\s*\n\s*if \(channel\?\.id\) rememberFormatFor\(channel\.id, format\);/);
+  // Sikeres indításnál csatornánként jegyezzük meg (és naplózzuk a változást).
+  assert.match(PLAYER, /rememberGlobalFormat\(format\);\s*\n\s*if \(target\?\.id\) rememberFormatFor\(target\.id, format\);/);
   // A tartalék cím kiszámítása csatornaváltáskor.
   assert.match(PLAYER, /liveFallbackRef\.current = isVod \? null : alternativeUrl\(primaryUrl\);/);
   assert.match(PLAYER, /liveFallbackUsedRef\.current = false;/);
@@ -948,8 +948,10 @@ test('12. hiba esetén a lejátszó MAGA próbálja a másik formátumot (nem k�
   assert.match(retry, /FORMÁTUM-VISSZAESÉS; csatorna=\$\{channelName\}/);
   assert.match(retry, /retryPlanRef\.current = \{ originalUrl: fallback\.url, stage: 'primary' \};/);
   assert.match(retry, /pendingStreamUrlRef\.current = fallback\.url;/);
-  // Ha a második formátum sem megy, a csatorna emléke törlődik.
-  assert.match(retry, /forgetFormatFor\(channelRef\.current\?\.id\);/);
+  // Ha a második formátum sem megy, a csatorna emléke törlődik, és a napló
+  // egyértelműen jelzi, hogy MINDKÉT formátum hibás volt.
+  assert.match(retry, /if \(failedChannel\?\.id\) forgetFormatFor\(failedChannel\.id\);/);
+  assert.match(retry, /MINDKÉT FORMÁTUM SIKERTELEN; csatorna=/);
 });
 
 test('12. a videóelem hibaállapota nem öröklődik a következő csatornára', () => {
@@ -1090,4 +1092,39 @@ test('14. üres feliratlistánál a választó kinyitása újraindítja a keres�
   assert.match(PLAYER, /Felirat választó: nincs sáv – a szolgáltatói feliratkeresés újraindul\./);
   // A kereső hatás figyeli a számlálót (különben nem indulna újra).
   assert.match(PLAYER, /\}, \[isVod, streamUrl, subtitleSource, subtitleSearchNonce\]\);/);
+});
+
+/* ══════════════ 15. Napló-nyomok: formátum-emlék, két formátum hibája, QR-ablak ══════════════ */
+
+test('15. a formátumemlékezet mentése és a kétformátumos hiba látszik a naplóban', () => {
+  // Mentés csak VÁLTOZÁSKOR kerül a naplóba (nem minden zappolásnál).
+  assert.match(PLAYER, /const previousFormat = target\?\.id \? rememberedFormatFor\(target\.id\) : null;/);
+  assert.match(PLAYER, /if \(target\?\.id && previousFormat !== format\) \{/);
+  assert.match(PLAYER, /FORMÁTUM-EMLÉK MENTVE; csatorna=\$\{String\(target\.name \|\| ''\)\.slice\(0, 100\)\}; /);
+  // A CSATORNAVÁLTÁS START sor a globális emléket is kiírja, ha csatornánként nincs.
+  assert.match(PLAYER, /formátum-emlék=\$\{channelMemory \|\| 'nincs \(alap\)'\}\$\{channelMemory \? '' : `; globális-emlék=\$\{globalMemory \|\| 'nincs'\}`\}/);
+  // A két formátum együttes hibája külön, egyértelmű sor.
+  assert.match(PLAYER, /próbált formátumok=\$\{triedFormats\}; a csatorna jelenleg nem indítható\. Formátum-emlék törölve\./);
+  assert.match(PLAYER, /liveFallbackRef\.current\?\.format === 'hls' \? 'MPEG-TS \+ HLS' : 'HLS \+ MPEG-TS'/);
+});
+
+test('15. a QR-ablak távirányítóval egy OK-ra a Frissítést indítja, és minden gombnyomás naplózott', () => {
+  // Nyitáskor a FRISSÍTÉS gomb kapja a fókuszt (a fejléc ✕ helyett).
+  assert.match(DIAG_MODAL, /\[data-diagnostic-refresh\]/);
+  assert.match(DIAG_MODAL, /const timers = \[160, 700\]\.map\(\(delay\) => window\.setTimeout\(focusRefresh, delay\)\);/);
+  // OK/Enter a fókuszált gombot aktiválja (a React kezelője hamarabb fut).
+  assert.match(DIAG_MODAL, /const onModalKeyDown = \(event: React\.KeyboardEvent\) => \{/);
+  assert.match(DIAG_MODAL, /if \(active && modalRef\.current\?\.contains\(active\) && active\.tagName === 'BUTTON'\) \{/);
+  assert.match(DIAG_MODAL, /onKeyDown=\{onModalKeyDown\}/);
+  // Minden művelet nyomot hagy a naplóban.
+  assert.match(DIAG_MODAL, /QR-diagnózis: FRISSÍTÉS gomb megnyomva – mérések nullázása\./);
+  assert.match(DIAG_MODAL, /QR-diagnózis: új QR-kód kérése – \$\{trigger\}\./);
+  assert.match(DIAG_MODAL, /QR-diagnózis bezárva\./);
+  assert.match(DIAG_MODAL, /QR-diagnózis megnyitva; mérés kezdete=\$\{opened\.startedAtText\}/);
+});
+
+test('15. a mérés nullázása a nullázás ELŐTTI értékeket is a naplóba írja', () => {
+  assert.match(APPLOG, /const previous = measurementSnapshot\(\);/);
+  assert.match(APPLOG, /MÉRÉS NULLÁZÁS ELŐTT \[\$\{previous\.startedAtText\} óta\]: naplósorok=\$\{previous\.logLines\}/);
+  assert.match(APPLOG, /hibák=\$\{previous\.errors\}, hosszú feladatok=\$\{previous\.longTasks\}, kritikus=\$\{previous\.critical\}/);
 });

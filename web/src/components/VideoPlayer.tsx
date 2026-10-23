@@ -471,9 +471,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       // Egyik formátum sem indult el: a csatorna emlékét töröljük, hogy a
       // következő próba a beállított (alap) formátummal induljon.
-      if (channelSwitchDiagnosticRef.current?.channelName) {
-        forgetFormatFor(channelRef.current?.id);
-      }
+      const failedChannel = channelRef.current;
+      const hadAlternative = Boolean(liveFallbackRef.current);
+      const triedFormats = hadAlternative
+        ? (liveFallbackRef.current?.format === 'hls' ? 'MPEG-TS + HLS' : 'HLS + MPEG-TS')
+        : 'MPEG-TS';
+      if (failedChannel?.id) forgetFormatFor(failedChannel.id);
+      /*
+       * A napló eddig csak a két CSATORNAVÁLTÁS HIBA sort tartalmazta; abból
+       * nem derült ki, hogy a tartalék formátum is lefutott-e. A 2026-10-22-i
+       * naplóban („HU - PAX TV”) így utólag kellett kitalálni, hogy mindkét
+       * formátum hibás volt. Mostantól egyértelmű sor jelzi a lezárást.
+       */
+      appLog(
+        `MINDKÉT FORMÁTUM SIKERTELEN; csatorna=${String(failedChannel?.name || channelSwitchDiagnosticRef.current?.channelName || 'élő adás').slice(0, 100)}; ` +
+        `próbált formátumok=${triedFormats}; a csatorna jelenleg nem indítható. Formátum-emlék törölve.`
+      );
       setIsLoading(false);
       setHasError(true);
       setErrorMessage('Ez a csatorna egyik streamformátummal sem indult el. Válassz másik csatornát, vagy állítsd át a formátumot a Rendszer beállításában.');
@@ -2220,7 +2233,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           canPlayLogged: false,
           completed: false,
         };
-        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; formátum-emlék=${rememberedFormatFor(channel?.id) || 'nincs (alap)'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        const channelMemory = rememberedFormatFor(channel?.id);
+        const globalMemory = rememberedGlobalFormat();
+        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; formátum-emlék=${channelMemory || 'nincs (alap)'}${channelMemory ? '' : `; globális-emlék=${globalMemory || 'nincs'}`}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
       }
       video.pause();
       /*
@@ -2767,8 +2782,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 const url = pendingStreamUrlRef.current || '';
                 const format = formatOfUrl(url);
                 if (format) {
+                  const target = channelRef.current;
+                  const previousFormat = target?.id ? rememberedFormatFor(target.id) : null;
                   rememberGlobalFormat(format);
-                  if (channel?.id) rememberFormatFor(channel.id, format);
+                  if (target?.id) rememberFormatFor(target.id, format);
+                  /*
+                   * Csak VÁLTOZÁSKOR naplózzuk (nem minden zappolásnál): így a
+                   * következő hibajegyből látszik, hogy a csatornánkénti
+                   * formátumemlékezet valóban elmentődött, és visszatéréskor
+                   * „formátum-emlék=…” jelenik meg a CSATORNAVÁLTÁS START sorban.
+                   */
+                  if (target?.id && previousFormat !== format) {
+                    appLog(
+                      `FORMÁTUM-EMLÉK MENTVE; csatorna=${String(target.name || '').slice(0, 100)}; ` +
+                      `formátum=${format.toUpperCase()}; előző=${previousFormat ? previousFormat.toUpperCase() : 'nem volt'}.`
+                    );
+                  }
                 }
               }
               clearZapWatchdog();

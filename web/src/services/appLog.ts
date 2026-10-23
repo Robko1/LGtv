@@ -253,10 +253,20 @@ export function measurementSnapshot(): MeasurementSnapshot {
  */
 export function resetMeasurements(reason: string = 'kézi frissítés'): MeasurementSnapshot {
   const startedAt = Date.now();
+  // A nullázás ELŐTTI értékek: ezek bizonyítják a naplóban, hogy volt mit
+  // nullázni (enélkül utólag nem lehet megkülönböztetni a „nem történt semmit”
+  // esettől). A sor a számlálók nullázása előtt íródik ki.
+  const previous = measurementSnapshot();
   measurementStartedAt = startedAt;
   const iso = new Date(startedAt).toISOString();
-  // A sor a nullázás ELŐTT íródik ki, hogy a számlálók valóban 0-ról induljanak.
-  appLog(`=== ÚJ MÉRÉS KEZDETE: ${iso} (${clockText(startedAt)}); minden korábbi mért érték nullázva (${reason}) ===`);
+  appLog(
+    `=== ÚJ MÉRÉS KEZDETE: ${iso} (${clockText(startedAt)}); minden korábbi mért érték nullázva (${reason}) ===`
+  );
+  appLog(
+    `MÉRÉS NULLÁZÁS ELŐTT [${previous.startedAtText} óta]: naplósorok=${previous.logLines}, ` +
+    `hibák=${previous.errors}, hosszú feladatok=${previous.longTasks}, kritikus=${previous.critical}, ` +
+    `eltelt=${Math.round(previous.elapsedMs / 1000)} s`
+  );
   measurementCounters.logLines = 0;
   measurementCounters.errors = 0;
   measurementCounters.longTasks = 0;
