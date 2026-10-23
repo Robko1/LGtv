@@ -1,10 +1,23 @@
-export const WEB_VERSION = '2.5.35';
+export const WEB_VERSION = '2.5.36';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.36',
+    date: '2026-10-23',
+    changes: [
+      'NAPLÓ – kétformátumos hiba: ha egy csatorna MPEG-TS-sel ÉS HLS-sel sem indul (a 2026-10-22-i naplóban: „HU - PAX TV”), mostantól egy külön sor zárja le: „MINDKÉT FORMÁTUM SIKERTELEN; csatorna=…; próbált formátumok=MPEG-TS + HLS”',
+      'NAPLÓ – formátumemlékezet: sikeres indításnál a napló kiírja, mit jegyzett meg a lejátszó („FORMÁTUM-EMLÉK MENTVE; csatorna=…; formátum=TS; előző=nem volt”) – csak akkor, ha tényleg változott',
+      'NAPLÓ – a CSATORNAVÁLTÁS START sor mostantól a GLOBÁLIS formátumemléket is kiírja („globális-emlék=…”), ha a csatornához még nincs bejegyzés',
+      'SÁRGA gomb → QR-hibadiagnózis: az ablak megnyitásakor a FRISSÍTÉS gomb kapja a fókuszt, így egyetlen OK már nullázza a méréseket (a naplóban 7 percig nyitott ablak gombnyomás nélkül szerepelt)',
+      'A QR-ablak minden művelete naplózva: megnyitás, Frissítés, Új QR-kód, Bezárás – így utólag megállapítható, hogy a gombnyomás megérkezett-e',
+      'A nullázás a naplóba írja a NULLÁZÁS ELŐTTI mért értékeket is („MÉRÉS NULLÁZÁS ELŐTT [21:52:03 óta]: naplósorok=…, hibák=…”), ami bizonyítja, hogy volt mit nullázni',
+      'A távirányító OK/Enter gombja a fókuszált QR-gombot aktiválja (a React kezelője a webos.js előtt fut)',
+    ],
+  },
   {
     version: '2.5.35',
     date: '2026-10-23',

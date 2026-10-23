@@ -15,6 +15,7 @@ import {
   type DiagnosticShare,
 } from '../services/diagnosticShareService';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
+import { normalizeTvKey } from '../utils/tvKeys';
 
 interface DiagnosticShareModalProps {
   isOpen: boolean;
@@ -37,7 +38,8 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const { modalRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(isOpen, onClose);
   shareRef.current = share;
 
-  const createNewQr = async () => {
+  const createNewQr = async (trigger: string = 'automatikus (megnyitás)') => {
+    appLog(`QR-diagnózis: új QR-kód kérése – ${trigger}.`);
     const generation = ++generationRef.current;
     setBusy(true);
     setError('');
@@ -63,12 +65,18 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     }
   };
 
+  const closeModal = () => {
+    appLog('QR-diagnózis bezárva.');
+    onClose();
+  };
+
   const refreshLog = async () => {
+    appLog('QR-diagnózis: FRISSÍTÉS gomb megnyomva – mérések nullázása.');
     const current = shareRef.current;
     if (!current) {
       // Még nincs hivatkozás: a Frissítés is új méréssel, nullázott értékekkel indul.
       setMeasure(resetMeasurements('QR-hibadiagnózis: Frissítés gomb (új kód)'));
-      await createNewQr();
+      await createNewQr('Frissítés gomb (még nincs aktív kód)');
       return;
     }
     setBusy(true);
@@ -100,7 +108,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   useEffect(() => {
     if (!isOpen) return;
     const onRedKey = (event: Event) => {
-      if ((event as CustomEvent)?.detail?.action === 'diagnostic-share') void createNewQr();
+      if ((event as CustomEvent)?.detail?.action === 'diagnostic-share') void createNewQr('SÁRGA gomb (újrakérés)');
     };
     window.addEventListener('iptv-tv-action', onRedKey);
     return () => window.removeEventListener('iptv-tv-action', onRedKey);
@@ -111,10 +119,53 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   // frissül az eltelt idő (a kezdő időpont és a mért értékek láthatók maradnak).
   useEffect(() => {
     if (!isOpen) return;
-    setMeasure(measurementSnapshot());
+    const opened = measurementSnapshot();
+    appLog(
+      `QR-diagnózis megnyitva; mérés kezdete=${opened.startedAtText}, ` +
+      `naplósorok=${opened.logLines}, hibák=${opened.errors}, hosszú feladatok=${opened.longTasks}.`
+    );
+    setMeasure(opened);
     const timer = window.setInterval(() => setMeasure(measurementSnapshot()), 1000);
     return () => window.clearInterval(timer);
   }, [isOpen]);
+
+  /*
+   * TÁVIRANYÍTÓ: a fő művelet (FRISSÍTÉS = mérések nullázása) kapja a fókuszt.
+   *
+   * A napló tanúsága szerint a QR-ablak 7 percig nyitva volt anélkül, hogy
+   * bármilyen gombnyomás látszana – a nézőnek nem volt egyértelmű, melyik
+   * gombon áll a kijelölő. Most nyitáskor egy OK már a Frissítést indítja.
+   */
+  useEffect(() => {
+    if (!isOpen) return;
+    const focusRefresh = () => {
+      try {
+        const button = modalRef.current?.querySelector<HTMLElement>('[data-diagnostic-refresh]');
+        button?.focus({ preventScroll: true } as any);
+      } catch { /* régi motor */ }
+    };
+    const timers = [160, 700].map((delay) => window.setTimeout(focusRefresh, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [isOpen, modalRef]);
+
+  /*
+   * A távirányító OK gombja a fókuszált gombot aktiválja. A webos.js is
+   * kezeli, de a React kezelője hamarabb fut – itt végezzük el, hogy a
+   * naplóba is bekerüljön, melyik gombot nyomta meg a néző.
+   */
+  const onModalKeyDown = (event: React.KeyboardEvent) => {
+    const key = normalizeTvKey(event);
+    if (key === 'Enter' || key === ' ') {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && modalRef.current?.contains(active) && active.tagName === 'BUTTON') {
+        event.preventDefault();
+        event.stopPropagation();
+        active.click();
+        return;
+      }
+    }
+    handleKeyDown(event);
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -126,7 +177,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
       shareRef.current = null;
       return;
     }
-    void createNewQr();
+    void createNewQr('ablak megnyitása');
     // A modal minden megnyitáskor új, lejáró QR-hivatkozást készít.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -153,7 +204,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
       <div
         ref={modalRef}
         tabIndex={-1}
-        onKeyDown={handleKeyDown}
+        onKeyDown={onModalKeyDown}
         className="w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-2xl border-2 border-cyan-400/70 bg-[#071124] p-5 text-white shadow-2xl focus:outline-none"
       >
         <div className="flex items-center justify-between gap-3 border-b border-slate-700 pb-3">
@@ -164,7 +215,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
               <p className="text-sm text-slate-300">Olvasd be telefonnal a napló megnyitásához.</p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-3 text-slate-200 focus:outline-none focus:ring-4 focus:ring-amber-400" aria-label="Bezárás">
+          <button onClick={closeModal} className="rounded-lg p-3 text-slate-200 focus:outline-none focus:ring-4 focus:ring-amber-400" aria-label="Bezárás">
             <X className="h-6 w-6" />
           </button>
         </div>
@@ -225,6 +276,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
 
         <div className="grid grid-cols-3 gap-3 border-t border-slate-700 pt-4">
           <button
+            data-diagnostic-refresh=""
             onClick={() => void refreshLog()}
             disabled={busy}
             className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-cyan-500/60 bg-cyan-500/15 px-3 py-3 font-bold text-cyan-100 focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-50"
@@ -232,14 +284,16 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             <RefreshCw className="h-5 w-5" /> Frissítés
           </button>
           <button
-            onClick={() => void createNewQr()}
+            data-diagnostic-newqr=""
+            onClick={() => void createNewQr('Új QR-kód gomb')}
             disabled={busy}
             className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-amber-400/70 bg-amber-400/15 px-3 py-3 font-bold text-amber-100 focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-50"
           >
             <RotateCcw className="h-5 w-5" /> Új QR-kód
           </button>
           <button
-            onClick={onClose}
+            data-diagnostic-close=""
+            onClick={closeModal}
             className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-slate-600 bg-white/5 px-3 py-3 font-bold text-slate-100 focus:outline-none focus:ring-4 focus:ring-amber-400"
           >
             <X className="h-5 w-5" /> Bezárás

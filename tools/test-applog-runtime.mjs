@@ -181,6 +181,8 @@ check(/=== ÚJ MÉRÉS KEZDETE: \S+ \(\d{2}:\d{2}:\d{2}\); minden korábbi mért
   'a naplóban látható az új mérés kezdő időpontja');
 check(/MÉRÉS KEZDETE: \d{2}:\d{2}:\d{2}/.test(diag.text()),
   'a napló fejléce is mutatja a mérés kezdetét');
+check(/MÉRÉS NULLÁZÁS ELŐTT \[\d{2}:\d{2}:\d{2} óta\]: naplósorok=\d+, hibák=\d+, hosszú feladatok=\d+/.test(diag.text()),
+  'a napló a nullázás előtti mért értékeket is megőrzi (bizonyíték a nullázásra)');
 diag.log('TESZT-MÉRÉS-UTÁN');
 check(diag.measure().logLines === 1, 'a nullázás után a számlálás 0-ról indul újra');
 
