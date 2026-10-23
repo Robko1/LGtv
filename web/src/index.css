@@ -309,6 +309,12 @@ body.has-mouse [role="option"]:hover {
 [data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"] {
   --tw-ring-color: var(--live-accent-text) !important;
 }
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-amber-"] {
+  --tw-shadow-color: var(--live-accent-text) !important;
+  --tw-shadow: var(--tw-shadow-colored) !important;
+}
 [data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-linear-to-r"],
 [data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-linear-to-r"],
 [data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-linear-to-r"] {
