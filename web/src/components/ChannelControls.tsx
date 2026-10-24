@@ -41,9 +41,18 @@ interface ChannelControlsProps {
 export const FullscreenLiveOsd: React.FC<{
   channel: Channel | null;
   displayNumber?: number;
+  liveAccent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white';
   hasMultipleAudioTracks?: boolean;
   hasAvailableSubtitle?: boolean;
-}> = ({ channel, displayNumber, hasMultipleAudioTracks = false, hasAvailableSubtitle = false }) => {
+}> = ({ channel, displayNumber, liveAccent = 'yellow', hasMultipleAudioTracks = false, hasAvailableSubtitle = false }) => {
+  const accentTextClass: Record<NonNullable<typeof liveAccent>, string> = {
+    yellow: 'text-amber-400',
+    red: 'text-red-400',
+    blue: 'text-blue-400',
+    pink: 'text-pink-400',
+    green: 'text-green-400',
+    white: 'text-white',
+  };
   const [clock, setClock] = React.useState(() => Date.now());
   React.useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 10000);
@@ -78,7 +87,7 @@ export const FullscreenLiveOsd: React.FC<{
     >
       <div className="flex items-start justify-between bg-gradient-to-b from-black/85 via-black/40 to-transparent px-8 pt-6 pb-12">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center text-4xl font-black leading-none tabular-nums text-white/90">{displayNumber ?? channel.num}</span>
+          <span className={`flex h-14 w-14 shrink-0 items-center justify-center text-4xl font-black leading-none tabular-nums ${accentTextClass[liveAccent]}`}>{displayNumber ?? channel.num}</span>
           <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-black/30">
             <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
           </div>
