@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 const base = Deno.env.get("SUPABASE_URL")!;
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const table = base + "/rest/v1/tv_diagnostic_shares";
+const MAX_LOG_CHARS = 1_000_000;
 const headers = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type",
@@ -28,9 +29,7 @@ async function db(path: string, init: RequestInit = {}) {
   });
 }
 function cleanLog(input: string) {
-  return input
-    .replace(/((?:password|passwd|token|authorization|api[_-]?key|secret)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
-    .slice(0, 60000);
+  return input.replace(/((?:password|passwd|token|authorization|api[_-]?key|secret)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]");
 }
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers });
@@ -62,14 +61,15 @@ Deno.serve(async (req: Request) => {
 
   if (b?.action === "create") {
     if (typeof b.logText !== "string" || !b.logText.trim()) return out(400, { error: "log_required" });
-    if (b.logText.length > 60000) return out(413, { error: "log_too_large" });
+    const cleanedLog = cleanLog(b.logText);
+    if (cleanedLog.length > MAX_LOG_CHARS) return out(413, { error: "log_too_large" });
     const randomBytes = crypto.getRandomValues(new Uint8Array(32));
     const binary = Array.from(randomBytes, (byte) => String.fromCharCode(byte)).join("");
     const token = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
     const expires = new Date(Date.now() + 3600000).toISOString();
     await db("?expires_at=lt." + encodeURIComponent(new Date().toISOString()), { method: "DELETE" });
     const r = await db("", { method: "POST", body: JSON.stringify([{
-      token_hash: await hash(token), log_text: cleanLog(b.logText), expires_at: expires,
+      token_hash: await hash(token), log_text: cleanedLog, expires_at: expires,
     }]) });
     if (!r.ok) return out(500, { error: "create_failed" });
     return out(201, { ok: true, url: base + "/functions/v1/tv-diagnostic-share?t=" + token, token, expiresAt: expires });
@@ -77,13 +77,14 @@ Deno.serve(async (req: Request) => {
 
   if (b?.action === "update" && valid(b.token)) {
     if (typeof b.logText !== "string" || !b.logText.trim()) return out(400, { error: "log_required" });
-    if (b.logText.length > 60000) return out(413, { error: "log_too_large" });
+    const cleanedLog = cleanLog(b.logText);
+    if (cleanedLog.length > MAX_LOG_CHARS) return out(413, { error: "log_too_large" });
     const tokenHash = await hash(b.token);
     const expires = new Date(Date.now() + 3600000).toISOString();
     const r = await db("?token_hash=eq." + tokenHash + "&revoked_at=is.null&expires_at=gt." +
       encodeURIComponent(new Date().toISOString()), {
         method: "PATCH",
-        body: JSON.stringify({ log_text: cleanLog(b.logText), expires_at: expires }),
+        body: JSON.stringify({ log_text: cleanedLog, expires_at: expires }),
       });
     if (!r.ok) return out(500, { error: "update_failed" });
     const rows = await r.json();
