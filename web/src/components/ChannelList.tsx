@@ -874,27 +874,13 @@ const ChannelListView: React.FC<ChannelListProps> = ({
               data-tv-folder=""
               onClick={() => {
                 setMovingChannelId(null);
-                if (sortMode === 'saved') {
-                  setSortMode('number');
-                } else if (sortMode === 'number') {
-                  setSortMode('back');
-                } else {
-                  onSelectFavoriteFolder(null);
-                  setSortMode('saved');
-                }
+                setSortMode('saved');
+                onSelectFavoriteFolder(null);
               }}
-              title={sortMode === 'saved'
-                ? 'Kattints: kedvenc csatornák rendezése sorszám szerint'
-                : sortMode === 'number'
-                  ? 'Kattints: vissza a kedvenc csatornák mentett sorrendjéhez'
-                  : 'Kattints: vissza a mentett sorrendhez'}
-              aria-label={sortMode === 'saved'
-                ? 'Kedvencek mentett sorrendje. Kattints a sorszám szerinti rendezéshez.'
-                : sortMode === 'number'
-                  ? 'Kedvencek sorszám szerinti sorrendje. Kattints a vissza művelethez.'
-                  : 'Vissza a kedvencek mentett sorrendjéhez.'}
-              className={`px-4 py-2.5 rounded-2xl text-sm font-black whitespace-nowrap border-2 transition-colors ${sortMode === 'saved' ? 'bg-cyan-400 text-slate-950 border-cyan-300' : sortMode === 'number' ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-emerald-400 text-slate-950 border-emerald-300'}`}
-            >{sortMode === 'saved' ? '📺 ↕ Mentett' : sortMode === 'number' ? '📺 # Szám' : '↩ Vissza'}</button>
+              title="Vissza a kedvenc mappákhoz"
+              aria-label="Vissza a kedvenc mappákhoz"
+              className="px-4 py-2.5 rounded-2xl text-sm font-black whitespace-nowrap border-2 border-emerald-300 bg-emerald-400 text-slate-950 transition-colors"
+            >↩ Vissza</button>
           )}
           {folders.map((folder, folderIndex) => {
             const folderBorder = folderIndex % 2 === 0 ? 'border-cyan-400' : 'border-amber-400';
