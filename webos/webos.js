@@ -796,7 +796,9 @@
     if (navOwner && isArrowKey(key)) {
       var ownerType = navOwner.getAttribute('data-tv-navigation-owner');
       if (ownerType === 'posters') return;
-      if (ownerType === 'settings' && (key === 'ArrowUp' || key === 'ArrowDown')) return;
+      // A Beállítások/Kedvencek fül saját React-navigációja kezeli MIND a négy nyilat.
+      // Capture fázisban itt nem szabad fókuszt mozgatni vagy a gombot elnyelni.
+      if (ownerType === 'settings') return;
     }
     // A színes gombokat a legkorábbi ponton egyedi eseményként adjuk át a Reactnek,
     // hogy minden fókuszhelyzetben megbízhatóan működjenek.
