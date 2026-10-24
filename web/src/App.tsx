@@ -2445,12 +2445,38 @@ export function App() {
               // különben a felső TV/Film/Sorozat menü rejtve marad.
               // Bezáráskor a legfrissebb lejátszási helyzetet mentjük (a
               // lejátszás közben csak 5 másodpercenként írunk a tárolóba).
-              storageService.saveHistory(history);
+              const returnToFavoritesSettings = returnToFavoritesSettingsRef.current;
+              if (returnToFavoritesSettings && customStreamUrl && pendingProgressRef.current) {
+                // A Kedvencek/Folytatás felületre visszatéréskor az utolsó lejátszási
+                // helyzetet is azonnal mentsük, ne az 5 másodperces mentésre várjunk.
+                const pending = pendingProgressRef.current;
+                const currentHistory = historyRef.current;
+                const index = currentHistory.findIndex((item) => item.streamUrl === customStreamUrl && item.mediaType !== 'live');
+                if (index >= 0) {
+                  const current = currentHistory[index];
+                  const duration = pending.duration > 0 ? pending.duration : current.durationSeconds;
+                  const position = Math.max(0, pending.position);
+                  const updatedHistory = duration > 0 && position >= duration - 5
+                    ? currentHistory.filter((item) => item.id !== current.id)
+                    : currentHistory.map((item, itemIndex) => itemIndex === index
+                      ? { ...item, positionSeconds: position, durationSeconds: duration,
+                          progressPercent: duration > 0 ? Math.min(99, Math.max(0, position / duration * 100)) : item.progressPercent,
+                          lastWatchedAt: new Date().toISOString() }
+                      : item);
+                  historyRef.current = updatedHistory;
+                  setHistory(updatedHistory);
+                  storageService.saveHistory(updatedHistory);
+                } else {
+                  storageService.saveHistory(currentHistory);
+                }
+                pendingProgressRef.current = null;
+              } else {
+                storageService.saveHistory(historyRef.current);
+              }
               setIsVideoFullscreen(false);
               setCustomStreamUrl(undefined);
               setCustomStreamTitle(undefined);
               const returnView = vodReturnViewRef.current;
-              const returnToFavoritesSettings = returnToFavoritesSettingsRef.current;
               const resumeHistoryId = lastResumeHistoryIdRef.current;
               setActiveView(returnToFavoritesSettings ? 'live' : returnView);
               setIsPlaying(false);
