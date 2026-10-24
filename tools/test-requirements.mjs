@@ -895,18 +895,19 @@ test('11. teljes képernyős élő OSD: MOST/KÖVETKEZŐ egyszerű fehér szöve
   assert.match(CONTROLS, /text-2xl font-bold leading-8 text-amber-300\/90 drop-shadow-lg/);
 });
 
-test('11. fagyás-diagnosztika: idővonal, leállás-figyelő, összeomlás- és kilépésnapló', () => {
+test('11. tesztnapló: csak lejátszási mérések, fagyás- és összeomlásvédelem', () => {
   const LOG = read('web/src/services/appLog.ts');
   assert.match(LOG, /export function startRuntimeWatchdog\(\): void/);
   assert.match(LOG, /export function installCrashHandlers\(\): void/);
   assert.match(LOG, /export function logPhase\(label: string\): void/);
   assert.match(LOG, /export function appLogCritical\(message: string\): void/);
   assert.match(LOG, /export function uiStateSnapshot\(\): string/);
-  // 1 mp-es szívverés, 2,5 mp-nél LEÁLLÁS, 15 mp-enként IDŐVONAL.
+  // A főszál-figyelő megmarad, de a tesztet zavaró 15 mp-es memória/DOM idővonal megszűnt.
   assert.match(LOG, /const STALL_MS = 2500;/);
-  assert.match(LOG, /const TIMELINE_MS = 15000;/);
   assert.match(LOG, /LEÁLLÁS: a fő szál \$\{gap\} ms-ig nem futott/);
-  assert.match(LOG, /IDŐVONAL: \$\{memorySnapshot\(\)\}; \$\{uiStateSnapshot\(\)\}/);
+  assert.doesNotMatch(LOG, /TIMELINE_MS|IDŐVONAL:/);
+  assert.match(LOG, /focusedPlaybackTestLogging/);
+  assert.match(LOG, /PLAYBACK_TEST_LOG/);
   // Hosszú feladat mérése, ha a motor támogatja.
   assert.match(LOG, /entryTypes: \['longtask'\]/);
   assert.match(LOG, /HOSSZÚ FELADAT:/);
@@ -987,14 +988,29 @@ test('12. a videóelem hibaállapota nem öröklődik a következő csatornára'
   assert.match(PLAYER, /Lejátszó hibaállapot törlése a csatornaváltás előtt/);
 });
 
-test('12. sűrű zappolásnál a betöltések összevonódnak (dekóder-felszabadítás, fagyás-védelem)', () => {
-  assert.match(PLAYER, /const lastLiveLoadAtRef = useRef\(0\);/);
+test('12. csatornaváltáskor nincs beépített 300 ms-os várakozás; az előző stream megáll', () => {
+  assert.doesNotMatch(PLAYER, /const lastLiveLoadAtRef = useRef\(0\);/);
+  assert.doesNotMatch(PLAYER, /if \(since >= 0 && since < 300\) \{/);
   assert.match(PLAYER, /const pendingLiveLoadTimerRef = useRef<number \| null>\(null\);/);
-  assert.match(PLAYER, /if \(since >= 0 && since < 300\) \{/);
-  assert.match(PLAYER, /VÁLTÁS ÖSSZEVONÁS: \$\{wait\} ms várakozás a dekóder felszabadítására\./);
-  assert.match(PLAYER, /loadStreamRef\.current\?\.\(url\);/);
-  // Csatornaváltáskor a várakozó betöltés eldobódik.
+  assert.match(PLAYER, /htmlVideoRef\.current\?\.pause\(\)/);
+  assert.match(PLAYER, /video\.src = url;/);
   assert.match(PLAYER, /if \(pendingLiveLoadTimerRef\.current !== null\) \{\s*\n\s*window\.clearTimeout\(pendingLiveLoadTimerRef\.current\);/);
+});
+
+test('12. sikertelen csatornaindulásnál gyors, profilfüggő tartalékpróba indul', () => {
+  assert.match(PLAYER, /watchdogMs: 1500, retryMs: 0/);
+  assert.match(PLAYER, /watchdogMs: 2200, retryMs: 80/);
+  assert.match(PLAYER, /watchdogMs: 3500, retryMs: 180/);
+  assert.match(PLAYER, /\}, bufferTiming\(\)\.retryMs\);/);
+});
+
+test('12. a csatornaváltási mérés rögzíti a tényleges motort, a hangot és az adatpuffert', () => {
+  assert.match(PLAYER, /tényleges-lejátszó=/);
+  assert.match(PLAYER, /HANGDIAG METAADATNÁL/);
+  assert.match(PLAYER, /HANGDIAG LEJÁTSZÁSKOR/);
+  assert.match(PLAYER, /STREAM ADATÉRKEZÉS/);
+  assert.match(PLAYER, /videoSize=\$\{width\}x\$\{height\}/);
+  assert.match(PLAYER, /frameStats=\[\$\{frameStats\}\]/);
 });
 
 test('12. a gyorsítótár törlése a formátum-emlékezetet is törli', () => {
