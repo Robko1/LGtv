@@ -592,30 +592,16 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       }}
                       className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber-400 focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
                       <div className="p-3.5 flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          onKeyDown={(event) => {
-                            const key = normalizeTvKey(event);
-                            if (key === 'ArrowLeft' || key === 'ArrowRight') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                            } else if (key === 'Enter' || key === ' ') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus({ preventScroll: true } as any);
-                            }
-                          }}
-                          onClick={() => setExpandedFavoriteFolderId(expanded ? null : f.id)}
-                          className="flex items-center gap-3 min-w-0 flex-1 text-left"
-                          aria-expanded={expanded}
+                        <div
+                          aria-hidden="true"
+                          className="flex items-center gap-3 min-w-0 flex-1 text-left pointer-events-none"
                         >
                           <div className="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-xl shrink-0">{f.icon || '📁'}</div>
                           <div className="min-w-0">
                             <h4 className="text-white font-bold text-sm truncate">{f.name}</h4>
-                            <p className="text-xs text-slate-400 font-medium">{folderChannels.length} csatorna · {expanded ? 'Bezárás' : 'Megnyitás'}</p>
+                            <p className="text-xs text-slate-400 font-medium">{folderChannels.length} csatorna</p>
                           </div>
-                        </button>
+                        </div>
                         <button
                           onKeyDown={(event) => {
                             const key = normalizeTvKey(event);
