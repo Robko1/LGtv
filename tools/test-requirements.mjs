@@ -963,20 +963,24 @@ test('12. ugyanaz a csatorna nem esik el minden váltásnál ugyanazzal a formá
   assert.match(PLAYER, /const selectedFormat = settings\.streamFormat === 'hls' \? 'hls' : 'ts';/);
   // Sikeres indításnál csatornánként jegyezzük meg (és naplózzuk a változást).
   assert.match(PLAYER, /rememberGlobalFormat\(format\);\s*\n\s*if \(target\?\.id\) rememberFormatFor\(target\.id, format\);/);
-  // A tartalék cím kiszámítása csatornaváltáskor.
+  // A tartalék címet és az ismételt próbákat csatornaváltáskor állítjuk össze.
   assert.match(PLAYER, /liveFallbackRef\.current = isVod \? null : alternativeUrl\(primaryUrl\);/);
-  assert.match(PLAYER, /liveFallbackUsedRef\.current = false;/);
+  assert.match(PLAYER, /liveRetrySequenceRef\.current = isVod[\s\S]{0,240}?urls: alternative[\s\S]{0,120}?\[primaryUrl, alternative\.url, primaryUrl, alternative\.url\]/);
 });
 
 test('12. hiba esetén a lejátszó MAGA próbálja a másik formátumot (nem kér Beállítást)', () => {
   // A korábbi viselkedés: azonnali hibaüzenet, formátumváltás nélkül.
   assert.doesNotMatch(PLAYER, /Ez a streamformátum nem indult el\. A Rendszer beállításában/);
   const retry = PLAYER.slice(PLAYER.indexOf('const scheduleAutoRetry'), PLAYER.indexOf('const clearAutoRetry'));
-  assert.match(retry, /const fallback = liveFallbackRef\.current;/);
-  assert.match(retry, /if \(fallback && !liveFallbackUsedRef\.current\) \{/);
+  // Az aktuális megoldás a TS/HLS címeket sorban, legfeljebb négy indítási
+  // próbával futtatja, nem egyetlen fallback-jelzővel.
+  assert.match(retry, /const sequence = liveRetrySequenceRef\.current;/);
+  assert.match(retry, /const nextIndex = sequence\.index \+ 1;/);
+  assert.match(retry, /if \(nextIndex < sequence\.urls\.length\)/);
+  assert.match(retry, /const nextUrl = sequence\.urls\[nextIndex\];/);
+  assert.match(retry, /const nextFormat = formatOfUrl\(nextUrl\);/);
   assert.match(retry, /FORMÁTUM-VISSZAESÉS; csatorna=\$\{channelName\}/);
-  assert.match(retry, /retryPlanRef\.current = \{ originalUrl: fallback\.url, stage: 'primary' \};/);
-  assert.match(retry, /pendingStreamUrlRef\.current = fallback\.url;/);
+  assert.match(retry, /pendingStreamUrlRef\.current = nextUrl;/);
   // Ha a második formátum sem megy, a csatorna emléke törlődik, és a napló
   // egyértelműen jelzi, hogy MINDKÉT formátum hibás volt.
   assert.match(retry, /if \(failedChannel\?\.id\) forgetFormatFor\(failedChannel\.id\);/);
@@ -998,9 +1002,9 @@ test('12. csatornaváltáskor nincs beépített 300 ms-os várakozás; az előz�
 });
 
 test('12. sikertelen csatornaindulásnál gyors, profilfüggő tartalékpróba indul', () => {
-  assert.match(PLAYER, /watchdogMs: 1500, retryMs: 0/);
-  assert.match(PLAYER, /watchdogMs: 2200, retryMs: 80/);
-  assert.match(PLAYER, /watchdogMs: 3500, retryMs: 180/);
+  assert.match(PLAYER, /if \(mode === 'fast'\) return \{ watchdogMs: 1200, retryMs: 3 \};/);
+  assert.match(PLAYER, /if \(mode === 'stable'\) return \{ watchdogMs: 2999, retryMs: 80 \};/);
+  assert.match(PLAYER, /return \{ watchdogMs: 2000, retryMs: 50 \};/);
   assert.match(PLAYER, /\}, bufferTiming\(\)\.retryMs\);/);
 });
 
