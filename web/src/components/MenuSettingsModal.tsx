@@ -287,22 +287,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       if (key === 'ArrowUp') {
         focus(folderIndex > 0 ? folders[folderIndex - 1] : root.querySelector<HTMLElement>('[data-tv-default]'));
       } else if (key === 'ArrowDown') {
+        // A mappadoboz aljáról nem lépünk át a Folytatás részre.
         if (isExpanded && folderChannels.length) focus(folderChannels[0]);
-        else focus(folderIndex < folders.length - 1 ? folders[folderIndex + 1] : root.querySelector<HTMLElement>('[data-resume-section]'));
-      } else if (key === 'ArrowRight') {
-        if (folderChannels.length) {
-          setExpandedFavoriteFolderId(folder.dataset.favoriteFolder || null);
-          window.setTimeout(() => {
-            const refreshedFolder = root.querySelector<HTMLElement>(`[data-favorite-folder="${folder.dataset.favoriteFolder}"]`);
-            refreshedFolder?.querySelector<HTMLElement>('[data-favorite-channel]')?.focus({ preventScroll: true } as any);
-          }, 0);
-          block();
-        } else block();
-      } else if (key === 'ArrowLeft') {
-        if (isExpanded) {
-          setExpandedFavoriteFolderId(null);
-          focus(folder);
-        } else block();
+        else if (folderIndex < folders.length - 1) focus(folders[folderIndex + 1]);
+        else block();
+      } else if (key === 'ArrowRight' || key === 'ArrowLeft') {
+        // A teljes mappadoboz vízszintesen nem vált másik szekcióra,
+        // és nem nyit/zár mappát. OK-val külön a Törlés gomb érhető el.
+        block();
       } else block();
       return true;
     }
@@ -332,7 +324,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       return true;
     }
     if (resumeSection) {
-      if (key === 'ArrowDown') focus(root.querySelector<HTMLElement>('[data-resume-continue]'));
+      // A Folytatás teljes dobozáról lefelé nincs továbblépés.
+      if (key === 'ArrowDown') block();
       else if (key === 'ArrowUp') focus(folders[folders.length - 1] || root.querySelector<HTMLElement>('[data-tv-default]'));
       else block();
       return true;
