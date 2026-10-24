@@ -1097,56 +1097,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
                 </div>
 
-                {/* Lejátszó motor: beépített HTML5 vagy natív TV-dekóder */}
-                <div data-tv-box="" tabIndex={0}
-                  onKeyDown={(event) => {
-                    const key = normalizeTvKey(event);
-                    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
-                    if (key === 'ArrowLeft' || key === 'ArrowRight') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-                      const next = key === 'ArrowRight' ? 1 : 0;
-                      buttons[next]?.focus({ preventScroll: true });
-                    } else if (key === 'Enter' && event.target === event.currentTarget) {
-                      event.preventDefault();
-                      buttons[settings.streamFormat === 'hls' ? 1 : 0]?.click();
-                    }
-                  }}
-                  className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-cyan-400">
+                {/* LG webOS lejátszás: nincs külön, általános natív videó-API a webes appokhoz. */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-cyan-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Cast className="h-4 w-4 text-cyan-300" /></span>
-                    <span>Lejátszó motor</span>
+                    <span>LG TV lejátszó</span>
                   </label>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    Válaszd ki, melyik lejátszó fusson. A választás megmarad újraindítás után is.
-                  </p>
-                  <div className="grid grid-cols-2 gap-1.5 pt-1">
-                    <button
-                      onClick={() => onUpdateSettings({ playerEngine: 'html5' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${
-                        (settings.playerEngine || 'html5') === 'html5'
-                          ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
-                          : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
-                      }`}
-                    >
-                      Beépített (HTML5)
-                    </button>
-                    <button
-                      onClick={() => onUpdateSettings({ playerEngine: 'native' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${
-                        settings.playerEngine === 'native'
-                          ? 'bg-emerald-400 text-slate-950 shadow-md shadow-emerald-400/30'
-                          : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
-                      }`}
-                    >
-                      Natív (TV dekóder)
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-cyan-300 leading-tight pt-1">
-                    {(settings.playerEngine || 'html5') === 'html5'
-                      ? 'Beépített: HLS, automatikus MPEG-TS váltás, teljes OSD. Ez a legbiztonságosabb.'
-                      : 'Natív: a szolgáltató eredeti MPEG-TS címe a TV hardveres dekóderén, formátumváltás nélkül, visszafogott felülettel.'}
+                  <p className="text-[11px] text-slate-300 leading-tight">
+                    A webOS beépített videóeleme a TV saját médiamotorját használja. Külön „natív dekóder” módot nem jelölünk működőként, mert ehhez nincs támogatott, általános JavaScript-lejátszó API.
                   </p>
                 </div>
 
@@ -1157,7 +1115,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <span>Élő adás formátuma</span>
                   </label>
                   <p className="text-[11px] text-slate-400 leading-tight">
-                    Válaszd ki, milyen formátummal próbálja lejátszani az élő csatornákat. A választás mindkét lejátszómódra érvényes, és csatornaváltáskor is megmarad.
+                    A kiválasztott formátummal indul. Ha nem indul el, a lejátszó automatikusan egyszer kipróbálja a másik változatot.
                   </p>
                   <div className="grid grid-cols-2 gap-1.5 pt-1">
                     <button
@@ -1178,7 +1136,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     </button>
                   </div>
                   <p className="text-[11px] text-cyan-300 leading-tight pt-1">
-                    {settings.streamFormat === 'hls' ? 'HLS van kiválasztva. A lejátszó nem vált át automatikusan MPEG-TS-re.' : 'MPEG-TS van kiválasztva. A lejátszó nem vált át automatikusan HLS-re.'}
+                    {settings.streamFormat === 'hls' ? 'Első próba: HLS. Hiba esetén automatikus MPEG-TS-próba.' : 'Első próba: MPEG-TS. Hiba esetén automatikus HLS-próba.'}
                   </p>
                 </div>
 
