@@ -70,15 +70,6 @@ export const Header: React.FC<HeaderProps> = ({
       return;
     }
 
-    if (key === 'ArrowDown') {
-      event.preventDefault();
-      event.stopPropagation();
-      if (target.dataset.tvHeaderKind === 'settings') {
-        document.querySelector<HTMLElement>('[data-tv-folders] [data-tv-folder]')?.focus({ preventScroll: true });
-      }
-      return;
-    }
-
     if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
 
     const items = Array.from(
