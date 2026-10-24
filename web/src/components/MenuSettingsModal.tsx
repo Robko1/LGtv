@@ -287,10 +287,10 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       if (key === 'ArrowUp') {
         focus(folderIndex > 0 ? folders[folderIndex - 1] : root.querySelector<HTMLElement>('[data-tv-default]'));
       } else if (key === 'ArrowDown') {
-        // A mappadoboz aljáról nem lépünk át a Folytatás részre.
+        // Az utolsó mappáról lefelé a Folytatás teljes dobozára kell lépni.
         if (isExpanded && folderChannels.length) focus(folderChannels[0]);
         else if (folderIndex < folders.length - 1) focus(folders[folderIndex + 1]);
-        else block();
+        else focus(root.querySelector<HTMLElement>('[data-resume-section]'));
       } else if (key === 'ArrowRight' || key === 'ArrowLeft') {
         // A teljes mappadoboz vízszintesen nem vált másik szekcióra,
         // és nem nyit/zár mappát. OK-val külön a Törlés gomb érhető el.
