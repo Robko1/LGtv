@@ -1368,7 +1368,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         <p className="text-[11px] text-slate-300">Telepített verzió: <strong>{releaseInfo.currentVersion}</strong></p>
                         <p className="text-[11px] text-slate-300">Legfrissebb kiadás: <strong>{releaseInfo.latestVersion}</strong></p>
                         {releaseInfo.ipkUrl ? <p className="text-[11px] text-emerald-300">A kiadás tartalmaz IPK-csomagot.</p> : <p className="text-[11px] text-amber-300">A kiadásban nem található IPK-fájl.</p>}
-                        <a href={releaseInfo.releaseUrl} target="_blank" rel="noreferrer" className="inline-block pt-2 text-xs font-bold text-cyan-300 underline">GitHub Release megnyitása</a>
                       </div>
                     )}
                     {releaseCheckStatus && <p role="status" className="text-[11px] text-slate-300">{releaseCheckStatus}</p>}
