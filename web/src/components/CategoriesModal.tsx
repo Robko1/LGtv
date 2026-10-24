@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Category, Channel } from '../types/iptv';
-import { Search, Layers, ChevronRight } from 'lucide-react';
+import { Category, Channel, FavoriteFolder } from '../types/iptv';
+import { Search, Layers, ChevronRight, Star } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 
 interface CategoriesModalProps {
@@ -8,6 +8,8 @@ interface CategoriesModalProps {
   onClose: () => void;
   categories: Category[];
   channels: Channel[];
+  folders: FavoriteFolder[];
+  onAssignChannelsToFolder: (channelIds: string[], folderId: string) => void;
   selectedCategoryId: string;
   onSelectCategory: (categoryId: string) => void;
   onSelectSubCategory: (countryCategoryId: string, subCategoryId: string) => void;
@@ -23,6 +25,8 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   onClose,
   categories,
   channels,
+  folders,
+  onAssignChannelsToFolder,
   selectedCategoryId,
   onSelectCategory,
   onSelectSubCategory,
@@ -35,6 +39,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCountryId, setExpandedCountryId] = useState<string | null>(null);
   const [searchEditing, setSearchEditing] = useState(false);
+  const [favoriteTarget, setFavoriteTarget] = useState<{ title: string; channelIds: string[] } | null>(null);
   const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
@@ -181,6 +186,12 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
 
   const homeCategory = categories.find((cat) => cat.id === 'country-HU') || categories[0];
 
+  const openFavoritePicker = (title: string, channelIds: string[]) => {
+    if (channelIds.length) setFavoriteTarget({ title, channelIds });
+  };
+  const isGroupInFavorites = (channelIds: string[]) =>
+    channelIds.length > 0 && folders.some((folder) => channelIds.every((id) => folder.channelIds.includes(id)));
+
   // A feltételes visszatérés csak az összes hook után lehet: különben a modal
   // nyitásakor/zárásakor változik a hookok száma, ami React futásidejű hibát okoz.
   if (!isOpen) return null;
@@ -276,6 +287,8 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
             const isSelected = selectedCategoryId === cat.id && !isOnlyFavorites;
             return (
               <React.Fragment key={cat.id}>
+              <div className="flex items-stretch gap-2">
+              <button type="button" aria-label={"Kedvencekhez adás: " + cat.name} onClick={(e) => { e.stopPropagation(); const code = cat.id.startsWith("country-") ? cat.id.slice(8) : ""; const ids = channels.filter((channel) => (channel.countryCode || "INT").toUpperCase() === code).map((channel) => channel.id); openFavoritePicker(cat.name, ids); }} className={"w-12 shrink-0 rounded-xl border-2 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 " + (isGroupInFavorites(channels.filter((channel) => (channel.countryCode || "INT").toUpperCase() === cat.id.slice(8)).map((channel) => channel.id)) ? "border-yellow-300 bg-yellow-400/20 text-yellow-300" : "border-slate-600 bg-[#0a1630] text-slate-400 hover:text-yellow-300")}><Star className="w-6 h-6" fill={isGroupInFavorites(channels.filter((channel) => (channel.countryCode || "INT").toUpperCase() === cat.id.slice(8)).map((channel) => channel.id)) ? "currentColor" : "none"} /></button>
               <div
                 data-category-row="true"
                 role="button"
@@ -335,6 +348,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
 
                 <ChevronRight className={`w-7 h-7 shrink-0 transition-transform group-hover:translate-x-1 ${isSelected ? 'text-cyan-300' : 'text-slate-500'}`} />
               </div>
+              </div>
               {expandedCountryId === cat.id && (() => {
                 const countryCode = cat.id.slice('country-'.length);
                 const subCategories = Array.from(countrySubCategories.get(countryCode)?.values() || [])
@@ -353,7 +367,12 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                       <span className="min-w-0 truncate">Összes {cat.name}</span>
                       <span className="shrink-0 text-sm sm:text-base text-amber-300">{cat.channelCount}</span>
                     </button>
-                    {subCategories.map((subCategory) => (
+                    {subCategories.map((subCategory) => {
+                      const subChannelIds = channels.filter((channel) => (channel.countryCode || "INT").toUpperCase() === countryCode && (channel.categoryId || "other") === subCategory.id).map((channel) => channel.id);
+                      const subIsFavorite = isGroupInFavorites(subChannelIds);
+                      return (
+                      <div key={subCategory.id} className="flex items-stretch gap-2">
+                      <button type="button" aria-label={"Kedvencekhez adás: " + subCategory.name} onClick={() => openFavoritePicker(subCategory.name, subChannelIds)} className={"w-12 shrink-0 rounded-xl border-2 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 " + (subIsFavorite ? "border-yellow-300 bg-yellow-400/20 text-yellow-300" : "border-slate-600 bg-[#0a1630] text-slate-400 hover:text-yellow-300")}><Star className="w-6 h-6" fill={subIsFavorite ? "currentColor" : "none"} /></button>
                       <button
                         key={subCategory.id}
                         onClick={() => {
@@ -367,7 +386,9 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                         <span className="min-w-0 truncate">{subCategory.name}</span>
                         <span className="shrink-0 text-sm sm:text-base text-slate-300">{subCategory.count}</span>
                       </button>
-                    ))}
+                      </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
@@ -376,6 +397,17 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
           })}
         </div>
       </div>
+      {favoriteTarget && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label="Kedvencmappa kiválasztása">
+          <div className="w-full max-w-md rounded-2xl border border-yellow-400/50 bg-[#081329] p-5 text-white shadow-2xl">
+            <h3 className="mb-3 text-lg font-black text-yellow-300">„{favoriteTarget.title}” hozzáadása kedvencekhez</h3>
+            {folders.length ? folders.map((folder) => (
+              <button key={folder.id} onClick={() => { onAssignChannelsToFolder(favoriteTarget.channelIds, folder.id); setFavoriteTarget(null); }} className="mb-2 w-full rounded-xl border border-slate-600 bg-[#102247] p-3 text-left font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">{folder.name}</button>
+            )) : <p className="py-3 text-sm text-slate-300">Még nincs létrehozott kedvencmappa.</p>}
+            <button onClick={() => setFavoriteTarget(null)} className="mt-2 w-full rounded-xl border border-slate-600 p-3 font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">Mégse</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
