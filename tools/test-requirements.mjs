@@ -960,7 +960,9 @@ test('12. ugyanaz a csatorna nem esik el minden váltásnál ugyanazzal a formá
 
   // A csatorna emléke diagnosztikai adat; a kézi TS/HLS beállítás elsőbbséget élvez.
   assert.match(PLAYER, /const channelMemory = rememberedFormatFor\(channel\?\.id\);/);
-  assert.match(PLAYER, /const selectedFormat = settings\.streamFormat === 'hls' \? 'hls' : 'ts';/);
+  // Élő TV-n az MPEG-TS az elsődleges, a HLS automatikus tartalék; a régi kézi formátumválasztás nem írhatja felül.
+  assert.match(PLAYER, /const primaryUrl = isVod \? streamUrl : tsUrl;/);
+  assert.match(PLAYER, /liveRetrySequenceRef\.current = isVod[\s\S]{0,240}?urls: alternative[\s\S]{0,120}?\[primaryUrl, alternative\.url, primaryUrl, alternative\.url\]/);
   // Sikeres indításnál csatornánként jegyezzük meg (és naplózzuk a változást).
   assert.match(PLAYER, /rememberGlobalFormat\(format\);\s*\n\s*if \(target\?\.id\) rememberFormatFor\(target\.id, format\);/);
   // A tartalék címet és az ismételt próbákat csatornaváltáskor állítjuk össze.
