@@ -565,10 +565,10 @@ test('8. PIROS (Record) gomb: tükrözött elrendezés be/ki', () => {
   assert.doesNotMatch(SETTINGS_MODAL, /Tükrözött elrendezés/);
   assert.doesNotMatch(SETTINGS_MODAL, /onUpdateSettings\(\{ mirrorLayout: !settings\.mirrorLayout \}\)/);
   assert.match(read('web/src/types/iptv.ts'), /mirrorLayout\??: boolean;/);
-  // A PIROS gomb korábbi funkciója (diagnosztika QR) NEM veszett el: a
-  // Rendszer fülre került át.
+  // A diagnosztika megosztási funkció és bekötése megmarad, de a gomb
+  // felirata és maga a gomb nem jelenhet meg a Rendszer fülön.
   assert.match(SETTINGS_MODAL, /onOpenDiagnosticShare\?: \(\) => void;/);
-  assert.match(SETTINGS_MODAL, /Diagnosztika megosztása \(QR\)/);
+  assert.doesNotMatch(SETTINGS_MODAL, /<span>Diagnosztika megosztása \(QR\)<\/span>/);
   assert.match(APP, /onOpenDiagnosticShare=\{\(\) => setIsDiagnosticShareOpen\(true\)\}/);
 });
 
