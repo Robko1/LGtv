@@ -55,39 +55,47 @@ export const Header: React.FC<HeaderProps> = ({
     window.close();
   };
 
-  // A felső sor saját D-pad kezelése felülírja a globális nyílbillentyű-logikát.
-  // Vízszintesen a látható elemek között lép; függőlegesen csak a Menü mehet lefelé.
+  // A fejléc saját D-pad kezelése minden nézetben felülírja a globális
+  // geometriai fókuszléptetést. A tényleges képernyőpozíciót használjuk, ezért
+  // a tükrözött és a normál elrendezés azonosan működik; az X is a sor része.
+  // Az óra nem kap fókuszt, mert nem tartozik a data-tv-header-kind elemek közé.
   const handleHeaderDpad = (event: React.KeyboardEvent<HTMLElement>) => {
-    // Ez a speciális navigáció kizárólag a főoldali (élő TV) fejlécen érvényes.
-    if (activeView !== 'live') return;
     const key = normalizeTvKey(event);
     const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-tv-header-kind]');
-    if (!target) return;
+    if (!target || !target.closest('header')) return;
 
-    if (key === 'ArrowUp' || key === 'ArrowDown') {
+    if (key === 'ArrowUp') {
       event.preventDefault();
       event.stopPropagation();
-      if (key === 'ArrowDown' && target.dataset.tvHeaderKind === 'settings') {
+      return;
+    }
+
+    if (key === 'ArrowDown') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (target.dataset.tvHeaderKind === 'settings') {
         document.querySelector<HTMLElement>('[data-tv-folders] [data-tv-folder]')?.focus({ preventScroll: true });
       }
       return;
     }
 
     if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
+
     const items = Array.from(
-      target.closest('header')?.querySelectorAll<HTMLElement>('[data-tv-header-kind]') || []
-    ).filter((item) => item.getClientRects().length > 0)
-      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+      target.closest('header')!.querySelectorAll<HTMLElement>('[data-tv-header-kind]')
+    )
+      .filter((item) => item.getClientRects().length > 0 && !item.hasAttribute('disabled'))
+      .sort((a, b) => {
+        const aRect = a.getBoundingClientRect();
+        const bRect = b.getBoundingClientRect();
+        return (aRect.left + aRect.width / 2) - (bRect.left + bRect.width / 2);
+      });
+
     const index = items.indexOf(target);
     const next = items[index + (key === 'ArrowRight' ? 1 : -1)];
-    if (!next) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
     event.preventDefault();
     event.stopPropagation();
-    next.focus({ preventScroll: true });
+    if (next) next.focus({ preventScroll: true });
   };
 
   return (
