@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { FavoriteFolder } from '../types/iptv';
-import { X, FolderPlus, Check, Shuffle } from 'lucide-react';
+import { FolderPlus, Check, Shuffle } from 'lucide-react';
 
 interface ChannelOrderModalProps {
   isOpen: boolean;
@@ -101,9 +101,6 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
             <FolderPlus className="w-5 h-5 text-amber-400" />
             <h2 className="text-base font-black text-white">{channelToFavoriteId && !isCreatingFolder ? 'KEDVENC MAPPA KIVÁLASZTÁSA' : channelToFavoriteId ? 'KEDVENC MAPPA LÉTREHOZÁSA' : 'ÚJ KEDVENC MAPPA'}</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Bezárás" className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-300">
-            <X className="w-5 h-5" />
-          </button>
         </div>
 
         {channelToFavoriteId && !isCreatingFolder ? (
