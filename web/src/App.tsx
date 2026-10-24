@@ -2372,6 +2372,7 @@ export function App() {
         és a lejátszó átfedése rejti el; a mount/unmount nem kell hozzá.
       */}
       <Header
+        mirrorLayout={settings.mirrorLayout}
         liveAccent={liveAccent}
         clockOffsetHours={settings.clockOffsetHours}
         activeView={activeView}
