@@ -174,7 +174,7 @@ export interface AppSettings {
   bufferMode: BufferMode;
   /** Lejátszómotor a Rendszer menüből; a választás mentésre kerül. */
   playerEngine: PlayerEngine;
-  /** Élő adás elsőként próbált formátuma; hiba esetén egyszer a másik is kipróbálható. */
+  /** Élő adás alapformátuma; csatornánként megjegyezzük a sikeres formátumot, hiba esetén négy indítási próbálkozás fut. */
   streamFormat: LiveStreamFormat;
   /**
    * Hogyan kérjük le a csatornalistát a szolgáltatótól.
