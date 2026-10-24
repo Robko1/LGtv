@@ -277,8 +277,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     }
     if (folder) {
       if (target.closest('button[title="Mappa törlése"]')) {
-        if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft') focus(folder);
-        else block();
+        if (key === 'ArrowLeft' || key === 'ArrowUp') focus(folder);
+        else block(); // Jobbra és lefelé a Törlés gombon maradunk: nem léphet ki a mappából.
         return true;
       }
       const folderIndex = folders.indexOf(folder);
