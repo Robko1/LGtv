@@ -998,9 +998,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       event.preventDefault();
                       event.stopPropagation();
                       const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-                      const next = current < 0
-                        ? (settings.streamFormat === 'hls' ? 1 : 0)
-                        : (current + (key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+                      const next = key === 'ArrowRight' ? 1 : 0;
                       buttons[next]?.focus({ preventScroll: true });
                     } else if (key === 'Enter' && event.target === event.currentTarget) {
                       event.preventDefault();
@@ -1057,7 +1055,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onUpdateSettings({ streamFormat: 'ts' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'text-cyan-300 border border-cyan-400/70' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'bg-blue-600 text-white border border-blue-400' : 'bg-[#0e1f3f] text-white border border-slate-700/60 hover:bg-[#142b56]'}`}
                       aria-pressed={(settings.streamFormat || 'ts') === 'ts'}
                     >
                       MPEG-TS (.ts)
@@ -1065,7 +1063,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onUpdateSettings({ streamFormat: 'hls' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${settings.streamFormat === 'hls' ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${settings.streamFormat === 'hls' ? 'bg-blue-600 text-white border border-blue-400' : 'bg-[#0e1f3f] text-white border border-slate-700/60 hover:bg-[#142b56]'}`}
                       aria-pressed={settings.streamFormat === 'hls'}
                     >
                       HLS (.m3u8)
@@ -1279,7 +1277,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       } else if (key === 'ArrowUp') {
                         event.preventDefault();
                         event.stopPropagation();
-                        modalRef.current?.querySelector<HTMLElement>('[data-system-bottom-box]')?.focus({ preventScroll: true } as any);
+                        modalRef.current?.querySelector<HTMLElement>('[data-system-app-box]')?.focus({ preventScroll: true } as any);
                       } else if (key === 'ArrowDown') {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1302,7 +1300,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* App Brand Badge */}
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-[#0e1e3e] border border-cyan-800/40">
+                <div data-system-app-box="" tabIndex={0} className="flex items-center gap-3 p-3 rounded-xl bg-[#0e1e3e] border border-cyan-800/40 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <div className="w-12 h-12 rounded-xl bg-[#071124] border border-cyan-800/40 flex items-center justify-center overflow-hidden shadow-lg shadow-blue-500/20">
                     <img
                       src={APP_ICON_DATA_URL}
@@ -1322,10 +1320,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           if (key === 'ArrowLeft' || key === 'ArrowRight') {
                             event.preventDefault();
                             event.stopPropagation();
-                          } else if (key === 'ArrowDown' && showVersionHistory) {
+                            modalRef.current?.querySelector<HTMLElement>('[data-system-app-box]')?.focus({ preventScroll: true } as any);
+                          } else if (key === 'ArrowUp') {
                             event.preventDefault();
                             event.stopPropagation();
-                            modalRef.current?.querySelector<HTMLElement>('[data-version-history-item]')?.focus({ preventScroll: true } as any);
+                            modalRef.current?.querySelector<HTMLElement>('[data-system-refresh]')?.focus({ preventScroll: true } as any);
                           }
                         }}
                         onClick={() => setShowVersionHistory((value) => !value)}
@@ -1343,28 +1342,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
 
                 {showVersionHistory && (
-                  <div data-version-history="" className="max-h-[42vh] overflow-y-auto overscroll-contain p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5" onKeyDown={(event) => {
-                    const key = normalizeTvKey(event);
-                    if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[data-version-history-item]'));
-                    const current = items.indexOf(document.activeElement as HTMLElement);
-                    const next = key === 'ArrowDown' ? Math.min(items.length - 1, current + 1) : Math.max(0, current - 1);
-                    if (items[next]) {
-                      items[next].focus({ preventScroll: true } as any);
-                      items[next].scrollIntoView({ block: 'nearest', behavior: 'auto' });
-                    } else if (key === 'ArrowUp') {
-                      modalRef.current?.querySelector<HTMLElement>('[data-system-version]')?.focus({ preventScroll: true } as any);
-                    }
-                  }}>
+                  <div data-version-history="" className="max-h-[42vh] overflow-y-auto overscroll-contain p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black text-amber-400">WEB VERZIÓELŐZMÉNYEK</span>
                       <span className="text-[10px] text-slate-500">automatikus</span>
                     </div>
                     <div className="space-y-2.5">
                       {WEB_VERSION_HISTORY.map((entry) => (
-                        <div key={entry.version} data-version-history-item="" tabIndex={0} className="rounded-lg bg-slate-950/50 border border-slate-800 p-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                        <div key={entry.version} className="rounded-lg bg-slate-950/50 border border-slate-800 p-2.5">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-black text-white">v{entry.version}</span>
                             <span className="text-[10px] text-slate-500">{entry.date}</span>
@@ -1410,18 +1395,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* Látható lezárás: innen nincs tovább lefelé */}
-              <div data-system-bottom-box="" tabIndex={0} onKeyDown={(event) => {
-                const key = normalizeTvKey(event);
-                if (key === 'Enter' || key === ' ') {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  modalRef.current?.querySelector<HTMLElement>('[data-system-refresh]')?.focus({ preventScroll: true } as any);
-                } else if (key === 'ArrowDown') {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  modalRef.current?.querySelector<HTMLElement>('[data-system-refresh]')?.focus({ preventScroll: true } as any);
-                }
-              }} className="rounded-2xl border-2 border-dashed border-cyan-900/70 py-3 text-center text-[11px] font-bold tracking-widest text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <div aria-hidden="true" className="sticky bottom-0 z-10 rounded-2xl border-2 border-dashed border-cyan-900/70 bg-[#071124] py-3 text-center text-[11px] font-bold tracking-widest text-slate-500 pointer-events-none">
                 ─── A BEÁLLÍTÁSOK VÉGE ───
               </div>
             </div>
