@@ -30,6 +30,11 @@ let saveTimer: number | null = null;
 let measurementStartedAt = Date.now();
 const measurementCounters = { logLines: 0, errors: 0, longTasks: 0, critical: 0 };
 
+// A QR-napló Frissítés gombja után csak a csatornaváltási teszthez szükséges
+// események maradnak meg; a felirat/EPG/OSD és egyéb általános naplózás kimarad.
+let focusedPlaybackTestLogging = false;
+const PLAYBACK_TEST_LOG = /csatornaváltás|formátum|zap-őr|stream adatérkezés|hangdiag|lejátszásindít|első képkocka|hosszú feladat|összeomlás|kezeletlen ígérethiba|leállás|mérés|figyelő elindult|oldal elhagyása|háttérbe került|hibaállapot törlése/i;
+
 /** A napló minden abszolút időpontját az ír időzónában írjuk ki, explicit UTC-eltolással. */
 function dublinTimestamp(at: number = Date.now()): string {
   // A TV órája egy órával késik; ezt kizárólag a napló időbélyegén korrigáljuk.
@@ -175,9 +180,10 @@ export function clearAppLog(): void {
 
 /** Egy sor hozzáadása a webes naplóhoz. */
 export function appLog(message: string): void {
+  const safe = String(message ?? '').replace(/\s+/g, ' ');
+  if (focusedPlaybackTestLogging && !PLAYBACK_TEST_LOG.test(safe)) return;
   restore();
   measurementCounters.logLines += 1;
-  const safe = String(message ?? '').replace(/\s+/g, ' ');
   const restartNotice = `${nowStamp()} NAPLÓKERET ELÉRVE: 1 MB; a naplózás újrakezdődött.`;
   let line = `${nowStamp()} ${safe}`;
   // Egyetlen rendkívül hosszú esemény sem lépheti túl a teljes keretet.
@@ -298,6 +304,7 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
   // a tartós naplótárból is törlődnek. A 24 órás automatikus megőrzési szabály
   // ettől függetlenül változatlan marad a normál naplózás során.
   const startedAt = Date.now();
+  focusedPlaybackTestLogging = true;
   clearAppLog();
   measurementStartedAt = startedAt;
   measurementCounters.logLines = 0;
@@ -307,7 +314,6 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
 
   // Az idővonal és a hosszú feladatok ritkítási ablaka is ettől az időponttól indul.
   try {
-    lastTimelineAt = startedAt;
     lastLongTaskAt = 0;
     lastTickAt = startedAt;
   } catch {
@@ -340,7 +346,6 @@ export function getAppLogText(): string {
 export function logStartup(version: string = DEFAULT_APP_VERSION): void {
   appLog(`=== IPTV indul; verzió=${version}; felület=${location.href.split('/').pop() || ''} ===`);
   appLog(`Eszköz: ${navigator.userAgent}`);
-  logMemory('indulás');
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -420,12 +425,10 @@ export function uiStateSnapshot(): string {
 
 let watchdogStarted = false;
 let lastTickAt = 0;
-let lastTimelineAt = 0;
 let lastLongTaskAt = 0;
 /** Ennél hosszabb kimaradás = a fő szál állt (TV-n ez már látható fagyás). */
 const STALL_MS = 2500;
 /** Idővonal-sorok közötti idő (memória + állapot). */
-const TIMELINE_MS = 15000;
 
 /**
  * Futásidejű fagyásfigyelő. 1 másodpercenként „szívverést” mér: ha a fő szál
@@ -437,7 +440,6 @@ export function startRuntimeWatchdog(): void {
   if (watchdogStarted) return;
   watchdogStarted = true;
   lastTickAt = Date.now();
-  lastTimelineAt = lastTickAt;
 
   const tick = () => {
     const now = Date.now();
@@ -445,13 +447,6 @@ export function startRuntimeWatchdog(): void {
     lastTickAt = now;
     if (gap >= STALL_MS) {
       appLogCritical(`LEÁLLÁS: a fő szál ${gap} ms-ig nem futott (várt: 1000 ms). ${uiStateSnapshot()}`);
-    }
-    if (now - lastTimelineAt >= TIMELINE_MS) {
-      lastTimelineAt = now;
-      // Sorként minden 15 mp-ben rögzítjük, de a tárolóba csak ~30 mp-enként
-      // írjuk ki (a webOS szinkron localStorage-írása ne akassza meg a képet).
-      appLog(`IDŐVONAL: ${memorySnapshot()}; ${uiStateSnapshot()}`);
-      persistNow();
     }
   };
   try {
@@ -484,7 +479,7 @@ export function startRuntimeWatchdog(): void {
     /* a motor nem támogatja a longtask mérést */
   }
 
-  appLogCritical(`FIGYELŐ ELINDULT; ${memorySnapshot()}; ${uiStateSnapshot()}`);
+  appLogCritical('FIGYELŐ ELINDULT; csatornaváltási tesztmérés; főszál-fagyás és JS-hibák figyelése.');
 }
 
 /**
