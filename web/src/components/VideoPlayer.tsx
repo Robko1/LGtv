@@ -3477,8 +3477,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {/* A kék óra teljes képernyőn mindig a jobb felső sarokhoz igazodik. */}
-      {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
+      {/* A teljes képernyős kék óra minden lejátszási módban kizárólag a Rendszer > Kék óra kapcsolóval vezérelhető. */}
+      {settings.alwaysShowBlueClock && isFullscreen && (
         <BlueClock
           accent="blue"
           offsetHours={settings.clockOffsetHours}
