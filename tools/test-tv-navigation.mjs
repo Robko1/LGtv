@@ -518,6 +518,9 @@ test('8. a globális webOS navigáció nem írja felül a Kedvencek vízszintes 
     deleteButton.focus();
     press(dom.window, 'ArrowRight', 39);
     assert.equal(doc.activeElement, deleteButton, 'Törlésről jobbra nem lehet kilépni a dobozból');
+    deleteButton.focus();
+    press(dom.window, 'ArrowDown', 40);
+    assert.equal(doc.activeElement, deleteButton, 'Törlésről lefelé sem lehet kilépni a mappából');
   } finally {
     dom.window.close();
   }
