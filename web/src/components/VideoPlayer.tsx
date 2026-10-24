@@ -668,10 +668,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (nextIndex === 1) {
           appLog(`FORMÁTUM-VISSZAESÉS; csatorna=${channelName}; ${nextFormat === 'hls' ? 'HLS (.m3u8)' : 'MPEG-TS (.ts)'} próba következik.`);
         }
+        // Pontosan 1 másodpercet várunk az élő adás következő formátumpróbája előtt.
         autoRetryTimerRef.current = window.setTimeout(() => {
           autoRetryTimerRef.current = null;
           retryStreamRef.current?.();
-        }, bufferTiming().retryMs);
+        }, 1000);
         return;
       }
       const failedChannel = channelRef.current;
