@@ -63,6 +63,8 @@ export const storageService = {
         }
         localStorage.setItem(SUBTITLE_DEFAULT_MIGRATION_KEY, '1');
       }
+      // A csatornaváltás ne várjon külön késleltetésre.
+      settings.zappingDelay = 0;
       // Utolsó csatorna indításkor mindig bekapcsolva, de nem látható a menüben
       settings.autoPlayLastChannel = true;
       // Képarány mindig fill (nyújtás), de nem látható a menüben – állóban 16:9 keret, fekvőben teljes
