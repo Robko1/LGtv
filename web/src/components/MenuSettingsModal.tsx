@@ -192,7 +192,114 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     modalRef.current?.querySelector<HTMLElement>(`[data-tv-tabid="${next}"]`)?.focus({ preventScroll: true } as any);
   };
 
+  // A Kedvencek fül minden távirányítós nyílkezelése itt van központosítva.
+  // A kártyákon és gombokon nincs külön nyílkezelő, így nem írhatják felül egymást.
+  const handleFavoritesNavigation = (e: React.KeyboardEvent): boolean => {
+    const key = normalizeTvKey(e);
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return false;
+    const root = modalRef.current;
+    if (!root) return false;
+    const target = e.target as HTMLElement;
+    const folder = target.closest<HTMLElement>('[data-favorite-folder]');
+    const channel = target.closest<HTMLElement>('[data-favorite-channel]');
+    const resumeSection = target.closest<HTMLElement>('[data-resume-section]');
+    const resumeItem = target.closest<HTMLElement>('[data-resume-item]');
+    const isNewFolder = !!target.closest('[data-tv-default]');
+    const focus = (el?: HTMLElement | null) => {
+      if (!el) return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.focus({ preventScroll: true } as any);
+      el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    };
+    const block = () => { e.preventDefault(); e.stopPropagation(); };
+    const folders = Array.from(root.querySelectorAll<HTMLElement>('[data-favorite-folder]')).filter(el => el.offsetParent !== null);
+    const channels = folder ? Array.from(folder.querySelectorAll<HTMLElement>('[data-favorite-channel]')) : [];
+    const resumeItems = Array.from(root.querySelectorAll<HTMLElement>('[data-resume-item]'));
+    const continueButton = (row: HTMLElement) => row.querySelector<HTMLElement>('[data-resume-continue]');
+    const removeButton = (row: HTMLElement) => row.querySelector<HTMLElement>('[data-resume-remove]');
+    const currentResumeButton = target.closest<HTMLElement>('[data-resume-continue], [data-resume-remove]');
+
+    if (isNewFolder) {
+      if (key === 'ArrowUp') focus(root.querySelector<HTMLElement>('[data-tv-tabid="favorites"]'));
+      else if (key === 'ArrowDown') focus(folders[0] || root.querySelector<HTMLElement>('[data-resume-section]'));
+      else block();
+      return true;
+    }
+    if (channel) {
+      const index = channels.indexOf(channel);
+      if (target.closest('[title="Eltávolítás a kedvenc mappából"]')) {
+        if (key === 'ArrowLeft') focus(channel);
+        else if (key === 'ArrowUp') {
+          if (index > 0) focus(channels[index - 1].querySelector<HTMLElement>('[title="Eltávolítás a kedvenc mappából"]'));
+          else focus(folder);
+        } else if (key === 'ArrowDown') {
+          if (index < channels.length - 1) focus(channels[index + 1].querySelector<HTMLElement>('[title="Eltávolítás a kedvenc mappából"]'));
+          else focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+        } else block();
+        return true;
+      }
+      if (key === 'ArrowUp') {
+        if (index === 0) { setExpandedFavoriteFolderId(null); focus(folder); }
+        else focus(channels[index - 1]);
+      } else if (key === 'ArrowDown') {
+        if (index < channels.length - 1) focus(channels[index + 1]);
+        else focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+      } else if (key === 'ArrowRight') focus(channel.querySelector<HTMLElement>('[title="Eltávolítás a kedvenc mappából"]'));
+      else if (key === 'ArrowLeft') focus(folder);
+      return true;
+    }
+    if (folder) {
+      if (target.closest('button[title="Mappa törlése"]')) {
+        if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft') focus(folder);
+        else block();
+        return true;
+      }
+      if (key === 'ArrowUp') {
+        const index = folders.indexOf(folder);
+        focus(index > 0 ? folders[index - 1] : root.querySelector<HTMLElement>('[data-tv-default]'));
+      } else if (key === 'ArrowDown') {
+        const index = folders.indexOf(folder);
+        focus(index < folders.length - 1 ? folders[index + 1] : root.querySelector<HTMLElement>('[data-resume-section]'));
+      } else block();
+      return true;
+    }
+    if (currentResumeButton && resumeItem) {
+      const index = resumeItems.indexOf(resumeItem);
+      const isRemove = currentResumeButton.hasAttribute('data-resume-remove');
+      if (key === 'ArrowLeft') {
+        if (isRemove) focus(continueButton(resumeItem)); else block();
+      } else if (key === 'ArrowRight') {
+        if (!isRemove) focus(removeButton(resumeItem)); else block();
+      } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+        const next = index + (key === 'ArrowDown' ? 1 : -1);
+        if (next >= 0 && next < resumeItems.length) focus(isRemove ? removeButton(resumeItems[next]) : continueButton(resumeItems[next]));
+        else if (key === 'ArrowUp') focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+        else block();
+      }
+      return true;
+    }
+    if (resumeItem) {
+      if (key === 'ArrowUp' || key === 'ArrowDown') {
+        const index = resumeItems.indexOf(resumeItem);
+        const next = index + (key === 'ArrowDown' ? 1 : -1);
+        if (next >= 0 && next < resumeItems.length) focus(continueButton(resumeItems[next]));
+        else if (key === 'ArrowUp') focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+        else block();
+      } else block();
+      return true;
+    }
+    if (resumeSection) {
+      if (key === 'ArrowDown') focus(root.querySelector<HTMLElement>('[data-resume-continue]'));
+      else if (key === 'ArrowUp') focus(folders[folders.length - 1] || root.querySelector<HTMLElement>('[data-tv-default]'));
+      else block();
+      return true;
+    }
+    return false;
+  };
+
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
+    if (activeTab === 'favorites' && handleFavoritesNavigation(e)) return;
     // A fel/le navigáció mindig az éppen aktív fülön belül marad.
     // Csak az adott fül legfelső dobozáról lehet visszalépni a saját fülére.
     const key = normalizeTvKey(e);
@@ -547,15 +654,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   Kedvenc Mappák
                 </h3>
                 <button
-                  data-tv-default=""
-                  onKeyDown={(event) => {
-                    const key = normalizeTvKey(event);
-                    if (key === 'ArrowLeft' || key === 'ArrowRight') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }
-                  }}
-                  onClick={onOpenAddFolder}
+                  data-tv-default=""onClick={onOpenAddFolder}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
                 >
                   <FolderPlus className="w-4 h-4 stroke-[3]" />
@@ -577,20 +676,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     .filter((channel): channel is Channel => Boolean(channel));
                   const expanded = expandedFavoriteFolderId === f.id;
                   return (
-                    <div key={f.id} data-favorite-folder={f.id} tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) return;
-                        const key = normalizeTvKey(event);
-                        if (key === 'Enter' || key === ' ') {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          event.currentTarget.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus({ preventScroll: true } as any);
-                        } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }
-                      }}
-                      className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber-400 focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
+                    <div key={f.id} data-favorite-folder={f.id} tabIndex={0}className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber-400 focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
                       <div className="p-3.5 flex items-center justify-between gap-3">
                         <div
                           aria-hidden="true"
@@ -602,34 +688,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             <p className="text-xs text-slate-400 font-medium">{folderChannels.length} csatorna</p>
                           </div>
                         </div>
-                        <button
-                          onKeyDown={(event) => {
-                            const key = normalizeTvKey(event);
-                            if (key === 'ArrowUp' || key === 'ArrowDown') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.focus({ preventScroll: true } as any);
-                            } else if (key === 'ArrowLeft') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.focus({ preventScroll: true } as any);
-                            } else if (key === 'ArrowRight') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                            } else if (key === 'Enter' || key === ' ') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              onDeleteFolder(f.id);
-                              setPendingDeleteFolderId(null);
-                              if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
-                              window.setTimeout(() => {
-                                const folders = Array.from(modalRef.current?.querySelectorAll<HTMLElement>('[data-favorite-folder]') || []);
-                                const index = folders.findIndex((folder) => folder.dataset.favoriteFolder === f.id);
-                                (folders[index + 1] || folders[index - 1] || modalRef.current?.querySelector<HTMLElement>('[data-tv-default]'))?.focus({ preventScroll: true } as any);
-                              }, 0);
-                            }
-                          }}
-                          onClick={() => {
+                        <buttononClick={() => {
                             onDeleteFolder(f.id);
                             setPendingDeleteFolderId(null);
                             if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
@@ -678,36 +737,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                               <div
                                 key={channel.id}
                                 data-favorite-channel={channel.id}
-                                tabIndex={0}
-                                onKeyDown={(event) => {
-                                  if (event.target !== event.currentTarget) return;
-                                  const key = normalizeTvKey(event);
-                                  if (key === 'ArrowUp') {
-                                    if (index === 0) {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
-                                      setExpandedFavoriteFolderId(null);
-                                      folderElement?.focus({ preventScroll: true } as any);
-                                    } else {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[data-favorite-channel]')[index - 1]?.focus({ preventScroll: true } as any);
-                                    }
-                                  } else if (key === 'ArrowDown') {
-                                    const rows = event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[data-favorite-channel]');
-                                    if (rows && index < rows.length - 1) {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      rows[index + 1]?.focus({ preventScroll: true } as any);
-                                    }
-                                  } else if (key === 'ArrowRight') {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    event.currentTarget.querySelector<HTMLElement>('button[title="Eltávolítás a kedvenc mappából"]')?.focus();
-                                  }
-                                }}
-                                onContextMenu={(event) => event.preventDefault()}
+                                tabIndex={0}onContextMenu={(event) => event.preventDefault()}
                                 className="flex items-center gap-2 rounded-xl p-2 border transition-colors bg-[#09152b] border-slate-700"
                               >
                                 <div className="w-9 h-7 rounded-md bg-black/20 border border-slate-700 p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
@@ -719,32 +749,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 </div>
 
                                 <button
-                                  type="button"
-                                  onKeyDown={(event) => {
-                                    const key = normalizeTvKey(event);
-                                    if (key === 'ArrowLeft') {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      event.currentTarget.closest<HTMLElement>('[data-favorite-channel]')?.focus({ preventScroll: true } as any);
-                                    } else if (key === 'ArrowUp' || key === 'ArrowDown') {
-                                      const rows = Array.from(event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.querySelectorAll<HTMLElement>('[data-favorite-channel]') || []);
-                                      const row = event.currentTarget.closest<HTMLElement>('[data-favorite-channel]');
-                                      const index = rows.indexOf(row as HTMLElement);
-                                      const next = key === 'ArrowUp' ? index - 1 : index + 1;
-                                      if (key === 'ArrowUp' && index === 0) {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
-                                        setExpandedFavoriteFolderId(null);
-                                        folderElement?.focus({ preventScroll: true } as any);
-                                      } else if (next >= 0 && next < rows.length) {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        rows[next]?.querySelector<HTMLElement>('button[title="Eltávolítás a kedvenc mappából"]')?.focus({ preventScroll: true } as any);
-                                      }
-                                    }
-                                  }}
-                                  onPointerDown={(event) => event.stopPropagation()}
+                                  type="button"onPointerDown={(event) => event.stopPropagation()}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
@@ -767,19 +772,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* Folytatás: a félbehagyott filmek és sorozatrészek listája */}
-              <section data-tv-box="" data-resume-section="" tabIndex={0}
-                onKeyDown={(event) => {
-                  const key = normalizeTvKey(event);
-                  if (key === 'ArrowLeft' || key === 'ArrowRight') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  } else if (key === 'Enter' || key === ' ') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    event.currentTarget.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
-                  }
-                }}
-                className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <section data-tv-box="" data-resume-section="" tabIndex={0}className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 shrink-0 rounded-xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center">
                     <Play className="w-5 h-5 text-cyan-300 fill-cyan-300" />
@@ -804,58 +797,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         <div
                           key={item.id}
                           role="group"
-                          data-resume-item={item.id}
-                          onKeyDown={(event) => {
-                            const key = normalizeTvKey(event);
-                            const row = event.currentTarget;
-                            const items = Array.from(row.parentElement?.querySelectorAll<HTMLElement>('[data-resume-item]') || []);
-                            const continueButton = row.querySelector<HTMLElement>('[data-resume-continue]');
-                            const removeButton = row.querySelector<HTMLElement>('[data-resume-remove]');
-                            const onContinue = !!(event.target as HTMLElement).closest('[data-resume-continue]');
-                            const onRemove = !!(event.target as HTMLElement).closest('[data-resume-remove]');
-                            if (key === 'Enter' || key === ' ') {
-                              if (event.target === row) {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                if (resumableHistory[itemIndex]) {
-                                  onContinueWatching(resumableHistory[itemIndex]);
-                                  onClose();
-                                }
-                              }
-                            } else if (key === 'ArrowRight') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              if (onRemove) continueButton?.focus({ preventScroll: true } as any);
-                              else removeButton?.focus({ preventScroll: true } as any);
-                            } else if (key === 'ArrowLeft') {
-                              if (onRemove) {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                continueButton?.focus({ preventScroll: true } as any);
-                              } else if (onContinue) {
-                                event.preventDefault();
-                                event.stopPropagation();
-                              }
-                            } else if (key === 'ArrowUp' || key === 'ArrowDown') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              if (onRemove) {
-                                continueButton?.focus({ preventScroll: true } as any);
-                              } else {
-                                const nextIndex = itemIndex + (key === 'ArrowDown' ? 1 : -1);
-                                if (nextIndex < 0) {
-                                  modalRef.current?.querySelector<HTMLElement>('[data-resume-section]')?.focus({ preventScroll: true } as any);
-                                } else {
-                                  items[nextIndex]?.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
-                                }
-                              }
-                            } else if (key === 'Escape' || key === 'Backspace') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              continueButton?.focus({ preventScroll: true } as any);
-                            }
-                          }}
-                          className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3">
+                          data-resume-item={item.id}className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3">
                           <div className="flex items-center gap-3">
                             <div className="w-14 h-[72px] shrink-0 rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
                               {item.poster ? (
@@ -879,41 +821,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           </div>
                           <div className="grid grid-cols-[1fr_auto] gap-2 mt-3">
                             <button
-                              data-resume-continue=""
-                              onKeyDown={(event) => {
-                                const key = normalizeTvKey(event);
-                                if (key === 'ArrowLeft' || key === 'ArrowRight') {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  if (key === 'ArrowRight') event.currentTarget.closest<HTMLElement>('[data-resume-item]')?.querySelector<HTMLElement>('[data-resume-remove]')?.focus({ preventScroll: true } as any);
-                                } else if (key === 'ArrowUp' || key === 'ArrowDown') {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  const row = event.currentTarget.closest<HTMLElement>('[data-resume-item]');
-                                  const rows = Array.from(row?.parentElement?.querySelectorAll<HTMLElement>('[data-resume-item]') || []);
-                                  const index = rows.indexOf(row as HTMLElement);
-                                  const next = index + (key === 'ArrowDown' ? 1 : -1);
-                                  if (next >= 0 && next < rows.length) rows[next].querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
-                                  else if (key === 'ArrowUp') modalRef.current?.querySelector<HTMLElement>('[data-resume-section]')?.focus({ preventScroll: true } as any);
-                                }
-                              }}
-                              onClick={() => { onContinueWatching(item); onClose(); }}
+                              data-resume-continue=""onClick={() => { onContinueWatching(item); onClose(); }}
                               className="min-h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black shadow-md shadow-blue-950/40 active:scale-[0.99] transition-all"
                             >
                               <Play className="w-4 h-4 fill-current" />
                               Folytatás
                             </button>
                             <button
-                              data-resume-remove=""
-                              onKeyDown={(event) => {
-                                const key = normalizeTvKey(event);
-                                if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  event.currentTarget.closest<HTMLElement>('[data-resume-item]')?.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
-                                }
-                              }}
-                              onClick={(event) => {
+                              data-resume-remove=""onClick={(event) => {
                                 onRemoveWatchHistoryItem(item.id);
                                 // Törlés után ne ugorjon át automatikusan egy másik filmre.
                                 // A Folytatás szekció maradjon kijelölve.
