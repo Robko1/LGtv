@@ -582,6 +582,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * támogatott AVPlay-szerű JavaScript videó-API. A régi „native” beállítás
    * kompatibilitásból megmarad, de nem jelent külön lejátszási útvonalat.
    */
+  const playerEngine: 'html5' = 'html5';
   /** Az éppen kiválasztott csatorna (a hibakezeléshez, dependency nélkül). */
   const channelRef = useRef<typeof channel>(channel);
   channelRef.current = channel;
