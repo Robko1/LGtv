@@ -742,7 +742,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     setExpandedFavoriteFolderId(null);
                                             window.setTimeout(() => folderElement?.focus({ preventScroll: true } as any), 0);
                                   }}
-                                  className="p-1.5 rounded-xl text-amber-400 hover:text-amber-300 active:scale-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300"
+                                  className="shrink-0 flex items-center justify-center w-8 h-8 rounded-xl border transition-all bg-amber-400/20 text-amber-300 border-amber-400/50 active:scale-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300"
                                   title="Eltávolítás a kedvenc mappából"
                                   aria-label={`${channel.name} eltávolítása a kedvenc mappából`}
                                 ><Star className="w-4 h-4 fill-amber-400" /></button>
