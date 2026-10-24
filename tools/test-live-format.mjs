@@ -92,14 +92,23 @@ const {
 const playerSource = fs.readFileSync(path.resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
 const settingsSource = fs.readFileSync(path.resolve('web/src/components/MenuSettingsModal.tsx'), 'utf8');
 
-check(playerSource.includes('const primaryUrl = isVod ? streamUrl : tsUrl;'),
-  'élő adásnál az MPEG-TS az első próba, VOD-nál az eredeti cím marad');
-check(!playerSource.includes('const primaryFormat = rememberedFormat || selectedFormat'),
-  'a régi formátum-emlékezet nem írhatja felül a kézi választást');
+check(playerSource.includes("const primaryUrl = isVod ? streamUrl : (channelMemory === 'hls' ? hlsUrl : tsUrl);"),
+  'élő adásnál a korábban sikeres csatornaformátum az első próba, emlék nélkül MPEG-TS');
+check(playerSource.includes('const channelMemory = isVod ? null : rememberedFormatFor(channel?.id);'),
+  'a formátum-emlékezet csatornánként működik, VOD-ra nem hat');
 check(playerSource.includes('const sequence = liveRetrySequenceRef.current;')
   && playerSource.includes('if (nextIndex < sequence.urls.length)')
   && playerSource.includes('[primaryUrl, alternative.url, primaryUrl, alternative.url]'),
   'hiba esetén a négy indítási próba a TS/HLS sorozatot követi');
+check(playerSource.includes('const retryDelayMs = Math.min(100 * (2 ** Math.max(0, nextIndex - 1)), 400);'),
+  'az élő újrapróba rövid, fokozatos késleltetést használ');
+check(playerSource.includes('attemptStartedAt') && playerSource.includes('CSATORNAVÁLTÁS PRÓBA START')
+  && playerSource.includes('teljes-eltelt=') && playerSource.includes('próba-eltelt='),
+  'a napló külön méri a teljes csatornaváltást és az egyes próbálkozásokat');
+check(playerSource.includes('appLogCritical(`CSATORNAVÁLTÁS HIBA;')
+  && playerSource.includes('CSATORNAVÁLTÁS SZINKRON HIBA')
+  && playerSource.includes('LEJÁTSZÁSINDÍTÁSI ÍGÉRET HIBA'),
+  'a streamhibák részletes, azonnali hibasort kapnak');
 check(playerSource.includes('alternativeUrl(primaryUrl)'),
   'a másik TS/HLS URL a formátum-átíró modulból készül');
 check(settingsSource.includes('Első próba: MPEG-TS (.ts).')
