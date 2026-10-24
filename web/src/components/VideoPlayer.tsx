@@ -656,7 +656,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       );
       setIsLoading(false);
       setHasError(true);
-      setErrorMessage('A csatorna MPEG-TS és HLS formátummal sem indult el. Válassz másik csatornát.');
+      setErrorMessage('A csatorna négy indítási próbálkozás után sem indult el. Válassz másik csatornát.');
       return;
     }
     const plan = retryPlanRef.current;
