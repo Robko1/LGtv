@@ -1560,8 +1560,8 @@ export function App() {
         storageService.saveProviders(updatedProviders);
       }
 
-      // Frissítéskor csak a szolgáltatói tartalom változik; a felhasználó kedvencei,
-      // kézi sorrendje és a kedvencmappákhoz tartozó csatornaazonosítók megmaradnak.
+      // Kézi provider-frissítéskor a csatornák sorrendje a szolgáltató sorrendjére áll vissza.
+      // A kedvencjelöléseket és a mappákhoz tartozó stabil csatornaazonosítókat megtartjuk.
       const refreshedChannels = preserveChannelPreferences(content.channels, channels, !manual);
       // A frissítés befejezése sem indíthat másik csatornát: a már nézett
       // csatornát megtartjuk akkor is, ha a szolgáltató friss listájából hiányzik.
