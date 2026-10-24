@@ -525,6 +525,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     firstFrameLogged: boolean;
     lastProgressAt: number;
     lastBufferedEnd: number;
+    summaryLogged: boolean;
   } | null>(null);
   const videoDiagnosticState = (video: HTMLVideoElement, reason: string): string => {
     const rect = video.getBoundingClientRect();
@@ -621,6 +622,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (mode === 'stable') return { watchdogMs: 2999, retryMs: 80 };
     return { watchdogMs: 2000, retryMs: 50 };
   };
+  // Egyetlen lezáró naplósor minden élő csatornaváltásról.
+  const logChannelSwitchSummary = (
+    result: 'SIKERES' | 'SIKERTELEN',
+    reason: string,
+    video?: HTMLVideoElement,
+  ) => {
+    const diagnostic = channelSwitchDiagnosticRef.current;
+    if (!diagnostic || diagnostic.summaryLogged) return;
+    diagnostic.summaryLogged = true;
+    const sequence = liveRetrySequenceRef.current;
+    const triedFormats = sequence.urls
+      .slice(0, Math.max(1, sequence.index + 1))
+      .map((streamUrl) => /\.m3u8(?=([?#]|$))/i.test(streamUrl) ? 'HLS' :
+        /\.ts(?=([?#]|$))/i.test(streamUrl) ? 'MPEG-TS' : 'egyéb')
+      .join(' → ') || 'ismeretlen';
+    const activeFormat = video
+      ? (/\.m3u8(?=([?#]|$))/i.test(video.currentSrc || video.src) ? 'HLS' :
+        /\.ts(?=([?#]|$))/i.test(video.currentSrc || video.src) ? 'MPEG-TS' : 'ismeretlen')
+      : 'nincs';
+    appLog(
+      `CSATORNAVÁLTÁS ÖSSZESÍTÉS; eredmény=${result}; csatorna=${diagnostic.channelName}; idő=${Date.now() - diagnostic.startedAt} ms; próbálkozások=${Math.max(1, sequence.index + 1)}/${Math.max(1, sequence.urls.length)}; próbált-formátumok=${triedFormats}; aktív-formátum=${activeFormat}; ok=${reason}`
+    );
+  };
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
     // Élő TV-n először a kézzel kiválasztott formátum fut; ha az nem indul,
@@ -660,6 +684,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         `MINDKÉT FORMÁTUM SIKERTELEN; csatorna=${String(failedChannel?.name || channelSwitchDiagnosticRef.current?.channelName || 'élő adás').slice(0, 100)}; ` +
         `próbált formátumok=${triedFormats}; a csatorna jelenleg nem indítható. Formátum-emlék törölve.`
       );
+      logChannelSwitchSummary('SIKERTELEN', `minden indítási próba sikertelen; formátumok=${triedFormats}`);
       setIsLoading(false);
       setHasError(true);
       setErrorMessage('A csatorna négy indítási próbálkozás után sem indult el. Válassz másik csatornát.');
@@ -2763,6 +2788,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           firstFrameLogged: false,
           lastProgressAt: 0,
           lastBufferedEnd: 0,
+          summaryLogged: false,
         };
         const channelMemory = rememberedFormatFor(channel?.id);
         appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
@@ -3293,6 +3319,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.completed) {
                   diagnostic.completed = true;
                   appLog(`CSATORNAVÁLTÁS LEJÁTSZÁS ELINDULT; csatorna=${diagnostic.channelName}; idő=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'playing')}`);
+                  logChannelSwitchSummary('SIKERES', 'a lejátszás elindult', video);
                   appLog(`ERŐFORRÁS-DIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${runtimeDiagnosticState()}`);
                   appLog(`HANGDIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; ${audioDiagnosticState(video)}`);
                 }
