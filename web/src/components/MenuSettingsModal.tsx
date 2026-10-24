@@ -548,6 +548,13 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </h3>
                 <button
                   data-tv-default=""
+                  onKeyDown={(event) => {
+                    const key = normalizeTvKey(event);
+                    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }
+                  }}
                   onClick={onOpenAddFolder}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
                 >
@@ -576,29 +583,29 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         const key = normalizeTvKey(event);
                         if (key === 'Enter' || key === ' ') {
                           event.preventDefault();
-                          const folderElement = event.currentTarget;
-                          setExpandedFavoriteFolderId(expanded ? null : f.id);
-                          if (!expanded) {
-                            window.setTimeout(() => {
-                              folderElement.querySelector<HTMLElement>('[data-favorite-channel]')?.focus({ preventScroll: true } as any);
-                            }, 0);
-                          }
-                        } else if (key === 'ArrowRight') {
+                          event.stopPropagation();
+                          event.currentTarget.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus({ preventScroll: true } as any);
+                        } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
                           event.preventDefault();
                           event.stopPropagation();
-                          event.currentTarget.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus();
-                        } else if (key === 'ArrowDown' && expanded) {
-                          const firstChannel = event.currentTarget.querySelector<HTMLElement>('[data-favorite-channel]');
-                          if (firstChannel) { event.preventDefault(); event.stopPropagation(); firstChannel.focus(); }
                         }
                       }}
                       className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber-400 focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
                       <div className="p-3.5 flex items-center justify-between gap-3">
                         <button
                           type="button"
-                          onClick={() => {
-                            setExpandedFavoriteFolderId(expanded ? null : f.id);
+                          onKeyDown={(event) => {
+                            const key = normalizeTvKey(event);
+                            if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            } else if (key === 'Enter' || key === ' ') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus({ preventScroll: true } as any);
+                            }
                           }}
+                          onClick={() => setExpandedFavoriteFolderId(expanded ? null : f.id)}
                           className="flex items-center gap-3 min-w-0 flex-1 text-left"
                           aria-expanded={expanded}
                         >
@@ -611,19 +618,31 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         <button
                           onKeyDown={(event) => {
                             const key = normalizeTvKey(event);
-                            if (key === 'ArrowUp') {
+                            if (key === 'ArrowUp' || key === 'ArrowDown') {
                               event.preventDefault();
                               event.stopPropagation();
                               event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.focus({ preventScroll: true } as any);
-                            } else if (key === 'ArrowDown') {
-                              const folder = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
-                              const firstChannel = folder?.querySelector<HTMLElement>('[data-favorite-channel]');
+                            } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
                               event.preventDefault();
                               event.stopPropagation();
-                              (firstChannel || folder)?.focus({ preventScroll: true } as any);
+                            } else if (key === 'Enter' || key === ' ') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onDeleteFolder(f.id);
+                              setPendingDeleteFolderId(null);
+                              if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
+                              window.setTimeout(() => {
+                                const folders = Array.from(modalRef.current?.querySelectorAll<HTMLElement>('[data-favorite-folder]') || []);
+                                const index = folders.findIndex((folder) => folder.dataset.favoriteFolder === f.id);
+                                (folders[index + 1] || folders[index - 1] || modalRef.current?.querySelector<HTMLElement>('[data-tv-default]'))?.focus({ preventScroll: true } as any);
+                              }, 0);
                             }
                           }}
-                          onClick={() => setPendingDeleteFolderId(pendingDeleteFolderId === f.id ? null : f.id)}
+                          onClick={() => {
+                            onDeleteFolder(f.id);
+                            setPendingDeleteFolderId(null);
+                            if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
+                          }}
                           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/30 border border-rose-800/50 text-rose-300 hover:bg-rose-900/50 text-xs font-bold shrink-0"
                           title="Mappa törlése"
                         >
@@ -757,7 +776,26 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* Folytatás: a félbehagyott filmek és sorozatrészek listája */}
-              <section data-tv-box="" tabIndex={0} className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <section data-tv-box="" tabIndex={0}
+                onKeyDown={(event) => {
+                  const key = normalizeTvKey(event);
+                  if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  } else if (key === 'Enter' || key === ' ') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (resumableHistory[0]) {
+                      onContinueWatching(resumableHistory[0]);
+                      onClose();
+                    }
+                  } else if (key === 'ArrowDown') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.currentTarget.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
+                  }
+                }}
+                className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 shrink-0 rounded-xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center">
                     <Play className="w-5 h-5 text-cyan-300 fill-cyan-300" />
@@ -790,30 +828,43 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             const items = Array.from(row.parentElement?.querySelectorAll<HTMLElement>('[data-resume-item]') || []);
                             const continueButton = row.querySelector<HTMLElement>('[data-resume-continue]');
                             const removeButton = row.querySelector<HTMLElement>('[data-resume-remove]');
+                            const onContinue = !!(event.target as HTMLElement).closest('[data-resume-continue]');
                             const onRemove = !!(event.target as HTMLElement).closest('[data-resume-remove]');
                             if (key === 'Enter' || key === ' ') {
                               if (event.target === row) {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                continueButton?.focus({ preventScroll: true } as any);
+                                if (resumableHistory[itemIndex]) {
+                                  onContinueWatching(resumableHistory[itemIndex]);
+                                  onClose();
+                                }
                               }
                             } else if (key === 'ArrowRight') {
                               event.preventDefault();
                               event.stopPropagation();
-                              removeButton?.focus({ preventScroll: true } as any);
-                            } else if (key === 'ArrowLeft' && onRemove) {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              continueButton?.focus({ preventScroll: true } as any);
+                              if (onRemove) row.focus({ preventScroll: true } as any);
+                              else removeButton?.focus({ preventScroll: true } as any);
+                            } else if (key === 'ArrowLeft') {
+                              if (onRemove) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                row.focus({ preventScroll: true } as any);
+                              } else if (onContinue) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }
                             } else if (key === 'ArrowUp' || key === 'ArrowDown') {
                               event.preventDefault();
                               event.stopPropagation();
-                              if (key === 'ArrowUp' && onRemove) {
-                                continueButton?.focus({ preventScroll: true } as any);
+                              if (onRemove) {
+                                row.focus({ preventScroll: true } as any);
                               } else {
                                 const nextIndex = itemIndex + (key === 'ArrowDown' ? 1 : -1);
-                                const targetRow = items[nextIndex];
-                                if (targetRow) targetRow.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
+                                if (nextIndex < 0) {
+                                  modalRef.current?.querySelector<HTMLElement>('[data-tv-box]:has([data-resume-item])')?.focus({ preventScroll: true } as any);
+                                } else {
+                                  items[nextIndex]?.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
+                                }
                               }
                             } else if (key === 'Escape' || key === 'Backspace') {
                               event.preventDefault();
@@ -846,6 +897,23 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           <div className="grid grid-cols-[1fr_auto] gap-2 mt-3">
                             <button
                               data-resume-continue=""
+                              onKeyDown={(event) => {
+                                const key = normalizeTvKey(event);
+                                if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  if (key === 'ArrowRight') event.currentTarget.closest<HTMLElement>('[data-resume-item]')?.querySelector<HTMLElement>('[data-resume-remove]')?.focus({ preventScroll: true } as any);
+                                } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  const row = event.currentTarget.closest<HTMLElement>('[data-resume-item]');
+                                  const rows = Array.from(row?.parentElement?.querySelectorAll<HTMLElement>('[data-resume-item]') || []);
+                                  const index = rows.indexOf(row as HTMLElement);
+                                  const next = index + (key === 'ArrowDown' ? 1 : -1);
+                                  if (next >= 0 && next < rows.length) rows[next].querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
+                                  else if (key === 'ArrowUp') modalRef.current?.querySelector<HTMLElement>('[data-tv-box]:has([data-resume-item])')?.focus({ preventScroll: true } as any);
+                                }
+                              }}
                               onClick={() => { onContinueWatching(item); onClose(); }}
                               className="min-h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black shadow-md shadow-blue-950/40 active:scale-[0.99] transition-all"
                             >
@@ -854,6 +922,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             </button>
                             <button
                               data-resume-remove=""
+                              onKeyDown={(event) => {
+                                const key = normalizeTvKey(event);
+                                if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  event.currentTarget.closest<HTMLElement>('[data-resume-item]')?.focus({ preventScroll: true } as any);
+                                }
+                              }}
                               onClick={(event) => {
                                 const row = event.currentTarget.closest<HTMLElement>('[data-resume-item]');
                                 const rows = Array.from(row?.parentElement?.querySelectorAll<HTMLElement>('[data-resume-item]') || []);
