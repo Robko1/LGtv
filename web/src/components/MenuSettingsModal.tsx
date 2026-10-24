@@ -439,7 +439,10 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         if (key === 'ArrowLeft' || key === 'ArrowRight') {
           const index = controls.indexOf(active as HTMLElement);
           if (index < 0) {
-            controls[key === 'ArrowRight' ? 0 : controls.length - 1]?.focus({ preventScroll: true } as any);
+            // A doboz fókuszán a bal nyíl nem nyithatja meg a belső műveleteket;
+            // azokat kizárólag az OK nyitja meg. A jobbra nyíl viselkedése marad.
+            if (key === 'ArrowRight') controls[0]?.focus({ preventScroll: true } as any);
+            return;
           } else {
             const next = index + (key === 'ArrowRight' ? 1 : -1);
             if (next >= 0 && next < controls.length) {
