@@ -20,8 +20,6 @@ interface HeaderProps {
   countryFlag?: string;
   /** A kiválasztott ország neve (tipp szöveghez). */
   countryName?: string;
-  /** A piros gombbal bekapcsolt tükrözés csak a Menü és Országok sorrendjét cseréli fel. */
-  mirrorLayout?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -33,7 +31,6 @@ export const Header: React.FC<HeaderProps> = ({
   clockOffsetHours = 0,
   countryFlag,
   countryName,
-  mirrorLayout = false,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
 
@@ -140,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({
             data-tv-header=""
             data-tv-header-kind="settings"
             onClick={() => onOpenSettings()}
-            className="flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${mirrorLayout ? 'order-first' : 'order-last'}"
+            className="flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer order-last"
             title="Menü"
             aria-label="Menü"
           >
@@ -186,7 +183,7 @@ export const Header: React.FC<HeaderProps> = ({
             data-tv-header=""
             data-tv-header-kind="countries"
             data-country-flag={countryFlag || ''}
-            className="flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer ${mirrorLayout ? 'order-last' : 'order-first'}"
+            className="flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer order-first"
             title={countryName ? `Országok – most: ${countryName}` : 'Országok – kategóriák és csatornalisták'}
           >
             {countryFlag ? (
