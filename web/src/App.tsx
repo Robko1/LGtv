@@ -1044,6 +1044,19 @@ export function App() {
     dirtyRef.current = true;
   }, [folders, handleSaveFolders]);
 
+  const handleAssignChannelsToFolder = useCallback((channelIds: string[], folderId: string) => {
+    const uniqueIds = Array.from(new Set(channelIds));
+    const updatedFolders = folders.map((folder) => folder.id === folderId
+      ? { ...folder, channelIds: Array.from(new Set([...folder.channelIds, ...uniqueIds])) }
+      : folder);
+    handleSaveFolders(updatedFolders);
+    const added = new Set(uniqueIds);
+    setChannels((previous) => previous.map((channel) =>
+      added.has(channel.id) && !channel.isFavorite ? { ...channel, isFavorite: true } : channel
+    ));
+    dirtyRef.current = true;
+  }, [folders, handleSaveFolders]);
+
   // A kukával a kedvenc mappából csak a mappatagságot vesszük ki;
   // az ország/alaplistából törölve a csatorna minden kedvenc mappából is eltűnik.
   const handleDeleteChannel = useCallback((channelId: string) => {
@@ -2660,6 +2673,8 @@ export function App() {
         onClose={() => setIsCategoriesOpen(false)}
         categories={countryCategories}
         channels={channels}
+        folders={folders}
+        onAssignChannelsToFolder={handleAssignChannelsToFolder}
         selectedCategoryId={selectedCategoryId}
         onSelectCategory={(catId) => {
           setSelectedFavoriteFolderId(null);
