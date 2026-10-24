@@ -422,7 +422,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
           return;
         }
-        if (key === 'ArrowUp' || key === 'ArrowDown') return;
+        if (key === 'ArrowUp') {
+          modalRef.current?.querySelector<HTMLElement>('[data-tv-list-action="phone"]')?.focus({ preventScroll: true } as any);
+          return;
+        }
+        if (key === 'ArrowDown') {
+          modalRef.current?.querySelector<HTMLElement>('[data-tv-clear-all]')?.focus({ preventScroll: true } as any);
+          return;
+        }
         if (key === 'ArrowLeft' || key === 'ArrowRight') {
           const index = controls.indexOf(active as HTMLElement);
           if (index < 0) {
@@ -766,6 +773,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               {/* Danger Zone: Clear all lists */}
               {!pendingClearCache ? (
                 <button
+                  data-tv-clear-all=""
                   onClick={() => setPendingClearCache(true)}
                   className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-rose-950/30 hover:bg-rose-950/60 text-rose-300 border border-rose-800/40 text-xs font-bold active:scale-95 transition-all"
                 >
@@ -1123,7 +1131,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onUpdateSettings({ streamFormat: 'ts' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'bg-blue-600 text-white border border-blue-400' : 'bg-[#0e1f3f] text-white border border-slate-700/60 hover:bg-[#142b56]'}`}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'bg-cyan-400 text-slate-950 border border-cyan-300 shadow-md shadow-cyan-400/30' : 'bg-[#0e1f3f] text-white border border-slate-700/60 hover:bg-[#142b56]'}`}
                       aria-pressed={(settings.streamFormat || 'ts') === 'ts'}
                     >
                       MPEG-TS (.ts)
@@ -1317,7 +1325,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* SECTION: LG WEBOS ALKALMAZÁS */}
-              <div data-tv-box="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <div data-tv-box="" data-system-app-container="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <div className="w-full flex items-center justify-between text-left rounded-xl py-1.5">
                   <span className="text-xs font-black text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
                     <Smartphone className="w-5 h-5 shrink-0" />
@@ -1385,14 +1393,18 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         data-system-version=""
                         onKeyDown={(event) => {
                           const key = normalizeTvKey(event);
-                          if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                          if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowDown') {
                             event.preventDefault();
                             event.stopPropagation();
-                            modalRef.current?.querySelector<HTMLElement>('[data-system-app-box]')?.focus({ preventScroll: true } as any);
+                            modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
                           } else if (key === 'ArrowUp') {
                             event.preventDefault();
                             event.stopPropagation();
-                            modalRef.current?.querySelector<HTMLElement>('[data-system-refresh]')?.focus({ preventScroll: true } as any);
+                            modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
+                          } else if (key === 'Enter' || key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setShowVersionHistory((value) => !value);
                           }
                         }}
                         onClick={() => setShowVersionHistory((value) => !value)}
@@ -1410,7 +1422,27 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
 
                 {showVersionHistory && (
-                  <div data-version-history="" className="max-h-[42vh] overflow-y-auto overscroll-contain p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5">
+                  <div data-version-history="" tabIndex={0} onKeyDown={(event) => {
+                    const key = normalizeTvKey(event);
+                    if (key === 'ArrowDown' || key === 'ArrowUp') {
+                      const el = event.currentTarget;
+                      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+                      const atTop = el.scrollTop <= 0;
+                      if ((key === 'ArrowDown' && !atBottom) || (key === 'ArrowUp' && !atTop)) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        el.scrollBy({ top: key === 'ArrowDown' ? 100 : -100, behavior: 'auto' });
+                      } else {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
+                      }
+                    } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
+                    }
+                  }} className="max-h-[42vh] overflow-y-auto overscroll-contain p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black text-amber-400">WEB VERZIÓELŐZMÉNYEK</span>
                       <span className="text-[10px] text-slate-500">automatikus</span>
@@ -1462,10 +1494,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 )}
               </div>
 
-              {/* Látható lezárás: innen nincs tovább lefelé */}
-              <div aria-hidden="true" className="sticky bottom-0 z-10 rounded-2xl border-2 border-dashed border-cyan-900/70 bg-[#071124] py-3 text-center text-[11px] font-bold tracking-widest text-slate-500 pointer-events-none">
-                ─── A BEÁLLÍTÁSOK VÉGE ───
-              </div>
             </div>
           )}
         </div>
