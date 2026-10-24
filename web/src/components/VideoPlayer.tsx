@@ -641,7 +641,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setErrorMessage('');
         setIsLoading(true);
         setIsPlaying(false);
-        appLog(`AUTOMATIKUS FORMÁTUMPRÓBA; csatorna=${channelName}; próbálkozás=${nextIndex + 1}/${sequence.urls.length}; formátum=${nextFormat === 'hls' ? 'HLS' : nextFormat === 'ts' ? 'MPEG-TS' : 'ismeretlen'}.`);
+        if (nextIndex === 1) {
+          appLog(`FORMÁTUM-VISSZAESÉS; csatorna=${channelName}; ${nextFormat === 'hls' ? 'HLS (.m3u8)' : 'MPEG-TS (.ts)'} próba következik.`);
+        }
         autoRetryTimerRef.current = window.setTimeout(() => {
           autoRetryTimerRef.current = null;
           retryStreamRef.current?.();
@@ -650,9 +652,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       const failedChannel = channelRef.current;
       if (failedChannel?.id) forgetFormatFor(failedChannel.id);
+      const hadAlternative = Boolean(liveFallbackRef.current);
+      const triedFormats = hadAlternative
+        ? (liveFallbackRef.current?.format === 'hls' ? 'MPEG-TS + HLS' : 'HLS + MPEG-TS')
+        : 'MPEG-TS';
       appLog(
-        `NÉGY LEJÁTSZÁSI PRÓBA SIKERTELEN; csatorna=${String(failedChannel?.name || channelSwitchDiagnosticRef.current?.channelName || 'élő adás').slice(0, 100)}; ` +
-        `próbálkozások=${sequence.urls.length}; formátum-emlék törölve.`
+        `MINDKÉT FORMÁTUM SIKERTELEN; csatorna=${String(failedChannel?.name || channelSwitchDiagnosticRef.current?.channelName || 'élő adás').slice(0, 100)}; ` +
+        `próbált formátumok=${triedFormats}; a csatorna jelenleg nem indítható. Formátum-emlék törölve.`
       );
       setIsLoading(false);
       setHasError(true);
