@@ -1082,7 +1082,7 @@ test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és l�
   assert.match(APPLOG, /export function resetMeasurements\(reason: string = 'kézi frissítés'\): MeasurementSnapshot/);
   assert.match(APPLOG, /measurementCounters\.logLines = 0;\s*\n\s*measurementCounters\.errors = 0;\s*\n\s*measurementCounters\.longTasks = 0;/);
   assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{dublinTimestamp\(startedAt\)\} \(\$\{clockText\(startedAt \+ 60 \* 60 \* 1000\)\}\); előzmények törölve; ok: \$\{reason\}/);
-  assert.match(APPLOG, /MÉRÉS KEZDETE: \$\{measure\.startedAtText\}/);
+  assert.match(APPLOG, /MÉRÉS KEZDETE: \\$\{clockText\(measure\.startedAt \+ 60 \* 60 \* 1000\)\}/);
   // A felugró ablak a Frissítéskor nulláz, és kiírja a kezdő időpontot.
   assert.match(DIAG_MODAL, /const fresh = resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\);/);
   assert.match(DIAG_MODAL, /data-diagnostic-measure-start=/);
