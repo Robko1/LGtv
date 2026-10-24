@@ -609,7 +609,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                               event.preventDefault();
                               event.stopPropagation();
                               event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.focus({ preventScroll: true } as any);
-                            } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                            } else if (key === 'ArrowLeft') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.focus({ preventScroll: true } as any);
+                            } else if (key === 'ArrowRight') {
                               event.preventDefault();
                               event.stopPropagation();
                             } else if (key === 'Enter' || key === ' ') {
@@ -773,10 +777,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     event.preventDefault();
                     event.stopPropagation();
                     event.currentTarget.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
-                  } else if (key === 'ArrowDown') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    event.currentTarget.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
                   }
                 }}
                 className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
@@ -914,16 +914,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 }
                               }}
                               onClick={(event) => {
-                                const row = event.currentTarget.closest<HTMLElement>('[data-resume-item]');
-                                const rows = Array.from(row?.parentElement?.querySelectorAll<HTMLElement>('[data-resume-item]') || []);
-                                const index = rows.indexOf(row as HTMLElement);
-                                const nextRow = rows[index + 1];
-                                const previousRow = rows[index - 1];
                                 onRemoveWatchHistoryItem(item.id);
+                                // Törlés után ne ugorjon át automatikusan egy másik filmre.
+                                // A Folytatás szekció maradjon kijelölve.
                                 window.setTimeout(() => {
-                                  const target = nextRow?.querySelector<HTMLElement>('[data-resume-continue]')
-                                    || previousRow?.querySelector<HTMLElement>('[data-resume-continue]');
-                                  target?.focus({ preventScroll: true } as any);
+                                  modalRef.current?.querySelector<HTMLElement>('[data-resume-section]')?.focus({ preventScroll: true } as any);
                                 }, 0);
                               }}
                               className="min-h-11 px-3 flex items-center justify-center gap-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-rose-300 text-xs font-bold transition-all"
