@@ -1,6 +1,6 @@
 import React from 'react';
 import { AudioTrack, SubtitleTrack, AppSettings, SubtitleSize } from '../types/iptv';
-import { X, Subtitles, Mic2, Check } from 'lucide-react';
+import { Subtitles, Mic2, Check } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 
 interface AudioSubtitlesModalProps {
@@ -100,7 +100,6 @@ const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
       <div role="dialog" aria-modal="true" aria-label="Élő TV hangsáv és CC választás" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
           <div className="flex items-center gap-2"><Mic2 className="w-5 h-5 text-rose-400 stroke-[2.5]" /><Subtitles className="w-5 h-5 text-cyan-300 stroke-[2.5]" /><h2 className="text-base sm:text-lg font-black text-white tracking-wide">HANGSÁV / CC</h2></div>
-          <button onClick={onClose} aria-label="Bezárás" className="p-1.5 rounded-full border-2 border-cyan-500/60 bg-[#0e1d3b] text-cyan-300"><X className="w-5 h-5" /></button>
         </div>
         <div className="grid grid-cols-2 gap-3 p-3 md:p-4 overflow-hidden min-h-0">
           <section className={panel}><h3 className="text-xs font-black text-rose-400 uppercase tracking-wider flex items-center gap-1.5"><Mic2 className="w-4 h-4" />HANGSÁV</h3>
@@ -257,15 +256,6 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
               : <Mic2 className="w-5 h-5 text-rose-400 stroke-[2.5]" />}
             <h2 className="text-base sm:text-lg font-black text-white tracking-wide">{mode === 'subtitle' ? 'FELIRAT' : 'HANGSÁV'}</h2>
           </div>
-          {mode !== 'audio' && (
-            <button
-              onClick={onClose}
-              aria-label="Bezárás"
-              className="p-1.5 rounded-full border-2 border-cyan-500/60 bg-[#0e1d3b] hover:bg-[#16274b] text-cyan-300 active:scale-90 transition-all"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
