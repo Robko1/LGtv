@@ -295,6 +295,10 @@ export function App() {
   }));
   // VOD bezárásakor ugyanahhoz a könyvtárnézethez és kategóriához térünk vissza.
   const vodReturnViewRef = useRef<'movies' | 'series'>('movies');
+  // Külön visszatérési útvonal a Beállítások > Kedvencek > Folytatás listájából indított VOD-hoz.
+  // A normál Mozi/Sorozat böngészés visszatérését ez nem módosíthatja.
+  const returnToFavoritesSettingsRef = useRef(false);
+  const lastResumeHistoryIdRef = useRef<string | null>(null);
   /**
    * A LEGUTÓBB INDÍTOTT FILM/EPIZÓD – ide tér vissza a fókusz a lejátszó
    * bezárásakor (a felhasználó kérése: „a kiválasztás helyére ugorjon”).
@@ -1750,6 +1754,8 @@ export function App() {
 
   // Play Movie in Main Video Player
   const handlePlayMovie = useCallback((movie: Movie) => {
+    returnToFavoritesSettingsRef.current = false;
+    lastResumeHistoryIdRef.current = null;
     vodReturnViewRef.current = 'movies';
     lastVodSelectionRef.current = { view: 'movies', cardId: String(movie.id) };
     setNextEpisodeToPlay(null);
@@ -1780,6 +1786,8 @@ export function App() {
 
   // Play Series Episode in Main Video Player
   const handlePlayEpisode = useCallback((ser: Series, episode: Episode) => {
+    returnToFavoritesSettingsRef.current = false;
+    lastResumeHistoryIdRef.current = null;
     vodReturnViewRef.current = 'series';
     lastVodSelectionRef.current = { view: 'series', cardId: String(ser.id), episodeId: String(episode.id) };
     const season = ser.seasons.find((s) => s.seasonNumber === episode.seasonNumber);
@@ -1994,6 +2002,10 @@ export function App() {
 
   // Resume History item
   const handlePlayHistoryItem = (item: WatchHistoryItem) => {
+    // Ez a függvény a Beállítások > Kedvencek > Folytatás listájából indul.
+    // Kilépéskor kizárólag ehhez a felülethez térünk vissza, nem a Mozi/Sorozat nézethez.
+    returnToFavoritesSettingsRef.current = true;
+    lastResumeHistoryIdRef.current = item.id;
     vodReturnViewRef.current = item.mediaType === 'series' ? 'series' : 'movies';
     setNextEpisodeToPlay(null);
     setCustomStreamUrl(item.streamUrl);
@@ -2438,14 +2450,29 @@ export function App() {
               setCustomStreamUrl(undefined);
               setCustomStreamTitle(undefined);
               const returnView = vodReturnViewRef.current;
-              setActiveView(returnView);
+              const returnToFavoritesSettings = returnToFavoritesSettingsRef.current;
+              const resumeHistoryId = lastResumeHistoryIdRef.current;
+              setActiveView(returnToFavoritesSettings ? 'live' : returnView);
               setIsPlaying(false);
               setNextEpisodeToPlay(null);
+              if (returnToFavoritesSettings) {
+                // Csak a Beállítások > Kedvencek > Folytatás felületéről indított
+                // film/sorozat térjen vissza ide. Más VOD-visszatérési útvonal változatlan.
+                setSettingsTab('favorites');
+                setIsSettingsOpen(true);
+                window.setTimeout(() => {
+                  const scope = document.querySelector<HTMLElement>('[role="dialog"]');
+                  const target = resumeHistoryId
+                    ? scope?.querySelector<HTMLElement>(`[data-resume-item="${resumeHistoryId}"] [data-resume-continue]`)
+                    : null;
+                  const fallback = target || scope?.querySelector<HTMLElement>('[data-resume-section]');
+                  try { fallback?.focus({ preventScroll: false }); } catch { fallback?.focus(); }
+                }, 180);
+                returnToFavoritesSettingsRef.current = false;
+                return;
+              }
               /*
-               * VISSZATÉRÉS A KIVÁLASZTÁSHOZ: az OSD bezárásakor a fókusz a
-               * lejátszott film poszterére (sorozatnál az epizód sorára) lép,
-               * nem pedig a semmire. Így a távirányítóval azonnal onnan
-               * folytatható a böngészés, ahonnan a filmet elindítottuk.
+               * Normál Mozi/Sorozat böngészésnél maradjon a korábbi visszatérési logika.
                */
               const selection = lastVodSelectionRef.current;
               window.setTimeout(() => {
