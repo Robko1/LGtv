@@ -578,7 +578,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           event.preventDefault();
                           const folderElement = event.currentTarget;
                           setExpandedFavoriteFolderId(expanded ? null : f.id);
-                          setMovingFavoriteChannelId(null);
                           if (!expanded) {
                             window.setTimeout(() => {
                               folderElement.querySelector<HTMLElement>('[data-favorite-channel]')?.focus({ preventScroll: true } as any);
