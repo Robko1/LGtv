@@ -594,6 +594,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       <div className="p-3.5 flex items-center justify-between gap-3">
                         <button
                           type="button"
+                          tabIndex={-1}
                           onKeyDown={(event) => {
                             const key = normalizeTvKey(event);
                             if (key === 'ArrowLeft' || key === 'ArrowRight') {
