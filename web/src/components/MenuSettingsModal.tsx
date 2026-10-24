@@ -78,7 +78,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   onRefreshProvider,
   onOpenImportDiagnostic,
   onOpenQrProvision,
-  onOpenDiagnosticShare,
   folders,
   onOpenAddFolder,
   onDeleteFolder,
@@ -341,11 +340,15 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       const key = normalizeTvKey(e);
       const target = e.target as HTMLElement;
       const box = target.closest<HTMLElement>('[data-tv-box]');
-      if (box && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(key)) {
+      const active = document.activeElement as HTMLElement | null;
+      if (box && (
+        ['ArrowLeft', 'ArrowRight'].includes(key) ||
+        (['ArrowUp', 'ArrowDown'].includes(key) && active !== box) ||
+        (key === 'Enter' && active === box)
+      )) {
         const controls = Array.from(box.querySelectorAll<HTMLElement>(
           'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), [role="button"]:not([aria-disabled="true"])'
         )).filter((el) => el.getClientRects().length > 0);
-        const active = document.activeElement as HTMLElement | null;
         e.preventDefault();
         e.stopPropagation();
         if (key === 'Enter' && active === box) {
