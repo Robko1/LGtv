@@ -556,8 +556,10 @@ test('8. PIROS (Record) gomb: tükrözött elrendezés be/ki', () => {
   // A főoldali sor iránya fordul meg: csatornalista balra, lejátszó + OSD jobbra.
   assert.match(APP, /data-live-main-row=""/);
   assert.match(APP, /\$\{settings\.mirrorLayout \? 'md:flex-row-reverse' : 'md:flex-row'\}/);
-  // A felső menüsor NEM változik (nincs mirror a Headerben).
-  assert.doesNotMatch(HEADER, /mirrorLayout|flex-row-reverse/);
+  // A felső menüsorban csak az Országok és a Menü cserél helyet tükrözéskor.
+  assert.match(HEADER, /mirrorLayout\?: boolean;/);
+  assert.match(HEADER, /mirrorLayout \? 'order-first' : 'order-last'/);
+  assert.match(HEADER, /mirrorLayout \? 'order-last' : 'order-first'/);
   // 2.5.28: a „Tükrözött elrendezés” sor VIZUÁLISAN eltűnt a Rendszer fülről,
   // de a beállítás és a PIROS gomb működése változatlan.
   assert.doesNotMatch(SETTINGS_MODAL, /Tükrözött elrendezés/);
