@@ -121,7 +121,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-fadeIn"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black p-2"
       role="dialog"
       aria-modal="true"
       aria-label="Telefonnal beállítás QR kóddal"
@@ -131,32 +131,32 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
         ref={modalRef}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="w-full max-w-md md:max-w-lg bg-[#071124] border-2 border-cyan-500/70 rounded-3xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh] focus:outline-none animate-scaleUp"
+        className="w-full max-w-3xl max-h-[96vh] overflow-y-auto rounded-xl border border-slate-700 bg-black p-3 text-white focus:outline-none"
       >
         {/* Header */}
-        <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Smartphone className="w-5 h-5 text-cyan-400" />
-            <h2 className="text-base font-black text-white tracking-wide">TELEFONNAL BEÁLLÍTÁS</h2>
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-3">
+            <Smartphone className="h-7 w-7 text-slate-400" />
+            <h2 className="text-xl font-black text-white">TELEFONNAL BEÁLLÍTÁS</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-300 active:scale-90"
+            className="rounded-lg p-3 text-slate-200 focus:outline-none focus:ring-4 focus:ring-amber-400"
             aria-label="Bezárás"
           >
-            <X className="w-5 h-5" />
+            <X className="h-6 w-6" />
           </button>
         </div>
 
-        <div className="p-3 sm:p-4 space-y-3 overflow-y-auto">
+        <div className="space-y-4 overflow-y-auto py-4">
           {/* Kód kijelző */}
           <div className="flex flex-col items-center gap-3">
-            <div className="flex items-center gap-2 text-amber-400">
+            <div className="flex items-center gap-2 text-amber-300">
               <Tv className="w-5 h-5" />
               <span className="text-xs font-black tracking-widest">TV KÓD</span>
             </div>
-            <div className="px-6 py-3 rounded-2xl bg-[#0d1d3d] border-2 border-amber-400/70 shadow-lg">
-              <span className="text-4xl font-black tracking-[0.3em] text-amber-300 font-mono">{code || '------'}</span>
+            <div className="rounded-xl border border-amber-400/70 bg-amber-400/10 px-8 py-4">
+              <span className="font-mono text-5xl font-black tracking-[0.3em] text-amber-300">{code || '------'}</span>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-slate-400">
               <Clock className="w-3.5 h-3.5" />
@@ -168,41 +168,41 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
 
           {/* QR kód */}
           <div className="flex flex-col items-center gap-3">
-            <div className="flex items-center gap-2 text-cyan-300">
+            <div className="flex items-center gap-2 text-slate-300">
               <QrCode className="w-5 h-5" />
-              <span className="text-xs font-bold uppercase tracking-wider">Olvasd be telefonnal</span>
+              <span className="text-sm font-bold uppercase tracking-wider">Olvasd be telefonnal</span>
             </div>
-            <div className="p-1.5 rounded-xl bg-white border border-cyan-400/40 shadow-lg shrink-0">
+            <div className="flex min-h-[500px] w-[500px] max-w-full items-center justify-center rounded-lg border border-slate-700 bg-black p-2 shrink-0">
               {provisionUrl ? (
                 <QRCodeSVG
                   value={provisionUrl}
-                  size={190}
+                  size={480}
                   level="M"
                   boostLevel={false}
                   marginSize={4}
                   bgColor="#ffffff"
                   fgColor="#000000"
                   title="IPTV telefonos párosítás QR-kód"
-                  style={{ display: 'block', width: '190px', height: 'auto', maxWidth: '100%' }}
+                  style={{ display: 'block', width: '480px', height: 'auto', maxWidth: '100%' }}
                 />
               ) : (
-                <div className="w-[190px] aspect-square flex items-center justify-center bg-white text-slate-500 text-xs">QR generálás...</div>
+                <div className="w-[480px] max-w-full aspect-square flex items-center justify-center bg-white text-slate-500 text-sm">QR generálás...</div>
               )}
             </div>
-            <p className="text-xs text-slate-300 text-center max-w-xs leading-relaxed">
+            <p className="max-w-lg text-center text-sm text-slate-400 leading-relaxed">
               Olvasd be a kódot a telefon kamerájával. Tartsd a telefont kb. 20–40 cm-re.
             </p>
           </div>
 
           {/* Státusz */}
           {status === 'waiting' && (
-            <div className="flex items-center justify-center gap-2 py-2 text-xs text-cyan-300">
+            <div className="flex items-center justify-center gap-2 py-3 text-sm text-slate-300">
               <RefreshCw className="w-4 h-4 animate-spin" />
               <span>Várakozás telefonos adatokra... (3 másodpercenként ellenőrzés)</span>
             </div>
           )}
           {status === 'received' && receivedData && (
-            <div className="rounded-xl bg-emerald-950/40 border border-emerald-500/50 p-3 flex items-center gap-2 text-emerald-300">
+            <div className="rounded-xl border border-emerald-500/50 bg-emerald-950/40 p-4 flex items-center gap-3 text-emerald-300">
               <Check className="w-5 h-5" />
               <div className="text-xs">
                 <p className="font-bold">Adatok megérkeztek!</p>
@@ -216,13 +216,13 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
             </div>
           )}
           {status === 'expired' && (
-            <div className="rounded-xl bg-rose-950/40 border border-rose-500/50 p-3 text-center">
+            <div className="rounded-xl border border-rose-500/50 bg-rose-950/40 p-4 text-center">
               <p className="text-xs font-bold text-rose-300">A kód lejárt (5 perc)</p>
               <p className="text-[11px] text-rose-200 mt-1">Nyomd meg a Frissítés gombot új kódért</p>
             </div>
           )}
           {status === 'error' && (
-            <div className="rounded-xl bg-rose-950/40 border border-rose-500/50 p-3 text-xs text-rose-300 space-y-1.5">
+            <div className="rounded-xl border border-rose-500/50 bg-rose-950/40 p-4 text-sm text-rose-300 space-y-2">
               <p className="font-bold">A Supabase QR-párosító szolgáltatás nem érhető el.</p>
               <p className="text-[11px] leading-relaxed break-words">Részletek (v{WEB_VERSION}): {getProvisionDiag() || 'nincs adat'}</p>
               <p className="text-[11px] text-rose-200/80">Ellenőrizd a TV internetkapcsolatát, majd próbáld az Új kód gombot, vagy add meg az adatokat kézzel az Új lista gombbal.</p>
@@ -230,25 +230,25 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
           )}
 
           {/* Gombok */}
-          <div className="grid grid-cols-2 gap-2 pt-2">
+          <div className="grid grid-cols-2 gap-3 border-t border-slate-700 pt-4">
             <button
               onClick={handleRefresh}
-              className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[#112347] hover:bg-[#172e5c] text-slate-200 border border-slate-700 text-xs font-bold active:scale-95"
+              className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-cyan-500/60 bg-cyan-500/15 px-3 py-3 font-bold text-cyan-100 focus:outline-none focus:ring-4 focus:ring-amber-400"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="h-5 w-5" />
               Új kód
             </button>
             <button
               onClick={onClose}
-              className="flex items-center justify-center gap-2 py-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/50 text-cyan-200 text-xs font-black active:scale-95"
+              className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-slate-600 bg-white/5 px-3 py-3 font-bold text-slate-100 focus:outline-none focus:ring-4 focus:ring-amber-400"
             >
-              <X className="w-4 h-4" />
+              <X className="h-5 w-5" />
               Bezárás
             </button>
           </div>
 
           {/* Alternatíva – manuális */}
-          <p className="text-[10px] text-slate-500 text-center pt-2">
+          <p className="pt-3 text-center text-xs text-slate-500">
             Nincs okostelefon? A Beállítások → Listák → Új lista gombbal továbbra is beírhatod kézzel a TV-n.
           </p>
         </div>
