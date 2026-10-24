@@ -796,18 +796,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
 
       stagnantChecks += 1;
-      // Két egymást követő ellenőrzés (kb. 6 másodperc) kell,
-      // hogy egy rövid TV-s pufferelés ne indítson felesleges újrapróbát.
+      // Két egymást követő, másodpercenkénti ellenőrzés (kb. 2 másodperc).
       if (stagnantChecks < 2) return;
 
       stagnantChecks = 0;
       appLogCritical(
         `ÉLŐ LEJÁTSZÁS MEGAKADT; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
-        `ok=az idővonal legalább 6 másodpercig nem haladt; ${videoDiagnosticState(video, 'playback-stall-watchdog')}`
+        `ok=az idővonal legalább 2 másodpercig nem haladt; ${videoDiagnosticState(video, 'playback-stall-watchdog')}`
       );
       setIsLoading(true);
       scheduleAutoRetry();
-    }, 3000);
+    }, 1000);
 
     return () => window.clearInterval(timer);
   }, [isVod, isPlaying, channel?.id, customStreamUrl, scheduleAutoRetry]);
