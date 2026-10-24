@@ -334,6 +334,43 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   };
 
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
+    // A Rendszer fül dobozaiba OK-val belépve a nyilak nem ugorhatnak át
+    // közvetlenül egy másik dobozra. A doboz saját vezérlői között maradunk;
+    // vízszintes szélen a fókusz visszatér a saját doboz keretére.
+    if (activeTab === 'system') {
+      const key = normalizeTvKey(e);
+      const target = e.target as HTMLElement;
+      const box = target.closest<HTMLElement>('[data-tv-box]');
+      if (box && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(key)) {
+        const controls = Array.from(box.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), [role="button"]:not([aria-disabled="true"])'
+        )).filter((el) => el.getClientRects().length > 0);
+        const active = document.activeElement as HTMLElement | null;
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === 'Enter' && active === box) {
+          controls[0]?.focus({ preventScroll: true } as any);
+          controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          return;
+        }
+        if (key === 'ArrowUp' || key === 'ArrowDown') return;
+        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          const index = controls.indexOf(active as HTMLElement);
+          if (index < 0) {
+            controls[key === 'ArrowRight' ? 0 : controls.length - 1]?.focus({ preventScroll: true } as any);
+          } else {
+            const next = index + (key === 'ArrowRight' ? 1 : -1);
+            if (next >= 0 && next < controls.length) {
+              controls[next]?.focus({ preventScroll: true } as any);
+              controls[next]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            } else {
+              box.focus({ preventScroll: true } as any);
+            }
+          }
+          return;
+        }
+      }
+    }
     if (activeTab === 'favorites') {
       if (handleFavoritesNavigation(e)) return;
       const key = normalizeTvKey(e);
@@ -967,9 +1004,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       buttons[settings.streamFormat === 'hls' ? 1 : 0]?.click();
                     }
                   }}
-                  className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-amber-400/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-cyan-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-400/10"><Cast className="h-4 w-4 text-amber-300" /></span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Cast className="h-4 w-4 text-cyan-300" /></span>
                     <span>Lejátszó motor</span>
                   </label>
                   <p className="text-[11px] text-slate-400 leading-tight">
@@ -1005,9 +1042,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Élő adás streamformátuma – ugyanaz a beállítás mindkét lejátszómódban. */}
-                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-amber-400/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-cyan-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-400/10"><Tv className="h-4 w-4 text-amber-300" /></span>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Tv className="h-4 w-4 text-cyan-300" /></span>
                     <span>Élő adás formátuma</span>
                   </label>
                   <p className="text-[11px] text-slate-400 leading-tight">
@@ -1017,7 +1054,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onUpdateSettings({ streamFormat: 'ts' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'text-cyan-300 border border-cyan-400/70' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`
                       aria-pressed={(settings.streamFormat || 'ts') === 'ts'}
                     >
                       MPEG-TS (.ts)
@@ -1301,19 +1338,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={onOpenDiagnosticShare}
-                  disabled={!onOpenDiagnosticShare}
-                  className="w-full min-h-[48px] rounded-xl border border-amber-500/60 bg-[#241b08] px-3 py-2.5 flex items-center justify-center gap-2 text-sm font-bold text-amber-300 hover:bg-[#35270a] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50"
-                  title="Diagnosztika megosztása QR-kóddal"
-                >
-                  <Smartphone className="h-5 w-5 shrink-0" />
-                  <span>Diagnosztika megosztása (QR)</span>
-                </button>
 
                 {showVersionHistory && (
-                  <div data-version-history="" className="p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5" onKeyDown={(event) => {
+                  <div data-version-history="" className="max-h-[42vh] overflow-y-auto overscroll-contain p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5" onKeyDown={(event) => {
                     const key = normalizeTvKey(event);
                     if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
                     event.preventDefault();
@@ -1321,8 +1348,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[data-version-history-item]'));
                     const current = items.indexOf(document.activeElement as HTMLElement);
                     const next = key === 'ArrowDown' ? Math.min(items.length - 1, current + 1) : Math.max(0, current - 1);
-                    if (items[next]) items[next].focus({ preventScroll: true } as any);
-                    else if (key === 'ArrowUp') modalRef.current?.querySelector<HTMLElement>('[data-system-version]')?.focus({ preventScroll: true } as any);
+                    if (items[next]) {
+                      items[next].focus({ preventScroll: true } as any);
+                      items[next].scrollIntoView({ block: 'nearest', behavior: 'auto' });
+                    } else if (key === 'ArrowUp') {
+                      modalRef.current?.querySelector<HTMLElement>('[data-system-version]')?.focus({ preventScroll: true } as any);
+                    }
                   }}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black text-amber-400">WEB VERZIÓELŐZMÉNYEK</span>
