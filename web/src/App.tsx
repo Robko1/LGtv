@@ -2720,7 +2720,6 @@ export function App() {
         onOpenAddFolder={() => setIsOrderModalOpen(true)}
         onDeleteFolder={handleDeleteFolder}
         onToggleFavorite={handleToggleFavorite}
-        onMoveFavoriteChannel={handleMoveFavoriteChannel}
         onRemoveChannelFromFolder={handleRemoveChannelFromFolder}
         onOpenEpgModal={() => setIsEpgOpen(true)}
         onOpenQrProvision={() => setIsQrProvisionOpen(true)}
