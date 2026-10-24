@@ -118,23 +118,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     }
   };
 
-  // A kék távirányító-gomb a Kedvencek fülön is aktiválja a csatorna-mozgatást.
-  // A webOS globális kezelője ezt az eseményt küldi ki a színes gombhoz.
-  useEffect(() => {
-    if (!isOpen || activeTab !== 'favorites') return;
-    const onTvAction = (event: Event) => {
-      const action = (event as CustomEvent)?.detail?.action;
-      if (action !== 'move') return;
-      const active = document.activeElement as HTMLElement | null;
-      const row = active?.closest<HTMLElement>('[data-favorite-channel]');
-      const channelId = row?.getAttribute('data-favorite-channel');
-      if (!channelId) return;
-      setMovingFavoriteChannelId((current) => current === channelId ? null : channelId);
-      setFavoriteMoveCursor('up');
-    };
-    window.addEventListener('iptv-tv-action', onTvAction);
-    return () => window.removeEventListener('iptv-tv-action', onTvAction);
-  }, [isOpen, activeTab]);
+  // A kék teletextgomb a Kedvencek fülön nem indíthat csatornamozgatást.
+  // A globális távirányító-kezelés más nézetekben változatlan marad.
 
   const checkWebOSUpdate = async () => {
     setReleaseCheckLoading(true);
@@ -192,36 +177,23 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         const aeDlg = (ae && ae.closest ? ae.closest('[role="dialog"]') : null) as HTMLElement | null;
         const myDlg = (container.closest('[role="dialog"]') || container.querySelector('[role="dialog"]') || container) as HTMLElement;
         if (aeDlg && aeDlg !== myDlg && !myDlg.contains(aeDlg)) return;
-        // Első fókusz: alapgomb (data-tv-default, pl. Telefon) → doboz
-        // (data-tv-box) → fülek → bármi, de NEM az X.
         const def = container.querySelector<HTMLElement>('[data-tv-default]');
+        const tab = container.querySelector<HTMLElement>(`[data-tv-tabid="${activeTab}"]`)
+          || container.querySelector<HTMLElement>('[data-tv-open-focus]');
         if (ae && container.contains(ae) && ae !== container) {
-          // Fülváltás után a kijelölés a fül TARTALMÁRA ugrik (Listák →
-          // Telefon gomb, Rendszer → első doboz); minden más esetben nem
-          // nyúlunk a fókuszhoz.
+          // Fülváltás után a fókusz a fül tartalmára kerül; nyitáskor viszont
+          // először maga az aktív fül (Kedvencek) kapja a sárga kijelölést.
           const onTab = !!(ae.closest && ae.closest('[data-tv-tabs]'));
           if (!onTab) return;
           const jump = def || container.querySelector<HTMLElement>('[data-tv-box]');
           if (jump) jump.focus({ preventScroll: true } as any);
           return;
         }
-        // Nyitáskor az ÉPP AKTÍV fül pillje kapja a kijelölést (alapból a
-        // Kedvencek, mert a menü azzal nyílik) – így a sárga jelölő és a
-        // kék aktív fül mindig ugyanott van.
-        const tab = container.querySelector<HTMLElement>(`[data-tv-tabid="${activeTab}"]`)
-          || container.querySelector<HTMLElement>('[data-tv-open-focus]');
-        // A megnyitott fül első teljes műveleti doboza kapja a fókuszt.
-        const box = def || tab || container.querySelector<HTMLElement>('[data-tv-box]');
-        const buttons = Array.from(container.querySelectorAll<HTMLElement>('button'));
-        const focusable = container.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        const target = box || buttons[1] || buttons[0] || focusable[0] || container;
-        target?.focus({ preventScroll: true } as any);
+        tab?.focus({ preventScroll: true } as any);
       } catch {}
     };
-    const t1 = window.setTimeout(focusModal, 100);
-    const t2 = window.setTimeout(focusModal, 500);
-    const t3 = window.setTimeout(focusModal, 1000);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    const timer = window.setTimeout(focusModal, 100);
+    return () => clearTimeout(timer);
   }, [isOpen, activeTab]);
 
   const handleTabDpad = (event: React.KeyboardEvent<HTMLButtonElement>, current: 'lists' | 'favorites' | 'system') => {
@@ -744,7 +716,10 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     if (index === 0) {
                                       event.preventDefault();
                                       event.stopPropagation();
-                                      event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus();
+                                      const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
+                                      setExpandedFavoriteFolderId(null);
+                                      setMovingFavoriteChannelId(null);
+                                      folderElement?.focus({ preventScroll: true } as any);
                                     } else {
                                       event.preventDefault();
                                       event.stopPropagation();
@@ -761,11 +736,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     event.preventDefault();
                                     event.stopPropagation();
                                     event.currentTarget.querySelector<HTMLElement>('button[title="Eltávolítás a kedvenc mappából"]')?.focus();
-                                  } else if (key === 'ColorF3Blue') {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    setMovingFavoriteChannelId(movingFavoriteChannelId === channel.id ? null : channel.id);
-                                    setFavoriteMoveCursor('up');
                                   }
                                 }}
                                 onClick={() => {
@@ -782,18 +752,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     lastFavoriteReorderTapAt.current = now;
                                   }
                                 }}
-                                onPointerDown={(event) => {
-                                  if ((event.target as HTMLElement).closest('button')) return;
-                                  clearFavoriteLongPress();
-                                  suppressFavoriteClick.current = false;
-                                  favoriteLongPressTimer.current = window.setTimeout(() => {
-                                    setMovingFavoriteChannelId(channel.id);
-                                    lastFavoriteReorderTapAt.current = 0;
-                                    suppressFavoriteClick.current = true;
-                                  }, 1000);
-                                }}
-                                onPointerUp={clearFavoriteLongPress}
-                                onPointerCancel={clearFavoriteLongPress}
                                 onContextMenu={(event) => event.preventDefault()}
                                 className={`flex items-center gap-2 rounded-xl p-2 border transition-colors ${moving ? 'bg-emerald-700/90 border-emerald-300 ring-2 ring-emerald-400/60' : 'bg-[#09152b] border-slate-700'}`}
                               >
@@ -804,28 +762,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                   <div className="text-xs font-bold text-slate-100 truncate">{channel.name}</div>
                                   <div className="text-[10px] text-slate-400 truncate">{channel.num ? `#${channel.num}` : 'Csatorna'}</div>
                                 </div>
-                                {moving && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      disabled={index === 0}
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                      onClick={(event) => { event.stopPropagation(); onMoveFavoriteChannel(f.id, channel.id, 'up'); }}
-                                      className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90 ${moving && favoriteMoveCursor === 'up' ? 'ring-2 ring-yellow-300' : ''}`}
-                                      title="Mozgatás felfelé"
-                                      aria-label={`${channel.name} mozgatása felfelé`}
-                                    ><ArrowUp className="w-4 h-4" /></button>
-                                    <button
-                                      type="button"
-                                      disabled={index === folderChannels.length - 1}
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                      onClick={(event) => { event.stopPropagation(); onMoveFavoriteChannel(f.id, channel.id, 'down'); }}
-                                      className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 disabled:opacity-20 active:scale-90 ${moving && favoriteMoveCursor === 'down' ? 'ring-2 ring-yellow-300' : ''}`}
-                                      title="Mozgatás lefelé"
-                                      aria-label={`${channel.name} mozgatása lefelé`}
-                                    ><ArrowDown className="w-4 h-4" /></button>
-                                  </>
-                                )}
+
                                 <button
                                   type="button"
                                   onKeyDown={(event) => {
@@ -853,8 +790,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                   onPointerDown={(event) => event.stopPropagation()}
                                   onClick={(event) => {
                                     event.stopPropagation();
+                                    const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
                                     onRemoveChannelFromFolder(f.id, channel.id);
-                                    if (movingFavoriteChannelId === channel.id) setMovingFavoriteChannelId(null);
+                                    setExpandedFavoriteFolderId(null);
+                                    setMovingFavoriteChannelId(null);
+                                    window.setTimeout(() => folderElement?.focus({ preventScroll: true } as any), 0);
                                   }}
                                   className="p-1.5 rounded-xl text-amber-400 hover:text-amber-300 active:scale-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300"
                                   title="Eltávolítás a kedvenc mappából"
@@ -895,8 +835,50 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {resumableHistory.map((item) => (
-                        <div key={item.id} role="group" tabIndex={0} data-resume-item={item.id} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onContinueWatching(item); onClose(); } }} className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                    {resumableHistory.map((item, itemIndex) => (
+                        <div
+                          key={item.id}
+                          role="group"
+                          tabIndex={0}
+                          data-resume-item={item.id}
+                          onKeyDown={(event) => {
+                            const key = normalizeTvKey(event);
+                            const row = event.currentTarget;
+                            const items = Array.from(row.parentElement?.querySelectorAll<HTMLElement>('[data-resume-item]') || []);
+                            const continueButton = row.querySelector<HTMLElement>('[data-resume-continue]');
+                            const removeButton = row.querySelector<HTMLElement>('[data-resume-remove]');
+                            const onRemove = !!(event.target as HTMLElement).closest('[data-resume-remove]');
+                            if (key === 'Enter' || key === ' ') {
+                              if (event.target === row) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                continueButton?.focus({ preventScroll: true } as any);
+                              }
+                            } else if (key === 'ArrowRight') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              removeButton?.focus({ preventScroll: true } as any);
+                            } else if (key === 'ArrowLeft' && onRemove) {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              continueButton?.focus({ preventScroll: true } as any);
+                            } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              if (key === 'ArrowUp' && onRemove) {
+                                continueButton?.focus({ preventScroll: true } as any);
+                              } else {
+                                const nextIndex = itemIndex + (key === 'ArrowDown' ? 1 : -1);
+                                const targetRow = items[nextIndex];
+                                if (targetRow) targetRow.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
+                              }
+                            } else if (key === 'Escape' || key === 'Backspace') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              row.focus({ preventScroll: true } as any);
+                            }
+                          }}
+                          className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3 focus:outline-none focus:ring-2 focus:ring-amber-400">
                           <div className="flex items-center gap-3">
                             <div className="w-14 h-[72px] shrink-0 rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
                               {item.poster ? (
@@ -920,6 +902,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           </div>
                           <div className="grid grid-cols-[1fr_auto] gap-2 mt-3">
                             <button
+                              data-resume-continue=""
                               onClick={() => { onContinueWatching(item); onClose(); }}
                               className="min-h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black shadow-md shadow-blue-950/40 active:scale-[0.99] transition-all"
                             >
@@ -927,7 +910,20 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                               Folytatás
                             </button>
                             <button
-                              onClick={() => onRemoveWatchHistoryItem(item.id)}
+                              data-resume-remove=""
+                              onClick={(event) => {
+                                const row = event.currentTarget.closest<HTMLElement>('[data-resume-item]');
+                                const rows = Array.from(row?.parentElement?.querySelectorAll<HTMLElement>('[data-resume-item]') || []);
+                                const index = rows.indexOf(row as HTMLElement);
+                                const nextRow = rows[index + 1];
+                                const previousRow = rows[index - 1];
+                                onRemoveWatchHistoryItem(item.id);
+                                window.setTimeout(() => {
+                                  const target = nextRow?.querySelector<HTMLElement>('[data-resume-continue]')
+                                    || previousRow?.querySelector<HTMLElement>('[data-resume-continue]');
+                                  target?.focus({ preventScroll: true } as any);
+                                }, 0);
+                              }}
                               className="min-h-11 px-3 flex items-center justify-center gap-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-rose-300 text-xs font-bold transition-all"
                               title="Eltávolítás a folytatandók közül"
                             >
