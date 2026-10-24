@@ -36,6 +36,17 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
 
+  // A hat színgomb kizárólag az ikonok és az órák színét vezérli.
+  const accentTextClass: Record<NonNullable<HeaderProps['liveAccent']>, string> = {
+    yellow: 'text-amber-400',
+    red: 'text-red-400',
+    blue: 'text-blue-400',
+    pink: 'text-pink-400',
+    green: 'text-green-400',
+    white: 'text-white',
+  };
+  const accentText = accentTextClass[liveAccent];
+
   // Az óra a beállított eltolással számol (a webOS néha UTC-t ad vissza a
   // helyi idő helyett). Csak a kijelzett percérték változásakor rajzolunk.
   const offset = normalizeClockOffset(clockOffsetHours);
@@ -69,8 +80,8 @@ export const Header: React.FC<HeaderProps> = ({
       */}
       <div className="flex flex-1 items-center gap-2 md:gap-3 lg:gap-4 flex-nowrap min-w-0 mr-1">
         {/* Az óra önálló, keret és háttér nélküli elem, a fejléc bal széléhez igazítva. */}
-        <div aria-hidden="true" className="flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 text-amber-300 font-mono font-semibold tracking-wider order-first">
-          <Clock className="hidden w-4 h-4 md:w-5 md:h-5 text-amber-400 animate-pulse shrink-0" />
+        <div aria-hidden="true" className={`flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 ${accentText} font-mono font-semibold tracking-wider order-first`}>
+          <Clock className={`hidden w-4 h-4 md:w-5 md:h-5 ${accentText} animate-pulse shrink-0`} />
           <span data-header-clock="" className="whitespace-nowrap text-2xl sm:text-3xl md:text-3xl lg:text-4xl leading-none">{currentTime || '02:15'}</span>
         </div>
 
@@ -109,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
             title="Menü"
             aria-label="Menü"
           >
-            <Settings className="w-8 h-8 shrink-0 text-amber-400" />
+            <Settings className={`w-8 h-8 shrink-0 ${accentText}`} />
             <span>Menü</span>
           </button>
         )}
@@ -125,7 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
           }`}
         >
-          <Layers className="w-8 h-8 md:w-10 md:h-10 text-cyan-400" />
+          <Layers className={`w-8 h-8 md:w-10 md:h-10 ${accentText}`} />
           <span>Sorozatok</span>
         </button>
 
@@ -140,7 +151,7 @@ export const Header: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
           }`}
         >
-          <Film className="w-8 h-8 md:w-10 md:h-10 text-amber-400" />
+          <Film className={`w-8 h-8 md:w-10 md:h-10 ${accentText}`} />
           <span>Mozi</span>
         </button>
 
