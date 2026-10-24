@@ -9,10 +9,11 @@
  * törlődnek, így hosszú használat után sem növeli a memóriát.
  */
 
-const MAX_LINES = 400;
-// Naplózási korlátok: legfeljebb 24 óra és 60 KB / 400 sor.
+// A teljes napló és a QR-export felső határa 1 000 000 karakter.
+// 512 karakter tartalék marad a QR-export fejlécének és a sorvégeknek.
+const MAX_CHARS = 1_000_000;
+const MAX_BUFFER_CHARS = MAX_CHARS - 512;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const MAX_CHARS = 60000;
 const STORE_KEY = 'app-log';
 const DEFAULT_APP_VERSION = 'IPTV R.T webOS';
 
@@ -63,13 +64,15 @@ function nowStamp(): string {
 
 /** Csak a dátummal ellátott, elmúlt 24 órán belüli sorokat tartjuk meg. */
 function trimExpired(): void {
-  const cutoff = Date.now() - MAX_AGE_MS;
+  // Az időbélyegek egy órával korrigáltak; a korhatárt is ehhez igazítjuk.
+  const now = Date.now() + 60 * 60 * 1000;
+  const cutoff = now - MAX_AGE_MS;
   const fresh: string[] = [];
   for (const line of lines) {
     const timestamp = Date.parse(line.slice(0, line.indexOf(' ')));
     // A régi, dátum nélküli formátum korát nem lehet megbízhatóan megállapítani,
     // ezért nem tartjuk meg az új, 24 órás naplóban.
-    if (Number.isFinite(timestamp) && timestamp >= cutoff && timestamp <= Date.now() + 60_000) {
+    if (Number.isFinite(timestamp) && timestamp >= cutoff && timestamp <= now + 60_000) {
       fresh.push(line);
     }
   }
@@ -78,10 +81,10 @@ function trimExpired(): void {
 }
 
 function trim(): void {
-  while (lines.length > MAX_LINES || chars > MAX_CHARS) {
-    const removed = lines.shift();
-    if (removed === undefined) break;
-    chars -= removed.length + 1;
+  // Nincs sorszámkorlát: a méretkorlát túllépésekor a napló újraindul.
+  if (chars > MAX_BUFFER_CHARS) {
+    lines = [];
+    chars = 0;
   }
 }
 
@@ -92,7 +95,7 @@ function restore(): void {
   try {
     const raw = localStorage.getItem(`iptv_rt_${STORE_KEY}`) || '';
     if (!raw) return;
-    const previous = String(raw).split('\n').filter(Boolean).slice(-MAX_LINES);
+    const previous = String(raw).split('\n').filter(Boolean);
     for (const line of previous) {
       lines.push(line);
       chars += line.length + 1;
@@ -174,8 +177,17 @@ export function clearAppLog(): void {
 export function appLog(message: string): void {
   restore();
   measurementCounters.logLines += 1;
-  const safe = String(message ?? '').replace(/\s+/g, ' ').slice(0, 600);
-  const line = `${nowStamp()} ${safe}`;
+  const safe = String(message ?? '').replace(/\s+/g, ' ');
+  const restartNotice = `${nowStamp()} NAPLÓKERET ELÉRVE: 1 MB; a naplózás újrakezdődött.`;
+  let line = `${nowStamp()} ${safe}`;
+  // Egyetlen rendkívül hosszú esemény sem lépheti túl a teljes keretet.
+  if (line.length + 1 > MAX_BUFFER_CHARS - restartNotice.length - 1) {
+    line = line.slice(0, MAX_BUFFER_CHARS - restartNotice.length - 2);
+  }
+  if (chars + line.length + 1 > MAX_BUFFER_CHARS) {
+    lines = [restartNotice];
+    chars = restartNotice.length + 1;
+  }
   lines.push(line);
   chars += line.length + 1;
   trimExpired();
@@ -318,14 +330,10 @@ export function getAppLogText(): string {
   trimExpired();
   trim();
   const measure = measurementSnapshot();
-  // A megosztás csak az aktuális mérési ablak sorait tartalmazza. A teljes
-  // helyi napló továbbra is megőrzi a legutóbbi 24 órát; a QR-export nem.
-  const sessionLines = lines.filter((line) => {
-    const timestamp = Date.parse(line.slice(0, line.indexOf(' ')));
-    return Number.isFinite(timestamp) && timestamp >= measurementStartedAt;
-  });
-  const header = `--- WEBOS NAPLÓ (${sessionLines.length} sor; mérési ablak; helyi naplómegőrzés: max. 24 óra / 60 KB) | MÉRÉS KEZDETE: ${clockText(measure.startedAt + 60 * 60 * 1000)} ---`;
-  return [header, ...sessionLines].join('\n');
+  // A QR-export a teljes, memóriában megőrzött naplót küldi, nem csak az
+  // aktuális mérési ablakot. A tartalék miatt a teljes szöveg 1 MB alatt marad.
+  const header = `--- WEBOS NAPLÓ (${lines.length} sor; teljes napló; helyi megőrzés: max. 24 óra / 1 MB) | MÉRÉS KEZDETE: ${clockText(measure.startedAt + 60 * 60 * 1000)} ---`;
+  return [header, ...lines].join('\n');
 }
 
 /** Indulási sorok: verzió, eszköz, memória. */
