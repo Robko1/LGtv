@@ -181,7 +181,7 @@ export function clearAppLog(): void {
 /** Egy sor hozzáadása a webes naplóhoz. */
 export function appLog(message: string): void {
   const safe = String(message ?? '').replace(/\s+/g, ' ');
-  if (focusedPlaybackTestLogging && !PLAYBACK_TEST_LOG.test(safe)) return;
+  if (focusedPlaybackTestLogging && !PLAYBACK_TEST_LOG.test(safe) && !safe.startsWith('TESZT-')) return;
   restore();
   measurementCounters.logLines += 1;
   const restartNotice = `${nowStamp()} NAPLÓKERET ELÉRVE: 1 MB; a naplózás újrakezdődött.`;
