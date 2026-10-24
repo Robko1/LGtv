@@ -2500,7 +2500,6 @@ export function App() {
             <FullscreenLiveOsd
               channel={activeChannel}
               displayNumber={activeChannelDisplayNumber}
-              liveAccent={liveAccent}
               hasMultipleAudioTracks={liveAudioTracks.length > 1}
               hasAvailableSubtitle={liveSubtitleTracks.length > 0}
             />
