@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Film, Tv, Layers, Clock, Settings, X } from 'lucide-react';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
-import { normalizeTvKey } from '../utils/tvKeys';
 
 interface HeaderProps {
   /** A piros gombbal kapcsolható főoldali tükrözés állapota. */
@@ -55,44 +54,9 @@ export const Header: React.FC<HeaderProps> = ({
     window.close();
   };
 
-  // A fejléc saját D-pad kezelése minden nézetben felülírja a globális
-  // geometriai fókuszléptetést. A tényleges képernyőpozíciót használjuk, ezért
-  // a tükrözött és a normál elrendezés azonosan működik; az X is a sor része.
-  // Az óra nem kap fókuszt, mert nem tartozik a data-tv-header-kind elemek közé.
-  const handleHeaderDpad = (event: React.KeyboardEvent<HTMLElement>) => {
-    const key = normalizeTvKey(event);
-    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-tv-header-kind]');
-    if (!target || !target.closest('header')) return;
-
-    if (key === 'ArrowUp') {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-
-    if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
-
-    const items = Array.from(
-      target.closest('header')!.querySelectorAll<HTMLElement>('[data-tv-header-kind]')
-    )
-      .filter((item) => item.getClientRects().length > 0 && !item.hasAttribute('disabled'))
-      .sort((a, b) => {
-        const aRect = a.getBoundingClientRect();
-        const bRect = b.getBoundingClientRect();
-        return (aRect.left + aRect.width / 2) - (bRect.left + bRect.width / 2);
-      });
-
-    const index = items.indexOf(target);
-    const next = items[index + (key === 'ArrowRight' ? 1 : -1)];
-    event.preventDefault();
-    event.stopPropagation();
-    if (next) next.focus({ preventScroll: true });
-  };
-
   return (
     <header
       data-live-accent={liveAccent}
-      onKeyDown={handleHeaderDpad}
       className="sticky top-0 z-40 bg-[#070d1d]/95 backdrop-blur-md border-b border-cyan-950/40 pl-0 pr-2 py-2 md:py-2.5 lg:py-3 flex items-center justify-between gap-2 md:gap-3 lg:gap-4 shadow-md">
       {/*
         A NÉGY DOBOZ SORRENDJE (a sárga óra mellett):
