@@ -769,6 +769,49 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, timeoutMs);
   }, [scheduleAutoRetry]);
 
+  // Folyamatos élő lejátszásfigyelő: akkor is észreveszi az idővonal megállását,
+  // ha a webOS nem küld waiting/stalled eseményt. VOD-hoz nem nyúl.
+  useEffect(() => {
+    if (isVod || !isPlaying || !playbackStartedRef.current) return;
+    const video = htmlVideoRef.current;
+    if (!video) return;
+
+    let previousTime = Number(video.currentTime || 0);
+    let stagnantChecks = 0;
+    const generation = streamLoadGenerationRef.current;
+    const timer = window.setInterval(() => {
+      if (
+        generation !== streamLoadGenerationRef.current ||
+        video !== htmlVideoRef.current ||
+        video.paused ||
+        !playbackStartedRef.current
+      ) return;
+
+      const currentTime = Number(video.currentTime || 0);
+      const delta = currentTime - previousTime;
+      previousTime = currentTime;
+      if (delta >= 0.15) {
+        stagnantChecks = 0;
+        return;
+      }
+
+      stagnantChecks += 1;
+      // Két egymást követő ellenőrzés (kb. 6 másodperc) kell,
+      // hogy egy rövid TV-s pufferelés ne indítson felesleges újrapróbát.
+      if (stagnantChecks < 2) return;
+
+      stagnantChecks = 0;
+      appLogCritical(
+        `ÉLŐ LEJÁTSZÁS MEGAKADT; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
+        `ok=az idővonal legalább 6 másodpercig nem haladt; ${videoDiagnosticState(video, 'playback-stall-watchdog')}`
+      );
+      setIsLoading(true);
+      scheduleAutoRetry();
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [isVod, isPlaying, channel?.id, customStreamUrl, scheduleAutoRetry]);
+
   // A HTML5 videót a React-komponens eltűnésekor nézetváltáskor
   // ténylegesen leállítjuk, és elrejtjük a natív videófelületet. Visszatéréskor
   // a komponens az App által megőrzött utolsó élő csatornát tölti be újra.
