@@ -96,8 +96,10 @@ check(playerSource.includes('const primaryFormat = selectedFormat;'),
   'a kézzel kiválasztott formátum mindig az első próba');
 check(!playerSource.includes('const primaryFormat = rememberedFormat || selectedFormat'),
   'a régi formátum-emlékezet nem írhatja felül a kézi választást');
-check(playerSource.includes('if (fallback && !liveFallbackUsedRef.current)'),
-  'hiba esetén a másik formátum legfeljebb egyszer próbálható');
+check(playerSource.includes('const sequence = liveRetrySequenceRef.current;')
+  && playerSource.includes('if (nextIndex < sequence.urls.length)')
+  && playerSource.includes('[primaryUrl, alternative.url, primaryUrl, alternative.url]'),
+  'hiba esetén a négy indítási próba a TS/HLS sorozatot követi');
 check(playerSource.includes('alternativeUrl(primaryUrl)'),
   'a másik TS/HLS URL a formátum-átíró modulból készül');
 check(settingsSource.includes('Hiba esetén automatikus MPEG-TS-próba.')
