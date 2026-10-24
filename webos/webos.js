@@ -1198,20 +1198,25 @@
         var kind = kindOf(focusedNow);
 
         if (key === 'ArrowLeft' || key === 'ArrowRight') {
-          // A menüsor KÖRBEN jár. A sorrend (a sárga óra mellett):
-          //   Menü -> Sorozat -> Mozi -> Országok -> X -> (körbe) Menü
-          // A LEGELSŐ gombon (Menü) csak jobbra lehet lépni, balra nem.
-          if (key === 'ArrowLeft' && hi <= 0) return;
+          // Egyetlen navigációs gazda kezeli a fejlécet. A gombok tényleges
+          // képernyőbeli sorrendjét használjuk, így a tükrözött flex-elrendezés
+          // sem változtatja meg a balra/jobbra fókuszlépést.
+          var visualHeaderItems = headerItems.slice().sort(function(a, b) {
+            var ar = a.getBoundingClientRect();
+            var br = b.getBoundingClientRect();
+            return (ar.left + ar.width / 2) - (br.left + br.width / 2);
+          });
+          var visualIndex = visualHeaderItems.indexOf(focusedNow);
           var dir = key === 'ArrowRight' ? 1 : -1;
           var nextIndex;
-          if (hi < 0) {
+          if (visualIndex < 0) {
             nextIndex = 0;
           } else {
-            nextIndex = hi + dir;
-            if (nextIndex >= headerItems.length) nextIndex = 0;
-            if (nextIndex < 0) nextIndex = headerItems.length - 1;
+            nextIndex = visualIndex + dir;
+            if (nextIndex >= visualHeaderItems.length) nextIndex = 0;
+            if (nextIndex < 0) nextIndex = visualHeaderItems.length - 1;
           }
-          focusAndReveal(headerItems[nextIndex]);
+          focusAndReveal(visualHeaderItems[nextIndex]);
           return;
         }
 
