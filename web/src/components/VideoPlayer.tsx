@@ -561,6 +561,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       `paused=${video.paused}; currentTime=${Number(video.currentTime || 0).toFixed(2)}; ` +
       `error=${error ? `${error.code}:${error.message || 'nincs részlet'}` : 'nincs'}`;
   };
+  /** Kis terhelésű pillanatkép csatornaváltáskor. A webOS nem teszi hozzáférhetővé
+   * a teljes TV-RAM/CPU és más folyamatok adatait; csak a böngésző mérőszámait írjuk ki. */
+  const runtimeDiagnosticState = (): string => {
+    const parts: string[] = [];
+    try {
+      const perf = performance as Performance & { memory?: { usedJSHeapSize?: number; totalJSHeapSize?: number; jsHeapSizeLimit?: number } };
+      const memory = perf.memory;
+      parts.push(memory
+        ? 'jsHeap=' + Math.round((memory.usedJSHeapSize || 0) / 1048576) + 'MB/' + Math.round((memory.totalJSHeapSize || 0) / 1048576) + 'MB; jsHeapLimit=' + Math.round((memory.jsHeapSizeLimit || 0) / 1048576) + 'MB'
+        : 'jsHeap=webOS-en nem támogatott');
+      const entries = typeof performance.getEntriesByType === 'function' ? performance.getEntriesByType('resource') : [];
+      const recent = entries.slice(-100);
+      const transfer = recent.reduce((sum, entry) => sum + (Number((entry as PerformanceResourceTiming).transferSize) || 0), 0);
+      parts.push('resourceEntries=' + entries.length + '; utolsó100-transfer=' + (transfer ? Math.round(transfer / 1024) + 'KB' : 'nem elérhető/0'));
+    } catch { parts.push('performance-mérés=kiolvasási hiba'); }
+    try {
+      let keys = 0;
+      let chars = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key !== null) { keys++; chars += key.length + String(localStorage.getItem(key) || '').length; }
+      }
+      parts.push('localStorage-kulcsok=' + keys + '; becsült-tartalom=' + Math.round(chars * 2 / 1024) + 'KB');
+    } catch { parts.push('localStorage-méret=nem olvasható'); }
+    parts.push('láthatóság=' + (document.hidden ? 'háttérben/rejtett' : 'előtérben') + '; teljes-TV-RAM/CPU/háttérfolyamatok=webOS API-ból nem elérhetők');
+    return parts.join('; ');
+  };
   const audioDiagnosticState = (video: HTMLVideoElement): string => {
     const exposedList = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
     const tracks = readHtmlAudioTracks(video);
@@ -2750,6 +2777,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         };
         const channelMemory = rememberedFormatFor(channel?.id);
         appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        appLog(`ERŐFORRÁS-DIAG START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; ${runtimeDiagnosticState()}`);
       }
       video.pause();
       /*
@@ -3268,6 +3296,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.completed) {
                   diagnostic.completed = true;
                   appLog(`CSATORNAVÁLTÁS LEJÁTSZÁS ELINDULT; csatorna=${diagnostic.channelName}; idő=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'playing')}`);
+                  appLog(`ERŐFORRÁS-DIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${runtimeDiagnosticState()}`);
                   appLog(`HANGDIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; ${audioDiagnosticState(video)}`);
                 }
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.firstFrameLogged) {
@@ -3369,6 +3398,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
               if (!isVod && diagnostic) {
                 appLog(`CSATORNAVÁLTÁS HIBA; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(event.currentTarget, 'error')}; ${audioDiagnosticState(event.currentTarget)}`);
+                appLog(`ERŐFORRÁS-DIAG HIBÁNÁL; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${runtimeDiagnosticState()}`);
               }
               setIsLoading(false);
               setErrorMessage('A TV nem tudta lejátszani az adatfolyamot. HLS/codec vagy stream URL hiba lehet.');
