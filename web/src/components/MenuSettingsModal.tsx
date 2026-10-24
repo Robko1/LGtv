@@ -776,7 +776,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* Folytatás: a félbehagyott filmek és sorozatrészek listája */}
-              <section data-tv-box="" tabIndex={0}
+              <section data-tv-box="" data-resume-section="" tabIndex={0}
                 onKeyDown={(event) => {
                   const key = normalizeTvKey(event);
                   if (key === 'ArrowLeft' || key === 'ArrowRight') {
@@ -861,7 +861,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                               } else {
                                 const nextIndex = itemIndex + (key === 'ArrowDown' ? 1 : -1);
                                 if (nextIndex < 0) {
-                                  modalRef.current?.querySelector<HTMLElement>('[data-tv-box]:has([data-resume-item])')?.focus({ preventScroll: true } as any);
+                                  modalRef.current?.querySelector<HTMLElement>('[data-resume-section]')?.focus({ preventScroll: true } as any);
                                 } else {
                                   items[nextIndex]?.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
                                 }
@@ -911,7 +911,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                   const index = rows.indexOf(row as HTMLElement);
                                   const next = index + (key === 'ArrowDown' ? 1 : -1);
                                   if (next >= 0 && next < rows.length) rows[next].querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
-                                  else if (key === 'ArrowUp') modalRef.current?.querySelector<HTMLElement>('[data-tv-box]:has([data-resume-item])')?.focus({ preventScroll: true } as any);
+                                  else if (key === 'ArrowUp') modalRef.current?.querySelector<HTMLElement>('[data-resume-section]')?.focus({ preventScroll: true } as any);
                                 }
                               }}
                               onClick={() => { onContinueWatching(item); onClose(); }}
