@@ -374,6 +374,46 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         }
       }
     }
+    // A Listák fül szolgáltatói kártyája a Rendszer fül dobozaihoz hasonlóan
+    // saját fókuszterület: a nyilak nem adhatják át a kezelést a globális navnak.
+    if (activeTab === 'lists') {
+      const key = normalizeTvKey(e);
+      const target = e.target as HTMLElement;
+      const box = target.closest<HTMLElement>('[data-tv-box]');
+      const active = document.activeElement as HTMLElement | null;
+      if (box && (
+        ['ArrowLeft', 'ArrowRight'].includes(key) ||
+        (['ArrowUp', 'ArrowDown'].includes(key) && active !== box) ||
+        (key === 'Enter' && active === box)
+      )) {
+        const controls = Array.from(box.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), [role="button"]:not([aria-disabled="true"])'
+        )).filter((el) => el.getClientRects().length > 0);
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === 'Enter' && active === box) {
+          controls[0]?.focus({ preventScroll: true } as any);
+          controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          return;
+        }
+        if (key === 'ArrowUp' || key === 'ArrowDown') return;
+        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          const index = controls.indexOf(active as HTMLElement);
+          if (index < 0) {
+            controls[key === 'ArrowRight' ? 0 : controls.length - 1]?.focus({ preventScroll: true } as any);
+          } else {
+            const next = index + (key === 'ArrowRight' ? 1 : -1);
+            if (next >= 0 && next < controls.length) {
+              controls[next]?.focus({ preventScroll: true } as any);
+              controls[next]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            } else {
+              box.focus({ preventScroll: true } as any);
+            }
+          }
+          return;
+        }
+      }
+    }
     if (activeTab === 'favorites') {
       if (handleFavoritesNavigation(e)) return;
       const key = normalizeTvKey(e);
