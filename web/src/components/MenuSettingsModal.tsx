@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { WEB_VERSION, WEB_VERSION_HISTORY } from '../appVersion';
+import { WEB_VERSION } from '../appVersion';
 import { checkLatestWebOSRelease, type WebOSReleaseInfo } from '../services/webosUpdateService';
 
 interface MenuSettingsModalProps {
@@ -89,7 +89,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const [releaseInfo, setReleaseInfo] = useState<WebOSReleaseInfo | null>(null);
   const [releaseCheckLoading, setReleaseCheckLoading] = useState(false);
   const [releaseCheckStatus, setReleaseCheckStatus] = useState('');
-  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showReleaseDetails, setShowReleaseDetails] = useState(false);
   const showApplicationBox = true; // állandó rész, nem csukható
   const [expandedFavoriteFolderId, setExpandedFavoriteFolderId] = useState<string | null>(null);
   /*
@@ -360,7 +360,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         if (key === 'ArrowLeft' || key === 'ArrowRight') {
           const index = controls.indexOf(active as HTMLElement);
           if (index < 0) {
-            controls[key === 'ArrowRight' ? 0 : controls.length - 1]?.focus({ preventScroll: true } as any);
+            if (key === 'ArrowRight') controls[0]?.focus({ preventScroll: true } as any);
+            return;
           } else {
             const next = index + (key === 'ArrowRight' ? 1 : -1);
             if (next >= 0 && next < controls.length) {
@@ -389,7 +390,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           root?.querySelector<HTMLElement>('[data-tv-box]')?.focus({ preventScroll: true } as any);
           return;
         }
-        if (key === 'ArrowUp') return;
+        if (key === 'ArrowUp') {
+          if (action === 'phone') {
+            root?.querySelector<HTMLElement>('[data-tv-tabid="lists"]')?.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
         if (key === 'ArrowRight') {
           if (action === 'phone') {
             root?.querySelector<HTMLElement>('[data-tv-list-action="new"]')?.focus({ preventScroll: true } as any);
@@ -1357,20 +1363,27 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       } else if (key === 'ArrowDown') {
                         event.preventDefault();
                         event.stopPropagation();
-                        modalRef.current?.querySelector<HTMLElement>('[data-system-version]')?.focus({ preventScroll: true } as any);
+                        modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
                       }
-                    }} onClick={checkWebOSUpdate} disabled={releaseCheckLoading} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-bold active:scale-95 transition-all disabled:opacity-60">
+                    }} onClick={() => {
+                      if (showReleaseDetails) {
+                        setShowReleaseDetails(false);
+                      } else {
+                        setShowReleaseDetails(true);
+                        void checkWebOSUpdate();
+                      }
+                    }} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-bold active:scale-95 transition-all disabled:opacity-60">
                       <RefreshCw className={releaseCheckLoading ? "w-3.5 h-3.5 animate-spin" : "w-3.5 h-3.5"} />
-                      {releaseCheckLoading ? 'Ellenőrzés…' : 'Frissítés ellenőrzése'}
+                      {showReleaseDetails ? 'Ellenőrzés bezárása' : releaseCheckLoading ? 'Ellenőrzés…' : 'Frissítés ellenőrzése'}
                     </button>
-                    {releaseInfo && (
+                    {showReleaseDetails && releaseInfo && (
                       <div className="rounded-lg border border-cyan-900/40 bg-slate-950/50 p-3 space-y-1">
                         <p className="text-[11px] text-slate-300">Telepített verzió: <strong>{releaseInfo.currentVersion}</strong></p>
                         <p className="text-[11px] text-slate-300">Legfrissebb kiadás: <strong>{releaseInfo.latestVersion}</strong></p>
                         {releaseInfo.ipkUrl ? <p className="text-[11px] text-emerald-300">A kiadás tartalmaz IPK-csomagot.</p> : <p className="text-[11px] text-amber-300">A kiadásban nem található IPK-fájl.</p>}
                       </div>
                     )}
-                    {releaseCheckStatus && <p role="status" className="text-[11px] text-slate-300">{releaseCheckStatus}</p>}
+                    {showReleaseDetails && releaseCheckStatus && <p role="status" className="text-[11px] text-slate-300">{releaseCheckStatus}</p>}
                   </div>
                 </div>
 
@@ -1388,30 +1401,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   <div>
                     <h4 className="text-white font-black text-base flex items-center gap-1.5">
                       <span>TV</span>
-                      <button
-                        data-system-version=""
-                        onKeyDown={(event) => {
-                          const key = normalizeTvKey(event);
-                          if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowDown') {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
-                          } else if (key === 'ArrowUp') {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
-                          } else if (key === 'Enter' || key === ' ') {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            setShowVersionHistory((value) => !value);
-                          }
-                        }}
-                        onClick={() => setShowVersionHistory((value) => !value)}
-                        className="text-xs text-slate-400 font-mono font-normal hover:text-amber-300 transition-colors"
-                        title="Verzióelőzmények"
-                      >
+                      <span data-system-version="" className="text-xs text-slate-400 font-mono font-normal">
                         v{WEB_VERSION}
-                      </button>
+                      </span>
                     </h4>
                     <p className="text-xs text-cyan-300 font-semibold">
                       LG webOS TV mód
@@ -1419,50 +1411,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
 
-
-                {showVersionHistory && (
-                  <div data-version-history="" tabIndex={0} onKeyDown={(event) => {
-                    const key = normalizeTvKey(event);
-                    if (key === 'ArrowDown' || key === 'ArrowUp') {
-                      const el = event.currentTarget;
-                      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
-                      const atTop = el.scrollTop <= 0;
-                      if ((key === 'ArrowDown' && !atBottom) || (key === 'ArrowUp' && !atTop)) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        el.scrollBy({ top: key === 'ArrowDown' ? 100 : -100, behavior: 'auto' });
-                      } else {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
-                      }
-                    } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
-                    }
-                  }} className="max-h-[42vh] overflow-y-auto overscroll-contain p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-amber-400">WEB VERZIÓELŐZMÉNYEK</span>
-                      <span className="text-[10px] text-slate-500">automatikus</span>
-                    </div>
-                    <div className="space-y-2.5">
-                      {WEB_VERSION_HISTORY.map((entry) => (
-                        <div key={entry.version} className="rounded-lg bg-slate-950/50 border border-slate-800 p-2.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-white">v{entry.version}</span>
-                            <span className="text-[10px] text-slate-500">{entry.date}</span>
-                          </div>
-                          <ul className="mt-1.5 space-y-0.5">
-                            {entry.changes.map((change) => (
-                              <li key={change} className="text-[11px] text-slate-300">• {change}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {/* Rendszerfunkciók – egységes, kétoszlopos kék kockák */}
                 <div className="pt-1 grid grid-cols-2 gap-2 text-[11px]">
