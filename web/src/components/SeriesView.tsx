@@ -66,8 +66,19 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     }
     if (!previousFocusRef.current) previousFocusRef.current = document.activeElement as HTMLElement | null;
     const timer = window.setTimeout(() => {
-      const first = detailDialogRef.current?.querySelector<HTMLElement>('[data-dialog-primary]')
-        || detailDialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)');
+      const dialog = detailDialogRef.current;
+      if (!dialog) return;
+
+      const episodeList = dialog.querySelector<HTMLElement>('[data-episode-list]');
+
+      dialog.querySelector<HTMLElement>('[data-dialog-scroll]')
+        ?.scrollTo({ top: 0, behavior: 'auto' });
+
+      episodeList?.scrollTo({ top: 0, behavior: 'auto' });
+
+      const first = dialog.querySelector<HTMLElement>('[data-dialog-primary]')
+        || dialog.querySelector<HTMLElement>('button:not(:disabled)');
+
       first?.focus({ preventScroll: true } as FocusOptions);
     }, 60);
     return () => window.clearTimeout(timer);
@@ -281,7 +292,10 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
       {/* Series Season & Episode Detail Modal */}
       {selectedSeries && (
         <div ref={detailDialogRef} role="dialog" aria-modal="true" aria-label="Sorozat részletei" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setSelectedSeriesId(''); } }} className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/85 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
-          <div className="bg-[#09152e] border border-cyan-800/60 rounded-3xl max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl w-full max-h-[92dvh] lg:max-h-[85vh] overflow-y-auto shadow-2xl animate-scaleUp flex flex-col">
+          <div
+            data-dialog-scroll=""
+            className="bg-[#09152e] border border-cyan-800/60 rounded-3xl max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl w-full max-h-[92dvh] lg:max-h-[85vh] overflow-y-auto overscroll-contain shadow-2xl animate-scaleUp flex flex-col"
+          >
             {/* Header */}
             <div className="relative h-44 w-full bg-slate-900 overflow-hidden shrink-0">
               <img
@@ -378,7 +392,10 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                   {activeSeason?.name} ({activeSeason?.episodes.length} epizód)
                 </h5>
 
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                <div
+                  data-episode-list=""
+                  className="space-y-2 max-h-72 overflow-y-auto overscroll-contain pt-1 pr-1"
+                >
                   {activeSeason?.episodes.map((ep, epIndex) => (
                     <div
                       key={ep.id}
