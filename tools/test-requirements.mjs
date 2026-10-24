@@ -958,9 +958,9 @@ test('12. ugyanaz a csatorna nem esik el minden váltásnál ugyanazzal a formá
   // A régi globális kulcs is megmarad (visszafelé kompatibilitás).
   assert.match(MEMORY, /const GLOBAL_KEY = 'iptv_rt_live-format';/);
 
-  // A lejátszó először a CSATORNA emlékét nézi, csak utána a globálist.
-  assert.match(PLAYER, /rememberedFormat = rememberedFormatFor\(channel\?\.id\);/);
-  assert.match(PLAYER, /if \(!rememberedFormat\) rememberedFormat = rememberedGlobalFormat\(\);/);
+  // A csatorna emléke diagnosztikai adat; a kézi TS/HLS beállítás elsőbbséget élvez.
+  assert.match(PLAYER, /const channelMemory = rememberedFormatFor\(channel\?\.id\);/);
+  assert.match(PLAYER, /const selectedFormat = settings\.streamFormat === 'hls' \? 'hls' : 'ts';/);
   // Sikeres indításnál csatornánként jegyezzük meg (és naplózzuk a változást).
   assert.match(PLAYER, /rememberGlobalFormat\(format\);\s*\n\s*if \(target\?\.id\) rememberFormatFor\(target\.id, format\);/);
   // A tartalék cím kiszámítása csatornaváltáskor.
@@ -1148,8 +1148,8 @@ test('15. a formátumemlékezet mentése és a kétformátumos hiba látszik a n
   assert.match(PLAYER, /if \(target\?\.id && previousFormat !== format\) \{/);
   assert.match(PLAYER, /FORMÁTUM-EMLÉK MENTVE; csatorna=\$\{String\(target\.name \|\| ''\)\.slice\(0, 100\)\}; /);
   // A CSATORNAVÁLTÁS START sor a globális emléket is kiírja, ha csatornánként nincs.
-  assert.match(PLAYER, /formátum-emlék=\$\{channelMemory \|\| 'nincs \(alap\)'\}\$\{channelMemory \? '' : `; globális-emlék=\$\{globalMemory \|\| 'nincs'\}`\}/);
-  // A két formátum együttes hibája külön, egyértelmű sor.
+  // A CSATORNAVÁLTÁS START sor kiírja a csatorna formátum-emlékét vagy jelzi, ha nincs.
+  assert.match(PLAYER, /formátum-emlék=\$\{channelMemory \|\| 'nincs'\}/);
   assert.match(PLAYER, /próbált formátumok=\$\{triedFormats\}; a csatorna jelenleg nem indítható\. Formátum-emlék törölve\./);
   assert.match(PLAYER, /liveFallbackRef\.current\?\.format === 'hls' \? 'MPEG-TS \+ HLS' : 'HLS \+ MPEG-TS'/);
 });
