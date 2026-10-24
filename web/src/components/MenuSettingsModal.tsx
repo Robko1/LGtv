@@ -196,7 +196,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   // A kártyákon és gombokon nincs külön nyílkezelő, így nem írhatják felül egymást.
   const handleFavoritesNavigation = (e: React.KeyboardEvent): boolean => {
     const key = normalizeTvKey(e);
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return false;
     const root = modalRef.current;
     if (!root) return false;
     const target = e.target as HTMLElement;
@@ -205,6 +204,21 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     const resumeSection = target.closest<HTMLElement>('[data-resume-section]');
     const resumeItem = target.closest<HTMLElement>('[data-resume-item]');
     const isNewFolder = !!target.closest('[data-tv-default]');
+    // Enter a mappakártyán a mappa műveleteire visz; a Folytatás szekción
+    // Enter az első Folytatás gombra visz. A tényleges gombok kattintása natív marad.
+    if ((key === 'Enter' || key === ' ') && folder && target === folder) {
+      e.preventDefault();
+      e.stopPropagation();
+      folder.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus({ preventScroll: true } as any);
+      return true;
+    }
+    if ((key === 'Enter' || key === ' ') && resumeSection && target === resumeSection) {
+      e.preventDefault();
+      e.stopPropagation();
+      resumeSection.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
+      return true;
+    }
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return false;
     const focus = (el?: HTMLElement | null) => {
       if (!el) return;
       e.preventDefault();
