@@ -337,7 +337,15 @@ const HtmlVodSubtitleOverlay: React.FC<{
   );
 };
 
-const BlueClock: React.FC<{ className?: string; offsetHours?: number }> = ({ className, offsetHours = 0 }) => {
+const BlueClock: React.FC<{ className?: string; offsetHours?: number; accent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white' }> = ({ className, offsetHours = 0, accent = 'yellow' }) => {
+  const accentTextClass: Record<NonNullable<typeof accent>, string> = {
+    yellow: 'text-amber-300',
+    red: 'text-red-400',
+    blue: 'text-blue-400',
+    pink: 'text-pink-400',
+    green: 'text-green-400',
+    white: 'text-white',
+  };
   const [time, setTime] = useState('');
   const offset = normalizeClockOffset(offsetHours);
   useEffect(() => {
@@ -368,6 +376,7 @@ const BlueClock: React.FC<{ className?: string; offsetHours?: number }> = ({ cla
 };
 
 interface VideoPlayerProps {
+  liveAccent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white';
   channel: Channel | null;
   customStreamUrl?: string;
   customTitle?: string;
@@ -421,6 +430,7 @@ interface VideoPlayerProps {
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   channel,
+  liveAccent = 'yellow',
   customStreamUrl,
   customTitle,
   audioTracks: providedAudioTracks,
@@ -3470,8 +3480,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Kék óra az OSD2-ben; teljes képernyőn az OSD elrejtése után is megmarad, ha a beállítás be van kapcsolva. */}
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
         <BlueClock
+          accent={liveAccent}
           offsetHours={settings.clockOffsetHours}
-          className={`absolute top-3 z-40 box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider text-cyan-200 shadow-none pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
+          className={`absolute top-3 z-40 box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider ${accentTextClass[accent]} shadow-none pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
         />
       )}
 
