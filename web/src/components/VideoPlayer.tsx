@@ -2874,18 +2874,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     clearAutoRetry();
     nativeRetryCountRef.current = 0;
     setActiveUrlIndex(0);
-    // GYORS ZAPPOLÁS: megjegyezzük, melyik formátum (HLS vagy MPEG-TS) indult
-    // el legutóbb sikeresen, és csatornaváltásnál rögtön azzal próbálkozunk -
-    // így nem megy el másodpercekig tartó zap-őr várakozás minden váltásnál.
-    //
-    // FONTOS (a csatornaváltás lassúsága): korábban az első próba MINDIG a
-    // szolgáltató címéből átírt .m3u8 volt. Az átírás egy plusz kérést és egy
-    // lejátszási lista feldolgozását jelentette minden váltásnál, ami webOS-on
-    // fél-egy másodperc. Most a szolgáltató által adott cím megy először
-    // (általában .ts), és csak ha az nem indul el, váltunk .m3u8-ra. Ha a
-    // legutóbb sikeres formátum HLS volt, azt használjuk elsőként.
-    // A kézi formátumválasztás elsőbbséget élvez a korábbi sikeres formátummal szemben.
-    // A .ts/.m3u8 kiterjesztést a választott formátumhoz igazítjuk, ha lehetséges.
+    // Élő adásnál mindig MPEG-TS az első próba, majd hiba/időtúllépés esetén
+    // HLS következik. A csatornánként megjegyzett korábbi formátum nem írhatja
+    // felül ezt a sorrendet. A generációs ellenőrzés kizárja, hogy egy régi
+    // csatorna késői eseménye felülírja az új csatorna állapotát.
     const hlsUrl = streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
     const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
       ? streamUrl
