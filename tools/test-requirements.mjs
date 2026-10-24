@@ -958,10 +958,9 @@ test('12. ugyanaz a csatorna nem esik el minden váltásnál ugyanazzal a formá
   // A régi globális kulcs is megmarad (visszafelé kompatibilitás).
   assert.match(MEMORY, /const GLOBAL_KEY = 'iptv_rt_live-format';/);
 
-  // A csatorna emléke diagnosztikai adat; a kézi TS/HLS beállítás elsőbbséget élvez.
-  assert.match(PLAYER, /const channelMemory = rememberedFormatFor\(channel\?\.id\);/);
-  // Élő TV-n az MPEG-TS az elsődleges, a HLS automatikus tartalék; a régi kézi formátumválasztás nem írhatja felül.
-  assert.match(PLAYER, /const primaryUrl = isVod \? streamUrl : tsUrl;/);
+  // Az élő csatorna korábban sikeres formátuma legyen az elsődleges; új csatornánál MPEG-TS induljon.
+  assert.match(PLAYER, /const channelMemory = isVod \? null : rememberedFormatFor\(channel\?\.id\);/);
+  assert.match(PLAYER, /const primaryUrl = isVod \? streamUrl : \(channelMemory === 'hls' \? hlsUrl : tsUrl\);/);
   assert.match(PLAYER, /liveRetrySequenceRef\.current = isVod[\s\S]{0,240}?urls: alternative[\s\S]{0,120}?\[primaryUrl, alternative\.url, primaryUrl, alternative\.url\]/);
   // Sikeres indításnál csatornánként jegyezzük meg (és naplózzuk a változást).
   assert.match(PLAYER, /rememberGlobalFormat\(format\);\s*\n\s*if \(target\?\.id\) rememberFormatFor\(target\.id, format\);/);
