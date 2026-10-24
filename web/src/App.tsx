@@ -2044,6 +2044,9 @@ export function App() {
       // Szövegmezőben ne vegyük át a távirányító gombjait.
       const target = e.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      // A beállítások saját navigációja kezeli a nyilakat; a globális
+      // kezelő itt sem fókuszt, sem csatornát, sem hangerőt nem módosíthat.
+      if (target?.closest?.('[data-tv-navigation-owner="settings"]')) return;
 
       // Teljes képernyőben bármely gomb visszahozza az OSD-t (és újraindítja
       // az eltűnési időzítőt) – a set-top box-ok szokása. A hívás akkor sem
