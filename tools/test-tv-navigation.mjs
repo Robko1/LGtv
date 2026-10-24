@@ -493,7 +493,8 @@ test('8. a globális webOS navigáció nem írja felül a Kedvencek vízszintes 
       } else if (target.closest('[data-favorite-folder]')) {
         if (target.closest('[title="Mappa törlése"]')) {
           e.preventDefault(); e.stopPropagation();
-          if (key === 'ArrowLeft' || key === 'ArrowUp' || key === 'ArrowDown') folder.focus();
+          if (key === 'ArrowLeft' || key === 'ArrowUp') folder.focus();
+          // Lefelé a Törlés gombon maradunk: a mappából nem léphet ki.
         } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
           e.preventDefault(); e.stopPropagation();
         }
