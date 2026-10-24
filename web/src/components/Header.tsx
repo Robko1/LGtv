@@ -52,34 +52,43 @@ export const Header: React.FC<HeaderProps> = ({
     window.close();
   };
 
-  // TV / Sorozatok / Mozi fülek közti vízszintes távirányítós navigáció.
-  const handleHeaderDpad = (event: React.KeyboardEvent<HTMLButtonElement>, current: 'live' | 'series' | 'movies') => {
+  // A felső sor saját D-pad kezelése felülírja a globális nyílbillentyű-logikát.
+  // Vízszintesen a látható elemek között lép; függőlegesen csak a Menü mehet lefelé.
+  const handleHeaderDpad = (event: React.KeyboardEvent<HTMLElement>) => {
     const key = normalizeTvKey(event);
-    if (key === 'ArrowDown') {
-      // A TV fülről nincs lefelé navigáció; csak a Mozi/Sorozatok nyitja meg a saját kategóriagombját.
-      if (current === 'live') return;
-      const category = document.querySelector<HTMLElement>(`[data-view-pane="${current}"] [data-category-trigger]`);
-      if (!category) return;
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-tv-header-kind]');
+    if (!target) return;
+
+    if (key === 'ArrowUp' || key === 'ArrowDown') {
       event.preventDefault();
       event.stopPropagation();
-      category.focus({ preventScroll: true });
+      if (key === 'ArrowDown' && target.dataset.tvHeaderKind === 'settings') {
+        document.querySelector<HTMLElement>('[data-tv-folders] [data-tv-folder]')?.focus({ preventScroll: true });
+      }
       return;
     }
+
     if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
-    const order: Array<'live' | 'series' | 'movies'> = ['live', 'series', 'movies'];
-    const index = order.indexOf(current);
-    const next = order[index + (key === 'ArrowRight' ? 1 : -1)];
-    if (!next) return;
-    const target = document.querySelector<HTMLElement>(`[data-tv-header-kind="${next}"]`);
-    if (!target) return;
+    const items = Array.from(
+      target.closest('header')?.querySelectorAll<HTMLElement>('[data-tv-header-kind]') || []
+    ).filter((item) => item.getClientRects().length > 0)
+      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    const index = items.indexOf(target);
+    const next = items[index + (key === 'ArrowRight' ? 1 : -1)];
+    if (!next) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
-    target.focus({ preventScroll: true });
+    next.focus({ preventScroll: true });
   };
 
   return (
     <header
       data-live-accent={liveAccent}
+      onKeyDown={handleHeaderDpad}
       className="sticky top-0 z-40 bg-[#070d1d]/95 backdrop-blur-md border-b border-cyan-950/40 pl-0 pr-2 py-2 md:py-2.5 lg:py-3 flex items-center justify-between gap-2 md:gap-3 lg:gap-4 shadow-md">
       {/*
         A NÉGY DOBOZ SORRENDJE (a sárga óra mellett):
@@ -92,7 +101,7 @@ export const Header: React.FC<HeaderProps> = ({
       */}
       <div className="flex flex-1 items-center gap-2 md:gap-3 lg:gap-4 flex-nowrap min-w-0 mr-1">
         {/* Az óra önálló, keret és háttér nélküli elem, a fejléc bal széléhez igazítva. */}
-        <div className="flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 text-amber-300 font-mono font-semibold tracking-wider order-[-2]">
+        <div data-tv-header-kind="clock" tabIndex={0} className="flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 text-amber-300 font-mono font-semibold tracking-wider order-[-2]">
           <Clock className="hidden w-4 h-4 md:w-5 md:h-5 text-amber-400 animate-pulse shrink-0" />
           <span data-header-clock="" className="whitespace-nowrap text-2xl sm:text-3xl md:text-3xl lg:text-4xl leading-none">{currentTime || '02:15'}</span>
         </div>
@@ -103,7 +112,6 @@ export const Header: React.FC<HeaderProps> = ({
             data-tv-header=""
             data-tv-header-kind="live"
             data-tv-header-default=""
-            onKeyDown={(e) => handleHeaderDpad(e, 'live')}
             /*
              * A TV gomb a Mozi/Sorozat nézetben SEM kap világoskék kiemelést
              * (a felhasználó kérése): ugyanolyan semleges doboz, mint a többi.
@@ -143,7 +151,6 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onViewChange('series')}
           data-tv-header=""
           data-tv-header-kind="series"
-          onKeyDown={(e) => handleHeaderDpad(e, 'series')}
           className={`flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${
             activeView === 'series'
               ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
@@ -159,7 +166,6 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onViewChange('movies')}
           data-tv-header=""
           data-tv-header-kind="movies"
-          onKeyDown={(e) => handleHeaderDpad(e, 'movies')}
           className={`flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${
             activeView === 'movies'
               ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-lg shadow-amber-950/40'
