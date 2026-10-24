@@ -577,21 +577,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const bufferModeRef = useRef(settings.bufferMode);
   bufferModeRef.current = settings.bufferMode;
   /**
-   * LEJÁTSZÓ MOTOR (Beállítások → Rendszer → Lejátszó).
-   *
-   *  - 'html5'  : a beépített lejátszó. Élő adásnál először HLS-t próbál,
-   *               hiba/elakadás esetén magától MPEG-TS-re vált (zap-őr).
-   *  - 'native' : a TV hardveres dekóderére támaszkodó közvetlen mód: a
-   *               szolgáltató által adott URL-t változtatás nélkül játssza
-   *               (MPEG-TS), nem írja át .m3u8-ra és nem váltogatja a
-   *               formátumot, a felület pedig visszafogott (nincs
-   *               elmosás/animáció a kép fölött).
-   *
-   * A választás a beállításokban tárolódik, így újraindítás után is megmarad.
+   * LG webOS TV-n a támogatott webes lejátszási út a HTMLVideoElement.
+   * Ez a TV platform médiamotorját használja; nincs külön, általánosan
+   * támogatott AVPlay-szerű JavaScript videó-API. A régi „native” beállítás
+   * kompatibilitásból megmarad, de nem jelent külön lejátszási útvonalat.
    */
-  const playerEngine: 'html5' | 'native' = settings.playerEngine === 'native' ? 'native' : 'html5';
-  const playerEngineRef = useRef(playerEngine);
-  playerEngineRef.current = playerEngine;
   /** Az éppen kiválasztott csatorna (a hibakezeléshez, dependency nélkül). */
   const channelRef = useRef<typeof channel>(channel);
   channelRef.current = channel;
@@ -2759,8 +2749,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           lastBufferedEnd: 0,
         };
         const channelMemory = rememberedFormatFor(channel?.id);
-        const globalMemory = rememberedGlobalFormat();
-        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; formátum-emlék=${channelMemory || 'nincs (alap)'}${channelMemory ? '' : `; globális-emlék=${globalMemory || 'nincs'}`}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
       }
       video.pause();
       /*
@@ -2786,14 +2775,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // régi adást, csak a dekóder újraindítása marad el.
       // Korábbi <source> gyerekek eltakarítása (motorváltásnál is tiszta lap).
       while (video.firstChild) video.removeChild(video.firstChild);
-      // CSATORNAVÁLTÁS MINDKÉT MOTORRAL:
-      // A videóelem `src`-jét mindig felülírjuk. Korábban a natív mód
-      // <source mediaOption=...> elemet fűzött be, ami a TV-n nem indította
-      // el az adást (a csatornaváltás „nem történt meg”), ezért a natív mód is
-      // a közvetlen címet kapja: a szolgáltató EREDETI URL-jét, formátum-átírás
-      // nélkül, a TV hardveres dekóderén. A két motor között a különbség a
-      // címválasztás és a hibakezelés (natívnál nincs formátumváltás), nem a
-      // lejátszás útja.
+      // A webOS HTML5 videóelemét használjuk, amely a TV platform médiamotorját
+      // veszi igénybe. Hiba esetén egyszer megpróbáljuk a másik streamformátumot.
       video.src = url;
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
@@ -2842,7 +2825,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // újraindította a lejátszást – ez volt a „ne méretezzen/ugráljon össze-vissza”.
   const loadStreamRef = useRef(loadStream);
   loadStreamRef.current = loadStream;
-  const loadKey = `${streamUrl}|${settings.bufferMode}|${playerEngine}`;
+  const loadKey = `${streamUrl}|${settings.bufferMode}`;
   useEffect(() => {
     clearAutoRetry();
     nativeRetryCountRef.current = 0;
@@ -2864,21 +2847,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ? streamUrl
       : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
     const selectedFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
-    // Gyors csatornaváltás: mindkét LG lejátszó-beállításnál ugyanazt a
-    // legutóbb sikeresen elindult élő formátumot próbáljuk először.
-    // A beállított formátum csak akkor az elsődleges, ha még nincs sikeres
-    // korábbi próba eltárolva. Hibánál a meglévő zap-őr próbálkozik tovább.
-    let rememberedFormat: 'ts' | 'hls' | null = null;
-    if (!isVod) {
-      /*
-       * CSATORNÁNKÉNTI EMLÉKEZET elsőbbséggel: ha ezt a csatornát legutóbb
-       * HLS-sel sikerült elindítani, most is azzal kezdünk (és fordítva).
-       * Csak ha a csatornához még nincs bejegyzés, a globális emlékezet jön.
-       */
-      rememberedFormat = rememberedFormatFor(channel?.id);
-      if (!rememberedFormat) rememberedFormat = rememberedGlobalFormat();
-    }
-    const primaryFormat = rememberedFormat || selectedFormat;
+    // A kézi formátumválasztás mindig elsőbbséget élvez az emlékezettel
+    // szemben. Ha nem indul el, a másik formátumot egyszer automatikusan próbáljuk.
+    const primaryFormat = selectedFormat;
     const primaryUrl = isVod
       ? streamUrl
       : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
@@ -3429,13 +3400,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* A videó a TV HTML5 videóelemében fut; az OSD fölötte marad. */}
       {nativeHandoff && <div className="absolute inset-0 bg-transparent pointer-events-none" />}
-
-      {/* Melyik lejátszó motor fut - csak a felületen, rövid jelzés. */}
-      {showControlsOverlay && playerEngine === 'native' && !isLoading && !hasError && (
-        <div className="absolute top-3 left-3 z-30 rounded-full border border-emerald-400/50 bg-black/70 px-3 py-1 text-[11px] font-black tracking-widest text-emerald-300 pointer-events-none">
-          NATÍV LEJÁTSZÓ
-        </div>
-      )}
 
       {/* Buffering Loading Indicator */}
       {isLoading && (
