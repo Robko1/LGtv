@@ -1108,35 +1108,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </p>
                 </div>
 
-                {/* Élő adás streamformátuma – ugyanaz a beállítás mindkét lejátszómódban. */}
+                {/* Élő adás formátuma: MPEG-TS az első próba, HLS automatikus tartalék. */}
                 <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-cyan-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Tv className="h-4 w-4 text-cyan-300" /></span>
                     <span>Élő adás formátuma</span>
                   </label>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    A kiválasztott formátummal indul. Ha nem indul el, a lejátszó automatikusan egyszer kipróbálja a másik változatot.
-                  </p>
-                  <div className="grid grid-cols-2 gap-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => onUpdateSettings({ streamFormat: 'ts' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'bg-cyan-400 text-slate-950 border border-cyan-300 shadow-md shadow-cyan-400/30' : 'bg-[#0e1f3f] text-white border border-slate-700/60 hover:bg-[#142b56]'}`}
-                      aria-pressed={(settings.streamFormat || 'ts') === 'ts'}
-                    >
-                      MPEG-TS (.ts)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onUpdateSettings({ streamFormat: 'hls' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${settings.streamFormat === 'hls' ? 'bg-cyan-400 text-slate-950 border border-cyan-300 shadow-md shadow-cyan-400/30' : 'bg-[#0e1f3f] text-white border border-slate-700/60 hover:bg-[#142b56]'}`}
-                      aria-pressed={settings.streamFormat === 'hls'}
-                    >
-                      HLS (.m3u8)
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-cyan-300 leading-tight pt-1">
-                    {settings.streamFormat === 'hls' ? 'Első próba: HLS. Hiba esetén automatikus MPEG-TS-próba.' : 'Első próba: MPEG-TS. Hiba esetén automatikus HLS-próba.'}
+                  <p className="text-[11px] text-slate-300 leading-tight">
+                    Első próba: MPEG-TS (.ts). Ha nem indul el vagy hibára fut, a lejátszó automatikusan HLS (.m3u8) formátumra vált.
                   </p>
                 </div>
 
