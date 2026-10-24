@@ -204,6 +204,18 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     const resumeSection = target.closest<HTMLElement>('[data-resume-section]');
     const resumeItem = target.closest<HTMLElement>('[data-resume-item]');
     const isNewFolder = !!target.closest('[data-tv-default]');
+    const onTabs = !!target.closest('[data-tv-tabs]');
+    if (onTabs && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      if (key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopPropagation();
+        root.querySelector<HTMLElement>('[data-tv-default]')?.focus({ preventScroll: true } as any);
+      } else {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return true;
+    }
     // Enter a mappakártyán a mappa műveleteire visz; a Folytatás szekción
     // Enter az első Folytatás gombra visz. A tényleges gombok kattintása natív marad.
     if ((key === 'Enter' || key === ' ') && folder && target === folder) {
@@ -313,7 +325,17 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   };
 
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
-    if (activeTab === 'favorites' && handleFavoritesNavigation(e)) return;
+    if (activeTab === 'favorites') {
+      if (handleFavoritesNavigation(e)) return;
+      const key = normalizeTvKey(e);
+      if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+        // A Kedvencek fülön egyetlen hely dönt a nyilakról; az általános
+        // modal-navigáció nem veheti át a kezelést.
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
     // A fel/le navigáció mindig az éppen aktív fülön belül marad.
     // Csak az adott fül legfelső dobozáról lehet visszalépni a saját fülére.
     const key = normalizeTvKey(e);
