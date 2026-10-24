@@ -2478,7 +2478,9 @@ export function App() {
               setCustomStreamTitle(undefined);
               const returnView = vodReturnViewRef.current;
               const resumeHistoryId = lastResumeHistoryIdRef.current;
-              setActiveView(returnToFavoritesSettings ? 'live' : returnView);
+              // A normál Mozi/Sorozat visszatérés maradjon a korábbi útvonalon.
+              setActiveView(returnView);
+              if (returnToFavoritesSettings) setActiveView('live');
               setIsPlaying(false);
               setNextEpisodeToPlay(null);
               if (returnToFavoritesSettings) {
