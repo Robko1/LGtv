@@ -1081,7 +1081,7 @@ test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és l�
   // A napló mérés-ablaka: 0-ról induló számlálók + látható kezdő időpont.
   assert.match(APPLOG, /export function resetMeasurements\(reason: string = 'kézi frissítés'\): MeasurementSnapshot/);
   assert.match(APPLOG, /measurementCounters\.logLines = 0;\s*\n\s*measurementCounters\.errors = 0;\s*\n\s*measurementCounters\.longTasks = 0;/);
-  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{dublinTimestamp\(startedAt\)\} \(\$\{clockText\(startedAt\)\}\); előzmények törölve; ok: \$\{reason\}/);
+  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{dublinTimestamp\(startedAt\)\} \(\$\{clockText\(startedAt \+ 60 \* 60 \* 1000\)\}\); előzmények törölve; ok: \$\{reason\}/);
   assert.match(APPLOG, /MÉRÉS KEZDETE: \$\{measure\.startedAtText\}/);
   // A felugró ablak a Frissítéskor nulláz, és kiírja a kezdő időpontot.
   assert.match(DIAG_MODAL, /const fresh = resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\);/);
@@ -1154,11 +1154,12 @@ test('15. a QR-ablak távirányítóval egy OK-ra a Frissítést indítja, és m
   assert.match(DIAG_MODAL, /QR-diagnózis megnyitva; mérés kezdete=\$\{opened\.startedAtText\}/);
 });
 
-test('15. a mérés nullázása törli az előzményeket, és csak az új mérési ablakot exportálja', () => {
+test('15. a mérés nullázása törli az előzményeket, a QR pedig a teljes megőrzött naplót exportálja', () => {
   assert.match(APPLOG, /clearAppLog\(\);\s*\n\s*measurementStartedAt = startedAt;/);
   assert.match(APPLOG, /localStorage\.removeItem\(/);
   assert.match(APPLOG, /measurementCounters\.logLines = 0;/);
-  assert.match(APPLOG, /const sessionLines = lines\.filter\(\(line\) => \{/);
-  assert.match(APPLOG, /timestamp >= measurementStartedAt/);
-  assert.match(APPLOG, /max\. 24 óra \/ 60 KB/);
+  assert.match(APPLOG, /return \\[header, \.\.\.lines\\]\\.join\\('\\\\n'\\);/);
+  assert.match(APPLOG, /const MAX_CHARS = 1_000_000;/);
+  assert.match(APPLOG, /max\\. 24 óra \\/ 1 MB/);
+  assert.doesNotMatch(APPLOG, /MAX_LINES/);
 });
