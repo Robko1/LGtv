@@ -3477,12 +3477,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {/* Kék óra az OSD2-ben; teljes képernyőn az OSD elrejtése után is megmarad, ha a beállítás be van kapcsolva. */}
+      {/* A kék óra teljes képernyőn mindig a jobb felső sarokhoz igazodik. */}
       {(settings.alwaysShowBlueClock || landscapeLiveFullscreen) && isFullscreen && (
         <BlueClock
-          accent={liveAccent}
+          accent="blue"
           offsetHours={settings.clockOffsetHours}
-          className={`absolute top-3 z-40 box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider shadow-none pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
+          className="absolute top-3 right-3 z-40 box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider shadow-none pointer-events-none"
         />
       )}
 
