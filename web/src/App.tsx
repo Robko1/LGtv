@@ -28,7 +28,27 @@ logPhase('mentett élő lista beolvasva (App modul)');
 // A betöltött tár régi vagy sérült adatait már az állapot létrehozásakor normalizáljuk.
 const bootChannels = Array.isArray(bootLive.channels) ? bootLive.channels : [];
 
-function preserveChannelPreferences(incoming: Channel[], existing: Channel[]): Channel[] {
+function restoreSavedChannelOrder(channels: Channel[], providerId?: string): Channel[] {
+  if (!providerId || channels.length < 2) return channels;
+  const savedOrder = storageService.getChannelOrder(providerId);
+  if (!savedOrder.length) return channels;
+  const byId = new Map(channels.map((channel) => [channel.id, channel]));
+  const restored: Channel[] = [];
+  const used = new Set<string>();
+  for (const id of savedOrder) {
+    const channel = byId.get(id);
+    if (channel && !used.has(id)) {
+      restored.push(channel);
+      used.add(id);
+    }
+  }
+  for (const channel of channels) {
+    if (!used.has(channel.id)) restored.push(channel);
+  }
+  return restored;
+}
+
+function preserveChannelPreferences(incoming: Channel[], existing: Channel[], preserveOrder = true): Channel[] {
   // FONTOS (a telefon lefagyásának javítása): a keresőtáblákat EGYETLEN
   // végigmenetel építi fel. Korábban a stream-URL tábla `existing.indexOf(channel)`
   // hívással készült, ami négyzetszerű (O(n²)) futásidőt okozott: 20 000
@@ -60,7 +80,7 @@ function preserveChannelPreferences(incoming: Channel[], existing: Channel[]): C
           ...channel,
           // A stabil azonosító megtartása miatt a mappák tagsága sem vész el frissítéskor.
           id: match.channel.id,
-          orderIndex: match.channel.orderIndex,
+          orderIndex: preserveOrder ? match.channel.orderIndex : incomingIndex,
           isFavorite: match.channel.isFavorite,
         },
         previousIndex: match.index,
@@ -68,7 +88,9 @@ function preserveChannelPreferences(incoming: Channel[], existing: Channel[]): C
       };
     })
     // A már meglévő csatornák megtartják a felhasználó sorrendjét; az új csatornák a végére kerülnek.
-    .sort((a, b) => a.previousIndex - b.previousIndex || a.incomingIndex - b.incomingIndex)
+    .sort((a, b) => preserveOrder
+      ? a.previousIndex - b.previousIndex || a.incomingIndex - b.incomingIndex
+      : a.incomingIndex - b.incomingIndex)
     .map(({ channel }) => channel);
 }
 
@@ -203,7 +225,7 @@ export function App() {
   // Persistent state
   const [settings, setSettings] = useState<AppSettings>(() => storageService.getSettings());
   const [providers, setProviders] = useState<ProviderAccount[]>(() => storageService.getProviders());
-  const [channels, setChannels] = useState<Channel[]>(() => hungaryFirst(bootChannels));
+  const [channels, setChannels] = useState<Channel[]>(() => restoreSavedChannelOrder(hungaryFirst(bootChannels), bootLive.provider?.id));
   const [categories, setCategories] = useState<Category[]>(() => bootLive.categories);
   const [vodCategories, setVodCategories] = useState<Category[]>([]);
   const [seriesCategories, setSeriesCategories] = useState<Category[]>([]);
@@ -1133,8 +1155,9 @@ export function App() {
     });
 
     setChannels(updated);
+    if (activeProvider) storageService.saveChannelOrder(activeProvider.id, updated.map((channel) => channel.id));
     dirtyRef.current = true;
-  }, [selectedFavoriteFolderId, handleMoveFavoriteChannel, filteredChannels, channels]);
+  }, [selectedFavoriteFolderId, handleMoveFavoriteChannel, filteredChannels, channels, activeProvider]);
 
   // Hosszan nyomva húzott csatornák sorrendje az aktuális kategóriában/kedvencekben.
   // A látható elemek helyeit cseréljük az alaplistában, így a többi kategória sorrendje nem sérül.
@@ -1152,8 +1175,9 @@ export function App() {
       if (channel && slots[index] !== undefined) updated[slots[index]] = channel;
     });
     setChannels(updated);
+    if (activeProvider) storageService.saveChannelOrder(activeProvider.id, updated.map((channel) => channel.id));
     dirtyRef.current = true;
-  }, [filteredChannels, channels]);
+  }, [filteredChannels, channels, activeProvider]);
 
   const handleDeleteFolder = useCallback((folderId: string) => {
     handleSaveFolders(folders.filter((folder) => folder.id !== folderId));
@@ -1187,6 +1211,7 @@ export function App() {
     // Az import által létrehozott ideiglenes provider ID-t mindig
     // összehangoljuk a ténylegesen mentett szolgáltató ID-jával.
     const providerId = replacingId || newProvider.id;
+    storageService.clearChannelOrder(providerId);
     const normalizedContent: ImportedContent = {
       ...content,
       provider: {
@@ -1363,7 +1388,11 @@ export function App() {
     cancelNetworkRequests();
     resetNetworkBreaker();
     cancelAutoRetry();
-    if (manual) retryAttemptsRef.current = 0;
+    if (manual) {
+      retryAttemptsRef.current = 0;
+      // A kézi provider-frissítés szándékosan új sorrenddel indul.
+      storageService.clearChannelOrder(id);
+    }
     lastRefreshProviderIdRef.current = id;
     providerRefreshActiveRef.current = true;
     clearEpgCache();
@@ -1423,7 +1452,7 @@ export function App() {
       if (partial.totals) draft.totals = { ...draft.totals, ...partial.totals };
       // Üres szakasz soha nem törölheti a már megjelenített (mentett) listát.
       if (partial.channels && (partial.channels.length > 0 || channels.length === 0)) {
-        draft.channels = preserveChannelPreferences(partial.channels, channels);
+        draft.channels = preserveChannelPreferences(partial.channels, channels, !manual);
         setActiveProvider(draft.provider);
         // A frissítés részletekben érkezik. Ha a jelenleg nézett csatorna
         // még nem érkezett meg a részleges listában, ideiglenesen megtartjuk,
@@ -1533,7 +1562,7 @@ export function App() {
 
       // Frissítéskor csak a szolgáltatói tartalom változik; a felhasználó kedvencei,
       // kézi sorrendje és a kedvencmappákhoz tartozó csatornaazonosítók megmaradnak.
-      const refreshedChannels = preserveChannelPreferences(content.channels, channels);
+      const refreshedChannels = preserveChannelPreferences(content.channels, channels, !manual);
       // A frissítés befejezése sem indíthat másik csatornát: a már nézett
       // csatornát megtartjuk akkor is, ha a szolgáltató friss listájából hiányzik.
       const currentlyWatched = channels.find((channel) => channel.id === activeChannelId);
