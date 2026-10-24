@@ -1353,7 +1353,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       } else if (key === 'ArrowUp') {
                         event.preventDefault();
                         event.stopPropagation();
-                        modalRef.current?.querySelector<HTMLElement>('[data-system-app-box]')?.focus({ preventScroll: true } as any);
+                        modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
                       } else if (key === 'ArrowDown') {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1376,7 +1376,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* App Brand Badge */}
-                <div data-system-app-box="" tabIndex={0} className="flex items-center gap-3 p-3 rounded-xl bg-[#0e1e3e] border border-cyan-800/40 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                <div data-system-app-box="" className="flex items-center gap-3 p-3 rounded-xl bg-[#0e1e3e] border border-cyan-800/40">
                   <div className="w-12 h-12 rounded-xl bg-[#071124] border border-cyan-800/40 flex items-center justify-center overflow-hidden shadow-lg shadow-blue-500/20">
                     <img
                       src={APP_ICON_DATA_URL}
