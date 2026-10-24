@@ -690,7 +690,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   Kedvenc Mappák
                 </h3>
                 <button
-                  data-tv-default=""onClick={onOpenAddFolder}
+                  data-tv-default=""
+                  onClick={onOpenAddFolder}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
                 >
                   <FolderPlus className="w-4 h-4 stroke-[3]" />
@@ -712,7 +713,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     .filter((channel): channel is Channel => Boolean(channel));
                   const expanded = expandedFavoriteFolderId === f.id;
                   return (
-                    <div key={f.id} data-favorite-folder={f.id} tabIndex={0}className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber-400 focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
+                    <div key={f.id} data-favorite-folder={f.id} tabIndex={0}
+                      className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber-400 focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
                       <div className="p-3.5 flex items-center justify-between gap-3">
                         <div
                           aria-hidden="true"
@@ -724,10 +726,17 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             <p className="text-xs text-slate-400 font-medium">{folderChannels.length} csatorna</p>
                           </div>
                         </div>
-                        <buttononClick={() => {
+                        <button
+                          onClick={() => {
                             onDeleteFolder(f.id);
                             setPendingDeleteFolderId(null);
                             if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
+                            // Törlés után a következő mappa maradjon fókuszban; ha nincs,
+                            // az Új mappa gomb legyen a következő célpont.
+                            window.setTimeout(() => {
+                              const remaining = Array.from(modalRef.current?.querySelectorAll<HTMLElement>('[data-favorite-folder]') || []);
+                              (remaining[Math.min(folderIndex, remaining.length - 1)] || modalRef.current?.querySelector<HTMLElement>('[data-tv-default]'))?.focus({ preventScroll: true } as any);
+                            }, 0);
                           }}
                           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/30 border border-rose-800/50 text-rose-300 hover:bg-rose-900/50 text-xs font-bold shrink-0"
                           title="Mappa törlése"
@@ -773,7 +782,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                               <div
                                 key={channel.id}
                                 data-favorite-channel={channel.id}
-                                tabIndex={0}onContextMenu={(event) => event.preventDefault()}
+                                tabIndex={0}
+                                onContextMenu={(event) => event.preventDefault()}
                                 className="flex items-center gap-2 rounded-xl p-2 border transition-colors bg-[#09152b] border-slate-700"
                               >
                                 <div className="w-9 h-7 rounded-md bg-black/20 border border-slate-700 p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
@@ -785,7 +795,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 </div>
 
                                 <button
-                                  type="button"onPointerDown={(event) => event.stopPropagation()}
+                                  type="button"
+                                  onPointerDown={(event) => event.stopPropagation()}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
@@ -808,7 +819,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* Folytatás: a félbehagyott filmek és sorozatrészek listája */}
-              <section data-tv-box="" data-resume-section="" tabIndex={0}className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <section data-tv-box="" data-resume-section="" tabIndex={0}
+                className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 shrink-0 rounded-xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center">
                     <Play className="w-5 h-5 text-cyan-300 fill-cyan-300" />
@@ -833,7 +845,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         <div
                           key={item.id}
                           role="group"
-                          data-resume-item={item.id}className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3">
+                          data-resume-item={item.id}
+                          className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3">
                           <div className="flex items-center gap-3">
                             <div className="w-14 h-[72px] shrink-0 rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
                               {item.poster ? (
@@ -857,14 +870,16 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           </div>
                           <div className="grid grid-cols-[1fr_auto] gap-2 mt-3">
                             <button
-                              data-resume-continue=""onClick={() => { onContinueWatching(item); onClose(); }}
+                              data-resume-continue=""
+                              onClick={() => { onContinueWatching(item); onClose(); }}
                               className="min-h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black shadow-md shadow-blue-950/40 active:scale-[0.99] transition-all"
                             >
                               <Play className="w-4 h-4 fill-current" />
                               Folytatás
                             </button>
                             <button
-                              data-resume-remove=""onClick={(event) => {
+                              data-resume-remove=""
+                              onClick={(event) => {
                                 onRemoveWatchHistoryItem(item.id);
                                 // Törlés után ne ugorjon át automatikusan egy másik filmre.
                                 // A Folytatás szekció maradjon kijelölve.
