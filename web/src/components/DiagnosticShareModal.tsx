@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { QrCode, RefreshCw, RotateCcw, X, AlertTriangle } from 'lucide-react';
+import { QrCode, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   appLog,
@@ -34,7 +34,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const [measure, setMeasure] = useState<MeasurementSnapshot>(() => measurementSnapshot());
   const generationRef = useRef(0);
   const shareRef = useRef<DiagnosticShare | null>(null);
-  const { modalRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(isOpen, onClose);
+  const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, onClose);
   shareRef.current = share;
 
   const createNewQr = async (trigger: string = 'automatikus (megnyitás)') => {
@@ -194,7 +194,6 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
       role="dialog"
       aria-modal="true"
       aria-label="Diagnosztikai napló QR-kód"
-      onClick={handleBackdropClick}
     >
       <div
         ref={modalRef}
@@ -210,9 +209,6 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
               <p className="text-sm text-slate-400">Olvasd be telefonnal a napló megnyitásához.</p>
             </div>
           </div>
-          <button onClick={closeModal} className="rounded-lg p-3 text-slate-200 focus:outline-none focus:ring-4 focus:ring-amber-400" aria-label="Bezárás">
-            <X className="h-6 w-6" />
-          </button>
         </div>
 
         <div className="flex flex-col items-center gap-3 py-5">
@@ -284,13 +280,6 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-amber-400/70 bg-amber-400/15 px-3 py-3 font-bold text-amber-100 focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-50"
           >
             <RotateCcw className="h-5 w-5" /> Új QR-kód
-          </button>
-          <button
-            data-diagnostic-close=""
-            onClick={closeModal}
-            className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-slate-600 bg-white/5 px-3 py-3 font-bold text-slate-100 focus:outline-none focus:ring-4 focus:ring-amber-400"
-          >
-            <X className="h-5 w-5" /> Bezárás
           </button>
         </div>
         <p className="pt-3 text-center text-xs text-slate-500">A QR-hivatkozás titkos, és egy óra múlva automatikusan lejár.</p>
