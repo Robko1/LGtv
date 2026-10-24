@@ -23,7 +23,7 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
   const pollRef = useRef<number | null>(null);
   const countdownRef = useRef<number | null>(null);
 
-  const { modalRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(isOpen, onClose, [code]);
+  const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, onClose, [code]);
 
   const initSession = async () => {
     let session: { tvId: string; code: string; token: string; expiresAt: number };
@@ -125,38 +125,30 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
       role="dialog"
       aria-modal="true"
       aria-label="Telefonnal beállítás QR kóddal"
-      onClick={handleBackdropClick}
     >
       <div
         ref={modalRef}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="w-full max-w-3xl max-h-[96vh] overflow-y-auto rounded-xl border border-slate-700 bg-black p-3 text-white focus:outline-none"
+        className="w-full max-w-3xl max-h-[96vh] overflow-hidden rounded-xl border border-slate-700 bg-black p-2 md:p-3 text-white focus:outline-none"
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-2">
           <div className="flex items-center gap-3">
             <Smartphone className="h-7 w-7 text-slate-400" />
             <h2 className="text-xl font-black text-white">TELEFONNAL BEÁLLÍTÁS</h2>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-3 text-slate-200 focus:outline-none focus:ring-4 focus:ring-amber-400"
-            aria-label="Bezárás"
-          >
-            <X className="h-6 w-6" />
-          </button>
         </div>
 
-        <div className="space-y-4 overflow-y-auto py-4">
+        <div className="space-y-1.5 overflow-hidden py-1.5">
           {/* Kód kijelző */}
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-1.5">
             <div className="flex items-center gap-2 text-amber-300">
               <Tv className="w-5 h-5" />
               <span className="text-xs font-black tracking-widest">TV KÓD</span>
             </div>
-            <div className="rounded-xl border border-amber-400/70 bg-amber-400/10 px-8 py-4">
-              <span className="font-mono text-5xl font-black tracking-[0.3em] text-amber-300">{code || '------'}</span>
+            <div className="rounded-xl border border-amber-400/70 bg-amber-400/10 px-3 py-1.5">
+              <span className="font-mono text-xl sm:text-2xl font-black tracking-[0.1em] text-amber-300">{code || '------'}</span>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-slate-400">
               <Clock className="w-3.5 h-3.5" />
@@ -172,21 +164,21 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
               <QrCode className="w-5 h-5" />
               <span className="text-sm font-bold uppercase tracking-wider">Olvasd be telefonnal</span>
             </div>
-            <div className="flex min-h-[500px] w-[500px] max-w-full items-center justify-center rounded-lg border border-slate-700 bg-black p-2 shrink-0">
+            <div className="flex h-[min(42vh,300px)] w-[min(42vh,300px)] max-w-full items-center justify-center rounded-lg border border-slate-700 bg-black p-1 shrink-0">
               {provisionUrl ? (
                 <QRCodeSVG
                   value={provisionUrl}
-                  size={480}
+                  size={280}
                   level="M"
                   boostLevel={false}
                   marginSize={4}
                   bgColor="#ffffff"
                   fgColor="#000000"
                   title="IPTV telefonos párosítás QR-kód"
-                  style={{ display: 'block', width: '480px', height: 'auto', maxWidth: '100%' }}
+                  style={{ display: 'block', width: '100%', height: 'auto', maxWidth: '100%', maxHeight: '100%' }}
                 />
               ) : (
-                <div className="w-[480px] max-w-full aspect-square flex items-center justify-center bg-white text-slate-500 text-sm">QR generálás...</div>
+                <div className="w-full max-w-full aspect-square flex items-center justify-center bg-white text-slate-500 text-sm">QR generálás...</div>
               )}
             </div>
             <p className="max-w-lg text-center text-sm text-slate-400 leading-relaxed">
@@ -230,25 +222,18 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
           )}
 
           {/* Gombok */}
-          <div className="grid grid-cols-2 gap-3 border-t border-slate-700 pt-4">
+          <div className="flex justify-center border-t border-slate-700 pt-2">
             <button
               onClick={handleRefresh}
-              className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-cyan-500/60 bg-cyan-500/15 px-3 py-3 font-bold text-cyan-100 focus:outline-none focus:ring-4 focus:ring-amber-400"
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-cyan-500/60 bg-cyan-500/15 px-3 py-2 font-bold text-cyan-100 focus:outline-none focus:ring-4 focus:ring-amber-400"
             >
               <RefreshCw className="h-5 w-5" />
               Új kód
             </button>
-            <button
-              onClick={onClose}
-              className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-slate-600 bg-white/5 px-3 py-3 font-bold text-slate-100 focus:outline-none focus:ring-4 focus:ring-amber-400"
-            >
-              <X className="h-5 w-5" />
-              Bezárás
-            </button>
           </div>
 
           {/* Alternatíva – manuális */}
-          <p className="pt-3 text-center text-xs text-slate-500">
+          <p className="pt-1 text-center text-[10px] text-slate-500">
             Nincs okostelefon? A Beállítások → Listák → Új lista gombbal továbbra is beírhatod kézzel a TV-n.
           </p>
         </div>
