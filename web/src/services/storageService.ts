@@ -16,6 +16,12 @@ const PROVIDERS_KEY = 'iptv_rt_providers_v1';
 const FOLDERS_KEY = 'iptv_rt_folders_v1';
 const HISTORY_KEY = 'iptv_rt_history_v1';
 const UI_STATE_KEY = 'iptv_rt_ui_state_v1';
+const CHANNEL_ORDER_PREFIX = 'iptv_rt_channel_order_v1_';
+
+function channelOrderKey(providerId: string): string {
+  return CHANNEL_ORDER_PREFIX + encodeURIComponent(providerId);
+}
+
 // Régi (már nem használt) kulcsok: a gyorsítótár törlésekor ezeket is eltakarítjuk.
 const LEGACY_KEYS = ['iptv_rt_channels_v1', 'iptv_rt_movies_v1', 'iptv_rt_series_v1'];
 
@@ -139,6 +145,33 @@ export const storageService = {
     }
   },
 
+  /** Kézi csatornasorrend mentése providerenként; az app frissítése nem törli a localStorage-t. */
+  getChannelOrder(providerId: string): string[] {
+    try {
+      const value = localStorage.getItem(channelOrderKey(providerId));
+      const parsed = value ? JSON.parse(value) : [];
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveChannelOrder(providerId: string, channelIds: string[]): void {
+    try {
+      localStorage.setItem(channelOrderKey(providerId), JSON.stringify(channelIds));
+    } catch (e) {
+      console.error('Failed to save channel order:', e);
+    }
+  },
+
+  clearChannelOrder(providerId: string): void {
+    try {
+      localStorage.removeItem(channelOrderKey(providerId));
+    } catch {
+      /* nem kritikus */
+    }
+  },
+
   getFolders(): FavoriteFolder[] {
     try {
       const data = localStorage.getItem(FOLDERS_KEY);
@@ -201,6 +234,14 @@ export const storageService = {
     localStorage.removeItem(FOLDERS_KEY);
     localStorage.removeItem(HISTORY_KEY);
     localStorage.removeItem(UI_STATE_KEY);
+    try {
+      for (let index = localStorage.length - 1; index >= 0; index--) {
+        const key = localStorage.key(index);
+        if (key?.startsWith(CHANNEL_ORDER_PREFIX)) localStorage.removeItem(key);
+      }
+    } catch {
+      /* nem kritikus */
+    }
     for (const key of LEGACY_KEYS) {
       try {
         localStorage.removeItem(key);
