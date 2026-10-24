@@ -61,6 +61,41 @@ function press(window, key, keyCode) {
   return event;
 }
 
+test('3. a fejléc balra-jobbra navigáció a tényleges képernyősorrendet követi', () => {
+  const dom = homeDom();
+  const { window } = dom;
+  try {
+    const doc = window.document;
+    const positions = {
+      settings: 100,
+      movies: 200,
+      series: 300,
+      countries: 400,
+    };
+    for (const [kind, left] of Object.entries(positions)) {
+      const el = doc.querySelector('[data-tv-header-kind="' + kind + '"]');
+      el.getBoundingClientRect = () => ({ left, width: 80, right: left + 80, top: 0, bottom: 40, height: 40 });
+    }
+    const exit = doc.createElement('button');
+    exit.setAttribute('data-tv-header', '');
+    exit.setAttribute('data-tv-header-kind', 'exit');
+    exit.textContent = 'X';
+    exit.getBoundingClientRect = () => ({ left: 500, width: 40, right: 540, top: 0, bottom: 40, height: 40 });
+    doc.querySelector('header').appendChild(exit);
+
+    const movies = doc.querySelector('[data-tv-header-kind="movies"]');
+    movies.focus();
+    press(window, 'ArrowRight', 39);
+    assert.equal(doc.activeElement.getAttribute('data-tv-header-kind'), 'series',
+      'jobbra a képernyőn következő gomb kapja a fókuszt, nem a DOM-sorrend szerinti');
+
+    const series = doc.querySelector('[data-tv-header-kind="series"]');
+    press(window, 'ArrowLeft', 37);
+    assert.equal(doc.activeElement.getAttribute('data-tv-header-kind'), 'movies',
+      'balra a képernyőn előző gomb kapja a fókuszt');
+  } finally { dom.window.close(); }
+});
+
 test('3. Beállítások → lefelé: a Kedvencek mappa kapja a kijelölést', () => {
   const dom = homeDom();
   const { window } = dom;
