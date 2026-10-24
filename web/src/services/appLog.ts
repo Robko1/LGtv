@@ -302,8 +302,8 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
     /* a figyelő még nem indult el */
   }
 
-  appLog(`=== ÚJ MÉRÉS KEZDETE: ${dublinTimestamp(startedAt)} (${clockText(startedAt)}); előzmények törölve; ok: ${reason} ===`);
-  appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt)}]: számlálók nullázva; ${memorySnapshot()}; ${uiStateSnapshot()}`);
+  appLog(`=== ÚJ MÉRÉS KEZDETE: ${dublinTimestamp(startedAt)} (${clockText(startedAt + 60 * 60 * 1000)}); előzmények törölve; ok: ${reason} ===`);
+  appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt + 60 * 60 * 1000)}]: számlálók nullázva; ${memorySnapshot()}; ${uiStateSnapshot()}`);
   // A két kezdősor a QR-naplóban megmarad, de nem növeli a mérés számlálóját.
   measurementCounters.logLines = 0;
   measurementCounters.errors = 0;
@@ -324,7 +324,7 @@ export function getAppLogText(): string {
     const timestamp = Date.parse(line.slice(0, line.indexOf(' ')));
     return Number.isFinite(timestamp) && timestamp >= measurementStartedAt;
   });
-  const header = `--- WEBOS NAPLÓ (${sessionLines.length} sor; mérési ablak; helyi naplómegőrzés: max. 24 óra / 60 KB) | MÉRÉS KEZDETE: ${measure.startedAtText} ---`;
+  const header = `--- WEBOS NAPLÓ (${sessionLines.length} sor; mérési ablak; helyi naplómegőrzés: max. 24 óra / 60 KB) | MÉRÉS KEZDETE: ${clockText(measure.startedAt + 60 * 60 * 1000)} ---`;
   return [header, ...sessionLines].join('\n');
 }
 
