@@ -304,8 +304,10 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                   // csatornái jelennek meg, nem nyílik több kategória egyszerre.
                   if (subCategories.length > 1) {
                     const willExpand = expandedCountryId !== cat.id;
+                    // Az ország csak kategóriaválasztóként nyílik le; a főoldali
+                    // csatornalista csak az „Összes ország” vagy egy alkategória
+                    // külön kiválasztásakor változik meg.
                     setIsOnlyFavorites(false);
-                    onSelectCategory(cat.id);
                     setExpandedCountryId(willExpand ? cat.id : null);
                     if (!willExpand) onClose();
                     return;
