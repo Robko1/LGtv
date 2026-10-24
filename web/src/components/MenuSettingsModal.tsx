@@ -281,12 +281,28 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         else block();
         return true;
       }
+      const folderIndex = folders.indexOf(folder);
+      const isExpanded = expandedFavoriteFolderId === folder.dataset.favoriteFolder;
+      const folderChannels = Array.from(folder.querySelectorAll<HTMLElement>('[data-favorite-channel]'));
       if (key === 'ArrowUp') {
-        const index = folders.indexOf(folder);
-        focus(index > 0 ? folders[index - 1] : root.querySelector<HTMLElement>('[data-tv-default]'));
+        focus(folderIndex > 0 ? folders[folderIndex - 1] : root.querySelector<HTMLElement>('[data-tv-default]'));
       } else if (key === 'ArrowDown') {
-        const index = folders.indexOf(folder);
-        focus(index < folders.length - 1 ? folders[index + 1] : root.querySelector<HTMLElement>('[data-resume-section]'));
+        if (isExpanded && folderChannels.length) focus(folderChannels[0]);
+        else focus(folderIndex < folders.length - 1 ? folders[folderIndex + 1] : root.querySelector<HTMLElement>('[data-resume-section]'));
+      } else if (key === 'ArrowRight') {
+        if (folderChannels.length) {
+          setExpandedFavoriteFolderId(folder.dataset.favoriteFolder || null);
+          window.setTimeout(() => {
+            const refreshedFolder = root.querySelector<HTMLElement>(`[data-favorite-folder="${folder.dataset.favoriteFolder}"]`);
+            refreshedFolder?.querySelector<HTMLElement>('[data-favorite-channel]')?.focus({ preventScroll: true } as any);
+          }, 0);
+          block();
+        } else block();
+      } else if (key === 'ArrowLeft') {
+        if (isExpanded) {
+          setExpandedFavoriteFolderId(null);
+          focus(folder);
+        } else block();
       } else block();
       return true;
     }
