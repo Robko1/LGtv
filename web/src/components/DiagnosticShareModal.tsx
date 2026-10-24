@@ -45,7 +45,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     setNotice('');
     try {
       appLog('Diagnosztikai napló QR-kód létrehozása.');
-      const created = await createDiagnosticShare(getAppLogText().slice(-59000));
+      const created = await createDiagnosticShare(getAppLogText());
       if (generation !== generationRef.current) {
         void revokeDiagnosticShare(created.token);
         return;
@@ -86,7 +86,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
       // olvashatja vissza a korábbi QR-hivatkozás tartalmát; az új linkbe
       // kizárólag a reset után összegyűlt teljes mérési napló kerül.
       appLog('Diagnosztikai QR: új hivatkozás készítése a nullázás utáni naplóból.');
-      const created = await createDiagnosticShare(getAppLogText().slice(-59000));
+      const created = await createDiagnosticShare(getAppLogText());
       setShare(created);
       shareRef.current = created;
       if (current?.token) void revokeDiagnosticShare(current.token);
