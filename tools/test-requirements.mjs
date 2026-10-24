@@ -606,7 +606,7 @@ test('8. Kategóriák: nagy országnév, nagy zászló, a darabszámok a név ME
   assert.match(CATEGORIES, /px-4 py-3 text-left text-base sm:text-lg font-bold text-slate-100/);
 });
 
-test('8. Fejléc: Menü → Sorozat → Mozi → Országok, kiválasztott ország zászlaja, sárga fogaskerék', () => {
+test('8. Fejléc: Menü → Sorozat → Mozi → Országok, kiválasztott ország zászlaja, színvezérelt fogaskerék', () => {
   const menuAt = HEADER.indexOf('data-tv-header-kind="settings"');
   const seriesAt = HEADER.indexOf('data-tv-header-kind="series"');
   const moviesAt = HEADER.indexOf('data-tv-header-kind="movies"');
@@ -616,8 +616,9 @@ test('8. Fejléc: Menü → Sorozat → Mozi → Országok, kiválasztott orszá
   assert.ok(countriesAt > moviesAt, 'Mozi után Országok');
   // Csak a helyük változott – a gombok osztályai (méret) változatlanok.
   assert.match(HEADER, /h-9 md:h-10 lg:h-11 rounded-lg text-\[22px\] font-bold/);
-  // Sárga fogaskerék.
-  assert.match(HEADER, /<Settings className="w-8 h-8 shrink-0 text-amber-400" \/>/);
+  // A fogaskerék a kiválasztott 1–6-os kiemelőszínt használja.
+  assert.match(HEADER, /<Settings className=\{`w-8 h-8 shrink-0 \$\{accentText\}`\} \/>/);
+  assert.match(HEADER, /const accentTextClass: Record<NonNullable<HeaderProps\[\x27liveAccent\x27\]>, string>/);
   // A kiválasztott ország zászlaja (nem beégetett magyar zászló).
   assert.match(HEADER, /countryFlag\?: string;/);
   assert.match(HEADER, /\{countryFlag \? \(/);
