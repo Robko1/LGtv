@@ -88,6 +88,24 @@ const {
   rememberedGlobalFormat, rememberGlobalFormat, clearFormatMemory,
 } = mod;
 
+/* ── 2b. Lejátszási út és automatikus visszaesés – valódi forrás ellenőrzése ── */
+const playerSource = fs.readFileSync(path.resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
+const settingsSource = fs.readFileSync(path.resolve('web/src/components/MenuSettingsModal.tsx'), 'utf8');
+
+check(playerSource.includes('const primaryFormat = selectedFormat;'),
+  'a kézzel kiválasztott formátum mindig az első próba');
+check(!playerSource.includes('const primaryFormat = rememberedFormat || selectedFormat'),
+  'a régi formátum-emlékezet nem írhatja felül a kézi választást');
+check(playerSource.includes('if (fallback && !liveFallbackUsedRef.current)'),
+  'hiba esetén a másik formátum legfeljebb egyszer próbálható');
+check(playerSource.includes('alternativeUrl(primaryUrl)'),
+  'a másik TS/HLS URL a formátum-átíró modulból készül');
+check(settingsSource.includes('Hiba esetén automatikus MPEG-TS-próba.')
+  && settingsSource.includes('Hiba esetén automatikus HLS-próba.'),
+  'a beállítások szövege megfelel az automatikus visszaesésnek');
+check(!settingsSource.includes('Natív (TV dekóder)'),
+  'a nem létező külön natív dekóder-mód nincs többé választhatóként feltüntetve');
+
 /* ── 3. URL-felismerés és átírás ────────────────────────────────────────── */
 const TS = 'http://panel.example/live/user/pass/1234.ts';
 const HLS = 'http://panel.example/live/user/pass/1234.m3u8';
