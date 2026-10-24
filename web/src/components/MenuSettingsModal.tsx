@@ -1202,7 +1202,21 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <p className="text-[11px] text-slate-400 leading-relaxed">
                       Ez a gomb a Robko1/LGtv nyilvános GitHub Release-ét ellenőrzi. A webOS alkalmazás nem telepíthet csendben IPK-t; az új csomagot a TV-hez csatlakozó webOS fejlesztői eszközzel kell telepíteni.
                     </p>
-                    <button type="button" onClick={checkWebOSUpdate} disabled={releaseCheckLoading} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-bold active:scale-95 transition-all disabled:opacity-60">
+                    <button type="button" data-system-refresh="" onKeyDown={(event) => {
+                      const key = normalizeTvKey(event);
+                      if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      } else if (key === 'ArrowUp') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        modalRef.current?.querySelector<HTMLElement>('[data-system-bottom-box]')?.focus({ preventScroll: true } as any);
+                      } else if (key === 'ArrowDown') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        modalRef.current?.querySelector<HTMLElement>('[data-system-version]')?.focus({ preventScroll: true } as any);
+                      }
+                    }} onClick={checkWebOSUpdate} disabled={releaseCheckLoading} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-bold active:scale-95 transition-all disabled:opacity-60">
                       <RefreshCw className={releaseCheckLoading ? "w-3.5 h-3.5 animate-spin" : "w-3.5 h-3.5"} />
                       {releaseCheckLoading ? 'Ellenőrzés…' : 'Frissítés ellenőrzése'}
                     </button>
@@ -1233,6 +1247,18 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <h4 className="text-white font-black text-base flex items-center gap-1.5">
                       <span>TV</span>
                       <button
+                        data-system-version=""
+                        onKeyDown={(event) => {
+                          const key = normalizeTvKey(event);
+                          if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          } else if (key === 'ArrowDown' && showVersionHistory) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            modalRef.current?.querySelector<HTMLElement>('[data-version-history-item]')?.focus({ preventScroll: true } as any);
+                          }
+                        }}
                         onClick={() => setShowVersionHistory((value) => !value)}
                         className="text-xs text-slate-400 font-mono font-normal hover:text-amber-300 transition-colors"
                         title="Verzióelőzmények"
@@ -1246,27 +1272,28 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
 
-                {onOpenDiagnosticShare && (
-                  <button
-                    data-tv-default=""
-                    onClick={onOpenDiagnosticShare}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#0e1f3f] hover:bg-[#142b56] text-cyan-200 border border-cyan-800/50 text-xs font-bold active:scale-95 transition-all"
-                    title="Diagnosztika megosztása QR-kóddal (korábban a PIROS gomb)"
-                  >
-                    <Smartphone className="w-6 h-6 shrink-0" />
-                    <span>Diagnosztika megosztása (QR)</span>
-                  </button>
-                )}
+                {/* A QR-diagnosztika működése a háttérben megmarad, de a gomb
+                    nem jelenik meg a Rendszer oldalon. */}
 
                 {showVersionHistory && (
-                  <div className="p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5">
+                  <div data-version-history="" className="p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5" onKeyDown={(event) => {
+                    const key = normalizeTvKey(event);
+                    if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[data-version-history-item]'));
+                    const current = items.indexOf(document.activeElement as HTMLElement);
+                    const next = key === 'ArrowDown' ? Math.min(items.length - 1, current + 1) : Math.max(0, current - 1);
+                    if (items[next]) items[next].focus({ preventScroll: true } as any);
+                    else if (key === 'ArrowUp') modalRef.current?.querySelector<HTMLElement>('[data-system-version]')?.focus({ preventScroll: true } as any);
+                  }}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black text-amber-400">WEB VERZIÓELŐZMÉNYEK</span>
                       <span className="text-[10px] text-slate-500">automatikus</span>
                     </div>
                     <div className="space-y-2.5">
                       {WEB_VERSION_HISTORY.map((entry) => (
-                        <div key={entry.version} className="rounded-lg bg-slate-950/50 border border-slate-800 p-2.5">
+                        <div key={entry.version} data-version-history-item="" tabIndex={0} className="rounded-lg bg-slate-950/50 border border-slate-800 p-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-black text-white">v{entry.version}</span>
                             <span className="text-[10px] text-slate-500">{entry.date}</span>
@@ -1312,7 +1339,18 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               </div>
 
               {/* Látható lezárás: innen nincs tovább lefelé */}
-              <div className="rounded-2xl border-2 border-dashed border-cyan-900/70 py-3 text-center text-[11px] font-bold tracking-widest text-slate-500">
+              <div data-system-bottom-box="" tabIndex={0} onKeyDown={(event) => {
+                const key = normalizeTvKey(event);
+                if (key === 'Enter' || key === ' ') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  modalRef.current?.querySelector<HTMLElement>('[data-system-refresh]')?.focus({ preventScroll: true } as any);
+                } else if (key === 'ArrowDown') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  modalRef.current?.querySelector<HTMLElement>('[data-system-refresh]')?.focus({ preventScroll: true } as any);
+                }
+              }} className="rounded-2xl border-2 border-dashed border-cyan-900/70 py-3 text-center text-[11px] font-bold tracking-widest text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400">
                 ─── A BEÁLLÍTÁSOK VÉGE ───
               </div>
             </div>
