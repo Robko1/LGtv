@@ -101,7 +101,7 @@ export const Header: React.FC<HeaderProps> = ({
       */}
       <div className="flex flex-1 items-center gap-2 md:gap-3 lg:gap-4 flex-nowrap min-w-0 mr-1">
         {/* Az óra önálló, keret és háttér nélküli elem, a fejléc bal széléhez igazítva. */}
-        <div data-tv-header-kind="clock" tabIndex={0} className="flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 text-amber-300 font-mono font-semibold tracking-wider order-[-2]">
+        <div data-tv-header-kind="clock" tabIndex={0} className="flex flex-none items-center justify-start h-10 md:h-11 lg:h-12 pl-1 pr-1.5 text-amber-300 font-mono font-semibold tracking-wider order-first">
           <Clock className="hidden w-4 h-4 md:w-5 md:h-5 text-amber-400 animate-pulse shrink-0" />
           <span data-header-clock="" className="whitespace-nowrap text-2xl sm:text-3xl md:text-3xl lg:text-4xl leading-none">{currentTime || '02:15'}</span>
         </div>
