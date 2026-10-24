@@ -596,9 +596,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
-    // Élő TV-n a kézzel kiválasztott formátumot tiszteletben tartjuk:
-    // hiba esetén nem váltunk át csendben a másikra. A másik formátum
-    // a Rendszer beállításában választható ki.
+    // Élő TV-n először a kézzel kiválasztott formátum fut; ha az nem indul,
+    // egyszer automatikusan kipróbáljuk a másik TS/HLS változatot.
     if (!isVodRef.current) {
       /*
        * ÉLŐ TV – FORMÁTUM-VISSZAESÉS.
