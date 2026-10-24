@@ -1139,7 +1139,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onUpdateSettings({ streamFormat: 'hls' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${settings.streamFormat === 'hls' ? 'bg-blue-600 text-white border border-blue-400' : 'bg-[#0e1f3f] text-white border border-slate-700/60 hover:bg-[#142b56]'}`}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${settings.streamFormat === 'hls' ? 'bg-cyan-400 text-slate-950 border border-cyan-300 shadow-md shadow-cyan-400/30' : 'bg-[#0e1f3f] text-white border border-slate-700/60 hover:bg-[#142b56]'}`}
                       aria-pressed={settings.streamFormat === 'hls'}
                     >
                       HLS (.m3u8)
