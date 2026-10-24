@@ -17,8 +17,6 @@ import {
   Smartphone,
   Heart,
   Star,
-  ArrowUp,
-  ArrowDown,
   Waves,
   PanelsTopLeft,
   Clock,
@@ -49,7 +47,6 @@ interface MenuSettingsModalProps {
   onOpenAddFolder: () => void;
   onDeleteFolder: (folderId: string) => void;
   onToggleFavorite: (channelId: string) => void;
-  onMoveFavoriteChannel: (folderId: string, channelId: string, direction: 'up' | 'down') => void;
   onRemoveChannelFromFolder: (folderId: string, channelId: string) => void;
   onOpenEpgModal: () => void;
   onOpenQrProvision: () => void;
@@ -85,7 +82,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   folders,
   onOpenAddFolder,
   onDeleteFolder,
-  onMoveFavoriteChannel,
   onRemoveChannelFromFolder,
   watchHistory,
   onContinueWatching,
@@ -105,19 +101,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
    */
   const [pendingDeleteFolderId, setPendingDeleteFolderId] = useState<string | null>(null);
   const [pendingClearCache, setPendingClearCache] = useState(false);
-  const [movingFavoriteChannelId, setMovingFavoriteChannelId] = useState<string | null>(null);
-  const [favoriteMoveCursor, setFavoriteMoveCursor] = useState<'up' | 'down'>('up');
-  const favoriteLongPressTimer = useRef<number | null>(null);
-  const suppressFavoriteClick = useRef(false);
-  const lastFavoriteReorderTapAt = useRef(0);
-
-  const clearFavoriteLongPress = () => {
-    if (favoriteLongPressTimer.current !== null) {
-      window.clearTimeout(favoriteLongPressTimer.current);
-      favoriteLongPressTimer.current = null;
-    }
-  };
-
   // A kék teletextgomb a Kedvencek fülön nem indíthat csatornamozgatást.
   // A globális távirányító-kezelés más nézetekben változatlan marad.
 
@@ -616,7 +599,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           type="button"
                           onClick={() => {
                             setExpandedFavoriteFolderId(expanded ? null : f.id);
-                            setMovingFavoriteChannelId(null);
                           }}
                           className="flex items-center gap-3 min-w-0 flex-1 text-left"
                           aria-expanded={expanded}
@@ -663,8 +645,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 onDeleteFolder(f.id);
                                 setPendingDeleteFolderId(null);
                                 if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
-                                setMovingFavoriteChannelId(null);
-                              }}
+                                  }}
                               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -684,7 +665,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           {folderChannels.length === 0 ? (
                             <p className="p-4 text-center text-xs text-slate-400">Ez a kedvenc mappa üres.</p>
                           ) : folderChannels.map((channel, index) => {
-                            const moving = movingFavoriteChannelId === channel.id;
                             return (
                               <div
                                 key={channel.id}
@@ -693,32 +673,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 onKeyDown={(event) => {
                                   if (event.target !== event.currentTarget) return;
                                   const key = normalizeTvKey(event);
-                                  if (moving) {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    if (key === 'ArrowLeft') {
-                                      setFavoriteMoveCursor('up');
-                                    } else if (key === 'ArrowRight') {
-                                      setFavoriteMoveCursor('down');
-                                    } else if (key === 'ArrowUp') {
-                                      if (index > 0) onMoveFavoriteChannel(f.id, channel.id, 'up');
-                                    } else if (key === 'ArrowDown') {
-                                      if (index < folderChannels.length - 1) onMoveFavoriteChannel(f.id, channel.id, 'down');
-                                    } else if (key === 'Enter' || key === ' ') {
-                                      if (favoriteMoveCursor === 'up' && index > 0) onMoveFavoriteChannel(f.id, channel.id, 'up');
-                                      else if (favoriteMoveCursor === 'down' && index < folderChannels.length - 1) onMoveFavoriteChannel(f.id, channel.id, 'down');
-                                    } else if (key === 'Escape' || key === 'Backspace') {
-                                      setMovingFavoriteChannelId(null);
-                                    }
-                                    return;
-                                  }
                                   if (key === 'ArrowUp') {
                                     if (index === 0) {
                                       event.preventDefault();
                                       event.stopPropagation();
                                       const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
                                       setExpandedFavoriteFolderId(null);
-                                      setMovingFavoriteChannelId(null);
                                       folderElement?.focus({ preventScroll: true } as any);
                                     } else {
                                       event.preventDefault();
@@ -738,22 +698,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     event.currentTarget.querySelector<HTMLElement>('button[title="Eltávolítás a kedvenc mappából"]')?.focus();
                                   }
                                 }}
-                                onClick={() => {
-                                  if (suppressFavoriteClick.current) {
-                                    suppressFavoriteClick.current = false;
-                                    return;
-                                  }
-                                  if (!movingFavoriteChannelId || movingFavoriteChannelId !== channel.id) return;
-                                  const now = Date.now();
-                                  if (now - lastFavoriteReorderTapAt.current <= 350) {
-                                    setMovingFavoriteChannelId(null);
-                                    lastFavoriteReorderTapAt.current = 0;
-                                  } else {
-                                    lastFavoriteReorderTapAt.current = now;
-                                  }
-                                }}
                                 onContextMenu={(event) => event.preventDefault()}
-                                className={`flex items-center gap-2 rounded-xl p-2 border transition-colors ${moving ? 'bg-emerald-700/90 border-emerald-300 ring-2 ring-emerald-400/60' : 'bg-[#09152b] border-slate-700'}`}
+                                className="flex items-center gap-2 rounded-xl p-2 border transition-colors bg-[#09152b] border-slate-700"
                               >
                                 <div className="w-9 h-7 rounded-md bg-black/20 border border-slate-700 p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
                                   <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel.id} />
@@ -779,7 +725,9 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                       if (key === 'ArrowUp' && index === 0) {
                                         event.preventDefault();
                                         event.stopPropagation();
-                                        event.currentTarget.closest<HTMLElement>('[data-favorite-folder]')?.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus({ preventScroll: true } as any);
+                                        const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
+                                        setExpandedFavoriteFolderId(null);
+                                        folderElement?.focus({ preventScroll: true } as any);
                                       } else if (next >= 0 && next < rows.length) {
                                         event.preventDefault();
                                         event.stopPropagation();
@@ -793,8 +741,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                     const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
                                     onRemoveChannelFromFolder(f.id, channel.id);
                                     setExpandedFavoriteFolderId(null);
-                                    setMovingFavoriteChannelId(null);
-                                    window.setTimeout(() => folderElement?.focus({ preventScroll: true } as any), 0);
+                                            window.setTimeout(() => folderElement?.focus({ preventScroll: true } as any), 0);
                                   }}
                                   className="p-1.5 rounded-xl text-amber-400 hover:text-amber-300 active:scale-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300"
                                   title="Eltávolítás a kedvenc mappából"
@@ -803,9 +750,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                               </div>
                             );
                           })}
-                          {movingFavoriteChannelId && folderChannels.some((channel) => channel.id === movingFavoriteChannelId) && (
-                            <p className="px-2 pb-1 text-[10px] text-emerald-300">Kijelölve rendezéshez · a piros nyilakkal mozgatható</p>
-                          )}
                         </div>
                       )}
                     </div>
