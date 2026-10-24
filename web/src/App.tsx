@@ -2360,6 +2360,7 @@ export function App() {
         liveAccent={liveAccent}
         clockOffsetHours={settings.clockOffsetHours}
         activeView={activeView}
+        mirrorLayout={settings.mirrorLayout}
         onViewChange={handleViewChange}
         onOpenCategories={handleOpenCategories}
         onOpenSettings={handleOpenSettings}
