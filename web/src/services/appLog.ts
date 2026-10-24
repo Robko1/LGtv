@@ -31,7 +31,10 @@ const measurementCounters = { logLines: 0, errors: 0, longTasks: 0, critical: 0 
 
 /** A napló minden abszolút időpontját az ír időzónában írjuk ki, explicit UTC-eltolással. */
 function dublinTimestamp(at: number = Date.now()): string {
-  const date = new Date(at);
+  // A TV órája egy órával késik; ezt kizárólag a napló időbélyegén korrigáljuk.
+  // A Date.now() értékét és az alkalmazás óráját nem módosítjuk.
+  const logAt = at + 60 * 60 * 1000;
+  const date = new Date(logAt);
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Dublin',
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -47,7 +50,7 @@ function dublinTimestamp(at: number = Date.now()): string {
   const second = part('second');
   const millis = String(date.getUTCMilliseconds()).padStart(3, '0');
   const localAsUtc = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
-  const offsetMinutes = Math.round((localAsUtc - Math.floor(at / 1000) * 1000) / 60000);
+  const offsetMinutes = Math.round((localAsUtc - Math.floor(logAt / 1000) * 1000) / 60000);
   const sign = offsetMinutes >= 0 ? '+' : '-';
   const absoluteOffset = Math.abs(offsetMinutes);
   const offset = sign + String(Math.floor(absoluteOffset / 60)).padStart(2, '0') + ':' + String(absoluteOffset % 60).padStart(2, '0');
