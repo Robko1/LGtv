@@ -374,16 +374,42 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         }
       }
     }
-    // A Listák fül szolgáltatói kártyája a Rendszer fül dobozaihoz hasonlóan
-    // saját fókuszterület: a nyilak nem adhatják át a kezelést a globális navnak.
+    // A Listák fül fejlécének helyi D-pad útvonala. Megállítjuk az eseményt,
+    // hogy az általános fel/le navigáció ne írja felül a kijelölést.
     if (activeTab === 'lists') {
       const key = normalizeTvKey(e);
       const target = e.target as HTMLElement;
+      const headerAction = target.closest<HTMLElement>('[data-tv-list-action]');
+      if (headerAction && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const action = headerAction.dataset.tvListAction;
+        const root = modalRef.current;
+        if (key === 'ArrowDown') {
+          root?.querySelector<HTMLElement>('[data-tv-box]')?.focus({ preventScroll: true } as any);
+          return;
+        }
+        if (key === 'ArrowUp') return;
+        if (key === 'ArrowRight') {
+          if (action === 'phone') {
+            root?.querySelector<HTMLElement>('[data-tv-list-action="new"]')?.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+        if (key === 'ArrowLeft') {
+          if (action === 'new') {
+            root?.querySelector<HTMLElement>('[data-tv-list-action="phone"]')?.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+      }
+
+      // A szolgáltatói doboz és a benne lévő műveletek saját fókuszterületet
+      // alkotnak; a fel/le nyilak sem léphetnek át a globális navigációra.
       const box = target.closest<HTMLElement>('[data-tv-box]');
       const active = document.activeElement as HTMLElement | null;
       if (box && (
-        ['ArrowLeft', 'ArrowRight'].includes(key) ||
-        (['ArrowUp', 'ArrowDown'].includes(key) && active !== box) ||
+        ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) ||
         (key === 'Enter' && active === box)
       )) {
         const controls = Array.from(box.querySelectorAll<HTMLElement>(
@@ -623,6 +649,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <button
                     data-tv-default=""
+                    data-tv-list-action="phone"
                     onClick={onOpenQrProvision}
                     className="flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
                     title="Telefonnal beállítás QR kóddal – nem kell TV-n pötyögni"
@@ -631,6 +658,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <span>📱 Telefon</span>
                   </button>
                   <button
+                    data-tv-list-action="new"
                     onClick={onOpenAddProvider}
                     className="flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-cyan-400/25"
                   >
