@@ -2009,7 +2009,7 @@ export function App() {
   };
 
   // Global Keyboard Shortcuts – TV remote, laptop, tablet billentyűzet + egér
-  // Az öt színgyorsgomb kizárólag az Élő TV nézetben működik; nem módosít csatorna- vagy lejátszóállapotot.
+  // A hat színgyorsgomb kizárólag az Élő TV nézetben működik; nem módosít csatorna- vagy lejátszóállapotot.
   useEffect(() => {
     const onAccentKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -2021,7 +2021,8 @@ export function App() {
         : key === '2' || key === 'Digit2' || code === 50 ? 'blue'
         : key === '3' || key === 'Digit3' || code === 51 ? 'pink'
         : key === '4' || key === 'Digit4' || code === 52 ? 'yellow'
-        : key === '5' || key === 'Digit5' || code === 53 ? 'green' : null;
+        : key === '5' || key === 'Digit5' || code === 53 ? 'green'
+        : key === '6' || key === 'Digit6' || code === 54 ? 'white' : null;
       if (!next) return;
       event.preventDefault();
       event.stopPropagation();
