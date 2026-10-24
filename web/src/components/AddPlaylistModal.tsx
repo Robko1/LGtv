@@ -6,7 +6,7 @@ import type { PartialContent } from '../services/providerImport';
 import { importM3UProvider, importXtreamProvider, ImportProgress } from '../services/providerImport';
 import { setNetworkDiagnosticSink, NetworkDiagnosticEvent } from '../services/net';
 import LoadingDiagnosticModal from './LoadingDiagnosticModal';
-import { X, Server, Link, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Server, Link, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 interface AddPlaylistModalProps {
   isOpen: boolean;
@@ -37,10 +37,6 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
 
   // M3U fields
   const [m3uUrl, setM3uUrl] = useState(editProvider?.m3uUrl || '');
-  // Az M3U/M3U8 lista háromféleképp adható meg: link, fájl vagy beillesztett szöveg.
-  const [m3uMode, setM3uMode] = useState<'url' | 'file' | 'text'>('url');
-  const [m3uText, setM3uText] = useState('');
-  const [m3uFileName, setM3uFileName] = useState('');
   const { modalRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(isOpen, onClose, [tab]);
 
   useEffect(() => {
@@ -51,9 +47,6 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     setUsername(editProvider?.username || '');
     setPassword(editProvider?.password || '');
     setM3uUrl(editProvider?.m3uUrl || '');
-    setM3uMode('url');
-    setM3uText('');
-    setM3uFileName('');
     setStatusMessage(null);
     setProgress(null);
     setDiagnosticOpen(false);
@@ -158,43 +151,13 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     }
   };
 
-  /** M3U/M3U8 fájl beolvasása (akár több MB-os lista is). */
-  const handleM3UFile = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setM3uText(String(reader.result || ''));
-      setM3uFileName(file.name);
-      setStatusMessage(null);
-    };
-    reader.onerror = () => setStatusMessage({ type: 'error', text: 'A fájl beolvasása nem sikerült.' });
-    reader.readAsText(file);
-  };
-
   const handleConnectM3U = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (m3uMode === 'url' && !m3uUrl) {
+    if (!m3uUrl.trim()) {
       setStatusMessage({ type: 'error', text: 'Kérlek adj meg egy érvényes M3U URL-t!' });
       return;
     }
-    if (m3uMode !== 'url' && !m3uText.trim()) {
-      setStatusMessage({
-        type: 'error',
-        text: m3uMode === 'file'
-          ? 'Válassz ki egy .m3u / .m3u8 fájlt!'
-          : 'Illeszd be a lista teljes tartalmát (#EXTM3U …)!',
-      });
-      return;
-    }
-
-    const providerName = name.trim() || (
-      m3uMode === 'file' && m3uFileName
-        ? m3uFileName.replace(/\.(m3u8?|txt)$/i, '')
-        : m3uMode === 'url'
-          ? (() => { try { return new URL(m3uUrl).hostname; } catch { return 'M3U Playlist'; } })()
-          : 'M3U Playlist'
-    );
+    const providerName = name.trim() || (() => { try { return new URL(m3uUrl).hostname; } catch { return 'M3U Playlist'; } })();
 
     setIsLoading(true);
     setStatusMessage(null);
@@ -216,9 +179,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
 
     try {
       const content = await importM3UProvider(
-        m3uMode === 'url'
-          ? { name: providerName, m3uUrl }
-          : { name: providerName, m3uText },
+        { name: providerName, m3uUrl },
         (update) => {
           if (!diagnosticFinishedRef.current && update.percent < 100) {
             setProgress(update);
@@ -231,7 +192,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
         id: content.provider.id,
         name: providerName,
         type: 'm3u',
-        m3uUrl: m3uMode === 'url' ? m3uUrl.trim() : '',
+        m3uUrl: m3uUrl.trim(),
         isActive: true,
         status: 'active',
         channelsCount: content.channels.length,
@@ -271,56 +232,50 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
   // A listaűrlap legyen a beállítások (z-50) fölött, de a diagnosztika (z-100) alatt.
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-black/80 backdrop-blur-sm animate-fadeIn select-none">
-      <div ref={modalRef} role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={handleKeyDown} className="bg-[#081329] border border-cyan-800/60 rounded-3xl max-w-lg w-full max-h-[90dvh] min-h-0 flex flex-col shadow-2xl animate-scaleUp overflow-hidden focus:outline-none">
+      <div ref={modalRef} role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={handleKeyDown} className="bg-[#081329] border border-cyan-800/60 rounded-3xl max-w-5xl w-full max-h-[94dvh] min-h-0 flex flex-col shadow-2xl animate-scaleUp overflow-hidden focus:outline-none">
         
         {/* Header */}
-        <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
+        <div className="p-6 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Server className="w-5 h-5 text-cyan-400 stroke-[2.5]" />
-            <h2 className="text-base sm:text-lg font-black text-white tracking-wide">
+            <Server className="w-7 h-7 text-cyan-400 stroke-[2.5]" />
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-wide">
               {editProvider ? 'SZOLGÁLTATÓ SZERKESZTÉSE' : 'ÚJ LISTA / SZOLGÁLTATÓ HOZZÁADÁSA'}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-300 active:scale-90 transition-all"
-          >
-            <X className="w-5 h-5" />
-          </button>
         </div>
 
         {/* Tab Switcher */}
-        <div className="p-3 bg-[#070e1e] border-b border-cyan-950/60 flex items-center gap-2">
+        <div className="p-4 bg-[#070e1e] border-b border-cyan-950/60 flex items-center gap-3">
           <button
             onClick={() => setTab('xtream')}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-3 px-4 rounded-xl text-base font-black transition-all flex items-center justify-center gap-2 ${
               tab === 'xtream'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0e1d3b] text-slate-300 hover:bg-[#13274e]'
             }`}
           >
-            <Server className="w-3.5 h-3.5" />
+            <Server className="w-5 h-5" />
             <span>Xtream Codes API</span>
           </button>
 
           <button
             onClick={() => setTab('m3u')}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 px-3 rounded-xl text-sm font-black transition-all flex items-center justify-center gap-1.5 ${
               tab === 'm3u'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0e1d3b] text-slate-300 hover:bg-[#13274e]'
             }`}
           >
-            <Link className="w-3.5 h-3.5" />
+            <Link className="w-5 h-5" />
             <span>M3U URL</span>
           </button>
         </div>
 
         {/* Body Form */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {statusMessage && (
             <div
-              className={`p-3 rounded-2xl flex items-center gap-2 text-xs font-bold ${
+              className={`p-3 rounded-2xl flex items-center gap-2 text-sm font-bold ${
                 statusMessage.type === 'success'
                   ? 'bg-emerald-950/50 border border-emerald-500/50 text-emerald-300'
                   : 'bg-rose-950/50 border border-rose-500/50 text-rose-300'
@@ -343,7 +298,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
                   style={{ width: `${progress?.percent ?? 5}%` }}
                 />
               </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <div className="flex items-center justify-between text-sm text-slate-400">
                 <span>{progress?.detail || progress?.phase || 'Kapcsolódás…'}</span>
                 <span className="font-bold text-cyan-300">{progress?.percent ?? 0}%</span>
               </div>
@@ -353,7 +308,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
           {tab === 'xtream' ? (
             <form onSubmit={handleTestAndConnectXtream} className="space-y-3.5">
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
+                <label className="text-sm font-bold text-slate-300 block mb-1">
                   Szerver URL / Host (Porttal) *
                 </label>
                 <input
@@ -362,13 +317,13 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
                   onChange={(e) => setServerUrl(e.target.value)}
                   placeholder="http://iptv-server.com:8080"
                   required
-                  className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-cyan-400 font-mono"
+                  className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-sm text-white focus:outline-hidden focus:border-cyan-400 font-mono"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs font-bold text-slate-300 block mb-1">
+                  <label className="text-sm font-bold text-slate-300 block mb-1">
                     Felhasználónév *
                   </label>
                   <input
@@ -377,12 +332,12 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="Username"
                     required
-                    className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-cyan-400 font-mono"
+                    className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-sm text-white focus:outline-hidden focus:border-cyan-400 font-mono"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-300 block mb-1">
+                  <label className="text-sm font-bold text-slate-300 block mb-1">
                     Jelszó *
                   </label>
                   <input
@@ -391,12 +346,12 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Password"
                     required
-                    className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-cyan-400 font-mono"
+                    className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-sm text-white focus:outline-hidden focus:border-cyan-400 font-mono"
                   />
                 </div>
               </div>
 
-              <p className="text-[11px] leading-relaxed text-slate-400 bg-[#0b1832] border border-cyan-950/70 rounded-xl p-3">
+              <p className="text-sm leading-relaxed text-slate-400 bg-[#0b1832] border border-cyan-950/70 rounded-xl p-3">
                 A szolgáltatótól kapott <span className="text-cyan-300 font-bold">szerver címet</span> (pl.{' '}
                 <span className="font-mono text-cyan-200">http://szerver:8080</span>),{' '}
                 <span className="text-cyan-300 font-bold">felhasználónevet</span> és{' '}
@@ -407,7 +362,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 rounded-2xl bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-cyan-400/30 active:scale-95 transition-all mt-2"
+                className="w-full py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 text-slate-950 font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-cyan-400/30 active:scale-95 transition-all mt-3"
               >
                 {isLoading ? (
                   <>
@@ -425,81 +380,23 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
           ) : (
             <div className="space-y-4">
               <form onSubmit={handleConnectM3U} className="space-y-3.5">
-                {/* Forrás: link / fájl / beillesztett lista */}
-                <div className="grid grid-cols-3 gap-1.5">
-                  {([
-                    ['url', 'Link'],
-                    ['file', 'Fájl'],
-                    ['text', 'Teljes kód'],
-                  ] as const).map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setM3uMode(mode)}
-                      className={`py-2 rounded-xl text-[11px] font-black transition-all ${
-                        m3uMode === mode
-                          ? 'bg-cyan-400 text-slate-950'
-                          : 'bg-[#0d1d3d] text-slate-300 border border-cyan-900/60'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-1">
+                    M3U / M3U8 Playlist URL *
+                  </label>
+                  <input
+                    type="url"
+                    value={m3uUrl}
+                    onChange={(e) => setM3uUrl(e.target.value)}
+                    placeholder="https://example.com/playlist.m3u8"
+                    className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-3 text-base text-white focus:outline-hidden focus:border-cyan-400 font-mono"
+                  />
                 </div>
-
-                {m3uMode === 'url' && (
-                  <div>
-                    <label className="text-xs font-bold text-slate-300 block mb-1">
-                      M3U / M3U8 Playlist URL *
-                    </label>
-                    <input
-                      type="url"
-                      value={m3uUrl}
-                      onChange={(e) => setM3uUrl(e.target.value)}
-                      placeholder="https://example.com/playlist.m3u8"
-                      className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-cyan-400 font-mono"
-                    />
-                  </div>
-                )}
-
-                {m3uMode === 'file' && (
-                  <div>
-                    <label className="text-xs font-bold text-slate-300 block mb-1">
-                      M3U / M3U8 fájl kiválasztása *
-                    </label>
-                    <input
-                      type="file"
-                      accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl,text/plain"
-                      onChange={handleM3UFile}
-                      className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-cyan-400 file:text-slate-950 file:font-bold"
-                    />
-                    {m3uText && (
-                      <p className="mt-1 text-[11px] text-emerald-300">
-                        {m3uFileName || 'kiválasztott fájl'} • {m3uText.split(/\r?\n/).length.toLocaleString('hu-HU')} sor beolvasva
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {m3uMode === 'text' && (
-                  <div>
-                    <label className="text-xs font-bold text-slate-300 block mb-1">
-                      A lista teljes tartalma (másolás-beillesztés) *
-                    </label>
-                    <textarea
-                      value={m3uText}
-                      onChange={(e) => setM3uText(e.target.value)}
-                      rows={6}
-                      placeholder={'#EXTM3U\n#EXTINF:-1 tvg-name="Csatorna" group-title="Magyar",Csatorna\nhttp://szerver:8080/live/user/pass/12345.ts'}
-                      className="w-full bg-[#0d1d3d] border border-cyan-900/60 rounded-xl px-3 py-2 text-[11px] font-mono text-white focus:outline-hidden focus:border-cyan-400"
-                    />
-                  </div>
-                )}
 
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-3 rounded-2xl bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-cyan-400/30 active:scale-95 transition-all"
+                  className="w-full py-4 rounded-2xl bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 text-slate-950 font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-cyan-400/30 active:scale-95 transition-all"
                 >
                   {isLoading ? (
                     <>
@@ -509,7 +406,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
                   ) : (
                     <>
                       <Link className="w-4 h-4" />
-                      <span>{m3uMode === 'url' ? 'M3U Letöltése és Betöltése' : 'Lista Feldolgozása'}</span>
+                      <span>M3U Letöltése és Betöltése</span>
                     </>
                   )}
                 </button>
