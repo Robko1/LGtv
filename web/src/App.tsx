@@ -387,10 +387,10 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isOsdVisible, setIsOsdVisible] = useState<boolean>(true);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
-  const [liveAccent, setLiveAccent] = useState<'yellow' | 'red' | 'blue' | 'pink'>(() => {
+  const [liveAccent, setLiveAccent] = useState<'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white'>(() => {
     try {
       const saved = localStorage.getItem('iptv-live-accent');
-      return saved === 'red' || saved === 'blue' || saved === 'pink' ? saved : 'yellow';
+      return saved === 'red' || saved === 'blue' || saved === 'pink' || saved === 'green' || saved === 'white' ? saved : 'yellow';
     } catch { return 'yellow'; }
   });
   const [isFullscreenLiveOsdVisible, setIsFullscreenLiveOsdVisible] = useState<boolean>(false);
