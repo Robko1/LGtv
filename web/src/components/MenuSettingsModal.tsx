@@ -341,6 +341,13 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       const target = e.target as HTMLElement;
       const box = target.closest<HTMLElement>('[data-tv-box]');
       const active = document.activeElement as HTMLElement | null;
+      // Az LG webOS alkalmazás teljes kockáján a JOBBRA nyíl nem végez műveletet.
+      // Az OK-val történő belépést és a többi nyíl működését változatlanul hagyjuk.
+      if (box?.hasAttribute('data-system-app-container') && active === box && key === 'ArrowRight') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (box && (
         ['ArrowLeft', 'ArrowRight'].includes(key) ||
         (['ArrowUp', 'ArrowDown'].includes(key) && active !== box) ||
@@ -410,8 +417,19 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         }
       }
 
-      // A szolgáltatói doboz és a benne lévő műveletek saját fókuszterületet
-      // alkotnak; a fel/le nyilak sem léphetnek át a globális navigációra.
+      // A teljes törlés gomb külön fókuszpont: fel vissza a Provider dobozára,
+      // le nem mozdul; a jobbra nyíl jelenlegi működését nem módosítjuk.
+      const clearAll = target.closest<HTMLElement>('[data-tv-clear-all]');
+      if (clearAll && (key === 'ArrowUp' || key === 'ArrowDown')) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === 'ArrowUp') {
+          modalRef.current?.querySelector<HTMLElement>('[data-tv-box]')?.focus({ preventScroll: true } as any);
+        }
+        return;
+      }
+
+      // A Provider doboz és a belső műveleti gombok külön fókuszterületet alkotnak.
       const box = target.closest<HTMLElement>('[data-tv-box]');
       const active = document.activeElement as HTMLElement | null;
       if (box && (
@@ -428,6 +446,27 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
           return;
         }
+        if (active !== box) {
+          // A belső műveletek csak balra/jobbra járhatók; minden más nyíl
+          // visszaadja a fókuszt a Provider teljes dobozának.
+          if (key === 'ArrowLeft' || key === 'ArrowRight') {
+            const index = controls.indexOf(active as HTMLElement);
+            if (index >= 0) {
+              const next = index + (key === 'ArrowRight' ? 1 : -1);
+              if (next >= 0 && next < controls.length) {
+                controls[next]?.focus({ preventScroll: true } as any);
+                controls[next]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+              } else {
+                box.focus({ preventScroll: true } as any);
+              }
+            } else {
+              box.focus({ preventScroll: true } as any);
+            }
+          } else {
+            box.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
         if (key === 'ArrowUp') {
           modalRef.current?.querySelector<HTMLElement>('[data-tv-list-action="phone"]')?.focus({ preventScroll: true } as any);
           return;
@@ -436,24 +475,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           modalRef.current?.querySelector<HTMLElement>('[data-tv-clear-all]')?.focus({ preventScroll: true } as any);
           return;
         }
-        if (key === 'ArrowLeft' || key === 'ArrowRight') {
-          const index = controls.indexOf(active as HTMLElement);
-          if (index < 0) {
-            // A doboz fókuszán a bal nyíl nem nyithatja meg a belső műveleteket;
-            // azokat kizárólag az OK nyitja meg. A jobbra nyíl viselkedése marad.
-            if (key === 'ArrowRight') controls[0]?.focus({ preventScroll: true } as any);
-            return;
-          } else {
-            const next = index + (key === 'ArrowRight' ? 1 : -1);
-            if (next >= 0 && next < controls.length) {
-              controls[next]?.focus({ preventScroll: true } as any);
-              controls[next]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-            } else {
-              box.focus({ preventScroll: true } as any);
-            }
-          }
-          return;
-        }
+        // A teljes Provider dobozon balra/jobbra nem történik semmi.
+        return;
       }
     }
     if (activeTab === 'favorites') {
