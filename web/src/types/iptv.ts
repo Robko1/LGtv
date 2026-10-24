@@ -1,9 +1,7 @@
 export type BufferMode = 'fast' | 'balanced' | 'stable';
 /**
- * Lejátszó motor.
- *  - 'html5'  : a beépített HTML5/HLS lejátszó (formátumváltás, zap-őr, teljes OSD)
- *  - 'native' : a TV hardveres dekóderére építő „natív” mód (közvetlen MPEG-TS,
- *               nincs automatikus formátumváltás, minimális felület a kép fölött)
+ * A 'native' érték régi mentett beállítások miatt marad kompatibilitásból.
+ * A webOS webapp tényleges lejátszási útja a HTMLVideoElement / platform-médiamotor.
  */
 export type PlayerEngine = 'html5' | 'native';
 /** Kézzel kiválasztott élő TV streamformátum; csatornaváltáskor is megmarad. */
@@ -176,7 +174,7 @@ export interface AppSettings {
   bufferMode: BufferMode;
   /** Lejátszómotor a Rendszer menüből; a választás mentésre kerül. */
   playerEngine: PlayerEngine;
-  /** Élő adás formátuma: MPEG-TS (.ts) vagy HLS (.m3u8), mindkét lejátszómódhoz. */
+  /** Élő adás elsőként próbált formátuma; hiba esetén egyszer a másik is kipróbálható. */
   streamFormat: LiveStreamFormat;
   /**
    * Hogyan kérjük le a csatornalistát a szolgáltatótól.
