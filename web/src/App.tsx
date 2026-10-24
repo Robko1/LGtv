@@ -2417,6 +2417,7 @@ export function App() {
           <div className="flex-1 flex flex-col overflow-hidden min-h-0 md:min-w-0">
           {/* Video Player */}
           <VideoPlayer
+            liveAccent={liveAccent}
             channel={activeChannel}
             customStreamUrl={customStreamUrl}
             customTitle={customStreamTitle}
