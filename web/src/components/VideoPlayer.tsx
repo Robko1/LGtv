@@ -370,7 +370,7 @@ const BlueClock: React.FC<{ className?: string; offsetHours?: number; accent?: '
       className={className}
       aria-label={`Pontos idő: ${time}`}
     >
-      <span>{time || '00:00'}</span>
+      <span className={accentTextClass[accent]}>{time || '00:00'}</span>
     </div>
   );
 };
@@ -3482,7 +3482,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <BlueClock
           accent={liveAccent}
           offsetHours={settings.clockOffsetHours}
-          className={`absolute top-3 z-40 box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider ${accentTextClass[accent]} shadow-none pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
+          className={`absolute top-3 z-40 box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider shadow-none pointer-events-none ${isVod || landscapeLiveFullscreen ? 'right-3' : 'right-14'}`}
         />
       )}
 
