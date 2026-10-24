@@ -2890,13 +2890,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
       ? streamUrl
       : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
-    const selectedFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
-    // A kézi formátumválasztás mindig elsőbbséget élvez; a korábbi sikeres
-    // formátum csak diagnosztikai emlék, nem írhatja felül a Beállítást.
-    const primaryFormat = selectedFormat;
-    const primaryUrl = isVod
-      ? streamUrl
-      : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
+    // Élő adásnál mindig MPEG-TS az első próba; hiba vagy időtúllépés
+    // esetén a meglévő újrapróbálási lánc automatikusan HLS-re vált.
+    // A webOS HTML5 videóeleme nem ad MPV-szerű, állítható demuxer-cache API-t.
+    const primaryUrl = isVod ? streamUrl : tsUrl;
     pendingStreamUrlRef.current = primaryUrl;
     retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
     liveFallbackRef.current = isVod ? null : alternativeUrl(primaryUrl);
