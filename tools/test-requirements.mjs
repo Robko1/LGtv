@@ -1158,8 +1158,8 @@ test('15. a mérés nullázása törli az előzményeket, a QR pedig a teljes me
   assert.match(APPLOG, /clearAppLog\(\);\s*\n\s*measurementStartedAt = startedAt;/);
   assert.match(APPLOG, /localStorage\.removeItem\(/);
   assert.match(APPLOG, /measurementCounters\.logLines = 0;/);
-  assert.match(APPLOG, /return \\[header, \.\.\.lines\\]\\.join\\('\\\\n'\\);/);
+  assert.match(APPLOG, /return \[header, \.\.\.lines\]\.join\('\\n'\);/);
   assert.match(APPLOG, /const MAX_CHARS = 1_000_000;/);
-  assert.match(APPLOG, /max\\. 24 óra \\/ 1 MB/);
+  assert.match(APPLOG, /max\. 24 óra \/ 1 MB/);
   assert.doesNotMatch(APPLOG, /MAX_LINES/);
 });
