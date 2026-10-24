@@ -511,8 +511,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    */
   const liveFallbackRef = useRef<{ url: string; format: 'ts' | 'hls' } | null>(null);
   const liveFallbackUsedRef = useRef(false);
-  /** Két élő betöltés között legalább ennyi ms teljen el (dekóder-felszabadítás). */
-  const lastLiveLoadAtRef = useRef(0);
+  /** Esetleges korábbi, késleltetett betöltés törlése – csatornaváltás nem várhat rá. */
   const pendingLiveLoadTimerRef = useRef<number | null>(null);
   // Csatornaváltási generáció: a régi stream későn érkező eseményei ne írják felül az új csatorna állapotát.
   const streamLoadGenerationRef = useRef(0);
@@ -524,6 +523,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     canPlayLogged: boolean;
     completed: boolean;
     firstFrameLogged: boolean;
+    lastProgressAt: number;
+    lastBufferedEnd: number;
   } | null>(null);
   const videoDiagnosticState = (video: HTMLVideoElement, reason: string): string => {
     const rect = video.getBoundingClientRect();
@@ -560,6 +561,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       `paused=${video.paused}; currentTime=${Number(video.currentTime || 0).toFixed(2)}; ` +
       `error=${error ? `${error.code}:${error.message || 'nincs részlet'}` : 'nincs'}`;
   };
+  const audioDiagnosticState = (video: HTMLVideoElement): string => {
+    const exposedList = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
+    const tracks = readHtmlAudioTracks(video);
+    const trackText = tracks.length
+      ? tracks.map((track) => `${track.id}:${track.lang || 'nyelv?'}:${track.name}:${track.selected ? 'aktív' : 'nem aktív'}`).join('|')
+      : 'a böngésző nem adott hangsávlistát';
+    return `audioTrackList=${exposedList && typeof exposedList.length === 'number' ? 'elérhető' : 'nem támogatott'}; hangsávok=${trackText}; muted=${video.muted}; volume=${Number(video.volume).toFixed(2)}; codec/valódi hangszint=HTML5 API-ból nem olvasható`;
+  };
   // Hibaképernyőn a sárga kijelölés automatikusan az Újrapróbálás gombra
   // ugrik - eddig távirányítóval nem lehetett elérni.
   const retryButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -590,9 +599,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const nativeRetryCountRef = useRef(0);
   const bufferTiming = () => {
     const mode = bufferModeRef.current;
-    if (mode === 'fast') return { watchdogMs: 2500, retryMs: 150 };
-    if (mode === 'stable') return { watchdogMs: 7000, retryMs: 450 };
-    return { watchdogMs: 4000, retryMs: 250 };
+    if (mode === 'fast') return { watchdogMs: 1500, retryMs: 0 };
+    if (mode === 'stable') return { watchdogMs: 3500, retryMs: 180 };
+    return { watchdogMs: 2200, retryMs: 80 };
   };
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
@@ -624,7 +633,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         autoRetryTimerRef.current = window.setTimeout(() => {
           autoRetryTimerRef.current = null;
           retryStreamRef.current?.();
-        }, 200);
+        }, bufferTiming().retryMs);
         return;
       }
       // Egyik formátum sem indult el: a csatorna emlékét töröljük, hogy a
@@ -2683,31 +2692,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Egyetlen lejátszómotor: LG webOS-en a TV HTML5/HLS videóeleme játssza le az adatfolyamot.
   const loadStream = useCallback((url: string) => {
-    /*
-     * ZAPPOLÁSI KORLÁT (fagyás-védelem).
-     *
-     * A napló szerint a néző ~3 perc alatt kb. 40 csatornát váltott. A webOS
-     * médiamotorja minden váltásnál új dekódert nyit, a régit pedig csak
-     * később engedi el; sűrű váltásnál ez a TV-n az egész app lefagyásához
-     * vezethet. Ezért két élő betöltés között legalább 300 ms telik el, és a
-     * közben érkező kéréseket ÖSSZEVONJUK (mindig a legfrissebb cím indul).
-     */
+    // Az előző adást azonnal megállítjuk, és elvetjük az esetleges régi időzítőt.
+    // Nincs fix 300 ms-os csatornaváltási késleltetés: a legfrissebb kérés indul.
+    if (pendingLiveLoadTimerRef.current !== null) {
+      window.clearTimeout(pendingLiveLoadTimerRef.current);
+      pendingLiveLoadTimerRef.current = null;
+    }
     if (!isVodRef.current && !customStreamUrl) {
-      const now = Date.now();
-      const since = now - lastLiveLoadAtRef.current;
-      if (since >= 0 && since < 300) {
-        if (pendingLiveLoadTimerRef.current !== null) {
-          window.clearTimeout(pendingLiveLoadTimerRef.current);
-        }
-        const wait = 300 - since;
-        pendingLiveLoadTimerRef.current = window.setTimeout(() => {
-          pendingLiveLoadTimerRef.current = null;
-          loadStreamRef.current?.(url);
-        }, wait);
-        appLog(`VÁLTÁS ÖSSZEVONÁS: ${wait} ms várakozás a dekóder felszabadítására.`);
-        return;
-      }
-      lastLiveLoadAtRef.current = now;
+      try { htmlVideoRef.current?.pause(); } catch { /* régi webOS motor */ }
     }
     const loadGeneration = ++streamLoadGenerationRef.current;
     const isCurrentLoad = () => loadGeneration === streamLoadGenerationRef.current;
@@ -2763,10 +2755,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           canPlayLogged: false,
           completed: false,
           firstFrameLogged: false,
+          lastProgressAt: 0,
+          lastBufferedEnd: 0,
         };
         const channelMemory = rememberedFormatFor(channel?.id);
         const globalMemory = rememberedGlobalFormat();
-        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; formátum-emlék=${channelMemory || 'nincs (alap)'}${channelMemory ? '' : `; globális-emlék=${globalMemory || 'nincs'}`}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        appLog(`CSATORNAVÁLTÁS START; csatorna=${String(channel?.name || 'Ismeretlen csatorna').slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; formátum-emlék=${channelMemory || 'nincs (alap)'}${channelMemory ? '' : `; globális-emlék=${globalMemory || 'nincs'}`}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
       }
       video.pause();
       /*
@@ -3303,6 +3297,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.completed) {
                   diagnostic.completed = true;
                   appLog(`CSATORNAVÁLTÁS LEJÁTSZÁS ELINDULT; csatorna=${diagnostic.channelName}; idő=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'playing')}`);
+                  appLog(`HANGDIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; ${audioDiagnosticState(video)}`);
                 }
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.firstFrameLogged) {
                   diagnostic.firstFrameLogged = true;
@@ -3356,6 +3351,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 const diagnostic = channelSwitchDiagnosticRef.current;
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.completed) {
                   appLog(`CSATORNAVÁLTÁS METAADAT; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(event.currentTarget, 'loadedmetadata')}`);
+                  appLog(`HANGDIAG METAADATNÁL; csatorna=${diagnostic.channelName}; ${audioDiagnosticState(event.currentTarget)}`);
                 }
               }
             }}
@@ -3380,12 +3376,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 }
               }
             }}
+            onProgress={(event) => {
+              if (isVod) return;
+              const diagnostic = channelSwitchDiagnosticRef.current;
+              if (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current) return;
+              const now = Date.now();
+              if (diagnostic.lastProgressAt && now - diagnostic.lastProgressAt < 1000) return;
+              const video = event.currentTarget;
+              let bufferedEnd = 0;
+              try {
+                if (video.buffered.length) bufferedEnd = video.buffered.end(video.buffered.length - 1);
+              } catch { /* a TV nem mindig ad pufferadatot */ }
+              const elapsed = diagnostic.lastProgressAt ? now - diagnostic.lastProgressAt : 0;
+              const bufferedDelta = bufferedEnd - diagnostic.lastBufferedEnd;
+              appLog(`STREAM ADATÉRKEZÉS; csatorna=${diagnostic.channelName}; eltelt=${now - diagnostic.startedAt} ms; puffer=${bufferedEnd.toFixed(2)} s; puffer-növekedés=${elapsed ? bufferedDelta.toFixed(2) + ' s/' + elapsed + ' ms' : 'első mérés'}; networkState=${video.networkState}; readyState=${video.readyState}`);
+              diagnostic.lastProgressAt = now;
+              diagnostic.lastBufferedEnd = bufferedEnd;
+            }}
             onError={(event) => {
-              if (!isVod) {
-                const diagnostic = channelSwitchDiagnosticRef.current;
-                if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current) {
-                  appLog(`CSATORNAVÁLTÁS HIBA; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(event.currentTarget, 'error')}`);
-                }
+              const diagnostic = channelSwitchDiagnosticRef.current;
+              if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
+              if (!isVod && diagnostic) {
+                appLog(`CSATORNAVÁLTÁS HIBA; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(event.currentTarget, 'error')}; ${audioDiagnosticState(event.currentTarget)}`);
               }
               setIsLoading(false);
               setErrorMessage('A TV nem tudta lejátszani az adatfolyamot. HLS/codec vagy stream URL hiba lehet.');
