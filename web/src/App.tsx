@@ -2487,11 +2487,10 @@ export function App() {
                 setSettingsTab('favorites');
                 setIsSettingsOpen(true);
                 window.setTimeout(() => {
-                  const scope = document.querySelector<HTMLElement>('[role="dialog"]');
                   const target = resumeHistoryId
-                    ? scope?.querySelector<HTMLElement>(`[data-resume-item="${resumeHistoryId}"] [data-resume-continue]`)
+                    ? document.querySelector<HTMLElement>(`[data-resume-item="${resumeHistoryId}"] [data-resume-continue]`)
                     : null;
-                  const fallback = target || scope?.querySelector<HTMLElement>('[data-resume-section]');
+                  const fallback = target || document.querySelector<HTMLElement>('[data-resume-section]');
                   try { fallback?.focus({ preventScroll: false }); } catch { fallback?.focus(); }
                 }, 180);
                 returnToFavoritesSettingsRef.current = false;
