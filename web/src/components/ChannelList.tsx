@@ -610,6 +610,19 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     if (host && (host.closest('[data-view-hidden]') || host.style.visibility === 'hidden')) return;
     // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
     const key = normalizeTvKey(e);
+    // KÉK teletextgomb: megnyitott kedvenc mappában a kijelölt csatornát
+    // közvetlenül mozgatási módba teszi. A fő csatornalista működése változatlan.
+    if (key === 'ColorF3Blue' && selectedFavoriteFolderId) {
+      const targetId = highlightedId || selectedChannelId;
+      if (targetId && visibleChannels.some((channel) => channel.id === targetId)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setMovingChannelId(targetId);
+        setMoveCursor('up');
+        focusChannelRow(targetId);
+      }
+      return;
+    }
     // MOZGATÁS MÓD (KÉK gomb): a sárga kurzor a piros nyilak/kuka között jár,
     // az OK végrehajtja a kijelölt műveletet, a Vissza kilép a módból.
     if (movingChannelId) {
