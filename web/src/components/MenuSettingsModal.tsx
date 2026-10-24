@@ -1057,7 +1057,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onUpdateSettings({ streamFormat: 'ts' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'text-cyan-300 border border-cyan-400/70' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${(settings.streamFormat || 'ts') === 'ts' ? 'text-cyan-300 border border-cyan-400/70' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`}
                       aria-pressed={(settings.streamFormat || 'ts') === 'ts'}
                     >
                       MPEG-TS (.ts)
@@ -1065,7 +1065,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onUpdateSettings({ streamFormat: 'hls' })}
-                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${settings.streamFormat === 'hls' ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`}
+                      className={`py-2 px-1 rounded-xl text-xs font-black transition-all ${settings.streamFormat === 'hls' ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30' : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'}`}}
                       aria-pressed={settings.streamFormat === 'hls'}
                     >
                       HLS (.m3u8)
