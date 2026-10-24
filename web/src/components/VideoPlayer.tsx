@@ -2891,9 +2891,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ? streamUrl
       : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
     const selectedFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
-    // Elsőként a csatornánál korábban sikeres formátumot használjuk.
-    // Új csatornánál az alap MPEG-TS; a kézi HLS-választás továbbra is érvényes.
-    const primaryFormat = isVod ? selectedFormat : (rememberedFormatFor(channel?.id) || selectedFormat);
+    // A kézi formátumválasztás mindig elsőbbséget élvez; a korábbi sikeres
+    // formátum csak diagnosztikai emlék, nem írhatja felül a Beállítást.
+    const primaryFormat = selectedFormat;
     const primaryUrl = isVod
       ? streamUrl
       : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
