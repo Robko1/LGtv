@@ -450,3 +450,75 @@ test('7. a rejtett nézet ablaka (display:none) nem kapja meg a nyilakat', () =>
     dom.window.close();
   }
 });
+
+
+/* ─────────────── 8. Kedvencek menü: a saját nyíllogika a gazda ─────────────── */
+
+test('8. a globális webOS navigáció nem írja felül a Kedvencek vízszintes határait', () => {
+  const html = `<!doctype html><html><head></head><body class="webos-tv">
+    <div role="dialog" aria-label="Menü és beállítások" data-tv-navigation-owner="settings" tabindex="-1">
+      <button data-tv-tabid="favorites" tabindex="0">Kedvencek</button>
+      <button data-tv-tabid="lists" tabindex="0">Listák</button>
+      <button data-tv-tabid="system" tabindex="0">Rendszer</button>
+      <button data-tv-default="" tabindex="0">Új mappa</button>
+      <div data-favorite-folder="folder-1" tabindex="0">
+        <button title="Mappa törlése" tabindex="0">Törlés</button>
+      </div>
+    </div>
+  </body></html>`;
+  const dom = new JSDOM(html, { url: 'https://tv.local/', runScripts: 'dangerously', virtualConsole: new VirtualConsole() });
+  try {
+    dom.window.eval(WEBOS_JS);
+    if (!dom.window.document.getElementById('webos-tv-fix-css')) {
+      dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+    }
+    const doc = dom.window.document;
+    const owner = doc.querySelector('[data-tv-navigation-owner="settings"]');
+    const newFolder = doc.querySelector('[data-tv-default]');
+    const folder = doc.querySelector('[data-favorite-folder]');
+    const deleteButton = doc.querySelector('[title="Mappa törlése"]');
+    const favoritesTab = doc.querySelector('[data-tv-tabid="favorites"]');
+
+    // A React-központi handler viselkedésének modellje: a Kedvencek dönti el,
+    // hogy a fókusz marad, a mappadobozra vagy a Kedvencek fülre kerül.
+    owner.addEventListener('keydown', (e) => {
+      const key = e.key;
+      const target = e.target;
+      if (target.closest('[data-tv-default]')) {
+        if (key === 'ArrowUp') {
+          e.preventDefault(); e.stopPropagation(); favoritesTab.focus();
+        } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          e.preventDefault(); e.stopPropagation();
+        }
+      } else if (target.closest('[data-favorite-folder]')) {
+        if (target.closest('[title="Mappa törlése"]')) {
+          e.preventDefault(); e.stopPropagation();
+          if (key === 'ArrowLeft' || key === 'ArrowUp' || key === 'ArrowDown') folder.focus();
+        } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          e.preventDefault(); e.stopPropagation();
+        }
+      }
+    });
+
+    newFolder.focus();
+    press(dom.window, 'ArrowRight', 39);
+    assert.equal(doc.activeElement, newFolder, 'Új mappáról jobbra nem ugorhat másik fülre');
+    press(dom.window, 'ArrowLeft', 37);
+    assert.equal(doc.activeElement, newFolder, 'Új mappáról balra nem ugorhat másik fülre');
+
+    folder.focus();
+    press(dom.window, 'ArrowLeft', 37);
+    assert.equal(doc.activeElement, folder, 'a mappadoboz bal szélén a fókusz a dobozon marad');
+    press(dom.window, 'ArrowRight', 39);
+    assert.equal(doc.activeElement, folder, 'a mappadoboz jobb szélén a fókusz a dobozon marad');
+
+    deleteButton.focus();
+    press(dom.window, 'ArrowLeft', 37);
+    assert.equal(doc.activeElement, folder, 'Törlésről balra a teljes mappadobozra tér vissza');
+    deleteButton.focus();
+    press(dom.window, 'ArrowRight', 39);
+    assert.equal(doc.activeElement, deleteButton, 'Törlésről jobbra nem lehet kilépni a dobozból');
+  } finally {
+    dom.window.close();
+  }
+});
