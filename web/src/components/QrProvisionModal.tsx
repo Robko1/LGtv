@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Smartphone, QrCode, RefreshCw, Check, Clock, Tv } from 'lucide-react';
+import { Smartphone, QrCode, RefreshCw, Check, Clock, Tv } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { WEB_VERSION } from '../appVersion';
 import { createProvisionSession, getProvisionUrl, pollForProvider, clearProvision, ensureProvisionChannel, getProvisionDiag, ProvisionChannel, QrProviderPayload } from '../services/qrProvisioningService';
