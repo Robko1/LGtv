@@ -92,8 +92,8 @@ const {
 const playerSource = fs.readFileSync(path.resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
 const settingsSource = fs.readFileSync(path.resolve('web/src/components/MenuSettingsModal.tsx'), 'utf8');
 
-check(playerSource.includes('const primaryFormat = selectedFormat;'),
-  'a kézzel kiválasztott formátum mindig az első próba');
+check(playerSource.includes('const primaryUrl = isVod ? streamUrl : tsUrl;'),
+  'élő adásnál az MPEG-TS az első próba, VOD-nál az eredeti cím marad');
 check(!playerSource.includes('const primaryFormat = rememberedFormat || selectedFormat'),
   'a régi formátum-emlékezet nem írhatja felül a kézi választást');
 check(playerSource.includes('const sequence = liveRetrySequenceRef.current;')
@@ -102,9 +102,9 @@ check(playerSource.includes('const sequence = liveRetrySequenceRef.current;')
   'hiba esetén a négy indítási próba a TS/HLS sorozatot követi');
 check(playerSource.includes('alternativeUrl(primaryUrl)'),
   'a másik TS/HLS URL a formátum-átíró modulból készül');
-check(settingsSource.includes('Hiba esetén automatikus MPEG-TS-próba.')
-  && settingsSource.includes('Hiba esetén automatikus HLS-próba.'),
-  'a beállítások szövege megfelel az automatikus visszaesésnek');
+check(settingsSource.includes('Első próba: MPEG-TS (.ts).')
+  && settingsSource.includes('a lejátszó automatikusan HLS (.m3u8) formátumra vált.'),
+  'a beállítások leírják a TS első próbát és a HLS automatikus tartalékot');
 check(!settingsSource.includes('Natív (TV dekóder)'),
   'a nem létező külön natív dekóder-mód nincs többé választhatóként feltüntetve');
 
