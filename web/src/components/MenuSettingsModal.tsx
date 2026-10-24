@@ -772,10 +772,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   } else if (key === 'Enter' || key === ' ') {
                     event.preventDefault();
                     event.stopPropagation();
-                    if (resumableHistory[0]) {
-                      onContinueWatching(resumableHistory[0]);
-                      onClose();
-                    }
+                    event.currentTarget.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
                   } else if (key === 'ArrowDown') {
                     event.preventDefault();
                     event.stopPropagation();
@@ -807,7 +804,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         <div
                           key={item.id}
                           role="group"
-                          tabIndex={0}
                           data-resume-item={item.id}
                           onKeyDown={(event) => {
                             const key = normalizeTvKey(event);
@@ -829,13 +825,13 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             } else if (key === 'ArrowRight') {
                               event.preventDefault();
                               event.stopPropagation();
-                              if (onRemove) row.focus({ preventScroll: true } as any);
+                              if (onRemove) continueButton?.focus({ preventScroll: true } as any);
                               else removeButton?.focus({ preventScroll: true } as any);
                             } else if (key === 'ArrowLeft') {
                               if (onRemove) {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                row.focus({ preventScroll: true } as any);
+                                continueButton?.focus({ preventScroll: true } as any);
                               } else if (onContinue) {
                                 event.preventDefault();
                                 event.stopPropagation();
@@ -844,7 +840,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                               event.preventDefault();
                               event.stopPropagation();
                               if (onRemove) {
-                                row.focus({ preventScroll: true } as any);
+                                continueButton?.focus({ preventScroll: true } as any);
                               } else {
                                 const nextIndex = itemIndex + (key === 'ArrowDown' ? 1 : -1);
                                 if (nextIndex < 0) {
@@ -856,10 +852,10 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             } else if (key === 'Escape' || key === 'Backspace') {
                               event.preventDefault();
                               event.stopPropagation();
-                              row.focus({ preventScroll: true } as any);
+                              continueButton?.focus({ preventScroll: true } as any);
                             }
                           }}
-                          className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                          className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3">
                           <div className="flex items-center gap-3">
                             <div className="w-14 h-[72px] shrink-0 rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
                               {item.poster ? (
@@ -914,7 +910,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
                                   event.preventDefault();
                                   event.stopPropagation();
-                                  event.currentTarget.closest<HTMLElement>('[data-resume-item]')?.focus({ preventScroll: true } as any);
+                                  event.currentTarget.closest<HTMLElement>('[data-resume-item]')?.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
                                 }
                               }}
                               onClick={(event) => {
