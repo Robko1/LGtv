@@ -735,12 +735,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
   const armBufferWatchdog = useCallback(() => {
-    // Pufferelés közben ne indítsunk automatikus újracsatlakozást:
-    // ez élő adásnál végtelen újratöltési ciklust okozhat. A lejátszó
-    // kapjon időt a saját pufferének feltöltésére és a folytatásra.
-    // A watchdog csak a korábban ütemezett időzítőt törli.
     clearBufferWatchdog();
-  }, [clearBufferWatchdog]);
+    const video = htmlVideoRef.current;
+    // Csak már elindult élő adás elakadását figyeljük. Az indulási időkorlátot
+    // külön a zap-őr kezeli, a VOD lejátszásához nem nyúlunk.
+    if (!video || isVodRef.current || !playbackStartedRef.current || video.paused) return;
+    const generation = streamLoadGenerationRef.current;
+    const startedAt = Date.now();
+    const startTime = Number(video.currentTime || 0);
+    const timeoutMs = bufferTiming().watchdogMs;
+    bufferWatchdogRef.current = window.setTimeout(() => {
+      bufferWatchdogRef.current = null;
+      if (
+        generation !== streamLoadGenerationRef.current ||
+        video !== htmlVideoRef.current ||
+        video.paused ||
+        !playbackStartedRef.current
+      ) return;
+      const currentTime = Number(video.currentTime || 0);
+      const advanced = currentTime > startTime + 0.15;
+      if (advanced && video.readyState >= 3) return;
+      appLog(
+        `PUFFERELÉSI WATCHDOG; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
+        `eltelt=${Date.now() - startedAt} ms; időkorlát=${timeoutMs} ms; haladt=${advanced}; ${videoDiagnosticState(video, 'buffer-watchdog')}`
+      );
+      scheduleAutoRetry();
+    }, timeoutMs);
+  }, [clearBufferWatchdog, scheduleAutoRetry]);
 
   // A HTML5 videót a React-komponens eltűnésekor nézetváltáskor
   // ténylegesen leállítjuk, és elrejtjük a natív videófelületet. Visszatéréskor
@@ -2875,18 +2896,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     clearAutoRetry();
     nativeRetryCountRef.current = 0;
     setActiveUrlIndex(0);
-    // Élő adásnál mindig MPEG-TS az első próba, majd hiba/időtúllépés esetén
-    // HLS következik. A csatornánként megjegyzett korábbi formátum nem írhatja
-    // felül ezt a sorrendet. A generációs ellenőrzés kizárja, hogy egy régi
-    // csatorna késői eseménye felülírja az új csatorna állapotát.
+    // Élő adásnál először a csatornán korábban sikeres formátumot használjuk.
+    // Ha nincs emlék, a korábbi alapértelmezés (MPEG-TS) marad. Hiba esetén
+    // a másik formátum következik; a generációs őr védi az új csatornát
+    // a régi betöltés későn érkező eseményeitől.
     const hlsUrl = streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
     const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
       ? streamUrl
       : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
-    // Élő adásnál mindig MPEG-TS az első próba; hiba vagy időtúllépés
-    // esetén a meglévő újrapróbálási lánc automatikusan HLS-re vált.
-    // A webOS HTML5 videóeleme nem ad MPV-szerű, állítható demuxer-cache API-t.
-    const primaryUrl = isVod ? streamUrl : tsUrl;
+    const channelMemory = isVod ? null : rememberedFormatFor(channel?.id);
+    const primaryUrl = isVod ? streamUrl : (channelMemory === 'hls' ? hlsUrl : tsUrl);
     pendingStreamUrlRef.current = primaryUrl;
     retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
     liveFallbackRef.current = isVod ? null : alternativeUrl(primaryUrl);
@@ -3296,6 +3315,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             preload="auto"
             onPlaying={(event) => {
               playbackStartedRef.current = true;
+              clearBufferWatchdog();
               // A főoldal ebből tudja, hogy a TV-kép kész (nincs fekete doboz).
               try {
                 (window as any).__IPTV_VIDEO_READY__ = true;
@@ -3381,7 +3401,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
             }}
             onWaiting={(event) => {
-              if (playbackStartedRef.current) setIsLoading(true);
+              if (playbackStartedRef.current) {
+                setIsLoading(true);
+                armBufferWatchdog();
+              }
               if (!isVod) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.waitingLogged && !diagnostic.completed) {
@@ -3407,7 +3430,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               diagnostic.lastProgressAt = now;
               diagnostic.lastBufferedEnd = bufferedEnd;
             }}
+            onStalled={(event) => {
+              if (playbackStartedRef.current) {
+                setIsLoading(true);
+                armBufferWatchdog();
+              }
+              if (!isVod) {
+                const diagnostic = channelSwitchDiagnosticRef.current;
+                if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current) {
+                  appLog(`CSATORNAVÁLTÁS STALLED; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(event.currentTarget, 'stalled')}`);
+                }
+              }
+            }}
             onError={(event) => {
+              clearBufferWatchdog();
               const diagnostic = channelSwitchDiagnosticRef.current;
               if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
               if (!isVod && diagnostic) {
