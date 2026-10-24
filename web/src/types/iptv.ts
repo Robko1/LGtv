@@ -183,7 +183,7 @@ export interface AppSettings {
    * A választás mentésre kerül, és minden import/frissítés ezt használja.
    */
   channelLoadMode: 'api' | 'm3u';
-  zappingDelay: number; // 0, 200, 350, 600 ms
+  zappingDelay: number; // 0 ms: nincs külön csatornaváltási késleltetés
   /**
    * Óra eltolása órában (-12 … +12).
    *
