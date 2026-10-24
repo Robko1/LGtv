@@ -7,13 +7,13 @@ import { AppSettings } from '../types/iptv';
  * stream_icon / tvg-logo mezőjéből szabad megjeleníteni.
  */
 export const INITIAL_SETTINGS: AppSettings = {
-  bufferMode: 'stable',
+  bufferMode: 'balanced',
   // Alapértelmezés: beépített HTML5 lejátszó (ez a legmegbízhatóbb minden TV-n).
   playerEngine: 'html5',
   streamFormat: 'ts',
   // Csatornalista: Xtream API (JSON) az alapértelmezés.
   channelLoadMode: 'api',
-  zappingDelay: 600,
+  zappingDelay: 0,
   // 0 = a készülék órája (kézi eltolás a Beállításokban állítható).
   clockOffsetHours: 0,
   autoPlayLastChannel: true,
