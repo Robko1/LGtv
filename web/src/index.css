@@ -390,3 +390,15 @@ header[data-live-accent="yellow"] [data-tv-header-kind="movies"] svg,
   [data-view-pane="movies"] [data-poster-index] > div:last-child,
   [data-view-pane="series"] [data-poster-index] > div:last-child { min-width: 0; overflow: hidden; }
 }
+
+/* A csatornalista kedvenc-csillagai mindig sárgák maradnak a kiemelőszíntől függetlenül. */
+[data-live-accent="red"] [data-live-sidebar] [data-favorite-star] svg,
+[data-live-accent="blue"] [data-live-sidebar] [data-favorite-star] svg,
+[data-live-accent="pink"] [data-live-sidebar] [data-favorite-star] svg {
+  color: #fbbf24 !important;
+}
+[data-live-accent="red"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
+[data-live-accent="blue"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
+[data-live-accent="pink"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"] {
+  fill: #fbbf24 !important;
+}
