@@ -735,7 +735,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
   const armBufferWatchdog = useCallback(() => {
-    clearBufferWatchdog();
+    // Többször érkező waiting/stalled esemény ne tolja ki folyton a határidőt.
+    if (bufferWatchdogRef.current !== null) return;
     const video = htmlVideoRef.current;
     // Csak már elindult élő adás elakadását figyeljük. Az indulási időkorlátot
     // külön a zap-őr kezeli, a VOD lejátszásához nem nyúlunk.
@@ -761,7 +762,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       );
       scheduleAutoRetry();
     }, timeoutMs);
-  }, [clearBufferWatchdog, scheduleAutoRetry]);
+  }, [scheduleAutoRetry]);
 
   // A HTML5 videót a React-komponens eltűnésekor nézetváltáskor
   // ténylegesen leállítjuk, és elrejtjük a natív videófelületet. Visszatéréskor
