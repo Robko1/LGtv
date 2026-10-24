@@ -506,8 +506,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const playbackStartedRef = useRef(false);
   /*
    * ÉLŐ: csatornánkénti formátum-tartalék (a napló „Format error” hibáihoz).
-   * A `liveFallbackRef` a MÁSIK formátum címe, a `liveFallbackUsedRef` pedig
-   * azt jelzi, hogy ebben a csatornaváltásban már megpróbáltuk-e.
+   * A `liveFallbackRef` a másik formátum címét, a `liveRetrySequenceRef`
+   * pedig a négy egymás utáni indítási próbálkozás állapotát tárolja.
    */
   const liveFallbackRef = useRef<{ url: string; format: 'ts' | 'hls' } | null>(null);
   const liveRetrySequenceRef = useRef<{ urls: string[]; index: number }>({ urls: [], index: 0 });
@@ -2786,8 +2786,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // régi adást, csak a dekóder újraindítása marad el.
       // Korábbi <source> gyerekek eltakarítása (motorváltásnál is tiszta lap).
       while (video.firstChild) video.removeChild(video.firstChild);
-      // A webOS HTML5 videóelemét használjuk, amely a TV platform médiamotorját
-      // veszi igénybe. Hiba esetén egyszer megpróbáljuk a másik streamformátumot.
+      // A webOS HTML5 videóelemét használjuk. Élő adásnál négy indítási
+      // próbálkozás van: első formátum, másik, majd mindkettő még egyszer.
       video.src = url;
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
