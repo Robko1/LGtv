@@ -1348,8 +1348,16 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* A QR-diagnosztika működése a háttérben megmarad, de a gomb
-                    nem jelenik meg a Rendszer oldalon. */}
+                <button
+                  type="button"
+                  onClick={onOpenDiagnosticShare}
+                  disabled={!onOpenDiagnosticShare}
+                  className="w-full min-h-[48px] rounded-xl border border-amber-500/60 bg-[#241b08] px-3 py-2.5 flex items-center justify-center gap-2 text-sm font-bold text-amber-300 hover:bg-[#35270a] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50"
+                  title="Diagnosztika megosztása QR-kóddal"
+                >
+                  <Smartphone className="h-5 w-5 shrink-0" />
+                  <span>Diagnosztika megosztása (QR)</span>
+                </button>
 
                 {showVersionHistory && (
                   <div data-version-history="" className="p-3 rounded-xl bg-[#081329] border border-amber-400/30 space-y-2.5" onKeyDown={(event) => {
