@@ -294,13 +294,6 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
               />
               <div className="absolute inset-0 bg-linear-to-t from-[#09152e] via-transparent to-black/60" />
 
-              <button
-                onClick={() => setSelectedMovie(null)}
-                className="absolute top-3 right-3 p-2 rounded-full bg-black/60 text-white hover:bg-black/80 active:scale-90 transition-all"
-              >
-                ✕
-              </button>
-
               <div className="absolute bottom-3 left-4 right-4 flex items-end gap-3">
                 <img
                   src={selectedMovie.poster}
