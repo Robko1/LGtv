@@ -35,7 +35,13 @@ function json(res: http.ServerResponse, body: unknown) {
   res.end(text);
 }
 
-function startFakeServer(): Promise<{ server: http.Server; port: number }> {
+function startFakeServer(options: {
+  failVodCategories?: boolean;
+  failSeriesCategories?: boolean;
+  failVodBulk?: boolean;
+  failSeriesBulk?: boolean;
+  failAuth?: boolean;
+} = {}): Promise<{ server: http.Server; port: number }> {
   let listeningPort = 0;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -46,6 +52,10 @@ function startFakeServer(): Promise<{ server: http.Server; port: number }> {
     const action = url.searchParams.get('action');
     switch (action) {
       case null:
+        if (options.failAuth) {
+          json(res, { user_info: { username: 'teszt', auth: 0, status: 'Disabled' } });
+          break;
+        }
         json(res, {
           user_info: { username: 'teszt', auth: 1, status: 'Active', exp_date: '1893456000', max_connections: '2' },
           server_info: { url: '127.0.0.1', port: String(listeningPort) },
@@ -61,9 +71,18 @@ function startFakeServer(): Promise<{ server: http.Server; port: number }> {
         json(res, LIVE_STREAMS);
         break;
       case 'get_vod_categories':
+        if (options.failVodCategories) {
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('vod categories disabled');
+          break;
+        }
         json(res, [{ category_id: '20', category_name: 'Filmek' }]);
         break;
       case 'get_vod_streams':
+        if (options.failVodBulk && !url.searchParams.has('category_id')) {
+          json(res, { error: 'bulk VOD végpont tiltva' });
+          break;
+        }
         json(res, VOD_STREAMS);
         break;
       case 'get_vod_info':
@@ -82,9 +101,18 @@ function startFakeServer(): Promise<{ server: http.Server; port: number }> {
         });
         break;
       case 'get_series_categories':
+        if (options.failSeriesCategories) {
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('series categories disabled');
+          break;
+        }
         json(res, [{ category_id: '30', category_name: 'Sorozatok' }]);
         break;
       case 'get_series':
+        if (options.failSeriesBulk && !url.searchParams.has('category_id')) {
+          json(res, { error: 'bulk sorozat végpont tiltva' });
+          break;
+        }
         json(res, SERIES);
         break;
       case 'get_series_info':
@@ -177,7 +205,7 @@ async function main() {
   const progress: number[] = [];
 
   const result = await importXtreamProvider(
-    { name: 'Teszt szolgáltató', serverUrl: base, username: 'teszt', password: 'titok' },
+    { name: 'Teszt szolgáltató', serverUrl: `${base}/player_api.php?username=régi&password=régi`, username: 'teszt', password: 'titok' },
     (update) => progress.push(update.percent)
   );
 
@@ -192,12 +220,22 @@ async function main() {
   check('a lejárati dátumot átvette', result.user.expireDate.startsWith('2030'), result.user.expireDate);
   check('max. kapcsolatok átvéve', result.user.maxConnections === 2);
   check('haladásjelzés 100%-ig fut', progress[progress.length - 1] === 100);
+  check('a mentett provider-cím csak a root, credential nélkül', content.provider.serverUrl === base && !content.provider.serverUrl?.includes('player_api.php'));
 
   const m1 = content.channels.find((channel) => channel.name === 'M1 HD');
   check('a csatorna stream URL-je helyes', m1?.streamUrl === `${base}/live/teszt/titok/101.ts`, m1?.streamUrl || 'nincs');
   check('a magyar csatorna zászlót kapott', m1?.flag === '🇭🇺', m1?.flag || '');
   check('a csatorna a saját kategóriájában van', m1?.categoryName === 'Magyarország', m1?.categoryName || '');
   check('a csatornaszám megmaradt', m1?.num === 1);
+  check(
+    'a teljes player_api.php bemenetből is helyes élő URL készül',
+    xtreamService.buildLiveStreamUrl(`${base}/player_api.php?username=régi&password=régi`, 'teszt', 'titok', 101, 'm3u8')
+      === `${base}/live/teszt/titok/101.m3u8`
+  );
+  check(
+    'a speciális credential karakterek URL-szegmensben kódolódnak',
+    xtreamService.buildLiveStreamUrl(base, 'u/s', 'p a', 101) === `${base}/live/u%2Fs/p%20a/101.ts`
+  );
 
   const dune = content.movies.find((movie) => movie.title === 'Dűne');
   check('a film stream URL-je a kiterjesztéssel', dune?.streamUrl === `${base}/movie/teszt/titok/501.mkv`, dune?.streamUrl || '');
@@ -207,6 +245,33 @@ async function main() {
   check('a film valódi posztere megérkezett', dune?.poster === 'http://logo/detail-501.jpg', dune?.poster || '');
   check('a hangsávnyelvek normalizálódtak', JSON.stringify(dune?.audioLanguages) === JSON.stringify(['Magyar', 'Angol']), JSON.stringify(dune?.audioLanguages));
   check('a feliratnyelvek normalizálódtak', JSON.stringify(dune?.subtitleLanguages) === JSON.stringify(['Magyar', 'Angol']), JSON.stringify(dune?.subtitleLanguages));
+
+  /* --- 1b. VOD-végpont regressziók: a kategória-/bulk-hiba nem törli a live-ot --- */
+  const categoryFallbackFake = await startFakeServer({ failVodCategories: true, failSeriesCategories: true });
+  const categoryFallback = await importXtreamProvider(
+    { name: 'Kategória fallback', serverUrl: `http://127.0.0.1:${categoryFallbackFake.port}`, username: 'teszt', password: 'titok' }
+  );
+  check('kategóriahiba mellett az élő csatornák megmaradnak', categoryFallback.content.channels.length === 4, `(${categoryFallback.content.channels.length})`);
+  check('kategóriahiba mellett a bulk filmek betöltődnek', categoryFallback.content.movies.length === 2, `(${categoryFallback.content.movies.length})`);
+  check('kategóriahiba mellett a bulk sorozatok betöltődnek', categoryFallback.content.series.length === 1, `(${categoryFallback.content.series.length})`);
+  check('a kategóriahiba bekerül az import figyelmeztetésébe', categoryFallback.content.warnings.some((warning) => /kategórialistája/i.test(warning)));
+  categoryFallbackFake.server.close();
+
+  const bulkFallbackFake = await startFakeServer({ failVodBulk: true, failSeriesBulk: true });
+  const bulkFallback = await importXtreamProvider(
+    { name: 'Bulk fallback', serverUrl: `http://127.0.0.1:${bulkFallbackFake.port}`, username: 'teszt', password: 'titok' }
+  );
+  check('bulk-hiba mellett a kategória-fallback filmeket ad', bulkFallback.content.movies.length === 2, `(${bulkFallback.content.movies.length})`);
+  check('bulk-hiba mellett a kategória-fallback sorozatot ad', bulkFallback.content.series.length === 1, `(${bulkFallback.content.series.length})`);
+  check('a bulk-hiba oka bekerül az import figyelmeztetésébe', bulkFallback.content.warnings.some((warning) => /bulk-letöltése/i.test(warning)));
+  bulkFallbackFake.server.close();
+
+  const authFailureFake = await startFakeServer({ failAuth: true });
+  const authFailure = await importXtreamProvider(
+    { name: 'Auth probe fallback', serverUrl: `http://127.0.0.1:${authFailureFake.port}`, username: 'teszt', password: 'titok' }
+  );
+  check('opcionális auth-probe hiba nem törli az élő listát', authFailure.content.channels.length === 4, `(${authFailure.content.channels.length})`);
+  authFailureFake.server.close();
 
   const shogun = content.series[0];
   check('a sorozat azonosítója megvan', shogun?.seriesId === 901, String(shogun?.seriesId));

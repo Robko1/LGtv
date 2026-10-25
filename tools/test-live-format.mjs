@@ -92,8 +92,9 @@ const {
 const playerSource = fs.readFileSync(path.resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
 const settingsSource = fs.readFileSync(path.resolve('web/src/components/MenuSettingsModal.tsx'), 'utf8');
 
-check(playerSource.includes("const primaryUrl = isVod ? streamUrl : (channelMemory === 'hls' ? hlsUrl : tsUrl);"),
-  'élő adásnál a korábban sikeres csatornaformátum az első próba, emlék nélkül MPEG-TS');
+check(playerSource.includes("const configuredFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';")
+  && playerSource.includes("const primaryUrl = isVod ? streamUrl : (primaryFormat === 'hls' ? hlsUrl : tsUrl);"),
+  'élő adásnál a kézi HLS-preferencia elsődleges, egyébként a csatorna emlékezete/TS az első próba');
 check(playerSource.includes('const channelMemory = isVod ? null : rememberedFormatFor(channel?.id);'),
   'a formátum-emlékezet csatornánként működik, VOD-ra nem hat');
 check(playerSource.includes('const sequence = liveRetrySequenceRef.current;')

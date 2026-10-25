@@ -39,7 +39,7 @@ import {
 import { xtreamService, XtreamCategory, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
 import { storageService } from './storageService';
-import { cancelNetworkRequests, isNetworkRequestCancelled, isTransportFailure } from './net';
+import { isNetworkRequestCancelled } from './net';
 
 // webOS TV gyors betöltés detektálás
 export interface ImportProgress {
@@ -183,6 +183,38 @@ const MAX_CONSECUTIVE_FAILURES = 4;
 
 function sleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+/** A diagnosztikai naplóban csak a szolgáltató hostja jelenhet meg. */
+function diagnosticServerLabel(serverUrl: string): string {
+  try {
+    return new URL(xtreamService.baseUrl(serverUrl)).host || 'ismeretlen szolgáltató';
+  } catch {
+    return 'ismeretlen szolgáltató';
+  }
+}
+
+/**
+ * A panel által visszaadott hiba szövege is lehet URL vagy query-részlet.
+ * A figyelmeztetés és a kézi napló ugyanazt a rövid, credential-mentes okot
+ * kapja, így a szolgáltatói hiba diagnosztizálható, de belépési adat nem kerül
+ * a felületre vagy a megosztott naplóba.
+ */
+function safeErrorDetail(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/([?&](?:username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)=)[^&\s]*/gi, '$1[redacted]')
+    .replace(/\/(live|movie|series|subtitle)\/[^\/\s]+\/[^\/\s]+/gi, '/$1/[redacted]/[redacted]')
+    .replace(/https?:\/\/[^\s<>"']+/gi, (raw) => {
+      try {
+        const parsed = new URL(raw.replace(/[),.;!?]+$/, ''));
+        return `${parsed.protocol}//${parsed.host}/…`;
+      } catch {
+        return 'http(s)://[redacted]';
+      }
+    })
+    .replace(/\s+/g, ' ')
+    .slice(0, 240);
 }
 
 /** Csak a kapcsolatkorlát (429) és a szerverhiba (5xx) érdemel újrapróbálkozást. */
@@ -437,7 +469,7 @@ async function enrichFirstVodMetadata(
   server: string,
   user: string,
   pass: string
-): Promise<{ movies: Movie[]; series: Series[]; requested: number }> {
+): Promise<{ movies: Movie[]; series: Series[]; requested: number; failed: number }> {
   const targets: Array<{ kind: 'movie' | 'series'; index: number; id: number | string }> = [];
   for (const [index, movie] of movies.slice(0, MAX_DETAILED_VOD).entries()) {
     if (movie.streamId !== undefined && movie.streamId !== null) targets.push({ kind: 'movie', index, id: movie.streamId });
@@ -450,6 +482,7 @@ async function enrichFirstVodMetadata(
   const enrichedSeries = series.slice();
   let cursor = 0;
   let requested = 0;
+  let failed = 0;
 
   async function worker(): Promise<void> {
     while (true) {
@@ -465,6 +498,7 @@ async function enrichFirstVodMetadata(
           enrichedSeries[target.index] = applySeriesMetadata(enrichedSeries[target.index], parseSeriesMetadata(detail));
         }
       } catch {
+        failed++;
         // A részletes végpont hibája nem teheti használhatatlanná a teljes listát.
         // Az apply* fallbackjei a hiányzó értékeket 0/Ismeretlenre normalizálják.
         if (target.kind === 'movie') {
@@ -479,7 +513,7 @@ async function enrichFirstVodMetadata(
   // A net.ts saját kétkapcsolatos sora mellett ez a két worker sem nyit új
   // kapcsolatot; csak a részletek feldolgozásának sorrendjét korlátozza.
   await Promise.all([worker(), worker()]);
-  return { movies: enrichedMovies, series: enrichedSeries, requested };
+  return { movies: enrichedMovies, series: enrichedSeries, requested, failed };
 }
 
 /* --------------------------------------------------------------- Xtream */
@@ -490,12 +524,16 @@ export async function importXtreamProvider(
   onPartial: PartialFn = () => {}
 ): Promise<ImportedProvider> {
   const startedAt = performance.now();
+  // A mentett provider-cím csak a szolgáltató gyökere lehet: az API-fájl,
+  // query és esetleges URL-be ágyazott credential ne maradjon benne. A
+  // séma nélküli régi beállításokat séma nélkül őrizzük meg; a request-builder
+  // minden használatkor http://-t tesz elé.
   const server = xtreamService.cleanUrl(input.serverUrl);
   const user = input.username.trim();
   const pass = input.password.trim();
   // Diagnosztika: az ELSŐ indítás legnehezebb lépése az import – minden
   // szakasz elejét/végét naplózzuk, hogy egy fagyás után látszódjon, hol állt meg.
-  logPhase(`Xtream import indul; szerver=${server}`);
+  logPhase(`Xtream import indul; szerver-host=${diagnosticServerLabel(server)}`);
   logMemory('import előtt');
 
   /**
@@ -531,20 +569,14 @@ export async function importXtreamProvider(
   );
 
   /*
-   * GYORS LEÁLLÁS NEM VÁLASZOLÓ SZOLGÁLTATÓNÁL.
-   *
-   * A blokkolt/elérhetetlen panel kérése a hálózati réteg 30 másodperces
-   * időtúllépéséig „lóg”. A bejelentkezés-próba viszont 10 másodperc alatt
-   * eldől, és ha az sem kap választ, a szerver biztos, hogy nem él ezen a
-   * hálózaton: ilyenkor a folyamatban lévő kéréseket azonnal megszakítjuk.
-   * Így a néző 10 másodperc után érthető hibaüzenetet kap (nem 40 mp után),
-   * és a hálózat sem marad foglalt kapcsolatokkal.
+   * A hitelesítési probe csak a fiókkártya lejárat-/kapcsolatadataihoz kell.
+   * Nem szakíthatja meg a tartalomkéréseket: egyes Xtream-panelek a listákat
+   * kiszolgálják, miközben a bejelentkezési végpontjuk lassú vagy letiltott.
+   * A korábbi globális `cancelNetworkRequests()` itt a már betöltött élő
+   * csatornákat is használhatatlanná tette, amikor csak a film/sorozat ág
+   * hibázott. A tartalomimport külön kezeli a saját, tényleges hibáit; az
+   * auth-hiba legfeljebb az opcionális fiókadatokat hagyja üresen.
    */
-  void authPromise.then((probe) => {
-    if (probe.ok) return;
-    const message = probe.error instanceof Error ? probe.error.message : String(probe.error);
-    if (isTransportFailure(message)) cancelNetworkRequests();
-  });
 
   onProgress({ phase: 'Csatornák letöltése…', percent: 6 });
 
@@ -797,18 +829,32 @@ export async function importXtreamProvider(
   const loadMoviesPhase = async (): Promise<void> => {
   try {
     onProgress({ phase: 'Film kategóriák letöltése…', percent: 45 });
-    const vodCategories = await providerRequest(
-      () => xtreamService.vodCategories(server, user, pass),
-      'Film kategóriák'
-    );
+    let vodCategories: XtreamCategory[] = [];
+    try {
+      vodCategories = await providerRequest(
+        () => xtreamService.vodCategories(server, user, pass),
+        'Film kategóriák'
+      );
+    } catch (categoryError) {
+      if (isNetworkRequestCancelled(categoryError)) throw categoryError;
+      // A kategória-végpont több panelen hibás vagy tiltott, miközben a
+      // kategória nélküli get_vod_streams működik. Ez nem ok az élő lista
+      // vagy a teljes VOD-szakasz eldobására: a bulk választ még megpróbáljuk,
+      // az ismeretlen kategóriájú elemek „Egyéb” alá kerülnek.
+      const detail = safeErrorDetail(categoryError);
+      warnings.push(`A film kategórialistája nem tölthető le (${detail}); a filmek bulk-végpontja és az „Egyéb” kategória következik.`);
+      logPhase(`Film kategóriák hiba; ok=${detail}`);
+    }
     const vodCategoryMap = makeCategoryMap(vodCategories);
     const decodedMovies: Movie[] = [];
     const vodCounts = new Map<string, number>();
     const seenMovieIds = new Set<string>();
     let vodProcessed = 0;
     let bulkUsed = false;
+    let bulkFallbackReason = '';
 
-    // Próbáljuk meg egyben – ez a leggyorsabb út
+    // Próbáljuk meg egyben – ez a leggyorsabb út. Ha a panel ezt a végpontot
+    // nem támogatja, a kategóriánkénti ág ugyanebben a menetben következik.
     try {
       onProgress({ phase: 'Filmek letöltése egyben…', detail: 'Gyorsított mód (1 kérés)', percent: 48 });
       const allVod = await providerRequest(
@@ -816,7 +862,6 @@ export async function importXtreamProvider(
         'Filmek egyben'
       );
       if (Array.isArray(allVod) && allVod.length > 0 && allVod.length <= MAX_MOVIES * 1.2) {
-        // Sikerült egyben, feldolgozzuk
         const rows: Array<Array<string | number>> = [];
         for (const movie of allVod) {
           if (decodedMovies.length + rows.length >= MAX_MOVIES) break;
@@ -853,10 +898,23 @@ export async function importXtreamProvider(
           for (const movie of decodeMoviesForImport(rows, provider, 0)) decodedMovies.push(movie);
         }
         // Csak a valóban dekódolt, használható filmek számítanak sikeres importnak.
-        bulkUsed = true;
-        onProgress({ phase: 'Filmek feldolgozva egyben', detail: `${decodedMovies.length} film`, percent: 70 });
+        bulkUsed = decodedMovies.length > 0;
+        if (bulkUsed) {
+          onProgress({ phase: 'Filmek feldolgozva egyben', detail: `${decodedMovies.length} film`, percent: 70 });
+        } else {
+          bulkFallbackReason = 'a bulk-válaszban nem volt használható film';
+          vodCounts.clear();
+          seenMovieIds.clear();
+          vodProcessed = 0;
+        }
+      } else if (Array.isArray(allVod) && allVod.length === 0) {
+        bulkFallbackReason = 'a bulk-végpont üres választ adott';
+      } else {
+        bulkFallbackReason = `a bulk-válasz túllépte a ${MAX_MOVIES.toLocaleString('hu-HU')} elemes korlátot`;
       }
     } catch (bulkError) {
+      const detail = safeErrorDetail(bulkError);
+      bulkFallbackReason = detail;
       console.warn('Filmek egyben nem sikerült, visszaesés kategóriákra:', bulkError);
       // Ha a bulk feldolgozás közben történt hiba, a kategória-fallback ne
       // dolgozza fel újra a már részben látott elemeket.
@@ -864,10 +922,17 @@ export async function importXtreamProvider(
       vodCounts.clear();
       seenMovieIds.clear();
       vodProcessed = 0;
-      // Nem baj, megyünk tovább kategóriánként
+    }
+
+    if (!bulkUsed && bulkFallbackReason) {
+      warnings.push(`A filmek bulk-letöltése nem használható (${bulkFallbackReason}); kategória-fallback indul.`);
+      logPhase(`Filmek bulk hiba; ok=${bulkFallbackReason}`);
     }
 
     if (!bulkUsed) {
+      if (vodCategories.length === 0) {
+        warnings.push('A filmek kategória-fallbackje nem indítható, mert a szolgáltató nem adott használható kategórialistát; tényleges film-darabszám=0.');
+      }
       // Kategóriánkénti betöltés – most 2 concurrent, és incremental onPartial
       const vodResult = await loadCategoryFiltered(
         vodCategories,
@@ -949,10 +1014,10 @@ export async function importXtreamProvider(
     await onPartial({ preview: true, movies, vodCategories: vodCats, totals: { vod: movies.length } });
   } catch (error) {
     if (isNetworkRequestCancelled(error)) throw error;
+    const detail = safeErrorDetail(error);
     console.warn('A filmek letöltése nem sikerült:', error);
-    warnings.push(
-      `A filmek listája nem töltődött le: ${error instanceof Error ? error.message : String(error)}`
-    );
+    warnings.push(`A filmek listája nem töltődött le: ${detail}`);
+    logPhase(`Filmek import hiba; ok=${detail.slice(0, 240)}`);
   }
   };
 
@@ -966,16 +1031,25 @@ export async function importXtreamProvider(
   const loadSeriesPhase = async (): Promise<void> => {
   try {
     onProgress({ phase: 'Sorozat kategóriák letöltése…', percent: 74 });
-    const seriesCategories = await providerRequest(
-      () => xtreamService.seriesCategories(server, user, pass),
-      'Sorozat kategóriák'
-    );
+    let seriesCategories: XtreamCategory[] = [];
+    try {
+      seriesCategories = await providerRequest(
+        () => xtreamService.seriesCategories(server, user, pass),
+        'Sorozat kategóriák'
+      );
+    } catch (categoryError) {
+      if (isNetworkRequestCancelled(categoryError)) throw categoryError;
+      const detail = safeErrorDetail(categoryError);
+      warnings.push(`A sorozat kategórialistája nem tölthető le (${detail}); a sorozatok bulk-végpontja és az „Egyéb” kategória következik.`);
+      logPhase(`Sorozat kategóriák hiba; ok=${detail}`);
+    }
     const seriesCategoryMap = makeCategoryMap(seriesCategories);
     const decodedSeries: Series[] = [];
     const seriesCounts = new Map<string, number>();
     const seenSeriesIds = new Set<string>();
     let seriesProcessed = 0;
     let bulkSeriesUsed = false;
+    let bulkSeriesFallbackReason = '';
 
     try {
       onProgress({ phase: 'Sorozatok letöltése egyben…', detail: 'Gyorsított mód (1 kérés)', percent: 76 });
@@ -1017,10 +1091,23 @@ export async function importXtreamProvider(
         if (rows.length) {
           for (const item of decodeSeriesForImport(rows, provider, 0)) decodedSeries.push(item);
         }
-        bulkSeriesUsed = true;
-        onProgress({ phase: 'Sorozatok feldolgozva egyben', detail: `${decodedSeries.length} sorozat`, percent: 90 });
+        bulkSeriesUsed = decodedSeries.length > 0;
+        if (bulkSeriesUsed) {
+          onProgress({ phase: 'Sorozatok feldolgozva egyben', detail: `${decodedSeries.length} sorozat`, percent: 90 });
+        } else {
+          bulkSeriesFallbackReason = 'a bulk-válaszban nem volt használható sorozat';
+          seriesCounts.clear();
+          seenSeriesIds.clear();
+          seriesProcessed = 0;
+        }
+      } else if (Array.isArray(allSeries) && allSeries.length === 0) {
+        bulkSeriesFallbackReason = 'a bulk-végpont üres választ adott';
+      } else {
+        bulkSeriesFallbackReason = `a bulk-válasz túllépte a ${MAX_SERIES.toLocaleString('hu-HU')} elemes korlátot`;
       }
     } catch (bulkError) {
+      const detail = safeErrorDetail(bulkError);
+      bulkSeriesFallbackReason = detail;
       console.warn('Sorozatok egyben nem sikerült, visszaesés kategóriákra:', bulkError);
       decodedSeries.length = 0;
       seriesCounts.clear();
@@ -1028,7 +1115,15 @@ export async function importXtreamProvider(
       seriesProcessed = 0;
     }
 
+    if (!bulkSeriesUsed && bulkSeriesFallbackReason) {
+      warnings.push(`A sorozatok bulk-letöltése nem használható (${bulkSeriesFallbackReason}); kategória-fallback indul.`);
+      logPhase(`Sorozatok bulk hiba; ok=${bulkSeriesFallbackReason}`);
+    }
+
     if (!bulkSeriesUsed) {
+      if (seriesCategories.length === 0) {
+        warnings.push('A sorozatok kategória-fallbackje nem indítható, mert a szolgáltató nem adott használható kategórialistát; tényleges sorozat-darabszám=0.');
+      }
       const seriesResult = await loadCategoryFiltered(
         seriesCategories,
         (categoryId) => xtreamService.seriesList(server, user, pass, categoryId),
@@ -1104,10 +1199,10 @@ export async function importXtreamProvider(
     await onPartial({ preview: true, series, seriesCategories: seriesCats, totals: { series: series.length } });
   } catch (error) {
     if (isNetworkRequestCancelled(error)) throw error;
+    const detail = safeErrorDetail(error);
     console.warn('A sorozatok letöltése nem sikerült:', error);
-    warnings.push(
-      `A sorozatok listája nem töltődött le: ${error instanceof Error ? error.message : String(error)}`
-    );
+    warnings.push(`A sorozatok listája nem töltődött le: ${detail}`);
+    logPhase(`Sorozatok import hiba; ok=${detail.slice(0, 240)}`);
   }
   };
 
@@ -1132,9 +1227,15 @@ export async function importXtreamProvider(
     const detailed = await enrichFirstVodMetadata(movies, series, server, user, pass);
     movies = detailed.movies;
     series = detailed.series;
+    if (detailed.failed > 0) {
+      const detail = `${detailed.failed}/${detailed.requested} részletes VOD-kérés nem sikerült; alapadatokkal folytatjuk.`;
+      warnings.push(detail);
+      logPhase(`VOD részletes metaadat hiba; ok=${detail}`);
+    }
     onProgress({
       phase: 'VOD metaadatok feldolgozása…',
-      detail: `${detailed.requested} részletes kérés (legfeljebb ${MAX_DETAILED_VOD})`,
+      detail: `${detailed.requested} részletes kérés (legfeljebb ${MAX_DETAILED_VOD})` +
+        (detailed.failed > 0 ? ` • ${detailed.failed} hiba, alapadatok megmaradtak` : ''),
       percent: 98,
     });
     // A preview callback-ek nem kapnak részletes metaadatot: így nincs újabb
@@ -1150,6 +1251,11 @@ export async function importXtreamProvider(
    */
   const authResult = await authPromise;
   const auth = authResult.ok ? authResult.value : null;
+  if (!authResult.ok) {
+    const safeDetail = safeErrorDetail(authResult.error);
+    warnings.push(`A bejelentkezési próba nem sikerült (${safeDetail}); a tartalomlisták ettől még megmaradtak.`);
+    logPhase(`Bejelentkezési probe hiba; ok=${safeDetail}`);
+  }
   const info = auth?.user_info;
   const expTimestamp = info?.exp_date ? parseInt(String(info.exp_date), 10) : 0;
   const expireDate = expTimestamp > 0

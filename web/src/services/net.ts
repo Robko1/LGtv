@@ -315,7 +315,7 @@ function redactDiagnosticUrl(url: string, depth = 0): string {
     }
     const pathParts = parsed.pathname.split('/');
     for (let i = 0; i < pathParts.length; i += 1) {
-      if (/^(live|movie|series)$/i.test(pathParts[i]) && pathParts[i + 1] && pathParts[i + 2]) {
+      if (/^(live|movie|series|subtitle)$/i.test(pathParts[i]) && pathParts[i + 1] && pathParts[i + 2]) {
         pathParts[i + 1] = '[redacted]';
         pathParts[i + 2] = '[redacted]';
       }
@@ -329,7 +329,7 @@ function redactDiagnosticUrl(url: string, depth = 0): string {
     }
     return parsed.toString();
   } catch {
-    return url.replace(/([?&](?:username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)=)[^&]*/gi, '$1[redacted]').replace(/\/(live|movie|series)\/[^/]+\/[^/]+/gi, '/$1/[redacted]/[redacted]');
+    return url.replace(/([?&](?:username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)=)[^&]*/gi, '$1[redacted]').replace(/\/(live|movie|series|subtitle)\/[^/]+\/[^/]+/gi, '/$1/[redacted]/[redacted]');
   }
 }
 
