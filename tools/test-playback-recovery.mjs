@@ -163,9 +163,9 @@ check(detector.observe({ ...stalled, at: 9000 }, 9000) === false,
 /* ── 3. Újracsatlakozási politika ────────────────────────────────────── */
 const TS = 'http://panel.example/live/u/p/1.ts';
 const HLS = 'http://panel.example/live/u/p/1.m3u8';
-check([0, 1, 2, 3, 4].map((n) => liveRecoveryUrl(n, TS, HLS)).join('|')
-  === [TS, TS, HLS, TS, HLS].join('|'),
-  'az első két próba az EREDETI cím, utána felváltva a másik formátum');
+check([0, 1, 2, 3, 4, 5].map((n) => liveRecoveryUrl(n, TS, HLS)).join('|')
+  === [TS, TS, HLS, TS, TS, HLS].join('|'),
+  'az első két próba az EREDETI cím, utána ritkábban a másik formátum (egy fallback után két eredeti próba)');
 check(liveRecoveryUrl(8, TS, null) === TS,
   'tartalék cím nélkül nem próbálunk nem létező URL-t');
 const liveDelays = [0, 1, 2, 3, 4, 10].map((n) => liveRecoveryDelayMs(n, 50));
@@ -258,6 +258,14 @@ check(/logLiveMediaEvent\('waiting'/.test(PLAYER)
   'a kézi élő napló a médiahibát, idővonalat, seeket és puffert is rögzíti');
 check(/isVerbosePlaybackLogging\(\)/.test(PLAYER) && /isVerbosePlaybackLogging\(\)/.test(APPLOG),
   'a részletes diagnosztika csak a hibakeresési ablakban fut');
+check(/runtimeDiagnosticCacheRef/.test(PLAYER)
+  && /now - cached\.at < 5000/.test(PLAYER)
+  && /erőforrás-pillanatkép=gyorsítótár/.test(PLAYER),
+  'a kézi erőforrás-mérés localStorage-bejárása legfeljebb ötmásodpercenként fut');
+check(/const isRecoveryAttempt = Boolean/.test(PLAYER)
+  && /ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START/.test(PLAYER)
+  && /CSATORNAVÁLTÁS START/.test(PLAYER),
+  'a recovery-próbák külön naplósort kapnak, nem zajosítják a kézi csatornaváltási START mérőszámot');
 check(/startRuntimeWatchdog\(\)/.test(APPLOG)
   && !/startRuntimeWatchdog\(\);/.test(fs.readFileSync(path.resolve('web/src/main.tsx'), 'utf8'))
   && /stopRuntimeWatchdog\(\)/.test(APPLOG),

@@ -653,6 +653,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     timelineEvents: number;
     summaryLogged: boolean;
   } | null>(null);
+  /**
+   * A kézi diagnosztika erőforrás-pillanatképe szándékosan nem készül el
+   * minden gyors médiaeseménynél. A #15 naplóban egyetlen zappolás alatt is
+   * több, nagy localStorage-bejárást láttunk; ez maga is felesleges főszál-
+   * terhelést okozhat a TV-n. A részletes mérés ritkítható, a médiaesemények
+   * ettől változatlanul bekerülnek a naplóba.
+   */
+  const runtimeDiagnosticCacheRef = useRef<{ at: number; text: string } | null>(null);
   const videoDiagnosticState = (video: HTMLVideoElement, reason: string): string => {
     /*
      * GYORS CSATORNAVÁLTÁS: a részletes mérés (doboZ-geometria, canPlayType,
@@ -702,9 +710,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /** Kis terhelésű pillanatkép csatornaváltáskor. A webOS nem teszi hozzáférhetővé
    * a teljes TV-RAM/CPU és más folyamatok adatait; csak a böngésző mérőszámait írjuk ki. */
   const runtimeDiagnosticState = (): string => {
-    // A teljes localStorage átolvasása (akár 2 MB csatorna-/film-adag)
-    // csatornaváltásonként blokkolta a fő szálat. Csak méréskor kell.
-    if (!isVerbosePlaybackLogging()) return 'részletes erőforrás-mérés csak a kézi naplózás indítása után fut';
+    // A teljes localStorage átolvasása (akár több MB csatorna-/film-adag)
+    // csatornaváltásonként blokkolhatja a fő szálat. Csak méréskor kell, és a
+    // kézi mérésben is legfeljebb ötmásodpercenként frissítjük.
+    if (!isVerbosePlaybackLogging()) {
+      runtimeDiagnosticCacheRef.current = null;
+      return 'részletes erőforrás-mérés csak a kézi naplózás indítása után fut';
+    }
+    const now = Date.now();
+    const cached = runtimeDiagnosticCacheRef.current;
+    if (cached && now >= cached.at && now - cached.at < 5000) {
+      return `${cached.text}; erőforrás-pillanatkép=gyorsítótár (${now - cached.at} ms)`;
+    }
     const parts: string[] = [];
     try {
       const perf = performance as Performance & { memory?: { usedJSHeapSize?: number; totalJSHeapSize?: number; jsHeapSizeLimit?: number } };
@@ -727,7 +744,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       parts.push('localStorage-kulcsok=' + keys + '; becsült-tartalom=' + Math.round(chars * 2 / 1024) + 'KB');
     } catch { parts.push('localStorage-méret=nem olvasható'); }
     parts.push('láthatóság=' + (document.hidden ? 'háttérben/rejtett' : 'előtérben') + '; teljes-TV-RAM/CPU/háttérfolyamatok=webOS API-ból nem elérhetők');
-    return parts.join('; ');
+    const snapshot = parts.join('; ');
+    runtimeDiagnosticCacheRef.current = { at: now, text: snapshot };
+    return snapshot;
   };
   const audioDiagnosticState = (video: HTMLVideoElement): string => {
     const exposedList = (video as HTMLVideoElement & { audioTracks?: ArrayLike<any> }).audioTracks;
@@ -3186,6 +3205,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const channelName = String(channel?.name || 'Ismeretlen csatorna');
         const channelId = String(channel?.id ?? channelName);
         const previousDiagnostic = channelSwitchDiagnosticRef.current;
+        const sequence = liveRetrySequenceRef.current;
+        // A recovery/fallback ugyanahhoz a nézői csatornaváltáshoz tartozik.
+        // Ne jelenjen meg minden automatikus src-újratöltés új „START”-ként:
+        // a #15-ben ez 64 indítási sort és felesleges logzajt adott, miközben
+        // a néző ennél jóval kevesebb csatornaváltást kért.
+        const isRecoveryAttempt = Boolean(
+          !isVodRef.current && (forceReload || liveRecoveryOnlyRef.current || sequence.index > 0)
+        );
         const isSameSwitch = Boolean(
           previousDiagnostic &&
           previousDiagnostic.channelId === channelId &&
@@ -3215,9 +3242,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         channelSwitchDiagnosticRef.current = diagnostic;
         const channelMemory = rememberedFormatFor(channel?.id);
         const timing = bufferTiming();
-        appLog(`CSATORNAVÁLTÁS START; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
+        const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
+        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
         if (isVerbosePlaybackLogging()) {
-          appLog(`CSATORNAVÁLTÁS PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
+          appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
           appLog(`ERŐFORRÁS-DIAG PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
         }
       }

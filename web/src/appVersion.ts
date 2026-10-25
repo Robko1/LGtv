@@ -1,10 +1,19 @@
-export const WEB_VERSION = '2.5.97';
+export const WEB_VERSION = '2.5.98';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.98',
+    date: '2026-10-25',
+    changes: [
+      'ÉLŐ ÚJRACSATLAKOZÁS NAPLÓJA: az automatikus TS/HLS fallback és az ugyanazon URL-es recovery többé nem jelenik meg új CSATORNAVÁLTÁS START-ként; a kézi csatornaváltások és a recovery-próbák külön, áttekinthető sorokban látszanak',
+      'TV-TERHELÉS: a kézi erőforrás-diagnosztika legfeljebb öt másodpercenként olvassa végig a localStorage-t; a médiaesemények és hibák részletes rögzítése változatlan',
+      'RECOVERY: a késői helyreállítás, a véges live idővonal és a formátum-visszaesés működése megmaradt, miközben az ismételt indítási zaj és a diagnosztikai főszál-terhelés csökken',
+    ],
+  },
   {
     version: '2.5.97',
     date: '2026-10-25',
