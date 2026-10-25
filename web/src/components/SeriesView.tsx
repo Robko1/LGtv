@@ -8,6 +8,10 @@ interface SeriesViewProps {
   series: Series[];
   categories?: Category[];
   totalCount?: number;
+  /** A háttér-cache betöltési állapota; hiba esetén az élő TV nem esik ki. */
+  loadingCache?: boolean;
+  loadError?: string | null;
+  onRetryCache?: () => void;
   loadingSeriesId?: string;
   onOpenSeries?: (series: Series) => void;
   onPlayEpisode: (series: Series, episode: Episode) => void;
@@ -26,6 +30,9 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   series,
   categories: providerCategories,
   totalCount,
+  loadingCache = false,
+  loadError = null,
+  onRetryCache,
   loadingSeriesId,
   onOpenSeries,
   onPlayEpisode,
@@ -219,6 +226,13 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
         )}
       </div>
 
+      {loadError && (
+        <div role="alert" className="mx-3 mt-3 flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-xs text-amber-100">
+          <span>A sorozatlista részben vagy egészben nem tölthető be. Az élő TV és a filmek használhatók; a részletes ok a kézi diagnosztikai naplóban látszik.</span>
+          {onRetryCache && <button type="button" onClick={onRetryCache} className="shrink-0 rounded-lg bg-cyan-400 px-3 py-2 font-black text-slate-950">Újrapróbálás</button>}
+        </div>
+      )}
+
       {/* Függőleges sorozatposzter-rács, adagonként bővülő listával. */}
       <div ref={seriesGridRef} data-tv-navigation-owner="posters" data-scroll-keep="" onScroll={(e) => {
         const el = e.currentTarget;
@@ -237,7 +251,13 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
         {filteredSeries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
             <Filter className="w-10 h-10 text-slate-600 mb-2" />
-            {series.length === 0 ? (
+            {loadError ? (
+              <>
+                <p className="text-sm font-semibold text-amber-300">A sorozatok cache-e nem tölthető be.</p>
+                <p className="text-xs mt-1 max-w-xl leading-relaxed text-slate-400">Az élő TV és a filmek használhatók maradtak. A kézi diagnosztikai napló rögzíti a részletes okot.</p>
+                {onRetryCache && <button type="button" onClick={onRetryCache} className="mt-3 rounded-xl bg-cyan-400 px-4 py-2 text-xs font-black text-slate-950">Sorozatok újrapróbálása</button>}
+              </>
+            ) : loadingCache || series.length === 0 ? (
               <><p className="text-sm font-semibold">A sorozatok betöltése folyamatban van…</p><p className="text-xs mt-1 max-w-xs leading-relaxed">A mentett sorozatlista megjelenik, amint a betöltés befejeződik.</p></>
             ) : <p className="text-sm font-semibold">Ebben a kategóriában nincs sorozat.</p>}
           </div>

@@ -821,53 +821,68 @@ export interface LoadedLive {
   savedAt: string;
   provider: ProviderRef | null;
   totals: { live: number; vod: number; series: number };
+  /** Igaz, ha csak az első adag készült el; a többi háttérben olvasható. */
+  partial?: boolean;
 }
 
-export function loadLive(): LoadedLive {
-  const empty: LoadedLive = {
+function emptyLoadedLive(): LoadedLive {
+  return {
     channels: [],
     categories: [],
     savedAt: '',
     provider: null,
     totals: { live: 0, vod: 0, series: 0 },
   };
+}
+
+function readLiveMeta(): LiveChunkMeta | null {
   const metaRaw = backend.get(LIVE_META_KEY);
-  if (metaRaw) {
-    try {
-      const meta = JSON.parse(metaRaw) as LiveChunkMeta;
-      if (meta.provider && Number.isFinite(meta.chunks) && meta.chunks >= 0) {
-        const channels: Channel[] = [];
-        let missing = 0;
-        for (let index = 0; index < meta.chunks; index++) {
-          const rawChunk = backend.get(meta.chunkPrefix + index);
-          if (!rawChunk) { missing++; continue; }
-          try {
-            const parsedChunk = JSON.parse(rawChunk) as { rows?: Row[] };
-            if (Array.isArray(parsedChunk.rows)) channels.push(...decodeChannels(parsedChunk.rows, meta.provider));
-            else missing++;
-          } catch {
-            missing++;
-          }
-        }
-        if (missing) appLog('Élő csatornalista: ' + missing + '/' + meta.chunks + ' adag hiányzik a cache-ből.');
-        if (channels.length || meta.chunks === 0) {
-          return {
-            channels,
-            categories: decodeCategories(meta.cats, 'live'),
-            savedAt: meta.savedAt || '',
-            provider: meta.provider,
-            totals: meta.totals || { live: channels.length, vod: 0, series: 0 },
-          };
-        }
-      }
-    } catch (error) {
-      appLogError('Élő lista adagolt fejlécének feldolgozása', error);
+  if (!metaRaw) return null;
+  try {
+    const meta = JSON.parse(metaRaw) as LiveChunkMeta;
+    return meta.provider && Number.isFinite(meta.chunks) && meta.chunks >= 0 ? meta : null;
+  } catch (error) {
+    appLogError('Élő lista adagolt fejlécének feldolgozása', error);
+    return null;
+  }
+}
+
+function decodeLiveChunk(meta: LiveChunkMeta, index: number): Channel[] {
+  const rawChunk = backend.get(meta.chunkPrefix + index);
+  if (!rawChunk) return [];
+  try {
+    const parsedChunk = JSON.parse(rawChunk) as { rows?: Row[] };
+    return Array.isArray(parsedChunk.rows) ? decodeChannels(parsedChunk.rows, meta.provider) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function loadLive(): LoadedLive {
+  const meta = readLiveMeta();
+  if (meta) {
+    const channels: Channel[] = [];
+    let missing = 0;
+    for (let index = 0; index < meta.chunks; index++) {
+      const chunk = decodeLiveChunk(meta, index);
+      if (chunk.length === 0) missing++;
+      channels.push(...chunk);
+    }
+    if (missing) appLog('Élő csatornalista: ' + missing + '/' + meta.chunks + ' adag hiányzik a cache-ből.');
+    if (channels.length || meta.chunks === 0) {
+      return {
+        channels,
+        categories: decodeCategories(meta.cats, 'live'),
+        savedAt: meta.savedAt || '',
+        provider: meta.provider,
+        totals: meta.totals || { live: channels.length, vod: 0, series: 0 },
+      };
     }
   }
 
   // Kompatibilitás a korábbi, egyetlen kulcsba mentett cache-sel.
   const raw = backend.get(LIVE_KEY);
-  if (!raw) return empty;
+  if (!raw) return emptyLoadedLive();
   try {
     const parsed = JSON.parse(raw) as LivePart;
     return {
@@ -879,8 +894,53 @@ export function loadLive(): LoadedLive {
     };
   } catch (error) {
     appLogError('Élő lista betöltése', error);
-    return empty;
+    return emptyLoadedLive();
   }
+}
+
+/**
+ * Gyors indulási olvasó: csak az első élő-adagot dekódolja. A metaadat és az
+ * első (mentéskor Magyarországgal kezdődő) csatornák azonnal elégségesek a
+ * főképernyőhöz; a többi adag a React mount után, aszinkron töltődik be.
+ */
+export function loadLivePreview(): LoadedLive {
+  const meta = readLiveMeta();
+  if (meta) {
+    const channels = meta.chunks > 0 ? decodeLiveChunk(meta, 0) : [];
+    return {
+      channels,
+      categories: decodeCategories(meta.cats, 'live'),
+      savedAt: meta.savedAt || '',
+      provider: meta.provider,
+      totals: meta.totals || { live: channels.length, vod: 0, series: 0 },
+      partial: meta.chunks > 1,
+    };
+  }
+  return loadLive();
+}
+
+/** A nagy élő cache többi adagja a már látható felület mögött töltődik be. */
+export async function loadLiveAsync(): Promise<LoadedLive> {
+  const meta = readLiveMeta();
+  if (!meta || meta.chunks <= 1) return loadLive();
+
+  const channels: Channel[] = [];
+  let missing = 0;
+  for (let index = 0; index < meta.chunks; index++) {
+    const chunk = decodeLiveChunk(meta, index);
+    if (chunk.length === 0) missing++;
+    channels.push(...chunk);
+    if (index % 2 === 1) await yieldToStorage();
+  }
+  if (missing) appLog(`Élő csatornalista: ${missing}/${meta.chunks} adag hiányzik a háttérbetöltésből.`);
+  return {
+    channels,
+    categories: decodeCategories(meta.cats, 'live'),
+    savedAt: meta.savedAt || '',
+    provider: meta.provider,
+    totals: meta.totals || { live: channels.length, vod: 0, series: 0 },
+    partial: missing > 0,
+  };
 }
 
 /* -------------------------------------------------- régi (egy kulcsos) tár */
@@ -999,7 +1059,8 @@ export function loadSeries(provider: ProviderRef): { series: Series[]; categorie
 /** Sorozatok betöltése adagonként, a felületnek visszaadott vezérléssel. */
 export async function loadSeriesAsync(
   provider: ProviderRef,
-  onProgress?: (loaded: number, total: number) => void
+  onProgress?: (loaded: number, total: number) => void,
+  onChunk?: (chunk: Series[], loaded: number) => void,
 ): Promise<{ series: Series[]; categories: Category[] }> {
   const meta = openChunked(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
   if (!meta) {
@@ -1013,10 +1074,14 @@ export async function loadSeriesAsync(
   for (let index = 0; index < meta.chunks; index++) {
     const rows = meta.readChunk(index);
     if (rows.length === 0) missing++;
-    for (const item of decodeSeries(rows, provider, offset)) series.push(item);
+    const chunk = decodeSeries(rows, provider, offset);
+    for (const item of chunk) series.push(item);
     offset += rows.length;
     onProgress?.(offset, meta.chunks * CHUNK_SIZE);
-    if (index % 4 === 3) await yieldToStorage();
+    // A sorozatnézet nem egyetlen óriási React-frissítést kap: a már
+    // dekódolt adag rögtön publikálható, majd a TV kap egy eseményhurok-kört.
+    onChunk?.(chunk, series.length);
+    await yieldToStorage();
   }
   const categories = readChunkedCategories(SERIES_META_KEY, 'series');
   appLog(`Sorozatlista betöltve: ${series.length} sorozat, ${meta.chunks} adag`

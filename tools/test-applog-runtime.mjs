@@ -110,6 +110,9 @@ while (rootEl && rootEl.childElementCount === 0 && Date.now() < mountDeadline) {
 }
 check(Boolean(rootEl && rootEl.childElementCount > 0),
   'a React felület felépül a naplózás mellett is (nem fekete képernyő)');
+const startupMarks = diag.startup?.() || [];
+check(Array.isArray(startupMarks) && startupMarks.length > 0,
+  'a kézi diagnosztika előtt is elérhető az indulási fázisok memóriabeli mérési képe');
 
 /* A normál indulási napló most szándékosan üres: csak kézi indítás után
    rögzítünk. A SÁRGA ablak „Naplózás indítása” gombját a hídon modellezzük. */

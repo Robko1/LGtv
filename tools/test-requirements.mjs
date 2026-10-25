@@ -31,6 +31,8 @@ const APP = read('web/src/App.tsx');
 const LIST = read('web/src/components/ChannelList.tsx');
 const PLAYER = read('web/src/components/VideoPlayer.tsx');
 const IMPORT = read('web/src/services/providerImport.ts');
+const CONTENT_BOUNDARY = read('web/src/components/ContentErrorBoundary.tsx');
+const ADD_PLAYLIST = read('web/src/components/AddPlaylistModal.tsx');
 
 /* ─────────────────────────── 1. Indítókép ────────────────────────── */
 
@@ -111,11 +113,13 @@ test('1. a takarékép-réteg eltűnik a megjelenéskor, és nincs beúszás (ni
   }
 });
 
-test('1. nincs "2 másodperc után elég a fejléc" korai megjelenés (ez okozta a fokozatos felépülést)', () => {
+test('1. az induló takarókép nem várja meg a VOD-cache-t, a logókat vagy az első videókockát', () => {
   assert.doesNotMatch(MAIN, /elapsed > 2000/, 'a korai megjelenés nem létezhet');
-  assert.match(MAIN, /const chromeReady = \(\) =>/, 'a fejléc ÉS a mappasáv kell a megjelenéshez');
-  assert.match(MAIN, /const logosSettled = \(\) =>/, 'a logók betöltésére is várunk');
-  assert.match(MAIN, /const videoSettled = \(\) =>/, 'az első képkockára is várunk (nincs fekete TV-terület)');
+  assert.match(MAIN, /const chromeReady = \(\) =>/, 'a fejléc és a mappasáv kell a megjelenéshez');
+  assert.match(MAIN, /const listReady = \(\) =>[\s\S]{0,260}?role="option"/, 'legalább egy csatornasor elég a program megjelenítéséhez');
+  assert.doesNotMatch(MAIN, /const logosSettled = \(\) =>/, 'a logók nem indulási kapuk');
+  assert.doesNotMatch(MAIN, /const videoSettled = \(\) =>/, 'az első videókocka nem indulási kapu');
+  assert.match(MAIN, /film-cache és a sorozat-cache nem[\s\S]{0,100}indulási kapu/, 'a háttér-cache nem tarthatja takaróképen a programot');
 });
 
 test('1. a lejátszó jelzi az első képkockát, és addig nem fekete a TV-terület', () => {
@@ -288,8 +292,26 @@ test('7. a csatornák a filmek előtt, önállóan kerülnek a felületre', () =
   const vodIndex = IMPORT.indexOf('/* ---- 2. szakasz: filmek');
   assert.ok(partialIndex > 0 && vodIndex > 0);
   assert.ok(partialIndex < vodIndex, 'a csatornák azonnal publikálódnak, a filmek utána jönnek');
+  assert.match(APP, /const bootLive = loadLivePreview\(\);/);
+  assert.match(APP, /void loadLiveAsync\(\)/);
   // A film- és sorozatlista egymástól függetlenül töltődik (nem Promise.all mindenre).
   assert.doesNotMatch(IMPORT, /await Promise\.all\(\[[^\]]*importXtreamProvider/);
+});
+
+test('7. a sorozat-cache csak a Sorozatok nézet megnyitásakor indul, és a VOD-hiba nem ejti ki az appot', () => {
+  const movieLoader = APP.indexOf('const ensureVodLoaded = useCallback');
+  const seriesLoader = APP.indexOf('const ensureSeriesLoaded = useCallback');
+  const movieLoad = APP.indexOf('const vod = await loadVodAsync(provider);', movieLoader);
+  const seriesLoad = APP.indexOf('const ser = await loadSeriesAsync(provider, undefined, (chunk)', seriesLoader);
+  assert.ok(movieLoader > 0 && seriesLoader > movieLoader && movieLoad > movieLoader && seriesLoad > seriesLoader);
+  assert.match(APP, /seriesLoadStartedRef = useRef\(false\)/);
+  assert.match(APP, /A sorozat-cache csak a tényleges Sorozatok nézet megnyitásakor indul/);
+  assert.match(APP, /window\.setTimeout\(ensureSeriesLoaded, 0\)/);
+  assert.match(APP, /loadSeriesAsync\(provider, undefined, \(chunk\)/);
+  assert.match(APP, /setSeries\(\(current\) => \[\.\.\.current, \.\.\.chunk\]\)/);
+  assert.doesNotMatch(APP, /Promise\.all\(\[vodTask, seriesTask\]/);
+  assert.match(APP, /<ContentErrorBoundary label="sorozat"/);
+  assert.match(CONTENT_BOUNDARY, /static getDerivedStateFromError/);
 });
 
 /*
@@ -1209,6 +1231,11 @@ test('15. a kézi naplóablak két gombja távirányítóval kezelhető', () => 
   assert.match(DIAG_MODAL, /Naplózás indítása/);
   assert.match(DIAG_MODAL, /Küldés Supabase-re/);
   assert.match(DIAG_MODAL, /listDiagnosticLogHistory/);
+  assert.match(APP, /data-refresh-live-primary/);
+  assert.match(APP, /focusLiveChoice/);
+  assert.match(APP, /TV-csatornák nézése/);
+  assert.match(ADD_PLAYLIST, /data-live-loaded-primary/);
+  assert.match(ADD_PLAYLIST, /document\.querySelector<HTMLElement>\('\[data-live-loaded-primary\]'\)/);
 });
 
 test('15. a kézi napló 1 MB-os, sorszámozott exportot készít', () => {
