@@ -76,6 +76,7 @@ const mod = await import(pathToFileURL(outFile).href);
 const {
   StallDetector, mediaProgressed, readMediaProgress,
   bufferProfileTiming, bufferedAheadSeconds, liveRecoveryUrl, liveRecoveryDelayMs, vodRecoveryDelayMs, isPrematureVodEnd,
+  isUnexpectedLiveEnd,
 } = mod;
 
 /* ── 1. Mintavétel: a webOS nem minden API-t adja ki ─────────────────── */
@@ -111,6 +112,19 @@ check(mediaProgressed(emptySample, { ...emptySample, time: 1.5, at: 3000 }),
   'VOD-nál az idővonal haladása haladás');
 check(!mediaProgressed(frameSample, { ...frameSample, at: 3000 }),
   'azonos minták (= semmi sem halad) megakadásnak számítanak');
+check(!mediaProgressed(
+  { at: 0, time: 12, frames: null, bufferedEnd: 20, readyState: 4 },
+  { at: 1000, time: 12, frames: null, bufferedEnd: 35, readyState: 4 },
+), 'már futó idővonalnál a puffer növekedése nem rejti el a dekóder fagyását');
+check(!mediaProgressed(
+  { at: 0, time: 0, frames: null, bufferedEnd: 3, readyState: 3 },
+  { at: 1000, time: 0, frames: null, bufferedEnd: 7, readyState: 3 },
+), 'futó watchdognál a 0 idővonal puffer-növekedése nem hamisít haladást');
+check(mediaProgressed(
+  { at: 0, time: 0, frames: null, bufferedEnd: 3, readyState: 3 },
+  { at: 1000, time: 0, frames: null, bufferedEnd: 7, readyState: 3 },
+  true,
+), 'külön indulási mintavételnél a puffer feltöltése még haladási jel lehet');
 check(mediaProgressed({ ...frameSample, time: 500 }, { ...frameSample, time: 100, at: 3000 }),
   'visszafelé tekerés (= keresés) nem számít megakadásnak');
 
@@ -166,10 +180,24 @@ check(isPrematureVodEnd(100, 3600), 'a film közben érkező ended = kapcsolat-s
 check(!isPrematureVodEnd(3599, 3600), 'a film VÉGÉN érkező ended = valódi befejezés');
 check(!isPrematureVodEnd(100, NaN), 'ismeretlen hossznál nem találgatunk (nincs hamis visszaállítás)');
 check(!isPrematureVodEnd(100, 0), '0 hosszú streamnél nincs korai vég');
+check(isUnexpectedLiveEnd({
+  ended: true, paused: true, desiredPlaying: true, playbackStarted: true,
+  currentTime: 85.778, duration: 85.778,
+}), 'a futó live adás véges ended/durationchange állapota recoveryt kér');
+check(!isUnexpectedLiveEnd({
+  ended: true, paused: true, desiredPlaying: false, playbackStarted: true,
+  currentTime: 85.778, duration: 85.778,
+}), 'a felhasználói pause nem indul újra ended esemény miatt');
+check(!isUnexpectedLiveEnd({
+  ended: true, paused: true, desiredPlaying: true, playbackStarted: false,
+  currentTime: 0, duration: 0,
+}), 'a sikertelen indulási próbát az indulási watchdog kezeli, nem a live ended recovery');
 
 /* ── 5. A lejátszó TÉNYLEGESEN használja az új logikát ──────────────── */
 const PLAYER = fs.readFileSync(path.resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
 const APPLOG = fs.readFileSync(path.resolve('web/src/services/appLog.ts'), 'utf8');
+const APP = fs.readFileSync(path.resolve('web/src/App.tsx'), 'utf8');
+const CHANNEL_LIST = fs.readFileSync(path.resolve('web/src/components/ChannelList.tsx'), 'utf8');
 check(/new StallDetector\(isVod \? 7000 : bufferTiming\(\)\.stallDetectorMs\)/.test(PLAYER),
   'a lejátszó egységes, profilfüggő képkocka-alapú figyelőt használ élőre és VOD-ra');
 check(/puffer-előre=/.test(PLAYER)
@@ -196,6 +224,19 @@ check(/hasStartupData/.test(PLAYER)
 check(/vodRecoveryRef\.current\('korai ended esemény'\)/.test(PLAYER)
   && /isPrematureVodEnd\(position, duration\)/.test(PLAYER),
   'a VOD korai ended eseménye visszaállítást indít, nem következő részt');
+check(/isUnexpectedLiveEnd\(endState\)/.test(PLAYER)
+  && /requestRecoveryRef\.current\(`élő adás vége/.test(PLAYER)
+  && /requestRecoveryRef\.current\(`élő véges idővonal/.test(PLAYER)
+  && /isUnexpectedLiveEnd\(pausedEndState\)/.test(PLAYER),
+  'a live ended, pause/ended és a tartósan véges durationchange ugyanazon csatornán recoveryt indít');
+const audioTrackEffect = PLAYER.slice(PLAYER.indexOf('const refreshHtmlAudioTracks'), PLAYER.indexOf('const refreshHtmlAudioTracks') + 5000);
+check(/addEventListener\('durationchange'/.test(audioTrackEffect)
+  && /setTimeout\(refreshHtmlAudioTracks/.test(audioTrackEffect)
+  && !/setInterval\(refreshHtmlAudioTracks/.test(audioTrackEffect),
+  'a hangsáv-lista nem fut állandó 1 mp-es pollinggal, csak események és indulási ellenőrzések dolgoznak');
+check(/liveDurationRecoveryTimerRef/.test(PLAYER)
+  && /generation !== streamLoadGenerationRef\.current/.test(PLAYER),
+  'a késői live duration recovery időzítője csatornagenerációval védett');
 check(/name === 'AbortError'/.test(PLAYER),
   'a gyors forrásváltás AbortError-ja NEM számít lejátszási hibának');
 check(/switchInProgressRef\.current\) return;/.test(PLAYER),
@@ -208,13 +249,26 @@ check(/data-playback-status/.test(PLAYER)
   && /bottom-3 left-3/.test(PLAYER),
   'fullscreenben a kis pörgő jelző az óra alatt jobb felül, normál nézetben bal alul marad');
 check(/logLiveMediaEvent\('waiting'/.test(PLAYER)
+  && /logLiveMediaEvent\('stalled'/.test(PLAYER)
   && /logLiveMediaEvent\('error'/.test(PLAYER)
+  && /requestRecoveryRef\.current\('pufferelés elakadt'\)/.test(PLAYER)
   && /logLiveTimeline\(video\)/.test(PLAYER)
   && /seekable=/.test(PLAYER)
   && /buffered=/.test(PLAYER),
   'a kézi élő napló a médiahibát, idővonalat, seeket és puffert is rögzíti');
 check(/isVerbosePlaybackLogging\(\)/.test(PLAYER) && /isVerbosePlaybackLogging\(\)/.test(APPLOG),
   'a részletes diagnosztika csak a hibakeresési ablakban fut');
+check(/startRuntimeWatchdog\(\)/.test(APPLOG)
+  && !/startRuntimeWatchdog\(\);/.test(fs.readFileSync(path.resolve('web/src/main.tsx'), 'utf8'))
+  && /stopRuntimeWatchdog\(\)/.test(APPLOG),
+  'a runtime watchdog csak kézi naplózáskor indul és leállításkor felszabadul');
+check(/PERSIST_DELAY_MS = 5000/.test(APPLOG)
+  && /trim\(\);/.test(APPLOG),
+  'a diagnosztikai napló összevontan ment és nem soronként végzi a lejárat-ellenőrzést');
+check(/activeView !== 'live' \|\| customStreamUrl/.test(APP)
+  && /isActive=\{activeView === 'live'/.test(APP)
+  && /!isActive \|\| !epgReady/.test(CHANNEL_LIST),
+  'a rejtett filmnézetben az EPG-előtöltés és az óra nem fut háttérben');
 check(/dublinFormatter\(\)\.formatToParts\(date\)/.test(APPLOG),
   'az időbélyeg-formázó gyorsítótárazott (nincs új Intl példány soronként)');
 check(/MIN_FORCE_INTERVAL_MS/.test(APPLOG),
