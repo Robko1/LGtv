@@ -25,10 +25,93 @@ export interface MediaProgressSample {
   readyState: number;
 }
 
+export type BufferMode = 'fast' | 'balanced' | 'stable';
+
+/**
+ * Élő HTML5 lejátszóhoz tartozó profilpolitika.
+ *
+ * A webOS HTMLVideoElement nem ad szabványos „target buffer” beállítást.
+ * Ezért a profilok a csatornaváltás indulási őrét, a lejátszás közbeni
+ * puffer-őr türelmét és a recovery visszalépését hangolják. A külön
+ * `bufferWatchdogMs` szándékosan nagyobb a `startupWatchdogMs` értékénél:
+ * egy már futó adás rövid HLS/TS szegmens-szünete nem indíthat felesleges
+ * forráscserét, miközben a csatornaváltás továbbra is gyors marad.
+ */
+export interface BufferProfileTiming {
+  /** Sikertelen első indítás után ennyi idő múlva jöhet a formátum-fallback. */
+  startupWatchdogMs: number;
+  /** `waiting`/`stalled` után ennyi ideig várunk, mielőtt újratöltünk. */
+  bufferWatchdogMs: number;
+  /** A képkocka/idővonal alapú őr profilfüggő küszöbe. */
+  stallDetectorMs: number;
+  /** Recovery és VOD-újrapróba kezdeti visszalépése. */
+  retryMs: number;
+  /** Ekkora lejátszás előtti tartalékot még nem tekintünk üres puffernek. */
+  minBufferAheadSeconds: number;
+}
+
+export function bufferProfileTiming(mode: BufferMode = 'balanced'): BufferProfileTiming {
+  if (mode === 'fast') {
+    return {
+      startupWatchdogMs: 1200,
+      bufferWatchdogMs: 3500,
+      stallDetectorMs: 3500,
+      retryMs: 250,
+      minBufferAheadSeconds: 1.5,
+    };
+  }
+  if (mode === 'stable') {
+    // A stabil profil indulási és recovery-értékei kompatibilisek a már
+    // bevált 2.5.93 viselkedéssel; csak a mérést tesszük pontosabbá.
+    return {
+      startupWatchdogMs: 2999,
+      bufferWatchdogMs: 2999,
+      stallDetectorMs: 4000,
+      retryMs: 80,
+      minBufferAheadSeconds: 5,
+    };
+  }
+  return {
+    startupWatchdogMs: 2000,
+    bufferWatchdogMs: 4500,
+    stallDetectorMs: 5000,
+    retryMs: 400,
+    minBufferAheadSeconds: 3,
+  };
+}
+
 type ProgressVideo = Pick<HTMLVideoElement, 'currentTime' | 'readyState' | 'buffered'> & {
   getVideoPlaybackQuality?: () => { totalVideoFrames?: number };
   webkitDecodedFrameCount?: number;
 };
+
+/**
+ * A lejátszási ponthoz tartozó tényleges előre-pufferelt idő.
+ * Az abszolút `buffered.end()` nem elég: a live idővonal közben ugyanúgy
+ * közeledik a puffer végéhez. Több tartomány esetén csak az aktuális
+ * tartományt használjuk, lyuk esetén pedig nulla tartalékot adunk.
+ */
+export function bufferedAheadSeconds(video: Pick<HTMLVideoElement, 'currentTime' | 'buffered'> | null): number | null {
+  try {
+    const currentTime = Number(video?.currentTime);
+    const ranges = video?.buffered;
+    if (!Number.isFinite(currentTime) || !ranges || ranges.length <= 0) return null;
+    let nearestEnd = -Infinity;
+    for (let index = 0; index < ranges.length; index += 1) {
+      const start = Number(ranges.start(index));
+      const end = Number(ranges.end(index));
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      if (currentTime >= start - 0.25 && currentTime <= end + 0.25) {
+        return Math.max(0, end - currentTime);
+      }
+      if (currentTime > end) nearestEnd = Math.max(nearestEnd, end);
+      if (currentTime < start) return Math.max(0, end - currentTime);
+    }
+    return Number.isFinite(nearestEnd) ? 0 : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Kis terhelésű pillanatkép a médiaelem haladásáról. Soha nem dob hibát. */
 export function readMediaProgress(video: ProgressVideo | null, now: number): MediaProgressSample {

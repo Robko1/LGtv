@@ -1003,11 +1003,22 @@ test('12. csatornaváltáskor nincs beépített 300 ms-os várakozás; az előz�
   assert.match(PLAYER, /if \(pendingLiveLoadTimerRef\.current !== null\) \{\s*\n\s*window\.clearTimeout\(pendingLiveLoadTimerRef\.current\);/);
 });
 
-test('12. sikertelen csatornaindulásnál gyors, profilfüggő tartalékpróba indul', () => {
-  assert.match(PLAYER, /if \(mode === 'fast'\) return \{ watchdogMs: 1200, retryMs: 3 \};/);
-  assert.match(PLAYER, /if \(mode === 'stable'\) return \{ watchdogMs: 2999, retryMs: 80 \};/);
-  assert.match(PLAYER, /return \{ watchdogMs: 2000, retryMs: 50 \};/);
+test('12. a csatornaindulás és a futó pufferőr külön, profilfüggő politikát használ', () => {
+  const RECOVERY = read('web/src/services/playbackRecovery.ts');
+  assert.match(RECOVERY, /export function bufferProfileTiming\(mode: BufferMode(?: = 'balanced')?\)/);
+  assert.match(RECOVERY, /startupWatchdogMs: 1200/);
+  assert.match(RECOVERY, /bufferWatchdogMs: 3500/);
+  assert.match(RECOVERY, /retryMs: 250/);
+  assert.match(RECOVERY, /startupWatchdogMs: 2000/);
+  assert.match(RECOVERY, /bufferWatchdogMs: 4500/);
+  assert.match(RECOVERY, /retryMs: 400/);
+  assert.match(RECOVERY, /startupWatchdogMs: 2999/);
+  assert.match(RECOVERY, /retryMs: 80/);
+  assert.match(PLAYER, /const bufferTiming = \(\) => bufferProfileTiming\(bufferModeRef\.current\);/);
+  assert.match(PLAYER, /const \{ startupWatchdogMs \} = bufferTiming\(\);/);
+  assert.match(PLAYER, /timing\.bufferWatchdogMs/);
   assert.match(PLAYER, /\}, bufferTiming\(\)\.retryMs\);/);
+  assert.match(PLAYER, /new StallDetector\(isVod \? 7000 : bufferTiming\(\)\.stallDetectorMs\)/);
 });
 
 test('12. a csatornaváltási mérés rögzíti a tényleges motort, a hangot és az adatpuffert', () => {

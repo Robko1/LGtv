@@ -75,7 +75,7 @@ try {
 const mod = await import(pathToFileURL(outFile).href);
 const {
   StallDetector, mediaProgressed, readMediaProgress,
-  liveRecoveryUrl, liveRecoveryDelayMs, vodRecoveryDelayMs, isPrematureVodEnd,
+  bufferProfileTiming, bufferedAheadSeconds, liveRecoveryUrl, liveRecoveryDelayMs, vodRecoveryDelayMs, isPrematureVodEnd,
 } = mod;
 
 /* ── 1. Mintavétel: a webOS nem minden API-t adja ki ─────────────────── */
@@ -93,6 +93,15 @@ const frameVideo = {
 const frameSample = readMediaProgress(frameVideo, 2000);
 check(frameSample.frames === 120 && frameSample.bufferedEnd === 12.5,
   'a képkocka-számláló és a puffer vége is bekerül a mintába');
+const bufferedRanges = {
+  length: 1,
+  start: () => 0,
+  end: () => 10,
+};
+check(bufferedAheadSeconds({ currentTime: 2, buffered: bufferedRanges }) === 8,
+  'a puffer-tartalékot a lejátszási ponttól előre, nem abszolút végpontként méri');
+check(bufferedAheadSeconds({ currentTime: 11, buffered: bufferedRanges }) === 0,
+  'a lejátszási pont után maradt üres puffer nulla tartalékot ad');
 
 check(!mediaProgressed(frameSample, { ...frameSample, bufferedEnd: 20, at: 3000 }),
   'élő adásnál a PUFFER növekedése önmagában NEM jelent haladást, ha a képkockák állnak');
@@ -105,7 +114,23 @@ check(!mediaProgressed(frameSample, { ...frameSample, at: 3000 }),
 check(mediaProgressed({ ...frameSample, time: 500 }, { ...frameSample, time: 100, at: 3000 }),
   'visszafelé tekerés (= keresés) nem számít megakadásnak');
 
-/* ── 2. StallDetector ────────────────────────────────────────────────── */
+/* ── 2. Profilpolitika: gyors indulás, külön pufferőr ─────────────────── */
+const fastTiming = bufferProfileTiming('fast');
+const balancedTiming = bufferProfileTiming('balanced');
+const stableTiming = bufferProfileTiming('stable');
+check(fastTiming.startupWatchdogMs < balancedTiming.startupWatchdogMs
+  && balancedTiming.startupWatchdogMs < stableTiming.startupWatchdogMs,
+  'a profilok indulási őre gyors/kiegyensúlyozott/stabil sorrendű');
+check(fastTiming.bufferWatchdogMs > fastTiming.startupWatchdogMs
+  && balancedTiming.bufferWatchdogMs > balancedTiming.startupWatchdogMs,
+  'a már futó adás pufferőre türelmesebb, mint a csatornaindítási fallback');
+check(fastTiming.retryMs < balancedTiming.retryMs
+  && fastTiming.minBufferAheadSeconds < balancedTiming.minBufferAheadSeconds
+  && balancedTiming.minBufferAheadSeconds < stableTiming.minBufferAheadSeconds
+  && stableTiming.retryMs === 80,
+  'a gyors/kiegyensúlyozott recovery és a puffer-tartalék profilfüggő, a stabil recovery kompatibilis marad');
+
+/* ── 3. StallDetector ────────────────────────────────────────────────── */
 const detector = new StallDetector(4000);
 const stalled = { at: 0, time: 0, frames: 10, bufferedEnd: 5, readyState: 3 };
 const timeline = [0, 1000, 2000, 3000, 4000, 5000];
@@ -145,8 +170,15 @@ check(!isPrematureVodEnd(100, 0), '0 hosszú streamnél nincs korai vég');
 /* ── 5. A lejátszó TÉNYLEGESEN használja az új logikát ──────────────── */
 const PLAYER = fs.readFileSync(path.resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
 const APPLOG = fs.readFileSync(path.resolve('web/src/services/appLog.ts'), 'utf8');
-check(/new StallDetector\(isVod \? 7000 : 4000\)/.test(PLAYER),
-  'a lejátszó egységes, képkocka-alapú figyelőt használ élőre és VOD-ra');
+check(/new StallDetector\(isVod \? 7000 : bufferTiming\(\)\.stallDetectorMs\)/.test(PLAYER),
+  'a lejátszó egységes, profilfüggő képkocka-alapú figyelőt használ élőre és VOD-ra');
+check(/puffer-előre=/.test(PLAYER)
+  && /bufferedAheadSeconds/.test(PLAYER)
+  && /PUFFERELÉSI ŐR HALASZTVA/.test(PLAYER),
+  'a watchdog a lejátszási pont előtti valódi tartalékot méri, és röviden megerősít, ha még van puffer');
+check(/const loadKey = streamUrl;/.test(PLAYER)
+  && !/const loadKey = `\$\{streamUrl\}\|\$\{settings\.bufferMode\}`/.test(PLAYER),
+  'a pufferprofil váltása nem indítja újra mesterségesen az aktuális forrást');
 check(/requestRecoveryRef\.current\('idővonal megakadt'\)/.test(PLAYER),
   'a megakadás automatikus újracsatlakozást indít');
 check(/liveRecoveryUrl\(attempt, recoveryPrimaryUrl, recoveryFallbackUrl\)/.test(PLAYER),

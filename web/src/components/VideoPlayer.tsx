@@ -5,6 +5,8 @@ import { appLog, appLogCritical, isVerbosePlaybackLogging } from '../services/ap
 import {
   MediaProgressSample,
   StallDetector,
+  bufferProfileTiming,
+  bufferedAheadSeconds,
   isPrematureVodEnd,
   liveRecoveryDelayMs,
   liveRecoveryUrl,
@@ -684,6 +686,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       `HDR=közvetlen metadata nem elérhető; canPlayType=[${streamSupport}]; ` +
       `readyState=${video.readyState}; networkState=${video.networkState}; ` +
       `paused=${video.paused}; currentTime=${Number(video.currentTime || 0).toFixed(2)}; ` +
+      `puffer-előre=${(() => { const ahead = bufferedAheadSeconds(video); return ahead === null ? 'n/a' : ahead.toFixed(2); })()} s; ` +
       `error=${error ? `${error.code}:${error.message || 'nincs részlet'}` : 'nincs'}`;
   };
   /** Kis terhelésű pillanatkép csatornaváltáskor. A webOS nem teszi hozzáférhetővé
@@ -767,8 +770,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } catch {
       frames = 'kiolvasási hiba';
     }
+    const ahead = bufferedAheadSeconds(video);
     return `t=${Number(video.currentTime || 0).toFixed(3)} s; duration=${Number(video.duration || 0).toFixed(3)} s; ` +
       `seekable=${mediaRangeText(video.seekable)}; buffered=${mediaRangeText(video.buffered)}; ` +
+      `puffer-előre=${ahead === null ? 'n/a' : ahead.toFixed(2)} s; ` +
       `ready=${video.readyState}; network=${video.networkState}; paused=${video.paused}; ` +
       `seeking=${video.seeking}; ended=${video.ended}; rate=${Number(video.playbackRate || 0).toFixed(3)}; ` +
       `videoSize=${Number(video.videoWidth || 0)}x${Number(video.videoHeight || 0)}; frames=[${frames}]; ` +
@@ -858,12 +863,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   channelRef.current = channel;
   /** Natív módban hányszor próbáltuk újraindítani ugyanazt a címet. */
   const nativeRetryCountRef = useRef(0);
-  const bufferTiming = () => {
-    const mode = bufferModeRef.current;
-    if (mode === 'fast') return { watchdogMs: 1200, retryMs: 3 };
-    if (mode === 'stable') return { watchdogMs: 2999, retryMs: 80 };
-    return { watchdogMs: 2000, retryMs: 50 };
-  };
+  const bufferTiming = () => bufferProfileTiming(bufferModeRef.current);
   // Egyetlen lezáró naplósor minden élő csatornaváltásról.
   const logChannelSwitchSummary = (
     result: 'SIKERES' | 'SIKERTELEN',
@@ -987,26 +987,58 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const generation = streamLoadGenerationRef.current;
     const startedAt = Date.now();
     const startTime = Number(video.currentTime || 0);
-    const timeoutMs = bufferTiming().watchdogMs;
-    bufferWatchdogRef.current = window.setTimeout(() => {
-      bufferWatchdogRef.current = null;
-      if (
-        generation !== streamLoadGenerationRef.current ||
-        video !== htmlVideoRef.current ||
-        video.paused ||
-        !playbackStartedRef.current
-      ) return;
-      const currentTime = Number(video.currentTime || 0);
-      const advanced = currentTime > startTime + 0.15;
-      if (advanced && video.readyState >= 3) return;
-      appLog(
-        `PUFFERELÉSI WATCHDOG; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
-        `eltelt=${Date.now() - startedAt} ms; időkorlát=${timeoutMs} ms; haladt=${advanced}; ${videoDiagnosticState(video, 'buffer-watchdog')}`
-      );
-      // Először UGYANAZT a címet próbáljuk újra, nem ugrunk rögtön a másik
-      // formátumra: így a hang és a kép nem csúszik szét feleslegesen.
-      requestRecoveryRef.current('pufferelés elakadt');
-    }, timeoutMs);
+    let confirmationUsed = false;
+    // A módváltás nem indítja újra a forrást. A következő ellenőrzés ezért
+    // mindig újraolvassa a profilt, és nem engedi, hogy egy régi, rövidebb
+    // időzítő mégis a frissen kiválasztott Stabil/Kiegyensúlyozott mód előtt
+    // újratöltse az adást.
+    const scheduleCheck = (delayMs: number): void => {
+      bufferWatchdogRef.current = window.setTimeout(() => {
+        bufferWatchdogRef.current = null;
+        if (
+          generation !== streamLoadGenerationRef.current ||
+          video !== htmlVideoRef.current ||
+          video.paused ||
+          !playbackStartedRef.current
+        ) return;
+        const timing = bufferTiming();
+        const elapsed = Date.now() - startedAt;
+        if (elapsed < timing.bufferWatchdogMs) {
+          scheduleCheck(timing.bufferWatchdogMs - elapsed);
+          return;
+        }
+        const currentTime = Number(video.currentTime || 0);
+        const advanced = currentTime > startTime + 0.15;
+        // A haladó idővonal önmagában elég bizonyíték: webOS-en a readyState
+        // közben röviden HAVE_CURRENT_DATA (2) értékre is visszaeshet.
+        if (advanced) return;
+        const ahead = bufferedAheadSeconds(video);
+        // Ha még van valódi, a lejátszási ponthoz viszonyított tartalék, egy
+        // rövid megerősítő ablakot adunk a dekódernek. A korábbi 1,2/2,0 mp-es
+        // profilidőzítők a #12-ben túl korán indítottak forráscserét egy
+        // pillanatnyi HLS/TS szegmensváltás miatt.
+        if (!confirmationUsed && ahead !== null && ahead >= timing.minBufferAheadSeconds && video.readyState >= 2) {
+          confirmationUsed = true;
+          const confirmMs = Math.max(750, Math.min(1500, timing.retryMs));
+          appLog(
+            `PUFFERELÉSI ŐR HALASZTVA; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
+            `puffer-előre=${ahead.toFixed(2)} s; minimum=${timing.minBufferAheadSeconds.toFixed(1)} s; ` +
+            `megerősítés=${confirmMs} ms.`
+          );
+          scheduleCheck(confirmMs);
+          return;
+        }
+        appLog(
+          `PUFFERELÉSI WATCHDOG; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
+          `eltelt=${elapsed} ms; időkorlát=${timing.bufferWatchdogMs} ms; haladt=${advanced}; ` +
+          `puffer-előre=${ahead === null ? 'n/a' : ahead.toFixed(2)} s; ${videoDiagnosticState(video, 'buffer-watchdog')}`
+        );
+        // Először UGYANAZT a címet próbáljuk újra, nem ugrunk rögtön a másik
+        // formátumra: így a hang és a kép nem csúszik szét feleslegesen.
+        requestRecoveryRef.current('pufferelés elakadt');
+      }, Math.max(0, delayMs));
+    };
+    scheduleCheck(bufferTiming().bufferWatchdogMs);
   }, [scheduleAutoRetry]);
 
   /*
@@ -1023,7 +1055,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!isPlaying) return;
     const video = htmlVideoRef.current;
     if (!video) return;
-    const detector = new StallDetector(isVod ? 7000 : 4000);
+    const detector = new StallDetector(isVod ? 7000 : bufferTiming().stallDetectorMs);
     stallDetectorRef.current = detector;
     let previousSample: MediaProgressSample | null = null;
     const generation = streamLoadGenerationRef.current;
@@ -1068,7 +1100,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.clearInterval(timer);
       if (stallDetectorRef.current === detector) stallDetectorRef.current = null;
     };
-  }, [isVod, isPlaying, channel?.id, customStreamUrl]);
+  }, [isVod, isPlaying, channel?.id, customStreamUrl, settings.bufferMode]);
 
   // A HTML5 videót a React-komponens eltűnésekor nézetváltáskor
   // ténylegesen leállítjuk, és elrejtjük a natív videófelületet. Visszatéréskor
@@ -3159,7 +3191,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         };
         channelSwitchDiagnosticRef.current = diagnostic;
         const channelMemory = rememberedFormatFor(channel?.id);
-        appLog(`CSATORNAVÁLTÁS START; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        const timing = bufferTiming();
+        appLog(`CSATORNAVÁLTÁS START; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
         if (isVerbosePlaybackLogging()) {
           appLog(`CSATORNAVÁLTÁS PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
           appLog(`ERŐFORRÁS-DIAG PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
@@ -3205,8 +3238,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // se hiba, se kép), nem várunk a végtelenségig pörgő töltésre -
       // automatikusan a következő formátumra (MPEG-TS) váltunk.
       if (!customStreamUrl) {
-        const { watchdogMs } = bufferTiming();
-        const attemptTimeoutMs = Math.min(watchdogMs, 2000);
+        const { startupWatchdogMs } = bufferTiming();
+        const attemptTimeoutMs = Math.min(startupWatchdogMs, 2000);
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
           if (isCurrentLoad() && !playbackStartedRef.current) {
@@ -3218,7 +3251,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             if (hasStartupData) {
               // Egyszer adunk még egy rövid türelmi ablakot a webOS-nek;
               // a `playing` nélküli végtelen várakozás viszont nem maradhat.
-              const graceMs = Math.max(1000, Math.min(watchdogMs, 2000));
+              const graceMs = Math.max(1000, Math.min(startupWatchdogMs, 2000));
               appLog(`Zap-őr: már van metaadat/puffer, türelmi idő indul (${graceMs} ms).`);
               zapWatchdogRef.current = window.setTimeout(() => {
                 zapWatchdogRef.current = null;
@@ -3424,7 +3457,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, delayMs);
   };
 
-  const loadKey = `${streamUrl}|${settings.bufferMode}`;
+  // A pufferprofil élő lejátszás közben is váltható. Nem indítjuk újra a
+  // forrást pusztán a módváltás miatt: a következő watchdog/recovery már az
+  // új policy-t használja, így a menü tesztelése nem okoz mesterséges akadozást.
+  const loadKey = streamUrl;
   useEffect(() => {
     clearAutoRetry();
     clearRecovery();
@@ -4017,7 +4053,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               } catch { /* a TV nem mindig ad pufferadatot */ }
               const elapsed = diagnostic.lastProgressAt ? now - diagnostic.lastProgressAt : 0;
               const bufferedDelta = bufferedEnd - diagnostic.lastBufferedEnd;
-              appLog(`STREAM ADATÉRKEZÉS; csatorna=${diagnostic.channelName}; eltelt=${now - diagnostic.startedAt} ms; puffer=${bufferedEnd.toFixed(2)} s; puffer-növekedés=${elapsed ? bufferedDelta.toFixed(2) + ' s/' + elapsed + ' ms' : 'első mérés'}; ${liveMediaState(video)}`);
+              const ahead = bufferedAheadSeconds(video);
+              const timing = bufferTiming();
+              appLog(`STREAM ADATÉRKEZÉS; csatorna=${diagnostic.channelName}; eltelt=${now - diagnostic.startedAt} ms; puffer-vége=${bufferedEnd.toFixed(2)} s; puffer-előre=${ahead === null ? 'n/a' : ahead.toFixed(2) + ' s'}; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; puffer-növekedés=${elapsed ? bufferedDelta.toFixed(2) + ' s/' + elapsed + ' ms' : 'első mérés'}; ${liveMediaState(video)}`);
               diagnostic.lastProgressAt = now;
               diagnostic.lastBufferedEnd = bufferedEnd;
             }}
