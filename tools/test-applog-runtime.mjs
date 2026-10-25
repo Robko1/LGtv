@@ -126,6 +126,12 @@ check(/FIGYELŐ ELINDULT/.test(text), 'a fagyásfigyelő elindult');
 check(/INDULÁS \[0 ms\] kézi naplózás elindítva/.test(text), 'a kézi indításnak van ezredmásodperces fázis-sora');
 check(/Eszköz: /.test(text), 'a böngésző/készülék azonosítója is a naplóban van');
 
+// A live/movie/subtitle útvonal és a query sem vihet ki Xtream-belépési adatot.
+diag.log('REDAKCIÓ-TESZT https://panel.example/live/secret-user/secret-pass/100.ts?username=secret-user&password=secret-pass&token=secret-token');
+const redacted = diag.text();
+check(!redacted.includes('secret-user') && !redacted.includes('secret-pass') && !redacted.includes('secret-token'),
+  'a kézi napló URL-ből is eltávolítja a credentialt és a tokent');
+
 /* ── 2. Állapot-pillanatkép ────────────────────────────────────────────── */
 const state = diag.state();
 console.log(`  (pillanatkép: ${state})`);

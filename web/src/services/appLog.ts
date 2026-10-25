@@ -330,12 +330,48 @@ export function clearAppLog(): void {
   }
 }
 
+/**
+ * Naplószintű biztonsági öv: a későbbi hibakeresési sorok se tehessenek ki
+ * véletlenül Xtream-belépési adatot. A stream- és felirat-útvonalakban a
+ * felhasználónév/jelszó a `live|movie|series|subtitle` után áll; a query
+ * kulcsait is maszkoljuk. A host és a formátum megmarad a diagnózishoz.
+ */
+function redactLogUrls(message: string): string {
+  return message.replace(/https?:\/\/[^\s<>"']+/gi, (raw) => {
+    const trailing = raw.match(/[),.;!?]+$/)?.[0] || '';
+    const candidate = trailing ? raw.slice(0, -trailing.length) : raw;
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.username) parsed.username = '[redacted]';
+      if (parsed.password) parsed.password = '[redacted]';
+      for (const key of Array.from(parsed.searchParams.keys())) {
+        if (/^(username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)$/i.test(key)) {
+          parsed.searchParams.set(key, '[redacted]');
+        }
+      }
+      const parts = parsed.pathname.split('/');
+      for (let index = 0; index < parts.length; index += 1) {
+        if (/^(live|movie|series|subtitle)$/i.test(parts[index]) && parts[index + 1] && parts[index + 2]) {
+          parts[index + 1] = '[redacted]';
+          parts[index + 2] = '[redacted]';
+        }
+      }
+      parsed.pathname = parts.join('/');
+      return parsed.toString() + trailing;
+    } catch {
+      return candidate
+        .replace(/([?&](?:username|user|password|pass|token|api_key|apikey|key|auth|secret|access_token|signature)=)[^&]*/gi, '$1[redacted]')
+        .replace(/\/(live|movie|series|subtitle)\/[^/]+\/[^/]+/gi, '/$1/[redacted]/[redacted]') + trailing;
+    }
+  });
+}
+
 /** Egy sor hozzáadása a kézzel indított diagnosztikai naplóhoz. */
 export function appLog(message: string): void {
   // A normál tévézés közben nincs diagnosztikai naplózás, nincs localStorage-
   // írás és nincs extra szövegfeldolgozás. Ez a csatornaváltást is gyorsítja.
   if (!loggingEnabled) return;
-  const safe = String(message ?? '').replace(/\s+/g, ' ');
+  const safe = redactLogUrls(String(message ?? '')).replace(/\s+/g, ' ');
   restore();
   measurementCounters.logLines += 1;
   const restartNotice = `${nowStamp()} NAPLÓKERET ELÉRVE: 1 MB; a naplózás újrakezdődött.`;
@@ -566,12 +602,22 @@ export function uiStateSnapshot(): string {
   try {
     const video = document.querySelector('video') as HTMLVideoElement | null;
     if (video) {
-      const source = String(video.currentSrc || video.src || '').split('?')[0].slice(-48);
+      // A teljes streamcím itt sem kerülhet a naplóba: az Xtream URL útvonala
+      // felhasználónevet és jelszót tartalmaz. A formátum/host elég a
+      // fagyásdiagnózishoz, a belépési útvonalat nem őrizzük meg.
+      const source = String(video.currentSrc || video.src || '');
+      const sourceFormat = /\.m3u8(?:[?#]|$)/i.test(source)
+        ? 'HLS'
+        : /\.ts(?:[?#]|$)/i.test(source)
+          ? 'MPEG-TS'
+          : source
+            ? 'egyéb'
+            : '';
       parts.push(
         `videó=${video.paused ? 'áll' : 'megy'}` +
         `, pozíció=${Math.round(Number(video.currentTime) || 0)} s` +
         `, kész=${video.readyState}` +
-        (source ? `, forrás=…${source}` : '')
+        (sourceFormat ? `, forrás-formátum=${sourceFormat}` : '')
       );
     } else {
       parts.push('videó=nincs');

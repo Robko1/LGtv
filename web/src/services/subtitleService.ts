@@ -1,6 +1,7 @@
 import { SubtitleTrack } from '../types/iptv';
 import { httpGetJson, httpGetText } from './net';
 import { appLog } from './appLog';
+import { xtreamService } from './xtreamService';
 
 /**
  * FILM / SOROZAT FELIRAT (CC) – szolgáltatói feliratok.
@@ -60,11 +61,7 @@ function safeSubtitleUrl(url: string): string {
 }
 
 function cleanBase(serverUrl: string): string {
-  const base = String(serverUrl || '')
-    .trim()
-    .replace(/\/player_api\.php.*$/i, '')
-    .replace(/\/+$/, '');
-  return /^https?:\/\//i.test(base) ? base : `http://${base}`;
+  return xtreamService.baseUrl(serverUrl);
 }
 
 function looksLikeSubtitleUrl(value: string): boolean {

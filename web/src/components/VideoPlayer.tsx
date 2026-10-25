@@ -3584,7 +3584,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ? streamUrl
       : streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
     const channelMemory = isVod ? null : rememberedFormatFor(channel?.id);
-    const primaryUrl = isVod ? streamUrl : (channelMemory === 'hls' ? hlsUrl : tsUrl);
+    const sourceFormat = isVod ? null : formatOfUrl(streamUrl);
+    // A kézi HLS-beállítás valódi elsődleges preferencia legyen; a korábban
+    // sikeres csatornaformátum csak a régi, TS-alapértelmezett módban gyorsít.
+    // Ha egy M3U-forrás már eleve HLS, azt a TS-alapértelmezés sem írhatja át
+    // vakon egy nem létező `.ts` címre.
+    const configuredFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
+    const primaryFormat = configuredFormat === 'hls' ? 'hls' : (channelMemory || sourceFormat || 'ts');
+    const primaryUrl = isVod ? streamUrl : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
     pendingStreamUrlRef.current = primaryUrl;
     liveFallbackRef.current = isVod ? null : alternativeUrl(primaryUrl);
     const alternative = liveFallbackRef.current;

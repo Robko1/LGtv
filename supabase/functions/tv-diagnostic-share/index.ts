@@ -77,28 +77,20 @@ function safeExceptionReason(error) {
   return message ? message.slice(0, 180) : "internal_service_error";
 }
 
-// Redact common credential fields without a regular expression. Keeping this
-// parser deliberately simple avoids a module-startup regex/parser failure.
-const secretLabels = ["password", "passwd", "token", "authorization", "api_key", "apikey", "secret"];
+// Redact common credential fields as a second safety layer. The browser
+// redacts URLs before sending, but the Edge Function must also protect itself
+// if an older client or a manual request contains a raw login URL.
+const secretLabels = ["username", "user", "password", "passwd", "token", "authorization", "api_key", "apikey", "secret"];
 function cleanLog(input) {
   return String(input).split("\n").map((line) => {
     let result = line;
-    const lower = result.toLowerCase();
     for (const label of secretLabels) {
-      const labelAt = lower.indexOf(label);
-      if (labelAt < 0) continue;
-      const colonAt = lower.indexOf(":", labelAt + label.length);
-      const equalsAt = lower.indexOf("=", labelAt + label.length);
-      let separatorAt = colonAt >= 0 ? colonAt : equalsAt;
-      if (equalsAt >= 0 && (separatorAt < 0 || equalsAt < separatorAt)) separatorAt = equalsAt;
-      if (separatorAt < 0) continue;
-      let valueAt = separatorAt + 1;
-      while (valueAt < result.length && " \t".includes(result[valueAt])) valueAt += 1;
-      let endAt = valueAt;
-      while (endAt < result.length && !" \t,;)]}".includes(result[endAt])) endAt += 1;
-      result = result.slice(0, valueAt) + "[REDACTED]" + result.slice(endAt);
-      break;
+      const field = new RegExp("((?:^|[?&\\s;,(\\[{])" + label + "\\s*[:=]\\s*)([^\\s&;,\\]})]+)", "ig");
+      result = result.replace(field, "$1[REDACTED]");
     }
+    // Xtream media/subtitle paths carry user and password as two path segments.
+    result = result.replace(/(https?:\/\/[^\/\s]+\/(?:live|movie|series|subtitle)\/)[^\/\s]+\/[^\/\s]+/gi, "$1[REDACTED]/[REDACTED]");
+    result = result.replace(/(https?:\/\/)[^\/\s@]+:[^\/\s@]+@/gi, "$1[REDACTED]@");
     return result;
   }).join("\n");
 }
@@ -143,7 +135,7 @@ async function findExisting(logNumber, startedAt) {
 
 async function pruneToFive() {
   try {
-    const result = await db("?select=id,log_number,created_at&order=log_number.desc.nullslast,created_at.desc&limit=100");
+    const result = await db("?select=id,log_number,created_at&order=log_number.desc.nullslast,created_at.desc&limit=1000");
     if (!result.ok) {
       console.error("diagnostic pruning lookup failed", result.status);
       return;
@@ -176,6 +168,9 @@ async function handle(req) {
   }
 
   if (body && body.action === "history") {
+    // A korábbi QR-korszakból maradt sorokat is takarítsuk le akkor, ha a TV
+    // csak a történetet kérdezi le, nem éppen új naplót küld.
+    await pruneToFive();
     const result = await db("?log_number=not.is.null&select=log_number,started_at,created_at&order=log_number.desc,created_at.desc&limit=" + MAX_LOG_ROWS);
     if (!result.ok) {
       const reason = await responseReason(result);

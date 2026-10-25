@@ -131,20 +131,79 @@ type ApiList<T> = T[] | { error?: string } | null;
 
 function asArray<T>(value: ApiList<T>): T[] {
   if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && typeof value.error === 'string' && value.error.trim()) {
+    // A panel több listavégpontnál tömb helyett hibajelzést ad. Ne alakítsuk
+    // ezt csendben üres listává: a provider-importnak így van oka a
+    // kategória-fallbackhez, a diagnosztikában pedig a valódi ok jelenik meg.
+    throw new Error(`Xtream API hiba: ${value.error.trim().slice(0, 240)}`);
+  }
   return [];
 }
 
+/**
+ * Az Xtream belépési címéből a közös szolgáltatói gyökér képzése.
+ *
+ * A felhasználók gyakran a `.../player_api.php` címet másolják be, miközben
+ * a lejátszási útvonal gyökere a fájl fölötti könyvtár (`/live`, `/movie`,
+ * `/series`). A korábbi stream-builder ezt a fájlnevet benne hagyta, ezért a
+ * TV HTML5 motorja HTML/404 választ kapott és `MEDIA_ELEMENT_ERROR: Format
+ * error` hibával állt le. A lekérdezést és a hash-t is elhagyjuk, így a
+ * builder minden API- és stream-útvonalnál ugyanazt a biztos alapot használja.
+ */
+function providerBaseUrl(serverUrl: string): string {
+  const raw = String(serverUrl || '').trim();
+  if (!raw) return '';
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  try {
+    const parsed = new URL(withProtocol);
+    parsed.search = '';
+    parsed.hash = '';
+    const pathname = parsed.pathname
+      .replace(/\/(?:player_api|panel_api|get)\.php(?:\/.*)?$/i, '')
+      .replace(/\/+$/, '');
+    // A URL mindig `/` pathname-t ad vissza, akkor is, ha a szolgáltatói
+    // gyökérnek nincs útvonala. Ne hagyjunk ebből `//player_api.php` vagy
+    // `//live` kettős perjelet a végső címben.
+    return `${parsed.protocol}//${parsed.host}${pathname && pathname !== '/' ? pathname : ''}`;
+  } catch {
+    // Régi webOS motoron a URL konstruktor ritkán hibázhat (például hibásan
+    // megadott IPv6-címnél). Ilyenkor is távolítsuk el a biztosan felismerhető
+    // API-fájlt, de ne dobjuk el az egész importot.
+    return withProtocol
+      .replace(/\/(?:player_api|panel_api|get)\.php.*$/i, '')
+      .replace(/\/+$/, '');
+  }
+}
+
+function pathSegment(value: string | number): string {
+  return encodeURIComponent(String(value));
+}
+
+function streamExtension(value: string | undefined, fallback: string): string {
+  const extension = String(value || fallback).trim().replace(/^\.+/, '').split(/[/?#]/, 1)[0];
+  return extension || fallback;
+}
+
 export const xtreamService = {
-  // Normalize provider server URL (remove trailing slash)
+  // Normalize the stored provider root (remove API file/query/hash while
+  // preserving a schema-less input for backwards-compatible saved providers).
+  // Request builders use baseUrl(), which adds http:// when necessary.
   cleanUrl(url: string): string {
-    return url.trim().replace(/\/+$/, '');
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    const normalized = providerBaseUrl(raw);
+    if (!normalized) return '';
+    return /^https?:\/\//i.test(raw) ? normalized : normalized.replace(/^https?:\/\//i, '');
+  },
+
+  /** A `/player_api.php` nélküli, stream- és API-útvonalakhoz használható alap. */
+  baseUrl(serverUrl: string): string {
+    return providerBaseUrl(serverUrl);
   },
 
   playerApiBase(serverUrl: string, username: string, password: string): string {
-    const cleanServer = this.cleanUrl(serverUrl);
-    const base = cleanServer.replace(/\/player_api\.php.*$/i, '').replace(/\/+$/, '');
-    const host = /^https?:\/\//i.test(base) ? base : `http://${base}`;
-    return `${host}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
+    const base = providerBaseUrl(serverUrl);
+    return `${base}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
   },
 
   /** Xtream Codes bejelentkezés. Hibánál kivételt dob (nincs hamis siker). */
@@ -177,8 +236,11 @@ export const xtreamService = {
 
   async liveStreams(serverUrl: string, username: string, password: string): Promise<XtreamLiveStream[]> {
     const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_live_streams`;
-    // Élő lista nagy (20k csatorna ~7MB), adjunk neki több időt
-    return asArray(await httpGetJson<ApiList<XtreamLiveStream>>(url, { timeoutMs: 45000 }));
+    // Élő lista nagy (20k csatorna ~7MB), de a nem válaszoló panel ne
+    // tartsa 30–45 másodpercig töltésben az importot. A hálózati réteg így
+    // rövid, bizonyítható hibát ad, miközben a normál, gyors panel továbbra is
+    // egyetlen nagy JSON-választ kap.
+    return asArray(await httpGetJson<ApiList<XtreamLiveStream>>(url, { timeoutMs: 9000 }));
   },
 
   async vodCategories(serverUrl: string, username: string, password: string): Promise<XtreamCategory[]> {
@@ -369,23 +431,21 @@ export const xtreamService = {
 
   // Generate Xtream Live Stream URL
   buildLiveStreamUrl(serverUrl: string, user: string, pass: string, streamId: number | string, format: 'ts' | 'm3u8' = 'ts'): string {
-    const cleanServer = this.cleanUrl(serverUrl);
-    if (format === 'm3u8') {
-      return `${cleanServer}/live/${user}/${pass}/${streamId}.m3u8`;
-    }
-    return `${cleanServer}/live/${user}/${pass}/${streamId}.ts`;
+    const base = providerBaseUrl(serverUrl);
+    const extension = format === 'm3u8' ? 'm3u8' : 'ts';
+    return `${base}/live/${pathSegment(user)}/${pathSegment(pass)}/${pathSegment(streamId)}.${extension}`;
   },
 
   // Generate Xtream Movie VOD Stream URL
   buildMovieStreamUrl(serverUrl: string, user: string, pass: string, streamId: number | string, ext: string = 'mp4'): string {
-    const cleanServer = this.cleanUrl(serverUrl);
-    return `${cleanServer}/movie/${user}/${pass}/${streamId}.${ext}`;
+    const base = providerBaseUrl(serverUrl);
+    return `${base}/movie/${pathSegment(user)}/${pathSegment(pass)}/${pathSegment(streamId)}.${streamExtension(ext, 'mp4')}`;
   },
 
   // Generate Xtream Series Episode Stream URL
   buildSeriesStreamUrl(serverUrl: string, user: string, pass: string, streamId: number | string, ext: string = 'mp4'): string {
-    const cleanServer = this.cleanUrl(serverUrl);
-    return `${cleanServer}/series/${user}/${pass}/${streamId}.${ext}`;
+    const base = providerBaseUrl(serverUrl);
+    return `${base}/series/${pathSegment(user)}/${pathSegment(pass)}/${pathSegment(streamId)}.${streamExtension(ext, 'mp4')}`;
   },
 
   /**
@@ -396,9 +456,8 @@ export const xtreamService = {
    * lejátszási listát.
    */
   buildPlaylistUrl(serverUrl: string, username: string, password: string): string {
-    const cleanServer = this.cleanUrl(serverUrl).replace(/\/player_api\.php.*$/i, '').replace(/\/+$/, '');
-    const host = /^https?:\/\//i.test(cleanServer) ? cleanServer : `http://${cleanServer}`;
-    return `${host}/get.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&type=m3u_plus&output=ts`;
+    const base = providerBaseUrl(serverUrl);
+    return `${base}/get.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&type=m3u_plus&output=ts`;
   },
 
   /** Egyszerű M3U letöltés (URL-ről). */
