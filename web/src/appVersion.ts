@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.88';
+export const WEB_VERSION = '2.5.89';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.88',
+    version: '2.5.89',
     date: '2026-10-25',
     changes: [
       'RENDSZER MENÜ: a két ismétlődő, állítható értéket nem tartalmazó LG-lejátszó/formátum doboz eltávolítva; csak valóban használható beállítások maradtak',
