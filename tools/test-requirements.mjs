@@ -161,6 +161,15 @@ test('3. a fókusz mindig a csatornasorra kerül (a doboz helyett)', () => {
   assert.match(barDown.slice(0, 900), /focusChannelRow\(first\.id\)/);
 });
 
+test('3. stale virtualizált index nem viheti a kijelölést tévesen a mappasávra', () => {
+  assert.match(LIST, /const focusedChannelId = activeElement\?\.closest\?\.\('\[data-channel-id\]'\)[^;]+/);
+  assert.match(LIST, /const hasRealCurrentRow = Boolean\(currentId/);
+  assert.match(LIST, /hasRealCurrentRow && currentIndex === visibleChannels\.length - 1/);
+  assert.match(LIST, /if \(!isActive \|\| \(host && \(host\.closest\('\[data-view-hidden\]'\)/);
+  assert.match(APP, /const isInHiddenChannelList = Boolean\(channelListHost\?\.closest\?\.\('\[data-view-hidden\]'\)/);
+  assert.match(APP, /if \(isInHiddenChannelList && \(isTvArrowKey\(key\) \|\| key === 'Enter'\)\)/);
+});
+
 test('3. a fejlécből lefelé a mappasáv következik, abból az első csatorna', () => {
   // A header → mappasáv lépés a App.tsx-ben:
   const headerDown = APP.slice(APP.indexOf("target.closest('header')) {"));
@@ -260,7 +269,7 @@ test('7. a csatornák nem várnak a kategóriákra (a kategóriavégpont külön
   assert.ok(catsIndex < streamsIndex, 'a kategórialetöltés a csatornák ELŐTT indul');
   // A kategóriákra csak a feldolgozás után várunk, és hiba esetén üres lista.
   assert.match(IMPORT, /const liveCats = await liveCatsPromise;/);
-  assert.match(IMPORT, /\.catch\(\(\) => \[\] as XtreamCategory\[\]\)/, 'kategóriahiba nem állítja meg a csatornákat');
+  assert.match(IMPORT, /\.catch\(\(error\) => \{[\s\S]{0,180}?return \[\] as XtreamCategory\[\];/, 'kategóriahiba nem állítja meg a csatornákat');
 });
 
 test('7. az első használható csatornaadag azonnal megjelenik (előnézet)', () => {
@@ -910,6 +919,18 @@ test('11. az óra, a játszott csatornasor és a távirányító fókusza követ
   assert.match(LIST, /isSelected[\s\S]{0,500}?border-2 border-cyan-400\/90/);
   assert.match(TV_CSS, /button:focus[\s\S]{0,260}?#fbbf24/);
   assert.match(TV_CSS, /\[role="option"\]:focus[\s\S]{0,220}?#fbbf24/);
+});
+
+test('16. egy új import érvényteleníti a régi hálózati sor- és retry-életciklust', () => {
+  assert.match(NET, /let networkGeneration = 0/);
+  assert.match(NET, /networkGeneration \+= 1/);
+  assert.match(NET, /for \(const resolve of queue\.splice\(0\)\) resolve\(true\)/);
+  assert.match(NET, /requestGeneration !== networkGeneration/);
+  assert.match(IMPORT, /isNetworkRequestCancelled\(error\)/);
+  assert.match(IMPORT, /if \(isNetworkRequestCancelled\(error\)\) \{[\s\S]{0,120}?throw error/);
+  assert.match(APP, /const refreshGenerationRef = useRef\(0\)/);
+  assert.match(APP, /if \(refreshGenerationRef\.current !== refreshGeneration\) return/);
+  assert.match(APP, /if \(refreshGenerationRef\.current !== refreshGeneration \|\| isNetworkRequestCancelled\(error\)\) return/);
 });
 
 test('11. a diagnosztikai napló csak kézi indítás után fut, és kilépéskor leáll', () => {

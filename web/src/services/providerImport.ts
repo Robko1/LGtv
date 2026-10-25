@@ -38,7 +38,7 @@ import {
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { storageService } from './storageService';
-import { cancelNetworkRequests, isTransportFailure } from './net';
+import { cancelNetworkRequests, isNetworkRequestCancelled, isTransportFailure } from './net';
 
 // webOS TV gyors betöltés detektálás
 export interface ImportProgress {
@@ -200,12 +200,14 @@ async function providerRequest<T>(task: () => Promise<T>, label: string): Promis
     try {
       return await task();
     } catch (error) {
+      if (isNetworkRequestCancelled(error)) throw error;
       lastError = error;
       if (!isRetryable(error) || attempt === RETRY_MAX_ATTEMPTS) break;
       // 0,8-1,2 s: a panel közben kiüríti a kapcsolatait.
       await sleep(RETRY_BASE_DELAY_MS + Math.floor(Math.random() * 400));
     }
   }
+  if (isNetworkRequestCancelled(lastError)) throw lastError;
   const message = lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(`${label}: ${message}`);
 }
@@ -267,6 +269,7 @@ async function loadCategoryFiltered<T>(
       const currentIndex = nextIndex++;
       if (currentIndex >= usable.length) break;
       const category = usable[currentIndex];
+      let cancelled = false;
       try {
         const rows = await providerRequest(
           () => loadCategory(String(category.category_id)),
@@ -280,6 +283,10 @@ async function loadCategoryFiltered<T>(
         }
         consecutiveFailures = 0;
       } catch (error) {
+        if (isNetworkRequestCancelled(error)) {
+          cancelled = true;
+          throw error;
+        }
         failedCategoryIds.push(String(category.category_id));
         consecutiveFailures++;
         console.warn('Kategória betöltése sikertelen:', category.category_id, error);
@@ -288,8 +295,10 @@ async function loadCategoryFiltered<T>(
           break;
         }
       } finally {
-        done++;
-        options.onProgress?.(done, usable.length);
+        if (!cancelled) {
+          done++;
+          options.onProgress?.(done, usable.length);
+        }
       }
     }
   }
@@ -552,7 +561,10 @@ export async function importXtreamProvider(
     const liveCatsPromise = providerRequest(
       () => xtreamService.liveCategories(server, user, pass),
       'Élő kategóriák'
-    ).catch(() => [] as XtreamCategory[]);
+    ).catch((error) => {
+      if (isNetworkRequestCancelled(error)) throw error;
+      return [] as XtreamCategory[];
+    });
     const liveStreams = await Promise.all([
       providerRequest(
         () => xtreamService.liveStreams(server, user, pass),
@@ -815,6 +827,7 @@ export async function importXtreamProvider(
 
     await onPartial({ movies, vodCategories: vodCats, totals: { vod: vodTotal } });
   } catch (error) {
+    if (isNetworkRequestCancelled(error)) throw error;
     console.warn('A filmek letöltése nem sikerült:', error);
     warnings.push(
       `A filmek listája nem töltődött le: ${error instanceof Error ? error.message : String(error)}`
@@ -961,6 +974,7 @@ export async function importXtreamProvider(
 
     await onPartial({ series, seriesCategories: seriesCats, totals: { series: seriesTotal } });
   } catch (error) {
+    if (isNetworkRequestCancelled(error)) throw error;
     console.warn('A sorozatok letöltése nem sikerült:', error);
     warnings.push(
       `A sorozatok listája nem töltődött le: ${error instanceof Error ? error.message : String(error)}`

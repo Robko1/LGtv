@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Clock3, Download, Gauge, Network } from 'l
 import type { ImportProgress } from '../services/providerImport';
 import type { NetworkDiagnosticEvent } from '../services/net';
 import type { Channel } from '../types/iptv';
+import { normalizeTvKey } from '../utils/tvKeys';
 import packageJson from '../../package.json';
 
 interface LoadingDiagnosticModalProps {
@@ -13,6 +14,8 @@ interface LoadingDiagnosticModalProps {
   logoSource?: 'xtream' | 'm3u' | 'unknown';
   error: string | null;
   startedAt: number;
+  /** Monotonically measured completion time; a finished snapshot must stay frozen when reopened. */
+  finishedAt?: number | null;
   onClose: () => void;
   onRetry?: () => void;
   retryInSeconds?: number | null;
@@ -29,26 +32,41 @@ const formatMs = (value: number) => value < 1000 ? `${Math.round(value)} ms` : `
 const formatBytes = (value: number) => value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(2)} MB`;
 
 export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
-  isOpen, progress, events, error, startedAt, onClose, onRetry, retryInSeconds,
+  isOpen, progress, events, error, startedAt, finishedAt, onClose, onRetry, retryInSeconds,
 }) => {
   const [now, setNow] = useState(() => performance.now());
+  const completed = !error && (progress?.percent ?? 0) >= 100;
+  const terminal = Boolean(error || completed);
 
   useEffect(() => {
     if (!isOpen) return;
+    // A kész snapshot lehet, hogy csak később nyílik meg újra. Ilyenkor a
+    // lezárási időt használjuk, nem a megnyitás pillanatát, és nincs több
+    // intervallum, amely a háttérben tovább számolna.
+    setNow(terminal && finishedAt !== null && finishedAt !== undefined ? finishedAt : performance.now());
+    if (terminal) return;
     const timerId = window.setInterval(() => setNow(performance.now()), 250);
     return () => window.clearInterval(timerId);
-  }, [isOpen]);
+  }, [isOpen, terminal, finishedAt]);
 
   useEffect(() => {
-    if (!isOpen || (!error && progress?.percent !== 100)) return;
+    if (!isOpen || !terminal) return;
     const closeTimer = window.setTimeout(onClose, 10_000);
     return () => window.clearTimeout(closeTimer);
-  }, [isOpen, error, progress?.percent, onClose]);
+  }, [isOpen, terminal, onClose]);
+
+  const handleModalKeyDown = (event: React.KeyboardEvent) => {
+    const key = normalizeTvKey(event);
+    if (key === 'Escape' || key === 'Backspace') {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    }
+  };
 
   if (!isOpen) return null;
 
   const elapsed = Math.max(0, now - startedAt);
-  const completed = !error && progress?.percent === 100;
   const finalPercent = completed ? 100 : Math.min(99, Math.max(0, progress?.percent || 0));
   const successful = events.filter((event) => event.status === 'success');
   const totalBytes = successful.reduce((sum, event) => sum + (event.bytes || 0), 0);
@@ -67,7 +85,9 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="loading-diagnostic-title"
-        className="relative w-[96vw] max-w-[1500px] h-[min(94dvh,900px)] overflow-hidden rounded-3xl border border-cyan-400/40 bg-[#060816]/95 shadow-[0_0_60px_rgba(0,240,255,0.18)] text-white flex flex-col"
+        tabIndex={-1}
+        onKeyDown={handleModalKeyDown}
+        className="relative w-[96vw] max-w-[1500px] h-[min(94dvh,900px)] overflow-hidden rounded-3xl border border-cyan-400/40 bg-[#060816]/95 shadow-[0_0_60px_rgba(0,240,255,0.18)] text-white flex flex-col focus:outline-none"
       >
         <div className="absolute inset-0 pointer-events-none opacity-30 bg-[radial-gradient(circle_at_center,transparent_15%,#020208_90%)]" />
         <div className="relative flex flex-col h-full p-4 sm:p-7 lg:p-9">

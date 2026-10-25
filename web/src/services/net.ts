@@ -36,6 +36,27 @@ const activeControllers = new Set<AbortController>();
 let diagnosticSink: ((event: NetworkDiagnosticEvent) => void) | null = null;
 let diagnosticId = 0;
 
+/**
+ * A globális leállítás nemcsak az éppen fetch-elő kéréseket szakíthatja meg:
+ * a betöltés közben várakozó kérések és az újrapróbálkozási szünetek sem
+ * indíthatnak később új kapcsolatot egy új import tetején. A generációszám
+ * ezért minden hálózati munkamenetet érvénytelenít.
+ */
+let networkGeneration = 0;
+type QueueWaiter = (cancelled?: boolean) => void;
+const queue: QueueWaiter[] = [];
+
+export class NetworkRequestCancelledError extends Error {
+  constructor() {
+    super('A hálózati kérés megszakadt.');
+    this.name = 'NetworkRequestCancelledError';
+  }
+}
+
+export function isNetworkRequestCancelled(error: unknown): boolean {
+  return error instanceof NetworkRequestCancelledError;
+}
+
 export function setNetworkDiagnosticSink(
   sink: ((event: NetworkDiagnosticEvent) => void) | null
 ): void {
@@ -43,8 +64,12 @@ export function setNetworkDiagnosticSink(
 }
 
 export function cancelNetworkRequests(): void {
+  networkGeneration += 1;
   for (const controller of activeControllers) controller.abort();
   activeControllers.clear();
+  // A sorban állók ne maradjanak függőben, és ne induljanak el később egy
+  // másik provider-frissítés kérdései között.
+  for (const resolve of queue.splice(0)) resolve(true);
 }
 
 /* --------------------------------------------------- kímélő kéréssor */
@@ -62,25 +87,29 @@ const MIN_GAP_MS = 25;
 
 let inFlight = 0;
 let lastRequestAt = 0;
-const queue: Array<() => void> = [];
 
 function sleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-async function acquire(): Promise<void> {
+async function acquire(generation: number): Promise<boolean> {
+  if (generation !== networkGeneration) return false;
   if (inFlight < MAX_CONCURRENT) {
     inFlight++;
-    return;
+    return true;
   }
-  await new Promise<void>((resolve) => queue.push(resolve));
+  const granted = await new Promise<boolean>((resolve) => {
+    queue.push((cancelled = false) => resolve(!cancelled));
+  });
+  if (!granted || generation !== networkGeneration) return false;
   inFlight++;
+  return true;
 }
 
 function release(): void {
   inFlight = Math.max(0, inFlight - 1);
   const next = queue.shift();
-  if (next) next();
+  if (next) next(false);
 }
 
 /**
@@ -96,7 +125,8 @@ function release(): void {
  *          false, ha soron kívül indult.
  */
 const BYPASS_WAIT_MS = 1500;
-async function acquireWithin(ms: number): Promise<boolean> {
+async function acquireWithin(ms: number, generation: number): Promise<boolean> {
+  if (generation !== networkGeneration) return false;
   if (inFlight < MAX_CONCURRENT) {
     inFlight++;
     return true;
@@ -104,10 +134,14 @@ async function acquireWithin(ms: number): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
     let timer = 0;
-    const grant = () => {
+    const grant: QueueWaiter = (cancelled = false) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (cancelled || generation !== networkGeneration) {
+        resolve(false);
+        return;
+      }
       inFlight++;
       resolve(true);
     };
@@ -395,21 +429,35 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
     attempts.push(proxyUrl(url, 'https://corsproxy.io'));
   }
 
+  const requestGeneration = networkGeneration;
   let lastError: unknown = null;
   for (let index = 0; index < attempts.length; index++) {
+    if (requestGeneration !== networkGeneration) throw new NetworkRequestCancelledError();
     const target = attempts[index];
     const attemptStarted = Date.now();
     // A bejelentkezés-probe rövid várakozás után soron kívül is indulhat;
     // minden más kérés a szokásos (legfeljebb 2 kapcsolatos) sorba áll.
     const bypass = Boolean(options.bypassQueue);
-    const holdingSlot = bypass ? await acquireWithin(BYPASS_WAIT_MS) : (await acquire(), true);
+    const holdingSlot = bypass
+      ? await acquireWithin(BYPASS_WAIT_MS, requestGeneration)
+      : await acquire(requestGeneration);
+    // A probe may deliberately bypass the queue after a short wait. That is
+    // the one supported slot-less path; a generation change, however, must
+    // never let an old request continue into the next import.
+    if (!holdingSlot && (!bypass || requestGeneration !== networkGeneration)) {
+      throw new NetworkRequestCancelledError();
+    }
     try {
       const gap = MIN_GAP_MS - (Date.now() - lastRequestAt);
       if (gap > 0) await sleep(gap);
+      if (requestGeneration !== networkGeneration) throw new NetworkRequestCancelledError();
       lastRequestAt = Date.now();
       return await fetchOnce(target, timeoutMs);
     } catch (error) {
       lastError = error;
+      if (requestGeneration !== networkGeneration || isNetworkRequestCancelled(error)) {
+        throw new NetworkRequestCancelledError();
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (isTransportFailure(message)) {
         // A szerver egyáltalán nem válaszol: nem próbáljuk meg még egyszer
@@ -435,6 +483,7 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
   // A hálózati szintű hibát megkülönböztethető típusként dobjuk tovább: a
   // hívó így tudja, hogy a szerver NEM válaszolt (gyors leállítás, megszakítás),
   // szemben azzal, amikor a szerver válaszolt, csak hibásan.
+  if (requestGeneration !== networkGeneration) throw new NetworkRequestCancelledError();
   const lastMessage = lastError instanceof Error ? lastError.message : String(lastError);
   if (isTransportFailure(lastMessage)) {
     throw new ProviderUnreachableError(describe(lastError, url));
