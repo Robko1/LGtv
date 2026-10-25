@@ -33,7 +33,37 @@ const measurementCounters = { logLines: 0, errors: 0, longTasks: 0, critical: 0 
 // A QR-napló Frissítés gombja után csak a csatornaváltási teszthez szükséges
 // események maradnak meg; a felirat/EPG/OSD és egyéb általános naplózás kimarad.
 let focusedPlaybackTestLogging = false;
-const PLAYBACK_TEST_LOG = /csatornaváltás|formátum|zap-őr|stream adatérkezés|hangdiag|lejátszásindít|első képkocka|hosszú feladat|összeomlás|kezeletlen ígérethiba|leállás|mérés|figyelő elindult|oldal elhagyása|háttérbe került|hibaállapot törlése/i;
+const PLAYBACK_TEST_LOG = /csatornaváltás|formátum|zap-őr|stream adatérkezés|hangdiag|lejátszásindít|első képkocka|hosszú feladat|összeomlás|kezeletlen ígérethiba|leállás|mérés|figyelő elindult|oldal elhagyása|háttérbe került|hibaállapot törlése|újracsatlakozás|visszaállítás|megakadt/i;
+
+/**
+ * RÉSZLETES DIAGNOSZTIKA csak a QR-napló „Frissítés” mérési ablakában fut.
+ *
+ * Normál tévézés közben a VideoPlayer így nem olvassa végig a teljes
+ * localStorage-t, nem kérdezi le a videó dobozának geometriáját és nem
+ * épít új Intl-formázót minden naplósorhoz. Ezek csatornaváltásonként
+ * több tíz milliszekundumot (nagy listánál több százat) vittek el a TV-n.
+ */
+export function isVerbosePlaybackLogging(): boolean {
+  return focusedPlaybackTestLogging;
+}
+
+/*
+ * Intl.DateTimeFormat létrehozása drága (ICU adatok betöltése). Korábban
+ * minden naplósorhoz új példány készült – egy csatornaváltás 8–12 sort ír,
+ * ezért a formázót egyszer hozzuk létre és újrahasználjuk.
+ */
+let stampFormatter: Intl.DateTimeFormat | null = null;
+function dublinFormatter(): Intl.DateTimeFormat {
+  if (!stampFormatter) {
+    stampFormatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Dublin',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    });
+  }
+  return stampFormatter;
+}
 
 /** A napló minden abszolút időpontját az ír időzónában írjuk ki, explicit UTC-eltolással. */
 function dublinTimestamp(at: number = Date.now()): string {
@@ -41,12 +71,7 @@ function dublinTimestamp(at: number = Date.now()): string {
   // A Date.now() értékét és az alkalmazás óráját nem módosítjuk.
   const logAt = at + 60 * 60 * 1000;
   const date = new Date(logAt);
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Dublin',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
+  const parts = dublinFormatter().formatToParts(date);
   const part = (type: string) => parts.find((item) => item.type === type)?.value || '00';
   const year = part('year');
   const month = part('month');
@@ -138,23 +163,58 @@ function persistSoon(): void {
  * lassítsa a TV-t.
  */
 let lastPersistAt = 0;
+let forceFlushTimer: number | null = null;
+/** Két szinkron, nagyméretű naplóírás közötti minimális idő (ms). */
+const MIN_FORCE_INTERVAL_MS = 2000;
 
-function persistNow(force = false): void {
-  try {
-    if (!force && chars > 30000) return;
-    // Legfeljebb 30 másodpercenként írunk ki azonnal – a webOS localStorage
-    // írása szinkron, és a lejátszás alatt nem akarunk plusz akadozást.
-    if (!force && Date.now() - lastPersistAt < 30000) return;
-  } catch { /* nem elérhető */ }
-  lastPersistAt = Date.now();
+function writeLogToStorage(): void {
   if (saveTimer !== null) {
     try { window.clearTimeout(saveTimer); } catch { /* nem elérhető */ }
     saveTimer = null;
   }
+  if (forceFlushTimer !== null) {
+    try { window.clearTimeout(forceFlushTimer); } catch { /* nem elérhető */ }
+    forceFlushTimer = null;
+  }
+  lastPersistAt = Date.now();
   try {
     localStorage.setItem(`iptv_rt_${STORE_KEY}`, lines.join('\n'));
   } catch {
     /* a TV tárhelyhibája nem akadályozhatja a működést */
+  }
+}
+
+function persistNow(force = false): void {
+  if (!force) {
+    if (chars > 30000) return;
+    // Legfeljebb 30 másodpercenként írunk ki azonnal – a webOS localStorage
+    // írása szinkron, és a lejátszás alatt nem akarunk plusz akadozást.
+    if (Date.now() - lastPersistAt < 30000) return;
+    writeLogToStorage();
+    return;
+  }
+  /*
+   * KRITIKUS SOR: azonnal megy a tárba. Ha azonban a napló már nagy
+   * (30 KB felett), két szinkron, akár 1 MB-os írás 2 mp-en belül a TV-n
+   * láthatóan megakasztotta a lejátszást. Ilyenkor a további kritikus
+   * sorokat egyetlen, legfeljebb 2 mp múlva esedékes írásba fogjuk össze;
+   * a napló minden sora így is megvan a memóriában.
+   */
+  if (chars <= 30000 || Date.now() - lastPersistAt >= MIN_FORCE_INTERVAL_MS) {
+    writeLogToStorage();
+    return;
+  }
+  if (forceFlushTimer === null) {
+    const remaining = Math.max(50, MIN_FORCE_INTERVAL_MS - (Date.now() - lastPersistAt));
+    try {
+      forceFlushTimer = window.setTimeout(() => {
+        forceFlushTimer = null;
+        writeLogToStorage();
+      }, remaining);
+    } catch {
+      forceFlushTimer = null;
+      writeLogToStorage();
+    }
   }
 }
 
@@ -168,6 +228,11 @@ export function clearAppLog(): void {
     window.clearTimeout(saveTimer);
     saveTimer = null;
   }
+  if (forceFlushTimer !== null) {
+    try { window.clearTimeout(forceFlushTimer); } catch { /* nem elérhető */ }
+    forceFlushTimer = null;
+  }
+  lastPersistAt = 0;
   lines = [];
   chars = 0;
   restoreAttempted = true;
@@ -275,7 +340,6 @@ export interface MeasurementSnapshot {
 /** Óra:perc:másodperc alak (a TV helyi ideje szerint). */
 export function clockText(at: number = Date.now()): string {
   const date = new Date(at);
-  const pad = (value: number) => String(value).padStart(2, '0');
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date);
   const value = (type: string) => parts.find((part) => part.type === type)?.value || '00';
   return `${value('hour')}:${value('minute')}:${value('second')}`;
@@ -303,6 +367,9 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
   // A Frissítés egy valódi új mérési ablak: a korábbi sorok a memóriából és
   // a tartós naplótárból is törlődnek. A 24 órás automatikus megőrzési szabály
   // ettől függetlenül változatlan marad a normál naplózás során.
+  // A nullázás ELŐTTI értékeket azért mentsük el, hogy az új naplóban is
+  // látszódjon a bizonyíték: volt mit nullázni (ezt a QR-diagnózis ígérte).
+  const previous = measurementSnapshot();
   const startedAt = Date.now();
   focusedPlaybackTestLogging = true;
   clearAppLog();
@@ -320,7 +387,8 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
     /* a figyelő még nem indult el */
   }
 
-  appLog(`=== ÚJ MÉRÉS KEZDETE: ${dublinTimestamp(startedAt)} (${clockText(startedAt + 60 * 60 * 1000)}); előzmények törölve; ok: ${reason} ===`);
+  appLog(`=== ÚJ MÉRÉS KEZDETE: ${dublinTimestamp(startedAt)} (${clockText(startedAt + 60 * 60 * 1000)}); minden korábbi mért érték nullázva; ok: ${reason} ===`);
+  appLog(`MÉRÉS NULLÁZÁS ELŐTT [${previous.startedAtText} óta]: naplósorok=${previous.logLines}, hibák=${previous.errors}, hosszú feladatok=${previous.longTasks}`);
   appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt + 60 * 60 * 1000)}]: számlálók nullázva; ${memorySnapshot()}; ${uiStateSnapshot()}`);
   // A két kezdősor a QR-naplóban megmarad, de nem növeli a mérés számlálóját.
   measurementCounters.logLines = 0;

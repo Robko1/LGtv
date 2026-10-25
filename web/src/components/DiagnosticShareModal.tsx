@@ -34,7 +34,12 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const [measure, setMeasure] = useState<MeasurementSnapshot>(() => measurementSnapshot());
   const generationRef = useRef(0);
   const shareRef = useRef<DiagnosticShare | null>(null);
-  const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, onClose);
+  // A bezárás (távirányítós Vissza/Escape) is naplózva legyen.
+  const closeModal = () => {
+    appLog('QR-diagnózis bezárva.');
+    onClose();
+  };
+  const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, closeModal);
   shareRef.current = share;
 
   const createNewQr = async (trigger: string = 'automatikus (megnyitás)') => {
@@ -62,11 +67,6 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     } finally {
       if (generation === generationRef.current) setBusy(false);
     }
-  };
-
-  const closeModal = () => {
-    appLog('QR-diagnózis bezárva.');
-    onClose();
   };
 
   const refreshLog = async () => {

@@ -934,7 +934,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         <div className={`border-t p-2 space-y-1.5 ${folderIndex % 2 === 0 ? 'border-cyan-500/50' : 'border-amber-400/50'}`}>
                           {folderChannels.length === 0 ? (
                             <p className="p-4 text-center text-xs text-slate-400">Ez a kedvenc mappa üres.</p>
-                          ) : folderChannels.map((channel, index) => {
+                          ) : folderChannels.map((channel) => {
                             return (
                               <div
                                 key={channel.id}
@@ -998,7 +998,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {resumableHistory.map((item, itemIndex) => (
+                    {resumableHistory.map((item) => (
                         <div
                           key={item.id}
                           role="group"
@@ -1036,7 +1036,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             </button>
                             <button
                               data-resume-remove=""
-                              onClick={(event) => {
+                              onClick={() => {
                                 onRemoveWatchHistoryItem(item.id);
                                 // Törlés után ne ugorjon át automatikusan egy másik filmre.
                                 // A Folytatás szekció maradjon kijelölve.

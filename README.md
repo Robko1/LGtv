@@ -155,6 +155,11 @@ grep -c requestFullscreen usr/palm/applications/hu.rt.iptv.webos/index.html   # 
 
 ## Verzió
 
+- **v2.5.86** – megbízhatósági és sebességi csomag (részletes leírás: `web/src/appVersion.ts`):
+  - Élő TV: pufferelésnél / újracsatlakozásnál a kép **nem tűnik el** (csak egy kis átlátszó jelző van), nincs többé végleges fekete hibaképernyő – a lejátszó fokozatos visszalépéssel folyamatosan próbálkozik.
+  - Film / sorozat: a megszakadt stream a **legutolsó pozícióról magától folytatódik**; a korai `ended`, a `play()` `AbortError`-ja és az automatikus hangsávválasztás nem állítják meg a filmet.
+  - Gyorsabb csatornaváltás: a részletes diagnosztika csak a QR-mérési ablakban fut, az időbélyeg-formázó gyorsítótárazott, a kritikus naplóírás összevont.
+  - Új, képkocka-alapú lejátszásfigyelő (`web/src/services/playbackRecovery.ts`), teljes TypeScript-tisztaság, 2 új futásidejű teszt.
 - **v2.5.10** – a hét hiba javítása: indítókép egyetlen váltással (`notifyAppLoaded`), kitöltő élő kép, a csatornalista doboza nem jelölhető ki, teljes képernyős OSD, CSS-átfedéses teljes képernyő, kevesebb újrarajzolás, nem blokkoló bejelentkezés + 17 teszt
 - **v2.5.1** – egy pillanat alatti indulás (a kész felület egyszerre jelenik meg), kisebb csomag
 - **v2.5.0** – induló videó kivéve: a logó képkockája az indítókép, utána azonnal a főoldal; kisebb IPK
@@ -168,6 +173,20 @@ grep -c requestFullscreen usr/palm/applications/hu.rt.iptv.webos/index.html   # 
 - **v2.4.3** – távirányítós menüsor-kör, OK = azonnali teljes képernyő, csatornabetöltés mód (Xtream API / M3U), 9 soros lista
 - **v2.4.0** – teljesítmény-javítások + választható lejátszó motor (HTML5 / natív)
 - **v2.3.1** – LG webOS-only build + távirányító fix + QR
-- IPK: `IPTV-RT.ipk` (kb. 500-600KB)
-- appinfo.json: `hu.rt.iptv.webos` v2.5.1
+- IPK: `webos/IPTV-RT.ipk` (kb. 945 KB)
+- appinfo.json: `hu.rt.iptv.webos` v2.5.86
+
+## Tesztek
+
+```bash
+npm install && npm --prefix web install
+npm test                                   # 139 forrás/viselkedés-teszt + formátum-, napló-, lejátszás-tesztek
+node tools/test-playback-recovery.mjs      # az újracsatlakozási politika valódi futtatása
+node tools/test-player-runtime.mjs         # a VideoPlayer Reactben, jsdom-mal (pause / ended / error / fekete overlay)
+npx --prefix web tsc --noEmit              # teljes TypeScript-ellenőrzés
+npm --prefix web run build && npm run smoke
+VERSION=2.5.86 bash tools/build-webos.sh   # webos/IPTV-RT.ipk
+```
+
+A `test-player-runtime.mjs` a régi kódon 11 ellenőrzésen bukik el, az újon mindegyik átmegy – így a két jelentett TV-hiba regressziója azonnal észrevehető.
 

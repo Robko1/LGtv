@@ -295,10 +295,6 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (e.currentTarget as HTMLDivElement).click(); } }}
                 onClick={() => {
-                  const countryCode = cat.id.startsWith('country-') ? cat.id.slice('country-'.length) : '';
-                  const subCategories = countryCode
-                    ? Array.from(countrySubCategories.get(countryCode)?.values() || [])
-                    : [];
                   // Ha több alkategória van, kiválasztjuk az országot (pl. Magyarország 105)
                   // és lenyitjuk az alkategóriákat – így csak a kiválasztott ország/kategória
                   // csatornái jelennek meg, nem nyílik több kategória egyszerre.

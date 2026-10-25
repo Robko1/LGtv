@@ -11,13 +11,21 @@
  * Futtatás:  node tools/test-bridge.mjs
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(path.join(here, '..', 'android', 'assets', 'native-bridge.js'), 'utf8');
+const bridgePath = path.join(here, '..', 'android', 'assets', 'native-bridge.js');
+// Az alkalmazás kizárólag LG webOS-re készül: az Android híd már nincs a
+// projektben. A régi füstteszt ilyenkor nem hibázik, csak jelzi, hogy nincs
+// mit futtatni (a webOS utat a többi teszt ellenőrzi).
+if (!existsSync(bridgePath)) {
+  console.log('KIPARANCSOLT: az Android native-bridge.js már nincs a projektben (webOS-only build).');
+  process.exit(0);
+}
+const source = readFileSync(bridgePath, 'utf8');
 
 let failures = 0;
 let checks = 0;

@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.5.85';
+export const WEB_VERSION = '2.5.86';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.86',
+    date: '2026-10-25',
+    changes: [
+      'FOLYAMATOS ÉLŐ ADÁS: a lejátszás közbeni megakadásnál a kép NEM tűnik el többé (a puffer/újracsatlakozás jelzője átlátszó, a legutolsó képkocka és a hang megmarad)',
+      'Nincs többé végleges „lefagyott” hibaképernyő: a lejátszó fokozatos visszalépéssel folyamatosan újracsatlakozik az eredeti címmel, majd szükség esetén a másik TS/HLS formátummal',
+      'FILM / SOROZAT: a szolgáltatói kapcsolat megszakadása (korai ended / error / elakadás) után a film a legutolsó pozícióról magától folytatódik – nem kell kilépni és újra belépni',
+      'JAVÍTVA: a belső forrásváltás késve érkező pause eseménye többé nem állítja meg az újonnan indított streamet (ez okozta a film azonnali megállását)',
+      'JAVÍTVA: az automatikus magyar hangsávválasztás nem tölti újra a film forrását; a play() AbortError-ja nem számít többé hibának',
+      'GYORSABB CSATORNAVÁLTÁS: a részletes diagnosztika (teljes localStorage átolvasása, dobozgeometria, canPlayType, Intl-időbélyeg) csak a QR-mérési ablakban fut',
+      'Új, képkocka-alapú lejátszásfigyelő: webOS-en az élő idővonal gyakran 0 marad, ezért a képkockák, a puffer és az idő együtt döntenek a megakadásról',
+      'A hibaképernyőn végre van távirányítóval elérhető ÚJRApróbálás gomb; a teljes forráskód TypeScript-ellenőrzése hibátlan',
+    ],
+  },
   {
     version: '2.5.85',
     date: '2026-10-23',

@@ -37,7 +37,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
 
   // M3U fields
   const [m3uUrl, setM3uUrl] = useState(editProvider?.m3uUrl || '');
-  const { modalRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(isOpen, onClose, [tab]);
+  const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, onClose, [tab]);
 
   useEffect(() => {
     if (!isOpen) return;

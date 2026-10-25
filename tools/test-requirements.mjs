@@ -750,7 +750,7 @@ test('10. tükrözésnél a Menü a BAL oldalon nyílik ki', () => {
 
 test('10. Mozi/Sorozat nézetben az élő TV NEM indul el a háttérben', () => {
   assert.match(PLAYER, /playbackActive\?: boolean;/);
-  assert.match(PLAYER, /if \(!isVod && !playbackActiveRef\.current\) return;/);
+  assert.match(PLAYER, /if \(!isVod && !playbackActiveRef\.current\) \{ endSwitch\(\); return; \}/);
   assert.match(PLAYER, /if \(!isVod && !playbackActive\) \{[\s\S]{0,320}?video\.removeAttribute\('src'\)/);
   assert.match(PLAYER, /\}, \[loadKey, clearAutoRetry, clearBufferWatchdog, settings\.streamFormat, playbackActive\]\);/);
   // Az App a látható nézetből vezérli.
@@ -776,15 +776,24 @@ test('10. az Országok gombról lefelé is lehet lépni (tükrözött/jobb oldal
   assert.match(WEBOS_JS, /if \(!spatialPick\(focusedNow, 'ArrowUp', aboveItems\)\) \{/);
 });
 
-test('10. film/sorozat hang: a webOS forrás-újranyitással vált, pozíció megtartásával', () => {
+test('10. film/sorozat hang: a KÉZI hangsávváltás őrzi a pozíciót, az automatikus NEM tölt újra', () => {
   const switcher = PLAYER.slice(PLAYER.indexOf('const switchHtmlVodAudio'), PLAYER.indexOf('const selectVodAudio'));
   assert.match(switcher, /applyEnabled\(video\)/);
   assert.match(switcher, /current\[i\]\.enabled = enabled/);
-  // Ha a TV nem igazolta vissza, a forrást újranyitjuk és visszaállunk a pozícióra.
-  assert.match(switcher, /const position = Number\(video\.currentTime \|\| 0\);/);
-  assert.match(switcher, /video\.addEventListener\('loadedmetadata', restore, \{ once: true \}\)/);
+  /*
+   * A korábbi változat AZONBAN az automatikus (magyar alapnyelv) választásnál
+   * is 350 ms után újratöltötte a forrást – ez állította meg a filmet néhány
+   * ms-os indulás után. Most csak a felhasználó KÉZI választásánál nyitunk
+   * új forrást, generációs őrrel és biztonsági visszaállítással.
+   */
+  assert.match(switcher, /const allowReload = !vodAutoAudioSwitchRef\.current;/);
+  assert.match(switcher, /if \(generation !== streamLoadGenerationRef\.current/);
+  assert.match(switcher, /const position = Math\.max\(Number\(video\.currentTime \|\| 0\), Number\(vodLastPositionRef\.current \|\| 0\)\);/);
+  assert.match(switcher, /video\.addEventListener\('loadedmetadata', restore\)/);
   assert.match(switcher, /video\.src = url;/);
   assert.match(switcher, /if \(wasPlaying\) void video\.play\(\)/);
+  assert.match(switcher, /window\.setTimeout\(\(\) => \{\s*restore\(\);/);
+  assert.match(PLAYER, /vodAutoAudioSwitchRef\.current = true;/);
 });
 
 test('10. film/sorozat felirat (CC): szolgáltatói feliratok + saját kirajzolás', () => {
@@ -1102,7 +1111,9 @@ test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és l�
   // A napló mérés-ablaka: 0-ról induló számlálók + látható kezdő időpont.
   assert.match(APPLOG, /export function resetMeasurements\(reason: string = 'kézi frissítés'\): MeasurementSnapshot/);
   assert.match(APPLOG, /measurementCounters\.logLines = 0;\s*\n\s*measurementCounters\.errors = 0;\s*\n\s*measurementCounters\.longTasks = 0;/);
-  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{dublinTimestamp\(startedAt\)\} \(\$\{clockText\(startedAt \+ 60 \* 60 \* 1000\)\}\); előzmények törölve; ok: \$\{reason\}/);
+  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{dublinTimestamp\(startedAt\)\} \(\$\{clockText\(startedAt \+ 60 \* 60 \* 1000\)\}\); minden korábbi mért érték nullázva; ok: \$\{reason\}/);
+  // A Frissítés a nullázás ELŐTTI számlálókat is megőrzi az új naplóban.
+  assert.match(APPLOG, /MÉRÉS NULLÁZÁS ELŐTT \[\$\{previous\.startedAtText\} óta\]: naplósorok=\$\{previous\.logLines\}, hibák=\$\{previous\.errors\}, hosszú feladatok=\$\{previous\.longTasks\}/);
   assert.match(APPLOG, /MÉRÉS KEZDETE: \$\{clockText\(measure\.startedAt \+ 60 \* 60 \* 1000\)\}/);
   // A felugró ablak a Frissítéskor nulláz, és kiírja a kezdő időpontot.
   assert.match(DIAG_MODAL, /const fresh = resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\);/);
