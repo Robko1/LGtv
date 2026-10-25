@@ -56,6 +56,27 @@ async function jsonOrEmpty(response: Response): Promise<any> {
   try { return JSON.parse(text); } catch { return {}; }
 }
 
+/** A PostgREST hiba rövid, biztonságos része a TV olvasható hibaüzenetéhez. */
+async function responseReason(response: Response): Promise<string> {
+  try {
+    const raw = await response.clone().text();
+    if (!raw) return `HTTP ${response.status}`;
+    const parsed = JSON.parse(raw);
+    const detail = parsed?.message || parsed?.error || parsed?.code || parsed?.hint;
+    return detail ? `HTTP ${response.status}: ${String(detail).slice(0, 180)}` : `HTTP ${response.status}`;
+  } catch {
+    return `HTTP ${response.status}`;
+  }
+}
+
+function safeExceptionReason(error: unknown): string {
+  if (error instanceof DOMException && error.name === "AbortError") return "database_timeout";
+  if (error instanceof Error && error.name === "AbortError") return "database_timeout";
+  if (error instanceof Error && /configuration is missing/i.test(error.message)) return "service_configuration_missing";
+  if (error instanceof Error && error.message) return error.message.replace(/https?:\\/\\/[^\\s]+/g, "[endpoint]").slice(0, 180);
+  return "internal_service_error";
+}
+
 function cleanLog(input: string) {
   return input.replace(
     /((?:password|passwd|token|authorization|api[_-]?key|secret)\s*[:=]\s*)[^\s,;]+/gi,
@@ -97,8 +118,9 @@ async function findExisting(logNumber: number, startedAt: string): Promise<any |
     "&select=log_number,started_at,created_at,log_text&order=created_at.desc&limit=1";
   const response = await db(path);
   if (!response.ok) {
-    console.error("diagnostic existing-record lookup failed", response.status);
-    throw new Error(`database lookup failed: ${response.status}`);
+    const reason = await responseReason(response);
+    console.error("diagnostic existing-record lookup failed", reason);
+    throw new Error(`database lookup failed: ${reason}`);
   }
   const rows = await jsonOrEmpty(response);
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
@@ -149,8 +171,9 @@ async function handle(req: Request): Promise<Response> {
       "?log_number=not.is.null&select=log_number,started_at,created_at&order=log_number.desc,created_at.desc&limit=" + MAX_LOG_ROWS,
     );
     if (!result.ok) {
-      console.error("diagnostic history failed", result.status);
-      return out(result.status >= 500 ? 503 : 502, { error: "history_unavailable" });
+      const reason = await responseReason(result);
+      console.error("diagnostic history failed", reason);
+      return out(result.status >= 500 ? 503 : 502, { error: "history_unavailable", reason });
     }
     const rows = await jsonOrEmpty(result);
     return out(200, {
@@ -201,8 +224,9 @@ async function handle(req: Request): Promise<Response> {
       const duplicate = await findExisting(body.logNumber, startedAt);
       if (duplicate) return out(200, { ok: true, record: recordFromRow(duplicate, cleanedLog, startedAt), duplicate: true });
     }
-    console.error("diagnostic insert failed", result.status);
-    return out(result.status >= 500 ? 503 : 502, { error: "send_failed" });
+    const reason = await responseReason(result);
+    console.error("diagnostic insert failed", reason);
+    return out(result.status >= 500 ? 503 : 502, { error: "send_failed", reason });
   }
 
   // Normál esetben a PostgREST return=representation válaszából dolgozunk.
@@ -226,7 +250,8 @@ Deno.serve(async (req: Request) => {
     // A korábbi függvényben egy adatbázis-/JSON-/pruning kivétel a runtime-ot
     // leállította, ezért a TV csak „HTTP 503”-at látott. Most mindig értelmes,
     // újrapróbálható JSON-válasz megy vissza.
+    const reason = safeExceptionReason(error);
     console.error("tv-diagnostic-share failed", error instanceof Error ? error.stack || error.message : String(error));
-    return out(503, { error: "service_unavailable" });
+    return out(503, { error: "service_unavailable", reason });
   }
 });

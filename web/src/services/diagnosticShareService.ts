@@ -66,7 +66,7 @@ async function request(body: Record<string, unknown>): Promise<any> {
       if (response.ok) return result;
 
       const status = response.status;
-      const reason = String(result?.error || result?.message || `HTTP ${status}`);
+      const reason = String(result?.reason || result?.message || result?.error || `HTTP ${status}`);
       const error = new Error(`HTTP ${status}: ${reason}`) as DiagnosticRequestError;
       error.status = status;
       error.transient = isTransientStatus(status);
