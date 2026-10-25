@@ -615,7 +615,9 @@ export function App() {
   // A listában látható sorok műsorát a ChannelList saját gyorsítótárból
   // frissíti (localEpg), ehhez nem kell a nagy tömb módosítása.
   useEffect(() => {
-    if (!activeProvider || activeProvider.type !== 'xtream') return;
+    // Film/sorozat nézetben az élő csatorna megmarad a visszatéréshez, de
+    // nincs látható EPG, ezért a 30 mp-es frissítésnek ott nincs dolga.
+    if (activeView !== 'live' || customStreamUrl || !activeProvider || activeProvider.type !== 'xtream') return;
     const refreshActiveProgram = () => {
       const channel = channelsById.get(activeChannelId);
       if (!channel) return;
@@ -643,7 +645,7 @@ export function App() {
     refreshActiveProgram();
     const timer = window.setInterval(refreshActiveProgram, 30000);
     return () => window.clearInterval(timer);
-  }, [activeProvider?.id, activeProvider?.type, activeChannelId, channelsById]);
+  }, [activeView, customStreamUrl, activeProvider?.id, activeProvider?.type, activeChannelId, channelsById]);
 
   /**
    * Az ÉPPEN NÉZETT csatorna műsora (most / következő) a szolgáltatótól.
@@ -655,7 +657,7 @@ export function App() {
   useEffect(() => {
     const channel = activeChannel;
     const provider = activeProvider;
-    if (!channel || !provider || provider.type !== 'xtream') return;
+    if (activeView !== 'live' || customStreamUrl || !channel || !provider || provider.type !== 'xtream') return;
     if (providerRefreshActiveRef.current) return;
     const streamId = streamIdFor(channel);
     if (!streamId) return;
@@ -680,7 +682,7 @@ export function App() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [activeChannel?.id, activeProvider?.id]);
+  }, [activeView, customStreamUrl, activeChannel?.id, activeProvider?.id]);
 
   /*
    * A filmek és sorozatok betöltése a mentett tárból.
@@ -2620,6 +2622,7 @@ export function App() {
               setSettingsTab('system');
               setIsSettingsOpen(true);
             }}
+            isActive={activeView === 'live' && !customStreamUrl && !isVideoFullscreen && isOsdVisible}
           /></div>}
           </div>
           {/* Virtualized Fast Channel List – reszponzív oldalsáv.
@@ -2659,6 +2662,7 @@ export function App() {
                 onDisplayOrderChange={handleDisplayOrderChange}
                 onAssignToFolder={handleAssignChannelToFolder}
                 onSelectFavoriteFolder={handleSelectFavoriteFolder}
+                isActive={activeView === 'live' && !customStreamUrl && !isVideoFullscreen}
               />
             </div>
         </div>

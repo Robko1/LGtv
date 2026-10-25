@@ -7,19 +7,18 @@ import App from "./App";
 import {
   appLog, appLogCritical, clearAppLog, getAppLogText, installCrashHandlers, logPhase, logStartup,
   manualLogSnapshot, startManualLogging, stopManualLogging, measurementSnapshot, resetMeasurements,
-  startRuntimeWatchdog, uiStateSnapshot,
+  uiStateSnapshot,
 } from "./services/appLog";
 import { WEB_VERSION } from "./appVersion";
 
 /*
  * FAGYÁS-/ÖSSZEOMLÁS-DIAGNOSZTIKA.
  *
- * Még a felület felépítése ELŐTT elindul a hibakezelő és a fagyásfigyelő:
- * ha a TV az első indítás után ~3 percnél leáll, a napló (SÁRGA gomb → kézi napló)
- * megmutatja az utolsó állapotot, a memóriát és a hibaüzenetet.
+ * Még a felület felépítése ELŐTT elindul a hibakezelő. A fagyásfigyelő
+ * szándékosan csak a kézzel indított naplóval együtt indul, hogy normál
+ * tévézésnél ne maradjon fölösleges timer/PerformanceObserver a TV-n.
  */
 installCrashHandlers();
-startRuntimeWatchdog();
 logStartup(WEB_VERSION);
 logPhase('bundle betöltve (main.tsx)');
 

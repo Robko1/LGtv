@@ -26,6 +26,8 @@ interface ChannelListProps {
   onDisplayOrderChange?: (orderedChannelIds: string[]) => void;
   /** SÁRGA gomb: a kijelölt csatorna hozzáadása egy kedvenc mappához. */
   onAssignToFolder?: (channelId: string, folderId: string) => void;
+  /** Rejtett nézetben az EPG-óra nem frissít, hogy ne legyen háttér-renderelés. */
+  isActive?: boolean;
 }
 
 /**
@@ -66,6 +68,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   onSelectFavoriteFolder,
   onDisplayOrderChange,
   onAssignToFolder,
+  isActive = true,
 }) => {
   // Sorszám szerinti rendezés és a Vissza gomb csak megnyitott kedvenc mappában működik.
   const [sortMode, setSortMode] = useState<'saved' | 'number' | 'back'>(() => {
@@ -92,9 +95,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   // A lista sárga EPG-sávja az OSD-vel azonos ütemben frissül.
   // Az időbélyegek alapján számoljuk újra a kitöltést, nem a csatornaváltáshoz kötjük.
   useEffect(() => {
+    if (!isActive) return;
+    setEpgClock(Date.now());
     const timer = window.setInterval(() => setEpgClock(Date.now()), 10000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isActive]);
 
   useEffect(() => {
     if (!selectedFavoriteFolderId) {
@@ -266,7 +271,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   // gondoskodnak az EPG-ről. Így a lista nem függ attól, hogy az App előtöltése
   // éppen lefutott-e, és a műsor koppintás nélkül is megjelenik.
   useEffect(() => {
-    if (!epgReady || !activeProvider || activeProvider.type !== 'xtream') {
+    if (!isActive || !epgReady || !activeProvider || activeProvider.type !== 'xtream') {
       setLocalEpg({});
       return;
     }
@@ -363,12 +368,12 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       window.clearTimeout(startTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
     };
-  }, [epgReady, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
+  }, [isActive, epgReady, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
 
   // A gyorsítótárból 30 másodpercenként újraszámoljuk az éppen futó műsort,
   // ezért a cím és a sárga haladási sáv magától frissül.
   useEffect(() => {
-    if (!activeProvider || activeProvider.type !== 'xtream') return;
+    if (!isActive || !activeProvider || activeProvider.type !== 'xtream') return;
     setLocalEpg((previous) => {
       let changed = false;
       const next = { ...previous };
@@ -391,7 +396,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       }
       return changed ? next : previous;
     });
-  }, [epgClock, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
+  }, [isActive, epgClock, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
 
   // A teljes képernyőre lépéskor a lista lekerül a képernyőről, ezért
   // a görgetési helyzetet külön, nézetenként mentjük és visszaállítjuk.

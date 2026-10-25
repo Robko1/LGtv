@@ -24,6 +24,8 @@ let chars = 0;
 let restoreAttempted = false;
 let saveTimer: number | null = null;
 let loggingEnabled = false;
+/** A nagy, szinkron localStorage-írás ne fusson másfél másodpercenként a TV-n. */
+const PERSIST_DELAY_MS = 5000;
 let activeLogNumber: number | null = null;
 let activeLogStartedAt = 0;
 
@@ -156,7 +158,7 @@ function persistSoon(): void {
       } catch {
         /* a TV tárhelyhibája nem akadályozhatja a működést */
       }
-    }, 1500);
+    }, PERSIST_DELAY_MS);
   } catch {
     saveTimer = null;
   }
@@ -165,7 +167,7 @@ function persistSoon(): void {
 /**
  * AZONNALI mentés (a késleltetés megkerülésével).
  *
- * Fagyás / összeomlás előtt nincs idő az 1,5 másodperces késleltetésre: a
+ * Fagyás / összeomlás előtt nincs idő az összevont mentés késleltetésére: a
  * kritikus sorokat (LEÁLLÁS, IDŐVONAL, ÖSSZEOMLÁS) rögtön kiírjuk, hogy a
  * következő indításnál – és a kézzel elküldhető naplóban – ott legyen.
  * Nagy naplónál (30 KB felett) csak ritkán írunk, hogy a szinkron írás ne
@@ -270,6 +272,9 @@ export function startManualLogging(): ManualLogSnapshot {
   measurementCounters.longTasks = 0;
   measurementCounters.critical = 0;
   loggingEnabled = true;
+  // A főszál-/longtask-figyelő csak a kézzel indított diagnosztika idején
+  // futhat: normál tévézésnél nincs szükség állandó timerre vagy observerre.
+  startRuntimeWatchdog();
   let version = DEFAULT_APP_VERSION;
   try { version = String((window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION || DEFAULT_APP_VERSION); } catch { /* régi/teszt környezet */ }
   appLog(`=== NAPLÓZÁS INDULT; napló=#${activeLogNumber}; kezdete=${dateTimeText(startedAt)}; verzió=${version} ===`);
@@ -286,6 +291,7 @@ export function stopManualLogging(reason = 'kézi leállítás'): ManualLogSnaps
     appLog(`=== NAPLÓZÁS LEÁLLÍTVA; napló=#${activeLogNumber ?? 'ismeretlen'}; ok=${reason} ===`);
   }
   loggingEnabled = false;
+  stopRuntimeWatchdog();
   persistNow(true);
   return manualLogSnapshot();
 }
@@ -335,7 +341,9 @@ export function appLog(message: string): void {
   }
   lines.push(line);
   chars += line.length + 1;
-  trimExpired();
+  // A kézi munkamenet mindig tiszta naplóval indul. A korhatár-ellenőrzés
+  // visszaállításkor és export előtt elég; soronkénti Date.parse O(n²)
+  // munkát nem végezhetünk a TV főszálán.
   trim();
   persistSoon();
 }
@@ -568,20 +576,19 @@ export function uiStateSnapshot(): string {
 }
 
 let watchdogStarted = false;
+let watchdogTimer: number | null = null;
+let longTaskObserver: { disconnect?: () => void } | null = null;
 let lastTickAt = 0;
 let lastLongTaskAt = 0;
 /** Ennél hosszabb kimaradás = a fő szál állt (TV-n ez már látható fagyás). */
 const STALL_MS = 2500;
-/** Idővonal-sorok közötti idő (memória + állapot). */
 
 /**
- * Futásidejű fagyásfigyelő. 1 másodpercenként „szívverést” mér: ha a fő szál
- * kimarad, a különbség megmutatja, mennyi ideig nem futott semmi. A hosszú
- * feladatok (longtask) külön, pontos méréssel kerülnek a naplóba, ha a motor
- * támogatja (webOS 5+ / Chrome 58+).
+ * Futásidejű fagyásfigyelő. Csak kézi diagnosztika alatt él: normál
+ * tévézésnél nem tartunk fenn másodpercenkénti timer-t és PerformanceObservert.
  */
 export function startRuntimeWatchdog(): void {
-  if (watchdogStarted) return;
+  if (watchdogStarted || !loggingEnabled) return;
   watchdogStarted = true;
   lastTickAt = Date.now();
 
@@ -594,15 +601,16 @@ export function startRuntimeWatchdog(): void {
     }
   };
   try {
-    window.setInterval(tick, 1000);
+    watchdogTimer = window.setInterval(tick, 1000);
   } catch {
-    /* ha nincs időzítő, a többi naplózás akkor is működik */
+    watchdogTimer = null;
   }
 
   try {
     const Observer = (window as unknown as {
       PerformanceObserver?: new (callback: (list: { getEntries: () => Array<{ duration: number; name: string }> }) => void) => {
         observe: (options: { entryTypes: string[] }) => void;
+        disconnect?: () => void;
       };
     }).PerformanceObserver;
     if (Observer) {
@@ -618,12 +626,24 @@ export function startRuntimeWatchdog(): void {
         }
       });
       observer.observe({ entryTypes: ['longtask'] });
+      longTaskObserver = observer;
     }
   } catch {
-    /* a motor nem támogatja a longtask mérést */
+    longTaskObserver = null;
   }
 
   appLogCritical('FIGYELŐ ELINDULT; csatornaváltási tesztmérés; főszál-fagyás és JS-hibák figyelése.');
+}
+
+/** A kézi napló leállításakor a fagyásfigyelő erőforrásait is felszabadítjuk. */
+export function stopRuntimeWatchdog(): void {
+  if (watchdogTimer !== null) {
+    try { window.clearInterval(watchdogTimer); } catch { /* régi motor */ }
+    watchdogTimer = null;
+  }
+  try { longTaskObserver?.disconnect?.(); } catch { /* régi motor */ }
+  longTaskObserver = null;
+  watchdogStarted = false;
 }
 
 /**

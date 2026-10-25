@@ -27,6 +27,8 @@ interface ChannelControlsProps {
   hideHeaderActions?: boolean;
   className?: string;
   onOpenChannelDetails?: () => void;
+  /** Rejtett OSD-nél az EPG-óra nem okoz háttér-renderelést. */
+  isActive?: boolean;
 }
 
 /**
@@ -183,12 +185,15 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
   onRequestHide,
   hideHeaderActions = false,
   className,
+  isActive = true,
 }) => {
   const [epgClock, setEpgClock] = React.useState(() => Date.now());
   React.useEffect(() => {
+    if (!isActive) return;
+    setEpgClock(Date.now());
     const timer = window.setInterval(() => setEpgClock(Date.now()), 10000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isActive]);
 
   const epgStart = channel?.epgNow?.startTimestamp;
   const epgEnd = channel?.epgNow?.endTimestamp;

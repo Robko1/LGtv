@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.5.95';
+export const WEB_VERSION = '2.5.96';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.96',
+    date: '2026-10-25',
+    changes: [
+      'ÉLŐ RECOVERY: a futó lejátszásnál a puffer vége önmagában nem számít haladásnak; a waiting, stalled, ended, véges durationchange, médiahiba és valódi idővonal-megállás ugyanazon csatornán automatikusan helyreáll',
+      'WEBOS LIVE TS: a véges VOD-ként lezárt élő MPEG-TS-t tartósan ellenőrzi, két azonos újrapróba után csak szükség esetén vált a tartalék formátumra',
+      'TV-TERHELÉS: a runtime watchdog és PerformanceObserver csak kézi diagnosztika alatt él, az HTML hangsávlista nem fut állandó pollinggal, a rejtett nézetek EPG-frissítése leáll',
+      'NAPLÓ: az 1 MB-os kézi diagnosztikai napló ritkábban ír szinkron tárhelyre, és küldés/leállítás után a figyelők felszabadulnak',
+    ],
+  },
   {
     version: '2.5.95',
     date: '2026-10-25',

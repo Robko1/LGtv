@@ -151,13 +151,25 @@ export function readMediaProgress(video: ProgressVideo | null, now: number): Med
  * Ha a képkockaszámláló elérhető, az a döntő jel: a puffer növekedése
  * önmagában még nem jelenti azt, hogy a dekóder dolgozik.
  */
-export function mediaProgressed(previous: MediaProgressSample, current: MediaProgressSample): boolean {
+export function mediaProgressed(
+  previous: MediaProgressSample,
+  current: MediaProgressSample,
+  allowBufferGrowth = false,
+): boolean {
   // Visszaugrás / keresés: új szakasz, nem megakadás.
   if (current.time < previous.time - 0.75) return true;
   const timeAdvanced = current.time > previous.time + 0.15;
   if (previous.frames !== null && current.frames !== null) {
     return current.frames > previous.frames || timeAdvanced;
   }
+  // Futó lejátszásnál a webOS képes úgy növelni a puffer végét, hogy a
+  // dekóder/idővonal közben megáll (a #13 M2 UHD naplójában pontosan ez
+  // látszott). A puffer növekedése ezért alapértelmezés szerint SOHA nem
+  // tarthatja életben a stall-figyelőt.
+  if (previous.time > 0 || current.time > 0 || !allowBufferGrowth) return timeAdvanced;
+  // Csak egy külön, indulási mintavételnél engedjük meg, hogy a puffer
+  // feltöltése haladási jel legyen. A VideoPlayer futó watchdogjai az
+  // alapértelmezett false értékkel hívják a függvényt.
   const bufferAdvanced = previous.bufferedEnd !== null && current.bufferedEnd !== null
     && current.bufferedEnd > previous.bufferedEnd + 0.05;
   return timeAdvanced || bufferAdvanced;
@@ -231,4 +243,31 @@ export function isPrematureVodEnd(positionSeconds: number, durationSeconds: numb
   if (!Number.isFinite(duration) || duration <= 0) return false;
   if (!Number.isFinite(position) || position < 0) return false;
   return position < duration - 3;
+}
+
+/**
+ * Élő adásnál az `ended` nem valódi műsorvége: egy raw TS kapcsolat vagy a
+ * webOS demuxer is véges idővonalat hagyhat maga után. Csak akkor indítunk
+ * recoveryt, ha a néző továbbra is lejátszást kér és már volt sikeres indulás;
+ * a felhasználói pause, illetve a még el sem indult próba nem számít hibának.
+ */
+export interface LiveEndState {
+  ended: boolean;
+  paused: boolean;
+  desiredPlaying: boolean;
+  playbackStarted: boolean;
+  currentTime: number;
+  duration: number;
+}
+
+export function isUnexpectedLiveEnd(state: LiveEndState): boolean {
+  if (!state.desiredPlaying || !state.playbackStarted) return false;
+  if (state.ended) return true;
+  const duration = Number(state.duration);
+  const currentTime = Number(state.currentTime);
+  return state.paused
+    && Number.isFinite(duration)
+    && duration > 2
+    && Number.isFinite(currentTime)
+    && currentTime >= duration - 0.75;
 }
