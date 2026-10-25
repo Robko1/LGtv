@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.86';
+export const WEB_VERSION = '2.5.87';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
 // diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.86',
+    version: '2.5.87',
     date: '2026-10-25',
     changes: [
       'FOLYAMATOS ÉLŐ ADÁS: a lejátszás közbeni megakadásnál a kép NEM tűnik el többé (a puffer/újracsatlakozás jelzője átlátszó, a legutolsó képkocka és a hang megmarad)',
