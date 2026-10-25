@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.5.93';
+export const WEB_VERSION = '2.5.94';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.94',
+    date: '2026-10-25',
+    changes: [
+      'PUFFERPROFILOK: a Gyors és Kiegyensúlyozott mód külön indulási és futó-lejátszási őrt kapott; a rövid HLS/TS szegmensszünet nem indít túl korai forráscserét',
+      'VALÓDI PUFFER-TARTALÉK: a lejátszás a lejátszási ponttól előre mért buffered tartalékot figyeli, rövid megerősítést ad, és a kézi diagnosztika puffer-vége/puffer-előre értékeket külön mutatja',
+      'MÓDVÁLTÁS: a Gyors/Kiegyensúlyozott/Stabil beállítás váltása nem tölti újra a jelenlegi csatornát; az új policy a következő watchdog/recovery döntésnél lép életbe',
+      'STABIL: a korábban bevált indulási és recovery-időzítés megmaradt; a késői médiaesemények, stalled és formátum-visszaesés védelme változatlanul aktív',
+    ],
+  },
   {
     version: '2.5.93',
     date: '2026-10-25',
