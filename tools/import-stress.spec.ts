@@ -274,6 +274,11 @@ async function main() {
     `(csúcs: ${panel.stats.peakConcurrent})`
   );
   check('nem volt 429-es elutasítás', panel.stats.rejected === 0, `(${panel.stats.rejected})`);
+  check(
+    'részletes VOD-lekérésből legfeljebb az első 20 fut',
+    (panel.stats.byAction.get('get_vod_info') || 0) <= 20,
+    `(${panel.stats.byAction.get('get_vod_info') || 0})`
+  );
   // A kérések közötti minimális szünet 25 ms (a referencia sebességéhez
   // igazítva, korábban 80 ms volt). A próba a kapcsolatözön elleni védelmet
   // ellenőrzi: kérésenként legalább ~20 ms-nak el kell telnie.

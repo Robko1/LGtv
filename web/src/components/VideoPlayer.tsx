@@ -3217,7 +3217,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     // LG webOS: lejátszás a TV HTML5/HLS videóelemével.
     const video = htmlVideoRef.current;
-    // Élő adás csak akkor indul, ha a főoldal (élő nézet) látszik.
+    // Élő adás csak akkor indul, ha a főoldal (élő nézet) látszik. A korábbi
+    // ág itt hagyta az isLoading=true állapotot, ezért nézetváltás vagy import
+    // közben végtelen töltő maradhatott a lejátszón.
+    const livePlaybackInactive = !isVod && !playbackActiveRef.current;
+    if (livePlaybackInactive) {
+      activeMediaUrlRef.current = '';
+      setIsLoading(false);
+      setIsRecovering(false);
+    }
     if (!isVod && !playbackActiveRef.current) { endSwitch(); return; }
     if (!video) {
       endSwitch();

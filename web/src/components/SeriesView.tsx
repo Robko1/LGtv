@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Series, Episode } from '../types/iptv';
 import { PosterImage, preloadPosterImage } from './PosterImage';
-import { Star, Play, Clock, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2 } from 'lucide-react';
+import { Star, Play, Clock, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2, Mic2, Subtitles } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 
 interface SeriesViewProps {
@@ -282,7 +282,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{ser.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Tv className="w-5 h-5" /></div></div>
                 </div>
-                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-base sm:text-lg truncate">{ser.title}</h3><div className="flex items-center gap-1.5 mt-1 text-sm text-slate-300"><span>{ser.year}</span><span>•</span><span>{ser.seasonsCount || ser.seasons.length} évad</span></div></div>
+                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-base sm:text-lg truncate">{ser.title}</h3><div className="flex items-center gap-1.5 mt-1 text-sm text-slate-300"><span>{ser.year}</span><span>•</span><span>{ser.seasonsCount || ser.seasons.length} évad</span><span>•</span><span className="flex items-center gap-0.5"><Clock className="w-3 h-3" />{ser.durationMinutes || 0} perc</span></div><div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-slate-400"><span className="flex min-w-0 items-center gap-1 truncate" title="Hangsávnyelvek"><Mic2 className="w-3 h-3 shrink-0 text-rose-400" />{(ser.audioLanguages?.length ? ser.audioLanguages : ['Ismeretlen']).join(', ')}</span><span className="flex min-w-0 items-center gap-1 truncate" title="Feliratnyelvek"><Subtitles className="w-3 h-3 shrink-0 text-cyan-400" />{(ser.subtitleLanguages?.length ? ser.subtitleLanguages : ['Ismeretlen']).join(', ')}</span></div></div>
               </div>
             ))}
           </div>
@@ -332,6 +332,27 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
               <p className="text-xs text-slate-300 leading-relaxed">
                 {selectedSeries.plot}
               </p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-rose-300 mb-1">
+                    <Mic2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Hangsávok</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    {(selectedSeries.audioLanguages?.length ? selectedSeries.audioLanguages : ['Ismeretlen']).join(' • ')}
+                  </p>
+                </div>
+                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-300 mb-1">
+                    <Subtitles className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Feliratok</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    {(selectedSeries.subtitleLanguages?.length ? selectedSeries.subtitleLanguages : ['Ismeretlen']).join(' • ')}
+                  </p>
+                </div>
+              </div>
 
               {/* Részek betöltése a szolgáltatótól */}
               {selectedSeries.seasons.length === 0 && (
@@ -450,7 +471,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                             <Clock className="w-3 h-3 text-cyan-400" />
                             <span>{ep.durationMinutes} perc</span>
                             <span>•</span>
-                            <span className="text-rose-300 font-bold">Magyar Szinkron</span>
+                            <span className="text-rose-300 font-bold">{(ep.audioLanguages?.length ? ep.audioLanguages : ['Ismeretlen']).join(', ')}</span>
                           </div>
                         </div>
                       </div>

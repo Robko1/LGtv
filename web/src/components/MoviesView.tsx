@@ -274,7 +274,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{mov.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Play className="w-5 h-5 fill-current ml-0.5" /></div></div>
                 </div>
-                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-base sm:text-lg truncate">{mov.title}</h3><div className="flex items-center gap-1.5 mt-1 text-sm text-slate-300"><span>{mov.year}</span><span>•</span><span className="flex items-center gap-0.5"><Clock className="w-3 h-3" />{mov.durationMinutes} perc</span></div></div>
+                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-base sm:text-lg truncate">{mov.title}</h3><div className="flex items-center gap-1.5 mt-1 text-sm text-slate-300"><span>{mov.year}</span><span>•</span><span className="flex items-center gap-0.5"><Clock className="w-3 h-3" />{mov.durationMinutes || 0} perc</span></div><div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-slate-400"><span className="flex min-w-0 items-center gap-1 truncate" title="Hangsávnyelvek"><Mic2 className="w-3 h-3 shrink-0 text-rose-400" />{(mov.audioLanguages?.length ? mov.audioLanguages : ['Ismeretlen']).join(', ')}</span><span className="flex min-w-0 items-center gap-1 truncate" title="Feliratnyelvek"><Subtitles className="w-3 h-3 shrink-0 text-cyan-400" />{(mov.subtitleLanguages?.length ? mov.subtitleLanguages : ['Ismeretlen']).join(', ')}</span></div></div>
               </div>
             ))}
           </div>
@@ -353,7 +353,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                     <span>Hangsávok</span>
                   </div>
                   <p className="text-[11px] text-slate-300">
-                    Magyar 5.1 Dolby • Angol Atmos
+                    {(selectedMovie.audioLanguages?.length ? selectedMovie.audioLanguages : ['Ismeretlen']).join(' • ')}
                   </p>
                 </div>
 
@@ -363,7 +363,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                     <span>Feliratok</span>
                   </div>
                   <p className="text-[11px] text-slate-300">
-                    Magyar teljes felirat • Angol CC
+                    {(selectedMovie.subtitleLanguages?.length ? selectedMovie.subtitleLanguages : ['Ismeretlen']).join(' • ')}
                   </p>
                 </div>
               </div>

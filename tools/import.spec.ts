@@ -27,6 +27,8 @@ const SERIES = [
   { name: 'A Sógun', series_id: 901, category_id: '30', cover: 'http://logo/shogun.jpg', rating: '9.1', releaseDate: '2024-02-27' },
 ];
 
+let vodInfoRequests = 0;
+
 function json(res: http.ServerResponse, body: unknown) {
   const text = JSON.stringify(body);
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -63,6 +65,21 @@ function startFakeServer(): Promise<{ server: http.Server; port: number }> {
         break;
       case 'get_vod_streams':
         json(res, VOD_STREAMS);
+        break;
+      case 'get_vod_info':
+        vodInfoRequests++;
+        json(res, {
+          info: {
+            movie_image: `http://logo/detail-${url.searchParams.get('vod_id')}.jpg`,
+            backdrop_path: `http://logo/backdrop-${url.searchParams.get('vod_id')}.jpg`,
+            duration_secs: 7200,
+            plot: 'Részletes szolgáltatói leírás.',
+            genre: 'Sci-Fi, Dráma',
+            audio: [{ language: 'hu', codec: 'AAC' }, { language: 'en', codec: 'EAC3' }],
+            subtitles: [{ sub_id: 11, language: 'hu', title: 'Magyar' }, { sub_id: 12, language: 'en', title: 'English' }],
+          },
+          movie_data: { stream_id: Number(url.searchParams.get('vod_id')) },
+        });
         break;
       case 'get_series_categories':
         json(res, [{ category_id: '30', category_name: 'Sorozatok' }]);
@@ -185,9 +202,17 @@ async function main() {
   const dune = content.movies.find((movie) => movie.title === 'Dűne');
   check('a film stream URL-je a kiterjesztéssel', dune?.streamUrl === `${base}/movie/teszt/titok/501.mkv`, dune?.streamUrl || '');
   check('a film kategórianeve megvan', dune?.categoryName === 'Filmek', dune?.categoryName || '');
+  check('a részletes VOD-kérés csak a betöltött első filmekre fut', vodInfoRequests === 2, `(${vodInfoRequests})`);
+  check('a film részletes játékideje megérkezett', dune?.durationMinutes === 120, String(dune?.durationMinutes));
+  check('a film valódi posztere megérkezett', dune?.poster === 'http://logo/detail-501.jpg', dune?.poster || '');
+  check('a hangsávnyelvek normalizálódtak', JSON.stringify(dune?.audioLanguages) === JSON.stringify(['Magyar', 'Angol']), JSON.stringify(dune?.audioLanguages));
+  check('a feliratnyelvek normalizálódtak', JSON.stringify(dune?.subtitleLanguages) === JSON.stringify(['Magyar', 'Angol']), JSON.stringify(dune?.subtitleLanguages));
 
   const shogun = content.series[0];
   check('a sorozat azonosítója megvan', shogun?.seriesId === 901, String(shogun?.seriesId));
+  check('a sorozat részletes játékideje megérkezett', shogun?.durationMinutes === 60, String(shogun?.durationMinutes));
+  check('hiányzó sorozat-hangsávnál Ismeretlen látszik', JSON.stringify(shogun?.audioLanguages) === JSON.stringify(['Ismeretlen']), JSON.stringify(shogun?.audioLanguages));
+  check('hiányzó sorozat-feliratnál Ismeretlen látszik', JSON.stringify(shogun?.subtitleLanguages) === JSON.stringify(['Ismeretlen']), JSON.stringify(shogun?.subtitleLanguages));
 
   /* --- 2. mentés és visszatöltés --- */
   console.log('\nMentés és visszatöltés:');
@@ -202,6 +227,10 @@ async function main() {
   check('4 csatorna visszatöltve', live.channels.length === 4, `(${live.channels.length})`);
   check('2 film visszatöltve', vod.movies.length === 2, `(${vod.movies.length})`);
   check('1 sorozat visszatöltve', ser.series.length === 1, `(${ser.series.length})`);
+  check('a játékidő tartósan megmaradt', vod.movies.find((movie) => movie.title === 'Dűne')?.durationMinutes === 120);
+  check('a hangsávnyelv tartósan megmaradt', JSON.stringify(vod.movies.find((movie) => movie.title === 'Dűne')?.audioLanguages) === JSON.stringify(['Magyar', 'Angol']));
+  check('a feliratnyelv tartósan megmaradt', JSON.stringify(vod.movies.find((movie) => movie.title === 'Dűne')?.subtitleLanguages) === JSON.stringify(['Magyar', 'Angol']));
+  check('a sorozat metaadata tartósan megmaradt', ser.series[0]?.durationMinutes === 60 && JSON.stringify(ser.series[0]?.audioLanguages) === JSON.stringify(['Ismeretlen']));
   check(
     'a visszatöltött stream URL is helyes',
     live.channels.find((channel) => channel.name === 'M1 HD')?.streamUrl === `${base}/live/teszt/titok/101.ts`

@@ -190,6 +190,16 @@ function compactText(value: string | undefined, max: number): string {
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
+function encodeOptionalJson(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  try { return JSON.stringify(value); } catch { return ''; }
+}
+
+function decodeOptionalJson<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string' || !value) return fallback;
+  try { return JSON.parse(value) as T; } catch { return fallback; }
+}
+
 function streamUrlFor(provider: ProviderRef, value: string, ext: string, kind: 'live' | 'movie' | 'series'): string {
   if (!isNumeric(value)) return value; // M3U: kész URL
   const server = provider.serverUrl || '';
@@ -273,18 +283,41 @@ function decodeChannels(rows: Row[], provider: ProviderRef): Channel[] {
 }
 
 function encodeMovies(movies: Movie[]): Row[] {
-  return movies.map((m) => [
-    m.streamId ?? m.streamUrl,
-    m.title,
-    m.categoryId,
-    m.categoryName,
-    m.poster || '',
-    m.rating,
-    m.year,
-    m.containerExtension || 'mp4',
-    compactText(m.plot, 200),
-    m.isFavorite ? 1 : 0,
-  ]);
+  return movies.map((m) => {
+    const row: Row = [
+      m.streamId ?? m.streamUrl,
+      m.title,
+      m.categoryId,
+      m.categoryName,
+      m.poster || '',
+      m.rating,
+      m.year,
+      m.containerExtension || 'mp4',
+      compactText(m.plot, 200),
+      m.isFavorite ? 1 : 0,
+    ];
+    // A régi tízsoros formátumot megtartjuk a nem részletezett elemeknél.
+    // Az első 20 VOD metaadatai viszont ugyanebben a tartós sorban élnek tovább.
+    const hasVodMetadata = Boolean(
+      m.durationMinutes > 0 || m.audioLanguages?.length || m.subtitleLanguages?.length
+        || m.audioTracks?.length || m.subtitleTracks?.length || m.backdrop || m.genres.length
+        || m.director || m.cast?.length
+    );
+    if (hasVodMetadata) {
+      row.push(
+        m.durationMinutes || 0,
+        encodeOptionalJson(m.audioLanguages || []),
+        encodeOptionalJson(m.subtitleLanguages || []),
+        encodeOptionalJson(m.audioTracks || []),
+        encodeOptionalJson(m.subtitleTracks || []),
+        m.backdrop || '',
+        encodeOptionalJson(m.genres || []),
+        m.director || '',
+        encodeOptionalJson(m.cast || []),
+      );
+    }
+    return row;
+  });
 }
 
 /**
@@ -307,11 +340,18 @@ function decodeMovies(rows: Row[], provider: ProviderRef, offset = 0): Movie[] {
       poster: String(row[4] || ''),
       rating: Number(row[5] ?? 0),
       year: Number(row[6] ?? 0),
-      durationMinutes: 0,
+      durationMinutes: Number(row[10] ?? 0) || 0,
       plot: String(row[8] || ''),
-      genres: [],
+      genres: decodeOptionalJson<string[]>(row[16], []),
       streamUrl: streamUrlFor(provider, String(row[0]), String(row[7] || 'mp4'), 'movie'),
       containerExtension: String(row[7] || 'mp4'),
+      audioLanguages: decodeOptionalJson<string[] | undefined>(row[11], undefined),
+      subtitleLanguages: decodeOptionalJson<string[] | undefined>(row[12], undefined),
+      audioTracks: decodeOptionalJson<Movie['audioTracks']>(row[13], undefined),
+      subtitleTracks: decodeOptionalJson<Movie['subtitleTracks']>(row[14], undefined),
+      backdrop: String(row[15] || '') || undefined,
+      director: String(row[17] || '') || undefined,
+      cast: decodeOptionalJson<string[] | undefined>(row[18], undefined),
       isFavorite: Number(row[9] ?? 0) === 1,
     });
   }
@@ -319,19 +359,40 @@ function decodeMovies(rows: Row[], provider: ProviderRef, offset = 0): Movie[] {
 }
 
 function encodeSeries(series: Series[]): Row[] {
-  return series.map((s) => [
-    s.seriesId ?? s.id,
-    s.title,
-    s.categoryId,
-    s.categoryName,
-    s.poster || '',
-    s.rating,
-    s.year,
-    compactText(s.plot, 200),
-    s.seasonsCount || 0,
-    s.episodesCount || 0,
-    s.isFavorite ? 1 : 0,
-  ]);
+  return series.map((s) => {
+    const row: Row = [
+      s.seriesId ?? s.id,
+      s.title,
+      s.categoryId,
+      s.categoryName,
+      s.poster || '',
+      s.rating,
+      s.year,
+      compactText(s.plot, 200),
+      s.seasonsCount || 0,
+      s.episodesCount || 0,
+      s.isFavorite ? 1 : 0,
+    ];
+    const hasSeriesMetadata = Boolean(
+      s.durationMinutes && s.durationMinutes > 0 || s.audioLanguages?.length || s.subtitleLanguages?.length
+        || s.audioTracks?.length || s.subtitleTracks?.length || s.backdrop || s.genres.length
+        || s.director || s.cast?.length
+    );
+    if (hasSeriesMetadata) {
+      row.push(
+        s.durationMinutes || 0,
+        encodeOptionalJson(s.audioLanguages || []),
+        encodeOptionalJson(s.subtitleLanguages || []),
+        encodeOptionalJson(s.audioTracks || []),
+        encodeOptionalJson(s.subtitleTracks || []),
+        s.backdrop || '',
+        encodeOptionalJson(s.genres || []),
+        s.director || '',
+        encodeOptionalJson(s.cast || []),
+      );
+    }
+    return row;
+  });
 }
 
 function decodeSeries(rows: Row[], provider: ProviderRef, offset = 0): Series[] {
@@ -351,9 +412,17 @@ function decodeSeries(rows: Row[], provider: ProviderRef, offset = 0): Series[] 
       year: Number((String(row[6] || '').match(/\d{4}/) || [0])[0]),
       seasonsCount: Number(row[8] ?? 0),
       episodesCount: Number(row[9] ?? 0),
+      durationMinutes: Number(row[11] ?? 0) || 0,
       plot: String(row[7] || ''),
-      genres: [],
+      genres: decodeOptionalJson<string[]>(row[17], []),
       seasons: [],
+      audioLanguages: decodeOptionalJson<string[] | undefined>(row[12], undefined),
+      subtitleLanguages: decodeOptionalJson<string[] | undefined>(row[13], undefined),
+      audioTracks: decodeOptionalJson<Series['audioTracks']>(row[14], undefined),
+      subtitleTracks: decodeOptionalJson<Series['subtitleTracks']>(row[15], undefined),
+      backdrop: String(row[16] || '') || undefined,
+      director: String(row[18] || '') || undefined,
+      cast: decodeOptionalJson<string[] | undefined>(row[19], undefined),
       isFavorite: Number(row[10] ?? 0) === 1,
     });
   }

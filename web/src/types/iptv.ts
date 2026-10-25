@@ -90,6 +90,7 @@ export interface Movie {
   backdrop?: string;
   rating: number;
   year: number;
+  /** A szolgáltató által visszaadott játékidő percben; hiányzó adatnál 0. */
   durationMinutes: number;
   plot: string;
   genres: string[];
@@ -97,10 +98,41 @@ export interface Movie {
   cast?: string[];
   streamUrl: string;
   containerExtension?: string;
+  /** Ténylegesen választható, a lejátszó által használt sávok. */
   audioTracks?: AudioTrack[];
   subtitleTracks?: SubtitleTrack[];
+  /** A kártyán megjelenő szolgáltatói nyelvlista; hiányzó adatnál Ismeretlen. */
+  audioLanguages?: string[];
+  subtitleLanguages?: string[];
   isFavorite?: boolean;
   resumePositionSeconds?: number;
+}
+
+/** A filmekhez hasonló, elsődleges sorozat-plakát metaadatai. */
+export interface Series {
+  id: string;
+  seriesId?: number;
+  title: string;
+  categoryId: string;
+  categoryName: string;
+  poster: string;
+  backdrop?: string;
+  rating: number;
+  year: number;
+  seasonsCount: number;
+  episodesCount: number;
+  /** A részletes API-válaszból ismert epizód-játékidő percben; hiányzó adatnál 0. */
+  durationMinutes?: number;
+  plot: string;
+  genres: string[];
+  director?: string;
+  cast?: string[];
+  seasons: Season[];
+  audioTracks?: AudioTrack[];
+  subtitleTracks?: SubtitleTrack[];
+  audioLanguages?: string[];
+  subtitleLanguages?: string[];
+  isFavorite?: boolean;
 }
 
 export interface Episode {
@@ -114,6 +146,8 @@ export interface Episode {
   thumbnail: string;
   audioTracks?: AudioTrack[];
   subtitleTracks?: SubtitleTrack[];
+  audioLanguages?: string[];
+  subtitleLanguages?: string[];
   watched?: boolean;
   resumePositionSeconds?: number;
 }
@@ -123,26 +157,6 @@ export interface Season {
   name: string;
   episodeCount: number;
   episodes: Episode[];
-}
-
-export interface Series {
-  id: string;
-  seriesId?: number;
-  title: string;
-  categoryId: string;
-  categoryName: string;
-  poster: string;
-  backdrop?: string;
-  rating: number;
-  year: number;
-  seasonsCount: number;
-  episodesCount: number;
-  plot: string;
-  genres: string[];
-  director?: string;
-  cast?: string[];
-  seasons: Season[];
-  isFavorite?: boolean;
 }
 
 export interface ProviderAccount {
