@@ -288,8 +288,17 @@ test('7. a csatornák a filmek előtt, önállóan kerülnek a felületre', () =
   const vodIndex = IMPORT.indexOf('/* ---- 2. szakasz: filmek');
   assert.ok(partialIndex > 0 && vodIndex > 0);
   assert.ok(partialIndex < vodIndex, 'a csatornák azonnal publikálódnak, a filmek utána jönnek');
-  // A film- és sorozatlista egymástól függetlenül töltődik (nem Promise.all mindenre).
-  assert.doesNotMatch(IMPORT, /await Promise\.all\(\[[^\]]*importXtreamProvider/);
+  // A frissítés is ugyanazt a stabil sorrendet tartja: filmek, majd sorozatok.
+  const moviesPhase = IMPORT.indexOf('await loadMoviesPhase();');
+  const seriesPhase = IMPORT.indexOf('await loadSeriesPhase();', moviesPhase + 1);
+  assert.ok(moviesPhase > vodIndex && seriesPhase > moviesPhase);
+  assert.doesNotMatch(IMPORT, /await Promise\.all\(\[loadMoviesPhase\(\), loadSeriesPhase\(\)\]\)/);
+  const cacheStart = APP.indexOf('const loadStoredContent = async (): Promise<void> =>');
+  const cacheMovies = APP.indexOf('const vod = await loadVodAsync(provider);', cacheStart);
+  const cacheSeries = APP.indexOf('const ser = await loadSeriesAsync(provider);', cacheStart);
+  assert.ok(cacheStart > 0 && cacheMovies > cacheStart && cacheSeries > cacheMovies);
+  assert.match(APP, /await new Promise<void>\(\(resolve\) => window\.setTimeout\(resolve, 32\)\)/);
+  assert.doesNotMatch(APP, /Promise\.all\(\[vodTask, seriesTask\]/);
 });
 
 /*

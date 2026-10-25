@@ -712,25 +712,32 @@ export function App() {
     const provider = bootLive.provider;
     if (!provider) return;
     vodLoadStartedRef.current = true;
-    // Az indulási fejlécet (verzióval) a main.tsx naplózza – itt már nem kell.
+    // A mentett tartalom mindig egyetlen, meghatározott sorrendben töltődik:
+    // élő csatornák (a modul indulásakor), filmek, majd sorozatok. A film- és
+    // sorozat-cache soha nem indul egyszerre, mert az régi webOS TV-n üres
+    // vagy félkész 0/elemszámú nézethez és memória-csúcshoz vezethet.
     appLog(`Mentett tartalom betöltése indul (tároló: ${provider.id}).`);
     logMemory('tartalom betöltése előtt');
-    const vodTask = (async () => {
+
+    const loadStoredContent = async (): Promise<void> => {
       try {
+        logPhase('filmlista cache betöltése indul');
         const vod = await loadVodAsync(provider);
         setMovies(vod.movies);
         setVodCategories(vod.categories);
         appLog(`Filmek a felületen: ${vod.movies.length}.`);
         logPhase(`filmek betöltve a felületre (${vod.movies.length} db)`);
       } catch (error) {
+        // A film-cache hibája nem akadályozhatja a sorozat-cache következő,
+        // külön szakaszát és az élő TV-t.
         appLogError('Filmek betöltése', error);
       }
-    })();
-    const seriesTask = (async () => {
-      // A sorozat-cache külön, a filmek után indul, hogy egyszerre csak egy
-      // nagy tár-olvasás fusson.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+      // A két nagy dekódolás között adjuk vissza a főszálat a webOS-nak.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 32));
+
       try {
+        logPhase('sorozatlista cache betöltése indul');
         const ser = await loadSeriesAsync(provider);
         setSeries(ser.series);
         setSeriesCategories(ser.categories);
@@ -739,8 +746,9 @@ export function App() {
       } catch (error) {
         appLogError('Sorozatok betöltése', error);
       }
-    })();
-    void Promise.all([vodTask, seriesTask]).finally(() => logMemory('tartalom betöltése után'));
+    };
+
+    void loadStoredContent().finally(() => logMemory('tartalom betöltése után'));
   }, []);
 
   useEffect(() => {
