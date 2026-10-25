@@ -70,10 +70,15 @@ async function responseReason(response: Response): Promise<string> {
 }
 
 function safeExceptionReason(error: unknown): string {
-  if (error instanceof DOMException && error.name === "AbortError") return "database_timeout";
-  if (error instanceof Error && error.name === "AbortError") return "database_timeout";
-  if (error instanceof Error && /configuration is missing/i.test(error.message)) return "service_configuration_missing";
-  if (error instanceof Error && error.message) return error.message.replace(/https?:\/\/[^\s]+/g, "[endpoint]").slice(0, 180);
+  // Ne használjunk itt regexet: ez a handler a modul indulási hibáit is
+  // jelzi, ezért egy hibás escape maga is „function failed to start”-ot okozna.
+  const errorName = typeof error === "object" && error !== null && "name" in error
+    ? String((error as { name?: unknown }).name || "")
+    : "";
+  if (errorName === "AbortError") return "database_timeout";
+  const message = error instanceof Error ? error.message : "";
+  if (message.toLowerCase().includes("configuration is missing")) return "service_configuration_missing";
+  if (message) return message.slice(0, 180);
   return "internal_service_error";
 }
 
