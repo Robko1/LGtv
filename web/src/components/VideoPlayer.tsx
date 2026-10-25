@@ -44,6 +44,7 @@ import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 import {
   alternativeUrl,
   formatOfUrl,
+  forgetFormatFor,
   rememberFormatFor,
   rememberGlobalFormat,
   rememberedFormatFor,
@@ -389,6 +390,9 @@ const BlueClock: React.FC<{ className?: string; offsetHours?: number; accent?: '
 interface VideoPlayerProps {
   liveAccent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white';
   channel: Channel | null;
+  /** Naplózáshoz használt, nem titkos szolgáltató-azonosító. */
+  providerId?: string;
+  providerType?: 'xtream' | 'm3u';
   customStreamUrl?: string;
   customTitle?: string;
   audioTracks?: AudioTrack[];
@@ -442,6 +446,8 @@ interface VideoPlayerProps {
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   liveAccent = 'yellow',
   channel,
+  providerId = '',
+  providerType,
   customStreamUrl,
   customTitle,
   audioTracks: providedAudioTracks,
@@ -478,6 +484,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isVodRef.current = Boolean(customStreamUrl);
   const playbackActiveRef = useRef(playbackActive);
   playbackActiveRef.current = playbackActive;
+  const providerIdRef = useRef(providerId);
+  providerIdRef.current = providerId;
+  const providerTypeRef = useRef(providerType || '');
+  providerTypeRef.current = providerType || '';
+  const providerDiagnosticTag = () =>
+    `aktív-szolgáltató=${providerIdRef.current || 'ismeretlen'}; szolgáltató-típus=${providerTypeRef.current || 'ismeretlen'}`;
 
   /*
    * BELSŐ FORRÁSVÁLTÁS JELZÉSE.
@@ -735,13 +747,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       parts.push('resourceEntries=' + entries.length + '; utolsó100-transfer=' + (transfer ? Math.round(transfer / 1024) + 'KB' : 'nem elérhető/0'));
     } catch { parts.push('performance-mérés=kiolvasási hiba'); }
     try {
-      let keys = 0;
-      let chars = 0;
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key !== null) { keys++; chars += key.length + String(localStorage.getItem(key) || '').length; }
-      }
-      parts.push('localStorage-kulcsok=' + keys + '; becsült-tartalom=' + Math.round(chars * 2 / 1024) + 'KB');
+      // A #17-ben a teljes localStorage-bejárás akár 4,2 másodpercig blokkolta
+      // a webOS főszálát. A kulcsszám olvasása gyors; a tartalom méretét nem
+      // becsüljük minden csatornaváltáskor, mert ez éppen a mért jelenséget
+      // okozná újra.
+      parts.push('localStorage-kulcsok=' + localStorage.length + '; becsült-tartalom=nem blokkoló mérés');
     } catch { parts.push('localStorage-méret=nem olvasható'); }
     parts.push('láthatóság=' + (document.hidden ? 'háttérben/rejtett' : 'előtérben') + '; teljes-TV-RAM/CPU/háttérfolyamatok=webOS API-ból nem elérhetők');
     const snapshot = parts.join('; ');
@@ -913,7 +923,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         /\.ts(?=([?#]|$))/i.test(video.currentSrc || video.src) ? 'MPEG-TS' : 'ismeretlen')
       : 'nincs';
     appLog(
-      `CSATORNAVÁLTÁS ÖSSZESÍTÉS; eredmény=${result}; csatorna=${diagnostic.channelName}; teljes-idő=${Date.now() - diagnostic.startedAt} ms; utolsó-próba-idő=${Date.now() - diagnostic.attemptStartedAt} ms; próbálkozások=${Math.max(1, sequence.index + 1)}/${Math.max(1, sequence.urls.length)}; próbált-formátumok=${triedFormats}; aktív-formátum=${activeFormat}; ok=${reason}`
+      `CSATORNAVÁLTÁS ÖSSZESÍTÉS; eredmény=${result}; ${providerDiagnosticTag()}; csatorna=${diagnostic.channelName}; teljes-idő=${Date.now() - diagnostic.startedAt} ms; utolsó-próba-idő=${Date.now() - diagnostic.attemptStartedAt} ms; próbálkozások=${Math.max(1, sequence.index + 1)}/${Math.max(1, sequence.urls.length)}; próbált-formátumok=${triedFormats}; aktív-formátum=${activeFormat}; ok=${reason}`
     );
   };
   const scheduleAutoRetry = useCallback(() => {
@@ -967,6 +977,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         `próbált formátumok=${triedFormats}; a csatorna jelenleg nem indítható. Az utolsó sikeres formátum emléke megőrizve.`
       );
       logChannelSwitchSummary('SIKERTELEN', `minden indítási próba sikertelen; formátumok=${triedFormats}`);
+      // Ha a csatornánként megjegyzett forma most mindkét próbán elbukott,
+      // ne kényszerítsük a következő váltást ugyanabba a hibás sorrendbe.
+      forgetFormatFor(channelRef.current?.id);
       /*
        * NINCS többé végleges fekete hibaképernyő. Ha a szolgáltató épp
        * elérhetetlen, a lejátszó fokozatos visszalépéssel addig próbálkozik,
@@ -3244,9 +3257,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const timing = bufferTiming();
         const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
         const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
-        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        appLog(`${startLabel}; ${providerDiagnosticTag()}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
         if (isVerbosePlaybackLogging()) {
-          appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
+          appLog(`${verboseStartLabel}; ${providerDiagnosticTag()}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
           appLog(`ERŐFORRÁS-DIAG PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
         }
       }
@@ -3358,7 +3371,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const diagnostic = channelSwitchDiagnosticRef.current;
       const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       if (!isVodRef.current && diagnostic && diagnostic.generation === loadGeneration) {
-        appLogCritical(`CSATORNAVÁLTÁS SZINKRON HIBA; csatorna=${diagnostic.channelName}; próba=${diagnostic.attemptNumber}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; hiba=${detail}`);
+        appLogCritical(`CSATORNAVÁLTÁS SZINKRON HIBA; ${providerDiagnosticTag()}; csatorna=${diagnostic.channelName}; próba=${diagnostic.attemptNumber}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; hiba=${detail}`);
         scheduleAutoRetry();
         if (autoRetryTimerRef.current !== null) return;
         logChannelSwitchSummary('SIKERTELEN', `szinkron indítási hiba: ${detail}`);
@@ -3373,7 +3386,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying, volume, customStreamUrl, scheduleAutoRetry, beginSwitch, endSwitch]);
 
-  retryStreamRef.current = () => loadStream(pendingStreamUrlRef.current || streamUrl);
+  retryStreamRef.current = () => {
+    // A TS → HLS formátumváltásnál a webOS régi hibás médiaállapota nem
+    // maradhat az elemen: az alternatív címet teljes `load()`-dal indítjuk.
+    const isFormatFallback = !isVodRef.current && liveRetrySequenceRef.current.index > 0;
+    loadStream(pendingStreamUrlRef.current || streamUrl, isFormatFallback);
+  };
 
   // A streamhez tartozó újratöltés. FONTOS: csak akkor indul újra a lejátszás,
   // ha a stream címe vagy egy lejátszást tényleg befolyásoló beállítás
@@ -4200,7 +4218,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               const diagnostic = channelSwitchDiagnosticRef.current;
               if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
               if (!isVod && diagnostic) {
-                appLogCritical(`CSATORNAVÁLTÁS HIBA; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${videoDiagnosticState(event.currentTarget, 'error')}; ${audioDiagnosticState(event.currentTarget)}`);
+                appLogCritical(`CSATORNAVÁLTÁS HIBA; ${providerDiagnosticTag()}; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${videoDiagnosticState(event.currentTarget, 'error')}; ${audioDiagnosticState(event.currentTarget)}`);
                 if (isVerbosePlaybackLogging()) appLogCritical(`ERŐFORRÁS-DIAG HIBÁNÁL; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
               }
               setIsLoading(false);

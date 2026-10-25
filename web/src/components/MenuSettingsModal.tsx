@@ -15,19 +15,22 @@ import {
   Check,
   Edit3,
   Smartphone,
-  Heart,
   Star,
   Waves,
   PanelsTopLeft,
   Clock,
-  Cast,
-  ListOrdered,
-  MousePointerClick
+  Bug,
+  Circle,
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { WEB_VERSION } from '../appVersion';
-import { checkLatestWebOSRelease, type WebOSReleaseInfo } from '../services/webosUpdateService';
+import {
+  manualLogSnapshot,
+  startManualLogging,
+  stopManualLogging,
+  type ManualLogSnapshot,
+} from '../services/appLog';
 
 interface MenuSettingsModalProps {
   isOpen: boolean;
@@ -78,6 +81,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   onRefreshProvider,
   onOpenImportDiagnostic,
   onOpenQrProvision,
+  onOpenDiagnosticShare,
   folders,
   onOpenAddFolder,
   onDeleteFolder,
@@ -86,11 +90,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   onContinueWatching,
   onRemoveWatchHistoryItem,
 }) => {
-  const [releaseInfo, setReleaseInfo] = useState<WebOSReleaseInfo | null>(null);
-  const [releaseCheckLoading, setReleaseCheckLoading] = useState(false);
-  const [releaseCheckStatus, setReleaseCheckStatus] = useState('');
-  const [showReleaseDetails, setShowReleaseDetails] = useState(false);
-  const showApplicationBox = true; // állandó rész, nem csukható
+  const [manualLog, setManualLog] = useState<ManualLogSnapshot>(() => manualLogSnapshot());
   const [expandedFavoriteFolderId, setExpandedFavoriteFolderId] = useState<string | null>(null);
   /*
    * TV-n a window.confirm() NEM működik: a webOS böngészője nem jelenít meg
@@ -103,27 +103,30 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   // A kék teletextgomb a Kedvencek fülön nem indíthat csatornamozgatást.
   // A globális távirányító-kezelés más nézetekben változatlan marad.
 
-  const checkWebOSUpdate = async () => {
-    setReleaseCheckLoading(true);
-    setReleaseCheckStatus('A nyilvános LG webOS kiadás ellenőrzése…');
-    try {
-      const result = await checkLatestWebOSRelease();
-      setReleaseInfo(result);
-      setReleaseCheckStatus(result.updateAvailable
-        ? `Új verzió érhető el: ${result.latestVersion}. Az IPK telepítését webOS fejlesztői eszközzel kell elvégezni.`
-        : result.latestVersion === result.currentVersion
-          ? `Naprakész: ${result.currentVersion}.`
-          : `A legfrissebb kiadás (${result.latestVersion}) nem újabb a telepített ${result.currentVersion} verziónál.`);
-    } catch (error) {
-      setReleaseCheckStatus(error instanceof Error ? error.message : 'A frissítés ellenőrzése sikertelen.');
-    } finally {
-      setReleaseCheckLoading(false);
-    }
+  // A kézi próba a két első elmentett szolgáltatót kínálja fel. A gombok a
+  // már meglévő provider-frissítési/áttöltési útvonalat használják, ezért a
+  // hálózati folyamatjelző és a lejátszó csatornaváltási naplója együtt látszik.
+  const switchTestProviders = useMemo(() => providers.slice(0, 2), [providers]);
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'system') return;
+    setManualLog(manualLogSnapshot());
+    const timer = window.setInterval(() => setManualLog(manualLogSnapshot()), 500);
+    return () => window.clearInterval(timer);
+  }, [isOpen, activeTab]);
+
+  const toggleManualLog = () => {
+    const next = manualLog.enabled
+      ? stopManualLogging('kézi leállítás a Rendszer fülön')
+      : startManualLogging();
+    setManualLog(next);
   };
 
-  // Valós idejű képesség-ellenőrzések: csak akkor jelenik meg zöld pipa,
-  // ha az adott lejátszási mód ténylegesen elérhető az aktuális környezetben.
-  const pictureInPictureAvailable = Boolean((document as any).pictureInPictureEnabled);
+  const startProviderSwitchTest = (providerId: string) => {
+    // A beállítások elhagyása után a meglévő betöltési diagnosztika teljes
+    // képernyőn mutatja, mi történik a szolgáltatóváltás alatt.
+    onClose();
+    onRefreshProvider(providerId);
+  };
 
   // Csatorna-kereső térkép: a kedvenc mappák listája korábban minden egyes
   // csatornánál végigfutott a teljes (akár 20-60 ezer elemes) listán
@@ -1106,8 +1109,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><PanelsTopLeft className="h-4 w-4 text-cyan-300" /></span>
                     <span>OSD automatikus elrejtése</span>
                   </label>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    A lejátszó vezérlőmenüje (és a teljes képernyős OSD) ennyi idő után automatikusan eltűnik.
+                  <p className="text-[11px] text-slate-400 leading-tight truncate">
+                    Az OSD ennyi idő után eltűnik.
                   </p>
                   <div className="grid grid-cols-4 gap-1.5 pt-1">
                     {/* Kérés szerint: 6 / 8 / 10 / 12 másodperc választható. */}
@@ -1142,8 +1145,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       <span className="font-mono text-[10px] font-black tracking-tight text-sky-200">00:00</span>
                     </span>
                     <div className="min-w-0">
-                    <span className="text-xs font-bold text-white block">Kék óra mindig látszódjon</span>
-                    <span className="text-[11px] text-slate-400 block">A kék óra az OSD2-ben jelenik meg, és teljes képernyőn az OSD elrejtése után is látható marad.</span>
+                      <span className="text-xs font-bold text-white block">Kék óra mindig látszódjon</span>
+                      <span className="block truncate whitespace-nowrap text-[11px] text-slate-400">Teljes képernyőn az OSD után is látható.</span>
                     </div>
                   </div>
                   <button
@@ -1152,6 +1155,62 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   >
                     <div className={`w-5 h-5 rounded-full bg-slate-950 shadow-md transition-transform ${settings.alwaysShowBlueClock ? 'translate-x-6' : 'translate-x-0'}`} />
                   </button>
+                </div>
+
+                {/* Kézzel indítható szolgáltató-váltási próba */}
+                <div data-tv-box="" data-provider-switch-test="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="flex items-center gap-2 text-xs font-bold text-white">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/40 bg-amber-400/10"><Bug className="h-4 w-4 text-amber-300" /></span>
+                    <span>Szolgáltató-váltási próba</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 leading-tight truncate">
+                    Indítsd el a naplót, válts a két mentett szolgáltató között, majd állítsd le és küldd el.
+                  </p>
+                  <div className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 ${manualLog.enabled ? 'border-emerald-400/50 bg-emerald-500/10' : 'border-rose-400/50 bg-rose-500/10'}`}>
+                    <span className={`flex min-w-0 items-center gap-1.5 text-[11px] font-black ${manualLog.enabled ? 'text-emerald-300' : 'text-rose-300'}`}>
+                      <Circle className="h-3.5 w-3.5 shrink-0 fill-current" />
+                      <span className="truncate">{manualLog.enabled ? 'Naplózás aktív' : 'Naplózás kikapcsolva'}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] text-slate-400">#{manualLog.number ?? '—'} • {Math.round(manualLog.charCount / 1024)} KB</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      data-manual-switch-log=""
+                      onClick={toggleManualLog}
+                      className={`min-h-10 rounded-lg border px-2 py-2 text-[11px] font-black active:scale-95 transition-all ${manualLog.enabled ? 'border-emerald-300/70 bg-emerald-400/15 text-emerald-200' : 'border-rose-300/70 bg-rose-400/15 text-rose-200'}`}
+                    >
+                      {manualLog.enabled ? 'Napló leállítása' : 'Napló indítása'}
+                    </button>
+                    <button
+                      type="button"
+                      data-open-diagnostic-share=""
+                      onClick={() => onOpenDiagnosticShare?.()}
+                      disabled={!onOpenDiagnosticShare}
+                      className="min-h-10 rounded-lg border border-cyan-300/70 bg-cyan-400/15 px-2 py-2 text-[11px] font-black text-cyan-100 active:scale-95 transition-all disabled:opacity-40"
+                    >
+                      Napló megnyitása
+                    </button>
+                  </div>
+                  {switchTestProviders.length >= 2 ? (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {switchTestProviders.map((provider) => (
+                        <button
+                          key={provider.id}
+                          type="button"
+                          data-provider-switch-target={provider.id}
+                          onClick={() => startProviderSwitchTest(provider.id)}
+                          className={`min-h-11 rounded-lg border px-2 py-2 text-left text-[11px] font-bold active:scale-95 transition-all ${provider.isActive ? 'border-emerald-300/70 bg-emerald-400/15 text-emerald-200' : 'border-cyan-300/60 bg-cyan-400/10 text-cyan-100'}`}
+                          title={`Váltás erre: ${provider.name}`}
+                        >
+                          <span className="block truncate">{provider.name || 'Mentett szolgáltató'}</span>
+                          <span className="mt-0.5 block truncate text-[10px] font-normal text-slate-400">{provider.isActive ? 'aktív' : 'váltás ide'} • {provider.type === 'xtream' ? 'Xtream' : 'M3U'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-amber-200/80 truncate">A próbához ments el két szolgáltatót.</p>
+                  )}
                 </div>
               </div>
 
@@ -1210,10 +1269,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   <label className="text-xs font-bold text-white block">
                     Alap hangsáv (film / sorozat)
                   </label>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    A film indításakor automatikusan ezt a hangsávot választja, ha a stream
-                    kínál ilyet. A lejátszó OSD Audio gombjával bármikor átváltható – a gomb
-                    ZÖLD, ha több hangsáv közül lehet választani.
+                  <p className="text-[11px] text-slate-400 leading-tight truncate whitespace-nowrap">
+                    Indításkor ezt a hangsávot választja, ha elérhető.
                   </p>
                   <select
                     value={settings.preferredAudioLang}
@@ -1234,9 +1291,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   <label className="text-xs font-bold text-white block">
                     Alap felirat (film / sorozat)
                   </label>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    A film indításakor ezt a feliratot kapcsolja be. A lejátszó OSD CC gombja
-                    ZÖLD, ha van választható felirat; ott bármikor átváltható vagy kikapcsolható.
+                  <p className="text-[11px] text-slate-400 leading-tight truncate whitespace-nowrap">
+                    Indításkor ezt a feliratot választja, ha elérhető.
                   </p>
                   <select
                     value={settings.preferredSubtitle}
@@ -1283,54 +1339,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </span>
                 </div>
 
-{showApplicationBox && (
-                  <>
-                {/* LG webOS GitHub kiadásellenőrzés */}
-                <div className="space-y-3">
-                  <h3 className="text-xs font-black text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>LG webOS frissítés</span>
-                  </h3>
-                  <div className="p-3 rounded-xl bg-[#081329] border border-cyan-900/30 space-y-2.5">
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Ez a gomb a Robko1/LGtv nyilvános GitHub Release-ét ellenőrzi. A webOS alkalmazás nem telepíthet csendben IPK-t; az új csomagot a TV-hez csatlakozó webOS fejlesztői eszközzel kell telepíteni.
-                    </p>
-                    <button type="button" data-system-refresh="" onKeyDown={(event) => {
-                      const key = normalizeTvKey(event);
-                      if (key === 'ArrowLeft' || key === 'ArrowRight') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      } else if (key === 'ArrowUp') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
-                      } else if (key === 'ArrowDown') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
-                      }
-                    }} onClick={() => {
-                      if (showReleaseDetails) {
-                        setShowReleaseDetails(false);
-                      } else {
-                        setShowReleaseDetails(true);
-                        void checkWebOSUpdate();
-                      }
-                    }} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-bold active:scale-95 transition-all disabled:opacity-60">
-                      <RefreshCw className={releaseCheckLoading ? "w-3.5 h-3.5 animate-spin" : "w-3.5 h-3.5"} />
-                      {showReleaseDetails ? 'Ellenőrzés bezárása' : releaseCheckLoading ? 'Ellenőrzés…' : 'Frissítés ellenőrzése'}
-                    </button>
-                    {showReleaseDetails && releaseInfo && (
-                      <div className="rounded-lg border border-cyan-900/40 bg-slate-950/50 p-3 space-y-1">
-                        <p className="text-[11px] text-slate-300">Telepített verzió: <strong>{releaseInfo.currentVersion}</strong></p>
-                        <p className="text-[11px] text-slate-300">Legfrissebb kiadás: <strong>{releaseInfo.latestVersion}</strong></p>
-                        {releaseInfo.ipkUrl ? <p className="text-[11px] text-emerald-300">A kiadás tartalmaz IPK-csomagot.</p> : <p className="text-[11px] text-amber-300">A kiadásban nem található IPK-fájl.</p>}
-                      </div>
-                    )}
-                    {showReleaseDetails && releaseCheckStatus && <p role="status" className="text-[11px] text-slate-300">{releaseCheckStatus}</p>}
-                  </div>
-                </div>
-
                 {/* App Brand Badge */}
                 <div data-system-app-box="" className="flex items-center gap-3 p-3 rounded-xl bg-[#0e1e3e] border border-cyan-800/40">
                   <div className="w-12 h-12 rounded-xl bg-[#071124] border border-cyan-800/40 flex items-center justify-center overflow-hidden shadow-lg shadow-blue-500/20">
@@ -1354,35 +1362,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     </p>
                   </div>
                 </div>
-
-
-                {/* Rendszerfunkciók – egységes, kétoszlopos kék kockák */}
-                <div className="pt-1 grid grid-cols-2 gap-2 text-[11px]">
-                  {[
-                    { label: 'Kép a képben', icon: PanelsTopLeft, available: pictureInPictureAvailable },
-                    { label: 'TV-re küldés', icon: Cast, available: true },
-                    { label: 'Kedvencek átrendezése', icon: ListOrdered, available: true },
-                    { label: 'Dupla koppintás és hangvezérlés', icon: MousePointerClick, available: true },
-                    { label: 'Külön Mozi és Sorozat', icon: Film, available: true },
-                    { label: 'Többfunkciós kedvencek', icon: Heart, available: true },
-                  ].map(({ label, icon: Icon, available }) => (
-                    <div
-                      key={label}
-                      className="min-h-[76px] rounded-xl border border-cyan-500/50 bg-[#0b1d3b] px-2 py-2.5 flex flex-col items-center justify-center gap-1.5 text-center shadow-sm shadow-cyan-950/30"
-                    >
-                      <div className="flex items-center gap-1.5 text-cyan-300">
-                        <Icon className="h-4 w-4 shrink-0" />
-                        {available && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400 stroke-[3]" />}
-                      </div>
-                      <span className="font-semibold leading-tight text-slate-200">{label}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* A Vissza és a Gyorsítótár törlése gomb kérésre eltávolítva. */}
-
-                  </>
-                )}
               </div>
 
             </div>

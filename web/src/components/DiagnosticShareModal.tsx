@@ -217,7 +217,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             Küldés Supabase-re
           </button>
         </div>
-        <p className="pt-3 text-center text-xs text-slate-500">Kilépéskor a naplózás automatikusan leáll. A naplók Supabase-en legfeljebb öt legfrissebb sorszámmal maradnak meg.</p>
+        <p className="pt-3 text-center text-xs text-slate-500">Az ablak bezárása után a kézi naplózás folytatódik, így válthatsz szolgáltatót vagy csatornát. Visszatéréskor állítsd le; küldéskor automatikusan leáll. Supabase-en legfeljebb öt napló marad.</p>
       </div>
     </div>
   );
