@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.96';
+export const WEB_VERSION = '2.5.97';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.96',
+    version: '2.5.97',
     date: '2026-10-25',
     changes: [
       'ÉLŐ RECOVERY: a futó lejátszásnál a puffer vége önmagában nem számít haladásnak; a waiting, stalled, ended, véges durationchange, médiahiba és valódi idővonal-megállás ugyanazon csatornán automatikusan helyreáll',
