@@ -98,10 +98,11 @@ check(playerSource.includes('const channelMemory = isVod ? null : rememberedForm
   'a formátum-emlékezet csatornánként működik, VOD-ra nem hat');
 check(playerSource.includes('const sequence = liveRetrySequenceRef.current;')
   && playerSource.includes('if (nextIndex < sequence.urls.length)')
-  && playerSource.includes('[primaryUrl, alternative.url, primaryUrl, alternative.url]'),
-  'hiba esetén a négy indítási próba a TS/HLS sorozatot követi');
+  && playerSource.includes('urls: alternative ? [primaryUrl, alternative.url] : [primaryUrl]')
+  && playerSource.includes('liveRecoveryOnlyRef.current = true'),
+  'hiba esetén legfeljebb egy TS/HLS fallback fut, utána kontrollált recovery folytatja');
 check(playerSource.includes('const retryDelayMs = Math.min(100 * (2 ** Math.max(0, nextIndex - 1)), 400);'),
-  'az élő újrapróba rövid, fokozatos késleltetést használ');
+  'az egyetlen élő formátum-fallback rövid késleltetést használ');
 check(playerSource.includes('attemptStartedAt') && playerSource.includes('CSATORNAVÁLTÁS PRÓBA START')
   && playerSource.includes('teljes-eltelt=') && playerSource.includes('próba-eltelt='),
   'a napló külön méri a teljes csatornaváltást és az egyes próbálkozásokat');

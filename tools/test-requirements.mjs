@@ -961,20 +961,20 @@ test('12. ugyanaz a csatorna nem esik el minden váltásnál ugyanazzal a formá
   // Az élő csatorna korábban sikeres formátuma legyen az elsődleges; új csatornánál MPEG-TS induljon.
   assert.match(PLAYER, /const channelMemory = isVod \? null : rememberedFormatFor\(channel\?\.id\);/);
   assert.match(PLAYER, /const primaryUrl = isVod \? streamUrl : \(channelMemory === 'hls' \? hlsUrl : tsUrl\);/);
-  assert.match(PLAYER, /liveRetrySequenceRef\.current = isVod[\s\S]{0,240}?urls: alternative[\s\S]{0,120}?\[primaryUrl, alternative\.url, primaryUrl, alternative\.url\]/);
+  assert.match(PLAYER, /liveRetrySequenceRef\.current = isVod[\s\S]{0,240}?urls: alternative \? \[primaryUrl, alternative\.url\] : \[primaryUrl\]/);
   // Sikeres indításnál csatornánként jegyezzük meg (és naplózzuk a változást).
   assert.match(PLAYER, /rememberGlobalFormat\(format\);\s*\n\s*if \(target\?\.id\) rememberFormatFor\(target\.id, format\);/);
-  // A tartalék címet és az ismételt próbákat csatornaváltáskor állítjuk össze.
+  // A tartalék címet és a legfeljebb két külön indítási próbát csatornaváltáskor állítjuk össze.
   assert.match(PLAYER, /liveFallbackRef\.current = isVod \? null : alternativeUrl\(primaryUrl\);/);
-  assert.match(PLAYER, /liveRetrySequenceRef\.current = isVod[\s\S]{0,240}?urls: alternative[\s\S]{0,120}?\[primaryUrl, alternative\.url, primaryUrl, alternative\.url\]/);
+  assert.match(PLAYER, /liveRetrySequenceRef\.current = isVod[\s\S]{0,240}?urls: alternative \? \[primaryUrl, alternative\.url\] : \[primaryUrl\]/);
 });
 
 test('12. hiba esetén a lejátszó MAGA próbálja a másik formátumot (nem kér Beállítást)', () => {
   // A korábbi viselkedés: azonnali hibaüzenet, formátumváltás nélkül.
   assert.doesNotMatch(PLAYER, /Ez a streamformátum nem indult el\. A Rendszer beállításában/);
   const retry = PLAYER.slice(PLAYER.indexOf('const scheduleAutoRetry'), PLAYER.indexOf('const clearAutoRetry'));
-  // Az aktuális megoldás a TS/HLS címeket sorban, legfeljebb négy indítási
-  // próbával futtatja, nem egyetlen fallback-jelzővel.
+  // Az aktuális megoldás legfeljebb egyszer próbálja a másik TS/HLS címet;
+  // utána külön, fokozatos recovery réteg fut, nem azonnali formátum-ciklus.
   assert.match(retry, /const sequence = liveRetrySequenceRef\.current;/);
   assert.match(retry, /const nextIndex = sequence\.index \+ 1;/);
   assert.match(retry, /if \(nextIndex < sequence\.urls\.length\)/);
@@ -1120,8 +1120,8 @@ test('13. a Supabase napló-Edge Function nem ad vissza QR-linket, és öt rekor
   const EDGE = read('supabase/functions/tv-diagnostic-share/index.ts');
   assert.match(EDGE, /const MAX_LOG_ROWS = 5/);
   assert.match(EDGE, /async function pruneToFive/);
-  assert.match(EDGE, /body\?\.action === "history"/);
-  assert.match(EDGE, /body\?\.action !== "send" && body\?\.action !== "create"/);
+  assert.match(EDGE, /body(?:\?\.|\.)action === "history"/);
+  assert.match(EDGE, /body(?:\?\.|\.)action !== "send" && body(?:\?\.|\.)action !== "create"/);
   assert.match(EDGE, /log_number: body\.logNumber/);
   assert.match(EDGE, /started_at: startedAt/);
   assert.doesNotMatch(EDGE, /url: base \+|QRCode|expiresAt: expires/);
