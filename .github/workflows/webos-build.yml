@@ -74,8 +74,8 @@ jobs:
           small_img = Image.open(small).convert("RGBA")
           large_img = Image.open(large).convert("RGBA")
           Path("webos/assets").mkdir(parents=True, exist_ok=True)
-          Path("web/public").mkdir(parents=True, exist_ok=True)
-          large_img.save("web/public/ikonkep.png", "PNG")
+          # A webes felület az ikonokat beégetett adat URL-ként használja;
+          # külön, nem hivatkozott public/ikonkep.png nem kerül a buildbe.
           def icon_b64(img, px):
               thumb = img.resize((px, px), Image.Resampling.LANCZOS)
               buffer = io.BytesIO()
@@ -106,6 +106,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_KEY_ID: ${{ secrets.RELEASE_GPG_KEY_ID }}
+          RELEASE_SSH_PRIVATE_KEY: ${{ secrets.RELEASE_SSH_PRIVATE_KEY }}
+          RELEASE_COMMIT_NAME: ${{ secrets.RELEASE_COMMIT_NAME }}
+          RELEASE_COMMIT_EMAIL: ${{ secrets.RELEASE_COMMIT_EMAIL }}
         run: |
           set -euo pipefail
           # Minden kézi IPK-build új patch verziót kap. A verziót a main ágra
@@ -151,10 +156,48 @@ jobs:
           PY
           echo "VERSION=$NEXT" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=v$NEXT" >> "$GITHUB_ENV"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/src/appVersion.ts webos/appinfo.json
-          git commit -m "chore: bump webOS IPK version to v$NEXT"
+          if [[ -n "${RELEASE_GPG_PRIVATE_KEY:-}" ]]; then
+            # A GitHub „Verified” commithez a kulcs nyilvános részének már a
+            # GitHub-fiókhoz kell tartoznia. A privát kulcs csak Actions secret,
+            # fájlba és naplóba nem kerül.
+            [[ -n "${RELEASE_GPG_KEY_ID:-}" && -n "${RELEASE_COMMIT_EMAIL:-}" ]] || {
+              echo "HIBA: RELEASE_GPG_KEY_ID és RELEASE_COMMIT_EMAIL is kell az aláírt commithez." >&2
+              exit 1
+            }
+            printf '%s\n' "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import >/dev/null
+            git config user.name "${RELEASE_COMMIT_NAME:-Robko1 release bot}"
+            git config user.email "$RELEASE_COMMIT_EMAIL"
+            git config user.signingkey "$RELEASE_GPG_KEY_ID"
+            git config commit.gpgsign true
+            git config gpg.program gpg
+            git add web/src/appVersion.ts webos/appinfo.json
+            git commit -S -m "chore: bump webOS IPK version to v$NEXT"
+            echo "SIGNED_COMMIT=1" >> "$GITHUB_ENV"
+          elif [[ -n "${RELEASE_SSH_PRIVATE_KEY:-}" ]]; then
+            # GitHub az SSH-aláíró kulcsot is Verifiedként kezeli, ha annak
+            # publikus része előzőleg a fiók SSH signing keys listájában van.
+            [[ -n "${RELEASE_COMMIT_EMAIL:-}" ]] || {
+              echo "HIBA: RELEASE_COMMIT_EMAIL is kell az aláírt SSH commithoz." >&2
+              exit 1
+            }
+            SIGNING_KEY_FILE="$RUNNER_TEMP/release-signing-key"
+            printf '%s\n' "$RELEASE_SSH_PRIVATE_KEY" > "$SIGNING_KEY_FILE"
+            chmod 600 "$SIGNING_KEY_FILE"
+            git config user.name "${RELEASE_COMMIT_NAME:-Robko1 release bot}"
+            git config user.email "$RELEASE_COMMIT_EMAIL"
+            git config gpg.format ssh
+            git config user.signingkey "$SIGNING_KEY_FILE"
+            git config commit.gpgsign true
+            git add web/src/appVersion.ts webos/appinfo.json
+            git commit -S -m "chore: bump webOS IPK version to v$NEXT"
+            echo "SIGNED_COMMIT=1" >> "$GITHUB_ENV"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add web/src/appVersion.ts webos/appinfo.json
+            git commit -m "chore: bump webOS IPK version to v$NEXT"
+            echo "SIGNED_COMMIT=0" >> "$GITHUB_ENV"
+          fi
           git push origin HEAD:main
           echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
@@ -361,6 +404,11 @@ jobs:
       - name: 12. Verziózott Release és Git-tag frissítése
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_KEY_ID: ${{ secrets.RELEASE_GPG_KEY_ID }}
+          RELEASE_SSH_PRIVATE_KEY: ${{ secrets.RELEASE_SSH_PRIVATE_KEY }}
+          RELEASE_COMMIT_NAME: ${{ secrets.RELEASE_COMMIT_NAME }}
+          RELEASE_COMMIT_EMAIL: ${{ secrets.RELEASE_COMMIT_EMAIL }}
         shell: bash
         run: |
           set -euo pipefail
@@ -397,9 +445,24 @@ jobs:
 
           # A vX.Y.Z Git-tag is a mostani, ellenőrzött main build commitjára mutasson.
           # Ez kijavítja a korábban ott maradt, régi commitra mutató taget.
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$RELEASE_TAG" "$BUILD_COMMIT"
+          if [[ -n "${RELEASE_GPG_PRIVATE_KEY:-}" && -n "${RELEASE_GPG_KEY_ID:-}" ]]; then
+            # A tag is csak akkor lesz GitHubon Verified, ha ugyanennek a
+            # kulcsnak a nyilvános része a felhasználói fiókban ellenőrzött.
+            git config user.signingkey "$RELEASE_GPG_KEY_ID"
+            git config gpg.program gpg
+            git tag -s -f "$RELEASE_TAG" "$BUILD_COMMIT" -m "IPTV-RT $CURRENT_VERSION"
+          elif [[ -n "${RELEASE_SSH_PRIVATE_KEY:-}" ]]; then
+            SIGNING_KEY_FILE="$RUNNER_TEMP/release-signing-key"
+            printf '%s\n' "$RELEASE_SSH_PRIVATE_KEY" > "$SIGNING_KEY_FILE"
+            chmod 600 "$SIGNING_KEY_FILE"
+            git config user.name "${RELEASE_COMMIT_NAME:-Robko1 release bot}"
+            git config user.email "$RELEASE_COMMIT_EMAIL"
+            git config gpg.format ssh
+            git config user.signingkey "$SIGNING_KEY_FILE"
+            git tag -s -f "$RELEASE_TAG" "$BUILD_COMMIT" -m "IPTV-RT $CURRENT_VERSION"
+          else
+            git tag -f "$RELEASE_TAG" "$BUILD_COMMIT"
+          fi
           git push origin "refs/tags/$RELEASE_TAG" --force
 
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
@@ -458,4 +521,9 @@ jobs:
             echo "- Ellenőrzés: forrásfájlok, HTML build, webOS-frissítő, távirányító-kezelés, platformtisztaság, indítókép, verziók és szintaxis."
             echo "- IPK: csomagtartalom, HTML, verzió, ES5/polyfill, távirányító-kezelés és SHA-256 ellenőrzése."
             echo "- Kimenet: IPK artifact és GitHub Release."
+            if [[ "${SIGNED_COMMIT:-0}" == "1" ]]; then
+              echo "- Commit/tag: a beállított GPG- vagy SSH-kulccsal aláírva (GitHub Verified csak a fiókhoz hozzáadott publikus kulccsal jelenik meg)."
+            else
+              echo "- Commit/tag: nincs GPG/SSH-kulcs beállítva; a RELEASE_* signing secret-ek nélkül a GitHub Verified jelzés nem garantálható."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

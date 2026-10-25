@@ -8,6 +8,6 @@ web/node_modules/
 dist/
 .DS_Store
 
-# IPK megtartjuk ha kézzel építed, de build/ nem
-!webos/*.ipk
-!apk/*.ipk
+# Az IPK csak build- és Release-artefakt; ne kerüljön vissza a forráságba.
+webos/*.ipk
+apk/*.ipk

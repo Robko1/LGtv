@@ -33,7 +33,7 @@ LG webOS TV-n borzasztó a távirányítóval beírni a szolgáltató host / use
 
 Ha kvdb.io nem elérhető:
 - TV-n továbbra is működik kézi bevitel: Beállítások → Listák → Új lista
-- Vagy: GitHub Pages-en a `provision.html` letölthető és lokálisan is használható ha TV és telefon egy WiFi-n (jövőbeli fejlesztés: WebRTC)
+- Vagy: GitHub Pages-en a `web/public/provision.html` közzétehető és lokálisan is használható, ha a TV és a telefon egy WiFi-n (jövőbeli fejlesztés: WebRTC).
 
 ### Jövőbeli lehetőségek
 

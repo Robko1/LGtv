@@ -1,18 +1,19 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const base = Deno.env.get("SUPABASE_URL")!;
-const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const base = Deno.env.get("SUPABASE_URL") || "";
+const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const table = base + "/rest/v1/tv_diagnostic_shares";
 const MAX_LOG_CHARS = 1_000_000;
 const MAX_LOG_ROWS = 5;
-// A rekordot nem egyórás QR-linkhez kötjük: a legutóbbi öt napló maradjon
-// további ellenőrzésre, a legrégebbit a pruneToFive törli.
 const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+const DB_TIMEOUT_MS = 20_000;
 const headers = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+type DbResponse = Response;
 
 const out = (status: number, data: unknown) => new Response(JSON.stringify(data), {
   status,
@@ -23,17 +24,36 @@ const hash = async (s: string) => Array.from(
   new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))),
 ).map((b) => b.toString(16).padStart(2, "0")).join("");
 
-async function db(path: string, init: RequestInit = {}) {
-  return fetch(table + path, {
-    ...init,
-    headers: {
-      apikey: key,
-      Authorization: "Bearer " + key,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-      ...(init.headers || {}),
-    },
-  });
+function configured(): boolean {
+  return Boolean(base && key);
+}
+
+/** A REST-kérés időkorláttal fut; egy beragadt adatbázis-kérés nem okoz gateway 503-at. */
+async function db(path: string, init: RequestInit = {}): Promise<DbResponse> {
+  if (!configured()) throw new Error("Supabase service configuration is missing");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DB_TIMEOUT_MS);
+  try {
+    return await fetch(table + path, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        apikey: key,
+        Authorization: "Bearer " + key,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+        ...(init.headers || {}),
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function jsonOrEmpty(response: Response): Promise<any> {
+  const text = await response.text();
+  if (!text) return {};
+  try { return JSON.parse(text); } catch { return {}; }
 }
 
 function cleanLog(input: string) {
@@ -57,22 +77,65 @@ async function internalToken(): Promise<string> {
   return hash(raw + Date.now());
 }
 
-/** Mindig a legfrissebb öt rekord maradjon; az azonosító és a teljes tartalom együtt törlődik. */
-async function pruneToFive() {
-  const result = await db(
-    "?select=id,log_number,created_at&order=log_number.desc.nullslast,created_at.desc&limit=100",
-  );
-  if (!result.ok) return;
-  const rows = await result.json();
-  if (!Array.isArray(rows) || rows.length <= MAX_LOG_ROWS) return;
-  for (const row of rows.slice(MAX_LOG_ROWS)) {
-    if (row?.id) await db("?id=eq." + encodeURIComponent(String(row.id)), { method: "DELETE" });
+function recordFromRow(row: any, fallbackLog: string, fallbackStartedAt: string) {
+  return {
+    logNumber: Number(row?.log_number),
+    startedAt: row?.started_at || fallbackStartedAt,
+    createdAt: row?.created_at || new Date().toISOString(),
+    charCount: typeof row?.log_text === "string" ? row.log_text.length : fallbackLog.length,
+    lineCount: typeof row?.log_text === "string" ? row.log_text.split("\n").length : fallbackLog.split("\n").length,
+  };
+}
+
+/**
+ * A 503 után újraküldött azonos napló ne duplázódjon. A sorszám + kezdési
+ * idő együtt egy kézi munkamenetet azonosít; a tartalmat nem adjuk vissza a TV-re.
+ */
+async function findExisting(logNumber: number, startedAt: string): Promise<any | null> {
+  const path = `?log_number=eq.${encodeURIComponent(String(logNumber))}` +
+    `&started_at=eq.${encodeURIComponent(startedAt)}` +
+    "&select=log_number,started_at,created_at,log_text&order=created_at.desc&limit=1";
+  const response = await db(path);
+  if (!response.ok) {
+    console.error("diagnostic existing-record lookup failed", response.status);
+    throw new Error(`database lookup failed: ${response.status}`);
+  }
+  const rows = await jsonOrEmpty(response);
+  return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+}
+
+/** Mindig a legfrissebb öt rekord maradjon; a teljes rekord együtt törlődik. */
+async function pruneToFive(): Promise<void> {
+  try {
+    const result = await db(
+      "?select=id,log_number,created_at&order=log_number.desc.nullslast,created_at.desc&limit=100",
+    );
+    if (!result.ok) {
+      console.error("diagnostic pruning lookup failed", result.status);
+      return;
+    }
+    const rows = await jsonOrEmpty(result);
+    if (!Array.isArray(rows) || rows.length <= MAX_LOG_ROWS) return;
+    for (const row of rows.slice(MAX_LOG_ROWS)) {
+      if (!row?.id) continue;
+      try {
+        await db("?id=eq." + encodeURIComponent(String(row.id)), { method: "DELETE" });
+      } catch (error) {
+        // A küldött napló már biztonságban van; a takarítási hiba nem teheti
+        // 503-má az egész küldést, különben a TV újra és újra elküldené.
+        console.error("diagnostic pruning delete failed", String(error));
+      }
+    }
+  } catch (error) {
+    // A pruning csak karbantartás. A sikeres INSERT válaszát mindig kiadjuk.
+    console.error("diagnostic pruning unavailable", String(error));
   }
 }
 
-Deno.serve(async (req: Request) => {
+async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers });
   if (req.method !== "POST") return out(405, { error: "method_not_allowed" });
+  if (!configured()) return out(503, { error: "service_unavailable" });
 
   let body: any;
   try {
@@ -85,8 +148,11 @@ Deno.serve(async (req: Request) => {
     const result = await db(
       "?log_number=not.is.null&select=log_number,started_at,created_at&order=log_number.desc,created_at.desc&limit=" + MAX_LOG_ROWS,
     );
-    if (!result.ok) return out(503, { error: "history_unavailable" });
-    const rows = await result.json();
+    if (!result.ok) {
+      console.error("diagnostic history failed", result.status);
+      return out(result.status >= 500 ? 503 : 502, { error: "history_unavailable" });
+    }
+    const rows = await jsonOrEmpty(result);
     return out(200, {
       ok: true,
       records: Array.isArray(rows) ? rows.map((row) => ({
@@ -110,6 +176,11 @@ Deno.serve(async (req: Request) => {
   if (cleanedLog.length > MAX_LOG_CHARS) return out(413, { error: "log_too_large" });
 
   const startedAt = new Date(body.startedAt).toISOString();
+  const existing = await findExisting(body.logNumber, startedAt);
+  if (existing) {
+    return out(200, { ok: true, record: recordFromRow(existing, cleanedLog, startedAt), duplicate: true });
+  }
+
   const expiresAt = new Date(Date.now() + RETENTION_MS).toISOString();
   const result = await db("", {
     method: "POST",
@@ -123,18 +194,39 @@ Deno.serve(async (req: Request) => {
       expires_at: expiresAt,
     }]),
   });
-  if (!result.ok) return out(500, { error: "send_failed" });
-  const rows = await result.json();
+  if (!result.ok) {
+    // A részleges index miatt a párhuzamos retry 409-et kaphat, miközben az
+    // első kérés már elment. Ilyenkor ugyanazt a sikeres rekordot adjuk vissza.
+    if (result.status === 409) {
+      const duplicate = await findExisting(body.logNumber, startedAt);
+      if (duplicate) return out(200, { ok: true, record: recordFromRow(duplicate, cleanedLog, startedAt), duplicate: true });
+    }
+    console.error("diagnostic insert failed", result.status);
+    return out(result.status >= 500 ? 503 : 502, { error: "send_failed" });
+  }
+
+  // Normál esetben a PostgREST return=representation válaszából dolgozunk.
+  // Ha egy proxy üres 201 választ ad, még egyszer kiolvassuk ugyanazt a
+  // sorszám/kezdési idő párt; így nem keletkezik hamis 503 a már mentett naplóra.
+  let rows: any = await jsonOrEmpty(result);
+  let saved = Array.isArray(rows) ? rows[0] : null;
+  if (!saved) saved = await findExisting(body.logNumber, startedAt);
   await pruneToFive();
-  const saved = Array.isArray(rows) ? rows[0] : null;
+
   return out(201, {
     ok: true,
-    record: {
-      logNumber: Number(saved?.log_number ?? body.logNumber),
-      startedAt: saved?.started_at || startedAt,
-      createdAt: saved?.created_at || new Date().toISOString(),
-      charCount: cleanedLog.length,
-      lineCount: cleanedLog.split("\n").length,
-    },
+    record: recordFromRow(saved, cleanedLog, startedAt),
   });
+}
+
+Deno.serve(async (req: Request) => {
+  try {
+    return await handle(req);
+  } catch (error) {
+    // A korábbi függvényben egy adatbázis-/JSON-/pruning kivétel a runtime-ot
+    // leállította, ezért a TV csak „HTTP 503”-at látott. Most mindig értelmes,
+    // újrapróbálható JSON-válasz megy vissza.
+    console.error("tv-diagnostic-share failed", error instanceof Error ? error.stack || error.message : String(error));
+    return out(503, { error: "service_unavailable" });
+  }
 });

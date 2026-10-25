@@ -160,8 +160,19 @@ check(/switchInProgressRef\.current\) return;/.test(PLAYER),
   'a belső pause/play események nem írják át a lejátszási szándékot');
 check(/currentStreamHasFrame \? \(/.test(PLAYER) && /bg-black z-10/.test(PLAYER),
   'van képkocka után a töltőjelző NEM takarja el a képet fekete réteggel');
+check(/data-playback-status/.test(PLAYER)
+  && /isFullscreen/.test(PLAYER)
+  && /top-3 right-3/.test(PLAYER)
+  && /bottom-3 left-3/.test(PLAYER),
+  'fullscreenben a kis pörgő jelző az óra alatt jobb felül, normál nézetben bal alul marad');
+check(/logLiveMediaEvent\('waiting'/.test(PLAYER)
+  && /logLiveMediaEvent\('error'/.test(PLAYER)
+  && /logLiveTimeline\(video\)/.test(PLAYER)
+  && /seekable=/.test(PLAYER)
+  && /buffered=/.test(PLAYER),
+  'a kézi élő napló a médiahibát, idővonalat, seeket és puffert is rögzíti');
 check(/isVerbosePlaybackLogging\(\)/.test(PLAYER) && /isVerbosePlaybackLogging\(\)/.test(APPLOG),
-  'a részletes diagnosztika csak a QR-mérési ablakban fut');
+  'a részletes diagnosztika csak a hibakeresési ablakban fut');
 check(/dublinFormatter\(\)\.formatToParts\(date\)/.test(APPLOG),
   'az időbélyeg-formázó gyorsítótárazott (nincs új Intl példány soronként)');
 check(/MIN_FORCE_INTERVAL_MS/.test(APPLOG),
