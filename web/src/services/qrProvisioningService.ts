@@ -19,7 +19,6 @@ export interface ProvisionSession { tvId: string; code: string; token: string; e
 const API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/qr-provision-form';
 const FORM_URL = 'https://robko1.github.io/LGtv/provision.html';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
-const POLL_INTERVAL = 3000;
 const CODE_TTL_MS = 5 * 60 * 1000;
 let channelDiag: string[] = [];
 export function getProvisionDiag(): string { return channelDiag.join(' • '); }
@@ -66,12 +65,12 @@ export async function createProvisionSession(): Promise<ProvisionSession> {
 export async function ensureProvisionChannel(): Promise<ProvisionChannel | null> {
   return { kind: 'supabase', id: 'qr-provision' };
 }
-export function getProvisionUrl(tvId: string, code: string, channel?: ProvisionChannel | null, token = ''): string {
+export function getProvisionUrl(tvId: string, code: string, _channel?: ProvisionChannel | null, token = ''): string {
   // A HTML űrlap statikus weboldalon fut; a Supabase csak a párosítási API-t kezeli.
   const t = token || (() => { try { return localStorage.getItem('qr_token') || ''; } catch { return ''; } })();
   return `${FORM_URL}?tv=${encodeURIComponent(tvId)}&code=${encodeURIComponent(code)}&token=${encodeURIComponent(t)}`;
 }
-export async function pollForProvider(tvId: string, channel?: ProvisionChannel | null, token?: string): Promise<QrProviderPayload | null> {
+export async function pollForProvider(tvId: string, _channel?: ProvisionChannel | null, token?: string): Promise<QrProviderPayload | null> {
   try {
     const t = token || localStorage.getItem('qr_token') || '';
     const result = await request({ action: 'poll', sessionId: tvId, token: t });
@@ -83,7 +82,7 @@ export async function pollForProvider(tvId: string, channel?: ProvisionChannel |
     return null;
   }
 }
-export async function clearProvision(tvId: string, channel?: ProvisionChannel | null, token?: string): Promise<void> {
+export async function clearProvision(tvId: string, _channel?: ProvisionChannel | null, token?: string): Promise<void> {
   try {
     const t = token || localStorage.getItem('qr_token') || '';
     if (t) await request({ action: 'consume', sessionId: tvId, token: t });
@@ -95,7 +94,7 @@ export async function clearProvision(tvId: string, channel?: ProvisionChannel | 
     localStorage.removeItem('qr_expires');
   } catch {}
 }
-export async function pushProvider(tvId: string, payload: QrProviderPayload, channel?: ProvisionChannel | null, token?: string): Promise<boolean> {
+export async function pushProvider(tvId: string, payload: QrProviderPayload, _channel?: ProvisionChannel | null, token?: string): Promise<boolean> {
   try {
     const t = token || new URL(window.location.href).searchParams.get('token') || '';
     const code = new URL(window.location.href).searchParams.get('code') || payload.code;

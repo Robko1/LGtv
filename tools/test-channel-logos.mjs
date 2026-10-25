@@ -134,7 +134,10 @@ assert.equal(document.querySelector('img').src, 'https://one.example/a.png');
 await error();
 assert.equal(document.querySelector('img').src, 'http://one.example/a.png', 'HTTP URL is restored if HTTPS fails');
 await error();
-assert.equal(document.querySelector('img'), null, 'Only show the fallback icon after both URL schemes fail');
+// A beépített alkalmazásikon a tartalék (nem „nincs kép”): mindkét séma
+// hibája után ennek kell megjelennie, és csak ezután jöhet a gyorsítótár.
+assert.match(document.querySelector('img')?.getAttribute('aria-label') || '', /nem érhető el/,
+  'Only show the fallback icon after both URL schemes fail');
 await render('https://two.example/b.png');
 assert.equal(document.querySelector('img').src, 'https://two.example/b.png');
 await error();
@@ -151,7 +154,7 @@ URL.createObjectURL = () => 'blob:cached-logo';
 URL.revokeObjectURL = (url) => revoked.push(url);
 await render('https://cached.example/a.png');
 await error();
-assert.equal(document.querySelector('img'), null);
+assert.match(document.querySelector('img')?.getAttribute('aria-label') || '', /nem érhető el/);
 await act(async () => resolveCache({ match: async () => new Response(new Blob(['image'], { type: 'image/png' })) }));
 assert.equal(document.querySelector('img').src, 'blob:cached-logo');
 await act(async () => root.unmount());

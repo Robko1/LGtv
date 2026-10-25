@@ -6,7 +6,7 @@ interface HeaderProps {
   /** A piros gombbal kapcsolható főoldali tükrözés állapota. */
   mirrorLayout?: boolean;
   activeView: 'live' | 'movies' | 'series';
-  liveAccent?: 'yellow' | 'red' | 'blue' | 'pink';
+  liveAccent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white';
   onViewChange: (view: 'live' | 'movies' | 'series') => void;
   onOpenCategories: () => void;
   onOpenSettings: (tab?: 'channels' | 'lists' | 'favorites' | 'system') => void;

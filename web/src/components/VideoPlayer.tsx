@@ -1,7 +1,16 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
 import { Rewind, FastForward } from 'lucide-react';
-import { appLog, appLogCritical } from '../services/appLog';
+import { appLog, appLogCritical, isVerbosePlaybackLogging } from '../services/appLog';
+import {
+  MediaProgressSample,
+  StallDetector,
+  isPrematureVodEnd,
+  liveRecoveryDelayMs,
+  liveRecoveryUrl,
+  readMediaProgress,
+  vodRecoveryDelayMs,
+} from '../services/playbackRecovery';
 import { ChannelLogo } from './ChannelLogo';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { VodOsd } from './VodOsd';
@@ -35,7 +44,6 @@ import {
   rememberFormatFor,
   rememberGlobalFormat,
   rememberedFormatFor,
-  rememberedGlobalFormat,
 } from '../services/liveFormatMemory';
 
 interface NativeApi {
@@ -430,7 +438,6 @@ interface VideoPlayerProps {
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   channel,
-  liveAccent = 'yellow',
   customStreamUrl,
   customTitle,
   audioTracks: providedAudioTracks,
@@ -468,6 +475,73 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const playbackActiveRef = useRef(playbackActive);
   playbackActiveRef.current = playbackActive;
 
+  /*
+   * BELSŐ FORRÁSVÁLTÁS JELZÉSE.
+   *
+   * A `video.pause()` a csatornaváltás / újracsatlakozás első lépése. A
+   * médiaelem `pause` eseménye azonban KÉSŐBB, külön feladatban érkezik –
+   * gyakran már az új stream play()-e után. A régi kód ilyenkor
+   * `setIsPlaying(false)`-t hívott, amire az alábbi effektus LEÁLLÍTOTTA az
+   * éppen elindult új adást (ez volt a „film 22 ms után megáll, csak kilépés
+   * után indul újra” hiba). A jelző alatt a belső események nem írják át a
+   * felhasználói szándékot; a `playing` esemény (vagy a 8 mp-es biztonsági
+   * időkorlát) oldja fel.
+   */
+  const switchInProgressRef = useRef(false);
+  const switchResetTimerRef = useRef<number | null>(null);
+  /** A felhasználó / App által KÉRT lejátszási állapot (a belső eseményektől független). */
+  const desiredPlayingRef = useRef(isPlaying);
+  desiredPlayingRef.current = isPlaying;
+
+  /*
+   * Egyetlen hely, ahol a kért állapotot a videóelemre alkalmazzuk.
+   * Forrásváltás közben nem nyúlunk hozzá; a váltás végén (endSwitch)
+   * viszont újra ellenőrizzük, így a váltás alatt megnyomott Play/Pause
+   * sem vész el.
+   */
+  const applyDesiredPlayback = useCallback(() => {
+    const video = htmlVideoRef.current;
+    if (!video || nativeApi()?.play || !video.currentSrc) return;
+    if (switchInProgressRef.current) return;
+    if (desiredPlayingRef.current && video.paused) {
+      void video.play().catch(() => {
+        if (switchInProgressRef.current) return;
+        setIsLoading(false);
+        setHasError(true);
+        setErrorMessage('A TV nem engedélyezte a lejátszás indítását.');
+      });
+    } else if (!desiredPlayingRef.current && !video.paused) {
+      video.pause();
+    }
+  }, []);
+  const beginSwitch = useCallback(() => {
+    switchInProgressRef.current = true;
+    if (switchResetTimerRef.current !== null) {
+      window.clearTimeout(switchResetTimerRef.current);
+      switchResetTimerRef.current = null;
+    }
+    switchResetTimerRef.current = window.setTimeout(() => {
+      switchResetTimerRef.current = null;
+      switchInProgressRef.current = false;
+      applyDesiredPlayback();
+    }, 8000);
+  }, [applyDesiredPlayback]);
+  const endSwitch = useCallback(() => {
+    switchInProgressRef.current = false;
+    if (switchResetTimerRef.current !== null) {
+      window.clearTimeout(switchResetTimerRef.current);
+      switchResetTimerRef.current = null;
+    }
+    // Ha a néző a váltás közben nyomott Play/Pause-t, most érvényesítjük.
+    applyDesiredPlayback();
+  }, [applyDesiredPlayback]);
+  useEffect(() => () => {
+    if (switchResetTimerRef.current !== null) {
+      window.clearTimeout(switchResetTimerRef.current);
+      switchResetTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     const video = htmlVideoRef.current;
     if (!video) return;
@@ -476,18 +550,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [volume]);
 
   useEffect(() => {
-    const video = htmlVideoRef.current;
-    if (!video || nativeApi()?.play || !video.currentSrc) return;
-    if (isPlaying && video.paused) {
-      void video.play().catch(() => {
-        setIsLoading(false);
-        setHasError(true);
-        setErrorMessage('A TV nem engedélyezte a lejátszás indítását.');
-      });
-    } else if (!isPlaying && !video.paused) {
-      video.pause();
-    }
-  }, [isPlaying]);
+    applyDesiredPlayback();
+  }, [isPlaying, applyDesiredPlayback]);
   const vodOsdRef = useRef<HTMLDivElement | null>(null);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -498,12 +562,46 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const autoRetryTimerRef = useRef<number | null>(null);
   const retryStreamRef = useRef<(() => void) | null>(null);
   const pendingStreamUrlRef = useRef('');
-  const retryPlanRef = useRef<{ originalUrl: string; stage: 'primary' | 'hls' | 'final-ts' }>({
-    originalUrl: '',
-    stage: 'primary',
-  });
   const bufferWatchdogRef = useRef<number | null>(null);
   const playbackStartedRef = useRef(false);
+
+  /*
+   * FOLYAMATOS ÚJRACSATLAKOZÁS – nincs többé végleges fekete hibaképernyő.
+   * A `recoveryTimerRef` az egyetlen újrapróbálkozás-időzítő, az
+   * `recoveryAttemptRef` a visszalépéshez (exponenciális, de korlátos),
+   * az `isRecovering` pedig egy KIS, átlátszó jelző a kép sarkában: a
+   * legutolsó képkocka közben látható marad, a hang nem szakad meg.
+   */
+  const [isRecovering, setIsRecovering] = useState(false);
+  const recoveryTimerRef = useRef<number | null>(null);
+  const recoveryAttemptRef = useRef(0);
+  const stallDetectorRef = useRef<StallDetector | null>(null);
+  const requestRecoveryRef = useRef<(reason: string) => void>(() => {});
+  const vodRecoveryRef = useRef<(reason: string) => void>(() => {});
+  const vodRestoreTimerRef = useRef<number | null>(null);
+  /** A VOD-visszaállítás ideiglenes eseményfigyelőjének eltávolítása. */
+  const vodRestoreCleanupRef = useRef<(() => void) | null>(null);
+  /** A legutolsó ismert film-pozíció – újratöltéskor innen folytatjuk. */
+  const vodLastPositionRef = useRef(0);
+  /** Érkezett-e már timeupdate? (0 mp-re tekerésnél se ugorjunk vissza a folytatáshoz.) */
+  const vodPositionKnownRef = useRef(false);
+  /** Csak a FELHASZNÁLÓ által kért hangsávváltás nyithassa újra a forrást. */
+  const vodAutoAudioSwitchRef = useRef(false);
+  const clearRecovery = useCallback(() => {
+    if (recoveryTimerRef.current !== null) {
+      window.clearTimeout(recoveryTimerRef.current);
+      recoveryTimerRef.current = null;
+    }
+    if (vodRestoreTimerRef.current !== null) {
+      window.clearTimeout(vodRestoreTimerRef.current);
+      vodRestoreTimerRef.current = null;
+    }
+    // Csatorna-/filmváltáskor a régi visszaállító nem ugrathatja vissza
+    // az ÚJ stream idejét a régi film pozíciójára.
+    vodRestoreCleanupRef.current?.();
+    vodRestoreCleanupRef.current = null;
+    setIsRecovering(false);
+  }, []);
   /*
    * ÉLŐ: csatornánkénti formátum-tartalék (a napló „Format error” hibáihoz).
    * A `liveFallbackRef` a másik formátum címét, a `liveRetrySequenceRef`
@@ -531,6 +629,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     summaryLogged: boolean;
   } | null>(null);
   const videoDiagnosticState = (video: HTMLVideoElement, reason: string): string => {
+    /*
+     * GYORS CSATORNAVÁLTÁS: a részletes mérés (doboZ-geometria, canPlayType,
+     * dekódolási statisztika) csak a QR-diagnosztikai mérési ablakban fut.
+     * Normál tévézésnél ezek a hívások kényszerített újrarajzolást és
+     * több tíz ms-nyi munkát vittek el MINDEN csatornaváltásnál.
+     */
+    if (!isVerbosePlaybackLogging()) {
+      return `${reason}; readyState=${video.readyState}; networkState=${video.networkState}; ` +
+        `paused=${video.paused}; error=${video.error ? String(video.error.code) : 'nincs'}`;
+    }
     const rect = video.getBoundingClientRect();
     const error = video.error;
     const width = Number(video.videoWidth || 0);
@@ -568,6 +676,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /** Kis terhelésű pillanatkép csatornaváltáskor. A webOS nem teszi hozzáférhetővé
    * a teljes TV-RAM/CPU és más folyamatok adatait; csak a böngésző mérőszámait írjuk ki. */
   const runtimeDiagnosticState = (): string => {
+    // A teljes localStorage átolvasása (akár 2 MB csatorna-/film-adag)
+    // csatornaváltásonként blokkolta a fő szálat. Csak méréskor kell.
+    if (!isVerbosePlaybackLogging()) return 'részletes erőforrás-mérés csak a QR-diagnosztika mérési ablakában fut';
     const parts: string[] = [];
     try {
       const perf = performance as Performance & { memory?: { usedJSHeapSize?: number; totalJSHeapSize?: number; jsHeapSizeLimit?: number } };
@@ -601,8 +712,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return `audioTrackList=${exposedList && typeof exposedList.length === 'number' ? 'elérhető' : 'nem támogatott'}; hangsávok=${trackText}; muted=${video.muted}; volume=${Number(video.volume).toFixed(2)}; codec/valódi hangszint=HTML5 API-ból nem olvasható`;
   };
   // Hibaképernyőn a sárga kijelölés automatikusan az Újrapróbálás gombra
-  // ugrik - eddig távirányítóval nem lehetett elérni.
+  // ugrik - eddig távirányítóval nem lehetett elérni (a gomb hiányzott).
   const retryButtonRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!hasError) return;
+    const timer = window.setTimeout(() => {
+      try { retryButtonRef.current?.focus({ preventScroll: true }); }
+      catch { retryButtonRef.current?.focus(); }
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [hasError]);
   // PUFFERELÉS BEKÖTVE (Rendszer menü: Gyors/Kiegyensúlyozott/Stabil):
   // a zap-őr és az automatikus formátumváltás időzítése ehhez igazodik.
   const bufferModeRef = useRef(settings.bufferMode);
@@ -666,8 +785,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         pendingStreamUrlRef.current = nextUrl;
         setHasError(false);
         setErrorMessage('');
-        setIsLoading(true);
-        setIsPlaying(false);
+        // NEM takarjuk el a képet: a tartalék formátum próbája alatt a
+        // legutolsó képkocka és a hang is megmarad (csak egy kis jelző megy ki).
+        setIsLoading(false);
+        setIsRecovering(true);
         if (nextIndex === 1) {
           appLog(`FORMÁTUM-VISSZAESÉS; csatorna=${channelName}; ${nextFormat === 'hls' ? 'HLS (.m3u8)' : 'MPEG-TS (.ts)'} próba következik.`);
         }
@@ -691,38 +812,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         `próbált formátumok=${triedFormats}; a csatorna jelenleg nem indítható. Formátum-emlék törölve.`
       );
       logChannelSwitchSummary('SIKERTELEN', `minden indítási próba sikertelen; formátumok=${triedFormats}`);
+      /*
+       * NINCS többé végleges fekete hibaképernyő. Ha a szolgáltató épp
+       * elérhetetlen, a lejátszó fokozatos visszalépéssel addig próbálkozik,
+       * amíg a csatorna vissza nem jön (vagy a néző másik csatornát választ).
+       */
       setIsLoading(false);
-      setHasError(true);
-      setErrorMessage('A csatorna négy indítási próbálkozás után sem indult el. Válassz másik csatornát.');
+      setHasError(false);
+      sequence.index = 0;
+      requestRecoveryRef.current('mindkét formátum sikertelen');
       return;
     }
-    const plan = retryPlanRef.current;
-    let nextUrl = '';
-    let nextStage: 'hls' | 'final-ts' | null = null;
-
-    if (plan.stage === 'primary' && /\.ts(?=([?#]|$))/i.test(plan.originalUrl)) {
-      nextUrl = plan.originalUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
-      nextStage = 'hls';
-    } else if (plan.stage === 'hls') {
-      nextUrl = plan.originalUrl;
-      nextStage = 'final-ts';
-    }
-
-    if (!nextUrl || !nextStage) {
-      setIsLoading(false);
-      setHasError(true);
-      setErrorMessage('A TV böngészője nem tudta lejátszani ezt az adatfolyamot.');
-      return;
-    }
-
-    retryPlanRef.current = { ...plan, stage: nextStage };
-    pendingStreamUrlRef.current = nextUrl;
-    nativeApi()?.retryToast?.(nextStage === 'hls' ? 'MPEG-TS sikertelen – HLS próba' : 'HLS sikertelen – MPEG-TS újrapróba');
+    /*
+     * FILM / SOROZAT: itt NINCS TS → HLS formátum-átírás. A VOD `.ts` / `.mkv`
+     * címek valódi fájlok, az átírás másik (nem létező) fájlra mutatna.
+     * Helyette ugyanazt a címet töltjük újra, a megőrzött pozícióról.
+     */
     setHasError(false);
-    setIsLoading(true);
+    setIsLoading(false);
+    setIsRecovering(true);
     autoRetryTimerRef.current = window.setTimeout(() => {
       autoRetryTimerRef.current = null;
-      retryStreamRef.current?.();
+      vodRecoveryRef.current('VOD újrapróba');
     }, bufferTiming().retryMs);
   }, []);
   const clearAutoRetry = useCallback((_resetCount = true) => {
@@ -765,51 +876,72 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         `PUFFERELÉSI WATCHDOG; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
         `eltelt=${Date.now() - startedAt} ms; időkorlát=${timeoutMs} ms; haladt=${advanced}; ${videoDiagnosticState(video, 'buffer-watchdog')}`
       );
-      scheduleAutoRetry();
+      // Először UGYANAZT a címet próbáljuk újra, nem ugrunk rögtön a másik
+      // formátumra: így a hang és a kép nem csúszik szét feleslegesen.
+      requestRecoveryRef.current('pufferelés elakadt');
     }, timeoutMs);
   }, [scheduleAutoRetry]);
 
-  // Folyamatos élő lejátszásfigyelő: akkor is észreveszi az idővonal megállását,
-  // ha a webOS nem küld waiting/stalled eseményt. VOD-hoz nem nyúl.
+  /*
+   * EGYSÉGES LEJÁTSZÁSFIGYELŐ (élő TV + film/sorozat).
+   *
+   * A régi élő watchdog kizárólag a `currentTime` változását nézte, 2 mp
+   * után pedig azonnal formátumot váltott. webOS-en az élő MPEG-TS
+   * idővonala gyakran 0 marad, miközben a képkockák érkeznek – ezért a
+   * figyelő feleslegesen újratöltötte a stream-et (eltűnt a kép, a hang
+   * viszont ment tovább). Most a képkocka-számláló, az idővonal és a
+   * puffer együtt dönt, és a VOD-ra is ugyanez a (türelmesebb) őr vigyáz.
+   */
   useEffect(() => {
-    if (isVod || !isPlaying || !playbackStartedRef.current) return;
+    if (!isPlaying) return;
     const video = htmlVideoRef.current;
     if (!video) return;
-
-    let previousTime = Number(video.currentTime || 0);
-    let stagnantChecks = 0;
+    const detector = new StallDetector(isVod ? 7000 : 4000);
+    stallDetectorRef.current = detector;
+    let previousSample: MediaProgressSample | null = null;
     const generation = streamLoadGenerationRef.current;
     const timer = window.setInterval(() => {
       if (
         generation !== streamLoadGenerationRef.current ||
         video !== htmlVideoRef.current ||
         video.paused ||
-        !playbackStartedRef.current
-      ) return;
-
-      const currentTime = Number(video.currentTime || 0);
-      const delta = currentTime - previousTime;
-      previousTime = currentTime;
-      if (delta >= 0.15) {
-        stagnantChecks = 0;
+        video.ended ||
+        !playbackStartedRef.current ||
+        switchInProgressRef.current
+      ) {
+        detector.reset();
+        previousSample = null;
         return;
       }
-
-      stagnantChecks += 1;
-      // Két egymást követő, másodpercenkénti ellenőrzés (kb. 2 másodperc).
-      if (stagnantChecks < 2) return;
-
-      stagnantChecks = 0;
-      appLogCritical(
-        `ÉLŐ LEJÁTSZÁS MEGAKADT; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
-        `ok=az idővonal legalább 2 másodpercig nem haladt; ${videoDiagnosticState(video, 'playback-stall-watchdog')}`
+      const now = Date.now();
+      const sample = readMediaProgress(video, now);
+      /*
+       * Ha a régi webOS egyáltalán NEM ad mérhető jelet (sem képkockát, sem
+       * puffert, sem idővonalat), akkor nem találgatunk: ilyenkor a
+       * `waiting` / `stalled` / `error` események és a puffer-őr döntenek.
+       * Így egy olyan élő MPEG-TS adást sem töltünk újra feleslegesen,
+       * amelynek az idővonala a TV-n mindig 0 marad.
+       */
+      const hasAnySignal = sample.frames !== null || sample.bufferedEnd !== null || sample.time > 0;
+      // Keresés (előre/tekerés) nem megakadás.
+      if (previousSample && Math.abs(sample.time - previousSample.time) > 2) {
+        detector.reset();
+      }
+      previousSample = sample;
+      if (!detector.observe(sample, now)) return;
+      detector.reset();
+      if (!hasAnySignal) return;
+      appLog(
+        `LEJÁTSZÁS MEGAKADT; mód=${isVod ? 'VOD' : 'élő'}; ok=${isVod ? 7 : 4} mp alatt egyetlen haladási jel sem volt; ` +
+        `${videoDiagnosticState(video, 'playback-stall-watchdog')}`
       );
-      setIsLoading(true);
-      scheduleAutoRetry();
+      requestRecoveryRef.current('idővonal megakadt');
     }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [isVod, isPlaying, channel?.id, customStreamUrl, scheduleAutoRetry]);
+    return () => {
+      window.clearInterval(timer);
+      if (stallDetectorRef.current === detector) stallDetectorRef.current = null;
+    };
+  }, [isVod, isPlaying, channel?.id, customStreamUrl]);
 
   // A HTML5 videót a React-komponens eltűnésekor nézetváltáskor
   // ténylegesen leállítjuk, és elrejtjük a natív videófelületet. Visszatéréskor
@@ -1075,7 +1207,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Élő főoldal (nem fullscreen): egy kattintásra semmi
   }, [isVod, isFullscreen, isLiveLandscapeFullscreen]);
 
-  // Dupla gyors kattintás kezelése
+  // Dupla gyors kattintás kezelése. A teljes képernyős váltás lentebb,
+  // saját függvényben van (natív Fullscreen API nélkül) – refen keresztül
+  // érjük el, hogy a korai deklaráció ne okozzon függőségi újraépítést.
+  const toggleFullscreenRef = useRef<() => void>(() => {});
   const handleDoubleTap = useCallback(() => {
     // Film/sorozat: dupla kattintás sem zárja be a lejátszót.
     if (isVod && isFullscreen) {
@@ -1086,7 +1221,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (isLive) {
       if (!isFullscreen) {
         // Főoldalról dupla kattintás -> álló teljes képernyő (portrait 16:9 keret)
-        setIsFullscreen(true);
+        toggleFullscreenRef.current();
       } else {
         // Teljes képernyőből (álló vagy fekvő) dupla kattintás -> vissza főoldalra.
         // Fekvő fullscreenben az OSD rejtve van; kilépéskor explicit visszaállítjuk,
@@ -1226,6 +1361,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * mutatja a fekete kép helyett.
    */
   const [firstFrameShown, setFirstFrameShown] = useState<boolean>(false);
+  /**
+   * Volt-e már képkocka az AKTUÁLIS streamből?
+   * Ha igen, a pufferelés / újracsatlakozás jelzője NEM takarhatja el a
+   * képet egy teljes képernyős fekete réteggel (ez volt a „hang megy, kép
+   * nincs” jelenség). Új csatorna / új film indításakor visszaáll false-ra,
+   * ilyenkor a megszokott „Gyors kapcsolódás...” képernyő látszik.
+   */
+  const [currentStreamHasFrame, setCurrentStreamHasFrame] = useState<boolean>(false);
   const [, setNativeMessage] = useState<string>('');
 
   const [vodCurrentTime, setVodCurrentTime] = useState(0);
@@ -1375,11 +1518,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // hogy ha a TV csak újratöltés után érvényesíti, ugyanazt a sávot állítsuk vissza.
   const pendingHtmlAudioIndexRef = useRef<number | null>(null);
   const htmlAudioReloadingRef = useRef(false);
-  const [castStatus, setCastStatus] = useState<{ available: boolean; connected: boolean; device: string }>({
-    available: false,
-    connected: false,
-    device: '',
-  });
+  /*
+   * TÖRÖLT HALOTT KÓD: a Cast-állapot 2,5 másodpercenkénti lekérdezése.
+   * A `nativeApi()` LG webOS-en mindig null (csak HTML5 videó van), így ez
+   * az időzítő sosem futott, mégis minden újrarajzoláskor új state-et
+   * tartott fenn. A Cast gomb ettől függetlenül megmaradt.
+   */
 
   // A kék óra saját, izolált komponens (lásd BlueClock a fájl elején), hogy a
   // másodpercenkénti frissítése NE rajzolja újra az egész lejátszó felületet.
@@ -1387,25 +1531,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Az EPG-haladássáv időzítője itt korábban másodpercenként futott, de az
   // értékét a felület sem használta - csak felesleges újrarajzolást okozott
   // másodpercenként, ezért megszűnt.
-
-  // A Cast állapotát (csatlakozva van-e TV, melyik) a natív hídtól kérdezzük.
-  // Így a TV gomb nem „dísz”: látszik, hogy éppen melyik eszközre megy a kép.
-  useEffect(() => {
-    const api = nativeApi();
-    if (!api?.castState) return;
-    const update = () => {
-      const state = api.castState?.();
-      if (!state) return;
-      setCastStatus({
-        available: Boolean(state.available),
-        connected: Boolean(state.connected),
-        device: String(state.device || ''),
-      });
-    };
-    update();
-    const timer = window.setInterval(update, 2500);
-    return () => window.clearInterval(timer);
-  }, []);
 
   const castToTv = async () => {
     const url = streamUrl;
@@ -1696,27 +1821,43 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       applyEnabled(video);
       setVodAudioTracks(readHtmlAudioTracks(video));
       /*
-       * AZ ÉLŐ TV LOGIKÁJA (ez működik a TV-n): a webOS a hangsávot gyakran
-       * csak a MÉDIAFORRÁS ÚJRANYITÁSÁVAL hajlandó ténylegesen átkapcsolni –
-       * a `enabled` beállítása önmagában „látszólag” sikerül, de a hang nem
-       * vált. Ilyenkor a forrást újratöltjük, majd a MEGŐRZÖTT pozícióra
-       * visszaállunk, és folytatjuk a lejátszást (filmnél ez a lényeg).
+       * A forrás-újranyitás CSAK a felhasználó kézi hangsávváltásánál
+       * engedélyezett. Az automatikus (magyar alapnyelv) választás korábban
+       * minden többnyelvű filmnél 350 ms után újratöltötte a stream-et –
+       * a play() ígéret emiatt AbortError-ral szakadt meg, a film pedig
+       * percekre megállt. Az automata választásnál a sávlista `enabled`
+       * bitinget használjuk, és NEM bontjuk le a futó lejátszást.
        */
+      const allowReload = !vodAutoAudioSwitchRef.current;
+      const generation = streamLoadGenerationRef.current;
       window.setTimeout(() => {
+        if (!allowReload) return;
+        if (generation !== streamLoadGenerationRef.current || video !== htmlVideoRef.current) return;
         const active = video.audioTracks;
         const applied = Boolean(active && active[index] && active[index].enabled);
         if (applied) return;
         const url = video.currentSrc || video.src || streamUrl;
         if (!url) return;
-        const position = Number(video.currentTime || 0);
+        const position = Math.max(Number(video.currentTime || 0), Number(vodLastPositionRef.current || 0));
         const wasPlaying = !video.paused;
+        let restored = false;
         const restore = () => {
+          if (restored) return;
+          restored = true;
+          try { video.removeEventListener('loadedmetadata', restore); } catch { /* régi motor */ }
           applyEnabled(video);
           try { video.currentTime = position; } catch { /* a TV motorja később állítja be */ }
           if (wasPlaying) void video.play().catch(() => undefined);
           setVodAudioTracks(readHtmlAudioTracks(video));
+          endSwitch();
         };
-        video.addEventListener('loadedmetadata', restore, { once: true });
+        beginSwitch();
+        video.addEventListener('loadedmetadata', restore);
+        // Ha a webOS nem küld metaadatot, a lejátszás akkor se ragadjon le.
+        window.setTimeout(() => {
+          restore();
+          try { video.removeEventListener('loadedmetadata', restore); } catch { /* régi motor */ }
+        }, 6000);
         video.src = url;
         video.load();
         appLog(`Film hangsávváltás forrás-újranyitással: sáv=${index}, pozíció=${Math.round(position)} mp.`);
@@ -2451,7 +2592,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const activeAudio = vodAudioTracks.find((track) => track.selected === true);
       const preferredAudio = findPreferredVodTrack(vodAudioTracks, settings.preferredAudioLang || 'Magyar');
       if (preferredAudio && String(preferredAudio.id) !== String(activeAudio?.id)) {
-        switchHtmlVodAudio(Number(preferredAudio.id));
+        // Automatikus választás: a hangsávlista közvetlen kapcsolása, a
+        // lejátszás újranyitása NÉLKÜL (a film nem állhat meg).
+        vodAutoAudioSwitchRef.current = true;
+        try { switchHtmlVodAudio(Number(preferredAudio.id)); }
+        finally { vodAutoAudioSwitchRef.current = false; }
         appLog(`Automatikus film-hangsáv: ${preferredAudio.lang || preferredAudio.name} (beállítás: ${settings.preferredAudioLang}).`);
         return; // a frissült sávlista alapján a felirat a következő körben jön
       }
@@ -2792,7 +2937,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, []);
 
   // Egyetlen lejátszómotor: LG webOS-en a TV HTML5/HLS videóeleme játssza le az adatfolyamot.
-  const loadStream = useCallback((url: string) => {
+  const loadStream = useCallback((url: string, forceReload = false) => {
+    // A belső pause/play események nem befolyásolhatják a lejátszási szándékot,
+    // amíg az új forrás el nem indul (lásd switchInProgressRef feljebb).
+    beginSwitch();
     // Az előző adást azonnal megállítjuk, és elvetjük az esetleges régi időzítőt.
     // Nincs fix 300 ms-os csatornaváltási késleltetés: a legfrissebb kérés indul.
     if (pendingLiveLoadTimerRef.current !== null) {
@@ -2825,6 +2973,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setErrorMessage('');
     setNativeHandoff(false);
     if (!url) {
+      endSwitch();
       setIsLoading(false);
       setHasError(true);
       setErrorMessage('Nincs lejátszható adatfolyam.');
@@ -2833,14 +2982,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const api = nativeApi();
     if (api?.play) {
       handOverToNative(url);
+      endSwitch();
       return;
     }
 
     // LG webOS: lejátszás a TV HTML5/HLS videóelemével.
     const video = htmlVideoRef.current;
     // Élő adás csak akkor indul, ha a főoldal (élő nézet) látszik.
-    if (!isVod && !playbackActiveRef.current) return;
+    if (!isVod && !playbackActiveRef.current) { endSwitch(); return; }
     if (!video) {
+      endSwitch();
       setIsLoading(false);
       setHasError(true);
       setErrorMessage('Az LG webOS videóelem még nem áll készen.');
@@ -2876,8 +3027,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         channelSwitchDiagnosticRef.current = diagnostic;
         const channelMemory = rememberedFormatFor(channel?.id);
         appLog(`CSATORNAVÁLTÁS START; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
-        appLog(`CSATORNAVÁLTÁS PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
-        appLog(`ERŐFORRÁS-DIAG PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
+        if (isVerbosePlaybackLogging()) {
+          appLog(`CSATORNAVÁLTÁS PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
+          appLog(`ERŐFORRÁS-DIAG PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
+        }
       }
       video.pause();
       /*
@@ -2906,6 +3059,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // A webOS HTML5 videóelemét használjuk. Élő adásnál négy indítási
       // próbálkozás van: első formátum, másik, majd mindkettő még egyszer.
       video.src = url;
+      // UGYANAZ a cím az újracsatlakozásnál: a TV médiamotorja ilyenkor nem
+      // mindig indít új kérést, ezért kifejezetten újratöltjük. A rendes
+      // csatornaváltásnál (új cím) a külön load() felesleges reset lenne.
+      if (forceReload) video.load();
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
@@ -2928,18 +3085,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (playPromise && typeof playPromise.catch === 'function') {
         void playPromise.catch((error: unknown) => {
           if (!isCurrentLoad() || video.error) return;
+          const name = error instanceof Error ? error.name : '';
+          /*
+           * AbortError NEM hiba: a gyors csatornaváltás / újracsatlakozás
+           * szakította félbe az előző play() ígéretet. Korábban ez is
+           * hibaképernyőt (vagy formátumváltást) indított, és a film
+           * néhány ms után végleg megállt.
+           */
+          if (name === 'AbortError') {
+            appLog('LEJÁTSZÁSINDÍTÁS MEGSZAKÍTVA; ok=gyors forrásváltás (AbortError), nem hiba.');
+            return;
+          }
           appLogCritical(`LEJÁTSZÁSINDÍTÁSI ÍGÉRET HIBA; csatorna=${channelRef.current?.name || 'élő adás'}; próba=${channelSwitchDiagnosticRef.current?.attemptNumber || 1}; hiba=${error instanceof Error ? error.name + ': ' + error.message : String(error)}; ${videoDiagnosticState(video, 'play-promise-rejection')}`);
+          endSwitch();
+          if (isVodRef.current) {
+            // Film/sorozat: ugyanaz a cím, a megőrzött pozícióról – SOHA
+            // nem végleges hibaképernyő, és nem formátum-átírás.
+            setHasError(false);
+            setIsLoading(false);
+            vodRecoveryRef.current('play() ígéret hiba');
+            return;
+          }
           scheduleAutoRetry();
           if (!autoRetryTimerRef.current) {
             setIsLoading(false);
             setHasError(true);
-            setErrorMessage(error instanceof Error && error.name === 'NotAllowedError'
+            setErrorMessage(name === 'NotAllowedError'
               ? 'A TV lejátszási indítást blokkolta. Nyomj az Újrapróbálás gombra.'
               : 'A TV nem tudta elindítani ezt az adatfolyamot. Ellenőrizd az URL-t és a stream formátumát.');
           }
         });
       }
     } catch (error) {
+      endSwitch();
       const diagnostic = channelSwitchDiagnosticRef.current;
       const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       if (!isVodRef.current && diagnostic && diagnostic.generation === loadGeneration) {
@@ -2949,12 +3127,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         logChannelSwitchSummary('SIKERTELEN', `szinkron indítási hiba: ${detail}`);
       } else {
         appLogCritical(`VOD/LEJÁTSZÓ INDÍTÁSI HIBA; ${detail}`);
+        vodRecoveryRef.current('szinkron indítási hiba');
+        return;
       }
       setIsLoading(false);
       setHasError(true);
       setErrorMessage(error instanceof Error ? error.message : 'A webOS videó indítása sikertelen.');
     }
-  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying, volume, customStreamUrl, scheduleAutoRetry]);
+  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying, volume, customStreamUrl, scheduleAutoRetry, beginSwitch, endSwitch]);
 
   retryStreamRef.current = () => loadStream(pendingStreamUrlRef.current || streamUrl);
 
@@ -2964,11 +3144,142 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // újraindította a lejátszást – ez volt a „ne méretezzen/ugráljon össze-vissza”.
   const loadStreamRef = useRef(loadStream);
   loadStreamRef.current = loadStream;
+
+  /*
+   * FOLYAMATOS ÉLŐ ÚJRACSATLAKOZÁS.
+   *
+   * Ha egy már futó adás megakad vagy a szolgáltató elvágja a kapcsolatot,
+   * először UGYANAZT a címet töltjük be újra (a hang nem szakad meg), majd
+   * csak több sikertelen próba után próbáljuk a másik formátumot. A próbák
+   * fokozatosan ritkulnak, de soha nem állnak le maguktól: nincs többé
+   * olyan állapot, ahol a kép fekete marad, a hang meg megy tovább.
+   */
+  requestRecoveryRef.current = (reason: string) => {
+    if (isVodRef.current) {
+      vodRecoveryRef.current(reason);
+      return;
+    }
+    if (!playbackActiveRef.current || recoveryTimerRef.current !== null) return;
+    const sequence = liveRetrySequenceRef.current;
+    const urls = sequence.urls.length ? sequence.urls : [streamUrl];
+    const primaryUrl = urls[0] || streamUrl;
+    if (!primaryUrl) return;
+    const fallbackUrl = liveFallbackRef.current?.url || (urls[1] !== primaryUrl ? urls[1] : undefined);
+    const attempt = recoveryAttemptRef.current++;
+    const nextUrl = liveRecoveryUrl(attempt, primaryUrl, fallbackUrl);
+    const delayMs = liveRecoveryDelayMs(attempt, Math.max(50, bufferTiming().retryMs));
+    const generation = streamLoadGenerationRef.current;
+    clearAutoRetry();
+    clearBufferWatchdog();
+    setHasError(false);
+    // A kép NEM tűnhet el: a teljes képernyős fekete töltőréteget nem
+    // engedjük a videó fölé, csak egy kis „újracsatlakozás” jelzőt mutatunk.
+    setIsLoading(false);
+    setIsRecovering(true);
+    appLog(
+      `ÉLŐ ÚJRACSATLAKOZÁS; csatorna=${channelRef.current?.name || 'élő adás'}; próba=${attempt + 1}; ` +
+      `várakozás=${delayMs} ms; cím=${nextUrl === primaryUrl ? 'eredeti' : 'tartalék formátum'}; ok=${reason}.`
+    );
+    recoveryTimerRef.current = window.setTimeout(() => {
+      recoveryTimerRef.current = null;
+      if (generation !== streamLoadGenerationRef.current) return; // közben másik csatorna
+      if (isVodRef.current || !playbackActiveRef.current) return;
+      pendingStreamUrlRef.current = nextUrl;
+      const index = urls.indexOf(nextUrl);
+      sequence.index = index >= 0 && index < urls.length ? index : 0;
+      loadStreamRef.current(nextUrl, true);
+    }, delayMs);
+  };
+
+  /*
+   * FILM / SOROZAT VISSZAÁLLÍTÁSA.
+   *
+   * A stream megszakadásakor a TV `ended` / `error` / `stalled` eseményt ad.
+   * Ilyenkor ugyanazt a címet töltjük újra, és a legutolsó ismert
+   * időpontról folytatjuk – nem ugrunk a következő részre, nem kell
+   * kilépni és újra belépni a filmbe.
+   */
+  vodRecoveryRef.current = (reason: string) => {
+    if (!isVodRef.current || recoveryTimerRef.current !== null) return;
+    const video = htmlVideoRef.current;
+    const url = streamUrl;
+    if (!video || !url) return;
+    const attempt = recoveryAttemptRef.current++;
+    const delayMs = vodRecoveryDelayMs(attempt, Math.max(150, bufferTiming().retryMs));
+    // Ha még nem jött timeupdate, a folytatási pozícióról indulunk; ha már
+    // igen, akkor a VALÓDI utolsó helyről (a 0 mp-re tekerést is tiszteletben tartva).
+    const position = Math.max(0, Number(
+      vodPositionKnownRef.current ? vodLastPositionRef.current : initialPositionSeconds
+    ) || 0);
+    const generation = streamLoadGenerationRef.current;
+    clearAutoRetry();
+    clearBufferWatchdog();
+    setHasError(false);
+    setIsLoading(false);
+    setIsRecovering(true);
+    appLog(
+      `VOD VISSZAÁLLÍTÁS; cím=${String(customTitle || 'film').slice(0, 80)}; próba=${attempt + 1}; ` +
+      `várakozás=${delayMs} ms; folytatás=${Math.round(position)} mp; ok=${reason}.`
+    );
+    recoveryTimerRef.current = window.setTimeout(() => {
+      recoveryTimerRef.current = null;
+      if (generation !== streamLoadGenerationRef.current) return;
+      if (!isVodRef.current || video !== htmlVideoRef.current) return;
+      beginSwitch();
+      let restored = false;
+      const dropRestoreListener = () => {
+        try { video.removeEventListener('loadedmetadata', restore); } catch { /* régi motor */ }
+        if (vodRestoreTimerRef.current !== null) {
+          window.clearTimeout(vodRestoreTimerRef.current);
+          vodRestoreTimerRef.current = null;
+        }
+      };
+      const restore = () => {
+        if (restored) return;
+        restored = true;
+        dropRestoreListener();
+        if (position > 1) {
+          try { video.currentTime = position; } catch { /* a motor később engedi */ }
+        }
+        void video.play().catch(() => undefined);
+        endSwitch();
+      };
+      vodRestoreCleanupRef.current = () => {
+        restored = true;
+        dropRestoreListener();
+      };
+      video.addEventListener('loadedmetadata', restore);
+      // Ha a TV nem küld metaadatot, akkor se maradjon a lejátszó félkész
+      // állapotban: a biztonsági időkorlát is elindítja a lejátszást.
+      vodRestoreTimerRef.current = window.setTimeout(restore, 6000);
+      try {
+        video.pause();
+        video.src = url;
+        // Azonos címnél a `load()` kell a tényleges újracsatlakozáshoz.
+        video.load();
+        void video.play().catch(() => undefined);
+      } catch {
+        restore();
+      }
+    }, delayMs);
+  };
+
   const loadKey = `${streamUrl}|${settings.bufferMode}`;
   useEffect(() => {
     clearAutoRetry();
+    clearRecovery();
+    recoveryAttemptRef.current = 0;
+    stallDetectorRef.current?.reset();
+    // Új filmnél az előző film pozíciója NEM öröklődhet (sem a felirat órája,
+    // sem az előzménybe írt helyzet, sem a folytatás-jelző).
+    vodLastPositionRef.current = 0;
+    vodPositionKnownRef.current = false;
+    vodSubtitleClockRef.current = 0;
+    lastReportedProgressRef.current = -1;
+    resumeAppliedForUrlRef.current = '';
     nativeRetryCountRef.current = 0;
     setActiveUrlIndex(0);
+    setCurrentStreamHasFrame(false);
     // Élő adásnál először a csatornán korábban sikeres formátumot használjuk.
     // Ha nincs emlék, a korábbi alapértelmezés (MPEG-TS) marad. Hiba esetén
     // a másik formátum következik; a generációs őr védi az új csatornát
@@ -2980,7 +3291,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const channelMemory = isVod ? null : rememberedFormatFor(channel?.id);
     const primaryUrl = isVod ? streamUrl : (channelMemory === 'hls' ? hlsUrl : tsUrl);
     pendingStreamUrlRef.current = primaryUrl;
-    retryPlanRef.current = { originalUrl: primaryUrl, stage: 'primary' };
     liveFallbackRef.current = isVod ? null : alternativeUrl(primaryUrl);
     const alternative = liveFallbackRef.current;
     liveRetrySequenceRef.current = isVod
@@ -3016,6 +3326,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       clearBufferWatchdog();
       playbackStartedRef.current = false;
       clearAutoRetry(false);
+      clearRecovery();
       // A következő csatorna már úgyis indul: a várakozó (összevont) betöltést
       // eldobjuk, nehogy a lecserélt csatornát indítsa el később.
       if (pendingLiveLoadTimerRef.current !== null) {
@@ -3241,6 +3552,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsFullscreen((previous) => !previous);
     setShowControlsOverlay(true);
   };
+  toggleFullscreenRef.current = toggleFullscreen;
 
   // Csatornaváltás csak egyértelmű, határozott függőleges húzásra történik – érintés + egér húzás
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -3388,12 +3700,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             preload="auto"
             onPlaying={(event) => {
               playbackStartedRef.current = true;
+              // Sikeres képkocka: a belső forrásváltás véget ért, a régi
+              // pause/play események többé nem zavarhatják össze az állapotot.
+              endSwitch();
+              stallDetectorRef.current?.reset();
+              recoveryAttemptRef.current = 0;
+              if (recoveryTimerRef.current !== null) {
+                window.clearTimeout(recoveryTimerRef.current);
+                recoveryTimerRef.current = null;
+              }
+              setIsRecovering(false);
               clearBufferWatchdog();
               // A főoldal ebből tudja, hogy a TV-kép kész (nincs fekete doboz).
               try {
                 (window as any).__IPTV_VIDEO_READY__ = true;
               } catch { /* nincs window */ }
               setFirstFrameShown((previous) => previous || true);
+              setCurrentStreamHasFrame(true);
               if (!isVod) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
                 const video = event.currentTarget as HTMLVideoElement & {
@@ -3403,10 +3726,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   diagnostic.completed = true;
                   appLog(`CSATORNAVÁLTÁS LEJÁTSZÁS ELINDULT; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${videoDiagnosticState(video, 'playing')}`);
                   logChannelSwitchSummary('SIKERES', 'a lejátszás elindult', video);
-                  appLog(`ERŐFORRÁS-DIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${runtimeDiagnosticState()}`);
-                  appLog(`HANGDIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; ${audioDiagnosticState(video)}`);
+                  if (isVerbosePlaybackLogging()) {
+                    appLog(`ERŐFORRÁS-DIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; eltelt=${Date.now() - diagnostic.startedAt} ms; ${runtimeDiagnosticState()}`);
+                    appLog(`HANGDIAG LEJÁTSZÁSKOR; csatorna=${diagnostic.channelName}; ${audioDiagnosticState(video)}`);
+                  }
                 }
-                if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.firstFrameLogged) {
+                if (isVerbosePlaybackLogging() && diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.firstFrameLogged) {
                   diagnostic.firstFrameLogged = true;
                   if (typeof video.requestVideoFrameCallback === 'function') {
                     video.requestVideoFrameCallback((_now, metadata) => {
@@ -3454,7 +3779,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setIsPlaying(true);
             }}
             onLoadedMetadata={(event) => {
-              if (!isVod) {
+              if (!isVod && isVerbosePlaybackLogging()) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.completed) {
                   appLog(`CSATORNAVÁLTÁS METAADAT; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${videoDiagnosticState(event.currentTarget, 'loadedmetadata')}`);
@@ -3465,7 +3790,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onCanPlay={(event) => {
               setIsLoading(false);
               setHasError(false);
-              if (!isVod) {
+              if (!isVod && isVerbosePlaybackLogging()) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.canPlayLogged) {
                   diagnostic.canPlayLogged = true;
@@ -3478,7 +3803,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 setIsLoading(true);
                 armBufferWatchdog();
               }
-              if (!isVod) {
+              if (!isVod && isVerbosePlaybackLogging()) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current && !diagnostic.waitingLogged && !diagnostic.completed) {
                   diagnostic.waitingLogged = true;
@@ -3488,6 +3813,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onProgress={(event) => {
               if (isVod) return;
+              // A másodpercenkénti részletes puffer-napló csak a QR-mérésben
+              // kell; normál tévézés közben felesleges naplóírás a TV-n.
+              if (!isVerbosePlaybackLogging()) return;
               const diagnostic = channelSwitchDiagnosticRef.current;
               if (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current) return;
               const now = Date.now();
@@ -3508,7 +3836,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 setIsLoading(true);
                 armBufferWatchdog();
               }
-              if (!isVod) {
+              if (!isVod && isVerbosePlaybackLogging()) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
                 if (diagnostic && diagnostic.generation === streamLoadGenerationRef.current) {
                   appLog(`CSATORNAVÁLTÁS STALLED; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${videoDiagnosticState(event.currentTarget, 'stalled')}`);
@@ -3521,20 +3849,62 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
               if (!isVod && diagnostic) {
                 appLogCritical(`CSATORNAVÁLTÁS HIBA; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${videoDiagnosticState(event.currentTarget, 'error')}; ${audioDiagnosticState(event.currentTarget)}`);
-                appLogCritical(`ERŐFORRÁS-DIAG HIBÁNÁL; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
+                if (isVerbosePlaybackLogging()) appLogCritical(`ERŐFORRÁS-DIAG HIBÁNÁL; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
               }
               setIsLoading(false);
               setErrorMessage('A TV nem tudta lejátszani az adatfolyamot. HLS/codec vagy stream URL hiba lehet.');
+              if (isVod) {
+                // Film/sorozat: NEM végleges hibaképernyő. Ugyanaz a cím,
+                // ugyanarról a pozícióról, automatikusan.
+                setHasError(false);
+                vodRecoveryRef.current('videó elem hiba');
+                return;
+              }
+              if (playbackStartedRef.current) {
+                // Már volt kép: először az eredeti címet próbáljuk újra,
+                // nem kezdjük elölről a formátum-sorozatot.
+                setHasError(false);
+                requestRecoveryRef.current('stream hiba lejátszás közben');
+                return;
+              }
               scheduleAutoRetry();
             }}
-            onPause={() => setIsPlaying(false)}
-            onPlay={() => setIsPlaying(true)}
-            onEnded={() => onEndedRef.current?.()}
+            onPause={(event) => {
+              // A belső forrásváltás pause eseménye késve is megérkezhet:
+              // ilyenkor NEM szabad leállítani az új, már futó streamet.
+              if (switchInProgressRef.current) return;
+              const video = event.currentTarget;
+              if (!video.paused || video.ended) return;
+              setIsPlaying(false);
+            }}
+            onPlay={(event) => {
+              if (switchInProgressRef.current) return;
+              if (event.currentTarget.paused) return;
+              setIsPlaying(true);
+            }}
+            onEnded={(event) => {
+              const video = event.currentTarget;
+              if (isVod) {
+                const position = Math.max(0, Number(video.currentTime || 0));
+                const duration = Number(video.duration || 0);
+                // A szolgáltató gyakran egyszerűen elvágja a kapcsolatot:
+                // ilyenkor a HTML5 `ended` eseményt küld a film VÉGE nélkül.
+                // Ne ugorjunk a következő részre – álljunk vissza a pozícióra.
+                if (isPrematureVodEnd(position, duration)) {
+                  appLog(`VOD KORAI VÉG; pozíció=${Math.round(position)} mp; hossz=${Math.round(duration)} mp; ok=a kapcsolat megszakadt, visszaállítás.`);
+                  vodRecoveryRef.current('korai ended esemény');
+                  return;
+                }
+              }
+              onEndedRef.current?.();
+            }}
             onTimeUpdate={(event) => {
               if (!isVod) return;
               const video = event.currentTarget;
               const position = Math.max(0, Number(video.currentTime || 0));
               const duration = Math.max(0, Number(video.duration || 0));
+              vodLastPositionRef.current = position;
+              vodPositionKnownRef.current = true;
               // Az idővonal állapotát csak akkor írjuk ki, ha az OSD látszik
               // (a rejtett csúszka nem látszik, felesleges másodpercenként
               // újrarajzolni a teljes lejátszót).
@@ -3554,8 +3924,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* A videó a TV HTML5 videóelemében fut; az OSD fölötte marad. */}
       {nativeHandoff && <div className="absolute inset-0 bg-transparent pointer-events-none" />}
 
-      {/* Buffering Loading Indicator */}
-      {isLoading && (
+      {/*
+        TÖLTÉS / ÚJRACSATLAKOZÁS JELZŐ.
+        Az indulásnál (még nincs képkocka) a megszokott teljes képernyős
+        „Gyors kapcsolódás...” látszik. Ha viszont már VAN kép, a réteg NEM
+        lehet fekete és NEM takarhatja el a videót: csak egy kis, áttetsző
+        jelző megy a sarokba. Így a hang és a kép együtt marad.
+      */}
+      {(isLoading || isRecovering) && (currentStreamHasFrame ? (
+        <div className="absolute bottom-3 left-3 z-30 flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 pointer-events-none">
+          <div className="h-4 w-4 rounded-full border-2 border-cyan-400/40 border-t-cyan-300 animate-spin" />
+          <span className="text-[11px] font-semibold text-cyan-100 tracking-wide">
+            {isRecovering ? 'Újracsatlakozás…' : 'Pufferelés…'}
+          </span>
+        </div>
+      ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10 pointer-events-none">
           <div className="relative w-12 h-12 flex items-center justify-center">
             <div className="w-12 h-12 rounded-full border-3 border-cyan-500/30 border-t-cyan-400 animate-spin" />
@@ -3565,7 +3948,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             Gyors kapcsolódás...
           </span>
         </div>
-      )}
+      ))}
 
       {/* Stream Error Overlay with fallback launcher */}
       {hasError && (
@@ -3578,7 +3961,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 p-4 text-center"
         >
           <h4 className="text-white font-bold text-sm sm:text-base whitespace-pre-line">A csatornát nem lehet be tölteni !{"\n"}kapcsolj másik csatornára...{"\n"}ez a sz@r le fagyott 😂</h4>
-
+          {/* A távirányító OK gombjával is elérhető kézi újrapróbálás.
+              A webos.js a fókuszban lévő BUTTON-t Enterre aktiválja. */}
+          <button
+            ref={retryButtonRef}
+            type="button"
+            data-player-retry=""
+            onClick={(e) => {
+              e.stopPropagation();
+              clearRecovery();
+              recoveryAttemptRef.current = 0;
+              endSwitch();
+              setHasError(false);
+              setIsLoading(false);
+              loadStreamRef.current(pendingStreamUrlRef.current || streamUrl);
+            }}
+            className="mt-4 rounded-xl border-2 border-amber-400/70 bg-amber-400/15 px-5 py-2 text-sm font-bold text-amber-200"
+          >
+            Újrapróbálás
+          </button>
         </div>
       )}
 
