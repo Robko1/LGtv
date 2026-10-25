@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.5.89';
+export const WEB_VERSION = '2.5.90';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.90',
+    date: '2026-10-25',
+    changes: [
+      'ÉLŐ LEJÁTSZÁSI NAPLÓ: a kézi naplózás mostantól külön rögzíti a médiaeseményeket, seekable/buffered tartományokat, currentTime/duration ugrásokat, ready/network állapotot, képkockákat és HTML5 hibákat; a vissza- és előreugrások külön VISSZAUGRÁS/ELŐREUGRÁS sorban látszanak',
+      'SÁRGA KÜLDÉS: a HTTP 502/503/504 átmeneti hibákra két automatikus újrapróba, 45 másodperces időkorlát és szerveroldali idempotens küldés került; a pruning hibája nem teszi 503-má a már sikeresen elmentett naplót',
+      'TELJES KÉPERNYŐ: a kis pufferelési/újracsatlakozási forgó jelző az óra alá, jobb felülre került, így az audio-OSD nem takarja el',
+      'TAKARÍTÁS: a nem használt régi induló videó, duplikált gyökérikonok, nem hivatkozott ikonkép, régi gyökérbeli QR-oldal és forráságban tárolt IPK eltávolítva; a telefonos QR-funkció megmaradt',
+      'KIADÁS: a GitHub Actions opcionális, valódi GPG-kulccsal aláírt commitot és taget támogat; a GitHub Verified jelzéshez a publikus kulcsot a saját GitHub-fiókhoz kell hozzáadni',
+    ],
+  },
   {
     version: '2.5.89',
     date: '2026-10-25',

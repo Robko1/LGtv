@@ -1,110 +1,64 @@
-# TV – kizárólag LG webOS TV
+# IPTV R.T – LG webOS TV csomag
 
-> Ez a repó önálló LG webOS TV-alkalmazás. A forrás, build és csomagolás kizárólag ebben a repóban történik.
+A `webos/` mappa az LG TV manifestet, a távirányító webOS-hídját, az alkalmazás ikonjait és a logó képkockáját tartalmazza. A React/Vite forrás a `web/` mappában van.
 
-## Mi ez?
+## Fontos fájlok
 
-- **Forrás mappa:** `webos/` – LG webOS TV app forrása (appinfo.json, ikonok, webos.js és az alkalmazásforrás)
-- **Build kimenet:** `webos/IPTV-RT.ipk` (csak helyi, kézi build); a kész csomag a meglévő GitHub Release-be kerül.
-- **Kinézet:** LG webOS TV-re kialakított (React + Tailwind), reszponzív TV-re
-- **Lejátszó:** kisebb (1280x720 alap, de 1920x1080-ra skálázódik), natív `<video>` + hls.js, webOS natív HLS támogatás is
-- **Betöltés:** gyors mód – csak élő TV először (1 kérés), VOD kategóriák gyorsan, film/sorozat tartalom lusta (csak ha a felhasználó Mozi/Sorozat menübe lép) – így 20k csatorna is 2-3s alatt indul TV-n
-- **Indítás:** nincs indítóvideó vagy splash kép; csak rövid, nagy „TV” fekvő felirat látható.
-
-## Fájlok
-
-```
-webos/
-  appinfo.json          – webOS manifest (id: hu.rt.iptv.webos, version: 2.3.3, 1920x1080)
-  icon.png              – 80x80 TV launcher ikon
-  largeIcon.png         – 130x130 nagy ikon
-  index.html            – buildelt web app (Vite singlefile + webos.js injektálva)
-  webos.js              – webOS specifikus: Magic Remote, D-pad/OK fókusznavigáció, gyors betöltés
-  webOSTV.js            – webOS lib stub
-  assets/
-  tools/
-    build-ipk.py        – Python .ipk csomagoló (ar archive: debian-binary, control.tar.gz, data.tar.gz)
-  dist/
+```text
+webos/appinfo.json       webOS manifest, id: hu.rt.iptv.webos
+webos/webos.js           ES5-kompatibilis Magic Remote/D-pad bridge
+webos/icon-rt2.png       launcher ikon
+webos/largeIcon-rt2.png  nagy launcher ikon
+webos/splash-screen.png  1920×1080 logó-képkocka indítóképnek
+tools/build-webos.sh     web build + ES5 + IPK build
+webos/tools/build-ipk.py helyi fejlesztői IPK-csomagoló
 ```
 
-## Build
+Az induló MP4 nincs a programban és nincs a `webos/assets/` mappában. A webOS saját indítóképe a `splash-screen.png`.
 
-### Helyi build (npm + Python)
+## Helyi build
+
+A repó gyökeréből:
 
 ```bash
-tools/build-webos.sh
-# vagy gyors, web build nélkül:
-SKIP_WEB=1 tools/build-webos.sh
+npm ci --no-audit --no-fund
+npm ci --prefix web --no-audit --no-fund
+VERSION=2.5.90 bash tools/build-webos.sh
 ```
 
-Kimenet:
-- `webos/IPTV-RT.ipk`
+Kimenet: `webos/IPTV-RT.ipk`. Ez lokális, fejlesztői/Developer Mode csomag; a fájl szándékosan nincs a `main` forráságban, csak a build és a GitHub Release használja.
 
-
-### Mit csinál a build?
-
-1. `web/` Vite build `VITE_WEBOS=true VITE_WEBOS_FAST_LOAD=true` – kisebb player, gyors betöltés
-2. `build/web/index.html` → `build/webos/index.html` + webOS távirányító-kezelő injektálás + csak TV felirat + `webos-tv` body class
-3. `webos/` + `build/webos/` → `data.tar.gz` → `control.tar.gz` + `debian-binary` → ar archive `.ipk`
-
-### Ellenőrzés
+A csomag ellenőrzése:
 
 ```bash
 ar t webos/IPTV-RT.ipk
-# debian-binary, control.tar.gz, data.tar.gz
-
-ar p webos/IPTV-RT.ipk data.tar.gz | tar tz | head -n 20
-# ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json
-# ./usr/palm/applications/hu.rt.iptv.webos/index.html
-# ./usr/palm/applications/hu.rt.iptv.webos/icon.png
-# ...
+ar p webos/IPTV-RT.ipk data.tar.gz | tar tz | head -n 30
 ```
 
-## Telepítés LG webOS TV-re
+## Telepítés saját LG TV-re
 
-### 1. Developer Mode bekapcsolása TV-n
+1. Telepítsd az LG Content Store-ból a **Developer Mode** alkalmazást.
+2. Jelentkezz be LG Developer-fiókkal, kapcsold be a Developer Mode-ot és a Key Servert.
+3. PC-n használd a [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop) alkalmazást, vagy a webOS CLI-t.
+4. Add hozzá a TV IP-címét és a Developer Mode passphrase-ét.
+5. Válaszd ki az `IPTV-RT.ipk` fájlt az **Install App** műveletben.
 
-1. LG Content Store → keresd: **Developer Mode** → Telepítés
-2. Nyisd meg, jelentkezz be LG Developer fiókkal
-3. Kapcsold be **Dev Mode Status** → **On**, **Key Server** → **On**
-4. Jegyezd fel a TV IP-jét és a jelszót (passphrase)
-
-### 2. Dev Manager PC-n
-
-- Töltsd le: https://github.com/webosbrew/dev-manager-desktop (Windows/Mac/Linux)
-- Telepítsd, indítsd el
-- Add hozzá TV-t: IP + passphrase
-- Csatlakozás után **Install App** → válaszd az `.ipk`-t
-
-### 3. ares-cli (fejlesztői)
+CLI-példa:
 
 ```bash
-npm install -g @webosose/ares-cli
-ares-setup-device # add TV
+npm install -g @webos-tools/cli
+ares-setup-device
+ares-novacom --device <tv> --getkey
 ares-install --device <tv> IPTV-RT.ipk
 ares-launch --device <tv> hu.rt.iptv.webos
 ```
 
-### 4. USB? (webOS-en nincs közvetlen USB telepítés, csak Dev Mode)
+A Developer Mode-os telepítés lejárati idejét maga az LG Developer Mode alkalmazás kezeli.
 
-LG webOS TV-re külső IPK telepítéshez Developer Mode szükséges.
+## Aláírások – ne keverjük össze őket
 
-## Letöltés
+- A GitHub commit/tag **Verified** jelzése GPG- vagy SSH-commit-aláírás. Ez nem írja alá az IPK-t.
+- Hivatalos LG/webOS production/distribution aláíráshoz LG-től kapott tanúsítvány és az LG kiadási folyamata kell. A privát `.p12`/kulcs nem kerülhet Gitbe, logba vagy IPK-ba.
+- A jelenlegi custom packager Developer Mode-os fejlesztői csomagot állít elő. Nem készítünk hamis tanúsítványt vagy hamis Verified jelzést.
 
-- **IPK buildkimenet:** `IPTV-RT.ipk` a kézi build után a Release-ben érhető el; az IPK-t nem tartjuk a `main` ágban.
-- **GitHub Release:** https://github.com/Robko1/LGtv/releases/tag/v2.3.3
-
-## Technikai részletek (fejlesztőknek)
-
-- **appinfo.json:** id `hu.rt.iptv.webos`, type `web`, main `index.html`, resolution `1920x1080`, webOS TV-hez szükséges engedélyek
-- **webos.js:** Magic Remote, Back (461), Channel Up/Down, színes és média gombok
-- **HTML:** webOS script + TV-s CSS; indítóvideó és splash kép nélkül
-- **Gyors betöltés:** élő TV először, film- és sorozattartalom igény szerinti betöltése
-- **IPK formátum:** ar archívum, benne `control.tar.gz`, `data.tar.gz` és az LG webOS alkalmazás fájljai
-
-## Verzió
-
-- **LG webOS IPK:** `hu.rt.iptv.webos`, v2.3.3
-- **Kimenet:** `webos/IPTV-RT.ipk`
-
-Ez a repó kizárólag LG webOS TV-re készül, és csak IPK-csomagot állít elő.
+A GitHub Actions build a csomag tartalmát, verzióját, HTML-jét, ES5-kompatibilitását és SHA-256 értékét ellenőrzi, majd a Release-be tölti fel az IPK-t.

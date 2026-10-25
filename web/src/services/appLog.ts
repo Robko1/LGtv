@@ -503,8 +503,8 @@ export function logStartup(version: string = DEFAULT_APP_VERSION): void {
  *   • INDULÁS sorok ezredmásodperces időbélyeggel (melyik fázis mennyi ideig tartott),
  *   • OLDAL ELHAGYÁSA sor, ha a webOS kilépteti az appot (pagehide/visibility).
  *
- * A sorok a SÁRGA (teletext) gombon megnyitható QR-naplóba kerülnek, tehát a
- * TV-n semmit nem kell gépelni – a QR-kódot beolvasva másolható a teljes napló.
+ * A sorok a SÁRGA (teletext) gombon megnyitható kézi diagnosztikai naplóba kerülnek, tehát a
+ * TV-n semmit nem kell gépelni – a Küldés gombbal a teljes napló közvetlenül elküldhető.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 const BOOT_AT = (typeof performance !== 'undefined' && typeof performance.now === 'function')

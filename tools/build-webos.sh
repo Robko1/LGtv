@@ -42,7 +42,7 @@ warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
 
 # A jóváhagyott, átlátszó és lekerekített ikonokat használjuk változtatás nélkül.
 # Ne generáljuk újra őket a régi gyökér ikonkep.png fájlból.
-mkdir -p "$PROJECT_DIR/web/public" "$WEBOS_DIR/assets"
+mkdir -p "$WEBOS_DIR/assets"
 python3 - <<'PY'
 from pathlib import Path
 from PIL import Image
@@ -55,8 +55,9 @@ for path in (small_path, large_path):
         raise SystemExit(f"HIBA: hiányzik vagy üres az új ikon: {path}")
 small_img = Image.open(small_path).convert("RGBA")
 large_img = Image.open(large_path).convert("RGBA")
-large_img.save(root / "web/public/ikonkep.png", "PNG")
-# A TV saját indítóképernyője a repóban tárolt, jóváhagyott fájl; ezt nem generáljuk újra.
+# A webes felület a két ikont adat URL-ként használja; külön, soha nem
+# hivatkozott ikonkep.png fájlt nem generálunk a Vite public mappába.
+# A TV saját indítóképernyője a repóban tárolt, jóváhagyott fájl.
 if not (root / "webos/splash-screen.png").is_file():
     raise SystemExit("HIBA: hiányzik a webos/splash-screen.png (a logó képkocka).")
 def icon_b64(img, px):
