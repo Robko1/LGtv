@@ -111,11 +111,19 @@ while (rootEl && rootEl.childElementCount === 0 && Date.now() < mountDeadline) {
 check(Boolean(rootEl && rootEl.childElementCount > 0),
   'a React felület felépül a naplózás mellett is (nem fekete képernyő)');
 
+/* A normál indulási napló most szándékosan üres: csak kézi indítás után
+   rögzítünk. A SÁRGA ablak „Naplózás indítása” gombját a hídon modellezzük. */
+const beforeStart = diag.text();
+check(beforeStart === '', 'induláskor nincs automatikus diagnosztikai naplózás');
+check(typeof diag.startLogging === 'function' && typeof diag.logStatus === 'function',
+  'a kézi naplózás indítója és állapota elérhető a hídon');
+diag.startLogging();
+
 /* ── 1. Indulási napló ─────────────────────────────────────────────────── */
 let text = diag.text();
 check(/=== IPTV indul; verzió=\d+\.\d+\.\d+/.test(text), 'az indulási sor a valódi verziót tartalmazza');
 check(/FIGYELŐ ELINDULT/.test(text), 'a fagyásfigyelő elindult');
-check(/INDULÁS \[\d+ ms\] bundle betöltve/.test(text), 'van ezredmásodperces fázis-sor');
+check(/INDULÁS \[0 ms\] kézi naplózás elindítva/.test(text), 'a kézi indításnak van ezredmásodperces fázis-sora');
 check(/Eszköz: /.test(text), 'a böngésző/készülék azonosítója is a naplóban van');
 
 /* ── 2. Állapot-pillanatkép ────────────────────────────────────────────── */
@@ -153,19 +161,22 @@ check(/KEZELETLEN ÍGÉRETHIBA: Error: TESZT-ÍGÉRETHIBA/.test(diag.text()),
 window.dispatchEvent(new window.Event('pagehide'));
 check(/OLDAL ELHAGYÁSA \(pagehide\)/.test(diag.text()),
   'az app kilépése (pagehide) bizonyítéka a naplóban van');
+check(diag.logStatus().enabled === false, 'az app elhagyásakor a kézi naplózás automatikusan leáll');
 
+const beforeHidden = diag.text();
 Object.defineProperty(window.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
 window.document.dispatchEvent(new window.Event('visibilitychange'));
-check(/HÁTTÉRBE KERÜLT \(visibilitychange\)/.test(diag.text()),
-  'a háttérbe kerülés (visibilitychange) is naplózva van');
+check(diag.text() === beforeHidden,
+  'a kézi naplózás leállása után a háttérbe kerülés nem indít automatikus naplózást');
 
 /* ── 7. A napló a törlés után is újraépül ─────────────────────────────── */
+diag.startLogging();
 diag.clear();
 check(!/TESZT-KRITIKUS-SOR/.test(diag.text()), 'a törlés kiüríti a naplót');
 diag.log('TESZT-TÖRLÉS-UTÁN');
 check(/TESZT-TÖRLÉS-UTÁN/.test(diag.text()), 'törlés után is lehet új sort írni');
 
-/* ── 8. Mérés-ablak nullázása (SÁRGA QR → Frissítés) ───────────────────── */
+/* ── 8. Mérés-ablak nullázása (kézi napló híd) ─────────────────────────── */
 check(typeof diag.measure === 'function' && typeof diag.resetMeasure === 'function',
   'a mérés-ablak elérhető a diagnosztikai hídon');
 diag.log('TESZT-MÉRÉS-SOR-1');

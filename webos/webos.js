@@ -132,7 +132,7 @@
   //  - a TV böngészőmotorját,
   //  - betöltődött-e a React felület,
   //  - az utoljára lenyomott távirányító-gombot (keyCode + név).
-  // A külön képernyős diagnosztika csak felülethiba esetén jelenik meg; a piros gomb a napló QR-kódját nyitja.
+  // A külön képernyős diagnosztika csak felülethiba esetén jelenik meg; a SÁRGA gomb a kézi napló ablakát nyitja meg.
   var diag = {
     el: null, keyLine: null, uiLine: null, mouseLine: null,
     keyCount: 0, mouseMoves: 0, clicks: 0, hideTimer: 0, uiLoaded: false, forced: false
@@ -196,7 +196,7 @@
         storLine.setAttribute('style', 'color:#f87171;');
       }
       var hint = document.createElement('div');
-      hint.textContent = 'PIROS: napló QR · ZÖLD: hangsáv · SÁRGA: kedvenc · KÉK: csatornamozgatás';
+      hint.textContent = 'PIROS: tükrözött elrendezés · ZÖLD: hangsáv · SÁRGA: kézi napló · KÉK: csatornamozgatás';
       hint.setAttribute('style', 'color:#64748b;font-size:16px;margin-top:4px;');
       box.appendChild(title);
       box.appendChild(diag.uiLine);
@@ -296,7 +296,11 @@
         '   magassaga 0 lehetett, a kep pedig balrol elcsuszott. Itt fixen a',
         '   teljes kijelzot hasznaljuk - bal oldali fekete sav nem maradhat. */',
         '.webos-tv [data-tv-player].fixed { left:0 !important; top:0 !important; right:0 !important; bottom:0 !important; margin:0 !important; padding:0 !important; border:0 !important; max-width:none !important; max-height:none !important; transform:none !important; outline:none !important; box-shadow:none !important; }',
-        '.webos-tv [data-tv-player].fixed video { position:absolute !important; left:0 !important; top:0 !important; width:100% !important; height:100% !important; max-width:none !important; object-fit:fill !important; }',
+        /* A forrás valódi képarányát megtartjuk: a fill széthúzta a HD/4K
+           képet, és nem javított a minőségen. A TV hardveres videorétege így
+           a lehető legjobb, torzításmentes skálázást használja. */
+        '.webos-tv [data-tv-player].fixed video { position:absolute !important; left:0 !important; top:0 !important; width:100% !important; height:100% !important; max-width:none !important; object-fit:cover !important; image-rendering:auto !important; filter:none !important; }',
+        '.webos-tv [data-tv-player].fixed[data-vod-active] video { object-fit:fill !important; }',
         '/* TELJES KEPERNYO: a #root margoja es az app-keret szegelye NEM valtozik.',
         '   Korabban ezeket 0-ra allitottuk, ami a TELJES oldal ujraelrendezeset',
         '   valtotta ki (a csatornalista magassaga is valtozott, ezert a lista',
@@ -371,9 +375,11 @@
         '  box-shadow:0 0 0 6px rgba(251,191,36,0.30), 0 0 20px rgba(251,191,36,0.18) !important;',
         '  z-index:10;',
         '}',
-        '.webos-tv button:focus-visible, .webos-tv [role="button"]:focus-visible {',
-        '  outline:3px solid #06b6d4 !important; outline-offset:2px;',
-        '  box-shadow:0 0 0 4px rgba(6,182,212,0.2);',
+        /* A fókusz minden távirányítós vezérlőn sárga legyen; a kék
+           keret kizárólag az éppen játszott csatorna állandó körvonala. */
+        '.webos-tv button:focus, .webos-tv button:focus-visible, .webos-tv [role="button"]:focus, .webos-tv [role="button"]:focus-visible {',
+        '  outline:3px solid #fbbf24 !important; outline-offset:2px;',
+        '  box-shadow:0 0 0 4px rgba(251,191,36,0.30);',
         '}',
         '/* Egér – Magic Remote pointer */',
         'body.has-mouse [role="option"], body.has-mouse button { cursor:pointer; }',
@@ -635,7 +641,7 @@
   }
 
   function topDialog() {
-    // Egymasra nyilo ablakoknal (pl. Beallitasok folott a QR vagy az Uj mappa)
+    // Egymasra nyilo ablakoknal (pl. Beallitasok folott a kézi napló vagy az Uj mappa)
     // MINDIG a legkesobb nyitott (legfelso) dialogban kell navigalni.
     stampDialogs();
     try {
@@ -806,7 +812,7 @@
       e.preventDefault();
       e.stopPropagation();
       // PIROS / Record (403) = TÜKRÖZÖTT elrendezés be/ki (a felhasználó
-      // kérésére); SÁRGA (405) = HIBAKIJELZŐ felugró QR-kóddal.
+      // kérésére); SÁRGA (405) = kézi hibakeresési napló ablak.
       //
       // FILM / SOROZAT alatt a ZÖLD és a KÉK gomb a LEJÁTSZÓ kék OSD-jének
       // választóját nyitja: ZÖLD = hangsávok, KÉK = feliratok (CC). Élő TV-n

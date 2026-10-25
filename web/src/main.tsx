@@ -6,7 +6,8 @@ document.body.classList.add('webos-theme', 'webos-tv', 'lg-webos');
 import App from "./App";
 import {
   appLog, appLogCritical, clearAppLog, getAppLogText, installCrashHandlers, logPhase, logStartup,
-  measurementSnapshot, resetMeasurements, startRuntimeWatchdog, uiStateSnapshot,
+  manualLogSnapshot, startManualLogging, stopManualLogging, measurementSnapshot, resetMeasurements,
+  startRuntimeWatchdog, uiStateSnapshot,
 } from "./services/appLog";
 import { WEB_VERSION } from "./appVersion";
 
@@ -14,7 +15,7 @@ import { WEB_VERSION } from "./appVersion";
  * FAGYÁS-/ÖSSZEOMLÁS-DIAGNOSZTIKA.
  *
  * Még a felület felépítése ELŐTT elindul a hibakezelő és a fagyásfigyelő:
- * ha a TV az első indítás után ~3 percnél leáll, a napló (SÁRGA gomb → QR)
+ * ha a TV az első indítás után ~3 percnél leáll, a napló (SÁRGA gomb → kézi napló)
  * megmutatja az utolsó állapotot, a memóriát és a hibaüzenetet.
  */
 installCrashHandlers();
@@ -25,7 +26,7 @@ logPhase('bundle betöltve (main.tsx)');
 /*
  * DIAGNOSZTIKAI HÍD.
  *
- * A napló a SÁRGA (teletext) gombon megnyíló QR-kóddal olvasható ki, de a
+ * A napló a SÁRGA (teletext) gombbal megnyíló kézi ablakból küldhető el, de a
  * fejlesztéshez/teszthez egy kis híd is kell: innen lehet a naplót írni,
  * kiolvasni és törölni a TV böngésző-konzoljából vagy automatizált teszttel.
  * Csak olvas/naplóz – a felület működését nem befolyásolja.
@@ -39,9 +40,12 @@ try {
     state: () => uiStateSnapshot(),
     text: () => getAppLogText(),
     clear: () => clearAppLog(),
-    // SÁRGA gomb → QR-hibadiagnózis: a „Frissítés” ezt hívja (mérések nullázása).
+    // A kézi napló csak innen vagy a SÁRGA ablak gombjáról indulhat.
     measure: () => measurementSnapshot(),
     resetMeasure: (reason?: string) => resetMeasurements(reason ? String(reason) : 'kézi frissítés'),
+    logStatus: () => manualLogSnapshot(),
+    startLogging: () => startManualLogging(),
+    stopLogging: (reason?: string) => stopManualLogging(reason ? String(reason) : 'diagnosztikai híd'),
   };
 } catch { /* nincs window (SSR) */ }
 
