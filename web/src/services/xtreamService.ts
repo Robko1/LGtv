@@ -64,7 +64,8 @@ export interface XtreamVodStream {
   rating_5based?: number;
   added?: string;
   plot?: string;
-  duration?: string;
+  duration?: string | number;
+  [key: string]: unknown;
 }
 
 export interface XtreamSeriesItem {
@@ -81,6 +82,7 @@ export interface XtreamSeriesItem {
   rating?: string | number;
   rating_5based?: number;
   last_modified?: string;
+  [key: string]: unknown;
 }
 
 export interface XtreamEpisode {
@@ -89,13 +91,39 @@ export interface XtreamEpisode {
   title?: string;
   container_extension?: string;
   season?: number | string;
-  info?: { plot?: string; duration?: string; movie_image?: string; releaseDate?: string };
+  info?: {
+    plot?: string;
+    duration?: string | number;
+    movie_image?: string;
+    releaseDate?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface XtreamMediaInfo {
+  name?: string;
+  cover?: string;
+  plot?: string;
+  cast?: string;
+  director?: string;
+  genre?: string;
+  releaseDate?: string;
+  rating?: string | number;
+  [key: string]: unknown;
 }
 
 export interface XtreamSeriesInfo {
-  seasons?: Array<{ season_number?: number | string; name?: string; cover?: string; episode_count?: number | string }>;
-  info?: { name?: string; cover?: string; plot?: string; cast?: string; director?: string; genre?: string; releaseDate?: string; rating?: string };
+  seasons?: Array<{ season_number?: number | string; name?: string; cover?: string; episode_count?: number | string; [key: string]: unknown }>;
+  info?: XtreamMediaInfo;
   episodes?: Record<string, XtreamEpisode[]>;
+  [key: string]: unknown;
+}
+
+export interface XtreamVodInfo {
+  info?: Record<string, unknown>;
+  movie_data?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 /** Az Xtream szerver válasza lista helyett néha üzenetet ad vissza. */
@@ -164,6 +192,17 @@ export const xtreamService = {
     // Bulk (kategória nélkül) nagyobb JSON (40k film), több idő kell; kategóriánként marad 30s
     const timeoutMs = category ? 30000 : 60000;
     return asArray(await httpGetJson<ApiList<XtreamVodStream>>(url, { timeoutMs }));
+  },
+
+  /** Egyetlen film részletes adatai. Importkor ezt kizárólag a korlátozott első VOD-adaghoz használjuk. */
+  async vodInfo(
+    serverUrl: string,
+    username: string,
+    password: string,
+    vodId: number | string
+  ): Promise<XtreamVodInfo> {
+    const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_vod_info&vod_id=${encodeURIComponent(String(vodId))}`;
+    return (await httpGetJson<XtreamVodInfo>(url, { timeoutMs: 12000 })) || {};
   },
 
   async seriesCategories(serverUrl: string, username: string, password: string): Promise<XtreamCategory[]> {

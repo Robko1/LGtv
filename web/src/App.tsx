@@ -19,6 +19,7 @@ import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { PartialContent, refreshProviderContent } from './services/providerImport';
 import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
 import { xtreamService } from './services/xtreamService';
+import { parseEpisodeMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './services/vodMetadata';
 
 // Induláskor a korábban betöltött szolgáltatói lista töltődik be. Demó adat
 // helyett üres listát mutatunk, és a felület felhívja a figyelmet a lista
@@ -1280,7 +1281,8 @@ export function App() {
   // QR telefonos beállítás – provider fogadása telefonról (TV-n nem kell pötyögni)
   const handleQrProviderReceived = async (payload: any) => {
     try {
-      console.log('[QR] Provider received in App', payload);
+      // A QR-adatban lehetnek belépési adatok; azokat sem konzolra, sem
+      // SupportBase-naplóba nem írjuk ki.
       if (payload.type === 'xtream') {
         let host = String(payload.host || '').trim();
         let port = String(payload.port || '').trim();
@@ -1379,8 +1381,9 @@ export function App() {
   //
   // A betöltés SZAKASZONKÉNT kerül a felületre (élő -> filmek -> sorozatok):
   // az élő csatornalista néhány másodperc után használható, nem kell megvárni
-  // a több tízezer film letöltését. Minden szakasz azonnal mentésre is kerül,
-  // így a következő indítás a mentett listából azonnal dolgozik.
+  // a több tízezer film letöltését. A részleges szakaszok csak előnézetként
+  // jelennek meg; a teljes, metaadattal kiegészített snapshot egyszer kerül
+  // tartósan mentésre az import végén.
   const handleRefreshProvider = async (providerOrId: string | ProviderAccount, manual = true) => {
     // QR-es hozzáadás után a React providers állapota ebben a renderben még régi lehet.
     // Az átadott ProviderAccount ezért közvetlenül használható, nem veszhet el az első import.
@@ -1461,7 +1464,7 @@ export function App() {
       warnings: [],
     };
 
-    /** Egy-egy szakasz azonnal a felületre és a tárolóba kerül. */
+    /** Egy-egy szakasz azonnal a felületre kerül; tartós mentés csak a végén van. */
     const applyPartial = async (partial: PartialContent): Promise<void> => {
       if (refreshGenerationRef.current !== refreshGeneration) return;
       if (partial.totals) draft.totals = { ...draft.totals, ...partial.totals };
@@ -1472,11 +1475,21 @@ export function App() {
         // A frissítés részletekben érkezik. Ha a jelenleg nézett csatorna
         // még nem érkezett meg a részleges listában, ideiglenesen megtartjuk,
         // hogy a háttérfrissítés ne váltson át az első csatornára.
-        const currentlyWatched = channels.find((channel) => channel.id === activeChannelId);
+        const canKeepWatchedChannel = activeProvider?.id === id;
+        const currentlyWatched = canKeepWatchedChannel
+          ? channels.find((channel) => channel.id === activeChannelId)
+          : undefined;
         const visibleChannels = currentlyWatched && !draft.channels.some((channel) => channel.id === currentlyWatched.id)
           ? [...draft.channels, currentlyWatched]
           : draft.channels;
-        setChannels(hungaryFirst(visibleChannels));
+        const orderedVisibleChannels = hungaryFirst(visibleChannels);
+        setChannels(orderedVisibleChannels);
+        if (!canKeepWatchedChannel && orderedVisibleChannels[0]) {
+          // Új provider első előnézeténél ne maradjon a régi provider
+          // aktív azonosítója: a D-pad és a VideoPlayer azonnal ugyanarra a
+          // ténylegesen betöltött csatornára mutasson.
+          setActiveChannelId(orderedVisibleChannels[0].id);
+        }
         if (partial.channels.length > 0 && !refreshLivePromptShownRef.current) {
           refreshLivePromptShownRef.current = true;
           setRefreshLivePromptOpen(true);
@@ -1527,20 +1540,24 @@ export function App() {
         if (partial.series) await saveSeriesContent(draft);
       }
 
-      const updatedProviders = providersForRefresh.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              channelsCount: draft.channels.length || p.channelsCount,
-              moviesCount: draft.movies.length || p.moviesCount,
-              seriesCount: draft.series.length || p.seriesCount,
-              lastUpdated: new Date().toISOString().slice(0, 10).replace(/-/g, '. ') + '.',
-              isActive: true,
-            }
-          : { ...p, isActive: false }
-      );
-      setProviders(updatedProviders);
-      storageService.saveProviders(updatedProviders);
+      setProviders((current) => {
+        const base = current.some((p) => p.id === id) ? current : providersForRefresh;
+        const updatedProviders = base.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                // A draft ténylegesen feldolgozott tömbje az egyetlen számlálóforrás.
+                channelsCount: partial.channels ? draft.channels.length : p.channelsCount,
+                moviesCount: partial.movies ? draft.movies.length : p.moviesCount,
+                seriesCount: partial.series ? draft.series.length : p.seriesCount,
+                lastUpdated: new Date().toISOString().slice(0, 10).replace(/-/g, '. ') + '.',
+                isActive: true,
+              }
+            : { ...p, isActive: false }
+        );
+        storageService.saveProviders(updatedProviders);
+        return updatedProviders;
+      });
     };
 
     try {
@@ -1565,25 +1582,34 @@ export function App() {
       // Xtream API-fiókadatok: a lejárat és a kapcsolatkorlát az auth válaszból jön.
       // QR-rel hozzáadott szolgáltatónál is felülírjuk az induló N/A értékeket.
       if ('user' in result && result.user) {
-        const updatedProviders = providersForRefresh.map((p) =>
-          p.id === id
-            ? {
-                ...p,
-                expireDate: result.user.expireDate,
-                maxConnections: result.user.maxConnections,
-              }
-            : p
-        );
-        setProviders(updatedProviders);
-        storageService.saveProviders(updatedProviders);
+        // A hitelesítési válasz nem írhatja vissza a részleges importból már
+        // megérkezett darabszámokat a frissítés kezdeti (gyakran nullás) értékeire.
+        setProviders((current) => {
+          const base = current.some((p) => p.id === id) ? current : providersForRefresh;
+          const updatedProviders = base.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  expireDate: result.user.expireDate,
+                  maxConnections: result.user.maxConnections,
+                }
+              : p
+          );
+          storageService.saveProviders(updatedProviders);
+          return updatedProviders;
+        });
       }
 
       // Kézi provider-frissítéskor a csatornák sorrendje a szolgáltató sorrendjére áll vissza.
       // A kedvencjelöléseket és a mappákhoz tartozó stabil csatornaazonosítókat megtartjuk.
       const refreshedChannels = preserveChannelPreferences(content.channels, channels, !manual);
-      // A frissítés befejezése sem indíthat másik csatornát: a már nézett
-      // csatornát megtartjuk akkor is, ha a szolgáltató friss listájából hiányzik.
-      const currentlyWatched = channels.find((channel) => channel.id === activeChannelId);
+      // Ugyanazon provider frissítésénél megtartjuk az éppen nézett csatornát
+      // egy rövid átmenetre; új provider importjakor régi csatorna nem kerülhet
+      // vissza az új lista mellé és nem blokkolhatja a csatornaváltást.
+      const canKeepWatchedChannel = activeProvider?.id === id;
+      const currentlyWatched = canKeepWatchedChannel
+        ? channels.find((channel) => channel.id === activeChannelId)
+        : undefined;
       const channelsForDisplay = currentlyWatched && !refreshedChannels.some((channel) => channel.id === currentlyWatched.id)
         ? [...refreshedChannels, currentlyWatched]
         : refreshedChannels;
@@ -1592,15 +1618,54 @@ export function App() {
       const liveToShow = keepIfFilled(channels, hungaryFirst(channelsForDisplay));
       const moviesToShow = keepIfFilled(movies, refreshedContent.movies);
       const seriesToShow = keepIfFilled(series, refreshedContent.series);
+      // Üres hibaválasz ugyanazon provider frissítésekor nem törölheti a
+      // korábban működő cache-t. Új provider esetén viszont nem mentjük a
+      // régi provider listáját az új azonosító alá.
+      const keepPreviousContent = activeProvider?.id === id;
+      const persistedChannels = liveToShow || (keepPreviousContent ? channels : refreshedContent.channels);
+      const persistedMovies = moviesToShow || (keepPreviousContent ? movies : refreshedContent.movies);
+      const persistedSeries = seriesToShow || (keepPreviousContent ? series : refreshedContent.series);
+      const contentForStorage: ImportedContent = {
+        ...refreshedContent,
+        channels: persistedChannels,
+        movies: persistedMovies,
+        series: persistedSeries,
+        liveCategories: refreshedContent.liveCategories.length || !keepPreviousContent
+          ? refreshedContent.liveCategories
+          : categories,
+        vodCategories: refreshedContent.vodCategories.length || !keepPreviousContent
+          ? refreshedContent.vodCategories
+          : vodCategories,
+        seriesCategories: refreshedContent.seriesCategories.length || !keepPreviousContent
+          ? refreshedContent.seriesCategories
+          : seriesCategories,
+        totals: {
+          live: persistedChannels.length,
+          vod: persistedMovies.length,
+          series: persistedSeries.length,
+        },
+      };
       if (liveToShow) setChannels(liveToShow);
-      setCategories((current) => (sameCategories(current, refreshedContent.liveCategories) ? current : refreshedContent.liveCategories));
+      // Ha az új importban nincs meg a korábbi aktív azonosító, a lejátszó és
+      // a D-pad navigáció egy valóban betöltött csatornára álljon át.
+      const nextActiveChannel = refreshedContent.channels.find((channel) => channel.id === activeChannelId)
+        || refreshedContent.channels[0];
+      if (nextActiveChannel && !refreshedContent.channels.some((channel) => channel.id === activeChannelId)) {
+        setActiveChannelId(nextActiveChannel.id);
+        storageService.rememberLastChannel(nextActiveChannel.id);
+      }
+      setCategories((current) => (sameCategories(current, contentForStorage.liveCategories) ? current : contentForStorage.liveCategories));
       if (moviesToShow) setMovies(moviesToShow);
-      setVodCategories((current) => (sameCategories(current, refreshedContent.vodCategories) ? current : refreshedContent.vodCategories));
+      setVodCategories((current) => (sameCategories(current, contentForStorage.vodCategories) ? current : contentForStorage.vodCategories));
       if (seriesToShow) setSeries(seriesToShow);
-      setSeriesCategories((current) => (sameCategories(current, refreshedContent.seriesCategories) ? current : refreshedContent.seriesCategories));
-      setTotalCounts(refreshedContent.totals);
-      // A live/film/sorozat részeket az applyPartial már külön elmentette.
-      // Ne írjuk ki még egyszer a teljes több tízezres listát a fő szálon.
+      setSeriesCategories((current) => (sameCategories(current, contentForStorage.seriesCategories) ? current : contentForStorage.seriesCategories));
+      setTotalCounts(contentForStorage.totals);
+      // A preview-szakaszok szándékosan nem írnak tartós listát. A végső,
+      // enrichmentelt snapshotot pontosan egyszer mentjük, így a részleges
+      // betöltések nem okoznak dupla/nem-metaadatos mentést.
+      saveLiveContent(contentForStorage);
+      await saveVodContent(contentForStorage);
+      await saveSeriesContent(contentForStorage);
       dirtyRef.current = false;
 
       const finishedAt = performance.now();
@@ -1749,6 +1814,7 @@ export function App() {
           target.seriesId
         );
         const episodesBySeason = info.episodes || {};
+        const seriesMetadata = parseSeriesMetadata(info);
         const seasons: Season[] = Object.keys(episodesBySeason)
           .sort((a, b) => Number(a) - Number(b))
           .map((seasonKey) => {
@@ -1757,28 +1823,30 @@ export function App() {
               seasonNumber: Number(seasonKey),
               name: `${seasonKey}. évad`,
               episodeCount: episodes.length,
-              episodes: episodes.map((episode, index) => ({
-                id: `ep-${target.id}-${episode.id ?? index}`,
-                episodeNumber: Number(episode.episode_num ?? index + 1),
-                seasonNumber: Number(seasonKey),
-                title: episode.title || `${index + 1}. rész`,
-                durationMinutes: (() => {
-                  const duration = episode.info?.duration || '';
-                  const hours = /(\d+)\s*h/i.exec(duration);
-                  const minutes = /(\d+)\s*m/i.exec(duration);
-                  const total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
-                  return total || 45;
-                })(),
-                streamUrl: xtreamService.buildSeriesStreamUrl(
-                  provider.serverUrl || '',
-                  provider.username || '',
-                  provider.password || '',
-                  episode.id ?? '',
-                  episode.container_extension || 'mp4'
-                ),
-                plot: episode.info?.plot || '',
-                thumbnail: episode.info?.movie_image || target.poster,
-              })),
+              episodes: episodes.map((episode, index) => {
+                const metadata = parseEpisodeMetadata(episode);
+                return {
+                  id: `ep-${target.id}-${episode.id ?? index}`,
+                  episodeNumber: Number(episode.episode_num ?? index + 1),
+                  seasonNumber: Number(seasonKey),
+                  title: episode.title || `${index + 1}. rész`,
+                  // Nincs több kitalált 45 perces érték: a hiányzó játékidő 0.
+                  durationMinutes: metadata.durationMinutes || 0,
+                  streamUrl: xtreamService.buildSeriesStreamUrl(
+                    provider.serverUrl || '',
+                    provider.username || '',
+                    provider.password || '',
+                    episode.id ?? '',
+                    episode.container_extension || 'mp4'
+                  ),
+                  plot: episode.info?.plot || '',
+                  thumbnail: episode.info?.movie_image || target.poster,
+                  audioTracks: metadata.audioTracks,
+                  subtitleTracks: metadata.subtitleTracks,
+                  audioLanguages: metadata.audioLanguages?.length ? metadata.audioLanguages : [UNKNOWN_LANGUAGE],
+                  subtitleLanguages: metadata.subtitleLanguages?.length ? metadata.subtitleLanguages : [UNKNOWN_LANGUAGE],
+                };
+              }),
             };
           })
           .filter((season) => season.episodes.length > 0);
@@ -1799,6 +1867,14 @@ export function App() {
                         .split(',')
                         .map((genre) => genre.trim())
                         .filter(Boolean),
+                  durationMinutes: seriesMetadata.durationMinutes || item.durationMinutes || 0,
+                  audioTracks: seriesMetadata.audioTracks,
+                  subtitleTracks: seriesMetadata.subtitleTracks,
+                  audioLanguages: seriesMetadata.audioLanguages?.length ? seriesMetadata.audioLanguages : [UNKNOWN_LANGUAGE],
+                  subtitleLanguages: seriesMetadata.subtitleLanguages?.length ? seriesMetadata.subtitleLanguages : [UNKNOWN_LANGUAGE],
+                  backdrop: seriesMetadata.backdrop || item.backdrop,
+                  cast: seriesMetadata.cast?.length ? seriesMetadata.cast : item.cast,
+                  director: seriesMetadata.director || item.director,
                 }
               : item
           )

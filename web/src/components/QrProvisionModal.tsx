@@ -91,7 +91,8 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
     pollRef.current = window.setInterval(async () => {
       const data = await pollForProvider(tvId, channel, token);
       if (data) {
-        console.log('[QR] Provider received', data);
+        // A QR payload tartalmazhat Xtream belépési adatot; ne kerüljön
+        // konzolra vagy diagnosztikai naplóba.
         setReceivedData(data);
         setStatus('received');
         if (pollRef.current) window.clearInterval(pollRef.current);

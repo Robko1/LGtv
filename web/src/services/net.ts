@@ -87,9 +87,29 @@ const MIN_GAP_MS = 25;
 
 let inFlight = 0;
 let lastRequestAt = 0;
+// A két párhuzamos worker ugyanabban a millisekundumban is elérheti a
+// várakozást. A puszta lastRequestAt-ellenőrzés ilyenkor mindkettőt egyszerre
+// engedné ki, ezért a „minimális szünet” valójában nem érvényesülne.
+let pacingTail: Promise<void> = Promise.resolve();
 
 function sleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForRequestPacing(generation: number): Promise<void> {
+  let unlock!: () => void;
+  const previous = pacingTail;
+  pacingTail = new Promise<void>((resolve) => { unlock = resolve; });
+  await previous;
+  try {
+    if (generation !== networkGeneration) throw new NetworkRequestCancelledError();
+    const gap = MIN_GAP_MS - (Date.now() - lastRequestAt);
+    if (gap > 0) await sleep(gap);
+    if (generation !== networkGeneration) throw new NetworkRequestCancelledError();
+    lastRequestAt = Date.now();
+  } finally {
+    unlock();
+  }
 }
 
 async function acquire(generation: number): Promise<boolean> {
@@ -448,10 +468,7 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
       throw new NetworkRequestCancelledError();
     }
     try {
-      const gap = MIN_GAP_MS - (Date.now() - lastRequestAt);
-      if (gap > 0) await sleep(gap);
-      if (requestGeneration !== networkGeneration) throw new NetworkRequestCancelledError();
-      lastRequestAt = Date.now();
+      await waitForRequestPacing(requestGeneration);
       return await fetchOnce(target, timeoutMs);
     } catch (error) {
       lastError = error;
