@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.103';
+export const WEB_VERSION = '2.5.104';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.103',
+    version: '2.5.104',
     date: '2026-10-25',
     changes: [
       'ÉLŐ ÚJRACSATLAKOZÁS NAPLÓJA: az automatikus TS/HLS fallback és az ugyanazon URL-es recovery többé nem jelenik meg új CSATORNAVÁLTÁS START-ként; a kézi csatornaváltások és a recovery-próbák külön, áttekinthető sorokban látszanak',
