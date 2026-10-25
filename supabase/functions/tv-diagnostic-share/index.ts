@@ -73,7 +73,7 @@ function safeExceptionReason(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError") return "database_timeout";
   if (error instanceof Error && error.name === "AbortError") return "database_timeout";
   if (error instanceof Error && /configuration is missing/i.test(error.message)) return "service_configuration_missing";
-  if (error instanceof Error && error.message) return error.message.replace(/https?:\\/\\/[^\\s]+/g, "[endpoint]").slice(0, 180);
+  if (error instanceof Error && error.message) return error.message.replace(/https?:\/\/[^\s]+/g, "[endpoint]").slice(0, 180);
   return "internal_service_error";
 }
 
