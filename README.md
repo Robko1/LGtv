@@ -155,6 +155,12 @@ grep -c requestFullscreen usr/palm/applications/hu.rt.iptv.webos/index.html   # 
 
 ## Verzió
 
+- **v2.5.88** – kézi hibakeresés, képernyőminőség és TV-fókusz (részletes leírás: `web/src/appVersion.ts`):
+  - A SÁRGA teletext gomb nem indít automatikus naplózást és nem készít QR-kódot: kézzel indítható/leállítható a naplózás, majd a sorszámozott napló külön Küldés gombbal megy Supabase-re.
+  - A napló 1 MB-ig gyűjt, az utolsó öt elküldött sorszám és dátum látszik; kilépéskor automatikusan leáll.
+  - A játszott csatornasor teljes kék körvonalat kap, a távirányító fókusza sárga marad, a teljes képernyős óra pedig követi az 1–6 színsémát.
+  - A ritka váratlan pause/fagyás ugyanazon a streamen automatikusan helyreáll, a TS/HLS formátumemlékezet újraindítás után is megmarad.
+  - A teljes képernyős élő kép nem kap mesterséges széthúzást; a TV saját hardveres skálázása és a forrás képaránya marad érvényben.
 - **v2.5.86** – megbízhatósági és sebességi csomag (részletes leírás: `web/src/appVersion.ts`):
   - Élő TV: pufferelésnél / újracsatlakozásnál a kép **nem tűnik el** (csak egy kis átlátszó jelző van), nincs többé végleges fekete hibaképernyő – a lejátszó fokozatos visszalépéssel folyamatosan próbálkozik.
   - Film / sorozat: a megszakadt stream a **legutolsó pozícióról magától folytatódik**; a korai `ended`, a `play()` `AbortError`-ja és az automatikus hangsávválasztás nem állítják meg a filmet.
@@ -174,13 +180,13 @@ grep -c requestFullscreen usr/palm/applications/hu.rt.iptv.webos/index.html   # 
 - **v2.4.0** – teljesítmény-javítások + választható lejátszó motor (HTML5 / natív)
 - **v2.3.1** – LG webOS-only build + távirányító fix + QR
 - IPK: `webos/IPTV-RT.ipk` (kb. 945 KB)
-- appinfo.json: `hu.rt.iptv.webos` v2.5.86
+- appinfo.json: `hu.rt.iptv.webos` v2.5.88
 
 ## Tesztek
 
 ```bash
 npm install && npm --prefix web install
-npm test                                   # 139 forrás/viselkedés-teszt + formátum-, napló-, lejátszás-tesztek
+npm test                                   # forrás/viselkedés-, formátum-, napló- és lejátszás-tesztek
 node tools/test-playback-recovery.mjs      # az újracsatlakozási politika valódi futtatása
 node tools/test-player-runtime.mjs         # a VideoPlayer Reactben, jsdom-mal (pause / ended / error / fekete overlay)
 npx --prefix web tsc --noEmit              # teljes TypeScript-ellenőrzés

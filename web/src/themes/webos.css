@@ -1,6 +1,6 @@
 /* LG webOS TV – külön kinézet, kisebb lejátszó, fekvő splash, Magic Remote */
 body.webos-theme {
-  --tv-focus-color: #00BFFF;
+  --tv-focus-color: #fbbf24;
   --tv-bg: #000000;
   background: #000;
 }
@@ -27,13 +27,16 @@ body.webos-theme [role="listbox"]:focus {
 }
 body.webos-theme [role="option"]:focus,
 body.webos-theme [role="option"]:focus-visible {
-  outline: 3px solid #00BFFF !important;
-  box-shadow: 0 0 0 8px rgba(0,191,255,0.35), 0 0 24px rgba(0,191,255,0.25) !important;
+  outline: 3px solid #fbbf24 !important;
+  box-shadow: 0 0 0 8px rgba(251,191,36,0.30), 0 0 24px rgba(251,191,36,0.18) !important;
   z-index: 10;
 }
-body.webos-theme button:focus-visible {
-  outline: 3px solid #facc15 !important;
-  box-shadow: 0 0 0 4px rgba(250,204,21,0.3);
+body.webos-theme button:focus,
+body.webos-theme button:focus-visible,
+body.webos-theme [role="button"]:focus,
+body.webos-theme [role="button"]:focus-visible {
+  outline: 3px solid #fbbf24 !important;
+  box-shadow: 0 0 0 4px rgba(251,191,36,0.30);
 }
 
 /*

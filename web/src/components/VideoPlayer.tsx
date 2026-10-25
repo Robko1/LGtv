@@ -40,7 +40,6 @@ import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 import {
   alternativeUrl,
   formatOfUrl,
-  forgetFormatFor,
   rememberFormatFor,
   rememberGlobalFormat,
   rememberedFormatFor,
@@ -437,6 +436,7 @@ interface VideoPlayerProps {
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  liveAccent = 'yellow',
   channel,
   customStreamUrl,
   customTitle,
@@ -802,14 +802,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return;
       }
       const failedChannel = channelRef.current;
-      if (failedChannel?.id) forgetFormatFor(failedChannel.id);
       const hadAlternative = Boolean(liveFallbackRef.current);
       const triedFormats = hadAlternative
         ? (liveFallbackRef.current?.format === 'hls' ? 'MPEG-TS + HLS' : 'HLS + MPEG-TS')
         : 'MPEG-TS';
       appLogCritical(
         `MINDKÉT FORMÁTUM SIKERTELEN; csatorna=${String(failedChannel?.name || channelSwitchDiagnosticRef.current?.channelName || 'élő adás').slice(0, 100)}; ` +
-        `próbált formátumok=${triedFormats}; a csatorna jelenleg nem indítható. Formátum-emlék törölve.`
+        `próbált formátumok=${triedFormats}; a csatorna jelenleg nem indítható. Az utolsó sikeres formátum emléke megőrizve.`
       );
       logChannelSwitchSummary('SIKERTELEN', `minden indítási próba sikertelen; formátumok=${triedFormats}`);
       /*
@@ -3348,11 +3347,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = htmlVideoRef.current;
     if (!video) return;
     if (video.paused) {
+      // A következő pause/play eseményt már a távirányító szándéka szerint
+      // kezeljük, még azelőtt, hogy React újrarenderelné az állapotot.
+      desiredPlayingRef.current = true;
       void video.play().then(() => setIsPlaying(true)).catch(() => {
         setHasError(true);
         setErrorMessage('A TV lejátszási indítást blokkolta. Nyomj az Újrapróbálás gombra.');
       });
     } else {
+      desiredPlayingRef.current = false;
       video.pause();
       setIsPlaying(false);
     }
@@ -3473,6 +3476,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // tartsa meg a forrás képarányát (nincs torzítás): a `cover`
         // pontosan ezt teszi, a `contain` üres sávot hagyna.
         objectFit: 'cover',
+        imageRendering: 'auto',
+        filter: 'none',
+        backfaceVisibility: 'hidden',
       });
       // Egyetlen kényszerített újramérés a webOS Chromium későn frissülő
       // videórétegéhez. A korábbi két egymást követő mérés ugyanazt a
@@ -3695,7 +3701,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             // Élő TV: a kép KITÖLTI a területet (nincs üres sáv) és megtartja
             // a stream saját arányát (nincs torzítás) – a `cover` vágja
             // le a kilógó részt. A VOD viselkedését változatlanul hagyjuk.
-            style={{ objectFit: isVod ? (isFullscreen ? 'fill' : 'contain') : 'cover' }}
+            style={{ objectFit: isVod ? (isFullscreen ? 'fill' : 'contain') : 'cover', imageRendering: 'auto', filter: 'none', backfaceVisibility: 'hidden' }}
             playsInline
             preload="auto"
             onPlaying={(event) => {
@@ -3875,6 +3881,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (switchInProgressRef.current) return;
               const video = event.currentTarget;
               if (!video.paused || video.ended) return;
+              // Ritka webOS-fagyásnál a médiaelem maga áll le, miközben a
+              // néző továbbra is lejátszást kér. A korábbi kód ilyenkor
+              // `isPlaying=false`-ra váltott, ezért a figyelő is leállt, és
+              // csak másik csatorna kiválasztása indította újra. Most a
+              // váratlan pause azonnal ugyanazon a címen helyreállítást kér.
+              if (desiredPlayingRef.current && playbackActiveRef.current && playbackStartedRef.current) {
+                setIsLoading(true);
+                setHasError(false);
+                requestRecoveryRef.current('váratlan pause esemény – automatikus újraindítás');
+                return;
+              }
               setIsPlaying(false);
             }}
             onPlay={(event) => {
@@ -4010,7 +4027,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* A teljes képernyős kék óra minden lejátszási módban kizárólag a Rendszer > Kék óra kapcsolóval vezérelhető. */}
       {settings.alwaysShowBlueClock && isFullscreen && (
         <BlueClock
-          accent="blue"
+          // A teljes képernyős óra is ugyanazt a 1–6 távirányítós színt követi,
+          // nem marad mindig kék a fejléc színváltása után.
+          accent={liveAccent}
           offsetHours={settings.clockOffsetHours}
           className="absolute top-3 right-3 z-40 box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider shadow-none pointer-events-none"
         />

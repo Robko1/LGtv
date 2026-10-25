@@ -129,10 +129,10 @@ test('1. a lejátszó jelzi az első képkockát, és addig nem fekete a TV-ter�
 test('2. az élő kép kitölti a területet és megtartja az arányát (cover, nem contain)', () => {
   assert.match(PLAYER, /objectFit: isVod \? \(isFullscreen \? 'fill' : 'contain'\) : 'cover'/);
   // A főoldali (nem teljes képernyős) kényszerített újramérés is cover.
-  assert.match(PLAYER, /objectFit: 'cover',[\s\S]{0,80}?\}\);/);
+  assert.match(PLAYER, /objectFit: 'cover'/);
   // A `contain` üres sávot hagyna: ÉLŐ képnél nem lehet (a VOD maradhat).
   const liveStyle = PLAYER.match(/objectFit: isVod \?[^\n]*\n/)[0];
-  assert.match(liveStyle, /: 'cover' \}\}/);
+  assert.match(liveStyle, /: 'cover'(?:,| \}\})/);
 });
 
 test('2. a kép nem `transform`-mel méreteződik (az újraépítené a dekódolót)', () => {
@@ -904,40 +904,31 @@ test('11. teljes képernyős élő OSD: MOST/KÖVETKEZŐ egyszerű fehér szöve
   assert.match(CONTROLS, /text-2xl font-bold leading-8 text-amber-300\/90 drop-shadow-lg/);
 });
 
-test('11. tesztnapló: csak lejátszási mérések, fagyás- és összeomlásvédelem', () => {
-  const LOG = read('web/src/services/appLog.ts');
-  assert.match(LOG, /export function startRuntimeWatchdog\(\): void/);
-  assert.match(LOG, /export function installCrashHandlers\(\): void/);
-  assert.match(LOG, /export function logPhase\(label: string\): void/);
-  assert.match(LOG, /export function appLogCritical\(message: string\): void/);
-  assert.match(LOG, /export function uiStateSnapshot\(\): string/);
-  // A főszál-figyelő megmarad, de a tesztet zavaró 15 mp-es memória/DOM idővonal megszűnt.
-  assert.match(LOG, /const STALL_MS = 2500;/);
-  assert.match(LOG, /LEÁLLÁS: a fő szál \$\{gap\} ms-ig nem futott/);
-  assert.doesNotMatch(LOG, /TIMELINE_MS|IDŐVONAL:/);
-  assert.match(LOG, /focusedPlaybackTestLogging/);
-  assert.match(LOG, /PLAYBACK_TEST_LOG/);
-  // Hosszú feladat mérése, ha a motor támogatja.
-  assert.match(LOG, /entryTypes: \['longtask'\]/);
-  assert.match(LOG, /HOSSZÚ FELADAT:/);
-  // Összeomlás / ígérethiba / kilépés.
-  assert.match(LOG, /window\.addEventListener\('error'/);
-  assert.match(LOG, /window\.addEventListener\('unhandledrejection'/);
-  assert.match(LOG, /window\.addEventListener\('pagehide'/);
-  assert.match(LOG, /document\.addEventListener\('visibilitychange'/);
-  // Bekötés a belépési ponton (még a felület előtt) + verziós fejléc.
-  const MAIN = read('web/src/main.tsx');
-  assert.match(MAIN, /installCrashHandlers\(\);/);
-  assert.match(MAIN, /startRuntimeWatchdog\(\);/);
-  assert.match(MAIN, /logStartup\(WEB_VERSION\);/);
-  assert.match(MAIN, /logPhase\('főoldal kész és kirajzolva'\)/);
-  // Az import szakaszai is naplózva (első indítás legnehezebb lépése).
-  const IMPORT = read('web/src/services/providerImport.ts');
-  assert.match(IMPORT, /logPhase\(`Xtream import indul/);
-  assert.match(IMPORT, /logPhase\(\s*`Xtream import kész/);
-  assert.match(IMPORT, /logMemory\('import után'\)/);
+test('11. az óra, a játszott csatornasor és a távirányító fókusza követi a kérést', () => {
+  const TV_CSS = read('web/src/themes/webos.css');
+  assert.match(PLAYER, /accent=\{liveAccent\}/);
+  assert.match(LIST, /isSelected[\s\S]{0,500}?border-2 border-cyan-400\/90/);
+  assert.match(TV_CSS, /button:focus[\s\S]{0,260}?#fbbf24/);
+  assert.match(TV_CSS, /\[role="option"\]:focus[\s\S]{0,220}?#fbbf24/);
 });
 
+test('11. a diagnosztikai napló csak kézi indítás után fut, és kilépéskor leáll', () => {
+  const LOG = read('web/src/services/appLog.ts');
+  assert.match(LOG, /export function startManualLogging\(\): ManualLogSnapshot/);
+  assert.match(LOG, /export function stopManualLogging\(reason = 'kézi leállítás'\): ManualLogSnapshot/);
+  assert.match(LOG, /export function manualLogSnapshot\(\): ManualLogSnapshot/);
+  assert.match(LOG, /if \(!loggingEnabled\) return;/);
+  assert.match(LOG, /const LOG_NUMBER_KEY = 'iptv_rt_diagnostic_next_number_v1';/);
+  assert.match(LOG, /const MAX_CHARS = 1_000_000;/);
+  assert.match(LOG, /window\.addEventListener\('pagehide'/);
+  assert.match(LOG, /stopManualLogging\('IPK\/app elhagyása'\)/);
+  assert.match(LOG, /entryTypes: \['longtask'\]/);
+  assert.match(LOG, /window\.addEventListener\('error'/);
+  assert.match(LOG, /window\.addEventListener\('unhandledrejection'/);
+  const MAIN = read('web/src/main.tsx');
+  assert.match(MAIN, /startManualLogging/);
+  assert.match(MAIN, /logStatus: \(\) => manualLogSnapshot\(\)/);
+});
 
 test('webOS újra-előtérbe hozás: a relaunch aktiválja az alkalmazást és visszaállítja a fókuszt', () => {
   const WEBOS = read('webos/webos.js');
@@ -991,10 +982,11 @@ test('12. hiba esetén a lejátszó MAGA próbálja a másik formátumot (nem k�
   assert.match(retry, /const nextFormat = formatOfUrl\(nextUrl\);/);
   assert.match(retry, /FORMÁTUM-VISSZAESÉS; csatorna=\$\{channelName\}/);
   assert.match(retry, /pendingStreamUrlRef\.current = nextUrl;/);
-  // Ha a második formátum sem megy, a csatorna emléke törlődik, és a napló
-  // egyértelműen jelzi, hogy MINDKÉT formátum hibás volt.
-  assert.match(retry, /if \(failedChannel\?\.id\) forgetFormatFor\(failedChannel\.id\);/);
+  // Átmeneti szolgáltatói hibánál az utolsó sikeres emléket NEM töröljük;
+  // a következő indítás ugyanazzal a jól bevált móddal kezdhet.
+  assert.doesNotMatch(retry, /forgetFormatFor\(failedChannel\.id\)/);
   assert.match(retry, /MINDKÉT FORMÁTUM SIKERTELEN; csatorna=/);
+  assert.match(retry, /Az utolsó sikeres formátum emléke megőrizve/);
 });
 
 test('12. a videóelem hibaállapota nem öröklődik a következő csatornára', () => {
@@ -1107,33 +1099,33 @@ test('13. CH+/CH- nem ugrik a lista első csatornájára, ha a nézett csatorna 
     'a CH+ és a CH- is csendben kilép');
 });
 
-test('13. a QR-hibadiagnózis Frissítés gombja nullázza a méréseket, és látható kezdő időpontot ír', () => {
-  // A napló mérés-ablaka: 0-ról induló számlálók + látható kezdő időpont.
-  assert.match(APPLOG, /export function resetMeasurements\(reason: string = 'kézi frissítés'\): MeasurementSnapshot/);
-  assert.match(APPLOG, /measurementCounters\.logLines = 0;\s*\n\s*measurementCounters\.errors = 0;\s*\n\s*measurementCounters\.longTasks = 0;/);
-  assert.match(APPLOG, /=== ÚJ MÉRÉS KEZDETE: \$\{dublinTimestamp\(startedAt\)\} \(\$\{clockText\(startedAt \+ 60 \* 60 \* 1000\)\}\); minden korábbi mért érték nullázva; ok: \$\{reason\}/);
-  // A Frissítés a nullázás ELŐTTI számlálókat is megőrzi az új naplóban.
-  assert.match(APPLOG, /MÉRÉS NULLÁZÁS ELŐTT \[\$\{previous\.startedAtText\} óta\]: naplósorok=\$\{previous\.logLines\}, hibák=\$\{previous\.errors\}, hosszú feladatok=\$\{previous\.longTasks\}/);
-  assert.match(APPLOG, /MÉRÉS KEZDETE: \$\{clockText\(measure\.startedAt \+ 60 \* 60 \* 1000\)\}/);
-  // A felugró ablak a Frissítéskor nulláz, és kiírja a kezdő időpontot.
-  assert.match(DIAG_MODAL, /const fresh = resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\);/);
-  assert.match(DIAG_MODAL, /data-diagnostic-measure-start=/);
-  assert.match(DIAG_MODAL, /Az előzmények törölve\. Új mérés kezdete: \$\{fresh\.startedAtText\}; a QR csak az azóta keletkezett naplót tartalmazza/);
-  // A teszthez/diagnosztikához a híd is elérhető.
-  assert.match(MAIN, /resetMeasure: \(reason\?: string\) => resetMeasurements/);
+test('13. a kézi naplóablak sorszámot, dátumot, állapotot és küldést mutat', () => {
+  assert.match(APPLOG, /export function startManualLogging\(\): ManualLogSnapshot/);
+  assert.match(APPLOG, /NAPLÓZÁS INDULT; napló=#\$\{activeLogNumber\}; kezdete=/);
+  assert.match(APPLOG, /export function getAppLogText\(\): string/);
+  assert.match(APPLOG, /WEBOS NAPLÓ #\$\{activeLogNumber\}/);
+  assert.match(DIAG_MODAL, /data-diagnostic-toggle/);
+  assert.match(DIAG_MODAL, /data-diagnostic-send/);
+  assert.match(DIAG_MODAL, /UTOLSÓ 5 ELKÜLDÖTT NAPLÓ/);
+  assert.match(DIAG_MODAL, /Elküldve: napló #\$\{record\.logNumber\}/);
+  assert.match(DIAG_MODAL, /naplózás automatikusan leállt/);
+  assert.doesNotMatch(DIAG_MODAL, /QRCodeSVG|QR-kód készítése|data-diagnostic-refresh/);
+  const SERVICE = read('web/src/services/diagnosticShareService.ts');
+  assert.match(SERVICE, /action: 'send'/);
+  assert.match(SERVICE, /action: 'history'/);
+  assert.doesNotMatch(SERVICE, /QRCodeSVG|createDiagnosticShare|revokeDiagnosticShare/);
 });
 
-test('13. a QR-kód nagy, nagy kontrasztú és könnyen olvasható; a hivatkozás változatlan', () => {
-  assert.match(DIAG_MODAL, /size=\{480\}/);
-  assert.match(DIAG_MODAL, /bgColor="#ffffff"/);
-  assert.match(DIAG_MODAL, /fgColor="#05080f"/);
-  // A tartalom továbbra is a szerverről kapott hivatkozás, a csendes zóna megvan.
-  assert.match(DIAG_MODAL, /value=\{share\.url\}/);
-  assert.match(DIAG_MODAL, /marginSize=\{4\}/);
-  assert.match(DIAG_MODAL, /level="L"/);
-  assert.match(DIAG_MODAL, /boostLevel=\{false\}/);
+test('13. a Supabase napló-Edge Function nem ad vissza QR-linket, és öt rekordra takarít', () => {
+  const EDGE = read('supabase/functions/tv-diagnostic-share/index.ts');
+  assert.match(EDGE, /const MAX_LOG_ROWS = 5/);
+  assert.match(EDGE, /async function pruneToFive/);
+  assert.match(EDGE, /body\?\.action === "history"/);
+  assert.match(EDGE, /body\?\.action !== "send" && body\?\.action !== "create"/);
+  assert.match(EDGE, /log_number: body\.logNumber/);
+  assert.match(EDGE, /started_at: startedAt/);
+  assert.doesNotMatch(EDGE, /url: base \+|QRCode|expiresAt: expires/);
 });
-
 
 /* ══════════════ 14. Feliratkeresés naplózása és kézi újrapróbálkozás ══════════════ */
 
@@ -1166,32 +1158,26 @@ test('15. a formátumemlékezet mentése és a kétformátumos hiba látszik a n
   // A CSATORNAVÁLTÁS START sor a globális emléket is kiírja, ha csatornánként nincs.
   // A CSATORNAVÁLTÁS START sor kiírja a csatorna formátum-emlékét vagy jelzi, ha nincs.
   assert.match(PLAYER, /formátum-emlék=\$\{channelMemory \|\| 'nincs'\}/);
-  assert.match(PLAYER, /próbált formátumok=\$\{triedFormats\}; a csatorna jelenleg nem indítható\. Formátum-emlék törölve\./);
+  assert.match(PLAYER, /próbált formátumok=\$\{triedFormats\}; a csatorna jelenleg nem indítható\. Az utolsó sikeres formátum emléke megőrizve\./);
   assert.match(PLAYER, /liveFallbackRef\.current\?\.format === 'hls' \? 'MPEG-TS \+ HLS' : 'HLS \+ MPEG-TS'/);
 });
 
-test('15. a QR-ablak távirányítóval egy OK-ra a Frissítést indítja, és minden gombnyomás naplózott', () => {
-  // Nyitáskor a FRISSÍTÉS gomb kapja a fókuszt (a fejléc ✕ helyett).
-  assert.match(DIAG_MODAL, /\[data-diagnostic-refresh\]/);
-  assert.match(DIAG_MODAL, /const timers = \[160, 700\]\.map\(\(delay\) => window\.setTimeout\(focusRefresh, delay\)\);/);
-  // OK/Enter a fókuszált gombot aktiválja (a React kezelője hamarabb fut).
+test('15. a kézi naplóablak két gombja távirányítóval kezelhető', () => {
   assert.match(DIAG_MODAL, /const onModalKeyDown = \(event: React\.KeyboardEvent\) => \{/);
   assert.match(DIAG_MODAL, /if \(active && modalRef\.current\?\.contains\(active\) && active\.tagName === 'BUTTON'\) \{/);
   assert.match(DIAG_MODAL, /onKeyDown=\{onModalKeyDown\}/);
-  // A Frissítés törli az előzményeket; az új mérés eseményei ezután naplózódnak.
-  assert.match(DIAG_MODAL, /resetMeasurements\('QR-hibadiagnózis: Frissítés gomb'\)/);
-  assert.match(DIAG_MODAL, /QR-diagnózis: új mérési ablak indult; az előző napló törölve\./);
-  assert.match(DIAG_MODAL, /QR-diagnózis: új QR-kód kérése – \$\{trigger\}\./);
-  assert.match(DIAG_MODAL, /QR-diagnózis bezárva\./);
-  assert.match(DIAG_MODAL, /QR-diagnózis megnyitva; mérés kezdete=\$\{opened\.startedAtText\}/);
+  assert.match(DIAG_MODAL, /data-diagnostic-toggle/);
+  assert.match(DIAG_MODAL, /data-diagnostic-send/);
+  assert.match(DIAG_MODAL, /Naplózás indítása/);
+  assert.match(DIAG_MODAL, /Küldés Supabase-re/);
+  assert.match(DIAG_MODAL, /listDiagnosticLogHistory/);
 });
 
-test('15. a mérés nullázása törli az előzményeket, a QR pedig a teljes megőrzött naplót exportálja', () => {
-  assert.match(APPLOG, /clearAppLog\(\);\s*\n\s*measurementStartedAt = startedAt;/);
+test('15. a kézi napló 1 MB-os, sorszámozott exportot készít', () => {
   assert.match(APPLOG, /localStorage\.removeItem\(/);
   assert.match(APPLOG, /measurementCounters\.logLines = 0;/);
   assert.match(APPLOG, /return \[header, \.\.\.lines\]\.join\('\\n'\);/);
   assert.match(APPLOG, /const MAX_CHARS = 1_000_000;/);
-  assert.match(APPLOG, /max\. 24 óra \/ 1 MB/);
+  assert.match(APPLOG, /WEBOS NAPLÓ #\$\{activeLogNumber\}/);
   assert.doesNotMatch(APPLOG, /MAX_LINES/);
 });

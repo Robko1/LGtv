@@ -1,17 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { QrCode, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+import React, { useEffect, useState } from 'react';
+import { Bug, Circle, Clock3, History, Loader2, Send } from 'lucide-react';
 import {
-  appLog,
+  dateTimeText,
   getAppLogText,
-  measurementSnapshot,
-  resetMeasurements,
-  type MeasurementSnapshot,
+  manualLogSnapshot,
+  startManualLogging,
+  stopManualLogging,
+  type ManualLogSnapshot,
 } from '../services/appLog';
 import {
-  createDiagnosticShare,
-  revokeDiagnosticShare,
-  type DiagnosticShare,
+  getLocalDiagnosticHistory,
+  listDiagnosticLogHistory,
+  rememberDiagnosticLog,
+  sendDiagnosticLog,
+  type DiagnosticLogRecord,
 } from '../services/diagnosticShareService';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 import { normalizeTvKey } from '../utils/tvKeys';
@@ -21,133 +23,102 @@ interface DiagnosticShareModalProps {
   onClose: () => void;
 }
 
+function formatRecordDate(value: string): string {
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? dateTimeText(at) : value || 'ismeretlen időpont';
+}
+
+/**
+ * KÉZI HIBAKERESÉSI NAPLÓ.
+ *
+ * A SÁRGA/teletext gomb csak ezt az ablakot nyitja meg. A naplózás itt is
+ * alapból KI van kapcsolva: sem induláskor, sem az ablak megnyitásakor nem
+ * készül napló és nem megy adat a Supabase-re. A két látható művelet:
+ *   1. Naplózás indítása / leállítása
+ *   2. Küldés Supabase-re
+ */
 export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOpen, onClose }) => {
-  const [share, setShare] = useState<DiagnosticShare | null>(null);
+  const [snapshot, setSnapshot] = useState<ManualLogSnapshot>(() => manualLogSnapshot());
+  const [history, setHistory] = useState<DiagnosticLogRecord[]>(() => getLocalDiagnosticHistory());
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  /*
-   * MÉRÉS-ABLAK: a dobozban látható mért értékek. A „Frissítés” gomb ezeket
-   * nullázza (0), és új, látható kezdő időponttal indít mérést – így a
-   * távirányítóval is ellenőrizhető, hogy a nullázás megtörtént.
-   */
-  const [measure, setMeasure] = useState<MeasurementSnapshot>(() => measurementSnapshot());
-  const generationRef = useRef(0);
-  const shareRef = useRef<DiagnosticShare | null>(null);
-  // A bezárás (távirányítós Vissza/Escape) is naplózva legyen.
-  const closeModal = () => {
-    appLog('QR-diagnózis bezárva.');
-    onClose();
-  };
-  const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, closeModal);
-  shareRef.current = share;
+  const [error, setError] = useState('');
+  const [sentRecord, setSentRecord] = useState<DiagnosticLogRecord | null>(null);
+  const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, onClose);
 
-  const createNewQr = async (trigger: string = 'automatikus (megnyitás)') => {
-    appLog(`QR-diagnózis: új QR-kód kérése – ${trigger}.`);
-    const generation = ++generationRef.current;
-    setBusy(true);
+  useEffect(() => {
+    if (!isOpen) return;
+    setSnapshot(manualLogSnapshot());
+    setHistory(getLocalDiagnosticHistory());
+    setNotice('');
+    setError('');
+    setSentRecord(null);
+    // A szerverről csak az utolsó öt azonosítót és dátumot kérjük le, a naplók
+    // teljes tartalma nem kerül vissza a TV-re.
+    void listDiagnosticLogHistory()
+      .then((records) => setHistory(records))
+      .catch(() => { /* a helyi ötös lista offline is látható marad */ });
+    const timer = window.setInterval(() => setSnapshot(manualLogSnapshot()), 500);
+    return () => window.clearInterval(timer);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const focus = () => {
+      try { modalRef.current?.querySelector<HTMLElement>('[data-diagnostic-toggle]')?.focus({ preventScroll: true } as any); } catch { /* régi webOS */ }
+    };
+    const timers = [120, 650].map((delay) => window.setTimeout(focus, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [isOpen, modalRef]);
+
+  const toggleLogging = () => {
     setError('');
     setNotice('');
-    try {
-      appLog('Diagnosztikai napló QR-kód létrehozása.');
-      const created = await createDiagnosticShare(getAppLogText());
-      if (generation !== generationRef.current) {
-        void revokeDiagnosticShare(created.token);
-        return;
-      }
-      const previous = shareRef.current;
-      setShare(created);
-      shareRef.current = created;
-      if (previous?.token) void revokeDiagnosticShare(previous.token);
-      setNotice('Új QR-kód elkészült. A hivatkozás 1 óráig érvényes.');
-    } catch (cause) {
-      if (generation === generationRef.current) setError('Nem sikerült létrehozni a QR-kódot. Ellenőrizd a TV internetkapcsolatát, majd próbáld újra.');
-      appLog('Diagnosztikai QR-kód létrehozása sikertelen: ' + String(cause).slice(0, 180));
-      console.warn('[diagnostic-qr] create failed', cause);
-    } finally {
-      if (generation === generationRef.current) setBusy(false);
+    const next = snapshot.enabled
+      ? stopManualLogging('kézi leállítás')
+      : startManualLogging();
+    if (next.enabled) setSentRecord(null);
+    setSnapshot(next);
+    setNotice(next.enabled
+      ? `Napló #${next.number} elindult. Mostantól a lejátszó hibái és a csatornaváltások bekerülnek.`
+      : `Napló #${next.number ?? 'ismeretlen'} leállt. Küldés előtt ellenőrizd a sorszámot és az időpontot.`);
+  };
+
+  const sendLog = async () => {
+    setError('');
+    setNotice('');
+    let current = manualLogSnapshot();
+    if (!current.number || !current.startedAt || current.charCount <= 0) {
+      setError('Nincs elküldhető napló. Előbb indítsd el a naplózást, majd próbáld ki a hibát.');
+      return;
     }
-  };
-
-  const refreshLog = async () => {
-    const current = shareRef.current;
+    const logNumber = current.number;
+    const startedAt = current.startedAt;
     setBusy(true);
-    setError('');
-    setNotice('');
-
-    // A Frissítés azonnal, a gombnyomáskor törli az előző mérési ablakot,
-    // majd nullázott számlálókkal indít újat. Az egy napos automatikus
-    // naplómegőrzési mechanizmust nem módosítjuk.
-    const fresh = resetMeasurements('QR-hibadiagnózis: Frissítés gomb');
-    setMeasure(fresh);
+    // Küldéskor mindig lezárjuk a munkamenetet. Hiba esetén a kész tartalom
+    // memóriában marad, így a gombbal újra elküldhető; új indítás új sorszámot kap.
+    if (current.enabled) current = stopManualLogging('küldés előtti automatikus leállítás');
     try {
-      appLog('QR-diagnózis: új mérési ablak indult; az előző napló törölve.');
-      // Mindig ÚJ megosztási tokent és URL-t készítünk. Így a telefon nem
-      // olvashatja vissza a korábbi QR-hivatkozás tartalmát; az új linkbe
-      // kizárólag a reset után összegyűlt teljes mérési napló kerül.
-      appLog('Diagnosztikai QR: új hivatkozás készítése a nullázás utáni naplóból.');
-      const created = await createDiagnosticShare(getAppLogText());
-      setShare(created);
-      shareRef.current = created;
-      if (current?.token) void revokeDiagnosticShare(current.token);
-      setNotice(`Az előzmények törölve. Új mérés kezdete: ${fresh.startedAtText}; a QR csak az azóta keletkezett naplót tartalmazza`);
+      const record = await sendDiagnosticLog(
+        logNumber,
+        startedAt,
+        getAppLogText(),
+        current.charCount,
+        current.lineCount,
+      );
+      rememberDiagnosticLog(record);
+      setSentRecord(record);
+      setHistory((previous) => [record, ...previous.filter((item) => item.logNumber !== record.logNumber)].slice(0, 5));
+      setNotice(`Elküldve: napló #${record.logNumber} – ${formatRecordDate(record.createdAt)}. A naplózás automatikusan leállt.`);
+      setSnapshot(manualLogSnapshot());
     } catch (cause) {
-      setError('A frissítés nem sikerült. A mérés elindult, próbáld újra a QR frissítését.');
-      appLog('Diagnosztikai QR-napló frissítése sikertelen: ' + String(cause).slice(0, 180));
-      console.warn('[diagnostic-qr] refresh failed', cause);
+      setError(`A napló küldése nem sikerült: ${String(cause).slice(0, 180)}`);
+      setSnapshot(manualLogSnapshot());
     } finally {
       setBusy(false);
     }
   };
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onRedKey = (event: Event) => {
-      if ((event as CustomEvent)?.detail?.action === 'diagnostic-share') void createNewQr('SÁRGA gomb (újrakérés)');
-    };
-    window.addEventListener('iptv-tv-action', onRedKey);
-    return () => window.removeEventListener('iptv-tv-action', onRedKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
-
-  // A mérés-ablak élő kijelzése: amíg a doboz nyitva van, másodpercenként
-  // frissül az eltelt idő (a kezdő időpont és a mért értékek láthatók maradnak).
-  useEffect(() => {
-    if (!isOpen) return;
-    const opened = measurementSnapshot();
-    appLog(
-      `QR-diagnózis megnyitva; mérés kezdete=${opened.startedAtText}, ` +
-      `naplósorok=${opened.logLines}, hibák=${opened.errors}, hosszú feladatok=${opened.longTasks}.`
-    );
-    setMeasure(opened);
-    const timer = window.setInterval(() => setMeasure(measurementSnapshot()), 1000);
-    return () => window.clearInterval(timer);
-  }, [isOpen]);
-
-  /*
-   * TÁVIRANYÍTÓ: a fő művelet (FRISSÍTÉS = mérések nullázása) kapja a fókuszt.
-   *
-   * A napló tanúsága szerint a QR-ablak 7 percig nyitva volt anélkül, hogy
-   * bármilyen gombnyomás látszana – a nézőnek nem volt egyértelmű, melyik
-   * gombon áll a kijelölő. Most nyitáskor egy OK már a Frissítést indítja.
-   */
-  useEffect(() => {
-    if (!isOpen) return;
-    const focusRefresh = () => {
-      try {
-        const button = modalRef.current?.querySelector<HTMLElement>('[data-diagnostic-refresh]');
-        button?.focus({ preventScroll: true } as any);
-      } catch { /* régi motor */ }
-    };
-    const timers = [160, 700].map((delay) => window.setTimeout(focusRefresh, delay));
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [isOpen, modalRef]);
-
-  /*
-   * A távirányító OK gombja a fókuszált gombot aktiválja. A webos.js is
-   * kezeli, de a React kezelője hamarabb fut – itt végezzük el, hogy a
-   * naplóba is bekerüljön, melyik gombot nyomta meg a néző.
-   */
   const onModalKeyDown = (event: React.KeyboardEvent) => {
     const key = normalizeTvKey(event);
     if (key === 'Enter' || key === ' ') {
@@ -162,127 +133,91 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     handleKeyDown(event);
   };
 
-  useEffect(() => {
-    if (!isOpen) {
-      generationRef.current += 1;
-      setBusy(false);
-      setError('');
-      setNotice('');
-      setShare(null);
-      shareRef.current = null;
-      return;
-    }
-    void createNewQr('ablak megnyitása');
-    // A modal minden megnyitáskor új, lejáró QR-hivatkozást készít.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
-
   if (!isOpen) return null;
-  const expiry = share?.expiresAt ? new Date(share.expiresAt).toLocaleTimeString('hu-HU', { timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit' }) : '';
-  // Eltelt idő a mérés kezdetétől (mm:ss) – a nullázás óta mérve.
-  const elapsedSeconds = Math.max(0, Math.floor(measure.elapsedMs / 1000));
-  const elapsedText = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
-  const measuredCells = [
-    { label: 'NAPLÓSOR', value: measure.logLines },
-    { label: 'HIBA', value: measure.errors },
-    { label: 'HOSSZÚ FELADAT', value: measure.longTasks },
-  ];
+  const statusColor = snapshot.enabled ? 'text-emerald-300' : 'text-rose-300';
+  const statusBg = snapshot.enabled ? 'border-emerald-400/60 bg-emerald-500/10' : 'border-rose-400/60 bg-rose-500/10';
+  const elapsedSeconds = Math.floor(snapshot.elapsedMs / 1000);
+  const elapsed = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
 
   return (
-    <div
-      className="fixed inset-0 z-[220] flex items-center justify-center bg-black p-2"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Diagnosztikai napló QR-kód"
-    >
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/85 p-3" role="dialog" aria-modal="true" aria-label="Kézi hibakeresési napló">
       <div
         ref={modalRef}
         tabIndex={-1}
         onKeyDown={onModalKeyDown}
-        className="w-full max-w-3xl max-h-[96vh] overflow-y-auto rounded-xl border border-slate-700 bg-black p-3 text-white focus:outline-none"
+        className="flex min-h-[560px] w-full max-w-4xl flex-col overflow-y-auto rounded-2xl border border-slate-700 bg-[#050b18] p-5 text-white shadow-2xl focus:outline-none"
       >
-        <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-3">
-            <QrCode className="h-7 w-7 text-slate-400" />
-            <div>
-              <h2 className="text-xl font-black">HIBAKERESÉSI NAPLÓ QR-KÓD</h2>
-              <p className="text-sm text-slate-400">Olvasd be telefonnal a napló megnyitásához.</p>
-            </div>
+        <div className="flex items-center gap-4 border-b border-slate-800 pb-4">
+          <Bug className="h-10 w-10 shrink-0 text-amber-300" />
+          <div>
+            <h2 className="text-2xl font-black tracking-wide">KÉZI HIBAKERESÉSI NAPLÓ</h2>
+            <p className="mt-1 text-sm text-slate-400">A SÁRGA gomb csak ezt az ablakot nyitja meg. Naplózás és küldés kizárólag kézzel indul.</p>
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-3 py-5">
-          {/* SÖTÉTEBB, KISEBB QR: a TV-n nem vakít, és kisebb helyet foglal.
-              A kód TARTALMA (share.url) és a hibaszint (M) VÁLTOZATLAN, a
-              csendes zóna (marginSize=4) megmarad – a beolvasás nem sérül. */}
-          <div className="flex min-h-[500px] w-[500px] max-w-full items-center justify-center rounded-lg border border-slate-700 bg-black p-2">
-            {share?.url ? (
-              <QRCodeSVG
-                value={share.url}
-                size={480}
-                level="L"
-                boostLevel={false}
-                marginSize={4}
-                bgColor="#ffffff"
-                fgColor="#05080f"
-                title="Diagnosztikai napló megosztása QR-kóddal"
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-3 text-center text-slate-600">
-                {error ? <AlertTriangle className="h-10 w-10 text-rose-500" /> : <RefreshCw className="h-10 w-10 animate-spin" />}
-                <span className="text-sm">{error ? 'A QR-kód nem készült el' : 'QR-kód készítése…'}</span>
+        <div className="flex-1 space-y-4 py-5">
+          <div className={`flex items-center justify-between gap-4 rounded-xl border-2 px-4 py-3 ${statusBg}`}>
+            <div className="flex items-center gap-3">
+              <Circle className={`h-5 w-5 fill-current ${statusColor}`} />
+              <div>
+                <div className={`text-lg font-black ${statusColor}`}>{snapshot.enabled ? 'NAPLÓZÁS BEKAPCSOLVA' : 'NAPLÓZÁS KIKAPCSOLVA'}</div>
+                <div className="text-xs text-slate-400">{snapshot.enabled ? 'A lejátszó eseményei most rögzülnek.' : 'Normál tévézés közben nincs diagnosztikai naplózás.'}</div>
               </div>
-            )}
-          </div>
-          <p className="max-w-lg text-center text-xs text-slate-500">A fekete-fehér kód maradjon mozdulatlanul a képernyőn a beolvasásig.</p>
-          {expiry && <p className="text-sm text-emerald-300">Lejárat: {expiry} (1 órás hivatkozás)</p>}
-
-          {/* MÉRÉS-ABLAK: a Frissítés gomb ezt nullázza (0), és új kezdő
-              időponttal indít mérést – a nullázás itt láthatóan ellenőrizhető. */}
-          <div data-diagnostic-measure="" className="w-full rounded-xl border border-cyan-500/40 bg-[#0a152d] px-3 py-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-              <span className="text-[11px] font-black tracking-widest text-cyan-300">MÉRÉS</span>
-              <span className="font-mono text-[11px] text-slate-300">
-                kezdete: <span data-diagnostic-measure-start="" className="font-bold text-cyan-200">{measure.startedAtText}</span>
-                {' · '}eltelt: {elapsedText}
-              </span>
             </div>
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              {measuredCells.map((cell) => (
-                <div key={cell.label} className="rounded-lg border border-slate-700/70 bg-[#081226] py-1.5 text-center">
-                  <div data-diagnostic-measure-value="" className="font-mono text-lg font-black leading-none text-white">{cell.value}</div>
-                  <div className="mt-1 text-[9px] font-bold tracking-wider text-slate-400">{cell.label}</div>
-                </div>
-              ))}
+            <div className="text-right font-mono text-sm text-slate-300">
+              <div>Napló: <strong className="text-white">#{snapshot.number ?? '—'}</strong></div>
+              <div>{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()) : 'Nincs aktív napló'}</div>
             </div>
-            <p className="mt-2 text-center text-[10px] leading-snug text-slate-500">
-              A „Frissítés” a mért értékeket 0-ra állítja, és új mérést indít a fenti kezdő időponttól.
-            </p>
           </div>
 
-          {notice && <p role="status" className="text-center text-sm text-emerald-300">{notice}</p>}
-          {error && <p role="alert" className="max-w-lg text-center text-sm text-rose-300">{error}</p>}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{snapshot.lineCount}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">SOR</div></div>
+            <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{Math.round(snapshot.charCount / 1024)} KB</div><div className="text-[10px] font-bold tracking-wider text-slate-400">MÉRET / 1 MB</div></div>
+            <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-cyan-200">{elapsed}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">ELTELT IDŐ</div></div>
+            <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-base font-black text-white">{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()).slice(0, 10) : '—'}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">KEZDETE</div></div>
+          </div>
+
+          <div className="rounded-xl border border-cyan-500/35 bg-[#081329] p-4">
+            <div className="mb-3 flex items-center gap-2 text-sm font-black tracking-wider text-cyan-200"><History className="h-5 w-5" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
+            {history.length ? (
+              <div className="space-y-2">
+                {history.slice(0, 5).map((record) => (
+                  <div key={`${record.logNumber}-${record.createdAt}`} className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${sentRecord?.logNumber === record.logNumber ? 'border-emerald-400/70 bg-emerald-500/10' : 'border-slate-700/80 bg-[#0b1730]'}`}>
+                    <span className="font-black text-white">Napló #{record.logNumber}</span>
+                    <span className="flex items-center gap-2 font-mono text-slate-300"><Clock3 className="h-4 w-4 text-cyan-300" />{formatRecordDate(record.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-sm text-slate-500">Még nincs elküldött napló.</p>}
+          </div>
+
+          {notice && <p role="status" className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-3 text-center text-sm font-bold text-emerald-200">{notice}</p>}
+          {error && <p role="alert" className="rounded-lg border border-rose-400/40 bg-rose-500/10 p-3 text-center text-sm font-bold text-rose-200">{error}</p>}
         </div>
 
-        <div className="grid grid-cols-3 gap-3 border-t border-slate-700 pt-4">
+        <div className="grid grid-cols-2 gap-4 border-t border-slate-700 pt-4">
           <button
-            data-diagnostic-refresh=""
-            onClick={() => void refreshLog()}
+            data-diagnostic-toggle=""
+            type="button"
+            onClick={toggleLogging}
             disabled={busy}
-            className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-cyan-500/60 bg-cyan-500/15 px-3 py-3 font-bold text-cyan-100 focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-50"
+            className={`flex min-h-[64px] items-center justify-center gap-3 rounded-xl border-2 px-4 py-3 text-lg font-black focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-50 ${snapshot.enabled ? 'border-emerald-300 bg-emerald-400/20 text-emerald-100' : 'border-rose-300 bg-rose-400/15 text-rose-100'}`}
           >
-            <RefreshCw className="h-5 w-5" /> Frissítés
+            <Circle className="h-5 w-5 fill-current" />
+            {snapshot.enabled ? 'Naplózás leállítása' : 'Naplózás indítása'}
           </button>
           <button
-            data-diagnostic-newqr=""
-            onClick={() => void createNewQr('Új QR-kód gomb')}
-            disabled={busy}
-            className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-amber-400/70 bg-amber-400/15 px-3 py-3 font-bold text-amber-100 focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-50"
+            data-diagnostic-send=""
+            type="button"
+            onClick={() => void sendLog()}
+            disabled={busy || Boolean(sentRecord) || !snapshot.number || snapshot.charCount <= 0}
+            className="flex min-h-[64px] items-center justify-center gap-3 rounded-xl border-2 border-cyan-300 bg-cyan-400/15 px-4 py-3 text-lg font-black text-cyan-100 focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-40"
           >
-            <RotateCcw className="h-5 w-5" /> Új QR-kód
+            {busy ? <Loader2 className="h-6 w-6 animate-spin" /> : <Send className="h-6 w-6" />}
+            Küldés Supabase-re
           </button>
         </div>
-        <p className="pt-3 text-center text-xs text-slate-500">A QR-hivatkozás titkos, és egy óra múlva automatikusan lejár.</p>
+        <p className="pt-3 text-center text-xs text-slate-500">Kilépéskor a naplózás automatikusan leáll. A naplók Supabase-en legfeljebb öt legfrissebb sorszámmal maradnak meg.</p>
       </div>
     </div>
   );

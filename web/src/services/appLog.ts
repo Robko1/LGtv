@@ -9,42 +9,44 @@
  * törlődnek, így hosszú használat után sem növeli a memóriát.
  */
 
-// A teljes napló és a QR-export felső határa 1 000 000 karakter.
-// 512 karakter tartalék marad a QR-export fejlécének és a sorvégeknek.
+// A kézi diagnosztikai napló és a Supabase-export felső határa 1 000 000 karakter.
+// A napló NEM fut automatikusan: csak a SÁRGA gomb ablakában, a felhasználó
+// „Naplózás indítása” gombjára kapcsol be.
 const MAX_CHARS = 1_000_000;
 const MAX_BUFFER_CHARS = MAX_CHARS - 512;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const STORE_KEY = 'app-log';
+const LOG_NUMBER_KEY = 'iptv_rt_diagnostic_next_number_v1';
 const DEFAULT_APP_VERSION = 'IPTV R.T webOS';
 
 let lines: string[] = [];
 let chars = 0;
 let restoreAttempted = false;
 let saveTimer: number | null = null;
+let loggingEnabled = false;
+let activeLogNumber: number | null = null;
+let activeLogStartedAt = 0;
 
 /*
- * MÉRÉS-ABLAK: a SÁRGA gombos QR-hibadiagnózis „Frissítés” gombja nullázza
- * ezeket a számlálókat, és új, látható kezdő időponttal indít mérést.
- * A deklaráció szándékosan az `appLog` ELŐTT van (a számlálókat ott növeljük).
+ * A régi mérési számlálók megmaradnak a diagnosztikai híd kompatibilitása miatt,
+ * de most csak a kézzel indított naplózás alatt növekednek.
  */
 let measurementStartedAt = Date.now();
 const measurementCounters = { logLines: 0, errors: 0, longTasks: 0, critical: 0 };
 
-// A QR-napló Frissítés gombja után csak a csatornaváltási teszthez szükséges
-// események maradnak meg; a felirat/EPG/OSD és egyéb általános naplózás kimarad.
-let focusedPlaybackTestLogging = false;
-const PLAYBACK_TEST_LOG = /csatornaváltás|formátum|zap-őr|stream adatérkezés|hangdiag|lejátszásindít|első képkocka|hosszú feladat|összeomlás|kezeletlen ígérethiba|leállás|mérés|figyelő elindult|oldal elhagyása|háttérbe került|hibaállapot törlése|újracsatlakozás|visszaállítás|megakadt/i;
-
-/**
- * RÉSZLETES DIAGNOSZTIKA csak a QR-napló „Frissítés” mérési ablakában fut.
- *
- * Normál tévézés közben a VideoPlayer így nem olvassa végig a teljes
- * localStorage-t, nem kérdezi le a videó dobozának geometriáját és nem
- * épít új Intl-formázót minden naplósorhoz. Ezek csatornaváltásonként
- * több tíz milliszekundumot (nagy listánál több százat) vittek el a TV-n.
- */
+/** A részletes lejátszási diagnosztika kizárólag kézi naplózás közben futhat. */
 export function isVerbosePlaybackLogging(): boolean {
-  return focusedPlaybackTestLogging;
+  return loggingEnabled;
+}
+
+export interface ManualLogSnapshot {
+  enabled: boolean;
+  number: number | null;
+  startedAt: number;
+  startedAtText: string;
+  elapsedMs: number;
+  lineCount: number;
+  charCount: number;
 }
 
 /*
@@ -63,6 +65,13 @@ function dublinFormatter(): Intl.DateTimeFormat {
     });
   }
   return stampFormatter;
+}
+
+/** A felugró ablakban megjelenő dátum/idő az ír helyi időzónában. */
+export function dateTimeText(at: number = Date.now()): string {
+  const parts = dublinFormatter().formatToParts(new Date(at));
+  const value = (type: string) => parts.find((part) => part.type === type)?.value || '00';
+  return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
 }
 
 /** A napló minden abszolút időpontját az ír időzónában írjuk ki, explicit UTC-eltolással. */
@@ -158,7 +167,7 @@ function persistSoon(): void {
  *
  * Fagyás / összeomlás előtt nincs idő az 1,5 másodperces késleltetésre: a
  * kritikus sorokat (LEÁLLÁS, IDŐVONAL, ÖSSZEOMLÁS) rögtön kiírjuk, hogy a
- * következő indításnál – és a QR-kódon megnyitható naplóban – ott legyen.
+ * következő indításnál – és a kézzel elküldhető naplóban – ott legyen.
  * Nagy naplónál (30 KB felett) csak ritkán írunk, hogy a szinkron írás ne
  * lassítsa a TV-t.
  */
@@ -218,6 +227,69 @@ function persistNow(force = false): void {
   }
 }
 
+function allocateLogNumber(): number {
+  let next = 1;
+  try {
+    const stored = Number(localStorage.getItem(LOG_NUMBER_KEY) || 1);
+    if (Number.isFinite(stored) && stored > 0) next = Math.floor(stored);
+    localStorage.setItem(LOG_NUMBER_KEY, String(next + 1));
+  } catch {
+    // Ha a TV tárhelye nem írható, az aktuális munkamenet akkor is kap számot.
+    next = Math.max(1, Math.floor(Date.now() / 1000));
+  }
+  return next;
+}
+
+/** A kézi naplózás pillanatnyi állapota a SÁRGA ablak számára. */
+export function manualLogSnapshot(): ManualLogSnapshot {
+  const now = Date.now();
+  return {
+    enabled: loggingEnabled,
+    number: activeLogNumber,
+    startedAt: activeLogStartedAt,
+    startedAtText: activeLogStartedAt ? dateTimeText(activeLogStartedAt) : '',
+    elapsedMs: activeLogStartedAt ? Math.max(0, now - activeLogStartedAt) : 0,
+    lineCount: lines.length,
+    charCount: chars,
+  };
+}
+
+/**
+ * Kézi naplózás indítása. Minden indítás új sorszámot és tiszta, legfeljebb
+ * 1 MB-os naplót kap; a számláló az IPK újraindítása után is folytatódik.
+ */
+export function startManualLogging(): ManualLogSnapshot {
+  if (loggingEnabled && activeLogNumber !== null) return manualLogSnapshot();
+  clearAppLog();
+  const startedAt = Date.now();
+  activeLogNumber = allocateLogNumber();
+  activeLogStartedAt = startedAt;
+  measurementStartedAt = startedAt;
+  measurementCounters.logLines = 0;
+  measurementCounters.errors = 0;
+  measurementCounters.longTasks = 0;
+  measurementCounters.critical = 0;
+  loggingEnabled = true;
+  let version = DEFAULT_APP_VERSION;
+  try { version = String((window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION || DEFAULT_APP_VERSION); } catch { /* régi/teszt környezet */ }
+  appLog(`=== NAPLÓZÁS INDULT; napló=#${activeLogNumber}; kezdete=${dateTimeText(startedAt)}; verzió=${version} ===`);
+  appLog(`=== IPTV indul; verzió=${version}; kézi naplózás ===`);
+  appLog(`INDULÁS [0 ms] kézi naplózás elindítva; napló=#${activeLogNumber}`);
+  appLog(`Eszköz: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'ismeretlen környezet'}`);
+  appLog('FIGYELŐ ELINDULT; kézi naplózás aktív; a lejátszás- és fagyásfigyelés mostantól rögzít.');
+  return manualLogSnapshot();
+}
+
+/** Kézi naplózás leállítása; az elküldéshez a kész napló memóriában marad. */
+export function stopManualLogging(reason = 'kézi leállítás'): ManualLogSnapshot {
+  if (loggingEnabled) {
+    appLog(`=== NAPLÓZÁS LEÁLLÍTVA; napló=#${activeLogNumber ?? 'ismeretlen'}; ok=${reason} ===`);
+  }
+  loggingEnabled = false;
+  persistNow(true);
+  return manualLogSnapshot();
+}
+
 /**
  * Teljesen új webes diagnosztikai munkamenet indítása.
  * A memóriabeli és tartós előzményeket is törli, és megakadályozza a régi
@@ -243,10 +315,12 @@ export function clearAppLog(): void {
   }
 }
 
-/** Egy sor hozzáadása a webes naplóhoz. */
+/** Egy sor hozzáadása a kézzel indított diagnosztikai naplóhoz. */
 export function appLog(message: string): void {
+  // A normál tévézés közben nincs diagnosztikai naplózás, nincs localStorage-
+  // írás és nincs extra szövegfeldolgozás. Ez a csatornaváltást is gyorsítja.
+  if (!loggingEnabled) return;
   const safe = String(message ?? '').replace(/\s+/g, ' ');
-  if (focusedPlaybackTestLogging && !PLAYBACK_TEST_LOG.test(safe) && !safe.startsWith('TESZT-')) return;
   restore();
   measurementCounters.logLines += 1;
   const restartNotice = `${nowStamp()} NAPLÓKERET ELÉRVE: 1 MB; a naplózás újrakezdődött.`;
@@ -312,12 +386,12 @@ export function logMemory(label: string): void {
 /* ══════════════════════════════════════════════════════════════════════════
  * MÉRÉS-ABLAK (2.5.32)
  *
- * A SÁRGA gombon megnyíló QR-hibadiagnózis „Frissítés” gombja ÚJ MÉRÉST indít:
+ * A régi mérési híd kompatibilitásból ÚJ MÉRÉST tud indítani:
  *   • a mért értékek (naplósorok, hibák, hosszú feladatok) 0-ra állnak,
  *   • a mérés kezdete látható időpont lesz (a felugró ablakban és a naplóban is),
  *   • a naplóba egy jól látható, elválasztott sor kerül a kezdő időponttal,
  *   • az idővonal (15 mp) és a hosszú feladat mérése is innentől számol.
- * Így a QR-kóddal megnyitott naplóban ellenőrizhető, hogy a nullázás megtörtént.
+ * Így a fejlesztői hídon ellenőrizhető, hogy a nullázás megtörtént.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 export interface MeasurementSnapshot {
@@ -364,15 +438,15 @@ export function measurementSnapshot(): MeasurementSnapshot {
  * láthatóan bekerül a naplóba (és a felugró ablakban is megjelenik).
  */
 export function resetMeasurements(reason: string = 'kézi frissítés'): MeasurementSnapshot {
-  // A Frissítés egy valódi új mérési ablak: a korábbi sorok a memóriából és
+  // A resetMeasurements egy valódi új mérési ablak: a korábbi sorok a memóriából és
   // a tartós naplótárból is törlődnek. A 24 órás automatikus megőrzési szabály
   // ettől függetlenül változatlan marad a normál naplózás során.
   // A nullázás ELŐTTI értékeket azért mentsük el, hogy az új naplóban is
-  // látszódjon a bizonyíték: volt mit nullázni (ezt a QR-diagnózis ígérte).
+  // látszódjon a bizonyíték: volt mit nullázni (ezt a fejlesztői mérési híd használja).
   const previous = measurementSnapshot();
   const startedAt = Date.now();
-  focusedPlaybackTestLogging = true;
-  clearAppLog();
+  if (!loggingEnabled) startManualLogging();
+  else clearAppLog();
   measurementStartedAt = startedAt;
   measurementCounters.logLines = 0;
   measurementCounters.errors = 0;
@@ -390,7 +464,7 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
   appLog(`=== ÚJ MÉRÉS KEZDETE: ${dublinTimestamp(startedAt)} (${clockText(startedAt + 60 * 60 * 1000)}); minden korábbi mért érték nullázva; ok: ${reason} ===`);
   appLog(`MÉRÉS NULLÁZÁS ELŐTT [${previous.startedAtText} óta]: naplósorok=${previous.logLines}, hibák=${previous.errors}, hosszú feladatok=${previous.longTasks}`);
   appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt + 60 * 60 * 1000)}]: számlálók nullázva; ${memorySnapshot()}; ${uiStateSnapshot()}`);
-  // A két kezdősor a QR-naplóban megmarad, de nem növeli a mérés számlálóját.
+  // A két kezdősor a kézi naplóban megmarad, de nem növeli a mérés számlálóját.
   measurementCounters.logLines = 0;
   measurementCounters.errors = 0;
   measurementCounters.longTasks = 0;
@@ -398,15 +472,16 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
   return measurementSnapshot();
 }
 
-/** A napló teljes szövege (a hibakeresési lapon megjelenítve és másolva). */
+/** A kézi napló teljes szövege, az azonosító fejlécével együtt. */
 export function getAppLogText(): string {
+  // Régi/automatikus napló nem küldhető: csak kézzel indított munkamenet
+  // tartalma mehet ki a Supabase-re.
+  if (activeLogNumber === null || activeLogStartedAt <= 0) return '';
   restore();
   trimExpired();
   trim();
   const measure = measurementSnapshot();
-  // A QR-export a teljes, memóriában megőrzött naplót küldi, nem csak az
-  // aktuális mérési ablakot. A tartalék miatt a teljes szöveg 1 MB alatt marad.
-  const header = `--- WEBOS NAPLÓ (${lines.length} sor; teljes napló; helyi megőrzés: max. 24 óra / 1 MB) | MÉRÉS KEZDETE: ${clockText(measure.startedAt + 60 * 60 * 1000)} ---`;
+  const header = `--- WEBOS NAPLÓ #${activeLogNumber} (${lines.length} sor; teljes napló; max. 1 MB) | NAPLÓ KEZDETE: ${dateTimeText(activeLogStartedAt)} | MÉRÉS KEZDETE: ${clockText(measure.startedAt)} ---`;
   return [header, ...lines].join('\n');
 }
 
@@ -443,6 +518,7 @@ const BOOT_AT = (typeof performance !== 'undefined' && typeof performance.now ==
  * írás belefér.
  */
 export function appLogCritical(message: string): void {
+  if (!loggingEnabled) return;
   appLog(message);
   measurementCounters.critical += 1;
   persistNow(true);
@@ -555,7 +631,7 @@ export function startRuntimeWatchdog(): void {
  *
  * A `pagehide` / `visibilitychange` sorok bizonyítják, hogy a webOS kiléptette
  * az appot (nem a felület fagyott le örökre), a hibakezelők pedig a tényleges
- * JS-hibát írják a naplóba – a QR-kóddal átadható naplóból ez alapján lehet
+ * JS-hibát írják a naplóba – a kézzel elküldhető naplóból ez alapján lehet
  * pontosan javítani.
  */
 export function installCrashHandlers(): void {
@@ -580,9 +656,16 @@ export function installCrashHandlers(): void {
   } catch { /* nem elérhető */ }
 
   try {
-    window.addEventListener('pagehide', () => {
-      appLogCritical(`OLDAL ELHAGYÁSA (pagehide) – az app leáll vagy kilépett. ${uiStateSnapshot()}`);
-    });
+    const stopOnExit = () => {
+      // A webOS kilépésekor a kézi naplózás mindig lezárul. Nem maradhat
+      // bekapcsolva egy újraindítás után, és nem készülhet automatikus export.
+      if (loggingEnabled) {
+        appLogCritical(`OLDAL ELHAGYÁSA (pagehide) – az app leáll vagy kilépett. ${uiStateSnapshot()}`);
+        stopManualLogging('IPK/app elhagyása');
+      }
+    };
+    window.addEventListener('pagehide', stopOnExit);
+    window.addEventListener('beforeunload', stopOnExit);
   } catch { /* nem elérhető */ }
 
   try {

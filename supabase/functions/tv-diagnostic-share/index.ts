@@ -4,18 +4,25 @@ const base = Deno.env.get("SUPABASE_URL")!;
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const table = base + "/rest/v1/tv_diagnostic_shares";
 const MAX_LOG_CHARS = 1_000_000;
+const MAX_LOG_ROWS = 5;
+// A rekordot nem egyórás QR-linkhez kötjük: a legutóbbi öt napló maradjon
+// további ellenőrzésre, a legrégebbit a pruneToFive törli.
+const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 const headers = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
 const out = (status: number, data: unknown) => new Response(JSON.stringify(data), {
   status,
   headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" },
 });
-const hash = async (s: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))))
-  .map((b) => b.toString(16).padStart(2, "0")).join("");
-const valid = (s: unknown): s is string => typeof s === "string" && (/^[a-f0-9]{64}$/.test(s) || /^[A-Za-z0-9_-]{43}$/.test(s));
+
+const hash = async (s: string) => Array.from(
+  new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))),
+).map((b) => b.toString(16).padStart(2, "0")).join("");
+
 async function db(path: string, init: RequestInit = {}) {
   return fetch(table + path, {
     ...init,
@@ -28,76 +35,106 @@ async function db(path: string, init: RequestInit = {}) {
     },
   });
 }
+
 function cleanLog(input: string) {
-  return input.replace(/((?:password|passwd|token|authorization|api[_-]?key|secret)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]");
+  return input.replace(
+    /((?:password|passwd|token|authorization|api[_-]?key|secret)\s*[:=]\s*)[^\s,;]+/gi,
+    "$1[REDACTED]",
+  );
 }
+
+function validLogNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function validStartedAt(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+async function internalToken(): Promise<string> {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const raw = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+  return hash(raw + Date.now());
+}
+
+/** Mindig a legfrissebb öt rekord maradjon; az azonosító és a teljes tartalom együtt törlődik. */
+async function pruneToFive() {
+  const result = await db(
+    "?select=id,log_number,created_at&order=log_number.desc.nullslast,created_at.desc&limit=100",
+  );
+  if (!result.ok) return;
+  const rows = await result.json();
+  if (!Array.isArray(rows) || rows.length <= MAX_LOG_ROWS) return;
+  for (const row of rows.slice(MAX_LOG_ROWS)) {
+    if (row?.id) await db("?id=eq." + encodeURIComponent(String(row.id)), { method: "DELETE" });
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers });
-  const u = new URL(req.url);
-  if (req.method === "GET") {
-    const token = u.searchParams.get("t") || u.searchParams.get("token");
-    if (!valid(token)) return new Response("Hibás hivatkozás.", {
-      status: 400, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
-    });
-    const r = await db("?token_hash=eq." + await hash(token) + "&revoked_at=is.null&expires_at=gt." +
-      encodeURIComponent(new Date().toISOString()) + "&select=log_text,expires_at&limit=1");
-    if (!r.ok) return new Response("A napló nem érhető el.", {
-      status: 503, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
-    });
-    const rows = await r.json();
-    if (!rows.length) return new Response("A hivatkozás lejárt vagy visszavonták.", {
-      status: 410, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
-    });
-    return new Response(String(rows[0].log_text), {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store",
-        "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
-      },
-    });
-  }
   if (req.method !== "POST") return out(405, { error: "method_not_allowed" });
-  let b: any;
-  try { b = await req.json(); } catch { return out(400, { error: "invalid_json" }); }
 
-  if (b?.action === "create") {
-    if (typeof b.logText !== "string" || !b.logText.trim()) return out(400, { error: "log_required" });
-    const cleanedLog = cleanLog(b.logText);
-    if (cleanedLog.length > MAX_LOG_CHARS) return out(413, { error: "log_too_large" });
-    const randomBytes = crypto.getRandomValues(new Uint8Array(32));
-    const binary = Array.from(randomBytes, (byte) => String.fromCharCode(byte)).join("");
-    const token = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-    const expires = new Date(Date.now() + 3600000).toISOString();
-    await db("?expires_at=lt." + encodeURIComponent(new Date().toISOString()), { method: "DELETE" });
-    const r = await db("", { method: "POST", body: JSON.stringify([{
-      token_hash: await hash(token), log_text: cleanedLog, expires_at: expires,
-    }]) });
-    if (!r.ok) return out(500, { error: "create_failed" });
-    return out(201, { ok: true, url: base + "/functions/v1/tv-diagnostic-share?t=" + token, token, expiresAt: expires });
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return out(400, { error: "invalid_json" });
   }
 
-  if (b?.action === "update" && valid(b.token)) {
-    if (typeof b.logText !== "string" || !b.logText.trim()) return out(400, { error: "log_required" });
-    const cleanedLog = cleanLog(b.logText);
-    if (cleanedLog.length > MAX_LOG_CHARS) return out(413, { error: "log_too_large" });
-    const tokenHash = await hash(b.token);
-    const expires = new Date(Date.now() + 3600000).toISOString();
-    const r = await db("?token_hash=eq." + tokenHash + "&revoked_at=is.null&expires_at=gt." +
-      encodeURIComponent(new Date().toISOString()), {
-        method: "PATCH",
-        body: JSON.stringify({ log_text: cleanedLog, expires_at: expires }),
-      });
-    if (!r.ok) return out(500, { error: "update_failed" });
-    const rows = await r.json();
-    if (!rows.length) return out(410, { error: "share_expired" });
-    return out(200, { ok: true, expiresAt: expires });
-  }
-
-  if (b?.action === "revoke" && valid(b.token)) {
-    const r = await db("?token_hash=eq." + await hash(b.token) + "&revoked_at=is.null", {
-      method: "PATCH", body: JSON.stringify({ revoked_at: new Date().toISOString() }),
+  if (body?.action === "history") {
+    const result = await db(
+      "?log_number=not.is.null&select=log_number,started_at,created_at&order=log_number.desc,created_at.desc&limit=" + MAX_LOG_ROWS,
+    );
+    if (!result.ok) return out(503, { error: "history_unavailable" });
+    const rows = await result.json();
+    return out(200, {
+      ok: true,
+      records: Array.isArray(rows) ? rows.map((row) => ({
+        logNumber: Number(row.log_number),
+        startedAt: row.started_at,
+        createdAt: row.created_at,
+      })) : [],
     });
-    if (!r.ok) return out(500, { error: "revoke_failed" });
-    return out(200, { ok: true });
   }
-  return out(400, { error: "unknown_action" });
+
+  // `create` marad kompatibilitási alias, de az új TV-kód kizárólag `send`-et
+  // használ. Egyik ág sem ad vissza URL-t, tokent vagy QR-adatot.
+  if (body?.action !== "send" && body?.action !== "create") {
+    return out(400, { error: "unknown_action" });
+  }
+  if (!validLogNumber(body.logNumber)) return out(400, { error: "log_number_required" });
+  if (!validStartedAt(body.startedAt)) return out(400, { error: "started_at_required" });
+  if (typeof body.logText !== "string" || !body.logText.trim()) return out(400, { error: "log_required" });
+
+  const cleanedLog = cleanLog(body.logText);
+  if (cleanedLog.length > MAX_LOG_CHARS) return out(413, { error: "log_too_large" });
+
+  const startedAt = new Date(body.startedAt).toISOString();
+  const expiresAt = new Date(Date.now() + RETENTION_MS).toISOString();
+  const result = await db("", {
+    method: "POST",
+    body: JSON.stringify([{
+      // A régi tábla token_hash mezője NOT NULL; ez belső, nem kerül a TV-re
+      // és nem készül belőle hivatkozás/QR-kód.
+      token_hash: await hash(await internalToken()),
+      log_number: body.logNumber,
+      started_at: startedAt,
+      log_text: cleanedLog,
+      expires_at: expiresAt,
+    }]),
+  });
+  if (!result.ok) return out(500, { error: "send_failed" });
+  const rows = await result.json();
+  await pruneToFive();
+  const saved = Array.isArray(rows) ? rows[0] : null;
+  return out(201, {
+    ok: true,
+    record: {
+      logNumber: Number(saved?.log_number ?? body.logNumber),
+      startedAt: saved?.started_at || startedAt,
+      createdAt: saved?.created_at || new Date().toISOString(),
+      charCount: cleanedLog.length,
+      lineCount: cleanedLog.split("\n").length,
+    },
+  });
 });

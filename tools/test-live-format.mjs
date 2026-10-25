@@ -111,9 +111,9 @@ check(playerSource.includes('appLogCritical(`CSATORNAVÁLTÁS HIBA;')
   'a streamhibák részletes, azonnali hibasort kapnak');
 check(playerSource.includes('alternativeUrl(primaryUrl)'),
   'a másik TS/HLS URL a formátum-átíró modulból készül');
-check(settingsSource.includes('Első próba: MPEG-TS (.ts).')
-  && settingsSource.includes('a lejátszó automatikusan HLS (.m3u8) formátumra vált.'),
-  'a beállítások leírják a TS első próbát és a HLS automatikus tartalékot');
+check(!settingsSource.includes('LG TV lejátszó')
+  && !settingsSource.includes('Élő adás formátuma'),
+  'a két üres, ismétlődő LG-lejátszó/formátum doboz nincs a Rendszer menüben');
 check(!settingsSource.includes('Natív (TV dekóder)'),
   'a nem létező külön natív dekóder-mód nincs többé választhatóként feltüntetve');
 

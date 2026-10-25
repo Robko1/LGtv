@@ -1,10 +1,14 @@
 const API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-diagnostic-share';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
+const LOCAL_HISTORY_KEY = 'iptv_rt_diagnostic_history_v1';
 
-export interface DiagnosticShare {
-  url: string;
-  token: string;
-  expiresAt: string;
+/** A kézi napló Supabase-re küldött, QR nélküli rekordja. */
+export interface DiagnosticLogRecord {
+  logNumber: number;
+  startedAt: string;
+  createdAt: string;
+  charCount?: number;
+  lineCount?: number;
 }
 
 async function request(body: Record<string, unknown>): Promise<any> {
@@ -18,20 +22,66 @@ async function request(body: Record<string, unknown>): Promise<any> {
   return result;
 }
 
-export async function createDiagnosticShare(logText: string): Promise<DiagnosticShare> {
-  const result = await request({ action: 'create', logText });
-  if (typeof result.url !== 'string' || typeof result.token !== 'string') {
-    throw new Error('A Supabase nem adott vissza QR-hivatkozást.');
+function normaliseRecord(value: any): DiagnosticLogRecord | null {
+  const logNumber = Number(value?.logNumber ?? value?.log_number);
+  if (!Number.isFinite(logNumber) || logNumber <= 0) return null;
+  const startedAt = String(value?.startedAt ?? value?.started_at ?? value?.createdAt ?? value?.created_at ?? '');
+  const createdAt = String(value?.createdAt ?? value?.created_at ?? startedAt);
+  return {
+    logNumber: Math.floor(logNumber),
+    startedAt,
+    createdAt,
+    charCount: Number.isFinite(Number(value?.charCount ?? value?.char_count)) ? Number(value.charCount ?? value.char_count) : undefined,
+    lineCount: Number.isFinite(Number(value?.lineCount ?? value?.line_count)) ? Number(value.lineCount ?? value.line_count) : undefined,
+  };
+}
+
+function readLocalHistory(): DiagnosticLogRecord[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normaliseRecord).filter((item): item is DiagnosticLogRecord => Boolean(item)).slice(0, 5);
+  } catch {
+    return [];
   }
-  return { url: result.url, token: result.token, expiresAt: String(result.expiresAt || '') };
 }
 
-export async function refreshDiagnosticShare(token: string, logText: string): Promise<string> {
-  const result = await request({ action: 'update', token, logText });
-  if (!result.ok || typeof result.expiresAt !== 'string') throw new Error('A napló frissítése nem sikerült.');
-  return result.expiresAt;
+export function getLocalDiagnosticHistory(): DiagnosticLogRecord[] {
+  return readLocalHistory();
 }
 
-export async function revokeDiagnosticShare(token: string): Promise<void> {
-  try { await request({ action: 'revoke', token }); } catch { /* a régi link lejár magától */ }
+export function rememberDiagnosticLog(record: DiagnosticLogRecord): void {
+  const next = [record, ...readLocalHistory().filter((item) => item.logNumber !== record.logNumber)].slice(0, 5);
+  try { localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(next)); } catch { /* a TV tárhelyhibája nem akadályozhatja a küldést */ }
+}
+
+/** A kézi napló teljes tartalmának elküldése – nem készül token, URL vagy QR-kód. */
+export async function sendDiagnosticLog(
+  logNumber: number,
+  startedAt: number,
+  logText: string,
+  charCount?: number,
+  lineCount?: number,
+): Promise<DiagnosticLogRecord> {
+  const result = await request({
+    action: 'send',
+    logNumber,
+    startedAt: new Date(startedAt).toISOString(),
+    logText,
+    charCount,
+    lineCount,
+  });
+  const record = normaliseRecord(result?.record || result);
+  if (!result?.ok || !record) throw new Error('A Supabase nem igazolta vissza a napló mentését.');
+  rememberDiagnosticLog(record);
+  return record;
+}
+
+/** Az utolsó öt napló azonosítója és ideje; tartalmat nem töltünk vissza a TV-re. */
+export async function listDiagnosticLogHistory(): Promise<DiagnosticLogRecord[]> {
+  const result = await request({ action: 'history' });
+  const rows: unknown[] = Array.isArray(result?.records) ? result.records : [];
+  const records = rows.map((row) => normaliseRecord(row)).filter((item): item is DiagnosticLogRecord => Boolean(item)).slice(0, 5);
+  for (const record of records) rememberDiagnosticLog(record);
+  return records;
 }

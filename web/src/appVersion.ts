@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.5.87';
+export const WEB_VERSION = '2.5.88';
 
-// A webOS kezelő (webos.js) innen olvassa a verziót a PIROS gombos
-// diagnosztikához - így az mindig a valóban futó kiadást mutatja.
+// A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
+// kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.88',
+    date: '2026-10-25',
+    changes: [
+      'RENDSZER MENÜ: a két ismétlődő, állítható értéket nem tartalmazó LG-lejátszó/formátum doboz eltávolítva; csak valóban használható beállítások maradtak',
+      'TELJES KÉPERNYŐS ÓRA: a jobb felső óra mostantól a távirányító 1–6 színsémáját követi, nem marad kék',
+      'KÉP: a teljes képernyős élő videó megtartja a forrás képarányát és a TV hardveres, torzításmentes skálázását használja; a gyenge szolgáltatói forrást nem nagyítjuk mesterségesen',
+      'CSATORNALISTA: az éppen játszott csatorna teljes sora állandó kék körvonalat kap, miközben a távirányító fókusza minden vezérlőn sárga marad',
+      'FORMÁTUM-EMLÉKEZET: a csatornánként elmentett TS/HLS mód újraindítás után is megmarad, és a magyar csatornákra is ugyanúgy érvényes',
+      'KÉZI NAPLÓ: a SÁRGA gomb nem küld és nem generál QR-kódot; a naplózás piros/zöld indítás-leállítás kapcsolóval indul, a Küldés gomb küldi el a sorszámozott 1 MB-os naplót Supabase-re',
+      'NAPLÓ MEGŐRZÉS: a felületen látszik a napló sorszáma, kezdete, elküldési ideje és az utolsó öt rekord; az Edge Function Supabase-en csak az öt legfrissebb teljes naplót tartja meg',
+      'ÉLŐ FAGYÁS: a váratlan pause esemény most azonnal ugyanazon a címen indít helyreállítást, ezért nem kell másik csatornára váltani a ritka megakadás után',
+    ],
+  },
   {
     version: '2.5.87',
     date: '2026-10-25',

@@ -1049,7 +1049,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         : isHighlighted && !isSelected
                           ? 'bg-[#13254b] shadow-lg shadow-amber-950/40'
                           : isSelected
-                            ? 'bg-linear-to-r from-cyan-950/90 via-[#0e2752] to-[#0a1b38] shadow-lg shadow-cyan-950/60'
+                            ? 'bg-linear-to-r from-cyan-950/90 via-[#0e2752] to-[#0a1b38] border-2 border-cyan-400/90 shadow-lg shadow-cyan-950/60'
                             : 'bg-[#0a152d]/80 hover:bg-[#112347] md:hover:bg-[#132a52] lg:hover:bg-[#132a52] xl:hover:bg-[#152e5c] border border-slate-800/40 hover:border-cyan-700/50'
                     }`}
                   >

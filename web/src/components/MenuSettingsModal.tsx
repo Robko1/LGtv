@@ -1097,27 +1097,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
                 </div>
 
-                {/* LG webOS lejátszás: nincs külön, általános natív videó-API a webes appokhoz. */}
-                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-cyan-400">
-                  <label className="flex items-center gap-2 text-xs font-bold text-white">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Cast className="h-4 w-4 text-cyan-300" /></span>
-                    <span>LG TV lejátszó</span>
-                  </label>
-                  <p className="text-[11px] text-slate-300 leading-tight">
-                    A webOS beépített videóeleme a TV saját médiamotorját használja. Külön „natív dekóder” módot nem jelölünk működőként, mert ehhez nincs támogatott, általános JavaScript-lejátszó API.
-                  </p>
-                </div>
-
-                {/* Élő adás formátuma: MPEG-TS az első próba, HLS automatikus tartalék. */}
-                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-cyan-400">
-                  <label className="flex items-center gap-2 text-xs font-bold text-white">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Tv className="h-4 w-4 text-cyan-300" /></span>
-                    <span>Élő adás formátuma</span>
-                  </label>
-                  <p className="text-[11px] text-slate-300 leading-tight">
-                    Első próba: MPEG-TS (.ts). Ha nem indul el vagy hibára fut, a lejátszó automatikusan HLS (.m3u8) formátumra vált.
-                  </p>
-                </div>
+                {/* Két ismétlődő információs doboz eltávolítva: a működés automatikus,
+                    ezért a Rendszer fülön csak a valóban állítható opciók maradnak. */}
 
                 {/* OSD automatikus elrejtése */}
                 <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
