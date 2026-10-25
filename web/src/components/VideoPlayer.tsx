@@ -557,8 +557,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
   const [, setErrorMessage] = useState<string>('');
-  // Élő adásnál gyors, soros próbálkozás: eredeti MPEG-TS → HLS → utolsó MPEG-TS.
-  // Amint a lejátszás elindul, a watchdog és minden ütemezett újrapróba leáll.
+  // Élő adásnál legfeljebb két külön indítási próba fut: az emlékezett
+  // formátum, majd egyszer a másik TS/HLS cím. Ezután csak kontrollált,
+  // fokozatos újracsatlakozás indulhat, nem újabb formátum-ciklus.
   const autoRetryTimerRef = useRef<number | null>(null);
   const retryStreamRef = useRef<(() => void) | null>(null);
   const pendingStreamUrlRef = useRef('');
@@ -575,6 +576,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isRecovering, setIsRecovering] = useState(false);
   const recoveryTimerRef = useRef<number | null>(null);
   const recoveryAttemptRef = useRef(0);
+  /**
+   * A két külön formátum-próba után a további próbálkozás már kontrollált
+   * újracsatlakozás. Ezzel egy későn érkező hiba nem indíthat új TS → HLS →
+   * TS → HLS kört ugyanazon csatorna indulásakor.
+   */
+  const liveRecoveryOnlyRef = useRef(false);
+  /** Az aktuális src azonosítója: a régi elem-esemény ne indítsa újra az új src-t. */
+  const activeMediaUrlRef = useRef('');
   const stallDetectorRef = useRef<StallDetector | null>(null);
   const requestRecoveryRef = useRef<(reason: string) => void>(() => {});
   const vodRecoveryRef = useRef<(reason: string) => void>(() => {});
@@ -605,7 +614,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /*
    * ÉLŐ: csatornánkénti formátum-tartalék (a napló „Format error” hibáihoz).
    * A `liveFallbackRef` a másik formátum címét, a `liveRetrySequenceRef`
-   * pedig a négy egymás utáni indítási próbálkozás állapotát tárolja.
+   * pedig legfeljebb két külön indítási próbálkozás állapotát tárolja.
    */
   const liveFallbackRef = useRef<{ url: string; format: 'ts' | 'hls' } | null>(null);
   const liveRetrySequenceRef = useRef<{ urls: string[]; index: number }>({ urls: [], index: 0 });
@@ -767,6 +776,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       `error=${error ? `${error.code}:${error.message || 'nincs részlet'}` : 'nincs'}`;
   };
 
+  /**
+   * Egyetlen HTMLVideoElement későn is kiküldheti az előző src eseményét.
+   * Az URL-t a próba indulásakor rögzítjük, és a régi forrás eseményeit nem
+   * engedjük az új csatorna loading/error állapotát átírni.
+   */
+  const isActiveMediaEvent = (video: HTMLVideoElement): boolean => {
+    const expected = activeMediaUrlRef.current;
+    const actual = video.currentSrc || video.src;
+    if (!expected || !actual) return true;
+    if (expected === actual) return true;
+    try {
+      return new URL(expected, window.location.href).href === new URL(actual, window.location.href).href;
+    } catch {
+      return false;
+    }
+  };
+
   const logLiveMediaEvent = (eventName: string, video: HTMLVideoElement, detail = '') => {
     if (isVodRef.current || !isVerbosePlaybackLogging()) return;
     const diagnostic = channelSwitchDiagnosticRef.current;
@@ -866,10 +892,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Élő TV-n először a kézzel kiválasztott formátum fut; ha az nem indul,
     // egyszer automatikusan kipróbáljuk a másik TS/HLS változatot.
     if (!isVodRef.current) {
-      // Élő TV: négy soros próbálkozás, mindegyik legfeljebb 2 másodpercig
-      // vár a profil időkorlátjával összhangban: első formátum → másik →
-      // első újra → másik újra. A gyors profil 1200 ms-nál válthat tovább.
       const sequence = liveRetrySequenceRef.current;
+      // A két külön formátum egyszeri próbája után már nem váltunk vissza
+      // azonnal a másik címre. A recovery saját, ritkuló időzítésével
+      // újrapróbálja az adást, így egy késői régi hiba nem indít ciklust.
+      if (liveRecoveryOnlyRef.current) {
+        setHasError(false);
+        setIsLoading(false);
+        setIsRecovering(true);
+        requestRecoveryRef.current('indítási próba sikertelen – kontrollált újrapróba');
+        return;
+      }
       const nextIndex = sequence.index + 1;
       if (nextIndex < sequence.urls.length) {
         sequence.index = nextIndex;
@@ -912,6 +945,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
        */
       setIsLoading(false);
       setHasError(false);
+      liveRecoveryOnlyRef.current = true;
       sequence.index = 0;
       requestRecoveryRef.current('mindkét formátum sikertelen');
       return;
@@ -3065,7 +3099,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setHasError(false);
     setErrorMessage('');
     setNativeHandoff(false);
+    activeMediaUrlRef.current = url;
     if (!url) {
+      activeMediaUrlRef.current = '';
       endSwitch();
       setIsLoading(false);
       setHasError(true);
@@ -3153,8 +3189,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // régi adást, csak a dekóder újraindítása marad el.
       // Korábbi <source> gyerekek eltakarítása (motorváltásnál is tiszta lap).
       while (video.firstChild) video.removeChild(video.firstChild);
-      // A webOS HTML5 videóelemét használjuk. Élő adásnál négy indítási
-      // próbálkozás van: első formátum, másik, majd mindkettő még egyszer.
+      // A webOS HTML5 videóelemét használjuk. Élő adásnál legfeljebb két
+      // külön formátum-próba van; a további indításokat a recovery időzíti.
       video.src = url;
       // UGYANAZ a cím az újracsatlakozásnál: a TV médiamotorja ilyenkor nem
       // mindig indít új kérést, ezért kifejezetten újratöltjük. A rendes
@@ -3174,6 +3210,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
           if (isCurrentLoad() && !playbackStartedRef.current) {
+            // A webOS néha a `playing` eseményt később küldi, miközben már
+            // van metaadat/puffer. Ilyenkor nem szabad félbeszakítani az épp
+            // dekódolás alatt álló címet egy új formátummal.
+            let hasStartupData = video.readyState >= 3;
+            try { hasStartupData = hasStartupData || video.buffered.length > 0; } catch { /* régi motor */ }
+            if (hasStartupData) {
+              // Egyszer adunk még egy rövid türelmi ablakot a webOS-nek;
+              // a `playing` nélküli végtelen várakozás viszont nem maradhat.
+              const graceMs = Math.max(1000, Math.min(watchdogMs, 2000));
+              appLog(`Zap-őr: már van metaadat/puffer, türelmi idő indul (${graceMs} ms).`);
+              zapWatchdogRef.current = window.setTimeout(() => {
+                zapWatchdogRef.current = null;
+                if (isCurrentLoad() && !playbackStartedRef.current) {
+                  appLog('Zap-őr: a türelmi idő után sem indult el az adás, formátumpróba következik.');
+                  scheduleAutoRetry();
+                }
+              }, graceMs);
+              return;
+            }
             appLog('Zap-őr: nem indult el az adás időben, automatikus formátumváltás.');
             scheduleAutoRetry();
           }
@@ -3263,7 +3318,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!primaryUrl) return;
     const fallbackUrl = liveFallbackRef.current?.url || (urls[1] !== primaryUrl ? urls[1] : undefined);
     const attempt = recoveryAttemptRef.current++;
-    const nextUrl = liveRecoveryUrl(attempt, primaryUrl, fallbackUrl);
+    // Indulási hiba után az emlékezett/elsődleges címet próbáljuk újra;
+    // már futó adásnál viszont az éppen működő src-et tartjuk meg. A másik
+    // formátum csak a recovery saját, ritkuló sorozatában jelenhet meg.
+    const recoveryPrimaryUrl = playbackStartedRef.current
+      ? (activeMediaUrlRef.current || pendingStreamUrlRef.current || primaryUrl)
+      : primaryUrl;
+    const recoveryFallbackUrl = recoveryPrimaryUrl === primaryUrl ? fallbackUrl : primaryUrl;
+    liveRecoveryOnlyRef.current = true;
+    const nextUrl = liveRecoveryUrl(attempt, recoveryPrimaryUrl, recoveryFallbackUrl);
     const delayMs = liveRecoveryDelayMs(attempt, Math.max(50, bufferTiming().retryMs));
     const generation = streamLoadGenerationRef.current;
     clearAutoRetry();
@@ -3275,7 +3338,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsRecovering(true);
     appLog(
       `ÉLŐ ÚJRACSATLAKOZÁS; csatorna=${channelRef.current?.name || 'élő adás'}; próba=${attempt + 1}; ` +
-      `várakozás=${delayMs} ms; cím=${nextUrl === primaryUrl ? 'eredeti' : 'tartalék formátum'}; ok=${reason}.`
+      `várakozás=${delayMs} ms; cím=${nextUrl === recoveryPrimaryUrl ? 'aktuális/elsődleges' : 'tartalék formátum'}; ok=${reason}.`
     );
     recoveryTimerRef.current = window.setTimeout(() => {
       recoveryTimerRef.current = null;
@@ -3390,12 +3453,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     pendingStreamUrlRef.current = primaryUrl;
     liveFallbackRef.current = isVod ? null : alternativeUrl(primaryUrl);
     const alternative = liveFallbackRef.current;
+    liveRecoveryOnlyRef.current = false;
     liveRetrySequenceRef.current = isVod
       ? { urls: [], index: 0 }
       : {
-          urls: alternative
-            ? [primaryUrl, alternative.url, primaryUrl, alternative.url]
-            : [primaryUrl],
+          // Ugyanazt a formátumot nem indítjuk újra azonnal a másik után;
+          // a recovery réteg később, ritkuló időzítéssel próbálkozik.
+          urls: alternative ? [primaryUrl, alternative.url] : [primaryUrl],
           index: 0,
         };
     /*
@@ -3411,6 +3475,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           video.load();
         } catch { /* régi motor */ }
       }
+      activeMediaUrlRef.current = '';
       playbackStartedRef.current = false;
       setIsLoading(false);
       setIsPlaying(false);
@@ -3813,12 +3878,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onSuspend={(event) => logLiveMediaEvent('suspend', event.currentTarget)}
             onPlaying={(event) => {
               logLiveMediaEvent('playing', event.currentTarget);
+              if (!isActiveMediaEvent(event.currentTarget)) {
+                appLog('CSATORNAVÁLTÁS RÉGI MÉDIAESEMÉNY KIHAGYVA; ok=az előző src playing eseménye nem zárhatja le az új próbát.');
+                return;
+              }
               playbackStartedRef.current = true;
               // Sikeres képkocka: a belső forrásváltás véget ért, a régi
               // pause/play események többé nem zavarhatják össze az állapotot.
               endSwitch();
               stallDetectorRef.current?.reset();
               recoveryAttemptRef.current = 0;
+              liveRecoveryOnlyRef.current = false;
               if (recoveryTimerRef.current !== null) {
                 window.clearTimeout(recoveryTimerRef.current);
                 recoveryTimerRef.current = null;
@@ -3904,6 +3974,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onCanPlay={(event) => {
               logLiveMediaEvent('canplay', event.currentTarget);
+              if (!isActiveMediaEvent(event.currentTarget)) return;
               setIsLoading(false);
               setHasError(false);
               if (!isVod && isVerbosePlaybackLogging()) {
@@ -3916,6 +3987,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onWaiting={(event) => {
               logLiveMediaEvent('waiting', event.currentTarget);
+              if (!isActiveMediaEvent(event.currentTarget)) return;
               if (playbackStartedRef.current) {
                 setIsLoading(true);
                 armBufferWatchdog();
@@ -3935,6 +4007,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (!isVerbosePlaybackLogging()) return;
               const diagnostic = channelSwitchDiagnosticRef.current;
               if (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current) return;
+              if (!isActiveMediaEvent(event.currentTarget)) return;
               const now = Date.now();
               if (diagnostic.lastProgressAt && now - diagnostic.lastProgressAt < 1000) return;
               const video = event.currentTarget;
@@ -3950,6 +4023,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onStalled={(event) => {
               logLiveMediaEvent('stalled', event.currentTarget);
+              if (!isActiveMediaEvent(event.currentTarget)) return;
               if (playbackStartedRef.current) {
                 setIsLoading(true);
                 armBufferWatchdog();
@@ -3963,6 +4037,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onError={(event) => {
               logLiveMediaEvent('error', event.currentTarget);
+              const video = event.currentTarget;
+              if (!isActiveMediaEvent(video)) {
+                appLog('CSATORNAVÁLTÁS RÉGI MÉDIAESEMÉNY KIHAGYVA; ok=az előző src error eseménye nem írhatja át az új próbát.');
+                return;
+              }
               clearBufferWatchdog();
               const diagnostic = channelSwitchDiagnosticRef.current;
               if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
@@ -3990,6 +4069,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onPause={(event) => {
               logLiveMediaEvent('pause', event.currentTarget, `várt-lejátszás=${desiredPlayingRef.current}`);
+              if (!isActiveMediaEvent(event.currentTarget)) return;
               // A belső forrásváltás pause eseménye késve is megérkezhet:
               // ilyenkor NEM szabad leállítani az új, már futó streamet.
               if (switchInProgressRef.current) return;
@@ -4010,12 +4090,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onPlay={(event) => {
               logLiveMediaEvent('play', event.currentTarget);
+              if (!isActiveMediaEvent(event.currentTarget)) return;
               if (switchInProgressRef.current) return;
               if (event.currentTarget.paused) return;
               setIsPlaying(true);
             }}
             onEnded={(event) => {
               const video = event.currentTarget;
+              if (!isActiveMediaEvent(video)) return;
               if (isVod) {
                 const position = Math.max(0, Number(video.currentTime || 0));
                 const duration = Number(video.duration || 0);
@@ -4032,6 +4114,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onTimeUpdate={(event) => {
               const video = event.currentTarget as HTMLVideoElement;
+              if (!isActiveMediaEvent(video)) return;
               if (!isVod) {
                 logLiveTimeline(video);
                 return;
@@ -4113,6 +4196,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               e.stopPropagation();
               clearRecovery();
               recoveryAttemptRef.current = 0;
+              liveRecoveryOnlyRef.current = false;
               endSwitch();
               setHasError(false);
               setIsLoading(false);

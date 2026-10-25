@@ -114,7 +114,11 @@ export class StallDetector {
   }
 }
 
-/** Élő adás: az első két próba ugyanazt a címet használja, utána váltogatunk. */
+/**
+ * Élő recovery: az első két újracsatlakozás ugyanazt a címet használja;
+ * csak ezután próbáljuk a másik formátumot, ritkuló időzítéssel.
+ * A kezdeti csatornaváltás külön, legfeljebb egyszeri TS/HLS fallbacket használ.
+ */
 export function liveRecoveryUrl(attempt: number, primaryUrl: string, alternativeUrl?: string | null): string {
   const other = alternativeUrl && alternativeUrl !== primaryUrl ? alternativeUrl : primaryUrl;
   if (attempt < 2) return primaryUrl;

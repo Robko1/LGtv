@@ -149,8 +149,18 @@ check(/new StallDetector\(isVod \? 7000 : 4000\)/.test(PLAYER),
   'a lejátszó egységes, képkocka-alapú figyelőt használ élőre és VOD-ra');
 check(/requestRecoveryRef\.current\('idővonal megakadt'\)/.test(PLAYER),
   'a megakadás automatikus újracsatlakozást indít');
-check(/liveRecoveryUrl\(attempt, primaryUrl, fallbackUrl\)/.test(PLAYER),
-  'az élő újracsatlakozás az eredeti címmel kezd');
+check(/liveRecoveryUrl\(attempt, recoveryPrimaryUrl, recoveryFallbackUrl\)/.test(PLAYER),
+  'az élő újracsatlakozás az aktuális vagy elsődleges címmel kezd');
+check(/urls: alternative \? \[primaryUrl, alternative\.url\] : \[primaryUrl\]/.test(PLAYER)
+  && /liveRecoveryOnlyRef\.current = true/.test(PLAYER),
+  'a két külön formátum-próba után nincs azonnali TS/HLS ciklus, csak kontrollált recovery');
+check(/const isActiveMediaEvent = \(video: HTMLVideoElement\): boolean =>/.test(PLAYER)
+  && /RÉGI MÉDIAESEMÉNY KIHAGYVA/.test(PLAYER),
+  'a későn érkező régi src médiaeseménye nem írhatja át az új csatorna állapotát');
+check(/hasStartupData/.test(PLAYER)
+  && /türelmi idő indul/.test(PLAYER)
+  && /türelmi idő után sem indult/.test(PLAYER),
+  'a késői playing esemény kap türelmi időt, de nem maradhat végtelenül elakadt');
 check(/vodRecoveryRef\.current\('korai ended esemény'\)/.test(PLAYER)
   && /isPrematureVodEnd\(position, duration\)/.test(PLAYER),
   'a VOD korai ended eseménye visszaállítást indít, nem következő részt');
