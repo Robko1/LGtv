@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.91';
+export const WEB_VERSION = '2.5.92';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.91',
+    version: '2.5.92',
     date: '2026-10-25',
     changes: [
       'ÉLŐ LEJÁTSZÁSI NAPLÓ: a kézi naplózás mostantól külön rögzíti a médiaeseményeket, seekable/buffered tartományokat, currentTime/duration ugrásokat, ready/network állapotot, képkockákat és HTML5 hibákat; a vissza- és előreugrások külön VISSZAUGRÁS/ELŐREUGRÁS sorban látszanak',
