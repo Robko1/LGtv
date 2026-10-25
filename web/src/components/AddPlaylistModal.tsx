@@ -13,7 +13,7 @@ interface AddPlaylistModalProps {
   onClose: () => void;
   onAddProvider: (newProvider: ProviderAccount, content?: ImportedContent) => void;
   editProvider?: ProviderAccount | null;
-  onDiagnosticUpdate?: (snapshot: { providerId?: string; providerName: string; progress: ImportProgress | null; events: NetworkDiagnosticEvent[]; error: string | null; startedAt: number; finished: boolean }) => void;
+  onDiagnosticUpdate?: (snapshot: { providerId?: string; providerName: string; progress: ImportProgress | null; events: NetworkDiagnosticEvent[]; error: string | null; startedAt: number; finished: boolean; finishedAt?: number | null }) => void;
   onLiveChannelsLoaded?: (partial: PartialContent) => void;
   onBackgroundContinue?: () => void;
 }
@@ -52,6 +52,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     setDiagnosticOpen(false);
     setDiagnosticEvents([]);
     setDiagnosticError(null);
+    setDiagnosticFinishedAt(null);
     setLiveLoadedPromptOpen(false);
   }, [isOpen, editProvider]);
 
@@ -63,6 +64,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
   const [diagnosticEvents, setDiagnosticEvents] = useState<NetworkDiagnosticEvent[]>([]);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
   const [diagnosticStartedAt, setDiagnosticStartedAt] = useState(() => performance.now());
+  const [diagnosticFinishedAt, setDiagnosticFinishedAt] = useState<number | null>(null);
   const diagnosticStartedAtRef = useRef(performance.now());
   const diagnosticEventsRef = useRef<NetworkDiagnosticEvent[]>([]);
   const [liveLoadedPromptOpen, setLiveLoadedPromptOpen] = useState(false);
@@ -85,16 +87,20 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     setDiagnosticError(null);
     setDiagnosticEvents([]);
     diagnosticEventsRef.current = [];
+    setDiagnosticFinishedAt(null);
     const startedAt = performance.now();
     setDiagnosticStartedAt(startedAt);
     diagnosticStartedAtRef.current = startedAt;
     diagnosticFinishedRef.current = false;
-    setNetworkDiagnosticSink((event) => setDiagnosticEvents((prev) => {
-      const next = [...prev, event].slice(-250);
-      diagnosticEventsRef.current = next;
-      onDiagnosticUpdate?.({ providerName: providerName, progress, events: next, error: null, startedAt: diagnosticStartedAtRef.current, finished: false });
-      return next;
-    }));
+    setNetworkDiagnosticSink((event) => {
+      if (diagnosticFinishedRef.current) return;
+      setDiagnosticEvents((prev) => {
+        const next = [...prev, event].slice(-250);
+        diagnosticEventsRef.current = next;
+        onDiagnosticUpdate?.({ providerName: providerName, progress, events: next, error: null, startedAt: diagnosticStartedAtRef.current, finished: false });
+        return next;
+      });
+    });
 
     try {
       const result = await importXtreamProvider(
@@ -134,19 +140,23 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
       onAddProvider(provider, content);
       setIsLoading(false);
       diagnosticFinishedRef.current = true;
+      const finishedAt = performance.now();
       const finalProgress = { phase: 'Kész', detail: `${content.channels.length.toLocaleString('hu-HU')} csatorna • ${content.movies.length.toLocaleString('hu-HU')} film • ${content.series.length.toLocaleString('hu-HU')} sorozat`, percent: 100 };
       setProgress(finalProgress);
+      setDiagnosticFinishedAt(finishedAt);
       setLiveLoadedPromptOpen(false);
-      onDiagnosticUpdate?.({ providerId: provider.id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: diagnosticStartedAtRef.current, finished: true });
+      onDiagnosticUpdate?.({ providerId: provider.id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: diagnosticStartedAtRef.current, finished: true, finishedAt });
       setNetworkDiagnosticSink(null);
     } catch (error) {
       setIsLoading(false);
       diagnosticFinishedRef.current = true;
+      const finishedAt = performance.now();
       setNetworkDiagnosticSink(null);
+      setDiagnosticFinishedAt(finishedAt);
       const message = error instanceof Error ? error.message : 'Szerver csatlakozási hiba.';
       setDiagnosticError(message);
       setLiveLoadedPromptOpen(false);
-      onDiagnosticUpdate?.({ providerName: providerName, progress, events: diagnosticEventsRef.current, error: message, startedAt: diagnosticStartedAtRef.current, finished: true });
+      onDiagnosticUpdate?.({ providerName: providerName, progress, events: diagnosticEventsRef.current, error: message, startedAt: diagnosticStartedAtRef.current, finished: true, finishedAt });
       setStatusMessage({ type: 'error', text: message });
     }
   };
@@ -166,16 +176,20 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     setDiagnosticError(null);
     setDiagnosticEvents([]);
     diagnosticEventsRef.current = [];
+    setDiagnosticFinishedAt(null);
     const startedAt = performance.now();
     setDiagnosticStartedAt(startedAt);
     diagnosticStartedAtRef.current = startedAt;
     diagnosticFinishedRef.current = false;
-    setNetworkDiagnosticSink((event) => setDiagnosticEvents((prev) => {
-      const next = [...prev, event].slice(-250);
-      diagnosticEventsRef.current = next;
-      onDiagnosticUpdate?.({ providerName: providerName, progress, events: next, error: null, startedAt: diagnosticStartedAtRef.current, finished: false });
-      return next;
-    }));
+    setNetworkDiagnosticSink((event) => {
+      if (diagnosticFinishedRef.current) return;
+      setDiagnosticEvents((prev) => {
+        const next = [...prev, event].slice(-250);
+        diagnosticEventsRef.current = next;
+        onDiagnosticUpdate?.({ providerName: providerName, progress, events: next, error: null, startedAt: diagnosticStartedAtRef.current, finished: false });
+        return next;
+      });
+    });
 
     try {
       const content = await importM3UProvider(
@@ -205,28 +219,35 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
 
       onAddProvider(provider, content);
       setIsLoading(false);
+      diagnosticFinishedRef.current = true;
+      const finishedAt = performance.now();
       const finalProgress = { phase: 'Kész', detail: `${content.channels.length.toLocaleString('hu-HU')} csatorna • ${content.movies.length.toLocaleString('hu-HU')} film • ${content.series.length.toLocaleString('hu-HU')} sorozat`, percent: 100 };
       setProgress(finalProgress);
-      onDiagnosticUpdate?.({ providerId: provider.id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: diagnosticStartedAtRef.current, finished: true });
+      setDiagnosticFinishedAt(finishedAt);
+      onDiagnosticUpdate?.({ providerId: provider.id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: diagnosticStartedAtRef.current, finished: true, finishedAt });
       setNetworkDiagnosticSink(null);
     } catch (error) {
       setIsLoading(false);
+      diagnosticFinishedRef.current = true;
+      const finishedAt = performance.now();
       setNetworkDiagnosticSink(null);
+      setDiagnosticFinishedAt(finishedAt);
       const message = error instanceof Error ? error.message : 'Nem sikerült letölteni vagy feldolgozni az M3U fájlt.';
       setDiagnosticError(message);
-      onDiagnosticUpdate?.({ providerName: providerName, progress, events: diagnosticEventsRef.current, error: message, startedAt: diagnosticStartedAtRef.current, finished: true });
+      onDiagnosticUpdate?.({ providerName: providerName, progress, events: diagnosticEventsRef.current, error: message, startedAt: diagnosticStartedAtRef.current, finished: true, finishedAt });
       setStatusMessage({ type: 'error', text: message });
     }
   };
 
 
-  const closeDiagnostic = () => {
+  const closeDiagnostic = (afterClose: () => void = onClose) => {
     diagnosticFinishedRef.current = true;
     setNetworkDiagnosticSink(null);
     setDiagnosticOpen(false);
     setProgress(null);
     setDiagnosticError(null);
-    onClose();
+    setDiagnosticFinishedAt(null);
+    afterClose();
   };
 
   // A listaűrlap legyen a beállítások (z-50) fölött, de a diagnosztika (z-100) alatt.
@@ -423,7 +444,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
             <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok betöltése még folyamatban van. Szeretnéd tovább nézni a folyamatot, vagy folytassuk a háttérben?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button onClick={() => setLiveLoadedPromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Nem, tovább nézem</button>
-              <button onClick={() => { setLiveLoadedPromptOpen(false); setDiagnosticOpen(false); (onBackgroundContinue || onClose)(); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
+              <button onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
             </div>
           </div>
         </div>
@@ -434,6 +455,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
         events={diagnosticEvents}
         error={diagnosticError}
         startedAt={diagnosticStartedAt}
+        finishedAt={diagnosticFinishedAt}
         onClose={closeDiagnostic}
       />
     </div>

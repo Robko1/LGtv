@@ -152,6 +152,7 @@ async function main() {
   const { importXtreamProvider, importM3UProvider } = await import('../web/src/services/providerImport.ts');
   const store = await import('../web/src/services/contentStore.ts');
   const { xtreamService } = await import('../web/src/services/xtreamService.ts');
+  const { cancelNetworkRequests, isNetworkRequestCancelled, resetNetworkBreaker, httpGetText } = await import('../web/src/services/net.ts');
 
   /* --- 1. Xtream betöltés --- */
   const fake = await startFakeServer();
@@ -250,6 +251,28 @@ async function main() {
     m3uContent.channels[0]?.streamUrl === 'http://127.0.0.1:1/live/a.ts',
     m3uContent.channels[0]?.streamUrl || ''
   );
+
+  /* --- 6. hálózati munkamenet leállítása --- */
+  // A #16 TV-napló után a VISSZA/új frissítés nem hagyhatott sorban álló
+  // kérést, amely később, már egy új import alatt indult volna el.
+  const hang = http.createServer((_req, _res) => {
+    // Szándékosan nem küldünk fejlécet/választ: a fetch így aktív marad.
+  });
+  await new Promise<void>((resolve) => hang.listen(0, '127.0.0.1', resolve));
+  const hangAddress = hang.address();
+  const hangPort = typeof hangAddress === 'object' && hangAddress ? hangAddress.port : 0;
+  const pending = [1, 2, 3].map(() => httpGetText(`http://127.0.0.1:${hangPort}/hang`, { timeoutMs: 30000 }));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  cancelNetworkRequests();
+  const outcomes = await Promise.allSettled(pending);
+  check(
+    'a leállítás a futó és sorban álló kéréseket is megszakítja',
+    outcomes.every((outcome) => outcome.status === 'rejected' && isNetworkRequestCancelled(outcome.reason)),
+    outcomes.map((outcome) => outcome.status).join(',')
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  resetNetworkBreaker();
+  hang.close();
 
   fake.server.close();
   m3u.server.close();

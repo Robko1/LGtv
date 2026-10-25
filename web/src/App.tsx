@@ -210,6 +210,7 @@ import {
   cancelNetworkRequests,
   checkInternetReachable,
   explainNetError,
+  isNetworkRequestCancelled,
   isTransportFailure,
   lastNetErrorHint,
   resetNetworkBreaker,
@@ -239,7 +240,8 @@ export function App() {
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
   const [diagnosticProgress, setDiagnosticProgress] = useState<any>(null);
   const [diagnosticStartedAt, setDiagnosticStartedAt] = useState(() => performance.now());
-  const [lastImportDiagnostic, setLastImportDiagnostic] = useState<{ providerId?: string; providerName: string; progress: any; events: NetworkDiagnosticEvent[]; error: string | null; startedAt: number; finished: boolean } | null>(null);
+  const [diagnosticFinishedAt, setDiagnosticFinishedAt] = useState<number | null>(null);
+  const [lastImportDiagnostic, setLastImportDiagnostic] = useState<{ providerId?: string; providerName: string; progress: any; events: NetworkDiagnosticEvent[]; error: string | null; startedAt: number; finished: boolean; finishedAt?: number | null } | null>(null);
   const [lastImportDiagnosticOpen, setLastImportDiagnosticOpen] = useState(false);
   const [refreshLivePromptOpen, setRefreshLivePromptOpen] = useState(false);
   const diagnosticEventsRef = useRef<NetworkDiagnosticEvent[]>([]);
@@ -254,13 +256,16 @@ export function App() {
   const lastProgressPaintRef = useRef(0);
   const pushDiagnosticEvents = useCallback(() => {
     diagFlushTimerRef.current = null;
+    // A lezárt import vagy a bezárt diagnosztika után egy késői hálózati
+    // callback sem indíthat új React-renderelést.
+    if (diagnosticFinishedRef.current) return;
     setDiagnosticEvents(diagnosticEventsRef.current);
     setLastImportDiagnostic((current) => (current && !current.finished)
       ? { ...current, events: diagnosticEventsRef.current }
       : current);
   }, []);
   const scheduleDiagnosticFlush = useCallback(() => {
-    if (diagFlushTimerRef.current !== null) return;
+    if (diagnosticFinishedRef.current || diagFlushTimerRef.current !== null) return;
     diagFlushTimerRef.current = window.setTimeout(pushDiagnosticEvents, DIAGNOSTIC_FLUSH_MS);
   }, [pushDiagnosticEvents]);
   const cancelDiagnosticFlush = useCallback(() => {
@@ -274,6 +279,9 @@ export function App() {
     setDiagnosticEvents(diagnosticEventsRef.current);
   }, [cancelDiagnosticFlush]);
   const providerRefreshActiveRef = useRef(false);
+  // Az előző import maradék, már CPU-n futó callbackjei sem írhatják felül
+  // egy új frissítés diagnosztikáját/tartalmát.
+  const refreshGenerationRef = useRef(0);
   /**
    * Automatikus újrapróbálkozás: ha a szolgáltató szervere nem válaszol
    * (tranziens hiba a szolgáltatónál), a program percenként egyszer magától
@@ -1381,6 +1389,8 @@ export function App() {
       : providerOrId;
     if (!provider) return;
     const id = provider.id;
+    const refreshGeneration = refreshGenerationRef.current + 1;
+    refreshGenerationRef.current = refreshGeneration;
     const providersForRefresh = providers.some((p) => p.id === id)
       ? providers
       : [provider, ...providers.map((p) => ({ ...p, isActive: false }))];
@@ -1408,10 +1418,11 @@ export function App() {
     const initialProgress = { phase: 'Frissítés indul…', percent: 2 };
     setDiagnosticProgress(initialProgress);
     setDiagnosticStartedAt(refreshStartedAt);
+    setDiagnosticFinishedAt(null);
     setRefreshLivePromptOpen(false);
     refreshLivePromptShownRef.current = false;
     diagnosticFinishedRef.current = false;
-    setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: initialProgress, events: [], error: null, startedAt: refreshStartedAt, finished: false });
+    setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: initialProgress, events: [], error: null, startedAt: refreshStartedAt, finished: false, finishedAt: null });
     /*
      * A diagnosztika FRISSÍTÉSE RITKÍTVA.
      *
@@ -1425,6 +1436,7 @@ export function App() {
      */
     lastProgressPaintRef.current = 0;
     setNetworkDiagnosticSink((event) => {
+      if (diagnosticFinishedRef.current || refreshGenerationRef.current !== refreshGeneration) return;
       diagnosticEventsRef.current = [...diagnosticEventsRef.current, event].slice(-250);
       scheduleDiagnosticFlush();
     });
@@ -1451,6 +1463,7 @@ export function App() {
 
     /** Egy-egy szakasz azonnal a felületre és a tárolóba kerül. */
     const applyPartial = async (partial: PartialContent): Promise<void> => {
+      if (refreshGenerationRef.current !== refreshGeneration) return;
       if (partial.totals) draft.totals = { ...draft.totals, ...partial.totals };
       // Üres szakasz soha nem törölheti a már megjelenített (mentett) listát.
       if (partial.channels && (partial.channels.length > 0 || channels.length === 0)) {
@@ -1500,8 +1513,10 @@ export function App() {
 
       // A mentés előtt visszaadjuk a vezérlést a felületnek; a sorozat
       // adagjai pedig befejeződnek, mielőtt az import a következő fázisra lép.
+      if (refreshGenerationRef.current !== refreshGeneration) return;
       if (partial.channels || partial.movies || partial.series) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        if (refreshGenerationRef.current !== refreshGeneration) return;
       }
       // ELŐNÉZET (a teljes lista még töltődik): csak megjelenítés, hogy a
       // néző azonnal választhasson csatornát. Félkész listát NEM mentünk a
@@ -1532,7 +1547,7 @@ export function App() {
       const result = await refreshProviderContent(
         provider,
         (progress) => {
-          if (diagnosticFinishedRef.current || progress.percent >= 100) return;
+          if (refreshGenerationRef.current !== refreshGeneration || diagnosticFinishedRef.current || progress.percent >= 100) return;
           const now = performance.now();
           // 250 ms-os ritkítás: a folyamatjelző ennyi alatt is folyamatosnak
           // látszik, a főszál viszont a feldolgozással foglalkozhat.
@@ -1543,6 +1558,7 @@ export function App() {
         },
         applyPartial
       );
+      if (refreshGenerationRef.current !== refreshGeneration) return;
       const content: ImportedContent =
         'content' in result ? result.content : (result as ImportedContent);
 
@@ -1587,6 +1603,7 @@ export function App() {
       // Ne írjuk ki még egyszer a teljes több tízezres listát a fő szálon.
       dirtyRef.current = false;
 
+      const finishedAt = performance.now();
       diagnosticFinishedRef.current = true;
       retryAttemptsRef.current = 0;
       cancelAutoRetry();
@@ -1602,15 +1619,22 @@ export function App() {
         percent: 100,
       };
       setDiagnosticProgress(finalProgress);
-      setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: true });
+      setDiagnosticFinishedAt(finishedAt);
+      setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: true, finishedAt });
       flushDiagnosticNow();
       setNetworkDiagnosticSink(null);
       providerRefreshActiveRef.current = false;
     } catch (error) {
+      // Egy új frissítés vagy a felhasználó megszakítása a régi importot is
+      // leállíthatja. Ez nem felhasználói hiba, és a régi async hívás nem
+      // írhatja felül az új diagnosztika állapotát.
+      if (refreshGenerationRef.current !== refreshGeneration || isNetworkRequestCancelled(error)) return;
+      const finishedAt = performance.now();
       diagnosticFinishedRef.current = true;
       setProviderContentReady(false);
       flushDiagnosticNow();
       setNetworkDiagnosticSink(null);
+      setDiagnosticFinishedAt(finishedAt);
       const message = error instanceof Error ? error.message : 'A frissítés nem sikerült.';
       setDiagnosticError(message);
       setDiagnosticProgress((prev: any) => ({ ...(prev || {}), phase: 'Hiba', percent: Math.min(99, Math.max(0, prev?.percent || 0)) }));
@@ -1622,6 +1646,7 @@ export function App() {
         error: message,
         startedAt: refreshStartedAt,
         finished: true,
+        finishedAt,
       }));
       providerRefreshActiveRef.current = false;
 
@@ -1690,7 +1715,10 @@ export function App() {
     [cancelAutoRetry, handleRefreshProvider]
   );
 
-  const closeRefreshDiagnostic = () => {
+  const closeRefreshDiagnostic = useCallback(() => {
+    // A VISSZA csak a diagnosztikai ablakot zárja be; a háttérben már futó
+    // tartalomfrissítést nem szakítjuk félbe, viszont annak minden diagnosztikai
+    // sinkje, flush-időzítője és további React-frissítése azonnal leáll.
     diagnosticFinishedRef.current = true;
     cancelDiagnosticFlush();
     setNetworkDiagnosticSink(null);
@@ -1698,7 +1726,12 @@ export function App() {
     setDiagnosticEvents([]);
     setDiagnosticError(null);
     setDiagnosticProgress(null);
-  };
+    setDiagnosticFinishedAt(null);
+  }, [cancelDiagnosticFlush]);
+
+  const closeLastImportDiagnostic = useCallback(() => {
+    setLastImportDiagnosticOpen(false);
+  }, []);
 
   // Sorozat részeinek (évadok) betöltése a szolgáltatótól
   const handleLoadSeriesInfo = useCallback(
@@ -2099,6 +2132,22 @@ export function App() {
         showFullscreenLiveOsd();
       }
 
+      // Védelmi tartalék a LoadingDiagnosticModal saját kezelője mögött: a
+      // webOS VISSZA néha közvetlenül a documentre érkezik. Ilyenkor a
+      // diagnosztikát zárjuk, nem a háttérben lévő lejátszót vagy nézetet.
+      if ((key === 'Escape' || key === 'Backspace') && diagnosticOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeRefreshDiagnostic();
+        return;
+      }
+      if ((key === 'Escape' || key === 'Backspace') && lastImportDiagnosticOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeLastImportDiagnostic();
+        return;
+      }
+
       // LG webOS-en nincs minden modellen automatikus D-pad fókuszléptetés:
       // gomb/hivatkozás fókuszánál a nyilakkal a legközelebbi vezérlőre lépünk.
       if (target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.getAttribute('role') === 'button')) {
@@ -2146,7 +2195,20 @@ export function App() {
         return;
       }
       const active = document.activeElement as HTMLElement | null;
-      const isInChannelList = !!active?.closest?.('[role="listbox"]') || active?.getAttribute?.('role') === 'option' || !!active?.closest?.('[data-channel-id]');
+      const channelListHost = active?.closest?.('[role="listbox"]') as HTMLElement | null;
+      const isInHiddenChannelList = Boolean(channelListHost?.closest?.('[data-view-hidden]') || channelListHost?.style.visibility === 'hidden');
+      // A láthatatlan, DOM-ban tartott élő lista nem kaphatja meg a Mozi/Sorozat
+      // vagy teljes képernyős gombot. A webOS-réteg normál esetben már a
+      // lejátszóra továbbította; ez a böngészős védelmi ág csak elnyeli a
+      // későn ott maradt fókusz eseményét.
+      if (isInHiddenChannelList && (isTvArrowKey(key) || key === 'Enter')) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      const isInChannelList = Boolean(channelListHost && !isInHiddenChannelList)
+        || active?.getAttribute?.('role') === 'option' && !isInHiddenChannelList
+        || Boolean(active?.closest?.('[data-channel-id]') && !isInHiddenChannelList);
 
       switch (key) {
         case 'ArrowUp':
@@ -2293,7 +2355,7 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep, showFullscreenLiveOsd, activeView, handleViewChange]);
+  }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep, showFullscreenLiveOsd, activeView, handleViewChange, diagnosticOpen, lastImportDiagnosticOpen, closeRefreshDiagnostic, closeLastImportDiagnostic]);
 
   // TV távirányító: ZÖLD/SÁRGA/KÉK gyorsgombok a webos.js-ből egyedi
   // eseményként érkeznek (minden fókuszhelyzetben megbízható).
@@ -2728,7 +2790,8 @@ export function App() {
         logoSource={providers.find((provider) => provider.id === lastImportDiagnostic?.providerId)?.type ?? 'unknown'}
         error={lastImportDiagnostic?.error ?? null}
         startedAt={lastImportDiagnostic?.startedAt ?? performance.now()}
-        onClose={() => setLastImportDiagnosticOpen(false)}
+        finishedAt={lastImportDiagnostic?.finishedAt ?? null}
+        onClose={closeLastImportDiagnostic}
       />
 
       <LoadingDiagnosticModal
@@ -2739,6 +2802,7 @@ export function App() {
         logoSource={providers.find((provider) => provider.id === lastRefreshProviderIdRef.current)?.type ?? 'unknown'}
         error={diagnosticError}
         startedAt={diagnosticStartedAt}
+        finishedAt={diagnosticFinishedAt}
         onClose={closeRefreshDiagnostic}
         onRetry={
           diagnosticError && lastRefreshProviderIdRef.current
@@ -2755,7 +2819,7 @@ export function App() {
             <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok frissítése még folyamatban van. Szeretnéd tovább nézni a diagnosztikát, vagy folytassuk a háttérben?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button onClick={() => setRefreshLivePromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Nem, tovább nézem</button>
-              <button onClick={() => { setRefreshLivePromptOpen(false); setDiagnosticOpen(false); setLastImportDiagnosticOpen(false); setIsSettingsOpen(false); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
+              <button onClick={() => { setRefreshLivePromptOpen(false); closeRefreshDiagnostic(); closeLastImportDiagnostic(); setIsSettingsOpen(false); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
             </div>
           </div>
         </div>
@@ -2822,6 +2886,7 @@ export function App() {
               error: null,
               startedAt: performance.now(),
               finished: true,
+              finishedAt: performance.now(),
             };
           });
           setLastImportDiagnosticOpen(true);

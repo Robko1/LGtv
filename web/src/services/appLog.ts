@@ -293,6 +293,15 @@ export function stopManualLogging(reason = 'kézi leállítás'): ManualLogSnaps
   loggingEnabled = false;
   stopRuntimeWatchdog();
   persistNow(true);
+  // A nagy napló utolsó szinkron mentése eddig egy legfeljebb 2 másodperc
+  // múlva lefutó forceFlushTimer-t hagyhatott maga után. Leállítás után nem
+  // maradhat ilyen háttérmunka; ha szükséges, most egyetlen végső írással
+  // zárjuk le a memóriában már kész naplót.
+  if (forceFlushTimer !== null) {
+    try { window.clearTimeout(forceFlushTimer); } catch { /* régi webOS */ }
+    forceFlushTimer = null;
+    writeLogToStorage();
+  }
   return manualLogSnapshot();
 }
 

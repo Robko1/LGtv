@@ -155,6 +155,19 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     // Ha a lejátszott csatorna máshonnan változik (CH+/-, OSD), a kijelölés követi.
     setHighlightedId(selectedChannelId);
   }, [selectedChannelId]);
+
+  // Kategória- vagy kedvencmappa-váltáskor a korábbi nézetből származó
+  // highlightedId rövid ideig még érvénytelen lehet. Ilyenkor nem szabad a
+  // régi indexet a lista végének tekinteni, mert a következő LE a mappasávra
+  // ugrana. A kijelölést mindig az új lista egy valódi sorára rögzítjük.
+  useEffect(() => {
+    if (!visibleChannels.length || channelIndexById.has(highlightedId)) return;
+    const fallbackId = channelIndexById.has(selectedChannelId)
+      ? selectedChannelId
+      : visibleChannels[0].id;
+    setHighlightedId(fallbackId);
+  }, [visibleChannels, channelIndexById, highlightedId, selectedChannelId]);
+
   const measureRows = React.useCallback(() => {
     const element = channelScrollRef.current;
     if (!element) return;
@@ -536,8 +549,13 @@ const ChannelListView: React.FC<ChannelListProps> = ({
    */
   const focusChannelRow = (channelId: string): boolean => {
     if (!channelId) return false;
-    const row = document.querySelector<HTMLElement>(`[data-channel-id="${channelId}"] [role="option"]`)
-      || document.querySelector<HTMLElement>(`[data-channel-id="${channelId}"]`);
+    const list = channelScrollRef.current;
+    // Több nézet marad a DOM-ban azonnali váltáshoz. A fókuszt kizárólag a
+    // látható, saját listán belül keressük, különben egy háttérben maradt
+    // lista ugyanazt a távirányító-gombot kaphatná meg.
+    if (!list || list.closest('[data-view-hidden]') || list.style.visibility === 'hidden') return false;
+    const row = list.querySelector<HTMLElement>(`[data-channel-id="${channelId}"] [role="option"]`)
+      || list.querySelector<HTMLElement>(`[data-channel-id="${channelId}"]`);
     if (!row) return false;
     row.focus({ preventScroll: true } as any);
     return true;
@@ -612,7 +630,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
      * lista egyetlen gombot sem dolgoz fel (a teljes képernyős lejátszó veszi át).
      */
     const host = e.currentTarget as HTMLElement | null;
-    if (host && (host.closest('[data-view-hidden]') || host.style.visibility === 'hidden')) return;
+    if (!isActive || (host && (host.closest('[data-view-hidden]') || host.style.visibility === 'hidden'))) return;
     // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
     const key = normalizeTvKey(e);
     // KÉK teletextgomb: megnyitott kedvenc mappában a kijelölt csatornát
@@ -690,9 +708,19 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     // A fel/le nyíl CSAK a sárga kijelölést mozgatja (felsorolás),
     // csatornát nem vált - váltani az OK/Enter gombbal lehet.
     // Map-keresés O(1): nem fut végig a teljes csatornalistán minden gombnyomáskor.
-    const currentIndex = channelIndexById.get(highlightedId)
-      ?? channelIndexById.get(selectedChannelId)
-      ?? -1;
+    // Először a ténylegesen fókuszált sort vesszük alapul. Ez megakadályozza,
+    // hogy egy rAF/virtualizáció közben még régi highlightedId a lista végét
+    // jelentse, és a LE tévesen a kedvencek mappasávjára vigyen.
+    const activeElement = document.activeElement as HTMLElement | null;
+    const focusedChannelId = activeElement?.closest?.('[data-channel-id]')?.getAttribute('data-channel-id') || '';
+    const focusedIndex = focusedChannelId ? channelIndexById.get(focusedChannelId) : undefined;
+    const highlightedIndex = channelIndexById.get(highlightedId);
+    const selectedIndex = channelIndexById.get(selectedChannelId);
+    const currentIndex = focusedIndex ?? highlightedIndex ?? selectedIndex ?? -1;
+    const currentId = currentIndex >= 0 ? visibleChannels[currentIndex]?.id : undefined;
+    const hasRealCurrentRow = Boolean(currentId && (
+      currentId === focusedChannelId || currentId === highlightedId || currentId === selectedChannelId
+    ));
     const moveHighlight = (target: number) => {
       const next = visibleChannels[target];
       if (!next) return;
@@ -707,19 +735,29 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         // rajzoláskor a DOM-ban van; nem várunk a scroll eseményre.
         computeWindow();
       }
+      const focusRenderedTarget = (attempt: number) => {
+        // A virtualizált ablak React-rerenderje egy rAF-tal később is
+        // érkezhet. Ilyenkor újrapróbáljuk ugyanazt a valódi sort, ahelyett
+        // hogy a fókusz a háttérbe esne és a következő LE határátmenetnek
+        // látná a listát.
+        if (focusChannelRow(next.id) || attempt >= 2) return;
+        requestAnimationFrame(() => focusRenderedTarget(attempt + 1));
+      };
       requestAnimationFrame(() => {
         // A fókusz a SORRA kerül, nem a lista dobozára: a doboz soha nem
         // lehet kijelölve (lásd a fókuszmodell leírását fent).
-        focusChannelRow(next.id);
+        focusRenderedTarget(0);
       });
     };
-    if (key === 'ArrowUp' && currentIndex <= 0) {
+    if (key === 'ArrowUp' && hasRealCurrentRow && currentIndex === 0) {
       // A lista tetejéről felfelé: a mappasávra lépünk (onnan tovább a fejléc).
       e.preventDefault();
       e.stopPropagation();
       if (!focusFolderBar()) focusHeaderMenu();
-    } else if (key === 'ArrowDown' && currentIndex >= visibleChannels.length - 1) {
-      // A lista ALJÁN lefelé: át a kedvencek mappasávjára.
+    } else if (key === 'ArrowDown' && hasRealCurrentRow && currentIndex === visibleChannels.length - 1) {
+      // A lista ALJÁN lefelé: át a kedvencek mappasávjára. Ez a határátmenet
+      // csak érvényes, valódi sorindexnél engedélyezett; stale/virtualizált
+      // állapotnál előbb a következő valódi csatornasorra rögzítünk.
       e.preventDefault();
       e.stopPropagation();
       focusFolderBar();
