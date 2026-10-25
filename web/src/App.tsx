@@ -14,7 +14,7 @@ import {
   saveVodContent,
   sweepStorage,
 } from './services/contentStore';
-import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
+import { appLog, appLogError, isVerbosePlaybackLogging, logMemory, logPhase } from './services/appLog';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { PartialContent, refreshProviderContent } from './services/providerImport';
 import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
@@ -1394,6 +1394,14 @@ export function App() {
     const providersForRefresh = providers.some((p) => p.id === id)
       ? providers
       : [provider, ...providers.map((p) => ({ ...p, isActive: false }))];
+    const refreshStartedAt = performance.now();
+    const previousProviderId = activeProvider?.id || providers.find((item) => item.isActive)?.id || 'nincs';
+    if (isVerbosePlaybackLogging()) {
+      appLog(
+        `SZOLGÁLTATÓ-VÁLTÁS START; előző-szolgáltató=${previousProviderId}; ` +
+        `cél-szolgáltató=${id}; típus=${provider.type}; kézi=${manual ? 'igen' : 'nem'}`
+      );
+    }
 
     // Ha korábbi EPG-előtöltés még fut, azt azonnal leállítjuk, hogy
     // semmilyen háttérkérés ne foglalja a kapcsolatot a fő Xtream betöltés elől.
@@ -1414,7 +1422,6 @@ export function App() {
     setDiagnosticEvents([]);
     diagnosticEventsRef.current = [];
     setDiagnosticError(null);
-    const refreshStartedAt = performance.now();
     const initialProgress = { phase: 'Frissítés indul…', percent: 2 };
     setDiagnosticProgress(initialProgress);
     setDiagnosticStartedAt(refreshStartedAt);
@@ -1621,6 +1628,13 @@ export function App() {
       setDiagnosticProgress(finalProgress);
       setDiagnosticFinishedAt(finishedAt);
       setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: true, finishedAt });
+      if (isVerbosePlaybackLogging()) {
+        appLog(
+          `SZOLGÁLTATÓ-VÁLTÁS ÖSSZESÍTÉS; eredmény=SIKERES; ` +
+          `aktív-szolgáltató=${id}; teljes-idő=${Math.round(performance.now() - refreshStartedAt)} ms; ` +
+          `csatornák=${content.channels.length}; filmek=${content.movies.length}; sorozatok=${content.series.length}`
+        );
+      }
       flushDiagnosticNow();
       setNetworkDiagnosticSink(null);
       providerRefreshActiveRef.current = false;
@@ -1628,6 +1642,13 @@ export function App() {
       // Egy új frissítés vagy a felhasználó megszakítása a régi importot is
       // leállíthatja. Ez nem felhasználói hiba, és a régi async hívás nem
       // írhatja felül az új diagnosztika állapotát.
+      const supersededRefresh = refreshGenerationRef.current !== refreshGeneration || isNetworkRequestCancelled(error);
+      if (supersededRefresh && isVerbosePlaybackLogging()) {
+        appLog(
+          `SZOLGÁLTATÓ-VÁLTÁS ÖSSZESÍTÉS; eredmény=MEGSZAKÍTVA; ` +
+          `cél-szolgáltató=${id}; teljes-idő=${Math.round(performance.now() - refreshStartedAt)} ms; ok=újabb váltás vagy megszakítás`
+        );
+      }
       if (refreshGenerationRef.current !== refreshGeneration || isNetworkRequestCancelled(error)) return;
       const finishedAt = performance.now();
       diagnosticFinishedRef.current = true;
@@ -1636,6 +1657,13 @@ export function App() {
       setNetworkDiagnosticSink(null);
       setDiagnosticFinishedAt(finishedAt);
       const message = error instanceof Error ? error.message : 'A frissítés nem sikerült.';
+      if (isVerbosePlaybackLogging()) {
+        appLogError(
+          `SZOLGÁLTATÓ-VÁLTÁS HIBA; cél-szolgáltató=${id}; teljes-idő=${Math.round(performance.now() - refreshStartedAt)} ms; ` +
+          `hálózati-hiba=${isTransportFailure(message) ? 'igen' : 'nem'}`,
+          error,
+        );
+      }
       setDiagnosticError(message);
       setDiagnosticProgress((prev: any) => ({ ...(prev || {}), phase: 'Hiba', percent: Math.min(99, Math.max(0, prev?.percent || 0)) }));
       setLastImportDiagnostic((current) => ({
@@ -2527,6 +2555,8 @@ export function App() {
           <VideoPlayer
             liveAccent={liveAccent}
             channel={activeChannel}
+            providerId={activeProvider?.id}
+            providerType={activeProvider?.type}
             customStreamUrl={customStreamUrl}
             customTitle={customStreamTitle}
             /* Élő adás csak a főoldalon (élő nézetben) indul – Mozi/Sorozat

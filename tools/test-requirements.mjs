@@ -1213,3 +1213,34 @@ test('15. a kézi napló 1 MB-os, sorszámozott exportot készít', () => {
   assert.match(APPLOG, /WEBOS NAPLÓ #\$\{activeLogNumber\}/);
   assert.doesNotMatch(APPLOG, /MAX_LINES/);
 });
+
+
+test('16. a Rendszer fül kézi szolgáltató-váltási próbája távirányítóval indítható', () => {
+  assert.match(SETTINGS_MODAL, /data-provider-switch-test/);
+  assert.match(SETTINGS_MODAL, /onOpenDiagnosticShare\?: \(\) => void;/);
+  assert.match(SETTINGS_MODAL, /startManualLogging\(\)/);
+  assert.match(SETTINGS_MODAL, /stopManualLogging\('kézi leállítás a Rendszer fülön'\)/);
+  assert.match(SETTINGS_MODAL, /data-provider-switch-target=\{provider\.id\}/);
+  assert.match(SETTINGS_MODAL, /onRefreshProvider\(providerId\)/);
+  assert.match(APP, /SZOLGÁLTATÓ-VÁLTÁS START/);
+  assert.match(APP, /SZOLGÁLTATÓ-VÁLTÁS ÖSSZESÍTÉS/);
+  assert.match(APP, /SZOLGÁLTATÓ-VÁLTÁS HIBA/);
+  assert.match(PLAYER, /providerId\?: string;/);
+  assert.match(PLAYER, /aktív-szolgáltató=\$\{providerIdRef\.current/);
+  // A próbaablak bezárható a váltás előtt; a napló csak a kézi leállításkor zárul.
+  assert.match(DIAG_MODAL, /Az ablak bezárása után a kézi naplózás folytatódik/);
+});
+
+test('16. a kért Rendszer-fül tisztítása nem törli az alkalmazás márkakártyáját', () => {
+  assert.doesNotMatch(SETTINGS_MODAL, /LG webOS frissítés/);
+  for (const removed of [
+    'Kép a képben',
+    'TV-re küldés',
+    'Kedvencek átrendezése',
+    'Dupla koppintás és hangvezérlés',
+    'Külön Mozi és Sorozat',
+    'Többfunkciós kedvencek',
+  ]) assert.doesNotMatch(SETTINGS_MODAL, new RegExp(removed));
+  assert.match(SETTINGS_MODAL, /LG webOS alkalmazás/);
+  assert.match(SETTINGS_MODAL, /LG webOS TV mód/);
+});
