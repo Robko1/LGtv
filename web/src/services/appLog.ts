@@ -9,8 +9,6 @@
  * törlődnek, így hosszú használat után sem növeli a memóriát.
  */
 
-import { startupTraceText } from './startupTrace';
-
 // A kézi diagnosztikai napló és a Supabase-export felső határa 1 000 000 karakter.
 // A napló NEM fut automatikusan: csak a SÁRGA gomb ablakában, a felhasználó
 // „Naplózás indítása” gombjára kapcsol be.
@@ -284,8 +282,6 @@ export function startManualLogging(): ManualLogSnapshot {
   appLog(`INDULÁS [0 ms] kézi naplózás elindítva; napló=#${activeLogNumber}`);
   appLog(`Eszköz: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'ismeretlen környezet'}`);
   appLog('FIGYELŐ ELINDULT; kézi naplózás aktív; a lejátszás- és fagyásfigyelés mostantól rögzít.');
-  const startupText = startupTraceText();
-  if (startupText) appLog(`INDULÁSI MÉRÉS (kézi napló indításakor): ${startupText}`);
   return manualLogSnapshot();
 }
 

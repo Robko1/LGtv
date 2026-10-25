@@ -70,14 +70,6 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
   const [liveLoadedPromptOpen, setLiveLoadedPromptOpen] = useState(false);
   const diagnosticFinishedRef = useRef(false);
 
-  useEffect(() => {
-    if (!liveLoadedPromptOpen) return;
-    const timer = window.setTimeout(() => {
-      document.querySelector<HTMLElement>('[data-live-loaded-primary]')?.focus({ preventScroll: true } as FocusOptions);
-    }, 60);
-    return () => window.clearTimeout(timer);
-  }, [liveLoadedPromptOpen]);
-
   if (!isOpen) return null;
 
   const handleTestAndConnectXtream = async (e: React.FormEvent) => {
@@ -451,13 +443,8 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
             <div className="text-lg font-black text-cyan-200">Az élő TV-csatornák betöltve</div>
             <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok betöltése még folyamatban van. Szeretnéd tovább nézni a folyamatot, vagy folytassuk a háttérben?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                data-live-loaded-primary=""
-                onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }}
-                className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black"
-              >TV-csatornák nézése</button>
-              <button type="button" onClick={() => setLiveLoadedPromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Betöltés megtekintése</button>
+              <button onClick={() => setLiveLoadedPromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Nem, tovább nézem</button>
+              <button onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
             </div>
           </div>
         </div>

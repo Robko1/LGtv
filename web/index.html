@@ -52,12 +52,11 @@
       /* EGY PILLANAT ALATTI INDULÁS.
          Amíg a teljes főoldal (fejléc + csatornalista + lejátszó) fel nem épült,
          a képernyő a webOS indítóképét mutatja (ugyanaz a logó-képkocka), a
-         #root pedig rövid ideig rejtve van. A minimális fejléc + első
-         csatornasor után EGYBEN jelenik meg a program; a film- és
-         sorozat-cache már nem indulási kapu. A képet a HTML melletti
-         splash-screen.png adja (a webOS csomagban ott van); ha nem érhető el,
-         a logó színeihez illő átmenet látszik. A 7 mp-es biztonsági háló
-         garantálja, hogy semmi ne maradjon rejtve. */
+         #root pedig rejtve van. Így nincs "darabos" felépülés: a webOS
+         töltőképe után EGYBEN jelenik meg a kész felület. A képet a HTML
+         melletti splash-screen.png adja (a webOS csomagban ott van); ha nem
+         érhető el, a logó színeihez illő átmenet látszik. A 7 mp-es
+         biztonsági háló garantálja, hogy semmi ne maradjon rejtve. */
       /* A háttérkép (splash-bg.jpg) a build által készített fájl: a webOS
          indítóképével AZONOS kép. A url()-t szándékosan a szkript injektálja
          (a Vite a HTML CSS-ében fel akarná oldani). Ha nincs kép, a logó
@@ -190,9 +189,9 @@
           (document.head || document.documentElement).appendChild(bgStyle);
         } catch (e) {}
 
-        // ---------- Gyors megjelenés ----------
-        // A #root csak a minimális, használható élő TV-felületig rejtett:
-        // a film- és sorozat-cache nem tarthatja a webOS splash-t a képernyőn.
+        // ---------- Egy pillanat alatti megjelenés ----------
+        // A #root addig rejtve van (a webOS indítókép látszik), amíg a
+        // teljes főoldal fel nem épült. Ekkor EGYBEN jelenik meg.
         //
         // A webOS indítóképét a webOSSystem.notifyAppLoaded() hívás emeli le.
         // Ez a hívás UGYANEBBEN a feladatban fut, mint a megjelenítés: a

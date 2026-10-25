@@ -10,7 +10,6 @@ import {
   uiStateSnapshot,
 } from "./services/appLog";
 import { WEB_VERSION } from "./appVersion";
-import { markStartup, startupTraceSnapshot } from "./services/startupTrace";
 
 /*
  * FAGYÁS-/ÖSSZEOMLÁS-DIAGNOSZTIKA.
@@ -46,7 +45,6 @@ try {
     logStatus: () => manualLogSnapshot(),
     startLogging: () => startManualLogging(),
     stopLogging: (reason?: string) => stopManualLogging(reason ? String(reason) : 'diagnosztikai híd'),
-    startup: () => startupTraceSnapshot(),
   };
 } catch { /* nincs window (SSR) */ }
 
@@ -55,7 +53,6 @@ try {
  * Indítási napló boot-splash-hez
  */
 const stage = (n: number, label: string) => {
-  markStartup(`stage ${n}: ${label}`);
   try { (window as any).__IPTV_STARTUP_STAGE_SET__?.(n, label); } catch {}
 };
 const fail = (e: unknown) => {
@@ -109,10 +106,9 @@ try {
    * EGY PILLANAT ALATTI INDULÁS.
    *
    * A #root addig rejtve van (a webOS indítókép látszik helyette), amíg a
-   * minimális használható élő TV-shell fel nem épült: fejléc, mappasáv és
-   * legalább egy csatornasor vagy betöltési ablak. Így nincs félkész, üres
-   * képernyő, de a nagy film-/sorozat-cache és a lejátszó első képkockája nem
-   * tarthatja vissza a programot.
+   * TELJES főoldal fel nem épült: fejléc + csatornalista sorai. Így nincs
+   * "darabos" felépülés (fejléc, majd üres lista, majd sorok, majd EPG) -
+   * a webOS töltőképe után EGYBEN jelenik meg a kész felület.
    *
    * A megjelenítést az index.html __IPTV_REVEAL__ függvénye végzi (7 mp-es
    * biztonsági hálóval, hogy semmi ne maradjon rejtve).
@@ -130,23 +126,46 @@ try {
   // főoldalt. Ha nincs mentett szolgáltató/csatorna, a felület egy ablakot
   // (role="dialog") mutat: ilyenkor nincs mire várni, azonnal megjelenhet.
   const listReady = () =>
-    !!document.querySelector('[role="listbox"] [role="option"]') ||
+    document.querySelectorAll('[role="listbox"] [role="option"]').length >= 3 ||
     !!document.querySelector('[role="dialog"]');
 
   /*
-   * A KÉSZ FŐOLDAL MINIMÁLIS FELTÉTELEI – korábban a logók és az első
-   * videókocka is a takarókép mögött tartotta a TV-t, miközben a film- és
-   * sorozat-cache még csak háttérben dolgozott. Ez a régi készülékeken
-   * fölösleges indulási várakozást és memória-csúcsot okozott.
+   * A KÉSZ FŐOLDAL FELTÉTELEI – a korábbi "2 másodperc után elég a fejléc"
+   * ág volt a fokozatos felépülés oka: a takarékép lement, aztán a néző
+   * látta, ahogy a sorok, az EPG és a logók egymás után megjelennek.
    *
-   * Most csak ennyi kell a gyors váltáshoz:
-   *   • a fejléc és a kedvencek mappasávja kirajzolódott,
-   *   • legalább egy csatornasor vagy egy valódi betöltési ablak látható.
-   * A logók, az első videókocka, a filmek és a sorozatok a már látható
-   * program mögött készülnek; hiba esetén nem marad a néző a takaróképen.
+   * Mostantól a megjelenéshez mindez kell (vagy egy hosszú biztonsági idő):
+   *   • fejléc ÉS a kedvencek mappasávja is kirajzolódott,
+   *   • a csatornalista sorai ott vannak,
+   *   • a látható logók betöltődtek (korlátozott ideig várunk rájuk),
+   *   • az élő kép első kockája megérkezett – DE csak rövid ideig várunk rá:
+   *     addig a lejátszó borítóképe (poszter) látszik, tehát nincs fekete
+   *     terület. A korábbi 3,5 mp-es (a listához képest összesen 6 mp-es)
+   *     várakozás volt az oka, hogy a rendszerindítás után másodpercekig
+   *     takarékép (zöld kép) látszott a kész főoldal helyett.
    */
+  const VIDEO_WAIT_MS = 1200;
+  const LOGO_WAIT_MS = 600;
+
   const chromeReady = () => {
     return headerReady() && !!document.querySelector("[data-tv-folders]");
+  };
+
+  const logosSettled = () => {
+    const images = Array.prototype.slice.call(
+      document.querySelectorAll('[role="listbox"] [role="option"] img')
+    ) as HTMLImageElement[];
+    if (!images.length) return true;
+    const pending = images.filter((img) => !img.complete && img.currentSrc !== "");
+    return pending.length === 0;
+  };
+
+  const videoSettled = () => {
+    // A lejátszó az első képkockánál __IPTV_VIDEO_READY__-t állít.
+    // Ha nincs lejátszó (pl. nincs szolgáltató), nincs mit várni.
+    const hasPlayer = !!document.querySelector('video[data-iptv-player="true"]');
+    if (!hasPlayer) return true;
+    return !!(window as any).__IPTV_VIDEO_READY__;
   };
 
   /*
@@ -167,7 +186,6 @@ try {
   const revealNow = (reason: string) => {
     if (revealed) return;
     revealed = true;
-    markStartup('főoldal látható', reason);
     stage(6, "App állapot / Storage");
     stage(7, "Főképernyő kész");
     logPhase('főoldal kész és kirajzolva');
@@ -175,6 +193,8 @@ try {
     // A webOS indítóképe és a kész főoldal egyetlen váltással cserélődik.
     reveal(reason);
   };
+
+  const logoStartedAt = { value: 0 };
 
   const checkRendered = () => {
     if (revealed) return;
@@ -185,12 +205,18 @@ try {
     const onlyDialog = !!document.querySelector('[role="dialog"]');
 
     if (chromeReady() && (listReady() || onlyDialog)) {
-      // A takarókép csak a minimális, használható főképernyőre vár: a
-      // fejléc, a mappasáv és legalább egy csatornasor már a DOM-ban van.
-      // A logók, az első videókocka, a film-cache és a sorozat-cache nem
-      // lehet indulási kapu. Ezek később, a látható program mögött készülnek.
-      afterPaint(() => revealNow("minimális főoldal kész"));
-      return;
+      // A logókra és az első képkockára a LISTA megjelenésétől számítunk:
+      // így a korábbi lépések (bundle betöltése, tár olvasása) nem
+      // "eszik meg" a várakozási időt, és a takarékép nem marad fent
+      // feleslegesen másodpercekig.
+      if (logoStartedAt.value === 0) logoStartedAt.value = Date.now();
+      const waited = Date.now() - logoStartedAt.value;
+      const logosOk = logosSettled() || waited > LOGO_WAIT_MS;
+      const videoOk = videoSettled() || waited > VIDEO_WAIT_MS;
+      if (logosOk && videoOk) {
+        afterPaint(() => revealNow("kész főoldal"));
+        return;
+      }
     }
 
     if (elapsed > 9000) {

@@ -1207,22 +1207,19 @@ export async function importXtreamProvider(
   };
 
   /*
-   * A FILM- ÉS SOROZATLISTA PÁRHUZAMOSAN TÖLTŐDIK.
-   *
-   * Korábban a sorozatok csak a TELJES filmkatalógus letöltése és feldolgozása
-   * után indultak: 40 000 film letöltése (több MB letöltés + JSON-feldolgozás)
-   * után jött a sorozat, így a „Sorozat” menü akár fél percig üres maradt.
-   * A két lista egymástól független (külön végpont, külön kategóriák), ezért
-   * egyszerre indulnak; a net.ts továbbra is legfeljebb 2 párhuzamos
-   * kapcsolatot enged, tehát a szolgáltató/ router terhelése nem nő.
-   * A hibakezelés külön-külön marad: az egyik lista hibája nem viszi magával
-   * a másikat, és a figyelmeztetések is a végén jelennek meg.
+   * A betöltés egyetlen, stabil sorozatot követ: élő csatornák, filmek,
+   * majd sorozatok. A film- és sorozatlista nem indul egyszerre, mert a két
+   * nagy JSON feldolgozása párhuzamosan a webOS TV-n memória-csúcsot és
+   * félkész 0/elemszámú nézetet okozhatott. A filmek szakasza akkor is
+   * befejeződik, ha hibával zárul; ezután külön indul a sorozat-szakasz.
    */
-  await Promise.all([loadMoviesPhase(), loadSeriesPhase()]);
+  await loadMoviesPhase();
+  await yieldToUi();
+  await loadSeriesPhase();
 
   // A részletes végpontok csak az első 20 (film + sorozat) VOD-elemet érintik.
-  // A két lista alapbetöltése már párhuzamosan megtörtént, ezért ez a kis,
-  // korlátozott kör nem tarthatja fel az élő csatorna első használható adagját.
+  // Ezek mindkét alaplista után, egy külön, korlátozott körben futnak; a
+  // részleges élő csatornalista addigra már használható a felületen.
   if (movies.length || series.length) {
     const detailed = await enrichFirstVodMetadata(movies, series, server, user, pass);
     movies = detailed.movies;

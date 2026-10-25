@@ -4,8 +4,7 @@ import { storageService } from './services/storageService';
 import {
   clearContent,
   ImportedContent,
-  loadLiveAsync,
-  loadLivePreview,
+  loadLive,
   loadSeriesAsync,
   loadVodAsync,
   ProviderRef,
@@ -16,7 +15,6 @@ import {
   sweepStorage,
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
-import { markStartup } from './services/startupTrace';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { PartialContent, refreshProviderContent } from './services/providerImport';
 import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
@@ -26,13 +24,10 @@ import { parseEpisodeMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './s
 // Induláskor a korábban betöltött szolgáltatói lista töltődik be. Demó adat
 // helyett üres listát mutatunk, és a felület felhívja a figyelmet a lista
 // hozzáadására (Menü → Listák).
-const bootLive = loadLivePreview();
-logPhase('mentett élő lista előnézete beolvasva (App modul)');
-// A nagy cache első adagja elég az első képernyőhöz; a teljes lista a React
-// mount után aszinkron érkezik, ezért a webOS nem marad splash-képen a teljes
-// localStorage-dekódolás idejére.
+const bootLive = loadLive();
+logPhase('mentett élő lista beolvasva (App modul)');
+// A betöltött tár régi vagy sérült adatait már az állapot létrehozásakor normalizáljuk.
 const bootChannels = Array.isArray(bootLive.channels) ? bootLive.channels : [];
-markStartup('mentett élő lista előnézete beolvasva', `${bootChannels.length} csatorna${bootLive.partial ? ' (háttérbetöltés folytatódik)' : ''}`);
 
 function restoreSavedChannelOrder(channels: Channel[], providerId?: string): Channel[] {
   if (!providerId || channels.length < 2) return channels;
@@ -208,7 +203,6 @@ import { CategoriesModal } from './components/CategoriesModal';
 import { MenuSettingsModal } from './components/MenuSettingsModal';
 import { MoviesView } from './components/MoviesView';
 import { SeriesView } from './components/SeriesView';
-import { ContentErrorBoundary } from './components/ContentErrorBoundary';
 import { EpgGuideModal } from './components/EpgGuideModal';
 import { AudioSubtitlesModal } from './components/AudioSubtitlesModal';
 import { AddPlaylistModal } from './components/AddPlaylistModal';
@@ -240,8 +234,6 @@ export function App() {
   const [folders, setFolders] = useState<FavoriteFolder[]>(() => storageService.getFolders());
   const [movies, setMovies] = useState<Movie[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
-  const [seriesCacheLoading, setSeriesCacheLoading] = useState(false);
-  const [seriesCacheError, setSeriesCacheError] = useState<string | null>(null);
   const [activeProvider, setActiveProvider] = useState<ProviderRef | null>(() => bootLive.provider);
   const [totalCounts, setTotalCounts] = useState(() => bootLive.totals);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
@@ -394,35 +386,6 @@ export function App() {
    * Most csak ez az egy bejegyzés változik, a `channels` tömb azonos marad.
    */
   const [activeEpg, setActiveEpg] = useState<{ id: string; now?: Channel['epgNow']; next?: Channel['epgNext']; upcoming?: Channel['epgUpcoming'] } | null>(null);
-
-  // Nagy élő cache esetén csak az első adagot olvastuk be a modul indulásakor.
-  // A maradékot most, már látható React-felület mellett dekódoljuk, így a
-  // splash nem a teljes localStorage-lista szinkron feldolgozására vár.
-  useEffect(() => {
-    if (!bootLive.partial) return;
-    const refreshAtStart = refreshGenerationRef.current;
-    let cancelled = false;
-    markStartup('élő cache háttérbetöltése indul');
-    void loadLiveAsync()
-      .then((loaded) => {
-        if (cancelled || refreshGenerationRef.current !== refreshAtStart) return;
-        const nextChannels = restoreSavedChannelOrder(hungaryFirst(loaded.channels), loaded.provider?.id);
-        setChannels(nextChannels);
-        setCategories(loaded.categories);
-        setTotalCounts(loaded.totals);
-        if (loaded.provider) setActiveProvider(loaded.provider);
-        markStartup('élő cache háttérbetöltve', `${nextChannels.length} csatorna`);
-        logPhase(`élő cache háttérbetöltve (${nextChannels.length} db)`);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        appLogError('Élő cache háttérbetöltése', error);
-        logPhase('élő cache háttérbetöltése sikertelen; az első adag használható maradt');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Active Channel / Media State
   const [activeChannelId, setActiveChannelId] = useState<string>(() => {
@@ -734,135 +697,83 @@ export function App() {
    * A filmek és sorozatok betöltése a mentett tárból.
    *
    * FONTOS (indulás és a Mozi/Sorozat megnyitásának gyorsasága):
-   *  - a film-cache csak a főoldal megjelenése után, üresjáratban indul;
-   *  - a sorozat-cache még később, csak a Sorozatok nézet tényleges
-   *    megnyitásakor indul, nem tarthatja a splash-képet és nem terhelheti
-   *    ki az élő TV-t háttérben;
-   *  - minden cache adagonként olvasódik, a vezérlés visszakerül a felülethez,
+   *  - a betöltés NEM a legelső képkocka előtt indul, hanem a főoldal
+   *    megjelenése után, üresjáratban (1,2 mp),
+   *  - és NEM is kell kivárni: amint a néző a Mozi vagy a Sorozat menüre
+   *    lép, az `ensureVodLoaded()` azonnal elindítja (lásd handleViewChange).
+   *  - adagonként töltődik, adagok között a felület visszakapja a vezérlést,
    *    így a TV nem fagy le a több tízezer elemű lista olvasásakor.
-   * Mindkét rész csak egyszer fut le; a nézetváltás nem indít újra cache-olvasást.
+   * Csak EGYSZER fut le (az első kérésre), utána a memóriában lévő listát
+   * használjuk – nincs ismételt betöltés nézetváltáskor.
    */
   const vodLoadStartedRef = useRef(false);
-  const seriesLoadStartedRef = useRef(false);
-  const vodLoadPromiseRef = useRef<Promise<void> | null>(null);
-
-  /** A film-cache a főképernyő mögött betölthető; ez nem indítja a sorozat-cache-t. */
-  const ensureVodLoaded = useCallback((): Promise<void> => {
-    if (vodLoadStartedRef.current) return vodLoadPromiseRef.current || Promise.resolve();
-    const provider = activeProvider;
-    if (!provider) return Promise.resolve();
+  const ensureVodLoaded = useCallback(() => {
+    if (vodLoadStartedRef.current) return;
+    const provider = bootLive.provider;
+    if (!provider) return;
     vodLoadStartedRef.current = true;
-    const loadGeneration = refreshGenerationRef.current;
-    markStartup('mentett film-cache betöltése indul');
-    appLog(`Mentett filmlista betöltése indul (tároló: ${provider.id}).`);
-    logMemory('filmlista cache előtt');
+    // A mentett tartalom mindig egyetlen, meghatározott sorrendben töltődik:
+    // élő csatornák (a modul indulásakor), filmek, majd sorozatok. A film- és
+    // sorozat-cache soha nem indul egyszerre, mert az régi webOS TV-n üres
+    // vagy félkész 0/elemszámú nézethez és memória-csúcshoz vezethet.
+    appLog(`Mentett tartalom betöltése indul (tároló: ${provider.id}).`);
+    logMemory('tartalom betöltése előtt');
 
-    const task = (async (): Promise<void> => {
+    const loadStoredContent = async (): Promise<void> => {
       try {
         logPhase('filmlista cache betöltése indul');
         const vod = await loadVodAsync(provider);
-        if (refreshGenerationRef.current !== loadGeneration) return;
         setMovies(vod.movies);
         setVodCategories(vod.categories);
         appLog(`Filmek a felületen: ${vod.movies.length}.`);
         logPhase(`filmek betöltve a felületre (${vod.movies.length} db)`);
-        markStartup('filmlista cache betöltve', `${vod.movies.length} film`);
-        logMemory(`filmlista cache után (${vod.movies.length} db)`);
       } catch (error) {
+        // A film-cache hibája nem akadályozhatja a sorozat-cache következő,
+        // külön szakaszát és az élő TV-t.
         appLogError('Filmek betöltése', error);
-        logPhase('filmlista cache hiba; a sorozat csak külön megnyitáskor indul');
       }
-    })();
-    vodLoadPromiseRef.current = task;
-    return task;
-  }, [activeProvider]);
 
-  /**
-   * A sorozat-cache NEM indul el automatikusan az élő TV mögött. Csak akkor
-   * kezdjük, amikor a néző tényleg megnyitja a Sorozatok nézetet. A film-cache
-   * előbb befejeződik, majd a TV kap egy rövid GC/főszál-szünetet.
-   *
-   * Ez a régi webOS készülékeken döntő: a filmek + sorozatok egyidejű
-   * localStorage-dekódolása memória-csúcsot okozott, amelynél a webOS az appot
-   * JavaScript-hiba nélkül kilőtte.
-   */
-  const ensureSeriesLoaded = useCallback(() => {
-    if (seriesLoadStartedRef.current) return;
-    const provider = activeProvider;
-    if (!provider) return;
-    seriesLoadStartedRef.current = true;
-    const loadGeneration = refreshGenerationRef.current;
-    setSeriesCacheLoading(true);
-    setSeriesCacheError(null);
-    setSeries([]);
-    setSeriesCategories([]);
-    markStartup('sorozat-cache betöltése indul (nézet megnyitva)');
+      // A két nagy dekódolás között adjuk vissza a főszálat a webOS-nak.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 32));
 
-    const task = (async (): Promise<void> => {
-      await ensureVodLoaded();
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 64));
-      if (refreshGenerationRef.current !== loadGeneration) return;
       try {
         logPhase('sorozatlista cache betöltése indul');
-        logMemory('sorozatlista cache előtt');
-        let streamedSeries = false;
-        const ser = await loadSeriesAsync(provider, undefined, (chunk) => {
-          if (refreshGenerationRef.current !== loadGeneration || chunk.length === 0) return;
-          streamedSeries = true;
-          setSeries((current) => [...current, ...chunk]);
-        });
-        if (refreshGenerationRef.current !== loadGeneration) return;
-        if (!streamedSeries) setSeries(ser.series);
+        const ser = await loadSeriesAsync(provider);
+        setSeries(ser.series);
         setSeriesCategories(ser.categories);
         appLog(`Sorozatok a felületen: ${ser.series.length}.`);
         logPhase(`sorozatok betöltve a felületre (${ser.series.length} db)`);
-        markStartup('sorozatlista cache betöltve', `${ser.series.length} sorozat`);
-        logMemory(`sorozatlista cache után (${ser.series.length} db)`);
       } catch (error) {
-        if (refreshGenerationRef.current !== loadGeneration) return;
-        const detail = error instanceof Error ? error.message : String(error);
-        seriesLoadStartedRef.current = false;
-        setSeriesCacheError(detail.slice(0, 240));
         appLogError('Sorozatok betöltése', error);
-        logPhase('sorozatlista cache hiba; az élő TV és a filmek megmaradtak');
-      } finally {
-        if (refreshGenerationRef.current !== loadGeneration) return;
-        setSeriesCacheLoading(false);
-        logMemory('sorozat-cache betöltése után');
       }
-    })();
-    void task.catch((error) => {
-      if (refreshGenerationRef.current !== loadGeneration) return;
-      const detail = error instanceof Error ? error.message : String(error);
-      seriesLoadStartedRef.current = false;
-      setSeriesCacheError(detail.slice(0, 240));
-      setSeriesCacheLoading(false);
-      appLogError('Sorozatbetöltési előfeltétel', error);
-    });
-  }, [ensureVodLoaded, activeProvider]);
+    };
+
+    void loadStoredContent().finally(() => logMemory('tartalom betöltése után'));
+  }, []);
 
   useEffect(() => {
-    if (!activeProvider) return;
+    if (!bootLive.provider) return;
     const ric = (window as any).requestIdleCallback;
     let timer = 0;
-    // A késleltetés szándékos: előbb az élő képernyő jelenik meg, majd csak a
-    // film-cache töltődik. A sorozatok külön, a Sorozat menü megnyitásakor
-    // indulnak, így nem tudják az IPK indulását vagy az élő TV-t kilőni.
+    // A késleltetés szándékos: a lejátszás elindulása és az első képkocka
+    // előzi meg a nagy JSON-ok beolvasását. Ha a néző közben a Mozi/Sorozat
+    // menüre lép, az ensureVodLoaded() azonnal elindítja.
     timer = window.setTimeout(() => {
       const start = () => {
+        // A félbe maradt, elárvult tároló-adagok törlése (egyszer, induláskor):
+        // helyet ad a következő mentésnek és nem lassítja a betöltést.
         try {
           sweepStorage();
         } catch {
           /* a takarítás sosem akadályozhatja az indulást */
         }
-        void ensureVodLoaded();
-        if (activeView === 'series') ensureSeriesLoaded();
+        ensureVodLoaded();
       };
       if (typeof ric === 'function') ric(start, { timeout: 2000 });
       else start();
     }, 1200);
     return () => window.clearTimeout(timer);
-  }, [ensureVodLoaded, ensureSeriesLoaded, activeView]);
+  }, [ensureVodLoaded]);
 
   // Kedvencek / sorrend módosítása után mentsük a tartalmat (késleltetve).
   //
@@ -1017,13 +928,11 @@ export function App() {
     setCustomStreamTitle(undefined);
     // Élő nézetben újra a legutóbbi csatorna megy; böngészés közben nem fut a háttérben.
     setIsPlaying(view === 'live');
-    if (view === 'movies') {
-      window.setTimeout(() => { void ensureVodLoaded(); }, 0);
-    } else if (view === 'series') {
-      // A sorozat-cache csak a tényleges Sorozatok nézet megnyitásakor indul.
-      window.setTimeout(ensureSeriesLoaded, 0);
+    if (view !== 'live') {
+      // A film/sorozat lista betöltése már a menü megnyomásakor elindul.
+      window.setTimeout(ensureVodLoaded, 0);
     }
-  }, [ensureVodLoaded, ensureSeriesLoaded, activeView, capturePaneScroll]);
+  }, [ensureVodLoaded, activeView, capturePaneScroll]);
 
   // A nézetek propjai STABILAK (a React.memo így tudja kihagyni az
   // újrarajzolást, amikor csak a lejátszó teljes képernyős állapota változik).
@@ -1318,10 +1227,6 @@ export function App() {
 
     if (!content) return;
 
-    // Egy futó cache-olvasás ne írhassa vissza a korábbi szolgáltató listáját
-    // az új import fölé.
-    refreshGenerationRef.current += 1;
-
     // Az import által létrehozott ideiglenes provider ID-t mindig
     // összehangoljuk a ténylegesen mentett szolgáltató ID-jával.
     const providerId = replacingId || newProvider.id;
@@ -1344,11 +1249,6 @@ export function App() {
     setVodCategories(normalizedContent.vodCategories);
     setSeries(normalizedContent.series);
     setSeriesCategories(normalizedContent.seriesCategories);
-    setSeriesCacheLoading(false);
-    setSeriesCacheError(null);
-    vodLoadStartedRef.current = true;
-    seriesLoadStartedRef.current = true;
-    vodLoadPromiseRef.current = Promise.resolve();
     setTotalCounts(normalizedContent.totals);
     appLog(`Új lista mentése: ${normalizedContent.channels.length} csatorna,`
       + ` ${normalizedContent.movies.length} film, ${normalizedContent.series.length} sorozat.`);
@@ -1466,7 +1366,6 @@ export function App() {
     storageService.saveProviders(updated);
 
     if (activeProvider?.id === id) {
-      refreshGenerationRef.current += 1;
       // A felhasználói kedvencek és sorrendek csak a szolgáltató törlésekor törlődnek.
       clearContent();
       setActiveProvider(null);
@@ -1476,11 +1375,6 @@ export function App() {
       setVodCategories([]);
       setSeries([]);
       setSeriesCategories([]);
-      setSeriesCacheLoading(false);
-      setSeriesCacheError(null);
-      vodLoadStartedRef.current = false;
-      seriesLoadStartedRef.current = false;
-      vodLoadPromiseRef.current = null;
       setTotalCounts({ live: 0, vod: 0, series: 0 });
       setFolders([]);
       storageService.saveFolders([]);
@@ -1773,14 +1667,6 @@ export function App() {
       setVodCategories((current) => (sameCategories(current, contentForStorage.vodCategories) ? current : contentForStorage.vodCategories));
       if (seriesToShow) setSeries(seriesToShow);
       setSeriesCategories((current) => (sameCategories(current, contentForStorage.seriesCategories) ? current : contentForStorage.seriesCategories));
-      // A végleges frissítés már a teljes VOD/sorozat-snapshotot publikálta;
-      // az indulási cache-loader ne olvassa vissza még egyszer ugyanazt a
-      // szolgáltatót, ha a néző közben a Sorozatok nézetben maradt.
-      vodLoadStartedRef.current = true;
-      seriesLoadStartedRef.current = true;
-      vodLoadPromiseRef.current = Promise.resolve();
-      setSeriesCacheLoading(false);
-      setSeriesCacheError(null);
       setTotalCounts(contentForStorage.totals);
       // A preview-szakaszok szándékosan nem írnak tartós listát. A végső,
       // enrichmentelt snapshotot pontosan egyszer mentjük, így a részleges
@@ -1919,22 +1805,6 @@ export function App() {
   const closeLastImportDiagnostic = useCallback(() => {
     setLastImportDiagnosticOpen(false);
   }, []);
-
-  // A csatornák első részleges frissítésekor megjelenő kérdés mindig az élő
-  // TV-nézést ajánlja fel elsőként. A webOS globális fókuszkezelője több
-  // egymásra nyíló dialogot is lát, ezért a React saját fókusz-visszaállítása
-  // is kell: így a betöltési diagnosztika nem viheti el a kijelölést a háttérbe.
-  useEffect(() => {
-    if (!refreshLivePromptOpen) return;
-    const focusLiveChoice = () => {
-      const primary = document.querySelector<HTMLElement>('[data-refresh-live-primary]');
-      if (primary && primary.getClientRects().length > 0) {
-        primary.focus({ preventScroll: true } as FocusOptions);
-      }
-    };
-    const timer = window.setTimeout(focusLiveChoice, 60);
-    return () => window.clearTimeout(timer);
-  }, [refreshLivePromptOpen]);
 
   // Sorozat részeinek (évadok) betöltése a szolgáltatótól
   const handleLoadSeriesInfo = useCallback(
@@ -2610,9 +2480,6 @@ export function App() {
   // TV stick: induláskor és modal bezárásakor fókusz a csatornalistára, hogy D-pad azonnal működjön
   useEffect(() => {
     const focusChannelList = () => {
-      // Az élő-frissítési kérdés saját fókuszcsapdája; a globális
-      // visszaállító nem viheti a kijelölőt a háttérben maradt listára.
-      if (refreshLivePromptOpen || isAddProviderOpen) return;
       try {
         const list = document.querySelector('[role="listbox"]') as HTMLElement | null;
         if (!list) return;
@@ -2649,13 +2516,12 @@ export function App() {
     const t2 = window.setTimeout(focusChannelList, 1800);
     const t3 = window.setTimeout(focusChannelList, 3500);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [channels.length, refreshLivePromptOpen, isAddProviderOpen]);
+  }, [channels.length]);
 
   // TV: amikor bezárul egy modal, fókusz vissza a listára
   useEffect(() => {
     if (!isCategoriesOpen && !isSettingsOpen && !isEpgOpen && !isAudioModalOpen && !isSubtitlesModalOpen) {
       const focusBack = () => {
-        if (refreshLivePromptOpen || isAddProviderOpen) return;
         try {
           // Teljes képernyőn a kijelölő a LEJÁTSZÓN marad (a csatornaváltás
           // miatt) – a rejtett csatornalistára nem visszük vissza.
@@ -2681,7 +2547,7 @@ export function App() {
       const t = window.setTimeout(focusBack, 150);
       return () => clearTimeout(t);
     }
-  }, [isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, refreshLivePromptOpen, isAddProviderOpen]);
+  }, [isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen]);
 
   // Kép a képben támogatás: korábban ezt minden kirajzoláskor egy DOM-kereséssel
   // (!) ellenőriztük, kétszer. Elég a környezet egyszeri vizsgálata.
@@ -2957,19 +2823,17 @@ export function App() {
           className="absolute inset-0 flex flex-col min-h-0"
           style={paneStyle(activeView === 'movies')}
         >
-          <ContentErrorBoundary label="mozi" onBackToLive={handleBackToLive}>
-            <MoviesView
-              movies={movies}
-              categories={vodCategories}
-              totalCount={totalCounts.vod}
-              onPlayMovie={handlePlayMovie}
-              selectedCategoryId={movieCategoryRef.current}
-              onSelectedCategoryChange={handleMoviesCategoryChange}
-              onBackToLive={handleBackToLive}
-              onToggleFavoriteMovie={handleToggleFavoriteMovie}
-              isActive={activeView === 'movies'}
-            />
-          </ContentErrorBoundary>
+          <MoviesView
+            movies={movies}
+            categories={vodCategories}
+            totalCount={totalCounts.vod}
+            onPlayMovie={handlePlayMovie}
+            selectedCategoryId={movieCategoryRef.current}
+            onSelectedCategoryChange={handleMoviesCategoryChange}
+            onBackToLive={handleBackToLive}
+            onToggleFavoriteMovie={handleToggleFavoriteMovie}
+            isActive={activeView === 'movies'}
+          />
         </div>
       )}
 
@@ -2981,24 +2845,19 @@ export function App() {
           className="absolute inset-0 flex flex-col min-h-0"
           style={paneStyle(activeView === 'series')}
         >
-          <ContentErrorBoundary label="sorozat" onBackToLive={handleBackToLive}>
-            <SeriesView
+          <SeriesView
             series={series}
             categories={seriesCategories}
             totalCount={totalCounts.series}
-            loadingCache={seriesCacheLoading}
-            loadError={seriesCacheError}
-            onRetryCache={ensureSeriesLoaded}
             loadingSeriesId={loadingSeriesId}
-              onOpenSeries={handleLoadSeriesInfo}
-              onPlayEpisode={handlePlayEpisode}
-              selectedCategoryId={seriesCategoryRef.current}
-              onSelectedCategoryChange={handleSeriesCategoryChange}
-              onBackToLive={handleBackToLive}
-              onToggleFavoriteSeries={handleToggleFavoriteSeries}
-              isActive={activeView === 'series'}
-            />
-          </ContentErrorBoundary>
+            onOpenSeries={handleLoadSeriesInfo}
+            onPlayEpisode={handlePlayEpisode}
+            selectedCategoryId={seriesCategoryRef.current}
+            onSelectedCategoryChange={handleSeriesCategoryChange}
+            onBackToLive={handleBackToLive}
+            onToggleFavoriteSeries={handleToggleFavoriteSeries}
+            isActive={activeView === 'series'}
+          />
         </div>
       )}
 
@@ -3043,26 +2902,8 @@ export function App() {
             <div className="text-lg font-black text-cyan-200">Az élő TV-csatornák frissítve</div>
             <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok frissítése még folyamatban van. Szeretnéd tovább nézni a diagnosztikát, vagy folytassuk a háttérben?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                data-refresh-live-primary=""
-                onClick={() => {
-                  setRefreshLivePromptOpen(false);
-                  closeRefreshDiagnostic();
-                  closeLastImportDiagnostic();
-                  setIsSettingsOpen(false);
-                }}
-                className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black"
-              >
-                TV-csatornák nézése
-              </button>
-              <button
-                type="button"
-                onClick={() => setRefreshLivePromptOpen(false)}
-                className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold"
-              >
-                Betöltés megtekintése
-              </button>
+              <button onClick={() => setRefreshLivePromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Nem, tovább nézem</button>
+              <button onClick={() => { setRefreshLivePromptOpen(false); closeRefreshDiagnostic(); closeLastImportDiagnostic(); setIsSettingsOpen(false); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
             </div>
           </div>
         </div>
