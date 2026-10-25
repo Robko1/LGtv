@@ -211,13 +211,17 @@ export class StallDetector {
 
 /**
  * Élő recovery: az első két újracsatlakozás ugyanazt a címet használja;
- * csak ezután próbáljuk a másik formátumot, ritkuló időzítéssel.
+ * utána ritkábban próbáljuk a másik formátumot (egy fallback után két
+ * elsődleges próba következik), ritkuló időzítéssel. Ez fontos az olyan
+ * csatornánál, amelynél a webOS mindkét formátumra átmeneti „Format error”-t
+ * ad, majd később mégis az eredeti TS-sel indul: ne terheljük a TV-t és a
+ * naplót felesleges HLS/TS váltogatással.
  * A kezdeti csatornaváltás külön, legfeljebb egyszeri TS/HLS fallbacket használ.
  */
 export function liveRecoveryUrl(attempt: number, primaryUrl: string, alternativeUrl?: string | null): string {
   const other = alternativeUrl && alternativeUrl !== primaryUrl ? alternativeUrl : primaryUrl;
   if (attempt < 2) return primaryUrl;
-  return attempt % 2 === 0 ? other : primaryUrl;
+  return attempt % 3 === 2 ? other : primaryUrl;
 }
 
 /** Rövid, fokozatos visszalépés – a TV-t nem terheljük végtelen gyors próbákkal. */
