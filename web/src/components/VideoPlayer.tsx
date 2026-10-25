@@ -390,9 +390,6 @@ const BlueClock: React.FC<{ className?: string; offsetHours?: number; accent?: '
 interface VideoPlayerProps {
   liveAccent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white';
   channel: Channel | null;
-  /** Naplózáshoz használt, nem titkos szolgáltató-azonosító. */
-  providerId?: string;
-  providerType?: 'xtream' | 'm3u';
   customStreamUrl?: string;
   customTitle?: string;
   audioTracks?: AudioTrack[];
@@ -446,8 +443,6 @@ interface VideoPlayerProps {
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   liveAccent = 'yellow',
   channel,
-  providerId = '',
-  providerType,
   customStreamUrl,
   customTitle,
   audioTracks: providedAudioTracks,
@@ -484,12 +479,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isVodRef.current = Boolean(customStreamUrl);
   const playbackActiveRef = useRef(playbackActive);
   playbackActiveRef.current = playbackActive;
-  const providerIdRef = useRef(providerId);
-  providerIdRef.current = providerId;
-  const providerTypeRef = useRef(providerType || '');
-  providerTypeRef.current = providerType || '';
-  const providerDiagnosticTag = () =>
-    `aktív-szolgáltató=${providerIdRef.current || 'ismeretlen'}; szolgáltató-típus=${providerTypeRef.current || 'ismeretlen'}`;
 
   /*
    * BELSŐ FORRÁSVÁLTÁS JELZÉSE.
@@ -573,12 +562,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
   const [, setErrorMessage] = useState<string>('');
-  // Élő adásnál legfeljebb két külön indítási próba fut: az emlékezett
-  // formátum, majd egyszer a másik TS/HLS cím. Ezután csak kontrollált,
-  // fokozatos újracsatlakozás indulhat, nem újabb formátum-ciklus.
+  // Élő adásnál legfeljebb két külön formátumot indítunk, az elsődleges címet
+  // pedig egyetlen gyors, azonos című újrapróbával védjük. Ezután csak
+  // kontrollált, fokozatos újracsatlakozás indulhat, nem formátum-ciklus.
   const autoRetryTimerRef = useRef<number | null>(null);
   const retryStreamRef = useRef<(() => void) | null>(null);
   const pendingStreamUrlRef = useRef('');
+  /** Az első formátumhibánál gyors, azonos című újrapróbát engedélyez. */
+  const initialFormatRetryRef = useRef(false);
   const bufferWatchdogRef = useRef<number | null>(null);
   const playbackStartedRef = useRef(false);
 
@@ -923,7 +914,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         /\.ts(?=([?#]|$))/i.test(video.currentSrc || video.src) ? 'MPEG-TS' : 'ismeretlen')
       : 'nincs';
     appLog(
-      `CSATORNAVÁLTÁS ÖSSZESÍTÉS; eredmény=${result}; ${providerDiagnosticTag()}; csatorna=${diagnostic.channelName}; teljes-idő=${Date.now() - diagnostic.startedAt} ms; utolsó-próba-idő=${Date.now() - diagnostic.attemptStartedAt} ms; próbálkozások=${Math.max(1, sequence.index + 1)}/${Math.max(1, sequence.urls.length)}; próbált-formátumok=${triedFormats}; aktív-formátum=${activeFormat}; ok=${reason}`
+      `CSATORNAVÁLTÁS ÖSSZESÍTÉS; eredmény=${result}; csatorna=${diagnostic.channelName}; teljes-idő=${Date.now() - diagnostic.startedAt} ms; utolsó-próba-idő=${Date.now() - diagnostic.attemptStartedAt} ms; próbálkozások=${Math.max(1, sequence.index + 1)}/${Math.max(1, sequence.urls.length)}; próbált-formátumok=${triedFormats}; aktív-formátum=${activeFormat}; ok=${reason}`
     );
   };
   const scheduleAutoRetry = useCallback(() => {
@@ -932,6 +923,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // egyszer automatikusan kipróbáljuk a másik TS/HLS változatot.
     if (!isVodRef.current) {
       const sequence = liveRetrySequenceRef.current;
+      // A #18 M2 UHD-mérése szerint az első, átmeneti Format error után a
+      // felesleges azonnali formátumváltás lassíthatja a visszatérést. Az
+      // elsődleges címet ezért egyszer újra teljes load()-dal kérjük; csak a
+      // második sikertelen indulás után jöhet a másik formátum. Ez az első
+      // használatnál is működik, nem csak a már emlékezett csatornánál.
+      if (initialFormatRetryRef.current && sequence.index === 0 && sequence.urls.length > 1) {
+        initialFormatRetryRef.current = false;
+        const currentUrl = sequence.urls[0];
+        const channelName = channelSwitchDiagnosticRef.current?.channelName || 'élő adás';
+        pendingStreamUrlRef.current = currentUrl;
+        setHasError(false);
+        setErrorMessage('');
+        setIsLoading(false);
+        setIsRecovering(true);
+        const retryDelayMs = Math.min(100, Math.max(30, bufferTiming().retryMs));
+        appLog(`ELSŐ FORMÁTUM GYORS ÚJRAPRÓBÁJA; csatorna=${channelName}; formátum=${formatOfUrl(currentUrl)?.toUpperCase() || 'ismeretlen'}; várakozás=${retryDelayMs} ms.`);
+        autoRetryTimerRef.current = window.setTimeout(() => {
+          autoRetryTimerRef.current = null;
+          loadStreamRef.current(currentUrl, true);
+        }, retryDelayMs);
+        return;
+      }
       // A két külön formátum egyszeri próbája után már nem váltunk vissza
       // azonnal a másik címre. A recovery saját, ritkuló időzítésével
       // újrapróbálja az adást, így egy késői régi hiba nem indít ciklust.
@@ -3257,9 +3270,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const timing = bufferTiming();
         const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
         const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
-        appLog(`${startLabel}; ${providerDiagnosticTag()}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
+        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
         if (isVerbosePlaybackLogging()) {
-          appLog(`${verboseStartLabel}; ${providerDiagnosticTag()}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
+          appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
           appLog(`ERŐFORRÁS-DIAG PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
         }
       }
@@ -3274,26 +3287,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
        * ilyenkor) teljesen lebontjuk a forrást, mert különben a webOS a
        * hibás állapotot viszi tovább az új adásra.
        */
-      if (video.error) {
+      const hadMediaError = Boolean(video.error);
+      if (hadMediaError) {
         try {
+          // A régi hibás forrást leválasztjuk, de a fallbacknél nem hívunk
+          // külön load()-ot: az alternatív címmel együtt egyetlen teljes
+          // újratöltés elég, így a webOS nem kap két egymás utáni resetet.
           video.removeAttribute('src');
-          video.load();
           appLog('Lejátszó hibaállapot törlése a csatornaváltás előtt (a forrás lebontása).');
         } catch { /* régi motor */ }
       }
-      // GYORS VÁLTÁS: korábban itt `removeAttribute('src')` + `load()` állt,
-      // ami a lejátszó teljes lebontását és újraindítását kényszerítette
-      // (webOS-on 0,3-1 másodperc). A `src` felülírása ugyanúgy megszakítja a
-      // régi adást, csak a dekóder újraindítása marad el.
-      // Korábbi <source> gyerekek eltakarítása (motorváltásnál is tiszta lap).
+      // GYORS VÁLTÁS: a `src` felülírása megszakítja a régi adást, csak
+      // a valóban szükséges fallback/recovery esetén indítunk teljes load()-ot.
       while (video.firstChild) video.removeChild(video.firstChild);
       // A webOS HTML5 videóelemét használjuk. Élő adásnál legfeljebb két
       // külön formátum-próba van; a további indításokat a recovery időzíti.
       video.src = url;
       // UGYANAZ a cím az újracsatlakozásnál: a TV médiamotorja ilyenkor nem
-      // mindig indít új kérést, ezért kifejezetten újratöltjük. A rendes
-      // csatornaváltásnál (új cím) a külön load() felesleges reset lenne.
-      if (forceReload) video.load();
+      // mindig indít új kérést, ezért kifejezetten újratöltjük. Ha egy régi
+      // hibaállapotot bontottunk le, az új címhez ugyanígy teljes reset kell.
+      if (forceReload || hadMediaError) video.load();
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
       video.muted = volume <= 0;
@@ -3371,7 +3384,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const diagnostic = channelSwitchDiagnosticRef.current;
       const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       if (!isVodRef.current && diagnostic && diagnostic.generation === loadGeneration) {
-        appLogCritical(`CSATORNAVÁLTÁS SZINKRON HIBA; ${providerDiagnosticTag()}; csatorna=${diagnostic.channelName}; próba=${diagnostic.attemptNumber}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; hiba=${detail}`);
+        appLogCritical(`CSATORNAVÁLTÁS SZINKRON HIBA; csatorna=${diagnostic.channelName}; próba=${diagnostic.attemptNumber}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; hiba=${detail}`);
         scheduleAutoRetry();
         if (autoRetryTimerRef.current !== null) return;
         logChannelSwitchSummary('SIKERTELEN', `szinkron indítási hiba: ${detail}`);
@@ -3567,6 +3580,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     pendingStreamUrlRef.current = primaryUrl;
     liveFallbackRef.current = isVod ? null : alternativeUrl(primaryUrl);
     const alternative = liveFallbackRef.current;
+    // Minden kétformátumos élő indulás kap egyetlen gyors elsődleges
+    // újrapróbát; így az első M2 UHD-váltás sem esik rögtön lassú fallbackre.
+    initialFormatRetryRef.current = Boolean(!isVod && alternative);
     liveRecoveryOnlyRef.current = false;
     liveRetrySequenceRef.current = isVod
       ? { urls: [], index: 0 }
@@ -4049,6 +4065,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 return;
               }
               playbackStartedRef.current = true;
+              initialFormatRetryRef.current = false;
               if (liveDurationRecoveryTimerRef.current !== null) {
                 window.clearTimeout(liveDurationRecoveryTimerRef.current);
                 liveDurationRecoveryTimerRef.current = null;
@@ -4218,7 +4235,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               const diagnostic = channelSwitchDiagnosticRef.current;
               if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
               if (!isVod && diagnostic) {
-                appLogCritical(`CSATORNAVÁLTÁS HIBA; ${providerDiagnosticTag()}; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${videoDiagnosticState(event.currentTarget, 'error')}; ${audioDiagnosticState(event.currentTarget)}`);
+                appLogCritical(`CSATORNAVÁLTÁS HIBA; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${videoDiagnosticState(event.currentTarget, 'error')}; ${audioDiagnosticState(event.currentTarget)}`);
                 if (isVerbosePlaybackLogging()) appLogCritical(`ERŐFORRÁS-DIAG HIBÁNÁL; csatorna=${diagnostic.channelName}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; próba-eltelt=${Date.now() - diagnostic.attemptStartedAt} ms; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
               }
               setIsLoading(false);

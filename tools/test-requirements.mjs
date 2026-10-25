@@ -997,6 +997,8 @@ test('12. hiba esetén a lejátszó MAGA próbálja a másik formátumot (nem k�
   // Az aktuális megoldás legfeljebb egyszer próbálja a másik TS/HLS címet;
   // utána külön, fokozatos recovery réteg fut, nem azonnali formátum-ciklus.
   assert.match(retry, /const sequence = liveRetrySequenceRef\.current;/);
+  assert.match(retry, /initialFormatRetryRef\.current && sequence\.index === 0/);
+  assert.match(retry, /loadStreamRef\.current\(currentUrl, true\)/);
   assert.match(retry, /const nextIndex = sequence\.index \+ 1;/);
   assert.match(retry, /if \(nextIndex < sequence\.urls\.length\)/);
   assert.match(retry, /const nextUrl = sequence\.urls\[nextIndex\];/);
@@ -1011,7 +1013,9 @@ test('12. hiba esetén a lejátszó MAGA próbálja a másik formátumot (nem k�
 });
 
 test('12. a videóelem hibaállapota nem öröklődik a következő csatornára', () => {
-  assert.match(PLAYER, /if \(video\.error\) \{[\s\S]{0,220}?video\.removeAttribute\('src'\);[\s\S]{0,120}?video\.load\(\);/);
+  assert.match(PLAYER, /const hadMediaError = Boolean\(video\.error\);/);
+  assert.match(PLAYER, /if \(hadMediaError\) \{[\s\S]{0,260}?video\.removeAttribute\('src'\);/);
+  assert.match(PLAYER, /if \(forceReload \|\| hadMediaError\) video\.load\(\);/);
   assert.match(PLAYER, /Lejátszó hibaállapot törlése a csatornaváltás előtt/);
 });
 
@@ -1215,24 +1219,18 @@ test('15. a kézi napló 1 MB-os, sorszámozott exportot készít', () => {
 });
 
 
-test('16. a Rendszer fül kézi szolgáltató-váltási próbája távirányítóval indítható', () => {
-  assert.match(SETTINGS_MODAL, /data-provider-switch-test/);
-  assert.match(SETTINGS_MODAL, /onOpenDiagnosticShare\?: \(\) => void;/);
-  assert.match(SETTINGS_MODAL, /startManualLogging\(\)/);
-  assert.match(SETTINGS_MODAL, /stopManualLogging\('kézi leállítás a Rendszer fülön'\)/);
-  assert.match(SETTINGS_MODAL, /data-provider-switch-target=\{provider\.id\}/);
-  assert.match(SETTINGS_MODAL, /onRefreshProvider\(providerId\)/);
-  assert.match(APP, /SZOLGÁLTATÓ-VÁLTÁS START/);
-  assert.match(APP, /SZOLGÁLTATÓ-VÁLTÁS ÖSSZESÍTÉS/);
-  assert.match(APP, /SZOLGÁLTATÓ-VÁLTÁS HIBA/);
-  assert.match(PLAYER, /providerId\?: string;/);
-  assert.match(PLAYER, /aktív-szolgáltató=\$\{providerIdRef\.current/);
-  // A próbaablak bezárható a váltás előtt; a napló csak a kézi leállításkor zárul.
-  assert.match(DIAG_MODAL, /Az ablak bezárása után a kézi naplózás folytatódik/);
+test('16. a webOS kiadás-ellenőrzés sárga gombja és kinyíló eredménye megmarad', () => {
+  assert.match(SETTINGS_MODAL, /data-system-refresh/);
+  assert.match(SETTINGS_MODAL, /Frissítés ellenőrzése/);
+  assert.match(SETTINGS_MODAL, /checkWebOSUpdate\(\)/);
+  assert.match(SETTINGS_MODAL, /showReleaseDetails && releaseInfo/);
+  // Csak a kék címsort vettük ki; az ellenőrző funkció és a márkakártya marad.
+  assert.doesNotMatch(SETTINGS_MODAL, /LG webOS frissítés/);
+  assert.match(SETTINGS_MODAL, /LG webOS alkalmazás/);
+  assert.match(SETTINGS_MODAL, /LG webOS TV mód/);
 });
 
-test('16. a kért Rendszer-fül tisztítása nem törli az alkalmazás márkakártyáját', () => {
-  assert.doesNotMatch(SETTINGS_MODAL, /LG webOS frissítés/);
+test('16. a hat zöld pipás kártya és a félreértett szolgáltató-próba nincs a kódban', () => {
   for (const removed of [
     'Kép a képben',
     'TV-re küldés',
@@ -1241,6 +1239,20 @@ test('16. a kért Rendszer-fül tisztítása nem törli az alkalmazás márkaká
     'Külön Mozi és Sorozat',
     'Többfunkciós kedvencek',
   ]) assert.doesNotMatch(SETTINGS_MODAL, new RegExp(removed));
+  assert.doesNotMatch(SETTINGS_MODAL, /data-provider-switch-test|Szolgáltató-váltási próba|startProviderSwitchTest/);
+  assert.doesNotMatch(APP, /SZOLGÁLTATÓ-VÁLTÁS/);
+  assert.doesNotMatch(PLAYER, /providerDiagnosticTag|aktív-szolgáltató=\$\{providerIdRef/);
   assert.match(SETTINGS_MODAL, /LG webOS alkalmazás/);
-  assert.match(SETTINGS_MODAL, /LG webOS TV mód/);
+});
+
+test('16. a Lejátszó alatti Pufferelés gombjai ténylegesen mentik a profilt', () => {
+  assert.match(SETTINGS_MODAL, /data-buffer-mode=\{bm\}/);
+  assert.match(SETTINGS_MODAL, /aria-pressed=\{settings\.bufferMode === bm\}/);
+  assert.match(SETTINGS_MODAL, /onUpdateSettings\(\{ bufferMode: bm \}\)/);
+  assert.match(SETTINGS_MODAL, /Gyors/);
+  assert.match(SETTINGS_MODAL, /Kiegyensúlyozott/);
+  assert.match(SETTINGS_MODAL, /Stabil/);
+  assert.match(APP, /storageService\.saveSettings\(updated\)/);
+  assert.match(PLAYER, /const bufferModeRef = useRef\(settings\.bufferMode\);/);
+  assert.match(PLAYER, /const bufferTiming = \(\) => bufferProfileTiming\(bufferModeRef\.current\);/);
 });
