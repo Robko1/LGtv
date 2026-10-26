@@ -41,6 +41,9 @@ function json(res: http.ServerResponse, body: unknown) {
  */
 const liveCategoryRequests: string[] = [];
 
+/** Mely végpontokat kérte le a program (a növekményes frissítés próbájához). */
+const requestedActions: string[] = [];
+
 function startFakeServer(options: {
   failVodCategories?: boolean;
   /** Ha igaz, a get_live_streams tiszteletben tartja a category_id-t. */
@@ -53,8 +56,17 @@ function startFakeServer(options: {
   failAuth?: boolean;
   /** A TELJES élő lista válaszának késleltetése (a lassú panel utánozása). */
   liveDelayMs?: number;
-} = {}): Promise<{ server: http.Server; port: number }> {
+  /** Ennyi filmet adjon a bulk végpont (a nagy katalógus próbájához). */
+  vodCount?: number;
+} = {}): Promise<{
+  server: http.Server;
+  port: number;
+  /** A kategórianevek menet közbeni átírása (változásvizsgálat próbájához). */
+  setLiveCategoryNames: (names: Array<{ category_id: string; category_name: string }>) => void;
+}> {
   let listeningPort = 0;
+  /** A frissítés-próba menet közben átírhatja (a szolgáltató változását utánozza). */
+  let dynamicLiveCategoryNames: Array<{ category_id: string; category_name: string }> | null = null;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     if (!url.pathname.endsWith('/player_api.php')) {
@@ -62,6 +74,7 @@ function startFakeServer(options: {
       return;
     }
     const action = url.searchParams.get('action');
+    requestedActions.push(String(action));
     switch (action) {
       case null:
         if (options.failAuth) {
@@ -79,7 +92,7 @@ function startFakeServer(options: {
          * különben a betöltő jogosan ítéli úgy, hogy a kategórianevek nem
          * országok, és a teljes listát tölti le (lásd MIN_COUNTRIES_FOR_FILTER).
          */
-        json(res, options.liveCategoryNames ?? [
+        json(res, dynamicLiveCategoryNames ?? options.liveCategoryNames ?? [
           { category_id: '10', category_name: 'Magyarország' },
           { category_id: '11', category_name: 'Németország' },
           { category_id: '12', category_name: 'Angol' },
@@ -114,7 +127,17 @@ function startFakeServer(options: {
           json(res, { error: 'bulk VOD végpont tiltva' });
           break;
         }
-        json(res, VOD_STREAMS);
+        json(res, options.vodCount
+          ? Array.from({ length: options.vodCount }, (_, i) => ({
+              name: `Nagy film ${i + 1}`,
+              stream_id: 700000 + i,
+              container_extension: 'mkv',
+              category_id: '20',
+              stream_icon: '',
+              rating: '7.0',
+              added: '1690000000',
+            }))
+          : VOD_STREAMS);
         break;
       case 'get_vod_info':
         vodInfoRequests++;
@@ -166,7 +189,13 @@ function startFakeServer(options: {
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
       listeningPort = typeof address === 'object' && address ? address.port : 0;
-      resolve({ server, port: listeningPort });
+      resolve({
+        server,
+        port: listeningPort,
+        setLiveCategoryNames: (names) => {
+          dynamicLiveCategoryNames = names;
+        },
+      });
     });
   });
 }
@@ -225,7 +254,15 @@ function check(name: string, condition: boolean, extra = '') {
 }
 
 async function main() {
-  const { importXtreamProvider, importM3UProvider } = await import('../web/src/services/providerImport.ts');
+  const {
+    importXtreamProvider,
+    importM3UProvider,
+    refreshProviderContent,
+    catalogFingerprint,
+    diffCatalogs,
+    describeCatalogSummary,
+    FULL_CHECK_WINDOW_MS,
+  } = await import('../web/src/services/providerImport.ts');
   const store = await import('../web/src/services/contentStore.ts');
   const { xtreamService } = await import('../web/src/services/xtreamService.ts');
   const { cancelNetworkRequests, isNetworkRequestCancelled, resetNetworkBreaker, httpGetText } = await import('../web/src/services/net.ts');
@@ -296,7 +333,17 @@ async function main() {
   );
   check('bulk-hiba mellett a kategória-fallback filmeket ad', bulkFallback.content.movies.length === 2, `(${bulkFallback.content.movies.length})`);
   check('bulk-hiba mellett a kategória-fallback sorozatot ad', bulkFallback.content.series.length === 1, `(${bulkFallback.content.series.length})`);
-  check('a bulk-hiba oka bekerül az import figyelmeztetésébe', bulkFallback.content.warnings.some((warning) => /bulk-letöltése/i.test(warning)));
+  /*
+   * A bulk-hiba utáni kategóriánkénti letöltés TARTALÉK-ÚT: ha sikerül, a
+   * tartalom teljes – ezért megjegyzés, nem figyelmeztetés. A felület ilyenkor
+   * nem mutat „részleges” állapotot egy sikeres betöltésre.
+   */
+  check(
+    'a bulk-hiba megjegyzésként (nem figyelmeztetésként) jelenik meg',
+    (bulkFallback.content.notes ?? []).some((note) => /kategóriánként/i.test(note))
+      && !(bulkFallback.content.warnings ?? []).some((warning) => /bulk-letöltése/i.test(warning)),
+    JSON.stringify({ notes: bulkFallback.content.notes, warnings: bulkFallback.content.warnings })
+  );
   bulkFallbackFake.server.close();
 
   const authFailureFake = await startFakeServer({ failAuth: true });
@@ -571,6 +618,145 @@ async function main() {
 
   fake.server.close();
   m3u.server.close();
+
+  /* ---------------------------------------------------------------- */
+  /* Növekményes frissítés és a teljes katalógus                       */
+  /* ---------------------------------------------------------------- */
+
+  console.log('\nA teljes katalógus feldolgozása (nem vágja le a biztonsági korlát):');
+  {
+    /*
+     * A 2.5.116-os napló szerint a szolgáltató 102 815 filmet ad. A régi
+     * 40 000-es korlát ezt levághatta, és a felület „Részben kész”-t mutatott.
+     * Most 41 000 filmmel próbáljuk: a régi korlát mellett 40 000 jött volna.
+     */
+    const bigFake = await startFakeServer({ vodCount: 41_000 });
+    const big = await importXtreamProvider(
+      { name: 'Nagy katalógus', serverUrl: `http://127.0.0.1:${bigFake.port}`, username: 'teszt', password: 'titok' },
+      () => {}
+    );
+    check(
+      '41 000 film mind megérkezik (a régi 40 000-es korlát nem vágja le)',
+      big.content.movies.length === 41_000,
+      `(${big.content.movies.length})`
+    );
+    const summary = describeCatalogSummary(big.content);
+    check(
+      'az összefoglaló kategóriaszámot is ír, és nem jelez hibát',
+      /csatorna \(\d+ kategória\)/.test(summary.counts)
+        && /film \(\d+ kategória\)/.test(summary.counts)
+        && /sorozat \(\d+ kategória\)/.test(summary.counts)
+        && summary.phase === 'Kész'
+        && summary.extra === '',
+      `${summary.phase} | ${summary.counts} | ${summary.extra}`
+    );
+    await new Promise<void>((resolve) => bigFake.server.close(() => resolve()));
+  }
+
+  console.log('\nVáltozásvizsgálat – ujjlenyomat és különbségek:');
+  {
+    const a = catalogFingerprint([{ id: 'lc-1', name: 'Magyarország' }, { id: 'lc-2', name: 'Sport' }]);
+    const b = catalogFingerprint([{ id: 'lc-2', name: 'Sport' }, { id: 'lc-1', name: 'Magyarország' }]);
+    const c = catalogFingerprint([{ id: 'lc-1', name: 'Magyarország' }, { id: 'lc-2', name: 'Sportok' }]);
+    const more = catalogFingerprint([{ id: 'lc-1', name: 'Magyarország' }, { id: 'lc-2', name: 'Sport' }, { id: 'lc-3', name: 'Film' }]);
+    check('a sorrend nem számít', a === b, `${a} / ${b}`);
+    check('az átnevezés megváltoztatja az ujjlenyomatot', a !== c, `${a} / ${c}`);
+    check('az új kategória megváltoztatja az ujjlenyomatot', a !== more, `${a} / ${more}`);
+
+    const before = [
+      { id: 'x', name: 'Régi' },
+      { id: 'y', name: 'Marad' },
+      { id: 'z', name: 'Törlődik' },
+    ];
+    const after = [
+      { id: 'x', name: 'Új név' },
+      { id: 'y', name: 'Marad' },
+      { id: 'w', name: 'Új' },
+    ];
+    const diff = diffCatalogs(before, after, (item) => item.id, (item) => item.name);
+    check(
+      'a különbség: 1 új, 1 módosult, 1 törölt',
+      diff.added === 1 && diff.changed === 1 && diff.removed === 1,
+      JSON.stringify(diff)
+    );
+    const same = diffCatalogs(after, after, (item) => item.id, (item) => item.name);
+    check(
+      'azonos listáknál nincs változás',
+      same.added === 0 && same.changed === 0 && same.removed === 0,
+      JSON.stringify(same)
+    );
+  }
+
+  console.log('\nNövekményes frissítés – ha nincs változás, semmit nem tölt le újra:');
+  {
+    const freshFake = await startFakeServer();
+    const freshProvider = {
+      id: 'fresh-provider',
+      name: 'Növekményes',
+      type: 'xtream' as const,
+      serverUrl: `http://127.0.0.1:${freshFake.port}`,
+      username: 'teszt',
+      password: 'titok',
+    };
+    // 1) Teljes import: ez menti a szinkron-állapotot.
+    const firstResult = await refreshProviderContent(freshProvider as never, () => {}, () => {});
+    check('az első frissítés teljes tartalmat ad', 'content' in firstResult, JSON.stringify(Object.keys(firstResult)));
+    const savedState = store.loadSyncState(freshProvider.id);
+    check('a teljes import elmenti a kategóriák ujjlenyomatát', Boolean(savedState?.fingerprint), String(savedState?.fingerprint));
+
+    // 2) Azonnali újabb frissítés: csak a három kategórialista megy le.
+    requestedActions.length = 0;
+    const secondResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    const contentRequests = requestedActions.filter((action) =>
+      action === 'get_live_streams' || action === 'get_vod_streams' || action === 'get_series');
+    check(
+      'a második frissítés „nincs változás”-t ad',
+      'unchanged' in secondResult && secondResult.unchanged === true,
+      JSON.stringify(Object.keys(secondResult))
+    );
+    check(
+      'NEM tölti le újra a tartalmat (csak kategórialisták)',
+      contentRequests.length === 0 && requestedActions.filter((action) => action === 'get_live_categories').length === 1,
+      `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
+    );
+
+    // 3) A kategória megváltozik → teljes letöltés.
+    freshFake.setLiveCategoryNames([
+      { category_id: '10', category_name: 'Magyarország' },
+      { category_id: '11', category_name: 'Németország' },
+      { category_id: '12', category_name: 'Angol' },
+      { category_id: '13', category_name: 'Francia' },
+      { category_id: '14', category_name: 'Olasz' },
+      { category_id: '15', category_name: 'Spanyol' },
+      { category_id: '16', category_name: 'Új ország' },
+    ]);
+    requestedActions.length = 0;
+    const changedResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    check(
+      'kategóriaváltozásnál teljes letöltés indul',
+      'content' in changedResult
+        && requestedActions.includes('get_live_streams')
+        && requestedActions.includes('get_vod_streams'),
+      `(kérések: ${requestedActions.join(', ')})`
+    );
+
+    // 4) Régi teljes ellenőrzés → akkor is letölt, ha a kategóriák azonosak.
+    const stateAfterChange = store.loadSyncState(freshProvider.id);
+    store.saveSyncState({
+      providerId: freshProvider.id,
+      fingerprint: String(stateAfterChange?.fingerprint ?? ''),
+      fullSyncAt: Date.now() - FULL_CHECK_WINDOW_MS - 60_000,
+    });
+    requestedActions.length = 0;
+    const staleResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    check(
+      'a frissességi ablak letelte után újra letölt',
+      'content' in staleResult && requestedActions.includes('get_live_streams'),
+      `(kérések: ${requestedActions.join(', ')})`
+    );
+
+    await new Promise<void>((resolve) => freshFake.server.close(() => resolve()));
+  }
 
   console.log(failures === 0 ? '\nMinden próba sikeres. ✅' : `\n${failures} próba nem sikerült. ❌`);
   if (failures > 0) process.exit(1);

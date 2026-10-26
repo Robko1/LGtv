@@ -40,7 +40,9 @@ import {
   decodeMoviesForImport,
   decodeSeriesForImport,
   loadRawPlaylist,
+  loadSyncState,
   saveRawPlaylist,
+  saveSyncState,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
@@ -78,10 +80,21 @@ export interface PartialContent {
 
 export type PartialFn = (partial: PartialContent) => void | Promise<void>;
 
-/** Biztonsági korlátok: ennyi elemet töltünk be egy listából. */
-const MAX_CHANNELS = 60000;
-const MAX_MOVIES = 40000;
-const MAX_SERIES = 15000;
+/**
+ * Biztonsági korlátok – szelepek, NEM a valós katalógus mérete.
+ *
+ * Az 1-es TV-napló (2.5.116) szerint a szolgáltató 20 190 csatornát,
+ * 102 815 filmet és 24 972 sorozatot ad. A régi 40 000 / 15 000-es korlát
+ * ezért nem az egész katalógust dolgozta fel, és a felület emiatt
+ * „Részben kész” állapotot mutatott egy FIGYELEM szöveggel – pedig a
+ * letöltés és a mentés is sikerült.
+ *
+ * A korlátok csak elfajult válasz (több százezer elem) ellen védenek, és
+ * jóval a valós katalógus felett vannak, hogy ne vágják le a tartalmat.
+ */
+const MAX_CHANNELS = 120000;
+const MAX_MOVIES = 150000;
+const MAX_SERIES = 60000;
 
 /**
  * A felületfrissítéseket ritkítjuk: a sok callback lassíthatja a böngészőfelület-t.
@@ -156,6 +169,15 @@ function yieldToUi(): Promise<void> {
 
 export interface ImportedProvider {
   content: ImportedContent;
+  /**
+   * A szolgáltató NYERS kategórialistáinak ujjlenyomata.
+   *
+   * FONTOS: a kész tartalomból NEM lehet kiszámolni, mert abban már ott van a
+   * szintetikus „Egyéb” kategória (lc-other) is, amit a program ad hozzá a
+   * besorolatlan elemekhez. Az ujjlenyomatot ezért a letöltés pillanatában, a
+   * nyers válaszból képezzük – így a következő ellenőrzés bitre ugyanazt kapja.
+   */
+  fingerprint?: string;
   user: {
     expireDate: string;
     maxConnections: number;
@@ -257,6 +279,53 @@ async function providerRequest<T>(task: () => Promise<T>, label: string): Promis
   const message = lastError instanceof Error ? lastError.message : String(lastError);
   logProviderEvent(`[${label}] VÉGLEGES HIBA: ${safeErrorDetail(lastError)}`);
   throw new Error(`${label}: ${message}`);
+}
+
+/** Hány KÜLÖNBÖZŐ kategória szerepel valóban a letöltött elemekben? */
+function countUsedCategories<T>(items: T[], getId: (item: T) => string): number {
+  const ids = new Set<string>();
+  for (const item of items) {
+    const id = getId(item);
+    if (id) ids.add(id);
+  }
+  return ids.size;
+}
+
+export interface CatalogSummary {
+  /** „20 190 csatorna (340 kategória) • 102 815 film (140 kategória) • …” */
+  counts: string;
+  /** „Kész”, vagy „Figyelmeztetés”, ha VALÓDI adat hiányzik. */
+  phase: string;
+  /** Megjegyzések és valódi hiányok együtt (üres, ha nincs). */
+  extra: string;
+}
+
+/**
+ * A betöltés VÉGEREDMÉNYE a felületnek.
+ *
+ * A 2.5.116-os napló tanulsága: a letöltés és a mentés is sikerült
+ * (20 190 csatorna, 40 000 film, 15 000 sorozat; IndexedDB-mentés), a felület
+ * mégis „Részben kész”-t és egy hosszú FIGYELEM szöveget mutatott, mert a
+ * biztonsági korlátot figyelmeztetésnek vette. Most:
+ *
+ *   – a darabszám a TÉNYLEGESEN feldolgozott elemeké, kategóriaszámokkal;
+ *   – csak VALÓDI hiány (kimaradt kategória, le nem töltött szakasz) számít
+ *     figyelmeztetésnek;
+ *   – a korlát és a sikeres tartalék-út csak megjegyzés.
+ */
+export function describeCatalogSummary(content: ImportedContent): CatalogSummary {
+  const nf = (value: number) => value.toLocaleString('hu-HU');
+  const channels = Array.isArray(content.channels) ? content.channels : [];
+  const movies = Array.isArray(content.movies) ? content.movies : [];
+  const series = Array.isArray(content.series) ? content.series : [];
+  const counts =
+    `${nf(channels.length)} csatorna (${nf(countUsedCategories(channels, (item) => item.categoryId))} kategória) • ` +
+    `${nf(movies.length)} film (${nf(countUsedCategories(movies, (item) => item.categoryId))} kategória) • ` +
+    `${nf(series.length)} sorozat (${nf(countUsedCategories(series, (item) => item.categoryId))} kategória)`;
+  const warnings = Array.isArray(content.warnings) ? content.warnings : [];
+  const notes = Array.isArray(content.notes) ? content.notes : [];
+  const extra = [...notes, ...warnings].filter((text) => text).join(' ');
+  return { counts, phase: warnings.length ? 'Figyelmeztetés' : 'Kész', extra };
 }
 
 export interface CategoryLoadResult<T> {
@@ -740,6 +809,8 @@ export async function importXtreamProvider(
    * kerülnek, hogy a hiány ne maradjon észrevétlen.
    */
   const warnings: string[] = [];
+  /* Megjegyzések: nem hiba, nem hiány – csak tény, amit érdemes tudni. */
+  const notes: string[] = [];
 
   /*
    * A BEJELENTKEZÉS NEM BLOKKOLJA A CSATORNÁK BETÖLTÉSÉT.
@@ -807,6 +878,14 @@ export async function importXtreamProvider(
 
   let liveChannels: Channel[] = [];
   let liveCategories: Category[] = [];
+  /*
+   * A szolgáltató NYERS kategórialistái. Az ujjlenyomatot ezekből képezzük a
+   * letöltés pillanatában: a kész tartalomban már ott van a szintetikus
+   * „Egyéb” kategória is, amitől az összehasonlítás mindig eltérne.
+   */
+  let rawLiveCategories: XtreamCategory[] = [];
+  let rawVodCategories: XtreamCategory[] = [];
+  let rawSeriesCategories: XtreamCategory[] = [];
   let liveStreamCount = 0;
 
   if (channelLoadMode === 'm3u') {
@@ -914,6 +993,7 @@ export async function importXtreamProvider(
       return [] as XtreamCategory[];
     });
 
+    rawLiveCategories = liveCats;
     const hungarianCategoryIds = pickCategoryIdsByCountry(liveCats, 'HU');
 
     /*
@@ -1115,6 +1195,7 @@ export async function importXtreamProvider(
         () => xtreamService.vodCategories(server, user, pass),
         'Film kategóriák'
       );
+      rawVodCategories = vodCategories;
     } catch (categoryError) {
       if (isNetworkRequestCancelled(categoryError)) throw categoryError;
       // A kategória-végpont több panelen hibás vagy tiltott, miközben a
@@ -1153,7 +1234,7 @@ export async function importXtreamProvider(
          * használjuk, és a néző figyelmeztetést kap a korlátról.
          */
         if (allVod.length > MAX_MOVIES) {
-          warnings.push(
+          notes.push(
             `A szolgáltató ${allVod.length.toLocaleString('hu-HU')} filmet adott vissza egyetlen válaszként; ` +
             `a beépített korlát miatt az első ${MAX_MOVIES.toLocaleString('hu-HU')} elemet dolgozzuk fel ` +
             `(a letöltött lista többi részét nem töltjük le újra kategóriánként).`
@@ -1224,7 +1305,7 @@ export async function importXtreamProvider(
     }
 
     if (!bulkUsed && bulkFallbackReason) {
-      warnings.push(`A filmek bulk-letöltése nem használható (${bulkFallbackReason}); kategória-fallback indul.`);
+      notes.push('A filmek egyben letöltése nem sikerült, ezért kategóriánként töltődtek le.');
       logPhase(`Filmek bulk hiba; ok=${bulkFallbackReason}`);
     }
 
@@ -1299,8 +1380,8 @@ export async function importXtreamProvider(
         : describeFailures('film', vodResult.failedCategoryIds, vodCategories.length);
       if (vodWarning) warnings.push(vodWarning);
       if (vodResult.truncated) {
-        warnings.push(
-          'A filmek listája a beépített korlát miatt az első ' + MAX_MOVIES.toLocaleString('hu-HU') + ' elemet tartalmazza (a többi kategória letöltését kihagytuk a gyorsabb betöltés érdekében).'
+        notes.push(
+          'A filmek listája a biztonsági korlát miatt az első ' + MAX_MOVIES.toLocaleString('hu-HU') + ' elemet tartalmazza.'
         );
       }
       // A kategóriaválaszok nyers darabszáma tartalmazhat hibás/duplikált sort;
@@ -1345,6 +1426,7 @@ export async function importXtreamProvider(
         () => xtreamService.seriesCategories(server, user, pass),
         'Sorozat kategóriák'
       );
+      rawSeriesCategories = seriesCategories;
     } catch (categoryError) {
       if (isNetworkRequestCancelled(categoryError)) throw categoryError;
       const detail = safeErrorDetail(categoryError);
@@ -1369,7 +1451,7 @@ export async function importXtreamProvider(
         // Ugyanaz, mint a filmeknél: a már letöltött nagy válasz nem kerül
         // a kukába, ezért nem indul kategóriánkénti újratöltés.
         if (allSeries.length > MAX_SERIES) {
-          warnings.push(
+          notes.push(
             `A szolgáltató ${allSeries.length.toLocaleString('hu-HU')} sorozatot adott vissza egyetlen válaszként; ` +
             `a beépített korlát miatt az első ${MAX_SERIES.toLocaleString('hu-HU')} elemet dolgozzuk fel ` +
             `(a letöltött lista többi részét nem töltjük le újra kategóriánként).`
@@ -1435,7 +1517,7 @@ export async function importXtreamProvider(
     }
 
     if (!bulkSeriesUsed && bulkSeriesFallbackReason) {
-      warnings.push(`A sorozatok bulk-letöltése nem használható (${bulkSeriesFallbackReason}); kategória-fallback indul.`);
+      notes.push('A sorozatok egyben letöltése nem sikerült, ezért kategóriánként töltődtek le.');
       logPhase(`Sorozatok bulk hiba; ok=${bulkSeriesFallbackReason}`);
     }
 
@@ -1506,8 +1588,8 @@ export async function importXtreamProvider(
         : describeFailures('sorozat', seriesResult.failedCategoryIds, seriesCategories.length);
       if (seriesWarning) warnings.push(seriesWarning);
       if (seriesResult.truncated) {
-        warnings.push(
-          'A sorozatok listája a beépített korlát miatt az első ' + MAX_SERIES.toLocaleString('hu-HU') + ' elemet tartalmazza.'
+        notes.push(
+          'A sorozatok listája a biztonsági korlát miatt az első ' + MAX_SERIES.toLocaleString('hu-HU') + ' elemet tartalmazza.'
         );
       }
     }
@@ -1571,6 +1653,7 @@ export async function importXtreamProvider(
     // ImportedContent-ban érkezik meg az App-hoz.
   }
 
+
   /*
    * A fiókadatok (lejárat, kapcsolatszám, státusz) a végén: a bejelentkezés
    * a háttérben futott a csatornák mellett, és a csatornák már a felületen
@@ -1608,6 +1691,7 @@ export async function importXtreamProvider(
     seriesCategories: seriesCats,
     totals: { live: liveChannels.length, vod: movies.length, series: series.length },
     warnings,
+    notes,
   };
 
   const totalMs = Math.round(performance.now() - startedAt);
@@ -1616,25 +1700,182 @@ export async function importXtreamProvider(
     `${content.series.length} sorozat, ${totalMs} ms`
   );
   logMemory('import után');
+  const summary = describeCatalogSummary(content);
   onProgress({
-    phase: warnings.length ? 'Részben kész' : 'Kész',
+    phase: summary.phase,
     detail:
-      `${content.channels.length.toLocaleString('hu-HU')} csatorna • ` +
-      `${content.movies.length.toLocaleString('hu-HU')} film • ` +
-      `${content.series.length.toLocaleString('hu-HU')} sorozat • ` +
-      `⏱ ${(totalMs / 1000).toFixed(1)} s` +
-      (warnings.length ? ` • FIGYELEM: ${warnings.join(' ')}` : ''),
+      `${summary.counts} • ⏱ ${(totalMs / 1000).toFixed(1)} s` +
+      (summary.extra ? ` • ${summary.extra}` : ''),
     percent: 100,
   });
 
   return {
     content,
+    fingerprint: rawCatalogFingerprint(rawLiveCategories, rawVodCategories, rawSeriesCategories),
     user: {
       expireDate,
       maxConnections: parseInt(String(info?.max_connections || '1'), 10) || 1,
       status: String(info?.status || 'Active'),
     },
   };
+}
+
+/* ------------------------------------------------- növekményes frissítés */
+
+/**
+ * Két TELJES ellenőrzés között ennyi idő telhet el, ha a kategóriák nem
+ * változtak.
+ *
+ * AZ XTREAM API-nak nincs változás-végpontja: nem lehet megkérdezni, hogy
+ * „mi új”. Egyetlen olcsó jelzés van: a három kategórialista (~44 kB, 1
+ * másodperc alatt megjön). Ha ez mindenben azonos a legutóbbival, akkor a
+ * teljes 76 MB újratöltése felesleges. A frissesség-ablak gondoskodik arról,
+ * hogy a kategóriákon belüli változás is legkésőbb ennyi idő után kiderüljön:
+ * az ablak letelte után a frissítés akkor is leTÖLTI a listákat.
+ */
+export const FULL_CHECK_WINDOW_MS = 10 * 60 * 1000;
+
+/** Egy kategórialista ujjlenyomata (azonosító + név, rendezve). */
+export function catalogFingerprint(categories: Array<{ id: string; name: string }> | undefined): string {
+  const rows = (Array.isArray(categories) ? categories : [])
+    .filter((category) => category && category.id !== undefined && category.id !== null)
+    .map((category) => `${category.id}\u0001${category.name ?? ''}`)
+    .sort();
+  let hash = 2166136261;
+  for (const row of rows) {
+    for (let index = 0; index < row.length; index++) {
+      hash ^= row.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+  }
+  return `${(hash >>> 0).toString(36)}:${rows.length}`;
+}
+
+/** A három NYERS kategórialista együttes ujjlenyomata (a szolgáltató válaszából). */
+export function rawCatalogFingerprint(
+  live: XtreamCategory[] | undefined,
+  vod: XtreamCategory[] | undefined,
+  series: XtreamCategory[] | undefined
+): string {
+  const map = (list: XtreamCategory[] | undefined, prefix: string) =>
+    catalogFingerprint((Array.isArray(list) ? list : []).map((category) => ({
+      id: `${prefix}${category?.category_id ?? ''}`,
+      name: String(category?.category_name ?? '').trim(),
+    })));
+  return [map(live, 'lc-'), map(vod, 'vc-'), map(series, 'sc-')].join('~');
+}
+
+/** A három kategórialista együttes ujjlenyomata. */
+export function providerFingerprint(content: {
+  liveCategories?: Array<{ id: string; name: string }>;
+  vodCategories?: Array<{ id: string; name: string }>;
+  seriesCategories?: Array<{ id: string; name: string }>;
+}): string {
+  return [
+    catalogFingerprint(content.liveCategories),
+    catalogFingerprint(content.vodCategories),
+    catalogFingerprint(content.seriesCategories),
+  ].join('~');
+}
+
+export interface ProviderChangeCheck {
+  /** Igaz, ha a három kategórialista mindenben azonos a legutóbbival. */
+  unchanged: boolean;
+  /** Igaz, ha az utolsó teljes szinkron a frissességi ablakon belül volt. */
+  fresh: boolean;
+  /** Az utolsó teljes szinkron óta eltelt idő ezredmásodpercben. */
+  ageMs: number | null;
+  /** A most mért ujjlenyomat. */
+  fingerprint: string;
+  counts: { live: number; vod: number; series: number };
+}
+
+/**
+ * OLCSÓ VÁLTOZÁSVIZSGÁLAT: csak a három kategórialistát kéri le.
+ * A tartalmat nem tölti le – ezért kerül alig egy másodpercbe.
+ */
+export async function checkProviderChanges(input: {
+  serverUrl: string;
+  username: string;
+  password: string;
+  fingerprint?: string;
+  lastFullSyncAt?: number | null;
+}): Promise<ProviderChangeCheck> {
+  const server = xtreamService.cleanUrl(input.serverUrl);
+  const user = input.username.trim();
+  const pass = input.password.trim();
+  const [liveCats, vodCats, seriesCats] = await Promise.all([
+    xtreamService.liveCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
+    xtreamService.vodCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
+    xtreamService.seriesCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
+  ]);
+  const fingerprint = rawCatalogFingerprint(liveCats, vodCats, seriesCats);
+  const ageMs = typeof input.lastFullSyncAt === 'number' && input.lastFullSyncAt > 0
+    ? Math.max(0, Date.now() - input.lastFullSyncAt)
+    : null;
+  /*
+   * Ha egy kategórialista sem jött meg (a panel nem válaszol), NEM
+   * állíthatjuk, hogy „nincs változás”: olyankor a teljes import úgyis
+   * értelmes hibaüzenetet ad.
+   */
+  const anyLoaded = liveCats.length + vodCats.length + seriesCats.length > 0;
+  const unchanged = Boolean(
+    anyLoaded
+    && typeof input.fingerprint === 'string'
+    && input.fingerprint === fingerprint
+  );
+  return {
+    unchanged,
+    fresh: ageMs !== null && ageMs <= FULL_CHECK_WINDOW_MS,
+    ageMs,
+    fingerprint,
+    counts: { live: liveCats.length, vod: vodCats.length, series: seriesCats.length },
+  };
+}
+
+/** Egy lista változásai. */
+export interface CatalogDiff {
+  added: number;
+  removed: number;
+  changed: number;
+}
+
+export function diffCatalogs<T>(
+  previous: readonly T[] | undefined,
+  next: readonly T[] | undefined,
+  keyOf: (item: T) => string,
+  signatureOf: (item: T) => string
+): CatalogDiff {
+  const before = new Map<string, string>();
+  for (const item of Array.isArray(previous) ? previous : []) {
+    if (!item) continue;
+    before.set(keyOf(item), signatureOf(item));
+  }
+  const seen = new Set<string>();
+  let added = 0;
+  let changed = 0;
+  for (const item of Array.isArray(next) ? next : []) {
+    if (!item) continue;
+    const key = keyOf(item);
+    seen.add(key);
+    const old = before.get(key);
+    if (old === undefined) added += 1;
+    else if (old !== signatureOf(item)) changed += 1;
+  }
+  let removed = 0;
+  for (const key of before.keys()) if (!seen.has(key)) removed += 1;
+  return { added, removed, changed };
+}
+
+/** „+12 / −3 csatorna, 1 módosult” – üres, ha nincs változás. */
+export function describeCatalogDiff(diff: CatalogDiff, label: string): string {
+  if (diff.added === 0 && diff.removed === 0 && diff.changed === 0) return '';
+  const parts: string[] = [];
+  if (diff.added > 0) parts.push(`+${diff.added}`);
+  if (diff.removed > 0) parts.push(`−${diff.removed}`);
+  const head = parts.length ? `${parts.join(' / ')} ${label}` : '';
+  const tail = diff.changed > 0 ? `${diff.changed} módosult` : '';
+  return [head, tail].filter(Boolean).join(', ');
 }
 
 /* ----------------------------------------------------------------- M3U */
@@ -1784,7 +2025,7 @@ export async function importM3UProvider(
   const totalMs = Math.round(performance.now() - startedAt);
   logPhase(`M3U import kész: ${totalMs} ms`);
   onProgress({
-    phase: m3uWarnings.length ? 'Részben kész' : 'Kész',
+    phase: m3uWarnings.length ? 'Figyelmeztetés' : 'Kész',
     detail:
       `${live.length.toLocaleString('hu-HU')} csatorna • ${movies.length.toLocaleString('hu-HU')} film • ` +
       `⏱ ${(totalMs / 1000).toFixed(1)} s` +
@@ -1795,15 +2036,65 @@ export async function importM3UProvider(
 }
 
 /** Újratöltés a mentett szolgáltatói adatokból. */
+/** A frissítés eredménye: új tartalom, vagy „nem változott semmi”. */
+export type RefreshOutcome =
+  | ImportedProvider
+  | ImportedContent
+  | { unchanged: true; check: ProviderChangeCheck };
+
 export async function refreshProviderContent(
   provider: ProviderAccount,
   onProgress: ProgressFn = () => {},
-  onPartial: PartialFn = () => {}
-): Promise<ImportedProvider | ImportedContent> {
+  onPartial: PartialFn = () => {},
+  options: { incremental?: boolean } = {}
+): Promise<RefreshOutcome> {
   if (provider.type === 'xtream') {
     if (!provider.serverUrl || !provider.username || !provider.password) {
       throw new Error('A szolgáltatóhoz nincs eltárolva szerver, felhasználó vagy jelszó.');
     }
+
+    /*
+     * NÖVEKMÉNYES FRISSÍTÉS – ELŐSZÖR AZ OLCSÓ ELLENŐRZÉS.
+     *
+     * A szolgáltató Xtream API-jának nincs változás-végpontja, ezért a
+     * legolcsóbb jelzés a három kategórialista (~44 kB). Ha ez mindenben
+     * azonos a legutóbbi teljes szinkronéval, ÉS az nem régebbi a
+     * frissességi ablaknál, akkor a 76 MB-os listák újratöltése felesleges:
+     * a tárolt tartalom marad, a felület pedig megmondja, mi történt.
+     */
+    if (options.incremental) {
+      const state = loadSyncState(provider.id);
+      if (state) {
+        try {
+          onProgress({ phase: 'Változások ellenőrzése…', percent: 4 });
+          const check = await checkProviderChanges({
+            serverUrl: provider.serverUrl,
+            username: provider.username,
+            password: provider.password,
+            fingerprint: state.fingerprint,
+            lastFullSyncAt: state.fullSyncAt,
+          });
+          if (check.unchanged && check.fresh) {
+            const ageMinutes = Math.round((check.ageMs ?? 0) / 60000);
+            logProviderEvent(
+              `Frissítés: a kategóriák nem változtak (${check.counts.live}/${check.counts.vod}/${check.counts.series}), ` +
+              `az utolsó teljes ellenőrzés ${ageMinutes} perce volt – a teljes listák nem töltődnek le újra.`
+            );
+            return { unchanged: true, check };
+          }
+          logProviderEvent(
+            check.unchanged
+              ? 'Frissítés: a kategóriák nem változtak, de az utolsó teljes ellenőrzés régi – teljes letöltés következik.'
+              : 'Frissítés: a kategóriák változtak – teljes letöltés következik.'
+          );
+        } catch (error) {
+          // Ha az ellenőrzés nem megy (halott panel), a teljes import ad
+          // értelmes hibát – nem nyomjuk el.
+          logProviderEvent(`Frissítés: a változás-ellenőrzés nem sikerült (${safeErrorDetail(error)}); teljes letöltés következik.`);
+        }
+      }
+    }
+
     const result = await importXtreamProvider(
       {
         name: provider.name,
@@ -1815,6 +2106,12 @@ export async function refreshProviderContent(
       onPartial
     );
     result.content.provider.id = provider.id;
+    // A most letöltött kategóriák lesznek a következő ellenőrzés viszonyítási alapjai.
+    saveSyncState({
+      providerId: provider.id,
+      fingerprint: result.fingerprint ?? providerFingerprint(result.content),
+      fullSyncAt: Date.now(),
+    });
     return result;
   }
 

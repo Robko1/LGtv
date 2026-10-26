@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.5.116';
+export const WEB_VERSION = '2.5.117';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.117',
+    date: '2026-10-26',
+    changes: [
+      'VALÓS DIAGNOSZTIKA: a 100%-os állapot a ténylegesen letöltött csatornák, filmek, sorozatok ÉS kategóriák darabszámát mutatja, egyetlen összefoglaló sorban (pl. „20 190 csatorna (340 kategória) • 102 815 film (140 kategória) • 24 972 sorozat (97 kategória)”). Sikeres betöltésnél „Kész” látszik, nem „Részben kész” – a program csak akkor jelez hibát, ha valóban hiányzik valami',
+      'NINCS HAMIS FIGYELMEZTETÉS: a beépített darabszám-korlát (biztonsági szelep) már nem számít hibának vagy figyelmeztetésnek, hanem megjegyzésként jelenik meg a naplóban; a korlátok is nagyobbak (120 000 csatorna, 150 000 film, 60 000 sorozat), így a teljes katalógus bekerül',
+      'NÖVEKMÉNYES FRISSÍTÉS: a szolgáltató dobozánál a Frissítés gomb először csak a kategórialistákat kérdezi le (három kis kérés, ~44 kB, kb. 1 másodperc). Ha az ujjlenyomat változatlan és a legutóbbi teljes ellenőrzés 10 percen belül volt, a program „Kész – nincs változás” állapotot mutat a valós darabszámokkal, és SEMMIT nem tölt le újra',
+      'NÖVEKMÉNYES FRISSÍTÉS: ha mégis változott valami (új, módosult vagy törölt csatorna/film/sorozat/kategória), a letöltés lefut, de a program a végén megmutatja, mi változott (pl. „Változás: +12 / -3 csatorna”), és csak azokat a listákat menti újra, amelyek ténylegesen változtak – az érintetlen listák a tárolóban maradnak',
+      'A frissítés végén mindig a valós eredmény és az esetleges valódi hibák látszanak; a „nincs változás” eset nem hiba, és nem ír felül semmit',
+    ],
+  },
   {
     version: '2.5.116',
     date: '2026-10-26',

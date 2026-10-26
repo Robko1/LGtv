@@ -16,7 +16,16 @@ import {
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
-import { loadAllLiveChannels, loadLiveChannelsForCategories, PartialContent, refreshProviderContent } from './services/providerImport';
+import {
+  describeCatalogDiff,
+  describeCatalogSummary,
+  diffCatalogs,
+  FULL_CHECK_WINDOW_MS,
+  loadAllLiveChannels,
+  loadLiveChannelsForCategories,
+  PartialContent,
+  refreshProviderContent,
+} from './services/providerImport';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
 import { xtreamService } from './services/xtreamService';
@@ -1765,9 +1774,57 @@ export function App() {
           setDiagnosticProgress(progress);
           setLastImportDiagnostic(() => ({ providerId: id, providerName: provider.name, progress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: false }));
         },
-        applyPartial
+        applyPartial,
+        // Kézi Frissítésnél először az olcsó változásvizsgálat fut: ha a
+        // kategóriák azonosak és az utolsó teljes ellenőrzés friss, a 76 MB-os
+        // listák nem töltődnek le újra.
+        { incremental: manual }
       );
       if (refreshGenerationRef.current !== refreshGeneration) return;
+
+      /*
+       * NINCS VÁLTOZÁS: a tárolt tartalom marad, semmit nem írunk felül.
+       * A felület a VALÓS eredményt mutatja – nem hibát.
+       */
+      if ('unchanged' in result && result.unchanged) {
+        const check = result.check;
+        const ageMinutes = Math.round((check.ageMs ?? 0) / 60000);
+        const nextInMinutes = Math.max(1, Math.ceil((FULL_CHECK_WINDOW_MS - (check.ageMs ?? 0)) / 60000));
+        const snapshot: ImportedContent = {
+          provider: draft.provider,
+          savedAt: '',
+          channels: channelsRef.current,
+          movies: moviesRef.current,
+          series: seriesRef.current,
+          liveCategories: categoriesRef.current,
+          vodCategories: vodCategoriesRef.current,
+          seriesCategories: seriesCategoriesRef.current,
+          totals: { live: channelsRef.current.length, vod: moviesRef.current.length, series: seriesRef.current.length },
+        };
+        const summary = describeCatalogSummary(snapshot);
+        const finalProgress = {
+          phase: 'Kész – nincs változás',
+          detail:
+            `A szolgáltató kategóriái ellenőrizve (${check.counts.live} élő / ${check.counts.vod} film / ` +
+            `${check.counts.series} sorozat): mindenben azonosak a legutóbbival, ezért a teljes listák nem ` +
+            `töltődtek le újra (utolsó teljes ellenőrzés: ${ageMinutes} perce). • ${summary.counts} • ` +
+            `A következő teljes ellenőrzés ${nextInMinutes} perc múlva esedékes.`,
+          percent: 100,
+        };
+        const doneAt = performance.now();
+        diagnosticFinishedRef.current = true;
+        retryAttemptsRef.current = 0;
+        cancelAutoRetry();
+        setDiagnosticProgress(finalProgress);
+        setDiagnosticFinishedAt(doneAt);
+        setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: true, finishedAt: doneAt });
+        flushDiagnosticNow();
+        setNetworkDiagnosticSink(null);
+        providerRefreshActiveRef.current = false;
+        setProviderContentReady(true);
+        return;
+      }
+
       const content: ImportedContent =
         'content' in result ? result.content : (result as ImportedContent);
 
@@ -1850,6 +1907,36 @@ export function App() {
           series: persistedSeries.length,
         },
       };
+      /*
+       * CSAK A VÁLTOZÁSOKAT DOLGOZZUK FEL.
+       *
+       * A frissítés végén összevetjük a most letöltött listát a tárolttal, és
+       * csak azt írjuk ki, ami tényleg új, módosult vagy törölt. Ha semmi nem
+       * változott, a tárolóhoz hozzá sem nyúlunk – nincs 100 adag újraírása
+       * egy olyan listáért, ami bitre ugyanaz.
+       *
+       * A kulcs a szolgáltató stabil azonosítója (stream_id / series_id), nem
+       * a sorszám: egy csatorna törlése nem jelölheti „megváltozottnak” az
+       * összes utána következőt.
+       */
+      const channelDiff = diffCatalogs(
+        previousChannels,
+        persistedChannels,
+        (channel) => String(channel.streamId ?? channel.id),
+        (channel) => `${channel.name}|${channel.categoryId}|${channel.streamUrl}|${channel.logo}`
+      );
+      const movieDiff = diffCatalogs(
+        previousMovies,
+        persistedMovies,
+        (movie) => String(movie.streamId ?? movie.id),
+        (movie) => `${movie.title}|${movie.categoryId}|${movie.poster}`
+      );
+      const seriesDiff = diffCatalogs(
+        previousSeries,
+        persistedSeries,
+        (item) => String(item.seriesId ?? item.id),
+        (item) => `${item.title}|${item.categoryId}|${item.poster}`
+      );
       if (liveToShow) setChannels(liveToShow);
       channelsRef.current = liveToShow || previousChannels;
       /*
@@ -1870,9 +1957,21 @@ export function App() {
       // A preview-szakaszok szándékosan nem írnak tartós listát. A végső,
       // enrichmentelt snapshotot pontosan egyszer mentjük, így a részleges
       // betöltések nem okoznak dupla/nem-metaadatos mentést.
-      saveLiveContentSafely(contentForStorage);
-      await saveVodContentSafely(contentForStorage);
-      await saveSeriesContentSafely(contentForStorage);
+      /*
+       * MENTÉS CSAK AKKOR, HA VAN MIT MENTENI.
+       * Új szolgáltatónál (vagy ha a kategóriák változtak) természetesen
+       * mindent kiírunk; egyébként csak azt a listát, amelyik tényleg
+       * megváltozott – így egy „semmi sem változott” frissítés nem ír ki
+       * több ezer sort a tárolóba.
+       */
+      const liveCategoriesChanged = !sameCategories(categoriesRef.current, contentForStorage.liveCategories);
+      const vodCategoriesChanged = !sameCategories(vodCategoriesRef.current, contentForStorage.vodCategories);
+      const seriesCategoriesChanged = !sameCategories(seriesCategoriesRef.current, contentForStorage.seriesCategories);
+      const touches = (diff: { added: number; removed: number; changed: number }, categoriesChanged: boolean) =>
+        !isSameProvider || categoriesChanged || diff.added + diff.removed + diff.changed > 0;
+      if (touches(channelDiff, liveCategoriesChanged)) saveLiveContentSafely(contentForStorage);
+      if (touches(movieDiff, vodCategoriesChanged)) await saveVodContentSafely(contentForStorage);
+      if (touches(seriesDiff, seriesCategoriesChanged)) await saveSeriesContentSafely(contentForStorage);
       dirtyRef.current = false;
 
       const finishedAt = performance.now();
@@ -1880,14 +1979,28 @@ export function App() {
       retryAttemptsRef.current = 0;
       cancelAutoRetry();
       setProviderContentReady(true);
-      // A hiányos betöltés (pl. a szolgáltató néhány kategóriát nem adott ki)
-      // nem maradhat észrevétlen: a figyelmeztetés a betöltés végén látszik.
-      const warningText = Array.isArray(content.warnings) && content.warnings.length
-        ? ' • FIGYELEM: ' + content.warnings.join(' ')
-        : '';
+      /*
+       * A VÉGEREDMÉNY A VALÓSÁGOT MUTATJA.
+       *
+       * A 2.5.116-os napló szerint minden sikerült (20 190 csatorna, filmek és
+       * sorozatok IndexedDB-ben), a felület mégis „Részben kész”-t írt egy
+       * hosszú FIGYELEM szöveggel – mert a biztonsági korlátot figyelmeztetésnek
+       * vette. Most a darabszám a ténylegesen feldolgozott elemeké,
+       * kategóriaszámokkal, és csak VALÓDI hiány számít figyelmeztetésnek.
+       */
+      const summary = describeCatalogSummary(contentForStorage);
+      const changeText = [
+        describeCatalogDiff(channelDiff, 'csatorna'),
+        describeCatalogDiff(movieDiff, 'film'),
+        describeCatalogDiff(seriesDiff, 'sorozat'),
+      ].filter(Boolean).join(', ');
       const finalProgress = {
-        phase: content.warnings && content.warnings.length ? 'Részben kész' : 'Kész',
-        detail: `${content.channels.length.toLocaleString('hu-HU')} csatorna • ${content.movies.length.toLocaleString('hu-HU')} film • ${content.series.length.toLocaleString('hu-HU')} sorozat${warningText}`,
+        phase: summary.phase,
+        detail:
+          (isSameProvider
+            ? (changeText ? `Változás: ${changeText}. ` : 'Nincs változás a tárolt listához képest. ')
+            : '')
+          + `${summary.counts}${summary.extra ? ` • ${summary.extra}` : ''}`,
         percent: 100,
       };
       setDiagnosticProgress(finalProgress);
