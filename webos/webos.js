@@ -1460,9 +1460,14 @@
      *
      * A 15 mp SZÁNDÉKOSAN nagyobb, mint a két másik indulási korlát:
      *   • a főoldal saját döntése legfeljebb 9 mp után felfedi magát
-     *     (web/src/main.tsx),
+     *     (a React belépő, main.tsx),
      *   • a HTML biztonsági hálója 12 mp után engedi el a takaróképet
-     *     (web/index.html).
+     *     (index.html).
+     *
+     * FONTOS: ebbe a fájlba soha ne írj olyan szöveget, ami úgy néz ki, mint
+     * egy fejlesztői modul-hivatkozás. A fájl beégetve kerül a csomagolt
+     * index.html-be, és a kiadás előtti IPK-ellenőrzés a dev-belépő maradványát
+     * keresi benne – egy puszta forráskomment is megbuktatta már a buildet.
      * Így a piros diagnosztikai doboz SOHA nem jelenik meg ugyanabban a
      * pillanatban, amikor a takarókép lemegy – az ugyanis pont akkor
      * villanna a néző szeme elé, amikor a felület készen áll.
