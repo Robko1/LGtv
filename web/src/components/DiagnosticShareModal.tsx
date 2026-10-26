@@ -58,9 +58,23 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     void listDiagnosticLogHistory()
       .then((records) => setHistory(records))
       .catch(() => { /* a helyi ötös lista offline is látható marad */ });
+  }, [isOpen]);
+
+  /**
+   * AZ ELTELT IDŐ CSAK AKTÍV NAPLÓZÁSNÁL SZÁMOL.
+   *
+   * Korábban a számláló feltétel nélkül ketyegett: leállított (vagy el sem
+   * indított) naplózásnál is nőtt az „ELTELT IDŐ”, ami azt sugallta, hogy a
+   * naplózás még fut. Most az óra csak akkor frissül, amíg a naplózás aktív;
+   * leállításkor a napló-réteg a leállítás pillanatában megállítja az időt,
+   * és itt a rendszeres frissítés is leáll.
+   */
+  const loggingActive = snapshot.enabled;
+  useEffect(() => {
+    if (!isOpen || !loggingActive) return undefined;
     const timer = window.setInterval(() => setSnapshot(manualLogSnapshot()), 500);
     return () => window.clearInterval(timer);
-  }, [isOpen]);
+  }, [isOpen, loggingActive]);
 
   useEffect(() => {
     if (!isOpen) return;

@@ -41,6 +41,15 @@ let loggingEnabled = false;
 const PERSIST_DELAY_MS = 5000;
 let activeLogNumber: number | null = null;
 let activeLogStartedAt = 0;
+/**
+ * Mikor állt le a kézi naplózás (0 = még fut).
+ *
+ * AZ ELTELT IDŐ A LEÁLLÍTÁSKOR MEGÁLL: korábban a számláló tovább ketyegett,
+ * és a leállított naplónál is nőtt az „ELTELT IDŐ” – megtévesztő volt, mert
+ * azt sugallta, hogy a naplózás még mindig fut. Aktív naplózásnál az óra
+ * folyamatosan számol, leállítás után a leállítás pillanatában megáll.
+ */
+let activeLogStoppedAt = 0;
 
 /*
  * A régi mérési számlálók megmaradnak a diagnosztikai híd kompatibilitása miatt,
@@ -275,7 +284,10 @@ export function manualLogSnapshot(): ManualLogSnapshot {
     number: activeLogNumber,
     startedAt: activeLogStartedAt,
     startedAtText: activeLogStartedAt ? dateTimeText(activeLogStartedAt) : '',
-    elapsedMs: activeLogStartedAt ? Math.max(0, now - activeLogStartedAt) : 0,
+    // Leállított naplónál a stopperóra a leállítás pillanatában áll meg.
+    elapsedMs: activeLogStartedAt
+      ? Math.max(0, (activeLogStoppedAt || now) - activeLogStartedAt)
+      : 0,
     lineCount: lines.length,
     charCount: chars,
   };
@@ -291,6 +303,7 @@ export function startManualLogging(): ManualLogSnapshot {
   const startedAt = Date.now();
   activeLogNumber = allocateLogNumber();
   activeLogStartedAt = startedAt;
+  activeLogStoppedAt = 0;
   measurementStartedAt = startedAt;
   measurementCounters.logLines = 0;
   measurementCounters.errors = 0;
@@ -316,6 +329,8 @@ export function stopManualLogging(reason = 'kézi leállítás'): ManualLogSnaps
     appLog(`=== NAPLÓZÁS LEÁLLÍTVA; napló=#${activeLogNumber ?? 'ismeretlen'}; ok=${reason} ===`);
   }
   loggingEnabled = false;
+  // A stopperóra MEGÁLL: a leállított naplónál az eltelt idő nem nő tovább.
+  if (!activeLogStoppedAt) activeLogStoppedAt = Date.now();
   stopRuntimeWatchdog();
   persistNow(true);
   // A nagy napló utolsó szinkron mentése eddig egy legfeljebb 2 másodperc

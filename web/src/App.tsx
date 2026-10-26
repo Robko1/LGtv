@@ -3,9 +3,11 @@ import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, Fav
 import { storageService } from './services/storageService';
 import {
   clearContent,
+  describeStoredContent,
   ImportedContent,
   LoadedLiveFull,
   loadLive,
+  loadLiveBoot,
   loadLiveFull,
   loadSeriesAsync,
   loadVodAsync,
@@ -588,6 +590,26 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isOsdVisible, setIsOsdVisible] = useState<boolean>(true);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState<boolean>(false);
+  /*
+   * A TELJES KÉPERNYŐ ÁLLAPOTA A FŐOLDALHOZ – EGY KIFESTETT KÉPKOCKÁVAL KÉSŐBB.
+   *
+   * A TV-napló (1-es napló, 2.5.121) mérése szerint a lejátszó commitja és első
+   * képkockája 1,6–3,2 ms volt, a főoldal jelölése viszont 250–370 ms-mal
+   * később készült el. Vagyis a váltás NEM a geometria miatt lassú: a
+   * lejátszó már teljes képernyős, de a főoldal (OSD, oldalsáv, lista)
+   * újrarajzolása UGYANABBAN a commitban fut, ezért a kép csak utána festődik
+   * ki. A jelölést ezért a kifestett képkocka UTÁN frissítjük: a néző azonnal
+   * látja a teljes képernyős képet, a főoldal állapota pedig utána, a
+   * háttérben következik – pontosan úgy, ahogy egy set-top boxnál.
+   */
+  const videoFullscreenRef = useRef(false);
+  const applyVideoFullscreen = useCallback((value: boolean) => {
+    videoFullscreenRef.current = value;
+    const apply = () => setIsVideoFullscreen(value);
+    const raf = (window as unknown as { requestAnimationFrame?: (cb: () => void) => number }).requestAnimationFrame;
+    if (typeof raf === 'function') raf(() => raf(apply));
+    else window.setTimeout(apply, 0);
+  }, []);
   const [liveAccent, setLiveAccent] = useState<'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white'>(() => {
     try {
       const saved = localStorage.getItem('iptv-live-accent');
@@ -1038,6 +1060,133 @@ export function App() {
     };
 
     void loadStoredContent().finally(() => logMemory('tartalom betöltése után'));
+  }, []);
+
+  /*
+   * HIDEG INDÍTÁS MENTETT ADATBÓL – INDEXEDDB-BE ÉPÍTVE.
+   *
+   * A hideg indítás eddig kizárólag a localStorage-ból olvasott. A webOS-on
+   * ez a tár kicsi és megosztott (beállítások, kézi napló, gyorsítótárak),
+   * ezért a benne lévő fejléc elveszhet. Ilyenkor a program üresnek látta
+   * magát, „nincs használható mentett lista” állapotba került, és a
+   * szolgáltatótól AZONNAL újratöltött MINDENT (élő lista, filmek,
+   * sorozatok) – ez volt az elfogadhatatlan viselkedés újraindításkor.
+   *
+   * A teljes katalógus viszont az IndexedDB-ben van (nagy kvóta, önálló
+   * tároló). Ezért induláskor, ha a localStorage-ban nincs használható lista,
+   * az IndexedDB-ből állítjuk helyre a kezdőképernyő tartalmát: a magyar
+   * csatornákat (a mentett sorrend magyar-első), a kategóriákat, majd a
+   * filmeket és a sorozatokat – HÁLÓZAT NÉLKÜL. A letöltés csak akkor
+   * indul, ha egyik tárolóban sincs semmi.
+   *
+   * A naplóba előbb egy tároló-jelentés kerül (kulcsszám, karakterek,
+   * IndexedDB darabszámok), hogy egy újabb hiba esetén egyetlen sorból
+   * látszódjon, hol volt a katalógus.
+   */
+  const bootProbeStartedRef = useRef(false);
+  const [bootProbeDone, setBootProbeDone] = useState(() => bootChannels.length > 0);
+  useEffect(() => {
+    if (bootProbeStartedRef.current) return;
+    if (bootChannels.length > 0) {
+      setBootProbeDone(true);
+      return;
+    }
+    bootProbeStartedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const report = await describeStoredContent();
+        appLog(
+          `TÁROLÓ-JELENTÉS: localStorage=${report.localKeys} kulcs / ${report.localChars} karakter; `
+          + `induló készlet (localStorage)=${report.liveLocal} csatorna; IndexedDB: `
+          + `élő=${report.liveIdb}, film=${report.vodIdb}, sorozat=${report.seriesIdb}.`
+        );
+        const boot = await loadLiveBoot();
+        if (cancelled) return;
+        if (!boot.provider || boot.channels.length === 0) {
+          appLog('Indulás: a tárolóban nincs használható csatornalista (localStorage és IndexedDB is üres).');
+          return;
+        }
+        const recoveredProvider = boot.provider;
+        const prepared = restoreSavedChannelOrder(hungaryFirst(boot.channels), recoveredProvider.id);
+        setChannels(prepared);
+        channelsRef.current = prepared;
+        if (boot.categories.length) setCategories(boot.categories);
+        setTotalCounts((current) => ({
+          live: Math.max(current.live, boot.totals.live),
+          vod: Math.max(current.vod, boot.totals.vod),
+          series: Math.max(current.series, boot.totals.series),
+        }));
+        setActiveProvider(recoveredProvider);
+        setProviderContentReady(true);
+        setLiveRecoveryNeeded(false);
+        setBootProbeDone(true);
+        /*
+         * A NÉZETT CSATORNA: ha a megjegyzett adó megvan a helyreállított
+         * listában, az indul; különben a legelső MAGYAR adó – ugyanaz a
+         * szabály, mint a betöltés végén.
+         */
+        const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
+        const recoveredActiveId = savedLastId && prepared.some((channel) => channel.id === savedLastId)
+          ? savedLastId
+          : firstPlayableHungarianChannel(prepared)?.id;
+        if (recoveredActiveId) {
+          activeChannelIdRef.current = recoveredActiveId;
+          setActiveChannelId(recoveredActiveId);
+        }
+        appLog(
+          `INDULÁS MENTETT ADATBÓL: ${prepared.length} csatorna azonnal, letöltés nélkül `
+          + `(a teljes lista: ${boot.totals.live} csatorna, ${boot.categories.length} kategória).`
+        );
+
+        /*
+         * A KATALÓGUS TÖBBI RÉSZE – a kezdőképernyő kifestése UTÁN.
+         *
+         * Sorban, egymás után (nem egyszerre): teljes élő lista → filmek →
+         * sorozatok. Így a visszaállítás nem vesz el CPU-t az első
+         * képkockától, és nem lesz memóriacsúcs a TV-n.
+         */
+        const providerForRestore = recoveredProvider;
+        window.setTimeout(() => {
+          if (cancelled || providerRefreshActiveRef.current) return;
+          void (async () => {
+            try {
+              if (boot.totals.live > prepared.length) {
+                const full = await loadLiveFull(providerForRestore);
+                if (cancelled || !full || providerRefreshActiveRef.current) return;
+                setChannels((current) => (current.length >= full.channels.length
+                  ? current
+                  : restoreSavedChannelOrder(hungaryFirst(full.channels), providerForRestore.id)));
+                if (full.categories.length) setCategories((current) => (current.length ? current : full.categories));
+                setTotalCounts((current) => (current.live >= full.totals.live ? current : full.totals));
+                appLog(`Teljes élő csatornalista a felületen: ${full.channels.length} csatorna (IndexedDB).`);
+              }
+              const vod = await loadVodAsync(providerForRestore);
+              if (cancelled) return;
+              if (vod.movies.length) {
+                setMovies(vod.movies);
+                if (vod.categories.length) setVodCategories(vod.categories);
+                appLog(`Filmek a tárolóból: ${vod.movies.length} film, letöltés nélkül.`);
+              }
+              const ser = await loadSeriesAsync(providerForRestore);
+              if (cancelled) return;
+              if (ser.series.length) {
+                setSeries(ser.series);
+                if (ser.categories.length) setSeriesCategories(ser.categories);
+                appLog(`Sorozatok a tárolóból: ${ser.series.length} sorozat, letöltés nélkül.`);
+              }
+            } catch (error) {
+              appLogError('Mentett katalógus betöltése', error);
+            }
+          })();
+        }, 800);
+      } catch (error) {
+        appLogError('Induló készlet betöltése a tárolóból', error);
+      } finally {
+        if (!cancelled) setBootProbeDone(true);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -2371,6 +2520,14 @@ export function App() {
   const autoRestoreProviderRef = useRef(providers);
   autoRestoreProviderRef.current = providers;
   useEffect(() => {
+    /*
+     * A LETÖLTÉS AZ UTOLSÓ LEHETŐSÉG.
+     *
+     * Előbb a hideg indítás tároló-próbája fut le (localStorage → IndexedDB).
+     * Csak akkor indul a szolgáltatótól jövő újratöltés, ha az is azt
+     * állapította meg, hogy egyik tárolóban sincs használható lista.
+     */
+    if (!bootProbeDone) return undefined;
     if (!liveRecoveryNeeded) return undefined;
     const list = autoRestoreProviderRef.current;
     const candidate = list.find((provider) => provider.isActive) || list[0];
@@ -2382,7 +2539,7 @@ export function App() {
       void refreshRef.current(candidate, false);
     }, 2500);
     return () => window.clearTimeout(timer);
-  }, [liveRecoveryNeeded]);
+  }, [liveRecoveryNeeded, bootProbeDone]);
 
   const closeRefreshDiagnostic = useCallback(() => {
     // A VISSZA csak a diagnosztikai ablakot zárja be; a háttérben már futó
@@ -3027,7 +3184,11 @@ export function App() {
           if (isEpgOpen) { setIsEpgOpen(false); break; }
           if (isCategoriesOpen) { setIsCategoriesOpen(false); break; }
           if (isSettingsOpen) { setIsSettingsOpen(false); break; }
-          if (isVideoFullscreen) { setIsVideoFullscreen(false); break; }
+          if (videoFullscreenRef.current) {
+            videoFullscreenRef.current = false;
+            applyVideoFullscreen(false);
+            break;
+          }
           if (customStreamUrl) {
             setCustomStreamUrl(undefined);
             setCustomStreamTitle(undefined);
@@ -3348,7 +3509,7 @@ export function App() {
             onRegisterPip={(togglePip) => {
               mainPlayerPipRef.current = togglePip;
             }}
-            onFullscreenChange={setIsVideoFullscreen}
+            onFullscreenChange={applyVideoFullscreen}
             onRegisterOsdToggle={(toggle) => {
               mainPlayerOsdToggleRef.current = toggle;
             }}

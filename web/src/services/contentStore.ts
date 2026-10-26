@@ -85,6 +85,12 @@ const LIVE_FULL_META_KEY = 'content-live-full-meta';
 const LIVE_FULL_GENERATION_PREFIX = 'content-live-full-v1-';
 /** Az induló készlet felső korlátja a localStorage-ban (kb. 2500 csatorna). */
 const LIVE_BOOT_BUDGET = 500000;
+/**
+ * Hány adagot olvasunk be az IndexedDB-ből a hideg indításhoz (400 csatorna /
+ * adag). Három adag ≈ 1200 csatorna – bőven elég az első képkockához, és a TV-n
+ * is gyorsan beolvasható; a teljes lista utána, üresjáratban töltődik be.
+ */
+const LIVE_BOOT_IDB_CHUNKS = 3;
 /** Ennél kisebb induló készletet már nem érdemes menteni (kb. 200 csatorna). */
 const LIVE_BOOT_MIN_CHANNELS = 200;
 /** Az utolsó próba karakter-kerete (kb. 250 csatorna). */
@@ -1553,6 +1559,135 @@ export async function loadLiveFull(
     savedAt: chunked.meta.savedAt || '',
     totals,
   };
+}
+
+/**
+ * INDULÓ KÉSZLET – ELSŐSORBAN AZ INDEXEDDB-BŐL.
+ *
+ * A hideg indítás eddig KIZÁRÓLAG a localStorage-ból olvasott. A webOS-os
+ * TV-naplók szerint viszont ez a tár nem megbízható hosszú távon (kis kvóta,
+ * amit a beállítások, a kézi napló és a gyorsítótárak is használnak), ezért a
+ * korábbi lista eltűnhet. Ilyenkor a program üresnek látta magát, és a
+ * szolgáltatótól AZONNAL újratöltötte a teljes katalógust – pontosan az a
+ * viselkedés, ami elfogadhatatlan.
+ *
+ * A teljes (és a magyarokkal kezdődő) élő lista viszont az IndexedDB-ben van,
+ * ami nagyobb kvótával, önállóan tárol. Ezért induláskor:
+ *   1. a localStorage-ból olvasunk (a leggyorsabb, szinkron út);
+ *   2. ha onnan nincs használható lista, az IndexedDB fejlécéből és első
+ *      adagjaiból állítjuk össze az induló készletet (a mentett sorrend
+ *      magyar-első, ezért az első adagok a magyar csatornákat tartalmazzák);
+ *   3. csak ha ott sincs semmi, akkor kell a szolgáltatótól letölteni.
+ *
+ * Az olvasás aszinkron, de néhány adag (≈1000 csatorna) beolvasása a TV-n is
+ * gyors; a hívó a takarókép alatt várja meg, így a főoldal már kész listával
+ * jelenik meg, hálózat nélkül.
+ */
+export async function loadLiveBoot(): Promise<LoadedLive> {
+  const local = loadLive();
+  if (local.provider && local.channels.length > 0) return local;
+
+  let store: ChunkStore | null = null;
+  try {
+    store = await contentChunkStore();
+  } catch {
+    store = null;
+  }
+  if (!store) return local;
+
+  let chunked: Awaited<ReturnType<typeof readIdbChunks>> = null;
+  try {
+    chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
+  } catch {
+    chunked = null;
+  }
+  if (!chunked || !chunked.meta.provider) return local;
+
+  const provider = chunked.meta.provider;
+  const channels: Channel[] = [];
+  const limit = Math.max(1, Math.min(chunked.meta.chunks, LIVE_BOOT_IDB_CHUNKS));
+  for (let index = 0; index < limit; index++) {
+    const rows = await chunked.readChunk(index);
+    for (const channel of decodeChannels(rows, provider)) channels.push(channel);
+    await yieldToStorage();
+  }
+  if (channels.length === 0) return local;
+
+  const liveTotal = chunked.meta.liveTotal || local.totals.live || channels.length;
+  appLog(
+    `Induló készlet az IndexedDB-ből: ${channels.length} csatorna `
+    + `(a teljes lista ${liveTotal} csatorna, ${chunked.meta.chunks} adag) – nincs letöltés.`
+  );
+  return {
+    channels,
+    categories: decodeCategories(chunked.meta.cats, 'live'),
+    savedAt: chunked.meta.savedAt || local.savedAt,
+    provider,
+    totals: {
+      live: liveTotal,
+      vod: chunked.meta.totals?.vod || local.totals.vod || 0,
+      series: chunked.meta.totals?.series || local.totals.series || 0,
+    },
+    pendingFull: channels.length < liveTotal,
+  };
+}
+
+/**
+ * TÁROLÓ-JELENTÉS az induláshoz (naplóba, csak kézi naplózás alatt).
+ *
+ * Megmutatja, hol van a katalógus: hány kulcs és hány karakter van a
+ * localStorage-ban, illetve hány csatorna/film/sorozat van az IndexedDB-ben.
+ * Ebből egyetlen sorral megállapítható, hogy egy újraindítás után miért nem
+ * volt használható a mentett lista.
+ */
+export interface StorageReport {
+  localKeys: number;
+  localChars: number;
+  liveLocal: number;
+  liveIdb: number;
+  vodIdb: number;
+  seriesIdb: number;
+  bootChars: number;
+}
+
+export async function describeStoredContent(): Promise<StorageReport> {
+  const report: StorageReport = {
+    localKeys: 0, localChars: 0, liveLocal: 0, liveIdb: 0, vodIdb: 0, seriesIdb: 0, bootChars: 0,
+  };
+  try {
+    for (const key of backend.keys()) {
+      report.localKeys += 1;
+      report.localChars += key.length + (backend.get(key) || '').length;
+    }
+  } catch {
+    /* a felsorolás hibája nem akadályozhatja az indulást */
+  }
+  try {
+    const live = loadLive();
+    report.liveLocal = live.channels.length;
+  } catch {
+    /* sérült fejléc */
+  }
+  try {
+    const store = await contentChunkStore();
+    if (store) {
+      const live = await readIdbChunks(store, LIVE_FULL_META_KEY);
+      if (live) report.liveIdb = live.meta.liveTotal || live.meta.chunks * CHUNK_SIZE;
+      const vod = await readIdbChunks(store, VOD_META_KEY);
+      if (vod) report.vodIdb = vod.meta.totals?.vod || vod.meta.chunks * CHUNK_SIZE;
+      const series = await readIdbChunks(store, SERIES_META_KEY);
+      if (series) report.seriesIdb = series.meta.totals?.series || series.meta.chunks * CHUNK_SIZE;
+    }
+  } catch {
+    /* az IndexedDB hibája nem akadályozhatja az indulást */
+  }
+  try {
+    const raw = backend.get(LIVE_META_KEY);
+    report.bootChars = raw ? raw.length : 0;
+  } catch {
+    /* nincs fejléc */
+  }
+  return report;
 }
 
 /**

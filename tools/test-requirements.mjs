@@ -487,7 +487,8 @@ test('7. ha a csatornák nem jönnek, a bejelentkezés hibája a hasznosabb üze
 });
 
 test('7. a csatornák a filmek előtt, önállóan kerülnek a felületre', () => {
-  const partialIndex = IMPORT.indexOf('await onPartial({\n    channels: liveChannels,');
+  const livePartial = /await onPartial\(\{[\s\S]{0,160}?channels: liveChannels,/.exec(IMPORT);
+  const partialIndex = livePartial ? livePartial.index : -1;
   const vodIndex = IMPORT.indexOf('/* ---- 2. szakasz: filmek');
   assert.ok(partialIndex > 0 && vodIndex > 0);
   assert.ok(partialIndex < vodIndex, 'a csatornák azonnal publikálódnak, a filmek utána jönnek');
@@ -1725,8 +1726,78 @@ test('22. az élő lista újraindítás után is megmarad (localStorage + Indexe
     'két különböző szolgáltató listája keveredhet');
   // A verzió is a mentés-javítást hirdeti.
   const version = read('web/src/appVersion.ts');
-  assert.match(version, /export const WEB_VERSION = '2\.5\.120';/,
-    'a verzió nem 2.5.120');
+  assert.match(version, /export const WEB_VERSION = '2\.5\.122';/,
+    'a verzió nem 2.5.122');
   assert.match(version, /ADATVESZTÉS ÚJRAINDÍTÁSKOR/,
     'a kiadási napló nem írja le az adatvesztés javítását');
+});
+
+/* ───── 23. Hideg indítás mentett adatból + leálló eltelt idő ───── */
+
+test('23. hideg indítás mentett adatból (nincs újratöltés) és leálló eltelt idő', () => {
+  const STORE = read('web/src/services/contentStore.ts');
+  const APPLOG = read('web/src/services/appLog.ts');
+  const DIAG_MODAL = read('web/src/components/DiagnosticShareModal.tsx');
+
+  /*
+   * ADATVESZTÉS ÚJRAINDÍTÁSKOR – a valódi ok:
+   *
+   * A hideg indítás kizárólag a localStorage-ból olvasott. A webOS-on ez a
+   * tár kicsi és megosztott, ezért a fejléc elveszhet; ilyenkor a program
+   * üresnek látta magát, és AZONNAL letöltötte a teljes katalógust. Most az
+   * induló készlet az IndexedDB-ből is helyreáll (nagy kvóta, önálló tároló),
+   * és a letöltés csak akkor indul, ha egyik tárolóban sincs semmi.
+   */
+  assert.match(STORE, /export async function loadLiveBoot\(\): Promise<LoadedLive> \{/,
+    'nincs IndexedDB-alapú induló készlet (a hideg indítás csak a localStorage-ból olvas)');
+  assert.match(STORE, /readIdbChunks\(store, LIVE_FULL_META_KEY\)/,
+    'az induló készlet nem a teljes élő lista IndexedDB-fejlécéből jön');
+  assert.match(STORE, /export async function describeStoredContent\(\): Promise<StorageReport> \{/,
+    'nincs tároló-jelentés (nem látszik, hol van a katalógus)');
+
+  assert.match(APP, /const boot = await loadLiveBoot\(\);/,
+    'a felület nem próbálja az IndexedDB-ből helyreállítani az induló készletet');
+  assert.match(APP, /TÁROLÓ-JELENTÉS/,
+    'a napló nem mutatja a tároló állapotát induláskor');
+  assert.match(APP, /INDULÁS MENTETT ADATBÓL/,
+    'a napló nem rögzíti a mentett adatból indulást');
+  assert.match(APP, /if \(!bootProbeDone\) return undefined;/,
+    'a szolgáltatótól jövő újratöltés a tároló-próba ELŐTT is elindulhat');
+  assert.ok(
+    APP.indexOf('const boot = await loadLiveBoot();') < APP.indexOf('if (!bootProbeDone) return undefined;'),
+    'az újratöltés a tároló-próba után dönt',
+  );
+
+  /*
+   * TELJES KÉPERNYŐ ⇄ FŐOLDAL: a mérés szerint a lejátszó commitja 1,6–3,2 ms,
+   * a főoldal jelölése viszont 250–370 ms-mal később készült el. A főoldal
+   * állapota ezért csak a kifestett képkocka után frissül.
+   */
+  assert.match(APP, /const applyVideoFullscreen = useCallback\(\(value: boolean\) => \{/,
+    'a teljes képernyő állapota azonnal, a lejátszó commitjával együtt frissül');
+  assert.match(APP, /raf\(\(\) => raf\(apply\)\)/,
+    'a főoldal jelölése nem a kifestett képkocka után frissül');
+  assert.match(APP, /onFullscreenChange=\{applyVideoFullscreen\}/,
+    'a lejátszó továbbra is közvetlenül a state-et írja');
+  assert.doesNotMatch(APP, /onFullscreenChange=\{setIsVideoFullscreen\}/,
+    'a lejátszó közvetlenül a state-et írja (a commit blokkolja a kifestést)');
+  assert.match(APP, /if \(videoFullscreenRef\.current\) \{/,
+    'a VISSZA gomb a késleltetett state-re támaszkodik');
+
+  /*
+   * KÉZI HIBA NAPLÓ: az eltelt idő a naplózás végével megáll, és leállított
+   * naplózásnál a számláló nem fut tovább.
+   */
+  assert.match(APPLOG, /let activeLogStoppedAt = 0;/,
+    'nincs leállítási időpont (az eltelt idő tovább számol)');
+  assert.match(APPLOG, /\(activeLogStoppedAt \|\| now\) - activeLogStartedAt/,
+    'a leállított napló eltelt ideje tovább nő');
+  assert.match(APPLOG, /if \(!activeLogStoppedAt\) activeLogStoppedAt = Date\.now\(\);/,
+    'a leállítás nem állítja meg a stopperórát');
+  assert.match(APPLOG, /activeLogStoppedAt = 0;/,
+    'az új napló nem indítja újra a stopperórát');
+  assert.match(DIAG_MODAL, /const loggingActive = snapshot\.enabled;/,
+    'a napló-ablak nem figyeli, hogy aktív-e a naplózás');
+  assert.match(DIAG_MODAL, /if \(!isOpen \|\| !loggingActive\) return undefined;/,
+    'a napló-ablak leállított naplózásnál is frissíti a számlálót');
 });
