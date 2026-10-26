@@ -224,7 +224,8 @@ try {
     `${Math.round(localChars / 1024)} kB`,
   );
   check(Boolean(fullMeta), 'a teljes lista fejléce az IndexedDB-ben van');
-  check(fullMeta?.chunks >= 40, 'a teljes lista adagokban van az IndexedDB-ben', String(fullMeta?.chunks));
+  // 1200 csatorna/adag: a 20 000-es lista ~17 adag (a régi 400-asnál 51 volt).
+  check(fullMeta?.chunks >= 2, 'a teljes lista adagokban van az IndexedDB-ben', String(fullMeta?.chunks));
   check(
     idbKeys.filter((key) => key.startsWith('content-live-full-v1-')).length === fullMeta?.chunks,
     'minden adag kiíródott az IndexedDB-be',

@@ -267,8 +267,14 @@ async function main(): Promise<void> {
   const chunkChars = Math.max(...chunkKeys('content-vod-chunk-v2-').map((k) => store.get(k)!.length));
   const metaChars = (store.get('iptv_rt_content-vod-meta') ?? '').length;
   store.clear();
-  // Pont annyi hely marad, amennyibe KÉT adag belefér – a fejléc már nem.
-  store.set('iptv_rt_ballast', 'x'.repeat(QUOTA_CHARS - 2 * chunkChars - Math.floor(metaChars / 2)));
+  /*
+   * Annyi hely maradjon, amennyi KÉT adagnak elég – a fejléc már nem fér el.
+   * A nagyobb (1200 soros) adagok miatt a képlet negatív is lehet: ilyenkor
+   * nullával szorítjuk, hogy a próba a fejléc-mentési útvonalat vizsgálja,
+   * ne egy mesterségesen negatív String.repeat()-et.
+   */
+  const ballastChars = Math.max(0, QUOTA_CHARS - 2 * chunkChars - Math.floor(metaChars / 2));
+  store.set('iptv_rt_ballast', 'x'.repeat(ballastChars));
   const tight = makeContent(1_200, 'szűk', 800_000);
   let tightThrew = '';
   try {

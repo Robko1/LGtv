@@ -331,8 +331,11 @@ test('7. a többi ország csatornái csak megnyitáskor töltődnek le', () => {
 test('7. az első használható csatornaadag azonnal megjelenik (előnézet)', () => {
   assert.match(IMPORT, /const FIRST_BATCH_CHANNELS = \d+;/);
   assert.match(IMPORT, /if \(liveProcessed === FIRST_BATCH_CHANNELS\) \{[\s\S]{0,400}?preview: true/);
-  // Az előnézet NEM íródik a tárolóba (nincs félkész mentés, nincs adatvesztés).
-  assert.match(APP, /if \(!partial\.preview\) \{[\s\S]{0,400}?saveLiveContentSafely\(draft\)/);
+  // Az előnézet NEM íródik a tárolóba (nincs félkész mentés), a KÉSZ
+  // szakasz viszont AZONNAL, még az import közben a tartós tárba kerül.
+  assert.match(APP, /if \(partial\.durable \|\| !partial\.preview\) \{/);
+  assert.match(APP, /if \(partial\.channels\) \{ durableSaved\.live = true; saveLiveContentSafely\(snapshot\); \}/);
+  assert.match(IMPORT, /durable: true,/, 'a kész szakasz nincs tartósításra jelölve');
 });
 
 test('7. a 100%-os diagnosztika a valós darabszámokat és kategóriákat mutatja', () => {
@@ -397,17 +400,25 @@ test('7. a Frissítés csak a változásokat dolgozza fel', () => {
     'az App nem kezeli a „nincs változás” eredményt');
   assert.match(APP, /phase: 'Kész – nincs változás'/,
     'a „nincs változás” nem jelenik meg a felületen');
-  // Csak a változott listát mentjük.
-  assert.match(APP, /const touches = \(diff: \{ added: number; removed: number; changed: number \}, categoriesChanged: boolean\) =>/,
-    'nincs döntés arról, kell-e menteni');
-  assert.match(APP, /if \(touches\(channelDiff, liveCategoriesChanged\)\) saveLiveContentSafely\(contentForStorage\);/,
-    'az élő lista mentése nem a változástól függ');
-  assert.match(APP, /if \(touches\(movieDiff, vodCategoriesChanged\)\) await saveVodContentSafely\(contentForStorage\);/,
-    'a filmek mentése nem a változástól függ');
-  assert.match(APP, /if \(touches\(seriesDiff, seriesCategoriesChanged\)\) await saveSeriesContentSafely\(contentForStorage\);/,
-    'a sorozatok mentése nem a változástól függ');
+  /*
+   * A 2.5.126-os napló 13 mp-es főszál-leállást mért: a három elemenkénti
+   * diffCatalogs() 100 ezer elemen futott, ÉS CSAK UTÁNA indult a mentés.
+   * Most a listák az import KÖZBEN íródnak a tartós tárba, a változás
+   * tényét pedig olcsón, darabszám-eltérésből állapítjuk meg.
+   */
+  assert.doesNotMatch(APP, /= diffCatalogs\(/,
+    'a főszálon újra elemenkénti összehasonlítás fut (13 mp-es leállás)');
+  assert.match(APP, /const changes = \[/, 'nincs olcsó változás-összegzés');
+  assert.match(APP, /if \(!durableSaved\.live\) saveLiveContentSafely\(contentForStorage\);/,
+    'az élő lista kimaradhat a mentésből');
+  assert.match(APP, /if \(!durableSaved\.vod\) await saveVodContentSafely\(contentForStorage\);/,
+    'a filmlista kimaradhat a mentésből');
+  assert.match(APP, /if \(!durableSaved\.series\) await saveSeriesContentSafely\(contentForStorage\);/,
+    'a sorozatlista kimaradhat a mentésből');
+  assert.match(APP, /await saveCatalogExtras\(id, contentForStorage\.movies, contentForStorage\.series\);/,
+    'a részletes VOD-metaadatok elvesznek újraindítás után');
   // A frissítés végén a valós eredmény látszik.
-  assert.match(APP, /describeCatalogDiff\(channelDiff, 'csatorna'\)/);
+  assert.match(APP, /const changeText = changes\.join\(', '\);/);
   assert.match(APP, /Változás: \$\{changeText\}/);
   // A szinkron-állapot a tárolóban él (és nem content- előtaggal).
   const STORE = read('web/src/services/contentStore.ts');
@@ -497,11 +508,17 @@ test('7. a csatornák a filmek előtt, önállóan kerülnek a felületre', () =
   const seriesPhase = IMPORT.indexOf('await loadSeriesPhase();', moviesPhase + 1);
   assert.ok(moviesPhase > vodIndex && seriesPhase > moviesPhase);
   assert.doesNotMatch(IMPORT, /await Promise\.all\(\[loadMoviesPhase\(\), loadSeriesPhase\(\)\]\)/);
-  const cacheStart = APP.indexOf('const loadStoredContent = async (): Promise<void> =>');
-  const cacheMovies = APP.indexOf('const vod = await loadVodAsync(provider);', cacheStart);
-  const cacheSeries = APP.indexOf('const ser = await loadSeriesAsync(provider);', cacheStart);
-  assert.ok(cacheStart > 0 && cacheMovies > cacheStart && cacheSeries > cacheMovies);
-  assert.match(APP, /await new Promise<void>\(\(resolve\) => window\.setTimeout\(resolve, 32\)\)/);
+  // A visszatöltés EGYETLEN, megosztott folyamat a contentStore-ban,
+  // ugyanabban a stabil sorrendben (élő → filmek → sorozatok).
+  const STORE = read('web/src/services/contentStore.ts');
+  const restoreStart = STORE.indexOf('export function restoreStoredContent(');
+  const restoreLive = STORE.indexOf('const full = await loadLiveFull(provider);', restoreStart);
+  const restoreVod = STORE.indexOf('const vod = await loadVodAsync(provider);', restoreStart);
+  const restoreSeries = STORE.indexOf('const ser = await loadSeriesAsync(provider);', restoreStart);
+  assert.ok(restoreStart > 0 && restoreLive > restoreStart && restoreVod > restoreLive
+    && restoreSeries > restoreVod, 'a tartós visszatöltés nem az élő → filmek → sorozatok sorrendben fut');
+  assert.match(APP, /await restoreStoredContent\(target, \{/,
+    'a felület nem egyetlen megosztott visszatöltést használ');
   assert.doesNotMatch(APP, /Promise\.all\(\[vodTask, seriesTask\]/);
 });
 
@@ -1646,8 +1663,11 @@ test('21. frissítésnél a nézés nem szakad meg és nem vált csatornát', ()
   assert.match(APP, /if \(options\.allowSwitch === false && !isHungarianChannel\(fallback\)\) return;/,
     'hiányos listából külföldi csatorna választható');
   // A felugró ablak csak az élő szakasz VÉGÉN jelenik meg.
-  assert.match(APP, /if \(liveComplete && partial\.channels\.length > 0 && !refreshLivePromptShownRef\.current\)/,
+  assert.match(APP, /if \(manual && !silent && liveComplete && partial\.channels\.length > 0 && !refreshLivePromptShownRef\.current\)/,
     'a felugró ablak a hiányos előnézet közben jelenik meg');
+  // Az automatikus háttér-betöltés NEM nyit felugró ablakot.
+  assert.match(APP, /void refreshRef\.current\(candidate, false, true\);/,
+    'az automatikus helyreállítás felugró ablakot nyit');
   // A frissítés végén a megjelenített (megtartott) listából dönt, nem a nyersből.
   assert.match(APP, /keepOrMoveActiveChannel\(hungaryFirst\(persistedChannels\), true\);/,
     'a frissítés végén a nézett csatorna elveszhet');
@@ -1714,20 +1734,24 @@ test('22. az élő lista újraindítás után is megmarad (localStorage + Indexe
   assert.match(STORE, /export function needsLiveCacheCompaction\(\): boolean \{/,
     'nincs átállás a korábbi, nagy localStorage-os listáról');
 
-  assert.match(APP, /loadLiveFull\(provider\)/,
-    'a felület nem tölti vissza a teljes listát az IndexedDB-ből');
-  assert.match(APP, /const merged = preserveChannelPreferences\(prepared, current, false\);/,
-    'a visszatöltött teljes lista elveszítheti a kedvenceket/sorrendet');
+  assert.match(APP, /const plan = await inspectStoredCatalogs\(\);/,
+    'a felület nem méri fel a tartós tárolót induláskor');
+  assert.match(APP, /await restoreStoredContent\(target, \{/,
+    'a felület nem tölti vissza a teljes listát a tartós tárból');
+  assert.match(STORE, /const full = await loadLiveFull\(provider\);/,
+    'a teljes élő lista nem az IndexedDB-ből jön vissza');
+  assert.match(APP, /restoreSavedChannelOrder\(hungaryFirst\(full\.channels\), target\.provider\.id\)/,
+    'a visszatöltött teljes lista elveszítheti a mentett sorrendet');
   assert.match(APP, /needsLiveCacheCompaction\(\)/,
     'az első indítás nem helyezi át a régi, nagy listát');
   assert.match(APP, /const \[liveRecoveryNeeded, setLiveRecoveryNeeded\] = useState\(/,
     'nincs öngyógyítás, ha a mentett lista eltűnt');
-  assert.match(APP, /if \(full\.provider && full\.provider\.id !== provider\.id\) return;/,
+  assert.match(STORE, /liveMeta\.meta\.provider\.id === plan\.provider\.id/,
     'két különböző szolgáltató listája keveredhet');
   // A verzió is a mentés-javítást hirdeti.
   const version = read('web/src/appVersion.ts');
-  assert.match(version, /export const WEB_VERSION = '2\.5\.125';/,
-    'a verzió nem 2.5.125');
+  assert.match(version, /export const WEB_VERSION = '2\.5\.127';/,
+    'a verzió nem 2.5.127');
   assert.match(version, /ADATVESZTÉS ÚJRAINDÍTÁSKOR/,
     'a kiadási napló nem írja le az adatvesztés javítását');
 });
@@ -1755,7 +1779,11 @@ test('23. hideg indítás mentett adatból (nincs újratöltés) és leálló el
   assert.match(STORE, /export async function describeStoredContent\(\): Promise<StorageReport> \{/,
     'nincs tároló-jelentés (nem látszik, hol van a katalógus)');
 
-  assert.match(APP, /const boot = await loadLiveBoot\(\);/,
+  assert.match(STORE, /export async function inspectStoredCatalogs\(\): Promise<StoredCatalogPlan \| null> \{/,
+    'nincs egységes tároló-felmérés');
+  assert.match(STORE, /boot = await loadLiveBoot\(\);/,
+    'az induló készlet nem állítható vissza az IndexedDB-ből');
+  assert.match(APP, /const plan = await inspectStoredCatalogs\(\);/,
     'a felület nem próbálja az IndexedDB-ből helyreállítani az induló készletet');
   assert.match(APP, /TÁROLÓ-JELENTÉS/,
     'a napló nem mutatja a tároló állapotát induláskor');
@@ -1764,7 +1792,7 @@ test('23. hideg indítás mentett adatból (nincs újratöltés) és leálló el
   assert.match(APP, /if \(!bootProbeDone\) return undefined;/,
     'a szolgáltatótól jövő újratöltés a tároló-próba ELŐTT is elindulhat');
   assert.ok(
-    APP.indexOf('const boot = await loadLiveBoot();') < APP.indexOf('if (!bootProbeDone) return undefined;'),
+    APP.indexOf('const plan = await inspectStoredCatalogs();') < APP.indexOf('if (!bootProbeDone) return undefined;'),
     'az újratöltés a tároló-próba után dönt',
   );
 
