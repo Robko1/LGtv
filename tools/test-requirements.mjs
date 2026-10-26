@@ -1726,8 +1726,8 @@ test('22. az élő lista újraindítás után is megmarad (localStorage + Indexe
     'két különböző szolgáltató listája keveredhet');
   // A verzió is a mentés-javítást hirdeti.
   const version = read('web/src/appVersion.ts');
-  assert.match(version, /export const WEB_VERSION = '2\.5\.123';/,
-    'a verzió nem 2.5.123');
+  assert.match(version, /export const WEB_VERSION = '2\.5\.124';/,
+    'a verzió nem 2.5.124');
   assert.match(version, /ADATVESZTÉS ÚJRAINDÍTÁSKOR/,
     'a kiadási napló nem írja le az adatvesztés javítását');
 });
