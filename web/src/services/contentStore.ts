@@ -65,6 +65,31 @@ const SERIES_CHUNK_PREFIX = 'content-series-chunk-';
 const VOD_GENERATION_PREFIX = 'content-vod-chunk-v2-';
 const SERIES_GENERATION_PREFIX = 'content-series-chunk-v2-';
 
+/*
+ * A TELJES ÉLŐ LISTA HELYE: INDEXEDDB.
+ *
+ * A webOS localStorage-kvótája ~5 MB, és ezen osztozik minden: beállítások,
+ * kedvencek, poszter-gyorsítótár, a kézi napló (akár 1 MB) ÉS a tartalom.
+ * A 20 190 csatornás élő lista önmagában ~3,9 MB volt, vagyis a teljes
+ * keret háromnegyedét ette. A 2.5.114-es TV-napló ezt mutatta:
+ *
+ *   TÁROLÓ HIBA: content-live-chunk-v1-… mentése végleg sikertelen (local);
+ *                foglaltság=75 kulcs / 5115 kB
+ *
+ * Vagyis a lista mellé már semmi nem fért be. Ezért a localStorage-ban csak
+ * az INDULÁSHOZ kellő (magyar) készlet marad – ez néhány tíz kB –, a teljes
+ * lista pedig az IndexedDB-be kerül, ahol a kvóta nagyságrendekkel nagyobb.
+ * Így a lista újraindítás után is megmarad, és nem szorítja ki a beállításokat.
+ */
+const LIVE_FULL_META_KEY = 'content-live-full-meta';
+const LIVE_FULL_GENERATION_PREFIX = 'content-live-full-v1-';
+/** Az induló készlet felső korlátja a localStorage-ban (kb. 2500 csatorna). */
+const LIVE_BOOT_BUDGET = 500000;
+/** Ennél kisebb induló készletet már nem érdemes menteni (kb. 200 csatorna). */
+const LIVE_BOOT_MIN_CHANNELS = 200;
+/** Az utolsó próba karakter-kerete (kb. 250 csatorna). */
+const LIVE_BOOT_MIN_BUDGET = 40000;
+
 /**
  * Éppen írás alatt álló generációk. A takarítás ezekhez NEM nyúlhat: a
  * félkész adagok csak a mentés befejezése után válnak érvényessé (a metaadat
@@ -123,6 +148,10 @@ interface LiveChunkMeta {
   cats: Row[];
   chunks: number;
   chunkPrefix: string;
+  /** Hány csatorna van a localStorage-os induló készletben. */
+  boot?: number;
+  /** Hány csatorna van a TELJES listában (IndexedDB). */
+  full?: number;
 }
 
 interface VodPart {
@@ -146,6 +175,10 @@ interface ChunkMeta {
   cats: Row[];
   chunks: number;
   chunkPrefix: string;
+  /** Az élő lista teljes másolatánál: melyik szolgáltatóhoz tartozik. */
+  provider?: ProviderRef;
+  savedAt?: string;
+  liveTotal?: number;
 }
 
 /* --------------------------------------------------------------- backendek */
@@ -596,64 +629,110 @@ function evictLowerPriorityChunks(): number {
   return removed;
 }
 
-/** Csak az élő csatornák mentése (a betöltés első szakasza után azonnal). */
-/** Mentésnél a magyar csatornák kerülnek előre.
- *  A darabolt mentés elkerüli, hogy egyetlen túl nagy localStorage-érték
- *  miatt a lista vége levágódjon; a magyar sorrend továbbra is megmarad. */
+/** Magyar csatorna? A mentési sorrendhez és az induló készlethez. */
+function isHungarianForSave(channel: Channel): boolean {
+  return (channel.countryCode || '').toUpperCase() === 'HU'
+    || channel.country === 'Magyarország'
+    || /\b(magyarország|hungary|hungarian)\b/i.test(channel.categoryName || '');
+}
+
+/** Mentésnél a magyar csatornák kerülnek előre. */
 function hungarianFirstForSave(channels: Channel[]): Channel[] {
   const hu: Channel[] = [];
   const rest: Channel[] = [];
   for (const channel of channels) {
-    const isHu = (channel.countryCode || '').toUpperCase() === 'HU'
-      || channel.country === 'Magyarország'
-      || /\b(magyarország|hungary|hungarian)\b/i.test(channel.categoryName || '');
-    (isHu ? hu : rest).push(channel);
+    (isHungarianForSave(channel) ? hu : rest).push(channel);
   }
   return hu.length ? hu.concat(rest) : channels;
 }
 
-export function saveLiveContent(content: ImportedContent): void {
-  // A teljes csatornalista egyetlen localStorage-kulcsban könnyen túllépi a
-  // böngésző kvótáját. Adagokban mentünk, és csak a teljes siker után váltunk
-  // az új generációra; megszakadt mentéskor a korábbi cache érvényes marad.
-  const channels = hungarianFirstForSave(content.channels);
-  const chunkCount = Math.ceil(channels.length / CHUNK_SIZE);
+/**
+ * Az INDULÓ készlet: a magyar csatornák, legfeljebb `LIVE_BOOT_BUDGET` karakter.
+ *
+ * Ez az a rész, amit a localStorage-ba írunk. A többi ország csatornái az
+ * IndexedDB-ből (vagy szükség esetén a szolgáltatótól) érkeznek. Ha nincs
+ * magyar csatorna, az első néhány csatorna marad, hogy az alkalmazás soha ne
+ * induljon üresen.
+ */
+/** Egy csatorna mentett méretének becslése – a teljes JSON előkészítése nélkül. */
+function channelSaveEstimate(channel: Channel): number {
+  return (channel.name?.length || 0) + (channel.streamUrl?.length || 0)
+    + (channel.logo?.length || 0) + (channel.categoryName?.length || 0) + 120;
+}
+
+/** A lista becsült mentett mérete karakterben. */
+function liveCharsEstimate(channels: Channel[]): number {
+  let chars = 0;
+  for (const channel of channels) chars += channelSaveEstimate(channel);
+  return chars;
+}
+
+function liveBootSubset(
+  channels: Channel[],
+  budget: number = LIVE_BOOT_BUDGET,
+  hungarianOnly = true,
+): Channel[] {
+  let source = channels;
+  if (hungarianOnly) {
+    const hu: Channel[] = [];
+    for (const channel of channels) if (isHungarianForSave(channel)) hu.push(channel);
+    if (hu.length) source = hu;
+  }
+  const subset: Channel[] = [];
+  let chars = 0;
+  for (const channel of source) {
+    // Becslés: a teljes JSON-előkészítés 20 000 csatornánál fölösleges munka.
+    const estimate = channelSaveEstimate(channel);
+    if (chars + estimate > budget) break;
+    subset.push(channel);
+    chars += estimate;
+  }
+  return subset;
+}
+
+/**
+ * Az induló készlet mentése a localStorage-ba – ATOMIBUS generációváltással.
+ *
+ * FONTOS (ez okozta az adatvesztést): korábban a mentés az ELŐZŐ generáció
+ * adagjait írás közben, egyenként törölte. Ha a kvóta közben betelt (a webOS-on
+ * ez a normál eset volt, mert a teljes lista ~3,9 MB), a mentés félbeszakadt,
+ * de a régi adagok egy része már nem létezett – a fejléc viszont továbbra is
+ * rájuk mutatott. A következő indításnál ezért a lista üresnek látszott.
+ *
+ * Mostantól az új generáció kiíródik, a fejléc UTOLSÓKÉNT kerül a helyére, és
+ * csak ezután töröljük a régit. Bármi megszakad, a korábbi lista érintetlen.
+ */
+function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
+  const chunkCount = Math.ceil(boot.length / CHUNK_SIZE);
   const generationPrefix = LIVE_GENERATION_PREFIX + Date.now() + '-' + (++writeSequence) + '-';
   const previousKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
   for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
 
+  const abort = (reason: string): false => {
+    for (let index = 0; index < chunkCount; index++) {
+      backend.remove(generationPrefix + index);
+      activeGenerations.delete(generationPrefix + index);
+    }
+    appLog(`Élő csatornák induló készlete: ${reason}; a korábbi mentett lista érvényben marad.`);
+    return false;
+  };
+
   for (let index = 0; index < chunkCount; index++) {
-    const rows = encodeChannels(channels.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE));
+    const rows = encodeChannels(boot.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE));
     const chunkKey = generationPrefix + index;
     let ok = write(chunkKey, { rows }, { allowShrink: false });
-    /*
-     * HELY FELSZABADÍTÁSA – AZ ÉLŐ LISTA AZ ELSŐ.
-     *
-     * Az 1-es TV-napló (2.5.114) szerint a tár már az első adagnál tele volt
-     * (75 kulcs / 5115 kB), ezért az élő lista egyetlen adagja sem fért be –
-     * pedig a csatornák a legfontosabbak. Előbb az előző generáció ugyanilyen
-     * sorszámú adagját dobjuk el, majd a film- és sorozatlistát, ami a
-     * szolgáltatótól bármikor újratölthető.
-     */
-    if (!ok && previousKeys[index]) {
-      backend.remove(previousKeys[index]);
-      ok = write(chunkKey, { rows }, { allowShrink: false });
-    }
     if (!ok) {
+      // Helyfelszabadítás: a film/sorozat adagok eldobhatók, az élő lista nem.
       const freed = evictLowerPriorityChunks();
       if (freed > 0) ok = write(chunkKey, { rows }, { allowShrink: false });
     }
-    // Utolsóként a csonkított adag is jó – de csak akkor, ha már nincs mit eldobni.
-    if (!ok) ok = write(chunkKey, { rows });
-    if (!ok) {
-      for (let cleanup = 0; cleanup < chunkCount; cleanup++) {
-        backend.remove(generationPrefix + cleanup);
-        activeGenerations.delete(generationPrefix + cleanup);
-      }
-      appLog('Élő csatornák adagolt mentése nem sikerült (' + (index + 1) + '/' + chunkCount + '); a korábbi cache marad érvényben.');
-      return;
-    }
-    if (previousKeys[index]) backend.remove(previousKeys[index]);
+    /*
+     * CSONKÍTOTT ADAGOT SOHA nem írunk ki: a félig mentett adag a fejlécben
+     * szereplő darabszámhoz képest kevesebb csatornát adna vissza, vagyis
+     * észrevétlen adatvesztés lenne. Ha nem fér be, megszakítjuk a mentést
+     * (a korábbi lista érintetlen), és a hívó kisebb készlettel próbálja újra.
+     */
+    if (!ok) return abort(`a(z) ${index + 1}/${chunkCount} adag nem fért be`);
   }
 
   const meta: LiveChunkMeta = {
@@ -664,25 +743,138 @@ export function saveLiveContent(content: ImportedContent): void {
     cats: encodeCategories(content.liveCategories),
     chunks: chunkCount,
     chunkPrefix: generationPrefix,
+    boot: boot.length,
+    full: content.channels.length,
   };
   if (!write(LIVE_META_KEY, meta)) {
     // A fejléc az utolsó, ami kell: ha nem fér el, a film/sorozat adagok
     // felszabadításával még megpróbáljuk – fejléc nélkül a lista nem olvasható.
     evictLowerPriorityChunks();
   }
-  if (!write(LIVE_META_KEY, meta)) {
-    for (let index = 0; index < chunkCount; index++) {
-      backend.remove(generationPrefix + index);
-      activeGenerations.delete(generationPrefix + index);
-    }
-    appLog('Élő csatornák cache-fejlécének mentése nem sikerült; a korábbi cache marad érvényben.');
-    return;
-  }
+  if (!write(LIVE_META_KEY, meta)) return abort('a fejléc nem fért be');
   for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
 
+  // CSAK MOST töröljük a korábbi generációt (és a régi egykulcsos tárat).
   backend.remove(LIVE_KEY);
   for (const key of previousKeys) backend.remove(key);
-  appLog('Élő csatornák elmentve: ' + channels.length + ' elem, ' + chunkCount + ' adag, tároló=' + backend.name);
+  appLog(`Élő csatornák induló készlete elmentve: ${boot.length} csatorna (teljes lista: ${content.channels.length}).`);
+  return true;
+}
+
+/**
+ * A teljes lista mentésének eredménye:
+ *   • `saved`       – a teljes lista az IndexedDB-ben van;
+ *   • `unavailable` – nincs IndexedDB (régi webOS, tiltott origin, teszt):
+ *                     ilyenkor a hívó a régi úton, a localStorage-ba menti;
+ *   • `failed`      – van IndexedDB, de az írás nem sikerült; NEM erőltetjük
+ *                     a több megabájtos listát a kis localStorage-kvótába
+ *                     (pontosan ez volt a 2.5.114-es kvótahiba útja).
+ */
+type LiveFullSaveResult = 'saved' | 'unavailable' | 'failed';
+
+/** A teljes élő lista mentése IndexedDB-be, sorban (nem írhatják felül egymást). */
+let liveFullSaveQueue: Promise<LiveFullSaveResult> = Promise.resolve('failed');
+
+function saveLiveFullToIdb(content: ImportedContent, channels: Channel[]): Promise<LiveFullSaveResult> {
+  const task: Promise<LiveFullSaveResult> = liveFullSaveQueue.then(async (): Promise<LiveFullSaveResult> => {
+    if (channels.length === 0) return 'failed';
+    const store = await contentChunkStore();
+    if (!store) return 'unavailable';
+    const ok = await saveChunkedToIdb(store, {
+      metaKey: LIVE_FULL_META_KEY,
+      legacyKey: `${LIVE_FULL_META_KEY}-legacy`,
+      legacyPrefix: LIVE_FULL_GENERATION_PREFIX,
+      generationPrefix: LIVE_FULL_GENERATION_PREFIX,
+      total: channels.length,
+      chunkRows: (index) => encodeChannels(channels.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE)),
+      totals: content.totals,
+      cats: encodeCategories(content.liveCategories),
+      label: 'Teljes élő csatornalista',
+      provider: content.provider,
+      savedAt: content.savedAt,
+      liveTotal: content.totals.live || channels.length,
+    });
+    appLog(ok
+      ? `Teljes élő csatornalista elmentve (IndexedDB): ${channels.length} csatorna.`
+      : `Teljes élő csatornalista: az IndexedDB-mentés nem sikerült (${channels.length} csatorna); `
+        + 'a kis induló készlet a localStorage-ban marad, a többi ország igény szerint töltődik.');
+    return ok ? 'saved' : 'failed';
+  }).catch((error) => {
+    appLogError('Teljes élő csatornalista mentése', error);
+    return 'failed';
+  });
+  liveFullSaveQueue = task.catch(() => 'failed' as LiveFullSaveResult);
+  return task;
+}
+
+/**
+ * Az induló készlet mentése, egyre kisebb készlettel.
+ *
+ * A tár a mentés pillanatában az ELŐZŐ generációt is tartalmazza (azt csak a
+ * sikeres fejléc-írás után töröljük), ezért a szabad hely néha kevesebb, mint
+ * a tervezett 500 000 karakter. Ilyenkor nem adunk fel mindent és nem írunk
+ * csonka adagot: a készlet felére csökkentésével újrapróbáljuk, amíg befér.
+ * A teljes lista eközben az IndexedDB-be megy, tehát a kisebb induló készlet
+ * csak az első képkockát érinti, csatornát nem veszítünk el.
+ *
+ * @returns a ténylegesen elmentett induló készlet (üres, ha egyáltalán nem fért be)
+ */
+function saveLiveBootWithRetry(
+  content: ImportedContent,
+  channels: Channel[],
+  startBudget: number = LIVE_BOOT_BUDGET,
+  hungarianOnly = true,
+): Channel[] {
+  let budget = startBudget;
+  // Legfeljebb 5 próba: 500k → 250k → 125k → 62k → 40k karakter. A ciklus
+  // akkor is leáll, ha a készlet már nem csökkenthető tovább (nincs végtelen
+  // újrapróbálkozás, ami a TV-t lefoglalná).
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const boot = liveBootSubset(channels, budget, hungarianOnly);
+    if (!boot.length) return boot;
+    if (saveLiveBootCache(content, boot)) return boot;
+    if (boot.length <= LIVE_BOOT_MIN_CHANNELS) return [];
+    const next = Math.max(LIVE_BOOT_MIN_BUDGET, Math.floor(budget / 2));
+    if (next >= budget) return [];
+    appLog(`Élő csatornák: ${boot.length} csatorna nem fért be, újrapróbálás kisebb készlettel.`);
+    budget = next;
+  }
+  return [];
+}
+
+/**
+ * Az élő csatornák mentése – két helyre, szándékosan:
+ *   • localStorage: csak az INDULÓ (magyar) készlet, ami az első képkockához kell;
+ *   • IndexedDB:    a TELJES lista, mert a localStorage-ba nem fér be (ez okozta
+ *                   a kvótahibát és vele az adatvesztést újraindításkor).
+ * Ha az IndexedDB nem elérhető (régi webOS, tiltott origin, teszt-környezet),
+ * a teljes lista a régi úton, a localStorage-ba megy – ott nem veszik el semmi.
+ */
+export async function saveLiveContentAsync(content: ImportedContent): Promise<void> {
+  const channels = hungarianFirstForSave(content.channels);
+  const boot = saveLiveBootWithRetry(content, channels);
+  try {
+    if (!boot.length) appLog('Élő csatornák: az induló készlet nem fért be a localStorage-ba.');
+  } catch (error) {
+    // A cache hibája nem akadályozhatja a teljes lista mentését.
+    appLogError('Élő csatornák induló készletének mentése', error);
+  }
+  const savedFull = await saveLiveFullToIdb(content, channels);
+  if (savedFull !== 'unavailable' || channels.length <= boot.length) return;
+  appLog('Élő csatornák: IndexedDB nélkül a teljes lista a localStorage-ba megy (a kvóthoz igazítva).');
+  try {
+    // Ilyenkor nincs nagy kvótájú tár: a lehető LEGNAGYOBB készletet mentjük
+    // a localStorage-ba (magyar csatornák elöl), és ha nem fér be, a
+    // `saveLiveBootWithRetry` kisebb, de ÉP készlettel próbálkozik újra.
+    saveLiveBootWithRetry(content, channels, liveCharsEstimate(channels) + 1, false);
+  } catch (error) {
+    appLogError('Élő csatornák mentése (localStorage)', error);
+  }
+}
+
+/** Tűz-és-felejtsd mentés (a felület nem vár a tárolóra). */
+export function saveLiveContent(content: ImportedContent): void {
+  void saveLiveContentAsync(content);
 }
 
 /* ------------------------------------------------- szinkron-állapot */
@@ -737,6 +929,10 @@ interface ChunkedSaveOptions {
   totals: { vod?: number; series?: number };
   cats: Row[];
   label: string;
+  /** Csak az élő lista teljes másolatánál: a fejlécbe írt szolgáltató. */
+  provider?: ProviderRef;
+  savedAt?: string;
+  liveTotal?: number;
 }
 
 /**
@@ -960,6 +1156,9 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       cats: options.cats,
       chunks: chunkCount,
       chunkPrefix: generationPrefix,
+      ...(options.provider ? { provider: options.provider } : {}),
+      ...(options.savedAt ? { savedAt: options.savedAt } : {}),
+      ...(options.liveTotal !== undefined ? { liveTotal: options.liveTotal } : {}),
     };
     if (!(await store.put(options.metaKey, JSON.stringify(meta)))) {
       throw new Error('IndexedDB fejléc sikertelen');
@@ -1109,7 +1308,7 @@ export async function saveContent(content: ImportedContent): Promise<void> {
   await yieldToStorage();
   logMemory('mentés előtt');
   // A mentések között szünetet tartunk, hogy a menü és a lejátszás ne álljon meg.
-  saveLiveContent(content);
+  await saveLiveContentAsync(content);
   await yieldToStorage();
   await saveVodContent(content);
   await yieldToStorage();
@@ -1215,6 +1414,13 @@ export interface LoadedLive {
   savedAt: string;
   provider: ProviderRef | null;
   totals: { live: number; vod: number; series: number };
+  /**
+   * Igaz, ha a fejléc szerint VAN mentett lista, de a localStorage-ból nem
+   * sikerült kiolvasni (sérült/kvótahiba miatt eltűnt adagok). Ilyenkor a
+   * teljes lista az IndexedDB-ből tölthető vissza – a hívó ezt azonnal
+   * megpróbálja, hogy az alkalmazás ne induljon üresen.
+   */
+  pendingFull?: boolean;
 }
 
 export function loadLive(): LoadedLive {
@@ -1243,7 +1449,25 @@ export function loadLive(): LoadedLive {
             missing++;
           }
         }
-        if (missing) appLog('Élő csatornalista: ' + missing + '/' + meta.chunks + ' adag hiányzik a cache-ből.');
+        if (missing) {
+          appLog('Élő csatornalista: ' + missing + '/' + meta.chunks + ' adag hiányzik a cache-ből.');
+        }
+        if (channels.length === 0 && meta.chunks > 0) {
+          // A fejléc megvan, de egyetlen adag sem olvasható: a korábbi mentés
+          // félbeszakadt. A teljes lista az IndexedDB-ben lehet – jelezzük.
+          appLog(
+            `TÁROLÓ HIBA: az élő csatornalista fejléce megvan (${meta.chunks} adag), `
+            + 'de egyetlen adag sem olvasható a localStorage-ból; a teljes lista az IndexedDB-ből töltődik vissza.'
+          );
+          return {
+            channels: [],
+            categories: decodeCategories(meta.cats, 'live'),
+            savedAt: meta.savedAt || '',
+            provider: meta.provider,
+            totals: meta.totals || { live: 0, vod: 0, series: 0 },
+            pendingFull: true,
+          };
+        }
         if (channels.length || meta.chunks === 0) {
           return {
             channels,
@@ -1274,6 +1498,77 @@ export function loadLive(): LoadedLive {
   } catch (error) {
     appLogError('Élő lista betöltése', error);
     return empty;
+  }
+}
+
+/* --------------------------------------- teljes élő lista (IndexedDB) */
+
+export interface LoadedLiveFull {
+  channels: Channel[];
+  categories: Category[];
+  provider: ProviderRef | null;
+  savedAt: string;
+  totals: { live: number; vod: number; series: number };
+}
+
+/**
+ * A TELJES élő csatornalista visszaolvasása az IndexedDB-ből.
+ *
+ * A localStorage-ban csak az induló (magyar) készlet van, ezért a többi ország
+ * csatornái innen – helyben, hálózat nélkül – kerülnek vissza a felületre.
+ * Adagonként dolgozunk, adagok között visszaadjuk a vezérlést a fő szálnak,
+ * hogy a lejátszás ne akadjon meg.
+ */
+export async function loadLiveFull(
+  provider?: ProviderRef | null,
+  onProgress?: (loaded: number) => void,
+): Promise<LoadedLiveFull | null> {
+  const store = await contentChunkStore();
+  if (!store) return null;
+  const chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
+  if (!chunked) return null;
+  const storedProvider = chunked.meta.provider || provider || null;
+  if (!storedProvider) return null;
+  const channels: Channel[] = [];
+  for (let index = 0; index < chunked.meta.chunks; index++) {
+    const rows = await chunked.readChunk(index);
+    for (const channel of decodeChannels(rows, storedProvider)) channels.push(channel);
+    onProgress?.(channels.length);
+    if (index % 4 === 3) await yieldToStorage();
+  }
+  if (channels.length === 0) return null;
+  const totals = {
+    live: chunked.meta.liveTotal || channels.length,
+    vod: chunked.meta.totals?.vod || 0,
+    series: chunked.meta.totals?.series || 0,
+  };
+  appLog(
+    `Teljes élő csatornalista betöltve (IndexedDB): ${channels.length} csatorna, `
+    + `${chunked.meta.chunks} adag.`
+  );
+  return {
+    channels,
+    categories: decodeCategories(chunked.meta.cats, 'live'),
+    provider: storedProvider,
+    savedAt: chunked.meta.savedAt || '',
+    totals,
+  };
+}
+
+/**
+ * Igaz, ha a localStorage-ban még a RÉGI, teljes lista van (átállás előtti
+ * mentés), vagyis a kicsinyítés még nem futott le. Ilyenkor indulás után
+ * egyszer újramentjük: magyar készlet a localStorage-ba, teljes lista az
+ * IndexedDB-be – és ezzel a ~3,9 MB felszabadul a kvótából.
+ */
+export function needsLiveCacheCompaction(): boolean {
+  const raw = backend.get(LIVE_META_KEY);
+  if (!raw) return false;
+  try {
+    const meta = JSON.parse(raw) as LiveChunkMeta;
+    return typeof meta.boot !== 'number';
+  } catch {
+    return false;
   }
 }
 

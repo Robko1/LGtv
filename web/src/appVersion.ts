@@ -1,10 +1,23 @@
-export const WEB_VERSION = '2.5.119';
+export const WEB_VERSION = '2.5.120';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.120',
+    date: '2026-10-26',
+    changes: [
+      'ADATVESZTÉS ÚJRAINDÍTÁSKOR – MEGSZÜNTETVE: az élő csatornalista eddig a localStorage-ba került, a webOS viszont csak ~5 MB-ot ad, és ezen osztozik a beállításokkal, a poszter-gyorsítótárral és a kézi naplóval is (ami akár 1 MB lehet). A 20 190 csatornás lista önmagában ~3,9 MB volt, vagyis a tár a határára ért – a TV-napló ezt mutatta: „TÁROLÓ HIBA … foglaltság=75 kulcs / 5115 kB”. A TELJES lista mostantól az IndexedDB-ben van (nagy kvóta, megmarad újraindítás után is), a localStorage-ban csak a kis INDULÓ magyar készlet marad (~20–40 kB)',
+      'A KORÁBBI LISTA NEM SÉRÜLHET MEG: a mentés eddig írás közben, egyenként törölte az előző generáció adagjait, ezért egy kvótahiba után a fejléc már nem létező adagokra mutatott – az alkalmazás üresen indult, és minden újraindítás után újra le kellett tölteni a listát. Most az új adagok kiíródnak, a fejléc UTOLSÓKÉNT kerül a helyére, és a régi generációt a program csak ezután törli',
+      'A TELJES KÍNÁLAT MEGMARAD: a többi ország csatornái az első képkocka után, üresjáratban kerülnek vissza az IndexedDB-ből (a nézett csatorna nem változik, a lejátszás nem indul újra), így az országválasztó továbbra is minden országot mutat, hálózat nélkül is',
+      'EGYSZERI ÁTÁLLÁS: a frissítés első indításakor a program a régi, nagy localStorage-os listát magától áthelyezi (magyar készlet a localStorage-ba, teljes lista az IndexedDB-be), és ezzel ~3,8 MB szabadul fel a kvótából',
+      'ÖNGYÓGYÍTÁS: ha a mentett lista tényleg eltűnt (a korábbi verzió hibája miatt), de a szolgáltató be van állítva, az alkalmazás néhány másodperc után magától újratölti a listát a háttérben – nem marad üresen, és nem kell a Menüben keresgélni',
+      'A tároló-hiba a naplóban továbbra is pontosan látszik (méret, sorok, foglaltság, takarított kulcsok), de már nem viszi magával a mentett listát',
+      'A napló a tárban már csak az utolsó 120 000 karaktert foglalja (a TELJES napló a memóriában marad, és a küldés is teljes) – a korábbi 1 000 000 karakteres tárolt másolat a kvóta ~2 MB-ját ette meg, és nem látszott a takarításban',
+    ],
+  },
   {
     version: '2.5.119',
     date: '2026-10-26',

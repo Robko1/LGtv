@@ -4,9 +4,12 @@ import { storageService } from './services/storageService';
 import {
   clearContent,
   ImportedContent,
+  LoadedLiveFull,
   loadLive,
+  loadLiveFull,
   loadSeriesAsync,
   loadVodAsync,
+  needsLiveCacheCompaction,
   ProviderRef,
   saveContent,
   saveLiveContentSafely,
@@ -368,6 +371,17 @@ export function App() {
   // A mentett csatornalista induláskor is készen áll az EPG-előtöltésre;
   // így nem csak a kiválasztott csatorna kap műsoradatot, amikor az app újraindul.
   const [providerContentReady, setProviderContentReady] = useState(() => !!bootLive.provider);
+  /*
+   * ÖNGYÓGYÍTÁS jelzője.
+   *
+   * Akkor igaz, ha nincs használható mentett lista: sem a localStorage-ban
+   * (az induló készlet), sem az IndexedDB-ben (a teljes lista). Ilyenkor a
+   * program magától újratölti a listát a szolgáltatótól, hogy az alkalmazás
+   * soha ne maradjon üresen – ez volt a tünet a korábbi verzió kvótahibája után.
+   */
+  const [liveRecoveryNeeded, setLiveRecoveryNeeded] = useState(
+    () => !bootLive.provider && bootChannels.length === 0,
+  );
   // Változik minden új importnál/frissítésnél, akkor is, ha a szolgáltató és a csatornaazonosítók nem változnak.
   const [epgRevision, setEpgRevision] = useState(0);
   const [loadingSeriesId, setLoadingSeriesId] = useState<string>('');
@@ -1035,12 +1049,43 @@ export function App() {
     // menüre lép, az ensureVodLoaded() azonnal elindítja.
     timer = window.setTimeout(() => {
       const start = () => {
+        /*
+         * EGYSZERI ÁTÁLLÁS A KIS localStorage-KÉSZLETRE.
+         *
+         * A korábbi verzió a TELJES élő listát a localStorage-ba mentette
+         * (20 190 csatorna ≈ 3,9 MB). Ez a webOS ~5 MB-os kvótáját a határig
+         * töltötte, ezért a mentés kvótahibába futott – és az alkalmazás
+         * üresen indult. Itt, üresjáratban, egyszer újramentjük:
+         *   • localStorage: csak az induló (magyar) készlet,
+         *   • IndexedDB:   a teljes lista.
+         * Ezzel ~3,8 MB szabadul fel, és a lista újraindítás után is megmarad.
+         */
+        let compact = false;
+        try {
+          compact = needsLiveCacheCompaction();
+        } catch {
+          compact = false;
+        }
         // A félbe maradt, elárvult tároló-adagok törlése (egyszer, induláskor):
         // helyet ad a következő mentésnek és nem lassítja a betöltést.
         try {
           sweepStorage();
         } catch {
           /* a takarítás sosem akadályozhatja az indulást */
+        }
+        if (compact && bootLive.provider && bootChannels.length > 0 && !providerRefreshActiveRef.current) {
+          appLog('Tároló: az élő csatornalista áthelyezése (magyar készlet a localStorage-ba, teljes lista az IndexedDB-be).');
+          saveLiveContentSafely({
+            provider: bootLive.provider,
+            savedAt: bootLive.savedAt || new Date().toISOString(),
+            channels: bootChannels,
+            movies: [],
+            series: [],
+            liveCategories: bootLive.categories,
+            vodCategories: [],
+            seriesCategories: [],
+            totals: bootLive.totals,
+          });
         }
         ensureVodLoaded();
       };
@@ -1049,6 +1094,75 @@ export function App() {
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [ensureVodLoaded]);
+
+  /*
+   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE AZ INDEXEDDB-BŐL.
+   *
+   * A localStorage-ban szándékosan csak az INDULÓ készlet van (a magyar
+   * csatornák), mert a teljes 20 000 csatornás lista ~3,9 MB, és a webOS
+   * ~5 MB-os kvótáján osztozik a beállításokkal, a poszter-gyorsítótárral és
+   * a kézi naplóval (akár 1 MB). A 2.5.114-es TV-napló szerint a tár már a
+   * mentés közben megtelt (75 kulcs / 5115 kB), a félbeszakadt mentés pedig
+   * törölte a korábbi adagokat – ezért indult az alkalmazás üresen minden
+   * újraindítás után.
+   *
+   * A teljes lista ezért az IndexedDB-ben van (nagy kvóta, megmarad), és itt,
+   * az ELSŐ KÉPKOCKA UTÁN, üresjáratban kerül vissza a felületre. A nézett
+   * csatorna nem változik, a lejátszás nem indul újra (a stream URL ugyanaz).
+   */
+  const liveFullLoadStartedRef = useRef(false);
+  useEffect(() => {
+    const provider = bootLive.provider;
+    if (!provider) return undefined;
+    let cancelled = false;
+
+    const applyFullLiveList = (full: LoadedLiveFull) => {
+      if (cancelled || providerRefreshActiveRef.current) return;
+      // Csak UGYANAHHOZ a szolgáltatóhoz tartozó listát fogadjuk el: ha a
+      // localStorage fejléce egy másik (régebbi) szolgáltatóé, a két lista
+      // keveredése rosszabb lenne, mint a régi lista megtartása.
+      if (full.provider && full.provider.id !== provider.id) return;
+      setChannels((current) => {
+        // Ha közben egy import már teljesebb listát adott, nem írjuk felül.
+        if (current.length >= full.channels.length) return current;
+        const prepared = restoreSavedChannelOrder(hungaryFirst(full.channels), provider.id);
+        const merged = preserveChannelPreferences(prepared, current, false);
+        appLog(`Teljes élő csatornalista a felületen: ${merged.length} csatorna (IndexedDB).`);
+        return merged;
+      });
+      setCategories((current) => (current.length ? current : full.categories));
+      setTotalCounts((current) => (current.live >= full.totals.live ? current : full.totals));
+    };
+
+    /*
+     * Ha a localStorage-ból EGYETLEN adag sem volt olvasható (a korábbi verzió
+     * félbeszakadt mentése), azonnal indulunk – ilyenkor ez a lista pótolja a
+     * hiányzó tartalmat. Egyébként 900 ms-ot várunk: addigra a főoldal és a
+     * lejátszás elindult, és a film/sorozat betöltése (1,2 s) sem esik egybe
+     * vele. A magyar lista közben már látszik, ehhez nem kell a teljes lista.
+     */
+    const delay = bootLive.pendingFull || bootChannels.length === 0 ? 0 : 900;
+    const timer = window.setTimeout(() => {
+      if (cancelled || liveFullLoadStartedRef.current) return;
+      liveFullLoadStartedRef.current = true;
+      logPhase('teljes élő csatornalista betöltése indul (IndexedDB)');
+      void loadLiveFull(provider)
+        .then((full) => {
+          if (full) {
+            applyFullLiveList(full);
+            return;
+          }
+          // A fejléc szerint VAN mentett lista, de sem a localStorage-ból, sem
+          // az IndexedDB-ből nem jött vissza: helyreállítás kell.
+          if (bootLive.pendingFull) setLiveRecoveryNeeded(true);
+        })
+        .catch((error) => appLogError('Teljes élő csatornalista betöltése', error));
+    }, delay);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   // Kedvencek / sorrend módosítása után mentsük a tartalmat (késleltetve).
   //
@@ -2241,6 +2355,34 @@ export function App() {
     },
     [cancelAutoRetry, handleRefreshProvider]
   );
+
+  /*
+   * ÖNGYÓGYÍTÁS: a hiányzó lista automatikus helyreállítása.
+   *
+   * Ha a mentett lista tényleg eltűnt (a korábbi verzió kvótahibás mentése
+   * törölte), de a szolgáltató be van állítva, az első képkocka után EGYSZER
+   * magától újratöltjük – így az alkalmazás nem marad üresen, és a nézőnek
+   * nem kell a Menüben keresgélnie. A szerver hibáját a megszokott,
+   * percenkénti automatikus újrapróbálkozás védi.
+   */
+  const autoRestoreStartedRef = useRef(false);
+  const refreshRef = useRef(handleRefreshProvider);
+  refreshRef.current = handleRefreshProvider;
+  const autoRestoreProviderRef = useRef(providers);
+  autoRestoreProviderRef.current = providers;
+  useEffect(() => {
+    if (!liveRecoveryNeeded) return undefined;
+    const list = autoRestoreProviderRef.current;
+    const candidate = list.find((provider) => provider.isActive) || list[0];
+    if (!candidate) return undefined;
+    const timer = window.setTimeout(() => {
+      if (autoRestoreStartedRef.current) return;
+      autoRestoreStartedRef.current = true;
+      appLog(`Nincs használható mentett lista – automatikus helyreállítás indul: ${candidate.name}.`);
+      void refreshRef.current(candidate, false);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [liveRecoveryNeeded]);
 
   const closeRefreshDiagnostic = useCallback(() => {
     // A VISSZA csak a diagnosztikai ablakot zárja be; a háttérben már futó
