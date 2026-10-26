@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.118';
+export const WEB_VERSION = '2.5.119';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.118',
+    version: '2.5.119',
     date: '2026-10-26',
     changes: [
       'AZ ÉLŐ CSATORNÁK UTÁNI ABLAK: megnyíláskor a fókusz AZONNAL a JOBB oldali („Bezár, háttérben”) gombra kerül – eddig a bal oldali gombon állt, és a bal/jobb nyíl a háttérben a hangerőt állította. A bal/jobb/OK most késlekedés nélkül mozgatja és választja a gombokat (a webOS globális fókuszkezelője az ablak saját alapértelmezett gombját tiszteli, nem az elsőt)',
