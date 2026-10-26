@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.121';
+export const WEB_VERSION = '2.5.122';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.122',
+    date: '2026-10-26',
+    changes: [
+      'HIDEG INDÍTÁS – NINCS ÚJRATÖLTÉS: a katalógus (élő csatornák, filmek, sorozatok) az IndexedDB-ben van, és az indulás ELSŐSORBAN onnan olvas. Ha a localStorage-ból a kis fejléc eltűnt, a program az IndexedDB-ből állítja helyre a kezdőképernyőt (magyar csatornák, kategóriák, majd a filmek és a sorozatok) – hálózat nélkül. A szolgáltatótól jövő újratöltés csak akkor indul, ha egyik tárolóban sincs használható lista',
+      'A LETÖLTÉS NEM INDUL EL AUTOMATIKUSAN: az újraindítás utáni „azonnali csatornabetöltés” azért történt, mert a program kizárólag a localStorage-ból olvasott, és ha ott nem talált fejlécet, üresnek látta magát. Ez az öngyógyítás továbbra is megvan, de már csak akkor fut le, ha az IndexedDB is üres',
+      'TÁROLÓ-JELENTÉS A NAPLÓBAN: induláskor egyetlen sor mutatja, hány kulcs és hány karakter van a localStorage-ban, és hány csatorna/film/sorozat van az IndexedDB-ben – ebből pontosan látszik, hol van a katalógus',
+      'A TELJES KÍNÁLAT MEGMARAD: a localStorage-ban csak a kis, magyar induló készlet van (~fél MB), a teljes lista az IndexedDB-ben; a filmek és a sorozatok is ott vannak, így újraindítás után sem vesznek el',
+      'TELJES KÉPERNYŐ ⇄ FŐOLDAL – A VÁLTÁS AZONNALI: a mérés (1-es TV-napló) szerint a lejátszó commitja és első képkockája 1,6–3,2 ms volt, a főoldal jelölése viszont 250–370 ms-mal később készült el – vagyis a kép várakozott a főoldal újrarajzolására. A főoldal állapota mostantól a KIFESTETT képkocka után frissül, ezért a teljes képernyős kép azonnal megjelenik, az OSD/oldalsáv jelölése pedig utána, a háttérben következik',
+      'KÉZI HIBA NAPLÓ – AZ ELTELT IDŐ MEGÁLL: a számláló a naplózás leállításakor megáll, és leállított (vagy el sem indított) naplózásnál nem fut tovább; a napló-ablak is csak aktív naplózás alatt frissíti a számlálót',
+    ],
+  },
   {
     version: '2.5.121',
     date: '2026-10-26',

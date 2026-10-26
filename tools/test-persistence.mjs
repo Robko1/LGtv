@@ -159,8 +159,8 @@ fs.mkdirSync(path.dirname(outFile), { recursive: true });
 await esbuild.build({
   stdin: {
     contents: `export {
-      saveLiveContentAsync, loadLive, loadLiveFull, readSummary, sweepStorage,
-      clearContent, needsLiveCacheCompaction,
+      saveLiveContentAsync, loadLive, loadLiveBoot, loadLiveFull, readSummary, sweepStorage,
+      clearContent, needsLiveCacheCompaction, describeStoredContent,
     } from './web/src/services/contentStore.ts';`,
     resolveDir: ROOT,
     sourcefile: 'persistence-harness.ts',
@@ -315,8 +315,44 @@ try {
   const recovered = await ghost.loadLiveFull();
   check(recovered?.channels.length === 20000, 'a teljes lista sérült cache mellett is visszatölthető', String(recovered?.channels.length));
 
-  /* ============ 5. TAKARÍTÁS ÉS TÖRLÉS ======================================= */
+  /* ====== 5. A LOCALSTORAGE ELVESZETT: indulás az IndexedDB-ből ============= */
+  /*
+   * A TV-n a localStorage-t a webOS kis kvótája miatt a rendszer törölheti,
+   * vagy a felhasználó törölheti az alkalmazás adatait. Ilyenkor a korábbi
+   * program ÜRESNEK látta magát (a szinkron `loadLive()` semmit nem talált),
+   * és AZONNAL letöltötte a teljes katalógust a szolgáltatótól. Most az
+   * indulás az IndexedDB-ből áll helyre – hálózat nélkül.
+   */
+  const app4 = await boot(4);
+  await app4.saveLiveContentAsync(content);
+  await settle();
+  localStorageFake.clear();
+  const app5 = await boot(5);
+  const lostLocal = app5.loadLive();
+  check(lostLocal.channels.length === 0, 'a localStorage elvesztése után a szinkron betöltő üres (ez volt a hiba)');
+  const fromIdb = await app5.loadLiveBoot();
+  check(fromIdb.provider?.id === 'p1', 'a szolgáltató visszajön az IndexedDB-ből');
+  check(fromIdb.channels.length >= 400, 'a kezdőképernyő csatornái visszajönnek az IndexedDB-ből (letöltés nélkül)',
+    String(fromIdb.channels.length));
+  check(fromIdb.categories.length === 121, 'a kategóriák (országok) is visszajönnek az IndexedDB-ből',
+    String(fromIdb.categories.length));
+  check(fromIdb.totals.live === 20000, 'a fejléc a VALÓDI darabszámot mondja az IndexedDB-ből',
+    JSON.stringify(fromIdb.totals));
+  check(fromIdb.pendingFull === true, 'jelzi, hogy a teljes lista háttérben betölthető');
+  const restoredFull = await app5.loadLiveFull();
+  check(restoredFull?.channels.length === 20000, 'a TELJES lista is megvan – újratöltés nélkül',
+    String(restoredFull?.channels.length));
+  const report = await app5.describeStoredContent();
+  check(
+    report.liveLocal === 0 && report.liveIdb === 20000,
+    'a tároló-jelentés megmondja, hol van a katalógus',
+    JSON.stringify(report),
+  );
+
+  /* ============ 6. TAKARÍTÁS ÉS TÖRLÉS ======================================= */
   localStorageFake.setQuota(5200000);
+  await app5.saveLiveContentAsync(content);
+  await settle();
   localStorageFake.setItem('iptv_rt_content-live-chunk-v1-0-0-9', JSON.stringify({ rows: [['x']] }));
   const removed = ghost.sweepStorage();
   check(removed >= 1, 'a takarítás törölte az elárvult adagot', String(removed));
