@@ -1089,6 +1089,22 @@
       e.preventDefault();
       e.stopPropagation();
       if (inInput) activeInDialog.blur();
+      /*
+       * A fókusz az ablakon KÍVÜL ragadt (pl. az ablak éppen most nyílt meg,
+       * vagy a háttérben lévő gombra mutat): az első nyíl az ablak
+       * alapértelmezett gombjára lépjen – ne a térbeli találgatás döntsön,
+       * mert az a bal oldali gombon köthet ki.
+       */
+      if (!activeInDialog || activeInDialog === document.body
+          || activeInDialog === document.documentElement || !dialog.contains(activeInDialog)) {
+        var firstFocus = dialog.querySelector('[data-tv-default]')
+          || dialog.querySelector('[data-tv-open-focus]');
+        if (firstFocus) {
+          firstFocus.focus({preventScroll:true});
+          revealEl(firstFocus);
+          return;
+        }
+      }
       var curEl = document.activeElement;
       // KÉTSZINTŰ "DOBOZ" NAVIGÁCIÓ: ha a modalban data-tv-box szekciók
       // vannak (pl. Beállítások → Rendszer), a nyilak a DOBOZOK között
@@ -1519,6 +1535,19 @@
             if (!dlgNow || dlgNow.contains(document.activeElement)) return;
             var f = getFocusable(dlgNow);
             if (f.length) {
+              /*
+               * Az ablak saját alapértelmezett gombja (data-tv-default) kapja
+               * a fókuszt, nem vakon az első – például az élő csatornák utáni
+               * ablakban a JOBB oldali „Bezár, háttérben” gomb. Ugyanezt
+               * jelölést használja a React is, ezért a két réteg nem
+               * verseng a fókuszért.
+               */
+              var defBtn = dlgNow.querySelector('[data-tv-default]')
+                || dlgNow.querySelector('[data-tv-open-focus]');
+              if (defBtn && defBtn.getClientRects().length > 0) {
+                defBtn.focus({preventScroll:true});
+                return;
+              }
               var btn = arrayFind(f, function(el) { return el.tagName === 'BUTTON'; });
               (btn || f[0]).focus();
             }

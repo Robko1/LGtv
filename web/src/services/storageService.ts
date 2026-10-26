@@ -130,6 +130,27 @@ export const storageService = {
     lastChannelTimer = window.setTimeout(flushLastChannel, 800);
   },
 
+  /**
+   * Az utolsó csatorna törlése.
+   *
+   * A szolgáltató törlésekor a megjegyzett csatorna-azonosító is törlődik:
+   * különben egy később hozzáadott (vagy újratöltött) szolgáltatónál ugyanaz
+   * az azonosító véletlenül létezhet, és a program a régi – akár külföldi –
+   * csatornát indítaná el az első magyar adó helyett.
+   */
+  clearLastChannel(): void {
+    pendingLastChannelId = null;
+    if (lastChannelTimer !== null) {
+      window.clearTimeout(lastChannelTimer);
+      lastChannelTimer = null;
+    }
+    try {
+      localStorage.removeItem(LAST_CHANNEL_KEY);
+    } catch {
+      /* tároló nélkül is működik */
+    }
+  },
+
   getProviders(): ProviderAccount[] {
     try {
       const data = localStorage.getItem(PROVIDERS_KEY);

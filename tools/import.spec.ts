@@ -272,9 +272,17 @@ async function main() {
   const base = `http://127.0.0.1:${fake.port}`;
   const progress: number[] = [];
 
+  /*
+   * A részleges tartalom MALOMKŐ-KÖVE a felület csatornaválasztásának: amíg az
+   * élő lista hiányos (első 1500 csatorna), a program nem dönthet a nézett
+   * csatornáról, különben a betöltés végén másik adóra váltana – vagy egy
+   * külföldi csatornát indítana el. Ezért az élő szakasz végét külön jelöljük.
+   */
+  const partials: Array<Record<string, unknown>> = [];
   const result = await importXtreamProvider(
     { name: 'Teszt szolgáltató', serverUrl: `${base}/player_api.php?username=régi&password=régi`, username: 'teszt', password: 'titok' },
-    (update) => progress.push(update.percent)
+    (update) => progress.push(update.percent),
+    (partial) => { partials.push(partial as unknown as Record<string, unknown>); }
   );
 
   const content = result.content;
@@ -290,6 +298,24 @@ async function main() {
   check('a lejárati dátumot átvette', result.user.expireDate.startsWith('2030'), result.user.expireDate);
   check('max. kapcsolatok átvéve', result.user.maxConnections === 2);
   check('haladásjelzés 100%-ig fut', progress[progress.length - 1] === 100);
+  const livePartials = partials.filter((partial) => Array.isArray(partial.channels));
+  const completeLive = livePartials.filter((partial) => partial.liveComplete === true);
+  check(
+    'az élő lista elkészültét pontosan egy részleges tartalom jelzi',
+    completeLive.length === 1,
+    `(${completeLive.length})`
+  );
+  check(
+    'a jelölt részleges tartalom a TELJES élő listát tartalmazza',
+    Array.isArray(completeLive[0]?.channels) && (completeLive[0]!.channels as unknown[]).length === 4,
+    `(${(completeLive[0]?.channels as unknown[] | undefined)?.length})`
+  );
+  check(
+    'a hiányos előnézet NEM jelölődik késznek',
+    livePartials.filter((partial) => partial.liveComplete !== true)
+      .every((partial) => (partial.channels as unknown[]).length < 4),
+    `(${livePartials.filter((partial) => partial.liveComplete !== true).length} előnézet)`
+  );
   check('a mentett provider-cím csak a root, credential nélkül', content.provider.serverUrl === base && !content.provider.serverUrl?.includes('player_api.php'));
 
   const m1 = content.channels.find((channel) => channel.name === 'M1 HD');

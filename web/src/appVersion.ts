@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.117';
+export const WEB_VERSION = '2.5.118';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.118',
+    date: '2026-10-26',
+    changes: [
+      'AZ ÉLŐ CSATORNÁK UTÁNI ABLAK: megnyíláskor a fókusz AZONNAL a JOBB oldali („Bezár, háttérben”) gombra kerül – eddig a bal oldali gombon állt, és a bal/jobb nyíl a háttérben a hangerőt állította. A bal/jobb/OK most késlekedés nélkül mozgatja és választja a gombokat (a webOS globális fókuszkezelője az ablak saját alapértelmezett gombját tiszteli, nem az elsőt)',
+      'SZOLGÁLTATÓ TÖRLÉSE JAVÍTVA: a Beállítások → Listák fülön a piros kuka eddig nem tett semmit, mert a megerősítést a `window.confirm` adta, amit a webOS TV nem jelenít meg (azonnal „mégsem” választ adott). Most a mappákhoz hasonló, távirányítóval is kezelhető megerősítő sáv jelenik meg („Igen, törlés” / „Mégse”), a törlés után pedig a fókusz a következő listára kerül',
+      'ELSŐ BETÖLTÉS: a beolvasás után a főoldalon az ELSŐ MAGYAR TV-CSATORNA indul el (Magyarország az alapértelmezett ország). A korábbi viselkedés a nyers szolgáltatói lista első – gyakran külföldi – adóját indította el, mert a betöltés első 1500 csatornás előnézetéből választott; most előnézetből egyáltalán nem dönt, és a tartalék mindig a magyar sorrend első játszható adója',
+      'AZ „##### HUNGARIA #####” ALAKÚ ORSZÁG-ELVÁLASZTÓ SOROK nem kapják meg a lejátszást: a program a valódi első magyar adót indítja el (a #####/====/*** díszítőjelekkel kezdődő, stream-cím nélküli sorokat kihagyja)',
+      'KÉSŐBBI FRISSÍTÉS: a nézés nem szakad meg és nem vált csatornát. A betöltés teljes ideje alatt a nézett csatorna a listában marad, a kiválasztásról csak a TELJES élő lista megérkezésekor dönt a program, és a frissítés végén is a megjelenített (a nézett adót megtartó) listából indul ki. Az „élő TV-csatornák frissítve” ablak is csak az élő szakasz VÉGÉN jelenik meg, nem a betöltés legelején',
+      'SZOLGÁLTATÓ TÖRLÉSEKOR a megjegyzett utolsó csatorna is törlődik, így egy új (vagy újratöltött) szolgáltatónál nem öröklődhet át a régi listából megjegyzett – akár külföldi – csatorna',
+    ],
+  },
   {
     version: '2.5.117',
     date: '2026-10-26',

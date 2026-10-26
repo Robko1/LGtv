@@ -1503,3 +1503,135 @@ test('18. ha a kategóriák nem ország szerint vannak, a teljes lista jön le �
   assert.match(IMPORT, /Élő kategóriák nevei: összes=/, 'nem naplózza a kategórianeveket');
   assert.match(IMPORT, /minta a többiből/, 'nem naplóz mintát a nem magyar kategóriákból');
 });
+
+/* ─────────── 19. Az élő csatornák utáni ablak fókusza ─────────── */
+
+test('19. az élő csatornák utáni ablak a JOBB oldali gombot jelöli ki', () => {
+  /*
+   * A TV-n (2.5.117, 2-es fotó) az ablak megnyílásakor a BAL oldali gomb
+   * kapott fókuszt, a bal/jobb nyíl pedig a háttérben a hangerőt állította.
+   * Ezért: a jobb oldali gomb `data-tv-default`, és megnyitáskor a React
+   * azonnal ráteszi a fókuszt (késleltetés nélkül, mielőtt a webOS
+   * globális fókuszkezelője bármit tenne).
+   */
+  const dialog = APP.slice(APP.indexOf('aria-label="Az élő TV-csatornák frissítve"') - 400);
+  const right = dialog.slice(dialog.indexOf('data-tv-default'));
+  assert.match(right.slice(0, 400), /Bezár, háttérben/,
+    'a jobb oldali gombon van a data-tv-default jelölés');
+  assert.match(APP, /const refreshLivePromptRef = useRef<HTMLDivElement \| null>\(null\);/,
+    'nincs hivatkozás az ablakra');
+  assert.match(APP, /useEffect\(\(\) => \{\s*if \(!refreshLivePromptOpen\) return;[\s\S]{0,1600}?data-tv-default[\s\S]{0,1600}?\}, \[refreshLivePromptOpen\]\);/,
+    'az ablak megnyílásakor nem a jobb oldali gomb kapja a fókuszt');
+  // A globális kezelő nem nyelheti el a fókuszt: ha az ablakon kívül maradt,
+  // a nyíl/OK először az ablak alapértelmezett gombjára lép.
+  assert.match(APP, /NYITOTT ABLAK, DE A FÓKUSZ KÍVÜL MARADT/,
+    'nincs védelem a kívül ragadt fókusz ellen');
+  assert.match(APP, /if \(!insideDialog\) \{[\s\S]{0,600}?top\.querySelector<HTMLElement>\('\[data-tv-default\]'\)/,
+    'a nyíl nem az ablak alapértelmezett gombjára lép');
+  // A webOS réteg ugyanezt a jelölést használja, nem az első gombot.
+  const WEBOS = read('webos/webos.js');
+  assert.match(WEBOS, /var defBtn = dlgNow\.querySelector\('\[data-tv-default\]'\)/,
+    'a webOS fókuszkezelő továbbra is az első gombot választja');
+  assert.match(WEBOS, /var firstFocus = dialog\.querySelector\('\[data-tv-default\]'\)/,
+    'a webOS nyílkezelője nem az alapértelmezett gombra lép');
+  // Az egyik ablak (a betöltő ablak) ugyanígy működik.
+  const ADD = read('web/src/components/AddPlaylistModal.tsx');
+  assert.match(ADD, /data-tv-default="" onClick=\{\(\) => \{ setLiveLoadedPromptOpen\(false\);/,
+    'a betöltő ablak jobb oldali gombja nem alapértelmezett');
+});
+
+/* ─────────── 20. A szolgáltató törlése ─────────── */
+
+test('20. a szolgáltató törlése a TV-n is működik (nincs window.confirm)', () => {
+  /*
+   * A piros kuka eddig `window.confirm`-ot hívott: a webOS TV böngészőjében
+   * ez nem jelenik meg / azonnal `false`-t ad, ezért a törlés hatástalan volt.
+   * A megerősítés most a Beállítások ablakon belüli, távirányítóval is
+   * kezelhető sáv (mint a mappáknál).
+   */
+  assert.doesNotMatch(APP, /confirm\('Biztosan törölni szeretnéd ezt a szolgáltatói listát\?'\)/,
+    'a törlés még mindig window.confirm-ot használ');
+  const SETTINGS = read('web/src/components/MenuSettingsModal.tsx');
+  assert.match(SETTINGS, /const \[pendingDeleteProviderId, setPendingDeleteProviderId\] = useState<string \| null>\(null\);/,
+    'nincs állapot a törlés megerősítéséhez');
+  assert.match(SETTINGS, /onClick=\{\(\) => setPendingDeleteProviderId\(\s*pendingDeleteProviderId === p\.id \? null : p\.id\s*\)\}/,
+    'a kuka nem kéri a megerősítést');
+  assert.match(SETTINGS, /Igen, törlés/, 'nincs megerősítő gomb');
+  assert.match(SETTINGS, /onClick=\{\(\) => \{[\s\S]{0,200}?onDeleteProvider\(p\.id\);[\s\S]{0,120}?setPendingDeleteProviderId\(null\);/,
+    'a megerősítő gomb nem törli a szolgáltatót');
+  assert.match(SETTINGS, /if \(pendingDeleteProviderId\) \{[\s\S]{0,160}?setPendingDeleteProviderId\(null\);/,
+    'a VISSZA gomb nem vonja vissza a megerősítést');
+  // A törölt szolgáltató megjegyzett csatornája nem öröklődhet át.
+  assert.match(APP, /storageService\.clearLastChannel\(\);/,
+    'a megjegyzett csatorna a törlés után is megmarad');
+  const STORAGE = read('web/src/services/storageService.ts');
+  assert.match(STORAGE, /clearLastChannel\(\): void \{/);
+});
+
+/* ─────────── 21. Első betöltés és későbbi frissítés ─────────── */
+
+test('21. betöltés után az első MAGYAR csatorna indul, nem más országé', () => {
+  /*
+   * A TV-n a betöltés után egy külföldi adó indult el (és a „nincs más
+   * csatorna” tartalék is a nyers lista első elemére esett). Az első
+   * lejátszható magyar csatornát kell választani – az ország-elválasztó
+   * sorokat („##### HUNGARIA #####”) kihagyva.
+   */
+  const SELECT = read('web/src/utils/channelSelection.ts');
+  assert.match(SELECT, /export function firstPlayableHungarianChannel\(list: Channel\[\]\): Channel \| undefined \{/,
+    'nincs magyar csatorna-választó');
+  assert.match(SELECT, /if \(\/\^\[#\*=~_\+\\-\\s\]\{2,\}\/\.test\(name\)\) return false;/,
+    'az ország-elválasztó sorokat nem hagyja ki');
+  assert.match(APP, /import \{ firstPlayableHungarianChannel, isHungarianChannel \} from '\.\/utils\/channelSelection';/,
+    'az App nem a közös csatornaválasztót használja');
+  assert.match(APP, /const fallback = firstPlayableHungarianChannel\(candidateList\);/,
+    'a csatornaváltás nem a magyar csatornát választja');
+  assert.match(APP, /firstPlayableHungarianChannel\(channels\)/,
+    'a lejátszó tartaléka nem a magyar csatorna');
+  // Új szolgáltató: mindig az első magyar csatorna indul.
+  assert.match(APP, /const firstDefaultChannel = firstPlayableHungarianChannel\(normalizedContent\.channels\)/,
+    'az új lista nem az első magyar csatornát indítja');
+  assert.match(APP, /if \(savedStillExists && isEditOfActiveProvider\) \{/,
+    'a megjegyzett csatorna akkor is folytatódik, ha nem a meglévő szolgáltatót szerkesztik');
+  // A korábbi szolgáltató megjegyzett csatornája nem öröklődhet.
+  assert.match(APP, /const isEditOfActiveProvider = Boolean\(replacingId\) && activeProviderRef\.current\?\.id === providerId;/,
+    'a megjegyzett csatorna más szolgáltatónál is átöröklődik');
+});
+
+test('21. frissítésnél a nézés nem szakad meg és nem vált csatornát', () => {
+  /*
+   * A frissítés első (1500 csatornás) adagja hiányos lista: ha ebből
+   * választunk, a betöltés végén másik csatornára váltunk, vagy (ha az első
+   * adagban nincs magyar adó) egy külföldi csatornát indítunk el.
+   */
+  assert.match(IMPORT, /liveComplete: true,/,
+    'a betöltő nem jelzi, hogy az élő lista elkészült');
+  assert.match(IMPORT, /liveComplete\?: boolean;/,
+    'a részleges tartalom típusában nincs liveComplete');
+  assert.match(APP, /const liveComplete = partial\.liveComplete === true \|\| partial\.preview !== true;/,
+    'a felület nem ismeri fel a teljes élő listát');
+  assert.match(APP, /keepOrMoveActiveChannel\(orderedVisibleChannels, false, \{ allowSwitch: liveComplete \}\);/,
+    'a hiányos előnézetből is választ csatornát');
+  assert.match(APP, /if \(options\.allowSwitch === false && !isHungarianChannel\(fallback\)\) return;/,
+    'hiányos listából külföldi csatorna választható');
+  // A felugró ablak csak az élő szakasz VÉGÉN jelenik meg.
+  assert.match(APP, /if \(liveComplete && partial\.channels\.length > 0 && !refreshLivePromptShownRef\.current\)/,
+    'a felugró ablak a hiányos előnézet közben jelenik meg');
+  // A frissítés végén a megjelenített (megtartott) listából dönt, nem a nyersből.
+  assert.match(APP, /keepOrMoveActiveChannel\(hungaryFirst\(persistedChannels\), true\);/,
+    'a frissítés végén a nézett csatorna elveszhet');
+  // A nézett csatorna a betöltés teljes ideje alatt a listában marad.
+  assert.match(APP, /const visibleChannels = currentlyWatched && !watchedStillInList/,
+    'a nézett csatorna kikerülhet a listából betöltés közben');
+  // Hiányos listából nem indít adást: a lejátszó nem esik a nyers első elemre.
+  assert.match(APP, /const \[liveListComplete, setLiveListComplete\] = useState\(true\);/,
+    'nincs állapot a hiányos élő listáról');
+  assert.match(APP, /if \(!liveListComplete\) return null;/,
+    'hiányos listából is elindulhat a lista első csatornája');
+  assert.match(APP, /const hungarianPick = pick && isHungarianChannel\(pick\) \? pick : undefined;/,
+    'a lejátszó tartaléka nem csak magyar adó lehet');
+  assert.match(APP, /const base = channelsById\.get\(activeChannelId\) \|\| resolveFallback\(\);/,
+    'a tartalék kiszámítása minden EPG-frissítésnél lefut');
+  assert.match(APP, /setLiveListComplete\(false\);/,
+    'a frissítés kezdetén nem jelöli hiányosnak a listát');
+});

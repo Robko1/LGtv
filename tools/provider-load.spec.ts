@@ -348,7 +348,10 @@ async function main(): Promise<void> {
   );
   check(
     'a tartalék csatorna a MAGYAR sorrend első eleme (nem a nyers lista első)',
-    /keepOrMoveActiveChannel\(hungaryFirst\(refreshedContent\.channels\), true\)/.test(appSource)
+    // A frissítés végén a MEGJELENÍTETT lista dönt (amely a nézett csatornát is
+    // megtartja), és a tartalék mindig a magyar sorrend első lejátszható adója.
+    /keepOrMoveActiveChannel\(hungaryFirst\(persistedChannels\), true\)/.test(appSource)
+      && /const fallback = firstPlayableHungarianChannel\(candidateList\);/.test(appSource)
   );
   check(
     'a nyers `refreshedContent.channels[0]` kijelölés-csere megszűnt',

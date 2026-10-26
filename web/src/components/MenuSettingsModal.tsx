@@ -89,6 +89,15 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
    * Helyette a felületen belüli, távirányítóval is elérhető kérdés jelenik meg.
    */
   const [pendingDeleteFolderId, setPendingDeleteFolderId] = useState<string | null>(null);
+  /*
+   * SZOLGÁLTATÓ TÖRLÉSE – saját megerősítés.
+   *
+   * A piros kuka eddig `window.confirm`-ot hívott, ami a webOS TV
+   * böngészőjében nem jelenik meg (azonnal `false`-t ad), ezért a törlés
+   * hatástalan volt. A megerősítés most ugyanaz a sáv, mint a mappáknál:
+   * távirányítóval is elérhető, és nem hagyja el a felületet.
+   */
+  const [pendingDeleteProviderId, setPendingDeleteProviderId] = useState<string | null>(null);
   const [pendingClearCache, setPendingClearCache] = useState(false);
   // A kék teletextgomb a Kedvencek fülön nem indíthat csatornamozgatást.
   // A globális távirányító-kezelés más nézetekben változatlan marad.
@@ -537,6 +546,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     } else if (key === 'Escape' || key === 'Backspace') {
       // TV Back / Esc: először a függő törlés-megerősítést vonja vissza,
       // csak utána zárja be a teljes ablakot.
+      if (pendingDeleteProviderId) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPendingDeleteProviderId(null);
+        return;
+      }
       if (pendingDeleteFolderId) {
         e.preventDefault();
         e.stopPropagation();
@@ -695,7 +710,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
               {/* Providers List Cards (Screenshot 4) */}
               <div className="space-y-2.5">
-                {providers.map((p) => {
+                {providers.map((p, providerIndex) => {
                   return (
                     <div
                       key={p.id}
@@ -776,13 +791,64 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                         </button>
 
                         <button
-                          onClick={() => onDeleteProvider(p.id)}
+                          onClick={() => setPendingDeleteProviderId(
+                            pendingDeleteProviderId === p.id ? null : p.id
+                          )}
+                          aria-expanded={pendingDeleteProviderId === p.id}
                           className="p-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 ml-auto active:scale-95 transition-all"
                           title="Törlés"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
+                      {/* Törlés megerősítése – a távirányítóval is működik (nincs window.confirm). */}
+                      {pendingDeleteProviderId === p.id && (
+                        <div className="mt-2.5 rounded-xl border border-rose-800/50 bg-rose-950/30 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-xs font-bold text-rose-200">
+                            Biztosan törlöd ezt a listát: „{p.name}”?
+                          </p>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              autoFocus
+                              onClick={() => {
+                                onDeleteProvider(p.id);
+                                setPendingDeleteProviderId(null);
+                                /*
+                                 * Törlés után a fókusz ne a semmibe kerüljön:
+                                 * a következő lista doboza (ha nincs, az
+                                 * „Új lista” gomb) kapja a kijelölést.
+                                 */
+                                window.setTimeout(() => {
+                                  const remaining = Array.from(
+                                    modalRef.current?.querySelectorAll<HTMLElement>('[data-tv-box]') || []
+                                  );
+                                  const nextBox = remaining[Math.min(providerIndex, remaining.length - 1)]
+                                    || modalRef.current?.querySelector<HTMLElement>('[data-tv-list-action="new"]');
+                                  nextBox?.focus({ preventScroll: true } as any);
+                                }, 0);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Igen, törlés</span>
+                            </button>
+                            <button
+                              onClick={(event) => {
+                                const card = event.currentTarget.closest('[data-tv-box]');
+                                setPendingDeleteProviderId(null);
+                                // A megerősítés bezárása után a kuka maradjon kijelölve.
+                                window.setTimeout(() => {
+                                  card?.querySelector<HTMLElement>('button[title="Törlés"]')
+                                    ?.focus({ preventScroll: true } as any);
+                                }, 0);
+                              }}
+                              className="px-3 py-2 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95"
+                            >
+                              Mégse
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

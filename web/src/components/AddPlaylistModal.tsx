@@ -68,6 +68,30 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
   const diagnosticStartedAtRef = useRef(performance.now());
   const diagnosticEventsRef = useRef<NetworkDiagnosticEvent[]>([]);
   const [liveLoadedPromptOpen, setLiveLoadedPromptOpen] = useState(false);
+  /**
+   * Az ablak megnyílásakor AZONNAL a jobb oldali (alapértelmezett) gombra
+   * kerül a fókusz, hogy a bal/jobb nyíl és az OK késlekedés nélkül működjön.
+   */
+  const livePromptRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!liveLoadedPromptOpen) return;
+    const focusDefault = () => {
+      const container = livePromptRef.current;
+      if (!container) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active && container.contains(active)) return;
+      const target = container.querySelector<HTMLElement>('[data-tv-default]')
+        || container.querySelector<HTMLElement>('button:not(:disabled)');
+      target?.focus({ preventScroll: true } as any);
+    };
+    focusDefault();
+    const first = window.setTimeout(focusDefault, 60);
+    const second = window.setTimeout(focusDefault, 220);
+    return () => {
+      window.clearTimeout(first);
+      window.clearTimeout(second);
+    };
+  }, [liveLoadedPromptOpen]);
   const diagnosticFinishedRef = useRef(false);
 
   if (!isOpen) return null;
@@ -438,13 +462,13 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
         </div>
       </div>
       {liveLoadedPromptOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák betöltve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setLiveLoadedPromptOpen(false); } }} className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+        <div ref={livePromptRef} role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák betöltve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setLiveLoadedPromptOpen(false); } }} className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-cyan-400/50 bg-[#081329] p-5 text-white shadow-2xl">
             <div className="text-lg font-black text-cyan-200">Az élő TV-csatornák betöltve</div>
             <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok betöltése még folyamatban van. Szeretnéd tovább nézni a folyamatot, vagy folytassuk a háttérben?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button onClick={() => setLiveLoadedPromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Nem, tovább nézem</button>
-              <button onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
+              <button data-tv-default="" onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
             </div>
           </div>
         </div>
