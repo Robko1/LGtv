@@ -66,6 +66,55 @@ A napló legfeljebb 1 MB, sorszámozott és kezdési idővel ellátott. A küld�
 
 Ha a küldés ismét átmeneti HTTP 503-at kap, az alkalmazás két rövid, automatikus újrapróbát végez. A szerver ugyanazt a sorszám/kezdési idő párt idempotensen kezeli, ezért egy elveszett válasz nem készít dupla rekordot.
 
+### Hol keletkezik a napló, és hová kell beírni egy új sort
+
+Ha azt kéred, hogy „ezt is írja bele a naplóba, hogy lássuk a hibát”, az új naplósort
+**mindig ugyanabba a fájlba** kell beírni:
+
+```
+web/src/services/appLog.ts
+```
+
+Ebben a fájlban vannak a naplóíró függvények. Egy új sor beküldéséhez nem kell mást
+tenni, mint a vizsgált kódban meghívni valamelyiket:
+
+| Függvény | Mikor használd | Példa a naplóban |
+| --- | --- | --- |
+| `appLog('…')` | általános esemény | `CSATORNAVÁLTÁS START; csatorna=[HU] M1` |
+| `appLogError('…', error)` | ha valami elhasalt | `Filmlista mentése sikertelen HIBA → …` |
+| `logProviderEvent('…')` | szolgáltató-beolvasás | `SZOLGÁLTATÓ [filmek egyben] a válasz 102815 elemű` |
+| `logProviderRequest({…})` | egy konkrét HTTP-kérés | `SZOLGÁLTATÓ [filmek], OK, 9133 ms, korlát=60000 ms, HTTP 200, 40.4 MB` |
+| `logProviderPhaseStart/End(…)` | egy betöltési szakasz eleje/vége | `SZOLGÁLTATÓ FÁZIS [filmek] kész – 40000 film; 20.9 s` |
+
+A napló **csak akkor gyűlik, ha a naplózás be van kapcsolva** (SÁRGA gomb → Naplózás
+indítása). Bekapcsolt naplózás nélkül a függvények nem írnak semmit, és nem is
+lassítják a programot. Belépési adat, jelszó és stream-cím soha nem kerül a naplóba:
+az alkalmazás és a Supabase Edge Function is kitakarja őket (`[REDACTED]`).
+
+### Hol találom meg a Supabase-re elküldött naplót
+
+1. A TV-n: **SÁRGA gomb → Naplózás indítása → a hiba előidézése → Küldés Supabase-re.**
+   A képernyőn látszik a napló sorszáma és a kezdési ideje.
+2. A Supabase-ben: a **`QR iptv`** projekt (`hlklmcujvqsatwvdygqp`),
+   **`public.tv_diagnostic_shares`** tábla. A napló szövege a **`log_text`** oszlopban van,
+   a sorszáma a `log_number`, a beküldés ideje a `created_at` oszlopban.
+3. A tábla **az öt legfrissebben beérkezett naplót** őrzi meg. A törlés **a beküldés
+   dátuma és ideje szerint** történik: mindig a **legrégebbi `created_at`** esik ki
+   elsőként, automatikusan. (Korábban a sorszám döntött, ezért egy frissen telepített
+   IPK 1-es számú naplója azonnal törlődött, pedig a TV sikeres küldést jelzett.)
+4. Egy sor lekérdezés a legújabb naplóhoz:
+
+   ```sql
+   select log_number, created_at, log_text
+   from public.tv_diagnostic_shares
+   order by created_at desc
+   limit 1;
+   ```
+
+A naplót a **`supabase/functions/tv-diagnostic-share`** Edge Function fogadja és tárolja.
+Ehhez a küldő kódhoz és a tároláshoz csak indokolt esetben nyúlunk – a napló **tartalmát**
+azonban bárhol bővíthetjük az `appLog.ts` függvényeivel.
+
 ## Telefonos QR-beállítás
 
 A telefonos szolgáltató-beállítás külön funkció, nem a hibakeresési napló része. A telefonos oldal forrása:
@@ -120,6 +169,7 @@ npm test
 node tools/test-playback-recovery.mjs
 node tools/test-player-runtime.mjs
 node tools/test-provider-load.mjs
+node tools/test-storage-quota.mjs
 (cd web && ./node_modules/.bin/tsc --noEmit)
 npm --prefix web run build && npm run smoke
 ```

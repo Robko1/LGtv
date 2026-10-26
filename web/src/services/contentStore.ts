@@ -438,8 +438,23 @@ export const decodeSeriesForImport = decodeSeries;
 
 /* -------------------------------------------------------------- mentés */
 
+/** Egy mentés eredménye: sikerült-e, és VALÓJÁBAN hány sor fért el. */
+interface WriteOutcome {
+  ok: boolean;
+  /** A ténylegesen eltárolt sorok száma (csonkolás/szűkítés után). */
+  rows: number;
+  chars: number;
+}
+
 function write(key: string, payload: unknown): boolean {
+  return writeMeasured(key, payload).ok;
+}
+
+function writeMeasured(key: string, payload: unknown): WriteOutcome {
   let text = JSON.stringify(payload);
+  let storedRows = Array.isArray((payload as { rows?: Row[] })?.rows)
+    ? (payload as { rows: Row[] }).rows.length
+    : 0;
   if (text.length > LOCAL_BUDGET) {
     // Böngészőben (localStorage) nem fér el minden – csonkoljuk a listát.
     // A nagy JSON visszaolvasása fölösleges plusz memóriacsúcsot okozna.
@@ -447,6 +462,7 @@ function write(key: string, payload: unknown): boolean {
     if (Array.isArray(source?.rows)) {
       const keep = Math.max(200, Math.floor(source.rows.length * (LOCAL_BUDGET / text.length)));
       text = JSON.stringify({ ...source, rows: source.rows.slice(0, keep) });
+      storedRows = Math.min(storedRows, keep);
     }
   }
   const initialChars = text.length;
@@ -465,6 +481,7 @@ function write(key: string, payload: unknown): boolean {
     while (!ok && rows && rows.length > 100) {
       rows = rows.slice(0, Math.floor(rows.length / 2));
       text = JSON.stringify({ ...source, rows });
+      storedRows = rows.length;
       retries += 1;
       ok = backend.put(key, text);
     }
@@ -485,9 +502,36 @@ function write(key: string, payload: unknown): boolean {
   if (!ok) {
     // Végső tartalék: memória, így csak az aktuális munkamenetben marad meg.
     memory.set(key, text);
-    appLog(`TÁROLÓ HIBA: ${key} mentése végleg sikertelen (${backend.name}); méret=${text.length} karakter; csökkentések=${retries}; takarított kulcsok=${sweptKeys}; memória-tartalék aktív, újraindítás után elveszhet.`);
+    appLog(
+      `TÁROLÓ HIBA: ${key} mentése végleg sikertelen (${backend.name}); méret=${text.length} karakter; ` +
+      `csökkentések=${retries}; takarított kulcsok=${sweptKeys}; ` +
+      `foglaltság=${describeStorageUsage()}; memória-tartalék aktív, újraindítás után elveszhet.`
+    );
   }
-  return ok;
+  return { ok, rows: storedRows, chars: text.length };
+}
+
+/**
+ * Mennyi helyet foglalnak a tartalom-adagok a tárolóban.
+ *
+ * A TV localStorage-kvótája kicsi, és a webOS nem mondja meg a hibánál, hogy
+ * kvóta- vagy hozzáférési problémáról van szó. Ezért hibánál kiírjuk a valódi
+ * foglaltságot: a naplóból így látszik, hogy a lista egyszerűen NEM FÉR EL,
+ * nem pedig valami titokzatos írási hiba történt.
+ */
+function describeStorageUsage(): string {
+  try {
+    let keys = 0;
+    let chars = 0;
+    for (const key of backend.keys()) {
+      if (!key.startsWith('content-')) continue;
+      keys += 1;
+      chars += (backend.get(key) || '').length;
+    }
+    return `${keys} kulcs / ${(chars / 1024).toFixed(0)} kB`;
+  } catch {
+    return 'nem mérhető';
+  }
 }
 
 /** Csak az élő csatornák mentése (a betöltés első szakasza után azonnal). */
@@ -580,20 +624,83 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
   const previousKeys = readChunkKeys(options.metaKey, options.legacyPrefix);
   for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
 
+  let storedChunks = 0;
+  let storedRows = 0;
+  let stoppedAt = 0;
   try {
     for (let index = 0; index < chunkCount; index++) {
       const rows = options.chunkRows(index);
-      if (!write(generationPrefix + index, { rows })) {
-        throw new Error(`${options.label}: a lista egy része nem menthető el (${index + 1}/${chunkCount}).`);
+      const chunkKey = generationPrefix + index;
+      let outcome = writeMeasured(chunkKey, { rows });
+      if (!outcome.ok) {
+        /*
+         * A tároló megtelt – és a helyet éppen az ELŐZŐ generáció adagjai
+         * foglalják. Ilyenkor fokozatosan szabadítjuk fel őket: ezek az adagok
+         * amúgy is cserélődnek, a régi listát pedig éppen most írjuk újra.
+         *
+         * Enélkül egy megtelt tárolónál az új mentés már az ELSŐ adagnál
+         * elhasalna, ezért a frissítés SOHA nem sikerülne – pontosan ezt
+         * csinálta a 2.5.110-es build („újraindítom, újra és újra, akkor
+         * sem sikerült”).
+         */
+        for (let extra = index; !outcome.ok && extra < previousKeys.length; extra += 1) {
+          const staleKey = previousKeys[extra];
+          if (!staleKey) continue;
+          backend.remove(staleKey);
+          outcome = writeMeasured(chunkKey, { rows });
+        }
+        if (!outcome.ok) {
+          stoppedAt = index;
+          break;
+        }
       }
-      // Két adag után lélegzés: a felület ne akadjon meg a mentés közben.
-      if (index % 2 === 1) await yieldToStorage();
+      storedChunks = index + 1;
+      storedRows += outcome.rows;
+      /*
+       * AZ ELŐZŐ GENERÁCIÓ AZONOS SORSZÁMÚ ADAGJÁT CSAK MOST TÖRÖLJÜK.
+       *
+       * Korábban a régi adagok csak a TELJES, sikeres mentés után törlődtek,
+       * ezért a mentés alatt a lista KÉT példányban volt bent a tárolóban.
+       * A TV kicsi localStorage-kvótája ennek a felét sem bírta: a 2.5.110-es
+       * napló szerint az élő lista a 16/51., a filmlista a 16/100. adagnál
+       * elfogyott, a mentés teljesen elhasalt, és MINDEN indításkor újra le
+       * kellett tölteni a 6,6 + 40,4 + 29,2 MB-ot – ezért volt rettenetes az
+       * első indulás. Így a csúcshasználat ~1 teljes lista + 1 új adag.
+       *
+       * A törlés szándékosan az ÚJ adag sikeres írása UTÁN van: ha az írás
+       * elhasal, a régi lista sértetlen marad.
+       */
+      const previousKey = previousKeys[index];
+      if (previousKey) backend.remove(previousKey);
+      /*
+       * MINDEN adag után lélegzés. A korábbi „két adagonként” a 2.5.110-es
+       * naplóban 4566 ms-os főszál-leállást eredményezett (HOSSZÚ FELADAT:
+       * 3025 ms), azaz a mentés alatt a felület és a lejátszás megakadt.
+       */
+      await yieldToStorage();
     }
+
+    if (chunkCount > 0 && storedChunks === 0) {
+      throw new Error(
+        `${options.label}: egyetlen adag sem menthető el – a tároló megtelt ` +
+        `(${chunkCount} adag, ${options.total} elem).`
+      );
+    }
+
+    /*
+     * RÉSZLEGES MENTÉS IS ÉRVÉNYES MENTÉS.
+     *
+     * Ha a tároló elfogy, korábban az EGÉSZ mentés elhasalt, és a korábbi
+     * (vagy üres) cache maradt – így a lista soha nem került a tárolóba, és
+     * minden indítás 76 MB letöltéssel kezdődött. Most annyi adagot tartunk
+     * meg, amennyi befért, és a fejléc is ennyit jegyez: a következő indulás
+     * a mentett listával azonnal indul, és a napló megmondja, mi maradt ki.
+     */
     if (!write(options.metaKey, {
       v: 1,
       totals: options.totals,
       cats: options.cats,
-      chunks: chunkCount,
+      chunks: storedChunks,
       chunkPrefix: generationPrefix,
     } satisfies ChunkMeta)) {
       throw new Error(`${options.label}: a lista fejléce nem menthető el.`);
@@ -608,10 +715,21 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
   }
   for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
 
-  // Siker: a régi adagok és a régi, egykulcsos változat törölhető.
+  // A régi adagok és a régi, egykulcsos változat többé nem hivatkozott.
   backend.remove(options.legacyKey);
   for (const key of previousKeys) backend.remove(key);
-  appLog(`${options.label} elmentve: ${options.total} elem, ${chunkCount} adag, tároló=${backend.name}`);
+  if (stoppedAt > 0 && storedChunks < chunkCount) {
+    appLog(
+      `TÁROLÓ FIGYELEM: ${options.label} – a tároló a ${stoppedAt + 1}/${chunkCount}. adagnál megtelt, ` +
+      `ezért ${storedChunks} adag (${storedRows} elem) került mentésre a ${options.total} elemből. ` +
+      `A lista így is használható és a következő indulásnál azonnal betöltődik; ` +
+      `a kimaradt rész a szolgáltatótól érkezik, ha újra frissítesz. Foglaltság=${describeStorageUsage()}.`
+    );
+  } else {
+    appLog(
+      `${options.label} elmentve: ${storedRows} elem, ${storedChunks} adag, tároló=${backend.name}`
+    );
+  }
 }
 
 /** A korábbi adagok kulcsainak összegyűjtése (törléshez). */
