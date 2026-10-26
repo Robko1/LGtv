@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.120';
+export const WEB_VERSION = '2.5.121';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.120',
+    version: '2.5.121',
     date: '2026-10-26',
     changes: [
       'ADATVESZTÉS ÚJRAINDÍTÁSKOR – MEGSZÜNTETVE: az élő csatornalista eddig a localStorage-ba került, a webOS viszont csak ~5 MB-ot ad, és ezen osztozik a beállításokkal, a poszter-gyorsítótárral és a kézi naplóval is (ami akár 1 MB lehet). A 20 190 csatornás lista önmagában ~3,9 MB volt, vagyis a tár a határára ért – a TV-napló ezt mutatta: „TÁROLÓ HIBA … foglaltság=75 kulcs / 5115 kB”. A TELJES lista mostantól az IndexedDB-ben van (nagy kvóta, megmarad újraindítás után is), a localStorage-ban csak a kis INDULÓ magyar készlet marad (~20–40 kB)',
