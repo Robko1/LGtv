@@ -175,10 +175,22 @@
         // színátmenet látszott belőle – ez volt a "zöld üres képernyő" a
         // rendszerindítás után. Most a logós kép látszik egészen addig, amíg
         // a kész főoldal meg nem jelenik, egyetlen váltással.
+        //
+        // A KÉP BEÉGETVE (data URI): a build a splash-bg.jpg-t base64-ben
+        // írja be a __IPTV_SPLASH_DATA_URI__ helyére. Erre azért van szükség,
+        // mert a külső fájl betöltése és dekódolása aszinkron: az első
+        // kirajzolásnál még csak a zöld színátmenet volt a képernyőn, és a
+        // kép csak utána „ugrott” a helyére – a webOS saját indítóképe után
+        // ez a nézőnek úgy tűnt, mintha a takarókép össze-vissza ugrálna.
+        // Beégetve a kép már az ELSŐ festésnél ott van, egyetlen váltás marad.
         try {
           var bgStyle = document.createElement('style');
+          var splashData = '__IPTV_SPLASH_DATA_URI__';
+          var splashImage = (splashData && splashData.indexOf('data:image/') === 0)
+            ? 'url(' + splashData + ')'
+            : "url('splash-bg.jpg')";
           var splashLayer =
-            "url('splash-bg.jpg'),linear-gradient(135deg,#5fe3b6 0%,#4fd8e0 45%,#63bdf3 100%)";
+            splashImage + ",linear-gradient(135deg,#5fe3b6 0%,#4fd8e0 45%,#63bdf3 100%)";
           bgStyle.textContent =
             "html.iptv-booting body{background-image:" + splashLayer + ";" +
             "background-position:center center,center center;background-size:cover,cover;" +
@@ -226,11 +238,23 @@
           try { console.log('REVEAL ' + (Date.now() - started) + ' ms (' + (reason || '') + ')'); } catch (e) {}
         };
 
-        // Biztonsági háló: ha bármi elakad, 7 mp után akkor is megjelenik a
-        // felület (soha nem maradhat rejtve a kép).
+        /*
+         * Biztonsági háló: ha bármi elakad, akkor is megjelenik a felület
+         * (soha nem maradhat rejtve a kép).
+         *
+         * FONTOS – EZ 12 MP, NEM 7: a főoldal saját döntése (main.tsx) legfeljebb
+         * 9 másodpercet vár, és utána maga jeleníti meg a kész(nek tekintett)
+         * felületet. Korábban ez a háló 7 másodpercnél sütött el, vagyis a
+         * takarékép KORÁBBAN tűnt el, mint ahogy az alkalmazás befejezte volna
+         * a főoldal építését: a néző előbb a félkész oldalt látta, aztán
+         * sorban megérkeztek a sorok, az EPG és a logók – ez volt az
+         * „össze-vissza ugráló takarókép”. A háló most szándékosan a
+         * alkalmazás saját korlátja FELETT van, így normál esetben mindig az
+         * alkalmazás dönt, a háló csak a valóban elakadt indítást menti meg.
+         */
         window.setTimeout(function () {
           window.__IPTV_REVEAL__('biztonsági háló');
-        }, 7000);
+        }, 12000);
 
         function appReady() {
           return !!(window.__IPTV_APP_READY__ || (window.__IPTV_STARTUP_STAGE__ || 0) >= 7);

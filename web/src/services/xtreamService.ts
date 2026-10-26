@@ -251,9 +251,12 @@ export const xtreamService = {
   async vodStreams(serverUrl: string, username: string, password: string, categoryId?: string | number): Promise<XtreamVodStream[]> {
     const category = categoryId !== undefined && categoryId !== null ? `&category_id=${encodeURIComponent(String(categoryId))}` : '';
     const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_vod_streams${category}`;
-    // Bulk (kategória nélkül) nagyobb JSON (40k film), több idő kell; kategóriánként marad 30s
+    // Bulk (kategória nélkül) nagyobb JSON (40k film), több idő kell; kategóriánként marad 30s.
+    // FONTOS: a `bulkList: true` nélkül a hálózati réteg a 60 mp-et csendben
+    // 30 mp-re vágta vissza, így a nagy filmlista soha nem fért bele az
+    // időkeretbe (lásd net.ts HttpOptions.bulkList).
     const timeoutMs = category ? 30000 : 60000;
-    return asArray(await httpGetJson<ApiList<XtreamVodStream>>(url, { timeoutMs }));
+    return asArray(await httpGetJson<ApiList<XtreamVodStream>>(url, { timeoutMs, bulkList: !category }));
   },
 
   /** Egyetlen film részletes adatai. Importkor ezt kizárólag a korlátozott első VOD-adaghoz használjuk. */
@@ -275,8 +278,9 @@ export const xtreamService = {
   async seriesList(serverUrl: string, username: string, password: string, categoryId?: string | number): Promise<XtreamSeriesItem[]> {
     const category = categoryId !== undefined && categoryId !== null ? `&category_id=${encodeURIComponent(String(categoryId))}` : '';
     const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_series${category}`;
+    // Ugyanaz, mint a filmeknél: a bulk sorozatlista kapja a hosszabb korlátot.
     const timeoutMs = category ? 30000 : 60000;
-    return asArray(await httpGetJson<ApiList<XtreamSeriesItem>>(url, { timeoutMs }));
+    return asArray(await httpGetJson<ApiList<XtreamSeriesItem>>(url, { timeoutMs, bulkList: !category }));
   },
 
 

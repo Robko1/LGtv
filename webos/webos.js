@@ -134,9 +134,43 @@
   //  - az utoljára lenyomott távirányító-gombot (keyCode + név).
   // A külön képernyős diagnosztika csak felülethiba esetén jelenik meg; a SÁRGA gomb a kézi napló ablakát nyitja meg.
   var diag = {
-    el: null, keyLine: null, uiLine: null, mouseLine: null,
+    el: null, keyLine: null, uiLine: null, mouseLine: null, storLine: null,
+    storageProbed: false,
     keyCount: 0, mouseMoves: 0, clicks: 0, hideTimer: 0, uiLoaded: false, forced: false
   };
+
+  /**
+   * A localStorage kapacitás-próba. Csak a látható diagnosztikai doboznál fut,
+   * egyszer – induláskor soha (lásd diagEnsure megjegyzése).
+   */
+  function diagStorageProbe() {
+    if (diag.storageProbed || !diag.storLine) return;
+    diag.storageProbed = true;
+    try {
+      var caps = [262144, 1048576, 2097152];
+      var okCap = 0;
+      var filler = new Array(1025).join('x'); // 1 KB
+      for (var ci = 0; ci < caps.length; ci++) {
+        try {
+          var chunkKB = Math.floor(caps[ci] / 1024);
+          var big = '';
+          for (var bi = 0; bi < chunkKB; bi++) { big += filler; }
+          window.localStorage.setItem('iptv_rt_captest', big);
+          window.localStorage.removeItem('iptv_rt_captest');
+          okCap = caps[ci];
+        } catch (capErr) { break; }
+      }
+      var saved = 0;
+      for (var ki = 0; ki < window.localStorage.length; ki++) {
+        var kk = window.localStorage.key(ki) || '';
+        if (kk.indexOf('iptv') === 0) { saved += (window.localStorage.getItem(kk) || '').length; }
+      }
+      diag.storLine.textContent = 'T\u00e1rol\u00f3: localStorage OK, \u00edrhat\u00f3 ~' + Math.round(okCap / 1048576 * 10) / 10 + ' MB, mentve ' + Math.round(saved / 1024) + ' KB';
+    } catch (storErr) {
+      diag.storLine.textContent = 'T\u00e1rol\u00f3 HIBA: localStorage nem el\u00e9rhet\u0151 (' + (storErr && storErr.name ? storErr.name : storErr) + ') - ez\u00e9rt v\u00e9sz el a lista!';
+      diag.storLine.setAttribute('style', 'color:#f87171;');
+    }
+  }
 
   function chromeVersion() {
     try {
@@ -168,33 +202,23 @@
       diag.keyLine.textContent = 'Nyomj egy gombot a távirányítón...';
       diag.mouseLine = document.createElement('div');
       diag.mouseLine.textContent = 'Egér/kattintás: 0 / 0';
-      // Tároló-próba: kiderül, miért veszik el a csatornalista újraindításkor.
+      /*
+       * Tároló-próba – CSAK A SOR, MAGA A PRÓBA NEM.
+       *
+       * KORÁBBAN itt, a doboz létrehozásakor futott le a kapacitás-próba is:
+       * 256 kB + 1 MB + 2 MB szöveget írt ki a localStorage-ba, majd végig
+       * olvasta az ÖSSZES tárolókulcsot. Ez szinkron munka, és pontosan a
+       * DOM-ready pillanatában futott – vagyis akkor, amikor a React a
+       * főoldalt építette. Egy több tízezer csatornát mentett TV-n ez a
+       * főoldal megjelenését késleltette (a takarékép ezért maradt fent
+       * tovább, és a néző „ugráló” indulást látott).
+       *
+       * A próba most csak akkor fut le, ha a diagnosztikai doboz ténylegesen
+       * MEGJELENIK a képernyőn (diagShow), és akkor is csak egyszer.
+       */
       var storLine = document.createElement('div');
-      storLine.textContent = 'Tároló: próba...';
-      try {
-        var caps = [262144, 1048576, 2097152];
-        var okCap = 0;
-        var filler = new Array(1025).join('x'); // 1 KB
-        for (var ci = 0; ci < caps.length; ci++) {
-          try {
-            var chunkKB = Math.floor(caps[ci] / 1024);
-            var big = '';
-            for (var bi = 0; bi < chunkKB; bi++) { big += filler; }
-            window.localStorage.setItem('iptv_rt_captest', big);
-            window.localStorage.removeItem('iptv_rt_captest');
-            okCap = caps[ci];
-          } catch (capErr) { break; }
-        }
-        var saved = 0;
-        for (var ki = 0; ki < window.localStorage.length; ki++) {
-          var kk = window.localStorage.key(ki) || '';
-          if (kk.indexOf('iptv') === 0) { saved += (window.localStorage.getItem(kk) || '').length; }
-        }
-        storLine.textContent = 'T\u00e1rol\u00f3: localStorage OK, \u00edrhat\u00f3 ~' + Math.round(okCap / 1048576 * 10) / 10 + ' MB, mentve ' + Math.round(saved / 1024) + ' KB';
-      } catch (storErr) {
-        storLine.textContent = 'T\u00e1rol\u00f3 HIBA: localStorage nem el\u00e9rhet\u0151 (' + (storErr && storErr.name ? storErr.name : storErr) + ') - ez\u00e9rt v\u00e9sz el a lista!';
-        storLine.setAttribute('style', 'color:#f87171;');
-      }
+      storLine.textContent = 'T\u00e1rol\u00f3: a mérés a megjelenéskor indul...';
+      diag.storLine = storLine;
       var hint = document.createElement('div');
       hint.textContent = 'PIROS: tükrözött elrendezés · ZÖLD: hangsáv · SÁRGA: kézi napló · KÉK: csatornamozgatás';
       hint.setAttribute('style', 'color:#64748b;font-size:16px;margin-top:4px;');
@@ -212,6 +236,8 @@
 
   function diagShow() {
     if (!diagEnsure()) return;
+    // A tároló-próba csak itt, a valódi megjelenéskor fut – induláskor nem.
+    diagStorageProbe();
     diag.el.style.display = 'block';
     if (diag.hideTimer) clearTimeout(diag.hideTimer);
     // 2 perc után magától eltűnik, HA a felület betöltődött.
@@ -1428,8 +1454,19 @@
     try {
       document.body.classList.add('webos-tv', 'lg-webos', 'tv-mode');
     } catch (e) {}
-    // Képernyős diagnosztika: normál működéskor rejtve marad, és csak akkor
-    // jelenik meg, ha a felület 12 mp alatt sem töltődik be.
+    /*
+     * Képernyős diagnosztika: normál működésnél rejtve marad, és csak akkor
+     * jelenik meg, ha a felület egyáltalán nem töltődött be.
+     *
+     * A 15 mp SZÁNDÉKOSAN nagyobb, mint a két másik indulási korlát:
+     *   • a főoldal saját döntése legfeljebb 9 mp után felfedi magát
+     *     (web/src/main.tsx),
+     *   • a HTML biztonsági hálója 12 mp után engedi el a takaróképet
+     *     (web/index.html).
+     * Így a piros diagnosztikai doboz SOHA nem jelenik meg ugyanabban a
+     * pillanatban, amikor a takarókép lemegy – az ugyanis pont akkor
+     * villanna a néző szeme elé, amikor a felület készen áll.
+     */
     diagUiCheck();
     var uiPoll = setInterval(function() {
       diagUiCheck();
@@ -1438,7 +1475,7 @@
     setTimeout(function() {
       clearInterval(uiPoll);
       if (!diag.uiLoaded) diagUiFail();
-    }, 12000);
+    }, 15000);
     /*
      * EGYETLEN fókusz-próba, a lehető legkésőbb induló időpontban.
      *

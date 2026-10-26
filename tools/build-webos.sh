@@ -239,6 +239,28 @@ html = re.sub(r'<body\b[^>]*>', add_webos_body_classes, html, count=1)
 # NINCS külön webOS splash overlay: a TV saját indítóképernyője (a logó
 # képkockája) után azonnal a főoldal jön (2.5.0-tól nincs induló videó).
 
+# A TAKARÓKÉP BEÉGETÉSE (data URI).
+#
+# A webOS indítóképével AZONOS képet base64-ben írjuk a HTML-be. Erre azért
+# van szükség, mert a külső splash-bg.jpg betöltése + dekódolása aszinkron:
+# az első festésnél még csak a zöld színátmenet látszott, és a kép csak utána
+# ugrott a helyére - a néző ezt úgy élte meg, hogy a takarókép "össze-vissza
+# ugrál" indítás közben. Beégetve már az első festésnél a végleges kép van a
+# képernyőn, és a takarókép egyetlen váltással tűnik el a kész főoldal javára.
+splash_bg = build_dir / "splash-bg.jpg"
+if "__IPTV_SPLASH_DATA_URI__" not in html:
+    raise SystemExit("HIBA: a web/index.html nem tartalmazza a __IPTV_SPLASH_DATA_URI__ jelölőt.")
+if splash_bg.is_file():
+    import base64
+    data_uri = "data:image/jpeg;base64," + base64.b64encode(splash_bg.read_bytes()).decode("ascii")
+    html = html.replace("__IPTV_SPLASH_DATA_URI__", data_uri)
+    print(f"splash-bg.jpg beégetve a takaróképbe: {len(data_uri)} karakter")
+else:
+    # Jelölő nélkül maradna egy érvénytelen url(); ilyenkor üresre cseréljük,
+    # így a CSS a tartalék színátmenetre esik vissza.
+    html = html.replace("__IPTV_SPLASH_DATA_URI__", "")
+    print("FIGYELEM: nincs splash-bg.jpg - a takarókép a tartalék színátmenetet használja.")
+
 # Kiírás
 (build_dir / "index.html").write_text(html, encoding="utf-8")
 print(f"webOS index.html kész: {len(html)} bytes")

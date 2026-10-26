@@ -20,6 +20,8 @@
  *      kapcsolat.
  */
 
+import { logProviderEvent, logProviderRequest, providerEndpointLabel } from './appLog';
+
 export interface NetworkDiagnosticEvent {
   id: number;
   url: string;
@@ -180,10 +182,28 @@ async function acquireWithin(ms: number, generation: number): Promise<boolean> {
 
 /** Ennyi egymás utáni hálózati hiba után leállunk egy időre. */
 const BREAKER_FAILURE_LIMIT = 4;
+/**
+ * Időtúllépésből ennyi kell a leálláshoz – és csak akkor, ha a szerver
+ * egy ideje semmire sem válaszolt.
+ *
+ * MIÉRT KÜLÖN: az időtúllépés NEM azt jelenti, hogy a szerver halott, csak
+ * azt, hogy lassú. A nagy lista-végpontok (több tízezer film / sorozat)
+ * válaszát a panel sokszor 30 másodpercnél tovább készíti. Korábban ezek az
+ * időtúllépések ugyanúgy számolódtak, mint egy kapcsolati hiba, ezért 4
+ * lassú kérés után a megszakító 60 másodpercre MINDENT letiltott – a már
+ * sikeresen letöltött élő csatornák után a filmek és a sorozatok üresen
+ * maradtak („A szolgáltató szervere nem válaszol” hibával).
+ */
+const BREAKER_TIMEOUT_LIMIT = 3;
+/** Ennyi ideig „friss” egy sikeres válasz: ezalatt az időtúllépés nem leállás. */
+const RECENT_RESPONSE_MS = 30000;
 /** Ennyi ideig nem indítunk új kapcsolatot, ha a szerver elérhetetlen. */
 const BREAKER_COOLDOWN_MS = 60000;
 
 let consecutiveTransportFailures = 0;
+let consecutiveTimeouts = 0;
+/** Az utolsó bármilyen HTTP-válasz időpontja (a megszakító döntéséhez). */
+let lastResponseAt = 0;
 let breakerOpenUntil = 0;
 
 /**
@@ -238,6 +258,8 @@ export function breakerRemainingMs(): number {
 
 export function resetNetworkBreaker(): void {
   consecutiveTransportFailures = 0;
+  consecutiveTimeouts = 0;
+  lastResponseAt = 0;
   breakerOpenUntil = 0;
 }
 
@@ -247,21 +269,59 @@ export function isTransportFailure(message: string): boolean {
   // httpGetText a hálózati hibát magyar szöveggel dobja tovább, és a
   // hívók (pl. az import gyors leállítása) ebből ismerik fel a hálózati
   // szintű hibát.
-  return /Failed to fetch|NetworkError|Load failed|timeout|timed out|aborted|AbortError|ERR_|net::|Nem sikerült elérni a szervert|Nem érhető el a szolgáltató/i.test(
+  //
+  // A `fetch failed` alakot is ismerjük: a böngészőmotorok egy része (és a
+  // Node a tesztek alatt) így jelzi a sikertelen kapcsolatot. Enélkül egy
+  // elérhetetlen szerver NEM számított hálózati hibának, ezért a router
+  // kímélését szolgáló megszakító soha nem nyitott ki – a program pedig
+  // tovább próbálkozott egy halott címen.
+  return /Failed to fetch|fetch failed|NetworkError|Load failed|timeout|timed out|aborted|AbortError|ERR_|net::|Nem sikerült elérni a szervert|Nem érhető el a szolgáltató/i.test(
     message
   );
 }
 
-function noteTransportFailure(): void {
-  consecutiveTransportFailures++;
+function noteTransportFailure(timedOut: boolean, timeoutMs: number): void {
+  if (timedOut) {
+    consecutiveTimeouts += 1;
+    /*
+     * A szerver mostanában válaszolt valamire (pl. az élő csatornalistára),
+     * tehát ÉL, csak a nagy lista válasza lassú. Ilyenkor nem állítjuk le a
+     * teljes betöltést: a filmek/sorozatok így is letöltődhetnek, csak
+     * tovább tart. A megszakító csak akkor nyit, ha a szerver már egy ideje
+     * semmire sem válaszolt, és egymás után több kérés is kifutott az időből.
+     */
+    const recentAnswer = Date.now() - lastResponseAt < RECENT_RESPONSE_MS;
+    if (recentAnswer) {
+      logProviderEvent(
+        `lassú válasz (időtúllépés ${timeoutMs} ms után), de a szerver ${Math.round((Date.now() - lastResponseAt) / 1000)} mp-` +
+        `e válaszolt – a betöltés folytatódik, nincs leállás (${consecutiveTimeouts}/${BREAKER_TIMEOUT_LIMIT} időtúllépés)`
+      );
+      return;
+    }
+    if (consecutiveTimeouts >= BREAKER_TIMEOUT_LIMIT && !breakerOpen()) {
+      breakerOpenUntil = Date.now() + BREAKER_COOLDOWN_MS;
+      logProviderEvent(
+        `MEGSZAKÍTÓ NYITVA: ${consecutiveTimeouts} egymás utáni időtúllépés, a szerver ${Math.round(RECENT_RESPONSE_MS / 1000)} mp-` +
+        `e nem válaszolt semmire – ${Math.round(BREAKER_COOLDOWN_MS / 1000)} mp-ig nem indul új kapcsolat`
+      );
+    }
+    return;
+  }
+  consecutiveTransportFailures += 1;
   if (consecutiveTransportFailures >= BREAKER_FAILURE_LIMIT && !breakerOpen()) {
     breakerOpenUntil = Date.now() + BREAKER_COOLDOWN_MS;
+    logProviderEvent(
+      `MEGSZAKÍTÓ NYITVA: ${consecutiveTransportFailures} egymás utáni kapcsolati hiba – ` +
+      `${Math.round(BREAKER_COOLDOWN_MS / 1000)} mp-ig nem indul új kapcsolat`
+    );
   }
 }
 
 function noteResponse(): void {
   // Ha bármilyen HTTP válasz jött (akár hiba), a szerver él: nullázzuk a számlálót.
   consecutiveTransportFailures = 0;
+  consecutiveTimeouts = 0;
+  lastResponseAt = Date.now();
   breakerOpenUntil = 0;
 }
 
@@ -353,9 +413,18 @@ async function fetchOnce(url: string, timeoutMs: number): Promise<string> {
   const controller = new AbortController();
   const startedAt = performance.now();
   const id = ++diagnosticId;
+  const endpoint = providerEndpointLabel(url);
   activeControllers.add(controller);
   diagnosticSink?.({ id, url: redactDiagnosticUrl(url), status: 'start', startedAt });
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  /*
+   * Az időtúllépés OKÁT megkülönböztetjük a megszakítástól: ha a saját
+   * időzítőnk állította le a kérést, az „a szerver lassú”, nem „a kapcsolat
+   * halott”. A megszakító (circuit breaker) döntése ettől függ – korábban a
+   * nagy film-/sorozatlista kifutása is „halott szerverként” számolt, és
+   * 4 ilyen után 60 másodpercre minden további kérést letiltott.
+   */
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   try {
     const response = await fetch(url, {
       signal: controller.signal,
@@ -372,23 +441,55 @@ async function fetchOnce(url: string, timeoutMs: number): Promise<string> {
       throw new Error('üres válasz');
     }
     noteResponse();
+    /*
+     * A válasz mérete a Content-Length fejlécből jön.
+     *
+     * KORÁBBAN itt a teljes válaszszöveget még egyszer, UTF-8 bájttömbbé
+     * alakította a program – csak azért, hogy a diagnosztikában megjelenjen
+     * egy szám. Egy 30-40 MB-os bulk film/sorozat JSON-nál ez egy második,
+     * ugyanakkora memóriafoglalás és egy teljes végigolvasás volt, pontosan
+     * akkor, amikor a TV-n a JSON.parse amúgy is a memóriahatáron dolgozik.
+     * A JSON válaszok döntően ASCII-k, ezért a karakterhossz jó közelítés;
+     * a pontos érték pedig ott van, ahol a szerver Content-Length-et küld.
+     */
+    const headerLength = Number(response.headers?.get?.('content-length'));
+    const bytes = Number.isFinite(headerLength) && headerLength > 0 ? headerLength : text.length;
     diagnosticSink?.({
       id, url: redactDiagnosticUrl(url), status: 'success', httpStatus: response.status,
-      durationMs: performance.now() - startedAt, bytes: new TextEncoder().encode(text).byteLength,
+      durationMs: performance.now() - startedAt, bytes,
       startedAt, endedAt: performance.now(),
+    });
+    logProviderRequest({
+      endpoint, ok: true, ms: performance.now() - startedAt, timeoutMs,
+      httpStatus: response.status, bytes,
     });
     return text;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    // A saját időzítőnk állította le: ezt a napló és a megszakító is
+    // időtúllépésként kezeli (érthető üzenet, nem „user aborted”).
+    const message = timedOut ? `időtúllépés (timeout ${timeoutMs} ms)` : rawMessage;
+    if (timedOut) {
+      const timeoutError = new Error(message) as Error & { timeoutMs?: number };
+      timeoutError.name = 'TimeoutError';
+      // Az eltelt időt továbbadjuk: a felület és a napló ebből mondja meg,
+      // mennyi ideig vártunk a szolgáltatóra.
+      timeoutError.timeoutMs = timeoutMs;
+      error = timeoutError;
+    }
     // Csak a valódi hálózati hibák számítanak bele a megszakítóba.
-    if (!/^HTTP \d+$/.test(message) && message !== 'üres válasz') noteTransportFailure();
+    if (!/^HTTP \d+$/.test(message) && message !== 'üres válasz') noteTransportFailure(timedOut, timeoutMs);
     diagnosticSink?.({
       id, url: redactDiagnosticUrl(url), status: 'error',
-      httpStatus: error instanceof Error && /^HTTP (\d+)$/.test(error.message)
-        ? Number(error.message.slice(5)) : null,
+      httpStatus: /^HTTP (\d+)$/.test(message) ? Number(message.slice(5)) : null,
       durationMs: performance.now() - startedAt,
       error: message,
       startedAt, endedAt: performance.now(),
+    });
+    logProviderRequest({
+      endpoint, ok: false, ms: performance.now() - startedAt, timeoutMs,
+      httpStatus: /^HTTP (\d+)$/.test(message) ? Number(message.slice(5)) : null,
+      error: message,
     });
     throw error;
   } finally {
@@ -399,6 +500,20 @@ async function fetchOnce(url: string, timeoutMs: number): Promise<string> {
 
 export interface HttpOptions {
   timeoutMs?: number;
+  /**
+   * Nagy lista-végpont (több tízezer film / sorozat egyetlen JSON-válaszban).
+   *
+   * Ezek a kérések a `MAX_TIMEOUT_MS` (30 mp) helyett a hosszabb,
+   * `MAX_BULK_TIMEOUT_MS` (90 mp) felső korlátot használhatják.
+   *
+   * MIÉRT KELL: a `xtreamService` a bulk film-/sorozatlistához 60 mp-et kért,
+   * de a hálózati réteg minden kérést csendben 30 mp-re vágott vissza. Egy
+   * nagy szolgáltató film-listája (30-40 MB JSON) gyakran 30 mp-nél tovább
+   * töltődik, ezért a kérés MINDIG megszakadt, és a program a jóval lassúbb,
+   * kategóriánkénti letöltésre esett vissza – ez volt a „a filmek és a
+   * sorozatok túl lassan töltődnek / hibával elakadnak” hiba egyik fele.
+   */
+  bulkList?: boolean;
   /**
    * Rövid várakozás után soron kívül is indulhat (a bejelentkezés-probe).
    *
@@ -421,19 +536,48 @@ export interface HttpOptions {
  * Rövid érték, hogy egy nem válaszoló szerver ne foglalja sokáig a kapcsolatot.
  */
 const MAX_TIMEOUT_MS = 30000;
+/**
+ * A nagy lista-végpontok felső korlátja (lásd `HttpOptions.bulkList`).
+ * Ezekből a betöltés alatt legfeljebb kettő fut (film + sorozat), és mindkettő
+ * egyetlen kapcsolat – a router terhelése ettől nem nő.
+ */
+const MAX_BULK_TIMEOUT_MS = 90000;
 const DEFAULT_TIMEOUT_MS = 15000;
 /** Ha ennél gyorsabban hasal el egy kérés, kapcsolati hiba volt (nem időtúllépés). */
 const FAST_FAILURE_MS = 5000;
+
+/** A kért időtúllépés érvényes értéke – a csendes visszavágás helyett naplózzuk. */
+export function effectiveTimeoutMs(options: HttpOptions): number {
+  const requested = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return Math.min(requested, options.bulkList ? MAX_BULK_TIMEOUT_MS : MAX_TIMEOUT_MS);
+}
+
+function resolveTimeoutMs(options: HttpOptions): number {
+  const requested = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const effective = effectiveTimeoutMs(options);
+  if (effective < requested) {
+    // Ez korábban csendben történt, és pont ezért maradt észrevétlen, hogy a
+    // 60 mp-es bulk lista-kérés valójában csak 30 mp-et kapott.
+    logProviderEvent(
+      `FIGYELEM: a kért időtúllépés (${requested} ms) a felső korlát miatt ${effective} ms-re csökken`
+    );
+  }
+  return effective;
+}
 
 /**
  * Szöveg letöltése. A kérések sorban, egymás után futnak, kis szünettel.
  * LG webOS böngészőben a CORS miatt proxyra is eshetünk vissza.
  */
 export async function httpGetText(url: string, options: HttpOptions = {}): Promise<string> {
-  const timeoutMs = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  const timeoutMs = resolveTimeoutMs(options);
 
   if (breakerOpen()) {
     const seconds = Math.ceil(breakerRemainingMs() / 1000);
+    logProviderEvent(
+      `KÉRÉS VISSZAUTASÍTVA: a megszakító nyitva van, még ${seconds} mp-ig nem indul új kapcsolat ` +
+      `(végpont: ${providerEndpointLabel(url)})`
+    );
     throw new ProviderUnreachableError(
       `A szolgáltató szervere nem válaszol ezen a hálózaton. A program ${seconds} másodpercig ` +
         `nem indít új kapcsolatot, hogy ne terhelje a routert. Ellenőrizd a internetkapcsolatot, ` +
@@ -484,7 +628,15 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
         // időtúllépés) és a cím http:// volt, egyszer megpróbáljuk ugyanazt a
         // szervert a titkosított (https) porton – néhány panel csak azon
         // válaszol. Ez egyetlen plusz kapcsolat, nem terheli a routert.
-        if (index === 0 && /^http:\/\//i.test(target) && Date.now() - attemptStarted < FAST_FAILURE_MS) {
+        //
+        // IDŐTÚLLÉPÉSNÉL NINCS https-ÚJRAPRÓBÁLÁS: a szerver fogadta a
+        // kérést, csak nem válaszolt időben – ugyanazt a nagy listát egy
+        // másik porton újra letölteni értelmetlen, és duplázná a várakozást
+        // (egy 60 mp-es bulk film-listánál ez 120 mp lenne). Ráadásul az
+        // így kapott hibaüzenet sem az időtúllépést mutatná, hanem egy
+        // kapcsolati hibát – a kézi naplóból pedig pontosan ez derül ki.
+        const isTimeout = (error as Error)?.name === 'TimeoutError';
+        if (!isTimeout && index === 0 && /^http:\/\//i.test(target) && Date.now() - attemptStarted < FAST_FAILURE_MS) {
           const httpsTarget = target.replace(/^http:\/\//i, 'https://').replace(/:80\//, '/');
           if (!attempts.includes(httpsTarget)) {
             attempts.push(httpsTarget);
@@ -503,6 +655,28 @@ export async function httpGetText(url: string, options: HttpOptions = {}): Promi
   if (requestGeneration !== networkGeneration) throw new NetworkRequestCancelledError();
   const lastMessage = lastError instanceof Error ? lastError.message : String(lastError);
   if (isTransportFailure(lastMessage)) {
+    /*
+     * AZ IDŐTÚLLÉPÉS NEM „ELÉRHETETLEN SZERVER”.
+     *
+     * A kettő javítása teljesen más: az elérhetetlen szervernél a címet vagy
+     * a hálózatot kell nézni, a lassú válasznál viszont a lista méretét (a
+     * panel több tízezer filmet ad vissza egyetlen JSON-ban). Ha a napló és a
+     * felület is „nem sikerült elérni a szervert”-t írna, a néző a rossz
+     * hibát kezdené el javítani – ezért az időtúllépés külön üzenetet kap.
+     */
+    if ((lastError as Error)?.name === 'TimeoutError') {
+      const host = (() => {
+        try { return new URL(url).host; } catch { return url; }
+      })();
+      const waitedSeconds = Math.round(
+        Number((lastError as Error & { timeoutMs?: number }).timeoutMs || timeoutMs) / 1000
+      );
+      throw new ProviderUnreachableError(
+        `A szolgáltató szervere (${host}) ${waitedSeconds} másodperc alatt nem küldte meg a választ. ` +
+        `Ennek két gyakori oka van: a kért lista túl nagy a szervernek, vagy ezen a hálózaton ` +
+        `a szolgáltató nem érhető el. A korábban letöltött lista továbbra is használható.`
+      );
+    }
     throw new ProviderUnreachableError(describe(lastError, url));
   }
   throw new Error(describe(lastError, url));
