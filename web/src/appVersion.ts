@@ -1,10 +1,23 @@
-export const WEB_VERSION = '2.5.124';
+export const WEB_VERSION = '2.5.125';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.125',
+    date: '2026-10-26',
+    changes: [
+      'AUTOMATIKUS, TELJES KÖRŰ INDULÁSI DIAGNOSZTIKA (CSAK A TESZTELÉSI IDŐSZAKBAN): a hibakeresési napló az IPK minden indításakor magától elindul, és a teljes indulást végigméri – a napló a kézi küldésig gyűlik, utána nem indul újra magától',
+      'A NAPLÓ A LEGELSŐ PILLANATTÓL TELJES: a webOS szkript és a HTML induló lépései (1/7…7/7 fázisok, takarókép levétele, erőforrás- és JS-hibák) a bundle előtt egy kis pufferbe kerülnek, és a naplózás indításakor időbélyeggel együtt átkerülnek a naplóba – minden sor egyetlen [+N ms] idővonalon olvasható',
+      'MIT ELLENŐRIZ ÉS TÖLT BE A WEBOS: eszköz és webOS-verzió, platform-híd megléte, a TV rendszerinformációja, az előtérben futó alkalmazás és a memória-állapot, a localStorage/IndexedDB elérhetősége és mérete, valamint az, hogy a TV motorja melyik videóformátumot tudja lejátszani',
+      'HOL LASSÚL AZ INDULÁS: navigációs időzítések (DNS, TCP, TTFB, válasz, DOM, load), első festés, legnagyobb tartalom, betöltött erőforrások száma és mérete, a 300 ms-nál lassabb kérések külön sorban, a 10 mp-es állapot és a 25 mp-es összegzés',
+      'MI JELENIK MEG / MI UGRIK FEL A KÉPERNYŐN: a felugró ablakok, a lejátszó, a fejléc, a csatornalista, az OSD, az oldalsáv, a mappasáv és a takarókép megjelenése és eltűnése, 250 mp-onként (csak változáskor) a látható állapot, valamint minden elrendezés-ugrás (layout shift) a forrás elemével',
+      'MI TÖRTÉNIK A HÁTTÉRBEN: kimaradt képkockák és a fő szál foglaltsága, a lejátszó eseményei (pufferelés, megakadás, hiba), a lejátszó mérete, valamint a JS-hibák, a kezeletlen ígérethibák és az app kilépése/háttérbe kerülése',
+      'A TESZTIDŐSZAK UTÁN EGYETLEN KAPCSOLÓVAL KIKAPCSOLHATÓ: a naplózás, a küldés és a naplózott események köre változatlan; kikapcsolva a naplózás a régi módon, csak a SÁRGA ablak gombjára indul, és semmilyen háttérfigyelő nem fut',
+    ],
+  },
   {
     version: '2.5.124',
     date: '2026-10-26',

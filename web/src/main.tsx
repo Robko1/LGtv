@@ -6,19 +6,27 @@ document.body.classList.add('webos-theme', 'webos-tv', 'lg-webos');
 import App from "./App";
 import {
   appLog, appLogCritical, clearAppLog, getAppLogText, installCrashHandlers, logPhase, logStartup,
-  manualLogSnapshot, startManualLogging, stopManualLogging, measurementSnapshot, resetMeasurements,
-  uiStateSnapshot,
+  manualLogSnapshot, startAutomaticTestLogging, startManualLogging, stopManualLogging,
+  measurementSnapshot, resetMeasurements, uiStateSnapshot,
 } from "./services/appLog";
+import { attachStartupDiagnostics } from "./services/startupDiagnostics";
 import { WEB_VERSION } from "./appVersion";
 
 /*
  * FAGYÁS-/ÖSSZEOMLÁS-DIAGNOSZTIKA.
  *
- * Még a felület felépítése ELŐTT elindul a hibakezelő. A fagyásfigyelő
- * szándékosan csak a kézzel indított naplóval együtt indul, hogy normál
- * tévézésnél ne maradjon fölösleges timer/PerformanceObserver a TV-n.
+ * Még a felület felépítése ELŐTT elindul a hibakezelő.
+ *
+ * TESZT IDŐSZAK: a `diagnosticsConfig.ts` kapcsolója bekapcsolva a naplózás
+ * itt, az IPK indulásakor AUTOMATIKUSAN elindul, és a teljes indulást rögzíti
+ * (webOS-ellenőrzések, betöltött erőforrások, fázisidők, megjelenő elemek,
+ * elrendezés-ugrások, képkocka-kihagyások). A kapcsoló kikapcsolásával a régi
+ * viselkedés áll vissza: a naplózás csak a SÁRGA ablak gombjára indul, és
+ * normál tévézésnél nem fut semmilyen háttérfigyelő.
  */
+attachStartupDiagnostics();
 installCrashHandlers();
+try { startAutomaticTestLogging(); } catch { /* a naplózás hibája nem akadályozhatja az indulást */ }
 logStartup(WEB_VERSION);
 logPhase('bundle betöltve (main.tsx)');
 

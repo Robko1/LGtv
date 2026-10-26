@@ -111,10 +111,36 @@ while (rootEl && rootEl.childElementCount === 0 && Date.now() < mountDeadline) {
 check(Boolean(rootEl && rootEl.childElementCount > 0),
   'a React felület felépül a naplózás mellett is (nem fekete képernyő)');
 
-/* A normál indulási napló most szándékosan üres: csak kézi indítás után
-   rögzítünk. A SÁRGA ablak „Naplózás indítása” gombját a hídon modellezzük. */
-const beforeStart = diag.text();
-check(beforeStart === '', 'induláskor nincs automatikus diagnosztikai naplózás');
+/* A megjelenő elemek naplózása aszinkron: a React lépésenként építi a
+   felületet, ezért erre külön várunk (a valódi TV-n is ez történik). */
+const elementDeadline = Date.now() + 20000;
+while (Date.now() < elementDeadline) {
+  if (/ELEM MEGJELENT: (FEJLÉC|ABLAK|CSATORNALISTA)/.test(diag.text())) break;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+}
+
+/* TESZT IDŐSZAK: a naplózás az IPK indításakor MAGÁTÓL elindul (a kézi
+   „Naplózás indítása” gomb ugyanúgy elérhető marad a hídon). */
+const startupLog = diag.text();
+check(startupLog !== '', 'a naplózás az induláskor automatikusan elindult');
+check(/AUTOMATIKUSAN elindult/.test(startupLog), 'a napló rögzíti, hogy automatikus indítás történt');
+check(diag.logStatus().enabled === true, 'az automatikus naplózás aktív állapotban indul');
+check(/=== TESZT IDŐSZAK: AUTOMATIKUS TELJES KÖRŰ INDULÁSI DIAGNOSZTIKA ===/.test(startupLog),
+  'a teljes körű indulási diagnosztika elindult');
+check(/BOOT-DIAG \[\+\d+ ms\] KÖRNYEZET: /.test(startupLog), 'a környezet (eszköz, memória, CPU) a naplóban van');
+check(/BOOT-DIAG \[\+\d+ ms\] MÉDIA: /.test(startupLog), 'a TV motorja által támogatott videóformátumok a naplóban vannak');
+check(/BOOT-DIAG \[\+\d+ ms\] TÁROLÓ: /.test(startupLog), 'a tárolók állapota a naplóban van');
+check(/BOOT-DIAG \[\+\d+ ms\] HTML JELZÉS: /.test(startupLog),
+  'a bundle ELŐTTI webOS/HTML lépések időbélyeggel átkerültek a naplóba');
+check(/HTML JELZÉS: \+\d+ ms – fázis 1\/7|HTML JELZÉS: \+\d+ ms – fázis 2\/7/.test(startupLog),
+  'a HTML 1/7–2/7 fázisa a naplóban van');
+check(/BOOT-DIAG \[\+\d+ ms\] BETÖLTÉS/.test(startupLog), 'a lap betöltésének időzítései a naplóban vannak');
+check(/BOOT-DIAG \[\+\d+ ms\] KÉPERNYŐ: /.test(startupLog), 'a képernyő pillanatképe a naplóban van');
+check(/ELEM MEGJELENT: FEJLÉC|ELEM MEGJELENT: ABLAK|ELEM MEGJELENT: CSATORNALISTA/.test(startupLog),
+  'a megjelenő fontos elemek (fejléc/ablak/lista) rögzítve vannak');
+check(!/BOOT-DIAG \[\+\d+ ms\] KÖRNYEZET: [^\n]*undefined/.test(startupLog),
+  'a környezet-sorban nincs „undefined” érték');
+
 check(typeof diag.startLogging === 'function' && typeof diag.logStatus === 'function',
   'a kézi naplózás indítója és állapota elérhető a hídon');
 diag.startLogging();
@@ -173,7 +199,17 @@ const beforeHidden = diag.text();
 Object.defineProperty(window.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
 window.document.dispatchEvent(new window.Event('visibilitychange'));
 check(diag.text() === beforeHidden,
-  'a kézi naplózás leállása után a háttérbe kerülés nem indít automatikus naplózást');
+  'háttérbe kerüléskor nem indul új naplózás (a napló tartalma nem nő)');
+
+/* TESZT IDŐSZAK: előtérbe visszatérve ugyanaz a munkamenet folytatódik, hogy
+   a napló az indulástól a kézi küldésig egyetlen folyam legyen. */
+Object.defineProperty(window.document, 'visibilityState', { configurable: true, get: () => 'visible' });
+window.document.dispatchEvent(new window.Event('visibilitychange'));
+check(diag.logStatus().enabled === true, 'előtérbe visszatérve a naplózás folytatódik');
+const resumed = diag.text();
+check(/NAPLÓZÁS FOLYTATVA/.test(resumed), 'a naplóban látszik a folytatás');
+check(resumed.includes('OLDAL ELHAGYÁSA (pagehide)'),
+  'a folytatás NEM törölte a kilépés előtti bizonyítékot');
 
 /* ── 7. A napló a törlés után is újraépül ─────────────────────────────── */
 diag.startLogging();

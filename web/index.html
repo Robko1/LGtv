@@ -204,12 +204,38 @@
         window.__IPTV_STARTUP_STAGE__ = 1;
         window.__IPTV_STARTUP_DIAG__ = true;
 
+        /*
+         * INDULÁSI JELZÉSEK – a TESZT IDŐSZAK diagnosztikájához.
+         *
+         * A naplózás az app bundle-je ELŐTT még nem létezik, ezért az itteni
+         * korai lépések (webOS szkript, 1/7…7/7 fázisok, takarókép levétele,
+         * erőforrás-hibák, JS-hibák) egy kis, legfeljebb 300 elemű pufferbe
+         * kerülnek. Amikor a bundle elindítja a naplózást, a diagnosztika
+         * ezeket időbélyeggel együtt átemeli a naplóba – így a napló a
+         * legelső pillanattól teljes.
+         *
+         * A puffer csak akkor nő, ha a webOS szkript vagy ez a szkript fut;
+         * a naplózás kikapcsolt állapotában semmilyen háttérmunka nem
+         * történik vele.
+         */
+        var bootMarks = window.__IPTV_STARTUP_MARKS__ || (window.__IPTV_STARTUP_MARKS__ = []);
+        if (!window.__IPTV_BOOT_EPOCH__) window.__IPTV_BOOT_EPOCH__ = started;
+        function bootMark(label) {
+          try {
+            if (bootMarks.length >= 300) return;
+            bootMarks.push({ at: Date.now(), label: String(label) });
+          } catch (e) {}
+        }
+        window.__IPTV_BOOT_MARK__ = bootMark;
+        bootMark('HTML induló szkript elindult');
+
         function byId(id) { return document.getElementById(id); }
 
         function show(stage, label) {
           window.__IPTV_STARTUP_STAGE__ = stage;
           var el = byId('boot-stage');
           if (el) el.textContent = stage + '/7 ' + label;
+          bootMark('fázis ' + stage + '/7 – ' + label);
           try { console.log('STARTUP ' + stage + '/7 ' + label + ' @ ' + (Date.now() - started) + ' ms'); } catch (e) {}
         }
         window.__IPTV_STARTUP_STAGE_SET__ = show;
@@ -271,6 +297,7 @@
               window.webOSSystem.notifyAppLoaded();
             }
           } catch (e) {}
+          bootMark('REVEAL – a kész felület megjelent (' + (reason || '') + ')');
           try { console.log('REVEAL ' + (Date.now() - started) + ' ms (' + (reason || '') + ')'); } catch (e) {}
         };
 
@@ -297,6 +324,7 @@
         }
 
         window.__IPTV_STARTUP_FAIL__ = function (message) {
+          bootMark('INDULÁSI HIBA: ' + String(message).slice(0, 200));
           try { console.error('STARTUP FAIL stage=' + window.__IPTV_STARTUP_STAGE__ + ': ' + String(message)); } catch (e) {}
           var box = byId('boot-error-screen');
           if (!box) return;
@@ -319,6 +347,8 @@
           if (isResourceError(e)) {
             try {
               var t = e.target;
+              bootMark('erőforrás nem töltődött be: ' + t.tagName +
+                ' – ' + (t.src || t.href || t.currentSrc || ''));
               console.warn('STARTUP: erőforrás nem töltődött be: ' + t.tagName +
                 ' – ' + (t.src || t.href || t.currentSrc || ''));
             } catch (e2) {}
@@ -327,6 +357,8 @@
           if (!e || !e.message) return;
           if (appReady()) {
             try {
+              bootMark('JS-hiba a felület futása közben: ' + e.message + ' @ ' +
+                (e.filename || '') + ':' + (e.lineno || 0));
               console.error('IPTV-RT hiba (a felület már fut): ' + e.message + ' @ ' +
                 (e.filename || '') + ':' + (e.lineno || 0));
             } catch (e2) {}
@@ -338,12 +370,24 @@
         window.addEventListener('unhandledrejection', function (e) {
           var reason = e && e.reason;
           var message = (reason && (reason.stack || reason.message)) || String(reason);
+          bootMark('kezeletlen ígérethiba: ' + String(message).slice(0, 200));
           if (appReady()) {
             try { console.error('IPTV-RT promise hiba (a felület már fut): ' + message); } catch (e2) {}
             return;
           }
           window.__IPTV_STARTUP_FAIL__('Promise: ' + message);
         });
+
+        // A dokumentum további életciklus-lépései is jelzésként kerülnek a
+        // naplóba – ezekből látszik, mennyi idő telt el a bundle indulásáig.
+        try {
+          document.addEventListener('DOMContentLoaded', function () {
+            bootMark('DOM tartalom betöltve (DOMContentLoaded)');
+          });
+          window.addEventListener('load', function () {
+            bootMark('minden erőforrás betöltve (load)');
+          });
+        } catch (e) {}
 
         show(1, 'webOS HTML');
         show(2, 'DOM kész');
