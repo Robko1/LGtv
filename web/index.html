@@ -140,6 +140,39 @@
         word-break: break-word;
       }
     </style>
+    <script>
+      /*
+       * TAKARÓKÉP HÁTTERÉNEK INJEKTÁLÁSA – SZIGORÚAN A <head>-BEN.
+       *
+       * A webOS indítóképével AZONOS kép a #tv-curtain rétegre és a body-ra
+       * kerül, így a rendszerindítós után egyetlen váltás marad, és soha nem
+       * látszik a tartalék színátmenet („zöld képernyő”).
+       *
+       * A KÉP BEÉGETVE (data URI): a build a splash-bg.jpg-t base64-ben írja
+       * be a jelölő helyére (lásd a tools/build-webos.sh Python lépését).
+       * FONTOS: a jelölőt máshol SZÓ SZERINT leírni TILOS (még megjegyzésben
+       * sem), mert oda is bekerülne a 120 KB-os kép.
+       */
+      (function () {
+        try {
+          var bgStyle = document.createElement('style');
+          var splashData = '__IPTV_SPLASH_DATA_URI__';
+          var splashImage = (splashData && splashData.indexOf('data:image/') === 0)
+            ? 'url(' + splashData + ')'
+            : "url('splash-bg.jpg')";
+          var splashLayer =
+            splashImage + ",linear-gradient(135deg,#5fe3b6 0%,#4fd8e0 45%,#63bdf3 100%)";
+          bgStyle.textContent =
+            "html.iptv-booting body{background-image:" + splashLayer + ";" +
+            "background-position:center center,center center;background-size:cover,cover;" +
+            "background-repeat:no-repeat,no-repeat;}" +
+            "#tv-curtain{background-image:" + splashLayer + ";" +
+            "background-position:center center,center center;background-size:cover,cover;" +
+            "background-repeat:no-repeat,no-repeat;}";
+          (document.head || document.documentElement).appendChild(bgStyle);
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
     <!-- NINCS induló videó (2.5.0). A webOS saját indítóképernyője a logó
@@ -185,23 +218,12 @@
         // kép csak utána „ugrott” a helyére – a webOS saját indítóképe után
         // ez a nézőnek úgy tűnt, mintha a takarókép össze-vissza ugrálna.
         // Beégetve a kép már az ELSŐ festésnél ott van, egyetlen váltás marad.
-        try {
-          var bgStyle = document.createElement('style');
-          var splashData = '__IPTV_SPLASH_DATA_URI__';
-          var splashImage = (splashData && splashData.indexOf('data:image/') === 0)
-            ? 'url(' + splashData + ')'
-            : "url('splash-bg.jpg')";
-          var splashLayer =
-            splashImage + ",linear-gradient(135deg,#5fe3b6 0%,#4fd8e0 45%,#63bdf3 100%)";
-          bgStyle.textContent =
-            "html.iptv-booting body{background-image:" + splashLayer + ";" +
-            "background-position:center center,center center;background-size:cover,cover;" +
-            "background-repeat:no-repeat,no-repeat;}" +
-            "#tv-curtain{background-image:" + splashLayer + ";" +
-            "background-position:center center,center center;background-size:cover,cover;" +
-            "background-repeat:no-repeat,no-repeat;}";
-          (document.head || document.documentElement).appendChild(bgStyle);
-        } catch (e) {}
+        // A TAKARÓKÉP HÁTTERÉT A <head>-BEN LÉVŐ SZKRIPT INJEKTÁLJA.
+        // (Korábban ez itt, a <body>-ban volt: lassú TV-n a böngésző
+        // még az injektálás ELŐTT kirajzolhatta a réteget, így egy
+        // pillanatra csak a tartalék ZÖLD színátmenet látszott – ez volt
+        // a „zöld háttér is bevillant”. A <head>-ben a stílus biztosan
+        // az első festés előtt kerül a dokumentumba.)
 
         // ---------- Egy pillanat alatti megjelenés ----------
         // A #root addig rejtve van (a webOS indítókép látszik), amíg a
