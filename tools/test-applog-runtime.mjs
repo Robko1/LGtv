@@ -203,6 +203,23 @@ check(/MÉRÉS NULLÁZÁS ELŐTT \[\d{2}:\d{2}:\d{2} óta\]: naplósorok=\d+, hi
 diag.log('TESZT-MÉRÉS-UTÁN');
 check(diag.measure().logLines === 1, 'a nullázás után a számlálás 0-ról indul újra');
 
+/* ── 9. A tárolt napló nem eszi meg a kvótát ───────────────────────────── */
+/*
+ * A webOS localStorage-kerete ~5 MB, és ezen osztozik a teljes élő
+ * csatornalista. A napló 1 000 000 karaktere (~2 MB) a kvóta fölé vitte a
+ * tárhelyet, ezért a tárolt másolat csak az utolsó 120 000 karakter.
+ * A teljes napló a memóriában marad (a küldéshez).
+ */
+for (let index = 0; index < 4000; index++) {
+  diag.log('KITÖLTŐ-SOR ' + index + ' ' + 'x'.repeat(80));
+}
+diag.critical('TESZT-KVÓTA-SOR');
+const capped = window.localStorage.getItem('iptv_rt_app-log') || '';
+check(capped.includes('TESZT-KVÓTA-SOR'), 'a legfrissebb sor a korlátozott tárolt naplóban is ott van');
+check(capped.length <= 130000, `a tárolt napló legfeljebb 130 000 karakter (${capped.length})`);
+check(diag.text().length > capped.length, 'a memóriában lévő napló nagyobb marad a tároltnál (a küldés teljes)');
+check(!capped.startsWith('KITÖLTŐ-SOR 0 '), 'a tárolt naplóból a legrégebbi sorok kerülnek ki');
+
 try { window.close(); } catch { /* nem kritikus */ }
 clearTimeout(killer);
 finish();

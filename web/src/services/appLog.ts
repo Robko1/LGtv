@@ -16,6 +16,19 @@ const MAX_CHARS = 1_000_000;
 const MAX_BUFFER_CHARS = MAX_CHARS - 512;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const STORE_KEY = 'app-log';
+/*
+ * A TÁRBAN TARTOTT NAPLÓ MÉRETE.
+ *
+ * A teljes napló (legfeljebb 1 000 000 karakter) a memóriában marad, és a
+ * kézi „Napló küldése” gombbal megy fel a szerverre – ott nincs rá kvóta.
+ * A localStorage-ba viszont eddig UGYANEZ az 1 000 000 karakter került, ami
+ * a webOS ~5 MB-os keretéből ~2 MB-ot foglalt, és a teljes élő csatornalistával
+ * együtt pont a kvóta fölé vitte a tárhelyet (TÁROLÓ HIBA … foglaltság=5115 kB).
+ * Ezt a kulcsot a takarítás (sweepStorage) nem látja, mert nem tartalom-adag,
+ * ezért itt kell korlátozni: csak az utolsó 120 000 karakter marad meg, ami
+ * bőven elég az újraindítás utáni elemzéshez.
+ */
+const PERSIST_MAX_CHARS = 120_000;
 const LOG_NUMBER_KEY = 'iptv_rt_diagnostic_next_number_v1';
 const DEFAULT_APP_VERSION = 'IPTV R.T webOS';
 
@@ -148,13 +161,25 @@ function restore(): void {
   }
 }
 
+/**
+ * A tárba írandó napló szövege: legfeljebb `PERSIST_MAX_CHARS` karakter, a
+ * napló VÉGÉRŐL. Sorhatáron vágunk, hogy egy sor se sérüljön meg.
+ */
+function persistPayload(): string {
+  const text = lines.join('\n');
+  if (text.length <= PERSIST_MAX_CHARS) return text;
+  const cut = text.length - PERSIST_MAX_CHARS;
+  const boundary = text.indexOf('\n', cut);
+  return text.slice(boundary >= 0 ? boundary + 1 : cut);
+}
+
 function persistSoon(): void {
   if (saveTimer !== null) return;
   try {
     saveTimer = window.setTimeout(() => {
       saveTimer = null;
       try {
-        localStorage.setItem(`iptv_rt_${STORE_KEY}`, lines.join('\n'));
+        localStorage.setItem(`iptv_rt_${STORE_KEY}`, persistPayload());
       } catch {
         /* a TV tárhelyhibája nem akadályozhatja a működést */
       }
@@ -189,7 +214,7 @@ function writeLogToStorage(): void {
   }
   lastPersistAt = Date.now();
   try {
-    localStorage.setItem(`iptv_rt_${STORE_KEY}`, lines.join('\n'));
+    localStorage.setItem(`iptv_rt_${STORE_KEY}`, persistPayload());
   } catch {
     /* a TV tárhelyhibája nem akadályozhatja a működést */
   }

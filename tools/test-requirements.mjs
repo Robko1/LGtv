@@ -1665,3 +1665,68 @@ test('21. frissítésnél a nézés nem szakad meg és nem vált csatornát', ()
   assert.match(APP, /setLiveListComplete\(false\);/,
     'a frissítés kezdetén nem jelöli hiányosnak a listát');
 });
+
+/* ───────────── 22. Az adatok megmaradnak újraindítás után ───────────── */
+
+test('22. az élő lista újraindítás után is megmarad (localStorage + IndexedDB)', () => {
+  /*
+   * A TV-napló (2.5.114) szerint:
+   *
+   *   TÁROLÓ HIBA: content-live-chunk-v1-… mentése végleg sikertelen (local);
+   *                foglaltság=75 kulcs / 5115 kB
+   *
+   * A teljes 20 190 csatornás lista (~3,9 MB) nem fér be a webOS ~5 MB-os
+   * localStorage-ába, a régi mentés pedig írás közben törölte az előző
+   * generációt – ezért indult az alkalmazás üresen minden újraindítás után.
+   * A viselkedést a tools/test-persistence.mjs méri valódi tároló-modellel;
+   * itt a bekötést őrizzük.
+   */
+  const STORE = read('web/src/services/contentStore.ts');
+  // A teljes lista az IndexedDB-be megy, a localStorage-ba csak az induló készlet.
+  assert.match(STORE, /const LIVE_FULL_META_KEY = 'content-live-full-meta';/,
+    'nincs külön IndexedDB fejléc a teljes élő listának');
+  assert.match(STORE, /function liveBootSubset\(/,
+    'nincs kis induló készlet (a teljes lista menne a localStorage-ba)');
+  assert.match(STORE, /const boot = saveLiveBootWithRetry\(content, channels\);/,
+    'a mentés nem a kis induló készletet írja a localStorage-ba');
+  assert.match(STORE, /function saveLiveBootWithRetry\(/,
+    'kevés hely esetén nincs újrapróbálás kisebb (de ép) készlettel');
+  assert.doesNotMatch(STORE, /if \(!ok\) ok = write\(chunkKey, \{ rows \}\);/,
+    'a mentés csonkolt adagot is kiír (észrevétlen adatvesztés)');
+  assert.match(STORE, /adag nem fért be/,
+    'a mentés nem szakad meg hibajelzéssel, ha egy adag nem fér be');
+  assert.match(STORE, /saveLiveFullToIdb\(content, channels\)/,
+    'a teljes lista nem kerül az IndexedDB-be');
+  assert.match(STORE, /export async function loadLiveFull\(\s*provider\?: ProviderRef \| null,/,
+    'a teljes lista nem olvasható vissza az IndexedDB-ből');
+  // Az előző generációt CSAK a sikeres fejléc-írás után törli.
+  assert.doesNotMatch(STORE, /backend\.remove\(previousKeys\[index\]\)/,
+    'a mentés írás közben törli az előző generációt (ez okozta az adatvesztést)');
+  assert.ok(
+    STORE.indexOf("if (!write(LIVE_META_KEY, meta)) return abort('a fejléc nem fért be');")
+      < STORE.indexOf('for (const key of previousKeys) backend.remove(key);'),
+    'a régi adagok törlése nem a fejléc kiírása UTÁN történik',
+  );
+  // Sérült cache: nem ad félkész listát, hanem jelzi, hogy az IndexedDB-ből kell pótolni.
+  assert.match(STORE, /pendingFull: true,/,
+    'sérült cache esetén nincs jelzés a teljes lista pótlására');
+  assert.match(STORE, /export function needsLiveCacheCompaction\(\): boolean \{/,
+    'nincs átállás a korábbi, nagy localStorage-os listáról');
+
+  assert.match(APP, /loadLiveFull\(provider\)/,
+    'a felület nem tölti vissza a teljes listát az IndexedDB-ből');
+  assert.match(APP, /const merged = preserveChannelPreferences\(prepared, current, false\);/,
+    'a visszatöltött teljes lista elveszítheti a kedvenceket/sorrendet');
+  assert.match(APP, /needsLiveCacheCompaction\(\)/,
+    'az első indítás nem helyezi át a régi, nagy listát');
+  assert.match(APP, /const \[liveRecoveryNeeded, setLiveRecoveryNeeded\] = useState\(/,
+    'nincs öngyógyítás, ha a mentett lista eltűnt');
+  assert.match(APP, /if \(full\.provider && full\.provider\.id !== provider\.id\) return;/,
+    'két különböző szolgáltató listája keveredhet');
+  // A verzió is a mentés-javítást hirdeti.
+  const version = read('web/src/appVersion.ts');
+  assert.match(version, /export const WEB_VERSION = '2\.5\.120';/,
+    'a verzió nem 2.5.120');
+  assert.match(version, /ADATVESZTÉS ÚJRAINDÍTÁSKOR/,
+    'a kiadási napló nem írja le az adatvesztés javítását');
+});
