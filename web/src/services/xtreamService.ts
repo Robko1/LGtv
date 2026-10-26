@@ -1,6 +1,6 @@
 import { normalizeLogoUrl } from './logoUrl';
 import { Channel } from '../types/iptv';
-import { httpGetJson, httpGetText } from './net';
+import { httpGetJson, httpGetText, recentlyReachable } from './net';
 
 export interface XtreamUserInfo {
   username: string;
@@ -252,26 +252,37 @@ export const xtreamService = {
     categoryId?: string | number,
   ): Promise<XtreamLiveStream[]> {
     /*
-     * KATEGÓRIÁNKÉNTI ÉLŐ LISTA.
+     * A TELJES ÉLŐ LISTA – 60 MÁSODPERCES IDŐKERET.
      *
-     * `category_id` nélkül a panel a TELJES élő listát adja (a néző
-     * szolgáltatójánál 20 190 csatorna, ~6,6 MB). Ez az, ami induláskor
-     * feleslegesen jön le: a néző csak a magyar csatornákat nézi, a többi
-     * ország listája pedig ~4 MB-ot foglal a TV ~5 MB-os tárolójából – emiatt a
-     * filmlistából csak 5800 elem fért el, a sorozatlistából pedig egy sem.
+     * Az 1-es TV-napló (2.5.115) pontosan ezt mutatta:
      *
-     * Kategóriával a válasz kicsi, így induláskor csak a magyar kategóriák
-     * jönnek le; a többi ország akkor töltődik be, amikor a néző megnyitja.
+     *   [élő kategóriák], OK, 375 ms, korlát=9000 ms, HTTP 200, 23.4 kB
+     *   Élő csatornák: a teljes lista töltődik le (340 kategória).
+     *   [élő csatornalista], HIBA, 9026 ms, korlát=9000 ms, ok=időtúllépés
+     *
+     * A 9 mp egy KATEGÓRIÁRA elég (néhány száz sor), a 20 190 csatornás teljes
+     * listára nem: az a 2.5.112-es naplóban 12 mp alatt jött le. A filmeknél
+     * már bevált minta szerint a bulk kérés 60 mp-et kap, és `bulkList: true`
+     * is kell hozzá – enélkül a hálózati réteg csendben 30 mp-re vágná vissza.
+     *
+     * Kategóriával a válasz kicsi, ott 30 mp is bőven elég (az igény szerinti
+     * betöltés ezt használja).
      */
     const category = categoryId !== undefined && categoryId !== null
       ? `&category_id=${encodeURIComponent(String(categoryId))}`
       : '';
     const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_live_streams${category}`;
-    // Élő lista nagy (20k csatorna ~7MB), de a nem válaszoló panel ne
-    // tartsa 30–45 másodpercig töltésben az importot. A hálózati réteg így
-    // rövid, bizonyítható hibát ad, miközben a normál, gyors panel továbbra is
-    // egyetlen nagy JSON-választ kap.
-    return asArray(await httpGetJson<ApiList<XtreamLiveStream>>(url, { timeoutMs: 9000 }));
+    /*
+     * ÉLŐ SZERVERNÉL 60 MP, HALOTTNÁL 9 MP.
+     *
+     * A napló szerint az élő kategóriák 375 ms alatt megjöttek, tehát a panel
+     * él – a 20 190 csatornás lista viszont ~12 mp, ezért 60 mp kell neki.
+     * Ha viszont a szerver már 30 mp-e semmire nem válaszolt (a bejelentkezés
+     * és a kategóriák is kifutottak), akkor nincs értelme 60 mp-et várni egy
+     * halott címre: marad a régi, rövid időkeret.
+     */
+    const timeoutMs = category ? 30000 : (recentlyReachable() ? 60000 : 9000);
+    return asArray(await httpGetJson<ApiList<XtreamLiveStream>>(url, { timeoutMs, bulkList: !category }));
   },
 
   async vodCategories(serverUrl: string, username: string, password: string): Promise<XtreamCategory[]> {

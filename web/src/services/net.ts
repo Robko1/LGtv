@@ -317,6 +317,18 @@ function noteTransportFailure(timedOut: boolean, timeoutMs: number): void {
   }
 }
 
+/**
+ * Válaszolt-e a szerver mostanában (30 mp-en belül)?
+ *
+ * A nagy listák hosszú időkerete (60 mp) csak ÉLŐ szervernél érvényes. Ha a
+ * panel már 30 mp-e semmire nem válaszolt (halott cím, blokkolt hálózat),
+ * nincs értelme 60 mp-et várni: ilyenkor marad a rövid időkeret, és a
+ * megszakító hamarosan leállítja a betöltést.
+ */
+export function recentlyReachable(): boolean {
+  return lastResponseAt > 0 && Date.now() - lastResponseAt < RECENT_RESPONSE_MS;
+}
+
 function noteResponse(): void {
   // Ha bármilyen HTTP válasz jött (akár hiba), a szerver él: nullázzuk a számlálót.
   consecutiveTransportFailures = 0;
