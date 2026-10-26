@@ -4,7 +4,6 @@ import type { ImportProgress } from '../services/providerImport';
 import type { NetworkDiagnosticEvent } from '../services/net';
 import type { Channel } from '../types/iptv';
 import { normalizeTvKey } from '../utils/tvKeys';
-import packageJson from '../../package.json';
 
 interface LoadingDiagnosticModalProps {
   isOpen: boolean;
@@ -92,7 +91,6 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
         <div className="absolute inset-0 pointer-events-none opacity-30 bg-[radial-gradient(circle_at_center,transparent_15%,#020208_90%)]" />
         <div className="relative flex flex-col h-full p-4 sm:p-7 lg:p-9">
           <header className="shrink-0 mb-5 sm:mb-8 border-b border-cyan-950/80 pb-4">
-            <div className="text-[10px] sm:text-xs tracking-[0.25em] text-cyan-300 font-bold">QUANTUM IPTV CORE • v{packageJson.version}</div>
             <h2 id="loading-diagnostic-title" className="text-xl sm:text-2xl lg:text-3xl font-black tracking-wider">BETÖLTÉSI DIAGNOSZTIKA</h2>
           </header>
 
@@ -112,34 +110,34 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
 
             <div className="space-y-4 sm:space-y-6 min-w-0">
               <div>
-                <div className="text-base sm:text-xl lg:text-2xl font-bold text-cyan-200 break-words">{progress?.phase || (error ? 'HIBA' : 'Indítás…')}</div>
-                <div className="mt-2 text-sm sm:text-base text-slate-400">{progress?.detail || 'A rendszer méri a betöltés minden lépését.'}</div>
+                <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-cyan-200 break-words">{progress?.phase || (error ? 'HIBA' : 'Indítás…')}</div>
+                <div className="mt-2 text-lg sm:text-xl lg:text-2xl text-slate-300 break-words">{progress?.detail || 'A rendszer méri a betöltés minden lépését.'}</div>
               </div>
               <div className="h-3 sm:h-4 rounded-full bg-slate-950 border border-cyan-900/60 overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 transition-all duration-200" style={{ width: `${finalPercent}%` }} />
               </div>
-              <div className="text-xs sm:text-sm font-mono text-slate-500">ELTELT IDŐ: {formatMs(elapsed)} <span className="mx-2 text-cyan-800">•</span> HÁLÓZATI KÉRÉSEK: {requestCount}</div>
+              <div className="text-base sm:text-xl lg:text-2xl font-mono text-slate-300">ELTELT IDŐ: {formatMs(elapsed)} <span className="mx-2 text-cyan-700">•</span> HÁLÓZATI KÉRÉSEK: {requestCount}</div>
             </div>
           </div>
 
           {error ? (
-            <div className="relative shrink-0 mt-4 sm:mt-6 rounded-2xl border border-rose-500/60 bg-rose-950/40 p-3 sm:p-4 flex gap-3 text-rose-200 text-xs sm:text-sm">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
+            <div className="relative shrink-0 mt-4 sm:mt-6 max-h-[38vh] overflow-y-auto rounded-2xl border border-rose-500/60 bg-rose-950/40 p-3 sm:p-4 flex gap-3 text-rose-200 text-xl sm:text-2xl lg:text-3xl">
+              <AlertTriangle className="w-6 h-6 lg:w-8 lg:h-8 shrink-0" />
               <div className="min-w-0 flex-1">
                 <b>BETÖLTÉSI HIBA</b>
                 <div className="mt-1 break-words">{error}</div>
                 {(onRetry || retryInSeconds !== null && retryInSeconds !== undefined) && (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
-                    {onRetry && <button onClick={onRetry} className="px-4 py-2 rounded-xl bg-rose-400 hover:bg-rose-300 text-slate-950 font-black text-xs tracking-wide">ÚJRAPRÓBÁLKOZÁS MOST</button>}
+                    {onRetry && <button onClick={onRetry} className="px-4 py-2 rounded-xl bg-rose-400 hover:bg-rose-300 text-slate-950 font-black text-xl sm:text-2xl lg:text-3xl tracking-wide">ÚJRAPRÓBÁLKOZÁS MOST</button>}
                     {retryInSeconds !== null && retryInSeconds !== undefined && <span className="font-mono">Automatikus újrapróbálkozás: {retryInSeconds} s</span>}
                   </div>
                 )}
-                <div className="mt-2 text-[10px] sm:text-xs text-rose-200/70 leading-relaxed">A korábban letöltött csatornalista továbbra is használható – a frissítés csak akkor cseréli le, ha teljesen lefut.</div>
+                <div className="mt-2 text-lg sm:text-xl lg:text-2xl text-rose-200/80 leading-snug">A korábban letöltött csatornalista továbbra is használható – a frissítés csak akkor cseréli le, ha teljesen lefut.</div>
               </div>
             </div>
           ) : completed ? (
-            <div className="relative shrink-0 mt-4 sm:mt-6 rounded-2xl border border-emerald-500/50 bg-emerald-950/30 p-3 sm:p-4 flex gap-3 text-emerald-200 text-xs sm:text-sm">
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
+            <div className="relative shrink-0 mt-4 sm:mt-6 rounded-2xl border border-emerald-500/50 bg-emerald-950/30 p-3 sm:p-4 flex gap-3 text-emerald-200 text-xl sm:text-2xl lg:text-3xl">
+              <CheckCircle2 className="w-6 h-6 lg:w-8 lg:h-8 shrink-0" />
               <div><b>BETÖLTÉS KÉSZ</b><div className="mt-1 text-emerald-300/80">A diagnosztika 10 másodperc múlva automatikusan bezárul.</div></div>
             </div>
           ) : null}
@@ -158,11 +156,12 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
 
 const Metric: React.FC<{icon: React.ReactNode; label: string; value: string}> = ({ icon, label, value }) => (
   <div className="min-w-0 rounded-xl sm:rounded-2xl border border-cyan-950 bg-white/[.025] p-2 sm:p-4 lg:p-5">
-    <div className="flex items-center gap-1 sm:gap-2 text-[8px] sm:text-xs lg:text-sm text-slate-500 truncate">
-      {React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: 'w-3 h-3 sm:w-4 sm:h-4 shrink-0' })}
-      <span className="truncate">{label}</span>
+    {/* A felirat és a szám is akkora, mint a felső fehér cím. */}
+    <div className="flex items-center gap-1 sm:gap-2 text-xl sm:text-2xl lg:text-3xl text-slate-400">
+      {React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: 'w-4 h-4 sm:w-6 sm:h-6 shrink-0' })}
+      <span className="break-words">{label}</span>
     </div>
-    <div className="mt-1 sm:mt-2 text-xs sm:text-base lg:text-xl font-black font-mono text-cyan-200 break-words">{value}</div>
+    <div className="mt-1 sm:mt-2 text-xl sm:text-2xl lg:text-3xl font-black font-mono text-cyan-200 break-words">{value}</div>
   </div>
 );
 
