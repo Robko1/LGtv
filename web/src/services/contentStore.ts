@@ -17,6 +17,7 @@ import { Category, Channel, Movie, Series } from '../types/iptv';
 import { flagFor } from '../utils/flags';
 import { xtreamService } from './xtreamService';
 import { appLog, appLogError, logMemory } from './appLog';
+import { ChunkStore, openIdbStore } from './idbStore';
 
 export interface ProviderRef {
   id: string;
@@ -73,6 +74,26 @@ let writeSequence = 0;
 
 function yieldToStorage(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * A film- és sorozatlista nagy tárolója (IndexedDB).
+ *
+ * A localStorage ~5,2 millió karaktere kevés a három listának (13,5 M), ezért
+ * a két nagy lista IndexedDB-be kerül. Ha a TV-n nem elérhető, `null` jön, és
+ * minden a korábbi localStorage-os úton működik tovább.
+ */
+let contentStorePromise: Promise<ChunkStore | null> | null = null;
+function contentChunkStore(): Promise<ChunkStore | null> {
+  if (!contentStorePromise) {
+    contentStorePromise = openIdbStore().then((store) => {
+      appLog(store
+        ? 'Tároló: a film- és sorozatlista IndexedDB-be kerül (a localStorage-ba nem férne be).'
+        : 'Tároló: IndexedDB nem elérhető, a film- és sorozatlista a localStorage-os úton megy.');
+      return store;
+    });
+  }
+  return contentStorePromise;
 }
 const LOCAL_PREFIX = 'iptv_rt_';
 const LOCAL_BUDGET = 2000000; // böngészőben ennyi karakterig mentünk
@@ -446,16 +467,22 @@ interface WriteOutcome {
   chars: number;
 }
 
-function write(key: string, payload: unknown): boolean {
-  return writeMeasured(key, payload).ok;
+function write(key: string, payload: unknown, options?: { allowShrink?: boolean }): boolean {
+  return writeMeasured(key, payload, options).ok;
 }
 
-function writeMeasured(key: string, payload: unknown): WriteOutcome {
+/**
+ * `allowShrink: false` – az adagot NE csonkítsuk, hogy a hívó előbb helyet
+ * szabadíthasson. Az élő listánál ez kell: a csendes csonkítás miatt a
+ * helyfelszabadítás soha nem futott le, és a lista némán megfeleződött.
+ */
+function writeMeasured(key: string, payload: unknown, options?: { allowShrink?: boolean }): WriteOutcome {
+  const allowShrink = options?.allowShrink !== false;
   let text = JSON.stringify(payload);
   let storedRows = Array.isArray((payload as { rows?: Row[] })?.rows)
     ? (payload as { rows: Row[] }).rows.length
     : 0;
-  if (text.length > LOCAL_BUDGET) {
+  if (allowShrink && text.length > LOCAL_BUDGET) {
     // Böngészőben (localStorage) nem fér el minden – csonkoljuk a listát.
     // A nagy JSON visszaolvasása fölösleges plusz memóriacsúcsot okozna.
     const source = payload as { rows?: Row[] };
@@ -477,7 +504,7 @@ function writeMeasured(key: string, payload: unknown): WriteOutcome {
     appLog(`TÁROLÓ DIAG: első mentés sikertelen; kulcs=${key}; backend=${backend.name}; méret=${initialChars} karakter; sorok=${initialRows}; ok=kvóta/hozzáférés oka nem különíthető el.`);
     // TV-n a localStorage kvóta kisebb lehet. Egyre kisebb adaggal újrapróbáljuk.
     const source = payload as { rows?: Row[] };
-    let rows = Array.isArray(source?.rows) ? source.rows : null;
+    let rows = allowShrink && Array.isArray(source?.rows) ? source.rows : null;
     while (!ok && rows && rows.length > 100) {
       rows = rows.slice(0, Math.floor(rows.length / 2));
       text = JSON.stringify({ ...source, rows });
@@ -534,6 +561,35 @@ function describeStorageUsage(): string {
   }
 }
 
+/**
+ * A film- és sorozatadagok eldobása, hogy az élő csatornalista elférjen.
+ *
+ * Az élő lista a legfontosabb: ez látszik azonnal az indulásnál, és enélkül a
+ * néző nem tud tévézni. A filmek és a sorozatok a szolgáltatótól bármikor
+ * újratölthetők (IndexedDB-be mennek), ezért ha kell, ezek adják a helyet.
+ */
+function evictLowerPriorityChunks(): number {
+  let removed = 0;
+  try {
+    for (const key of backend.keys()) {
+      if (activeGenerations.has(key)) continue;
+      if (
+        key.startsWith(VOD_CHUNK_PREFIX) || key.startsWith(SERIES_CHUNK_PREFIX)
+        || key === VOD_META_KEY || key === SERIES_META_KEY
+      ) {
+        backend.remove(key);
+        removed += 1;
+      }
+    }
+  } catch {
+    /* a takarítás hibája nem akadályozhatja a mentést */
+  }
+  if (removed > 0) {
+    appLog(`Tároló: ${removed} film/sorozat adag törölve, hogy az élő csatornalista elférjen.`);
+  }
+  return removed;
+}
+
 /** Csak az élő csatornák mentése (a betöltés első szakasza után azonnal). */
 /** Mentésnél a magyar csatornák kerülnek előre.
  *  A darabolt mentés elkerüli, hogy egyetlen túl nagy localStorage-érték
@@ -562,7 +618,28 @@ export function saveLiveContent(content: ImportedContent): void {
 
   for (let index = 0; index < chunkCount; index++) {
     const rows = encodeChannels(channels.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE));
-    if (!write(generationPrefix + index, { rows })) {
+    const chunkKey = generationPrefix + index;
+    let ok = write(chunkKey, { rows }, { allowShrink: false });
+    /*
+     * HELY FELSZABADÍTÁSA – AZ ÉLŐ LISTA AZ ELSŐ.
+     *
+     * Az 1-es TV-napló (2.5.114) szerint a tár már az első adagnál tele volt
+     * (75 kulcs / 5115 kB), ezért az élő lista egyetlen adagja sem fért be –
+     * pedig a csatornák a legfontosabbak. Előbb az előző generáció ugyanilyen
+     * sorszámú adagját dobjuk el, majd a film- és sorozatlistát, ami a
+     * szolgáltatótól bármikor újratölthető.
+     */
+    if (!ok && previousKeys[index]) {
+      backend.remove(previousKeys[index]);
+      ok = write(chunkKey, { rows }, { allowShrink: false });
+    }
+    if (!ok) {
+      const freed = evictLowerPriorityChunks();
+      if (freed > 0) ok = write(chunkKey, { rows }, { allowShrink: false });
+    }
+    // Utolsóként a csonkított adag is jó – de csak akkor, ha már nincs mit eldobni.
+    if (!ok) ok = write(chunkKey, { rows });
+    if (!ok) {
       for (let cleanup = 0; cleanup < chunkCount; cleanup++) {
         backend.remove(generationPrefix + cleanup);
         activeGenerations.delete(generationPrefix + cleanup);
@@ -570,6 +647,7 @@ export function saveLiveContent(content: ImportedContent): void {
       appLog('Élő csatornák adagolt mentése nem sikerült (' + (index + 1) + '/' + chunkCount + '); a korábbi cache marad érvényben.');
       return;
     }
+    if (previousKeys[index]) backend.remove(previousKeys[index]);
   }
 
   const meta: LiveChunkMeta = {
@@ -581,6 +659,11 @@ export function saveLiveContent(content: ImportedContent): void {
     chunks: chunkCount,
     chunkPrefix: generationPrefix,
   };
+  if (!write(LIVE_META_KEY, meta)) {
+    // A fejléc az utolsó, ami kell: ha nem fér el, a film/sorozat adagok
+    // felszabadításával még megpróbáljuk – fejléc nélkül a lista nem olvasható.
+    evictLowerPriorityChunks();
+  }
   if (!write(LIVE_META_KEY, meta)) {
     for (let index = 0; index < chunkCount; index++) {
       backend.remove(generationPrefix + index);
@@ -811,9 +894,134 @@ export function sweepStorage(): number {
   return removed;
 }
 
+/** Egy adagolt lista mentése IndexedDB-be. `false`, ha nem sikerült (jön a régi út). */
+async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions): Promise<boolean> {
+  const chunkCount = Math.ceil(options.total / CHUNK_SIZE);
+  if (chunkCount === 0) return false;
+  const generationPrefix = options.generationPrefix + Date.now() + '-' + (++writeSequence) + '-';
+  let wrote = 0;
+  try {
+    for (let index = 0; index < chunkCount; index++) {
+      const text = JSON.stringify({ rows: options.chunkRows(index) });
+      if (!(await store.put(generationPrefix + index, text))) {
+        throw new Error('IndexedDB írás sikertelen');
+      }
+      wrote = index + 1;
+      if (index % 10 === 9) await yieldToStorage();
+    }
+    const meta: ChunkMeta = {
+      v: 1,
+      totals: options.totals,
+      cats: options.cats,
+      chunks: chunkCount,
+      chunkPrefix: generationPrefix,
+    };
+    if (!(await store.put(options.metaKey, JSON.stringify(meta)))) {
+      throw new Error('IndexedDB fejléc sikertelen');
+    }
+  } catch {
+    for (let index = 0; index < wrote; index++) await store.remove(generationPrefix + index);
+    appLog(`Tároló: a(z) ${options.label} IndexedDB-mentése nem sikerült, marad a localStorage.`);
+    return false;
+  }
+  // A régi generáció (és a régi egykulcsos változat) már nem kell.
+  const keys = await store.keys();
+  for (const key of keys) {
+    if (key.startsWith(options.generationPrefix) && !key.startsWith(generationPrefix)) {
+      await store.remove(key);
+    }
+  }
+  await store.remove(options.legacyKey);
+  appLog(`${options.label} elmentve (IndexedDB): ${options.total} elem, ${chunkCount} adag.`);
+  return true;
+}
+
+/**
+ * Mentés a lehető legjobb helyre: IndexedDB, ha van; különben localStorage.
+ * IndexedDB siker után a localStorage-ban maradt régi adagokat töröljük, hogy
+ * felszabaduljon a hely az élő csatornalistának.
+ */
+async function saveChunkedAuto(options: ChunkedSaveOptions): Promise<void> {
+  const store = await contentChunkStore();
+  if (store && await saveChunkedToIdb(store, options)) {
+    for (const key of readChunkKeys(options.metaKey, options.legacyPrefix)) backend.remove(key);
+    backend.remove(options.metaKey);
+    return;
+  }
+  await saveChunked(options);
+}
+
+/** Adagok olvasása IndexedDB-ből (ha van ott érvényes lista). */
+async function readIdbChunks(
+  store: ChunkStore,
+  metaKey: string
+): Promise<{ meta: ChunkMeta; readChunk: (index: number) => Promise<Row[]> } | null> {
+  const raw = await store.get(metaKey);
+  if (!raw) return null;
+  try {
+    const meta = JSON.parse(raw) as ChunkMeta;
+    if (!meta || typeof meta.chunks !== 'number' || typeof meta.chunkPrefix !== 'string') return null;
+    return {
+      meta,
+      readChunk: async (index) => {
+        const chunk = await store.get(meta.chunkPrefix + index);
+        if (!chunk) return [];
+        try {
+          const parsed = JSON.parse(chunk) as { rows?: Row[] };
+          return Array.isArray(parsed.rows) ? parsed.rows : [];
+        } catch {
+          return [];
+        }
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------ biztonságos mentés */
+
+/*
+ * A TÁROLÁS HIBÁJA NEM BETÖLTÉSI HIBA.
+ *
+ * Az 1-es TV-napló (2.5.114) ezt mutatta a képernyőn:
+ *
+ *   BETÖLTÉSI HIBA
+ *   Sorozatlista: egyetlen adag sem menthető el – a tároló megtelt
+ *                 (38 adag, 15000 elem).
+ *
+ * Pedig a letöltés SIKERES volt: 107 csatorna, 40 000 film, 15 000 sorozat
+ * megérkezett, és a felület használható. Csak a cache nem fért be. Egy
+ * gyorsítótár hibája nem teheti tönkre a betöltést: itt minden mentés külön
+ * védett, a hiba a naplóba kerül, a felület pedig sikeres betöltést lát.
+ */
+export function saveLiveContentSafely(content: ImportedContent): void {
+  try {
+    saveLiveContent(content);
+  } catch (error) {
+    appLogError('Élő csatornák mentése (nem végzetes)', error);
+  }
+}
+
+export async function saveVodContentSafely(content: ImportedContent): Promise<void> {
+  try {
+    await saveVodContent(content);
+  } catch (error) {
+    appLogError('Filmlista mentése (nem végzetes)', error);
+  }
+}
+
+export async function saveSeriesContentSafely(content: ImportedContent): Promise<void> {
+  try {
+    await saveSeriesContent(content);
+  } catch (error) {
+    appLogError('Sorozatlista mentése (nem végzetes)', error);
+  }
+}
+
 /** A sorozatmentések sorban futnak, nem írhatják felül egymás félkész adagjait. */
 export function saveSeriesContent(content: ImportedContent): Promise<void> {
-  const task = seriesSaveQueue.then(() => saveChunked({
+  const task = seriesSaveQueue.then(() => saveChunkedAuto({
     metaKey: SERIES_META_KEY,
     legacyKey: SERIES_KEY,
     legacyPrefix: SERIES_CHUNK_PREFIX,
@@ -833,7 +1041,7 @@ export function saveSeriesContent(content: ImportedContent): Promise<void> {
 
 /** Csak a filmek mentése (adagolva, hogy ne legyen nagy memóriacsúcs). */
 export function saveVodContent(content: ImportedContent): Promise<void> {
-  const task = vodSaveQueue.then(() => saveChunked({
+  const task = vodSaveQueue.then(() => saveChunkedAuto({
     metaKey: VOD_META_KEY,
     legacyKey: VOD_KEY,
     legacyPrefix: VOD_CHUNK_PREFIX,
@@ -1085,6 +1293,29 @@ export async function loadVodAsync(
   provider: ProviderRef,
   onProgress?: (loaded: number, total: number) => void
 ): Promise<{ movies: Movie[]; categories: Category[] }> {
+  /*
+   * ELŐSZÖR AZ INDEXEDDB – ott van a teljes 40 000 film, mert a localStorage-ba
+   * nem fér be (a napló szerint a 100 adagból csak 72 fért el).
+   */
+  const idb = await contentChunkStore();
+  if (idb) {
+    const chunked = await readIdbChunks(idb, VOD_META_KEY);
+    if (chunked) {
+      const movies: Movie[] = [];
+      let offset = 0;
+      for (let index = 0; index < chunked.meta.chunks; index++) {
+        const rows = await chunked.readChunk(index);
+        for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
+        offset += rows.length;
+        onProgress?.(offset, chunked.meta.chunks * CHUNK_SIZE);
+        if (index % 4 === 3) await yieldToStorage();
+      }
+      if (movies.length > 0) {
+        appLog(`Filmlista betöltve (IndexedDB): ${movies.length} film, ${chunked.meta.chunks} adag`);
+        return { movies, categories: decodeCategories(chunked.meta.cats, 'movie') };
+      }
+    }
+  }
   const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX);
   if (!meta) {
     const legacy = loadLegacyVod(provider);
@@ -1142,6 +1373,26 @@ export async function loadSeriesAsync(
   provider: ProviderRef,
   onProgress?: (loaded: number, total: number) => void
 ): Promise<{ series: Series[]; categories: Category[] }> {
+  // Ugyanaz, mint a filmeknél: a teljes sorozatlista az IndexedDB-ben van.
+  const idb = await contentChunkStore();
+  if (idb) {
+    const chunked = await readIdbChunks(idb, SERIES_META_KEY);
+    if (chunked) {
+      const series: Series[] = [];
+      let offset = 0;
+      for (let index = 0; index < chunked.meta.chunks; index++) {
+        const rows = await chunked.readChunk(index);
+        for (const item of decodeSeries(rows, provider, offset)) series.push(item);
+        offset += rows.length;
+        onProgress?.(offset, chunked.meta.chunks * CHUNK_SIZE);
+        if (index % 4 === 3) await yieldToStorage();
+      }
+      if (series.length > 0) {
+        appLog(`Sorozatlista betöltve (IndexedDB): ${series.length} sorozat, ${chunked.meta.chunks} adag`);
+        return { series, categories: decodeCategories(chunked.meta.cats, 'series') };
+      }
+    }
+  }
   const meta = openChunked(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
   if (!meta) {
     const legacy = loadLegacySeries(provider);
@@ -1185,4 +1436,6 @@ export function clearContent(): void {
   for (const key of seriesKeys) backend.remove(key);
   backend.remove(VOD_META_KEY);
   backend.remove(SERIES_META_KEY);
+  // A film- és sorozatlista az IndexedDB-ben van: azt is törölni kell.
+  void contentChunkStore().then((store) => store?.clear());
 }
