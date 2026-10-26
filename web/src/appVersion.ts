@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.123';
+export const WEB_VERSION = '2.5.124';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.123',
+    version: '2.5.124',
     date: '2026-10-26',
     changes: [
       'KÉZI HIBAKERESÉSI NAPLÓ – SIKERES KÜLDÉS UTÁN TÖRLŐDIK: eddig a már elküldött napló a memóriában (akár 1 MB) és a localStorage-ban (120 000 karakter) is ott maradt. Most siker esetén mindkettő törlődik, így felszabadul a TV memóriája és tárhelye; a következő naplózás tiszta adatokkal indul, és ugyanazokat az eseményeket rögzíti',
