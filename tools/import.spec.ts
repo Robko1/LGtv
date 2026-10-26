@@ -35,8 +35,18 @@ function json(res: http.ServerResponse, body: unknown) {
   res.end(text);
 }
 
+/**
+ * Mely `category_id`-kra érkezett élő-lista kérés. Ebből látszik, hogy az
+ * import induláskor valóban csak a magyar kategóriákat kérte-e le.
+ */
+const liveCategoryRequests: string[] = [];
+
 function startFakeServer(options: {
   failVodCategories?: boolean;
+  /** Ha igaz, a get_live_streams tiszteletben tartja a category_id-t. */
+  categoryAwareLive?: boolean;
+  /** Felülírja az élő kategóriák nevét (pl. magyar nélküli panel próbájához). */
+  liveCategoryNames?: Array<{ category_id: string; category_name: string }>;
   failSeriesCategories?: boolean;
   failVodBulk?: boolean;
   failSeriesBulk?: boolean;
@@ -62,14 +72,19 @@ function startFakeServer(options: {
         });
         break;
       case 'get_live_categories':
-        json(res, [
+        json(res, options.liveCategoryNames ?? [
           { category_id: '10', category_name: 'Magyarország' },
-          { category_id: '11', category_name: 'Sport' },
+          { category_id: '11', category_name: 'Németország' },
         ]);
         break;
-      case 'get_live_streams':
-        json(res, LIVE_STREAMS);
+      case 'get_live_streams': {
+        const wantedLive = url.searchParams.get('category_id');
+        if (wantedLive !== null) liveCategoryRequests.push(wantedLive);
+        json(res, options.categoryAwareLive && wantedLive !== null
+          ? LIVE_STREAMS.filter((stream) => String(stream.category_id) === wantedLive)
+          : LIVE_STREAMS);
         break;
+      }
       case 'get_vod_categories':
         if (options.failVodCategories) {
           res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -318,6 +333,96 @@ async function main() {
   check('törlés után üres a tár', store.readSummary() === null && store.loadLive().channels.length === 0);
 
   /* --- 3. hibás belépés --- */
+  /* --- Induláskor csak a magyar élő kategóriák jönnek le --- */
+  {
+    liveCategoryRequests.length = 0;
+    const huFake = await startFakeServer({ categoryAwareLive: true });
+    const huBase = `http://127.0.0.1:${huFake.port}`;
+    const huResult = await importXtreamProvider(
+      { name: 'Magyar próba', serverUrl: huBase, username: 'teszt', password: 'titok' },
+      () => {}
+    );
+    console.log('\nInduláskor csak a magyar csatornák:');
+    const huNames = huResult.content.channels.map((channel) => channel.name).sort();
+    check(
+      'csak a magyar kategóriát kérte le (a német nem jött le)',
+      liveCategoryRequests.length === 1 && liveCategoryRequests[0] === '10',
+      `(kért kategóriák: ${liveCategoryRequests.join(', ') || 'egy sem'})`
+    );
+    check(
+      'csak a 2 magyar csatorna érkezett meg',
+      huNames.length === 2 && huNames[0] === 'M1 HD' && huNames[1] === 'RTL Klub',
+      `(${huNames.join(', ') || 'üres'})`
+    );
+    check(
+      'a nem magyar csatornák NEM töltődtek le induláskor',
+      !huNames.includes('Sport1') && !huNames.includes('Movie Channel')
+    );
+    const huCatNames = huResult.content.liveCategories.map((cat) => cat.name).sort();
+    check(
+      'a szolgáltató TELJES kategórialistája megmarad (a többi ország neve is elérhető)',
+      huCatNames.length === 2 && huCatNames[0] === 'Magyarország' && huCatNames[1] === 'Németország',
+      `(${huCatNames.join(', ') || 'üres'})`
+    );
+    await new Promise<void>((resolve) => huFake.server.close(() => resolve()));
+  }
+
+  /* --- Ha nincs magyar nevű kategória, nem marad üres a főoldal --- */
+  {
+    liveCategoryRequests.length = 0;
+    const noHuFake = await startFakeServer({
+      liveCategoryNames: [
+        { category_id: '11', category_name: 'Sport' },
+        { category_id: '12', category_name: 'News' },
+      ],
+    });
+    const noHuBase = `http://127.0.0.1:${noHuFake.port}`;
+    const noHuResult = await importXtreamProvider(
+      { name: 'Nemzetközi próba', serverUrl: noHuBase, username: 'teszt', password: 'titok' },
+      () => {}
+    );
+    console.log('\nHa nincs magyar kategória, nem marad üres a főoldal:');
+    check(
+      'a teljes lista letöltődik kategóriaszűrés nélkül',
+      liveCategoryRequests.length === 0 && noHuResult.content.channels.length === 4,
+      `(kategóriakérés: ${liveCategoryRequests.length}, csatorna: ${noHuResult.content.channels.length})`
+    );
+    await new Promise<void>((resolve) => noHuFake.server.close(() => resolve()));
+  }
+
+  /* --- Egy ország csatornái igény szerint (a 2. pont) --- */
+  {
+    liveCategoryRequests.length = 0;
+    const odFake = await startFakeServer({ categoryAwareLive: true });
+    const odBase = `http://127.0.0.1:${odFake.port}`;
+    const { loadLiveChannelsForCategories } = await import('../web/src/services/providerImport.ts');
+    const loaded = await loadLiveChannelsForCategories(
+      { id: 'p-od', name: 'Igény próba', serverUrl: odBase, username: 'teszt', password: 'titok' } as never,
+      [{ category_id: '11', category_name: 'Németország' }],
+      ['11']
+    );
+    console.log('\nEgy ország csatornái csak megnyitáskor:');
+    check(
+      'pontosan a kért kategóriát kéri le',
+      liveCategoryRequests.length === 1 && liveCategoryRequests[0] === '11',
+      `(kért kategóriák: ${liveCategoryRequests.join(', ') || 'egy sem'})`
+    );
+    check(
+      'csak az adott ország csatornája jön vissza',
+      loaded.length === 1 && loaded[0].name === 'Sport1',
+      `(${loaded.map((channel) => channel.name).join(', ') || 'üres'})`
+    );
+    check(
+      'üres kategórialistával nem dob hibát',
+      (await loadLiveChannelsForCategories(
+        { id: 'p-od2', name: 'Üres', serverUrl: odBase, username: 'teszt', password: 'titok' } as never,
+        [],
+        []
+      )).length === 0
+    );
+    await new Promise<void>((resolve) => odFake.server.close(() => resolve()));
+  }
+
   console.log('\nHibakezelés:');
   let failed = false;
   try {

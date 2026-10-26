@@ -255,21 +255,54 @@ test('6. a csatornakeresés térképen fut, nem lineáris kereséssel', () => {
 
 test('7. a bejelentkezés nem blokkolja a csatornalistát (a probe a háttérben fut)', () => {
   const authIndex = IMPORT.indexOf('const authPromise = providerRequest(');
-  const liveIndex = IMPORT.indexOf('const liveStreams = await Promise.all(');
+  const liveIndex = IMPORT.indexOf('const liveCats = await providerRequest(');
   const awaitIndex = IMPORT.indexOf('const authResult = await authPromise;');
   assert.ok(authIndex > 0 && liveIndex > 0 && awaitIndex > 0);
-  assert.ok(authIndex < liveIndex, 'a probe a csatornakérés előtt INDUL, de nem várunk rá');
+  assert.ok(authIndex < liveIndex, 'a probe az élő lista kérése előtt INDUL, de nem várunk rá');
   assert.ok(awaitIndex > liveIndex, 'a fiókadatokra csak a csatornák után várunk');
 });
 
-test('7. a csatornák nem várnak a kategóriákra (a kategóriavégpont külön ígéret)', () => {
-  const catsIndex = IMPORT.indexOf('const liveCatsPromise = providerRequest(');
-  const streamsIndex = IMPORT.indexOf('const liveStreams = await Promise.all(');
-  assert.ok(catsIndex > 0, 'a kategóriák külön ígéretként indulnak');
-  assert.ok(catsIndex < streamsIndex, 'a kategórialetöltés a csatornák ELŐTT indul');
-  // A kategóriákra csak a feldolgozás után várunk, és hiba esetén üres lista.
-  assert.match(IMPORT, /const liveCats = await liveCatsPromise;/);
-  assert.match(IMPORT, /\.catch\(\(error\) => \{[\s\S]{0,180}?return \[\] as XtreamCategory\[\];/, 'kategóriahiba nem állítja meg a csatornákat');
+test('7. induláskor csak a magyar élő kategóriák töltődnek le', () => {
+  /*
+   * Induláskor csak az alap magyar csatornák jönnek le, a többi országé nem.
+   * Ehhez a kategóriáknak MOST MÁR ELŐBB kell megérkezniük (korábban
+   * párhuzamosan futottak a csatornákkal): nélkülük nem tudnánk eldönteni,
+   * melyik kategóriát kérjük le egyáltalán.
+   */
+  const catsIndex = IMPORT.indexOf('const liveCats = await providerRequest(');
+  const filterIndex = IMPORT.indexOf("pickCategoryIdsByCountry(liveCats, 'HU')");
+  const streamsIndex = IMPORT.indexOf('let liveStreams: XtreamLiveStream[];');
+  assert.ok(catsIndex > 0, 'a kategóriák letöltése megtalálható');
+  assert.ok(filterIndex > catsIndex, 'a magyar szűrés a kategóriák után van');
+  assert.ok(streamsIndex > filterIndex, 'a csatornák csak a szűrés után jönnek le');
+  assert.match(IMPORT, /xtreamService\.liveStreams\(server, user, pass, categoryId\)/,
+    'a kategóriák kategóriánként töltődnek le');
+  assert.match(IMPORT, /nincs magyar nevű élő kategória/,
+    'a magyar kategória nélküli esetre nincs biztonsági ág');
+  assert.match(IMPORT, /a magyar kategóriák üresek voltak/,
+    'üres magyar kategóriáknál nincs visszaállás a teljes listára');
+  assert.match(IMPORT, /\.catch\(\(error\) => \{[\s\S]{0,180}?return \[\] as XtreamCategory\[\];/,
+    'kategóriahiba nem állítja meg a csatornákat');
+});
+
+test('7. a többi ország csatornái csak megnyitáskor töltődnek le', () => {
+  /*
+   * Az országlistának már induláskor tartalmaznia kell MINDEN ország nevét –
+   * különben a magyar szűrés után csak Magyarország látszana, és a többi
+   * ország elérhetetlen lenne. Ezért az országokat a szolgáltató élő
+   * KATEGÓRIÁIBÓL is képezzük, a csatornák pedig igényre jönnek le.
+   */
+  assert.match(APP, /buildCountryCategories\(channels, categories\)/,
+    'az országlista nem kapja meg a szolgáltató kategóriáit');
+  assert.match(APP, /const safeProviderCategories = Array\.isArray\(providerCategories\)/,
+    'a szolgáltatói kategóriák nincsenek beépítve az országlistába');
+  assert.match(APP, /loadLiveChannelsForCategories\(activeProvider, xtreamCategories, categoryIds\)/,
+    'nincs igény szerinti csatornaletöltés');
+  assert.match(APP, /attemptedCountryRef/, 'nincs védekezés az újrapróbálási kör ellen');
+  assert.match(APP, /if \(hasChannels\) return undefined;/,
+    'már letöltött országot is újra letöltene');
+  assert.match(IMPORT, /export async function loadLiveChannelsForCategories/,
+    'hiányzik az igény szerinti élő betöltő');
 });
 
 test('7. az első használható csatornaadag azonnal megjelenik (előnézet)', () => {
@@ -280,7 +313,8 @@ test('7. az első használható csatornaadag azonnal megjelenik (előnézet)', (
 });
 
 test('7. ha a csatornák nem jönnek, a bejelentkezés hibája a hasznosabb üzenet', () => {
-  assert.match(IMPORT, /\.catch\(async \(error: unknown\) => \{[\s\S]{0,400}?if \(!probe\.ok\) throw probe\.error;/);
+  assert.match(IMPORT, /catch \(error: unknown\) \{[\s\S]{0,300}?const probe = await authPromise;[\s\S]{0,120}?if \(!probe\.ok\) throw probe\.error;/);
+  assert.match(IMPORT, /withAuthProbe\(/);
 });
 
 test('7. a csatornák a filmek előtt, önállóan kerülnek a felületre', () => {
