@@ -190,3 +190,63 @@ test('a 9 mp-es indulási korlát a teljes revealNow() utat használja', () => {
     'a 9 mp-es ág még mindig a nyers reveal()-t is hívja'
   );
 });
+
+test('az app bgColor a takarókép színével egyezik – nincs fekete villanás', () => {
+  /*
+   * 2.5.113 HIBA: az appinfo.json bgColor-je #000000 (tiszta fekete) volt,
+   * miközben magának a splash-screen.png-nek a mért átlagszíne #6ccbd3
+   * (világos türkiz). A webOS a bgColor-t festi az alkalmazás első kirajzolt
+   * képkockája ELŐTT – ez volt a felhasználó „nagy gyors feketeség villanás”
+   * észrevétele az IPK indításakor.
+   */
+  const info = JSON.parse(read('webos/appinfo.json'));
+  assert.equal(
+    String(info.bgColor).toLowerCase(),
+    '#6ccbd3',
+    'a bgColor nem a takarókép mért átlagszíne – fekete/sötét keret villanhat induláskor'
+  );
+  assert.ok(info.splashBackground, 'hiányzik a splashBackground');
+});
+
+test('a takarókép réteg alapszíne sem sötét (nincs sötét keret)', () => {
+  /*
+   * Amíg a beégetett kép dekódolása tart, a background-color látszik.
+   * Korábban #0d1b2a (sötétkék) volt: az első festésnél sötét keret villant,
+   * és csak utána jött a világos takarókép.
+   */
+  const html = read('web/index.html');
+  assert.ok(
+    !/background-color:\s*#0d1b2a/i.test(html),
+    'a takarókép/boot háttér még mindig sötétkék (#0d1b2a)'
+  );
+  // Csak azokat a blokkokat nézzük, amelyek valóban háttérszínt állítanak
+  // (a `html.iptv-revealed #tv-curtain { display: none; }` szándékosan kimarad).
+  const bootBlocks = html.match(
+    /(?:html\.iptv-booting body|#tv-curtain)\s*\{[^}]*background-color:[^}]*\}/g
+  ) || [];
+  assert.ok(bootBlocks.length >= 2, `nem találhatók a takarókép CSS-blokkjai (${bootBlocks.length})`);
+  for (const block of bootBlocks) {
+    assert.match(block, /background-color:\s*#6ccbd3/i, 'a blokk alapszíne nem a takarókép színe');
+  }
+});
+
+test('a takarókép nem esik le egy lefagyott képkocka közepére', () => {
+  /*
+   * A 4-es napló 3–6 mp-es főszál-leállásokat mutat (LEÁLLÁS 5859 ms). Ha a
+   * megjelenés egy ilyen pillanatra esik, az első képkocka rángat. Ezért a
+   * megjelenés előtt mérjük a két animációs kép közti időt, és foglalt szál
+   * esetén a takarókép fent marad.
+   */
+  const main = read('web/src/main.tsx');
+  // Az afterPaint törzsét egészében vizsgáljuk: az őrfeltételnek a fn() hívás
+  // ELŐTT kell állnia, különben a megjelenés akkor is azonnal megtörténne.
+  const body = main.slice(main.indexOf('const afterPaint = '));
+  const guardAt = body.search(/if \(frameGap > FRAME_GAP_LIMIT_MS/);
+  const revealAt = body.indexOf('fn();');
+  assert.ok(guardAt > 0, 'hiányzik a képváltás-mérés az afterPaint-ben');
+  assert.ok(revealAt > 0, 'az afterPaint nem hívja az fn()-t');
+  assert.ok(guardAt < revealAt, 'a képváltás-őr a megjelenés UTÁN áll – nem véd');
+  const guardBody = body.slice(guardAt, revealAt);
+  assert.match(guardBody, /window\.setTimeout\(checkRendered/, 'lefagyott szálnál nincs újrapróbálás');
+  assert.match(guardBody, /return;/, 'a lefagyott ág nem szakítja meg a megjelenést');
+});

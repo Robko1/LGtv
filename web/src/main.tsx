@@ -180,9 +180,47 @@ try {
    * megjelenés előtt váltana képernyőt, a félkész oldalt mutatná a
    * nézőnek – pontosan ezt a villanást szünteti meg a két kép.
    */
+  /*
+   * A TAKARÓKÉP NEM ESEHET LE EGY AKADÁS KÖZEPÉRE.
+   *
+   * A 4-es TV-napló (2.5.112) szerint a beolvasás alatt a fő szál többször
+   * 3–6 másodpercig nem futott:
+   *   LEÁLLÁS: a fő szál 5859 ms-ig nem futott (várt: 1000 ms)
+   *   HOSSZÚ FELADAT: 5399 ms
+   * Ha a megjelenés pont egy ilyen pillanatra esik, a néző egy rángatózó,
+   * félig kirajzolódó első képkockát lát – ezért „nem folyékony az indulás”.
+   *
+   * Ezért a megjelenés előtt MÉRJÜK a két animációs kép közötti időt. Ha a
+   * kép váltása a szokásosnál sokkal tovább tartott, a fő szál foglalt:
+   * a takarókép FENT MARAD, és a következő körben próbáljuk újra. Így a
+   * takarókép addig marad, amíg a rendszer valóban indulásra kész – és csak
+   * egy sima, egyetlen váltás után tűnik el.
+   *
+   * A 9 mp-es kemény korát ez nem érinti: ha a szál tartósan foglalt, a
+   * checkRender() önmaga is megjeleníti a felületet, semmi nem marad rejtve.
+   */
+  const FRAME_GAP_LIMIT_MS = 240;
+  /** Nagy felbontású óra, ha van; egyébként a falióra. */
+  const nowMs = (): number => {
+    try {
+      if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+        return performance.now();
+      }
+    } catch { /* nincs performance */ }
+    return Date.now();
+  };
   const afterPaint = (fn: () => void) => {
     window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => fn());
+      const frameStartedAt = nowMs();
+      window.requestAnimationFrame(() => {
+        const frameGap = nowMs() - frameStartedAt;
+        if (frameGap > FRAME_GAP_LIMIT_MS && Date.now() - startedAt <= 9000) {
+          logPhase(`a takarókép fent marad: a fő szál ${Math.round(frameGap)} ms-ig foglalt volt`);
+          window.setTimeout(checkRendered, 120);
+          return;
+        }
+        fn();
+      });
     });
   };
 

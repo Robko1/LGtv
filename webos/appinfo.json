@@ -8,7 +8,7 @@
   "icon": "icon-rt2.png",
   "largeIcon": "largeIcon-rt2.png",
   "iconColor": "#00BFFF",
-  "bgColor": "#000000",
+  "bgColor": "#6ccbd3",
   "resolution": "1920x1080",
   "appDescription": "TV - Élő TV, Mozi, Sorozat - LG webOS TV",
   "disableBackHistoryAPI": true,

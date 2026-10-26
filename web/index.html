@@ -62,7 +62,13 @@
          (a Vite a HTML CSS-ében fel akarná oldani). Ha nincs kép, a logó
          színátmenete marad. */
       html.iptv-booting body {
-        background-color: #0d1b2a;
+        /* A TAKARÓKÉP ALAPSZÍNE. A splash-screen.png mért átlagszíne
+           (#6ccbd3, vízszintes-türkiz): korábban sötétkék (#0d1b2a) volt,
+           így amíg a beégetett kép dekódolása tartott, egy SÖTÉT keret
+           villant – az appinfo.json fekete bgColor-jával ez volt a
+           „nagy gyors feketeség villanás”. Most a késleltetett keret is a
+           takarókép színével egyezik, így nincs látható váltás. */
+        background-color: #6ccbd3;
         background-image: linear-gradient(135deg, #5fe3b6 0%, #4fd8e0 45%, #63bdf3 100%);
         background-position: center center;
         background-size: cover;
@@ -94,7 +100,13 @@
         right: 0;
         bottom: 0;
         z-index: 2147483000;
-        background-color: #0d1b2a;
+        /* A TAKARÓKÉP ALAPSZÍNE. A splash-screen.png mért átlagszíne
+           (#6ccbd3, vízszintes-türkiz): korábban sötétkék (#0d1b2a) volt,
+           így amíg a beégetett kép dekódolása tartott, egy SÖTÉT keret
+           villant – az appinfo.json fekete bgColor-jával ez volt a
+           „nagy gyors feketeség villanás”. Most a késleltetett keret is a
+           takarókép színével egyezik, így nincs látható váltás. */
+        background-color: #6ccbd3;
         background-image: linear-gradient(135deg, #5fe3b6 0%, #4fd8e0 45%, #63bdf3 100%);
         background-position: center center;
         background-size: cover;
