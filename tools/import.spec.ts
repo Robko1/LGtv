@@ -72,9 +72,18 @@ function startFakeServer(options: {
         });
         break;
       case 'get_live_categories':
+        /*
+         * ORSZÁG-SZERVEZÉSŰ PANEL: legalább 5 különböző országnak kell lennie,
+         * különben a betöltő jogosan ítéli úgy, hogy a kategórianevek nem
+         * országok, és a teljes listát tölti le (lásd MIN_COUNTRIES_FOR_FILTER).
+         */
         json(res, options.liveCategoryNames ?? [
           { category_id: '10', category_name: 'Magyarország' },
           { category_id: '11', category_name: 'Németország' },
+          { category_id: '12', category_name: 'Angol' },
+          { category_id: '13', category_name: 'Francia' },
+          { category_id: '14', category_name: 'Olasz' },
+          { category_id: '15', category_name: 'Spanyol' },
         ]);
         break;
       case 'get_live_streams': {
@@ -229,7 +238,9 @@ async function main() {
   check('4 élő csatorna letöltve', content.channels.length === 4, `(${content.channels.length})`);
   check('2 film letöltve', content.movies.length === 2, `(${content.movies.length})`);
   check('1 sorozat letöltve', content.series.length === 1, `(${content.series.length})`);
-  check('élő kategóriák megvannak', content.liveCategories.length === 3, `(${content.liveCategories.length})`);
+  // 6 ország-kategória + az „Egyéb” gyűjtő (a 99-es kategóriájú csatornának
+  // nincs párja a kategórialistában).
+  check('élő kategóriák megvannak', content.liveCategories.length === 7, `(${content.liveCategories.length})`);
   check('film kategória megvan', content.vodCategories.length === 1);
   check('sorozat kategória megvan', content.seriesCategories.length === 1);
   check('a lejárati dátumot átvette', result.user.expireDate.startsWith('2030'), result.user.expireDate);
@@ -315,7 +326,7 @@ async function main() {
     'a visszatöltött stream URL is helyes',
     live.channels.find((channel) => channel.name === 'M1 HD')?.streamUrl === `${base}/live/teszt/titok/101.ts`
   );
-  check('a kategóriák is visszatöltődtek', live.categories.length === 3, `(${live.categories.length})`);
+  check('a kategóriák is visszatöltődtek', live.categories.length === 7, `(${live.categories.length})`);
 
   /*
    * Tároló-takarítás: félbe maradt (elárvult) adag nem maradhat bent, a
@@ -361,7 +372,7 @@ async function main() {
     const huCatNames = huResult.content.liveCategories.map((cat) => cat.name).sort();
     check(
       'a szolgáltató TELJES kategórialistája megmarad (a többi ország neve is elérhető)',
-      huCatNames.length === 2 && huCatNames[0] === 'Magyarország' && huCatNames[1] === 'Németország',
+      huCatNames.length === 6 && huCatNames[0] === 'Angol' && huCatNames.includes('Magyarország'),
       `(${huCatNames.join(', ') || 'üres'})`
     );
     await new Promise<void>((resolve) => huFake.server.close(() => resolve()));
@@ -390,6 +401,33 @@ async function main() {
     await new Promise<void>((resolve) => noHuFake.server.close(() => resolve()));
   }
 
+  /* --- Az 5-ös napló esete: van magyar kategória, de a nevek nem országok --- */
+  {
+    liveCategoryRequests.length = 0;
+    const mixedFake = await startFakeServer({
+      categoryAwareLive: true,
+      liveCategoryNames: [
+        { category_id: '10', category_name: 'Magyarország' },
+        { category_id: '11', category_name: 'Sport' },
+        { category_id: '12', category_name: 'News' },
+        { category_id: '13', category_name: 'Kids' },
+        { category_id: '14', category_name: 'Movies' },
+      ],
+    });
+    const mixedBase = `http://127.0.0.1:${mixedFake.port}`;
+    const mixedResult = await importXtreamProvider(
+      { name: 'Nem ország szerinti panel', serverUrl: mixedBase, username: 'teszt', password: 'titok' },
+      () => {}
+    );
+    console.log('\nHa a kategórianevek nem országok, egyetlen csatorna sem vész el:');
+    check(
+      'a teljes lista töltődik le, nem csak az 1 magyar kategória',
+      liveCategoryRequests.length === 0 && mixedResult.content.channels.length === 4,
+      `(kategóriakérés: ${liveCategoryRequests.length}, csatorna: ${mixedResult.content.channels.length})`
+    );
+    await new Promise<void>((resolve) => mixedFake.server.close(() => resolve()));
+  }
+
   /* --- Egy ország csatornái igény szerint (a 2. pont) --- */
   {
     liveCategoryRequests.length = 0;
@@ -411,6 +449,19 @@ async function main() {
       'csak az adott ország csatornája jön vissza',
       loaded.length === 1 && loaded[0].name === 'Sport1',
       `(${loaded.map((channel) => channel.name).join(', ') || 'üres'})`
+    );
+    const { loadAllLiveChannels } = await import('../web/src/services/providerImport.ts');
+    const all = await loadAllLiveChannels(
+      { id: 'p-all', name: 'Teljes lista', serverUrl: odBase, username: 'teszt', password: 'titok' } as never
+    );
+    check(
+      'a teljes-lista ág egyetlen kéréssel minden csatornát visszaad',
+      all.length === 4,
+      `(${all.length} csatorna, utolsó kérés: category_id=${liveCategoryRequests[liveCategoryRequests.length - 1] ?? 'nincs'})`
+    );
+    check(
+      'a teljes-lista ág NEM küld category_id-t',
+      !liveCategoryRequests.includes('') && liveCategoryRequests.every((id) => id.length > 0)
     );
     check(
       'üres kategórialistával nem dob hibát',

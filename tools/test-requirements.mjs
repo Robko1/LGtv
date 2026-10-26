@@ -1334,3 +1334,22 @@ test('17. a poszterek 25-ös adagokban jönnek, a 15.-nél már töltődik a kö
     assert.doesNotMatch(src, /preloadedThroughRef\.current \+ 20,/, `${file}: az előtöltés nem az adagméretet használja`);
   }
 });
+
+test('18. ha a kategóriák nem ország szerint vannak, a teljes lista jön le – nem 339 kérés', () => {
+  /*
+   * Az 5-ös TV-napló (2.5.113) szerint a szolgáltatónál a 340 élő kategóriából
+   * csak 1 volt magyar nevű, a többi 339 a „Nemzetközi” gyűjtőbe esett. Ha ezt
+   * kategóriánként kérnénk le, 339 kérés indulna. Ezért van felső korlát, és
+   * afelett egyetlen nagy kérés.
+   */
+  assert.match(APP, /const MAX_CATEGORIES_PER_LOAD = 40;/, 'nincs felső korlát a kategóriák számára');
+  assert.match(APP, /categoryIds\.length > MAX_CATEGORIES_PER_LOAD/, 'a korlátot nem hasonlítja a kategóriák számához');
+  assert.match(APP, /tooManyCategories\s*\?\s*await loadAllLiveChannels\(activeProvider\)/,
+    'a korlát felett nem a teljes lista töltődik');
+  assert.match(IMPORT, /export async function loadAllLiveChannels/, 'hiányzik a teljes élő lista betöltője');
+  // A diagnosztikának ki kell írnia a kategórianeveket – az 5-ös naplóból ez
+  // derült ki hiányosságnak: a név sehol nem jelent meg, így nem tudtuk, miért
+  // csak 1/340 a találat.
+  assert.match(IMPORT, /Élő kategóriák nevei: összes=/, 'nem naplózza a kategórianeveket');
+  assert.match(IMPORT, /minta a többiből/, 'nem naplóz mintát a nem magyar kategóriákból');
+});

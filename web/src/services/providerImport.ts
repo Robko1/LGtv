@@ -553,6 +553,33 @@ async function enrichFirstVodMetadata(
  * (utils/flags.ts). Ezért tudjuk már a kicsi kategóriaválaszból eldönteni,
  * melyik kategóriát kell egyáltalán letölteni.
  */
+/**
+ * Hány KÜLÖNBÖZŐ ország (az „Nemzetközi” gyűjtőn kívül) olvasható ki az élő
+ * kategórianevekből.
+ *
+ * Ez dönti el, hogy a szolgáltató ország szerint szervezi-e a kategóriákat.
+ * Az 5-ös TV-napló (2.5.113) esete: 340 kategória, de csak 1 magyar nevű –
+ * vagyis a nevek nem országok (pl. „Sport”, „News”), így a kategóriánkénti
+ * szűrés megbízhatatlan, és inkább a teljes listát kell letölteni.
+ */
+export function countCountriesInCategories(categories: XtreamCategory[]): number {
+  const safe = Array.isArray(categories) ? categories : [];
+  const codes = new Set<string>();
+  for (const category of safe) {
+    if (!category) continue;
+    const code = flagFor(String(category.category_name || '')).countryCode;
+    if (code && code !== 'INT') codes.add(code);
+  }
+  return codes.size;
+}
+
+/**
+ * Ennyi különböző országnál tekintjük a kategórianeveket ország-szervezésűnek.
+ * Alatta a szűrés nem megbízható: inkább a teljes lista jön le (a korábbi,
+ * bevált viselkedés), minthogy a néző csatornákat veszítsen.
+ */
+const MIN_COUNTRIES_FOR_FILTER = 5;
+
 export function pickCategoryIdsByCountry(
   categories: XtreamCategory[],
   countryCode: string
@@ -646,6 +673,53 @@ export async function loadLiveChannelsForCategories(
   }
   const channels = decodeChannelsForImport(rows, provider);
   logProviderEvent(`Élő csatornák: ${channels.length} csatorna töltődött be igény szerint.`);
+  return channels;
+}
+
+/**
+ * A TELJES élő lista egyetlen kéréssel.
+ *
+ * Erre akkor van szükség, amikor a szolgáltató kategóriái NEM ország szerint
+ * vannak elnevezve: az 5-ös TV-napló (2.5.113) szerint a 340 élő kategóriából
+ * csak 1 volt magyar nevű, a többi 339 mind a „Nemzetközi” gyűjtőbe esett.
+ * Ilyenkor országonként nem lehet szűrni – ha a néző megnyitja a maradékot,
+ * egyetlen nagy kéréssel jön le minden, pontosan úgy, ahogy induláskor tenné.
+ */
+export async function loadAllLiveChannels(provider: ProviderRef): Promise<Channel[]> {
+  const server = xtreamService.cleanUrl(provider.serverUrl || '');
+  const user = (provider.username || '').trim();
+  const pass = (provider.password || '').trim();
+  logProviderEvent('Élő csatornák: a teljes lista töltődik (a kategóriák nem ország szerint vannak elnevezve).');
+  const streams = await providerRequest(
+    () => xtreamService.liveStreams(server, user, pass),
+    'Élő csatornalista'
+  );
+  const rows: Array<Array<string | number>> = [];
+  const seen = new Set<string>();
+  for (const stream of streams) {
+    if (!stream || stream.stream_id === undefined || stream.stream_id === null) continue;
+    const streamId = String(stream.stream_id);
+    if (seen.has(streamId)) continue;
+    seen.add(streamId);
+    const name = (stream.name || 'Csatorna').trim();
+    // Az ország a KATEGÓRIANÉVBŐL, és csak ha az nem ad országot, akkor a
+    // csatorna nevéből – így a „[HU] M4 UHD” alakú nevek is besorolhatók.
+    const byName = flagFor(name);
+    const info = byName.countryCode !== 'INT' ? byName : { flag: '📺', countryCode: 'INT' };
+    rows.push([
+      stream.num ?? rows.length + 1,
+      name,
+      normalizeLogoUrl(stream.stream_icon, xtreamService.playerApiBase(server, '', '')),
+      `lc-${String(stream.category_id ?? 'other')}`,
+      String(stream.category_id ?? 'other'),
+      stream.stream_id,
+      info.flag,
+      info.countryCode,
+      stream.epg_channel_id || '',
+    ]);
+  }
+  const channels = decodeChannelsForImport(rows, provider);
+  logProviderEvent(`Élő csatornák: ${channels.length} csatorna töltődött be a teljes listából.`);
   return channels;
 }
 
@@ -849,6 +923,37 @@ export async function importXtreamProvider(
     const hungarianCategoryIds = pickCategoryIdsByCountry(liveCats, 'HU');
 
     /*
+     * DIAGNOSZTIKA: A KATEGÓRIANEVEK.
+     *
+     * Az 5-ös TV-napló (2.5.113) mutatta a problémát:
+     *   SZOLGÁLTATÓ [élő kategóriák], OK, 218 ms, HTTP 200, 23.4 kB
+     *   Élő csatornák: induláskor csak a magyar kategóriák töltődnek le (1/340)
+     *   SZOLGÁLTATÓ FÁZIS [élő csatornák] kész – 107 csatorna, 340 kategória
+     *
+     * Tehát a szolgáltató 340 élő kategóriájából EGYET ismertünk fel
+     * magyarként, és így csak 107 csatorna jött le a korábbi 20 190 helyett.
+     * Hogy ez azért van-e, mert a kategóriák nem ország szerint vannak
+     * elnevezve (pl. csak „Sport”, „News”), vagy azért, mert a név olyan
+     * alakú, amit a szabály nem ismer fel (pl. „HUN”, „Венгрия”), a naplóból
+     * nem derült ki – a kategórianév sehol nem jelent meg. Ezért most
+     * kírjuk a találatokat és egy mintát a többiből.
+     */
+    const matchedNames = liveCats
+      .filter((category) => flagFor(String(category.category_name || '')).countryCode === 'HU')
+      .map((category) => String(category.category_name || '').trim())
+      .slice(0, 8);
+    const otherNames = liveCats
+      .filter((category) => flagFor(String(category.category_name || '')).countryCode !== 'HU')
+      .map((category) => String(category.category_name || '').trim())
+      .filter((name) => name !== '')
+      .slice(0, 12);
+    logProviderEvent(
+      `Élő kategóriák nevei: összes=${liveCats.length}, magyar=${hungarianCategoryIds.length}` +
+      (matchedNames.length > 0 ? `; magyar nevek: ${matchedNames.join(' | ')}` : '') +
+      (otherNames.length > 0 ? `; minta a többiből: ${otherNames.join(' | ')}` : '')
+    );
+
+    /*
      * Ha a bejelentkezés is elbukott, annak a hibája sokkal érthetőbb
      * ("rossz a jelszó" / "a szerver nem elérhető"), mint a csatornakérésé.
      * Ez a referencia viselkedés, és most már több kérésre is kell.
@@ -863,8 +968,25 @@ export async function importXtreamProvider(
       }
     };
 
+    /*
+     * CSAK AKKOR SZŰRÜNK, HA A KATEGÓRIÁK TÉNYLEG ORSZÁGOK.
+     *
+     * Ha a 340 kategóriából összesen 1–2 különböző ország olvasható ki, akkor a
+     * nevek nem országok, és a magyar szűrés megbízhatatlanul kevés csatornát
+     * adna (az 5-ös naplóban 107-et a korábbi 20 190 helyett). Ilyenkor inkább
+     * a teljes lista jön le – lassabb, de egyetlen csatorna sem vész el.
+     */
+    const countryCount = countCountriesInCategories(liveCats);
+    const countryOrganized = countryCount >= MIN_COUNTRIES_FOR_FILTER;
+    if (!countryOrganized) {
+      logProviderEvent(
+        `Élő kategóriák: csak ${countryCount} különböző ország olvasható ki a nevekből, ` +
+        'így a kategóriák nem ország szerint vannak – a teljes lista töltődik le.'
+      );
+    }
+
     let liveStreams: XtreamLiveStream[];
-    if (hungarianCategoryIds.length > 0) {
+    if (hungarianCategoryIds.length > 0 && countryOrganized) {
       logProviderEvent(
         `Élő csatornák: induláskor csak a magyar kategóriák töltődnek le ` +
         `(${hungarianCategoryIds.length}/${liveCats.length} kategória).`
