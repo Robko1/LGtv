@@ -1,10 +1,28 @@
-export const WEB_VERSION = '2.5.106';
+export const WEB_VERSION = '2.5.107';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.107',
+    date: '2026-10-26',
+    changes: [
+      'FILM/SOROZAT BETÖLTÉS JAVÍTVA: a hálózati réteg a kért 60 másodperces időkeretet csendben 30 másodpercre vágta vissza, ezért a nagy (több tízezer elemű) film- és sorozatlista egyetlen válaszként soha nem fért bele az időbe – a betöltés mindig a jóval lassúbb, kategóriánkénti újratöltésre esett vissza. A nagy lista-végpontok most megkapják a kért időt (felső korlát 90 mp)',
+      'FILM/SOROZAT BETÖLTÉS JAVÍTVA: az időtúllépés ugyanúgy „halott szervernek” számított, mint egy kapcsolati hiba, ezért néhány lassú kérés után a megszakító 60 másodpercre MINDENT letiltott – a sikeresen letöltött élő csatornák után a Mozi és a Sorozat üresen maradt. A lassú válasz most nem állítja le a betöltést, csak akkor, ha a szerver már 30 másodperce semmire sem válaszolt',
+      'NINCS FELESLEGES ÚJRATÖLTÉS: a beépített darabszám-korlátnál nagyobb film-/sorozat választ korábban teljes egészében eldobtuk, majd kategóriánként letöltöttük ugyanazt több tucat kérésben. Most a letöltött válasz első elemeit használjuk, és a néző figyelmeztetést kap a korlátról',
+      'NINCS TÖBB MAGÁTÓL CSATORNAVÁLTÁS: a háttérben futó szolgáltató-frissítés a több perccel korábban látott (lezárt) kijelölést és szolgáltatót használta a döntéshez, ezért a betöltés végén a néző által közben kiválasztott csatornát „elveszettnek” hitte, és a lista első – gyakran külföldi – adójára ugrott. A döntés most a pillanatnyi állapotból indul, a tartalék mindig MAGYAR csatorna, és az első (1500 csatornás) előnézet egyáltalán nem dönt a kijelölésről',
+      'A betöltés soha nem veheti át az alapértelmezett „Magyarország / magyar csatornák” lista helyét: a kiválasztott ország a frissítés alatt változatlan marad',
+      'TAKARÓKÉP: a HTML biztonsági hálója 7 másodpercnél sütött el, miközben a főoldal saját döntése 9 másodperc – a takarókép tehát idő előtt lement, és a félkész főoldal a néző szeme előtt épült tovább („össze-vissza ugrált”). A háló most a főoldal saját korlátja felett van, így mindig az alkalmazás dönt',
+      'TAKARÓKÉP: az indulókép a csomagba égetve (data URI) érkezik, ezért már az első festésnél a végleges kép látszik – megszűnt a zöld színátmenet felvillanása a webOS indítóképe után',
+      'GYORSABB INDULÁS: a képernyős diagnosztika tároló-próbája (256 kB + 1 MB + 2 MB szinkron localStorage-írás és az összes kulcs végigolvasása) minden indításkor, a DOM-ready pillanatában futott – vagyis akkor, amikor a főoldal épült. Most csak akkor fut, ha a diagnosztikai doboz ténylegesen megjelenik',
+      'MEMÓRIA: a diagnosztika a válasz méretét a Content-Length fejlécből olvassa; korábban a teljes (akár 30-40 MB-os) választ még egyszer bájttömbbé alakította egy szám kedvéért, pont a JSON.parse memóriacsúcsa idején',
+      'NAPLÓ – SZOLGÁLTATÓ-BEOLVASÁS FIGYELŐ: a kézi naplózás alatt minden szolgáltatói kérés külön sorban látszik (végpont, eltelt idő, időkorlát, HTTP státusz, válasz mérete), minden betöltési szakasz kezdetével és végével (darabszám + eltelt idő), az újrapróbálkozásokkal, a kihagyott kategóriákkal és a megszakító állapotával. Ebből a naplóból állapítható meg pontosan, hol és miért lassú a betöltés',
+      'ÉRTHETŐ HIBAÜZENET: az időtúllépés többé nem „Nem sikerült elérni a szervert”-ként jelenik meg – a kettő javítása teljesen más (a címet/hálózatot kell nézni, vagy a lista méretét)',
+      'ROUTER-VÉDELEM: a „fetch failed” alakú kapcsolati hiba is hálózati hibának számít, így egy elérhetetlen szervernél a megszakító valóban kinyit (korábban egyes motorokon nem, és a program tovább próbálkozott egy halott címen)',
+    ],
+  },
   {
     version: '2.5.106',
     date: '2026-10-25',

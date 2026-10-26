@@ -400,6 +400,112 @@ export function appLogError(context: string, error: unknown): void {
   appLog(`${context} HIBA → ${message}${stack}`);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * SZOLGÁLTATÓ-BEOLVASÁS FIGYELŐ (csatorna/film/sorozat tesztekhez)
+ *
+ * CÉLJA: a „a szolgáltatótól letöltöm a csatornákat, de a filmek és a
+ * sorozatok hibával elakadnak / túl lassan töltődnek” típusú hibák a TV-n
+ * nem láthatók – csak a végén egy üres Mozi nézet. Ezért a szolgáltatói
+ * betöltés MINDEN lépése külön sorban kerül a kézi naplóba:
+ *
+ *   SZOLGÁLTATÓ [élő csatornalista] OK 3210 ms, HTTP 200, 7,4 MB, 20145 elem
+ *   SZOLGÁLTATÓ [filmek egyben] HIBA 30000 ms után: időtúllépés (30000 ms)
+ *   SZOLGÁLTATÓ [filmek egyben] 1/2. újrapróbálkozás 900 ms múlva
+ *   SZOLGÁLTATÓ FÁZIS [filmek] kész: 18342 film, 41,2 s
+ *
+ * Ezek a sorok a többi naplósorral együtt mennek ki a Supabase-re, így a
+ * hibát a tényleges mérésekből lehet javítani, nem találgatásból.
+ *
+ * A sorok CSAK kézzel indított naplózás alatt készülnek (appLog kapuja),
+ * így normál tévézésnél semmi plusz munkát nem végeznek.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Egy szolgáltatói kérés rövid, emberi címke szerinti neve.
+ * A hálózati réteg csak az URL-t ismeri, ezért az `action=` paraméterből
+ * képezzük a nevet – így a naplóból egyértelmű, melyik végpont akadt el.
+ */
+const PROVIDER_ACTION_LABELS: Record<string, string> = {
+  get_live_streams: 'élő csatornalista',
+  get_live_categories: 'élő kategóriák',
+  get_vod_streams: 'filmek',
+  get_vod_categories: 'film kategóriák',
+  get_series: 'sorozatok',
+  get_series_categories: 'sorozat kategóriák',
+  get_vod_info: 'film részletek',
+  get_series_info: 'sorozat részletek',
+  get_short_epg: 'rövid EPG',
+};
+
+/** A kért URL-ből kinyerjük, melyik szolgáltatói végpontról van szó. */
+export function providerEndpointLabel(url: string): string {
+  try {
+    const action = new URL(url).searchParams.get('action');
+    if (action && PROVIDER_ACTION_LABELS[action]) return PROVIDER_ACTION_LABELS[action];
+    if (/\/get\.php\b/i.test(url)) return 'M3U csatornalista';
+    if (/player_api\.php/i.test(url)) return 'bejelentkezés';
+    return 'szolgáltatói kérés';
+  } catch {
+    return 'szolgáltatói kérés';
+  }
+}
+
+/** Általános, egysoros szolgáltatói naplóbejegyzés. */
+export function logProviderEvent(message: string): void {
+  appLog(`SZOLGÁLTATÓ ${message}`);
+}
+
+/** Bájt emberi mértékegysége (a napló olvashatóbb, mint a nyers szám). */
+export function formatBytes(value: number | null | undefined): string {
+  const bytes = Number(value) || 0;
+  if (bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export interface ProviderRequestLog {
+  /** A végpont neve (lásd providerEndpointLabel). */
+  endpoint: string;
+  /** Sikeres volt-e a kérés. */
+  ok: boolean;
+  /** A kérés teljes időtartama ezredmásodpercben. */
+  ms: number;
+  /** Az érvényben lévő időtúllépés (ms) – ebből látszik, kifutott-e az időből. */
+  timeoutMs?: number;
+  httpStatus?: number | null;
+  bytes?: number | null;
+  /** A válasz elemeinek száma (csatorna/film/sorozat), ha ismert. */
+  items?: number | null;
+  /** A hiba rövid, belépési adatot nem tartalmazó oka. */
+  error?: string;
+  /** Hányadik próbálkozás volt (1 = első). */
+  attempt?: number;
+}
+
+/** Egy szolgáltatói kérés eredménye egyetlen, összehasonlítható sorban. */
+export function logProviderRequest(entry: ProviderRequestLog): void {
+  const parts: string[] = [`[${entry.endpoint}]`, entry.ok ? 'OK' : 'HIBA'];
+  parts.push(`${Math.round(entry.ms)} ms`);
+  if (entry.timeoutMs) parts.push(`korlát=${Math.round(entry.timeoutMs)} ms`);
+  if (entry.httpStatus !== undefined && entry.httpStatus !== null) parts.push(`HTTP ${entry.httpStatus}`);
+  if (entry.bytes !== undefined && entry.bytes !== null) parts.push(formatBytes(entry.bytes));
+  if (entry.items !== undefined && entry.items !== null) parts.push(`${entry.items} elem`);
+  if (entry.attempt && entry.attempt > 1) parts.push(`${entry.attempt}. próbálkozás`);
+  if (!entry.ok && entry.error) parts.push(`ok=${entry.error}`);
+  logProviderEvent(parts.join(', '));
+}
+
+/** Egy betöltési szakasz (élő / filmek / sorozatok) kezdete. */
+export function logProviderPhaseStart(phase: string, detail = ''): void {
+  logProviderEvent(`FÁZIS [${phase}] indul${detail ? ` – ${detail}` : ''}`);
+}
+
+/** Egy betöltési szakasz vége: darabszám és eltelt idő. */
+export function logProviderPhaseEnd(phase: string, detail: string, ms: number): void {
+  logProviderEvent(`FÁZIS [${phase}] kész – ${detail}; ${(ms / 1000).toFixed(1)} s`);
+}
+
 /**
  * Memória-pillanatkép. A böngészőmotor JS-halomadatai alapján
  * látszik, ha a tartalom betöltése túl sok memóriát használ (ez okozta a

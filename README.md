@@ -29,6 +29,39 @@ A lejátszásfigyelés kézi naplózás alatt rögzíti többek között:
 - `seekable` és `buffered` tartományokat, `readyState`/`networkState` értéket, dekódolt/dropped képkockákat, képméretet és HTML5 médiahibát;
 - csatornaváltási, újrapróbálási és automatikus helyreállítási okokat.
 
+### A szolgáltató-beolvasás naplója (SZOLGÁLTATÓ sorok)
+
+Ha a **filmek és sorozatok** nem, vagy csak nagyon lassan töltődnek be, a naplózást a
+**Betöltés** gomb előtt érdemes elindítani: SÁRGA → Naplózás indítása → a szolgáltató
+betöltése. Ilyenkor minden szolgáltatói kérés külön sorban látszik:
+
+```text
+SZOLGÁLTATÓ [bejelentkezés], OK, 340 ms, korlát=10000 ms, HTTP 200, 412 B
+SZOLGÁLTATÓ [élő csatornalista], OK, 1180 ms, korlát=9000 ms, HTTP 200, 812 kB, 1834 elem
+SZOLGÁLTATÓ FÁZIS [élő csatornák] kész – 1834 csatorna, 41 kategória (mód=api); 1.5 s
+SZOLGÁLTATÓ FÁZIS [filmek] indul – először a bulk (egyben) végpont, hiba esetén kategóriánként
+SZOLGÁLTATÓ [filmek], OK, 34210 ms, korlát=60000 ms, HTTP 200, 28 MB, 41206 elem
+SZOLGÁLTATÓ FÁZIS [filmek] kész – 40000 film, 96 kategória (út=bulk (1 kérés)); 34.4 s
+SZOLGÁLTATÓ [sorozatok], HIBA, 60000 ms, korlát=60000 ms, hiba=időtúllépés, próbálkozás=1/2
+```
+
+A sorokból pontosan kiderül, hol van a baj:
+
+| Amit a sor mutat | Mit jelent |
+| --- | --- |
+| `korlát=… ms` | mennyi időt adtunk a kérésnek (a nagy film/sorozat lista 60 mp-et, felső korlát 90 mp) |
+| `OK` + nagy `ms` | a szolgáltató él, de lassan adja a nagy listát – ez szerveroldali tulajdonság |
+| `hiba=időtúllépés` | a szerver nem küldte meg a választ időben; a betöltés a többi szakasszal folytatódik |
+| `újról 2. próbálkozás` | 429 vagy 5xx után automatikus újrapróba történt |
+| `FÁZIS […] kész … (út=kategóriánként)` | az egyben letöltött végpont nem működött, ezért kategóriánként töltöttünk |
+| `KIHAGYVA` / `MEGSZAKÍTVA` | a kategória betöltését a néző állította le, vagy a hibahatár elérte |
+| `MEGSZAKÍTÓ NYITVA` | a szerver 30 mp óta semmire sem válaszolt, ezért a program átmenetileg nem indít új kapcsolatot |
+
+A sorok nem tartalmaznak belépési adatot, stream-címet vagy felirat-címet; a válasz méretét a
+`Content-Length` fejlécből olvassuk, így egy 30 MB-os lista sem másolódik le mégegyszer a
+memóriában. A szakaszok (`élő csatornák`, `filmek`, `sorozatok`, `VOD metaadatok`) mindegyike
+kezdő és záró sort kap eltelt idővel, így látszik, melyik szakasz viszi el az időt.
+
 A napló legfeljebb 1 MB, sorszámozott és kezdési idővel ellátott. A küldés automatikusan leállítja a naplózást; kilépéskor szintén leáll. A Supabase-en legfeljebb az öt legfrissebb teljes napló marad.
 
 Ha a küldés ismét átmeneti HTTP 503-at kap, az alkalmazás két rövid, automatikus újrapróbát végez. A szerver ugyanazt a sorszám/kezdési idő párt idempotensen kezeli, ezért egy elveszett válasz nem készít dupla rekordot.
@@ -86,6 +119,12 @@ A normál Developer Mode-os TV-teszteléshez jelenleg nincs szükség production
 npm test
 node tools/test-playback-recovery.mjs
 node tools/test-player-runtime.mjs
+node tools/test-provider-load.mjs
 (cd web && ./node_modules/.bin/tsc --noEmit)
 npm --prefix web run build && npm run smoke
 ```
+
+A `test-provider-load.mjs` a szolgáltató-beolvasást vizsgálja: a nagy film/sorozat lista
+időkorlátját, a megszakító viselkedését időtúllépésnél és valódi kapcsolati hibánál, a
+takarókép és a képernyős hibaüzenet időzítését, a csatornakijelölés megtartását, valamint
+azt, hogy a szolgáltató-beolvasás sorai valóban bekerülnek a kézi naplóba.

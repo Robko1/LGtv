@@ -402,6 +402,63 @@ export function App() {
       : (channels.find(belongsToInitialCountry)?.id || channels[0]?.id || 'hu-sony-max');
   });
 
+  /*
+   * ÉLŐ ÉRTÉKEK A HÁTTÉRBEN FUTÓ SZOLGÁLTATÓ-FRISSÍTÉSHEZ.
+   *
+   * A `handleRefreshProvider` akár több percig is fut, és ezalatt a néző
+   * csatornát vált. A függvény viszont a RÉGI renderből lezárt (stale)
+   * `activeChannelId` / `activeProvider` / `channels` értékeket látta, ezért a
+   * betöltés végén rosszul döntött:
+   *
+   *   • a lezárt `activeProvider` még a frissítés ELŐTTI volt, így a
+   *     „másik szolgáltató” ág futott le, és a kijelölés az új lista ELSŐ
+   *     csatornájára ugrott;
+   *   • a lezárt `activeChannelId` már nem létezett a friss listában (a néző
+   *     közben váltott), ezért a program „elveszett” csatornának hitte, és
+   *     átváltott a lista első – gyakran NEM magyar – csatornájára.
+   *
+   * Ez volt a „TV-nézés közben magától másik csatornára ugrik az OSD” hiba.
+   * A döntések most a commit utáni, tényleges állapotot olvassák.
+   */
+  const activeChannelIdRef = useRef(activeChannelId);
+  const activeProviderRef = useRef(activeProvider);
+  const channelsRef = useRef(channels);
+  const categoriesRef = useRef(categories);
+  const vodCategoriesRef = useRef(vodCategories);
+  const seriesCategoriesRef = useRef(seriesCategories);
+  const moviesRef = useRef(movies);
+  const seriesRef = useRef(series);
+  const selectedCategoryIdRef = useRef(selectedCategoryId);
+  useEffect(() => {
+    activeChannelIdRef.current = activeChannelId;
+    activeProviderRef.current = activeProvider;
+    channelsRef.current = channels;
+    categoriesRef.current = categories;
+    vodCategoriesRef.current = vodCategories;
+    seriesCategoriesRef.current = seriesCategories;
+    moviesRef.current = movies;
+    seriesRef.current = series;
+    selectedCategoryIdRef.current = selectedCategoryId;
+  }, [activeChannelId, activeProvider, channels, categories, vodCategories, seriesCategories, movies, series, selectedCategoryId]);
+
+  /**
+   * Kijelölés-csere CSAK akkor, ha a nézett csatorna valóban eltűnt.
+   *
+   * A tartalék mindig MAGYAR csatorna (a `hungaryFirst` sorrend első eleme),
+   * így egy betöltés sem viheti át a kijelölést egy véletlen külföldi adóra,
+   * és az alapértelmezett „Magyarország” lista sem cserélődik le.
+   */
+  const keepOrMoveActiveChannel = useCallback((candidateList: Channel[], remember: boolean): void => {
+    const watchedId = activeChannelIdRef.current;
+    if (watchedId && candidateList.some((channel) => channel.id === watchedId)) return;
+    const fallback = candidateList[0];
+    if (!fallback || fallback.id === watchedId) return;
+    activeChannelIdRef.current = fallback.id;
+    setActiveChannelId(fallback.id);
+    if (remember) storageService.rememberLastChannel(fallback.id);
+    appLog(`A nézett csatorna (${watchedId || 'nincs'}) nincs az új listában; átállás: ${fallback.name}.`);
+  }, []);
+
   // A menü országokat mutat, nem szolgáltatói alkategóriákat. Egy ország
   // összes csatornája egyetlen választható elem alá kerül.
   const countryCategories = useMemo(() => buildCountryCategories(channels), [channels]);
@@ -1477,27 +1534,38 @@ export function App() {
       if (refreshGenerationRef.current !== refreshGeneration) return;
       if (partial.totals) draft.totals = { ...draft.totals, ...partial.totals };
       // Üres szakasz soha nem törölheti a már megjelenített (mentett) listát.
-      if (partial.channels && (partial.channels.length > 0 || channels.length === 0)) {
-        draft.channels = preserveChannelPreferences(partial.channels, channels, !manual);
+      const currentChannels = channelsRef.current;
+      if (partial.channels && (partial.channels.length > 0 || currentChannels.length === 0)) {
+        draft.channels = preserveChannelPreferences(partial.channels, currentChannels, !manual);
         setActiveProvider(draft.provider);
-        // A frissítés részletekben érkezik. Ha a jelenleg nézett csatorna
-        // még nem érkezett meg a részleges listában, ideiglenesen megtartjuk,
-        // hogy a háttérfrissítés ne váltson át az első csatornára.
-        const canKeepWatchedChannel = activeProvider?.id === id;
-        const currentlyWatched = canKeepWatchedChannel
-          ? channels.find((channel) => channel.id === activeChannelId)
+        /*
+         * A frissítés részletekben érkezik. A nézett csatornát a betöltés
+         * EGÉSZ IDEJE ALATT megtartjuk, amíg az új listában valóban meg nem
+         * tűnik – a döntés a PILLANATNYI állapotból indul (nem abból, amit a
+         * frissítés indításakor láttunk), így a háttérben futó betöltés nem
+         * vált csatornát a néző alatt.
+         *
+         * A kijelölt ország (alapértelmezés: Magyarország) itt SOHA nem
+         * változik: a betöltés nem veheti át a néző által beállított lista
+         * helyét.
+         */
+        const isSameProvider = activeProviderRef.current?.id === id;
+        const watchedId = activeChannelIdRef.current;
+        const currentlyWatched = isSameProvider
+          ? currentChannels.find((channel) => channel.id === watchedId)
           : undefined;
-        const visibleChannels = currentlyWatched && !draft.channels.some((channel) => channel.id === currentlyWatched.id)
+        const watchedStillInList = !!currentlyWatched
+          && draft.channels.some((channel) => channel.id === currentlyWatched.id);
+        const visibleChannels = currentlyWatched && !watchedStillInList
           ? [...draft.channels, currentlyWatched]
           : draft.channels;
         const orderedVisibleChannels = hungaryFirst(visibleChannels);
         setChannels(orderedVisibleChannels);
-        if (!canKeepWatchedChannel && orderedVisibleChannels[0]) {
-          // Új provider első előnézeténél ne maradjon a régi provider
-          // aktív azonosítója: a D-pad és a VideoPlayer azonnal ugyanarra a
-          // ténylegesen betöltött csatornára mutasson.
-          setActiveChannelId(orderedVisibleChannels[0].id);
-        }
+        channelsRef.current = orderedVisibleChannels;
+        activeProviderRef.current = draft.provider;
+        // Csatornaváltás CSAK a valóban elveszett csatorna után, és mindig
+        // magyar csatornára (a hungaryFirst sorrend első eleme).
+        keepOrMoveActiveChannel(orderedVisibleChannels, false);
         if (partial.channels.length > 0 && !refreshLivePromptShownRef.current) {
           refreshLivePromptShownRef.current = true;
           setRefreshLivePromptOpen(true);
@@ -1509,10 +1577,11 @@ export function App() {
         setCategories((current) => (sameCategories(current, partial.liveCategories!) ? current : partial.liveCategories!));
       }
       if (partial.movies) {
-        const nextMovies = keepIfFilled(movies, partial.movies);
+        const nextMovies = keepIfFilled(moviesRef.current, partial.movies);
         if (nextMovies) {
           draft.movies = nextMovies;
           setMovies(nextMovies);
+          moviesRef.current = nextMovies;
         }
       }
       if (partial.vodCategories) {
@@ -1520,10 +1589,11 @@ export function App() {
         setVodCategories((current) => (sameCategories(current, partial.vodCategories!) ? current : partial.vodCategories!));
       }
       if (partial.series) {
-        const nextSeries = keepIfFilled(series, partial.series);
+        const nextSeries = keepIfFilled(seriesRef.current, partial.series);
         if (nextSeries) {
           draft.series = nextSeries;
           setSeries(nextSeries);
+          seriesRef.current = nextSeries;
         }
       }
       if (partial.seriesCategories) {
@@ -1608,31 +1678,44 @@ export function App() {
         });
       }
 
+      /*
+       * A betöltés vége. Minden döntés a PILLANATNYI állapotból indul
+       * (channelsRef / activeChannelIdRef / activeProviderRef), nem abból a
+       * lezárt példányból, amit a frissítés indításakor láttunk. Enélkül a
+       * több percig futó betöltés a végén „elveszettnek” hitte a néző által
+       * közben kiválasztott csatornát, és a lista első – gyakran külföldi –
+       * adójára ugrott (ez volt a magától váltó OSD).
+       */
+      const previousChannels = channelsRef.current;
+      const previousMovies = moviesRef.current;
+      const previousSeries = seriesRef.current;
+      // Ugyanazon provider frissítésénél megtartjuk az éppen nézett csatornát;
+      // új provider importjakor régi csatorna nem kerülhet az új lista mellé
+      // és nem blokkolhatja a csatornaváltást.
+      const isSameProvider = activeProviderRef.current?.id === id;
       // Kézi provider-frissítéskor a csatornák sorrendje a szolgáltató sorrendjére áll vissza.
       // A kedvencjelöléseket és a mappákhoz tartozó stabil csatornaazonosítókat megtartjuk.
-      const refreshedChannels = preserveChannelPreferences(content.channels, channels, !manual);
-      // Ugyanazon provider frissítésénél megtartjuk az éppen nézett csatornát
-      // egy rövid átmenetre; új provider importjakor régi csatorna nem kerülhet
-      // vissza az új lista mellé és nem blokkolhatja a csatornaváltást.
-      const canKeepWatchedChannel = activeProvider?.id === id;
-      const currentlyWatched = canKeepWatchedChannel
-        ? channels.find((channel) => channel.id === activeChannelId)
+      const refreshedChannels = preserveChannelPreferences(content.channels, previousChannels, !manual);
+      const watchedId = activeChannelIdRef.current;
+      const currentlyWatched = isSameProvider
+        ? previousChannels.find((channel) => channel.id === watchedId)
         : undefined;
       const channelsForDisplay = currentlyWatched && !refreshedChannels.some((channel) => channel.id === currentlyWatched.id)
         ? [...refreshedChannels, currentlyWatched]
         : refreshedChannels;
       const refreshedContent: ImportedContent = { ...content, channels: refreshedChannels };
-      setActiveProvider(refreshedContent.provider);
-      const liveToShow = keepIfFilled(channels, hungaryFirst(channelsForDisplay));
-      const moviesToShow = keepIfFilled(movies, refreshedContent.movies);
-      const seriesToShow = keepIfFilled(series, refreshedContent.series);
+      setActiveProvider(draft.provider);
+      activeProviderRef.current = draft.provider;
+      const liveToShow = keepIfFilled(previousChannels, hungaryFirst(channelsForDisplay));
+      const moviesToShow = keepIfFilled(previousMovies, refreshedContent.movies);
+      const seriesToShow = keepIfFilled(previousSeries, refreshedContent.series);
       // Üres hibaválasz ugyanazon provider frissítésekor nem törölheti a
       // korábban működő cache-t. Új provider esetén viszont nem mentjük a
       // régi provider listáját az új azonosító alá.
-      const keepPreviousContent = activeProvider?.id === id;
-      const persistedChannels = liveToShow || (keepPreviousContent ? channels : refreshedContent.channels);
-      const persistedMovies = moviesToShow || (keepPreviousContent ? movies : refreshedContent.movies);
-      const persistedSeries = seriesToShow || (keepPreviousContent ? series : refreshedContent.series);
+      const keepPreviousContent = isSameProvider;
+      const persistedChannels = liveToShow || (keepPreviousContent ? previousChannels : refreshedContent.channels);
+      const persistedMovies = moviesToShow || (keepPreviousContent ? previousMovies : refreshedContent.movies);
+      const persistedSeries = seriesToShow || (keepPreviousContent ? previousSeries : refreshedContent.series);
       const contentForStorage: ImportedContent = {
         ...refreshedContent,
         channels: persistedChannels,
@@ -1640,13 +1723,13 @@ export function App() {
         series: persistedSeries,
         liveCategories: refreshedContent.liveCategories.length || !keepPreviousContent
           ? refreshedContent.liveCategories
-          : categories,
+          : categoriesRef.current,
         vodCategories: refreshedContent.vodCategories.length || !keepPreviousContent
           ? refreshedContent.vodCategories
-          : vodCategories,
+          : vodCategoriesRef.current,
         seriesCategories: refreshedContent.seriesCategories.length || !keepPreviousContent
           ? refreshedContent.seriesCategories
-          : seriesCategories,
+          : seriesCategoriesRef.current,
         totals: {
           live: persistedChannels.length,
           vod: persistedMovies.length,
@@ -1654,14 +1737,16 @@ export function App() {
         },
       };
       if (liveToShow) setChannels(liveToShow);
-      // Ha az új importban nincs meg a korábbi aktív azonosító, a lejátszó és
-      // a D-pad navigáció egy valóban betöltött csatornára álljon át.
-      const nextActiveChannel = refreshedContent.channels.find((channel) => channel.id === activeChannelId)
-        || refreshedContent.channels[0];
-      if (nextActiveChannel && !refreshedContent.channels.some((channel) => channel.id === activeChannelId)) {
-        setActiveChannelId(nextActiveChannel.id);
-        storageService.rememberLastChannel(nextActiveChannel.id);
-      }
+      channelsRef.current = liveToShow || previousChannels;
+      /*
+       * A lejátszó és a D-pad navigáció CSAK akkor áll át másik csatornára, ha
+       * a nézett azonosító valóban nincs az új listában – és akkor is a MAGYAR
+       * sorrend első csatornájára. Korábban ez a nyers, rendezetlen
+       * `refreshedContent.channels[0]` volt, vagyis a szolgáltató lista első
+       * (többnyire külföldi) adója: ezért „vette át” a betöltés a beállított
+       * Magyar ország / magyar csatornák helyét.
+       */
+      keepOrMoveActiveChannel(hungaryFirst(refreshedContent.channels), true);
       setCategories((current) => (sameCategories(current, contentForStorage.liveCategories) ? current : contentForStorage.liveCategories));
       if (moviesToShow) setMovies(moviesToShow);
       setVodCategories((current) => (sameCategories(current, contentForStorage.vodCategories) ? current : contentForStorage.vodCategories));
@@ -3048,20 +3133,48 @@ export function App() {
           if (partial.channels) {
             const incomingCountries = buildCountryCategories(partial.channels);
             const hungaryCategoryId = findHungaryCategoryId(incomingCountries) || 'all';
-            // A főoldal induláskor mindig a magyar csatornacsoportot mutatja.
-            if (selectedCategoryId !== hungaryCategoryId) setSelectedCategoryId(hungaryCategoryId);
+            /*
+             * A főoldal induláskor és minden betöltés után MINDIG a magyar
+             * csatornacsoportot mutatja – a betöltés soha nem veheti át a
+             * beállított „Magyarország / magyar csatornák” helyét, és nem
+             * válthat másik országra.
+             */
+            if (selectedCategoryIdRef.current !== hungaryCategoryId) {
+              selectedCategoryIdRef.current = hungaryCategoryId;
+              setSelectedCategoryId(hungaryCategoryId);
+            }
             const orderedChannels = hungaryFirst(partial.channels);
             setChannels(orderedChannels);
-            // A korábban nézett csatornát ne írjuk felül az import első csatornájával.
-            // Csak akkor választunk magyar csatornát, ha a mentett csatorna már nem létezik.
+            channelsRef.current = orderedChannels;
+            /*
+             * A korábban nézett csatornát ne írjuk felül az import első
+             * csatornájával.
+             *
+             * FONTOS: a csatornák TÖBB RÉSZLETBEN érkeznek, és az első adag
+             * csak az első 1500 csatornát tartalmazza. Korábban már ennél az
+             * előnézetnél eldőlt a kijelölés, ezért ha a mentett csatorna az
+             * 1500. után volt, a program „elveszettnek” hitte, és átugrott a
+             * lista első csatornájára – a néző ezt úgy látta, hogy betöltés
+             * közben magától másik csatornára vált. Ezért a kijelölésről csak
+             * a TELJES (nem előnézet) lista után döntünk; addig a nézett
+             * csatorna változatlan marad.
+             */
+            if (partial.preview) {
+              if (partial.totals) setTotalCounts((previous) => ({ live: partial.totals?.live ?? previous.live, vod: partial.totals?.vod ?? previous.vod, series: partial.totals?.series ?? previous.series }));
+              return;
+            }
             const savedLastChannelId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
             const savedLastChannelExists = Boolean(savedLastChannelId && orderedChannels.some((channel) => channel.id === savedLastChannelId));
             const firstHungarianChannel = orderedChannels.find((channel) =>
               (channel.countryCode || 'INT').toUpperCase() === 'HU'
-            );
+            ) || orderedChannels[0];
             if (savedLastChannelExists) {
-              setActiveChannelId(savedLastChannelId!);
-            } else if (firstHungarianChannel) {
+              if (activeChannelIdRef.current !== savedLastChannelId) {
+                activeChannelIdRef.current = savedLastChannelId!;
+                setActiveChannelId(savedLastChannelId!);
+              }
+            } else if (firstHungarianChannel && activeChannelIdRef.current !== firstHungarianChannel.id) {
+              activeChannelIdRef.current = firstHungarianChannel.id;
               setActiveChannelId(firstHungarianChannel.id);
               handleUpdateSettings({ lastPlayedChannelId: firstHungarianChannel.id });
             }

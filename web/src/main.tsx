@@ -110,8 +110,12 @@ try {
    * "darabos" felépülés (fejléc, majd üres lista, majd sorok, majd EPG) -
    * a webOS töltőképe után EGYBEN jelenik meg a kész felület.
    *
-   * A megjelenítést az index.html __IPTV_REVEAL__ függvénye végzi (7 mp-es
-   * biztonsági hálóval, hogy semmi ne maradjon rejtve).
+   * A megjelenítést az index.html __IPTV_REVEAL__ függvénye végzi (12 mp-es
+   * biztonsági hálóval, hogy semmi ne maradjon rejtve). A háló szándékosan a
+   * lenti 9 mp-es saját korlát FELETT van: így normál esetben mindig az
+   * alkalmazás dönt a megjelenésről, nem egy korábban elsülő időzítő – ez volt
+   * az oka annak, hogy a takarókép idő előtt lement, és a félkész főoldal a
+   * néző szeme előtt épült tovább („ugrált”).
    */
   const reveal = (reason: string) => {
     try { (window as any).__IPTV_REVEAL__?.(reason); } catch { /* nincs window */ }
@@ -221,7 +225,9 @@ try {
 
     if (elapsed > 9000) {
       // Kemény felső korlát: semmi nem maradhat a takarékép mögött.
-      // (Az index.html 7 mp-es hálója ezt amúgy is megtenné.)
+      // Ez az alkalmazás SAJÁT döntése, és az index.html 12 mp-es hálója elé
+      // esik – tehát a takarékép soha nem tűnik el azelőtt, hogy az alkalmazás
+      // befejezte volna a döntést a főoldal állapotáról.
       reveal("időtúllépés");
       if (!headerReady()) fail("A felület 9 másodperc alatt nem rajzolódott ki.");
       return;

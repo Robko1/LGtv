@@ -87,7 +87,24 @@ before(async () => {
   const esbuildPath = path.join(ROOT, 'web', 'node_modules', 'esbuild', 'lib', 'main.js');
   const esbuild = (await import(esbuildPath)).default || (await import(esbuildPath));
   const stub = path.join(tmpDir, 'appLog-stub.mjs');
-  await fsp.writeFile(stub, 'export function appLog() {}\n');
+  // A hálózati réteg (net.ts) a szolgáltató-beolvasás figyelőjét is az appLogból
+  // használja, ezért a stubnak a teljes, általa használt felületet ismernie kell.
+  const stubSource = `
+export function appLog() {}
+export function appLogError() {}
+export function appLogCritical() {}
+export function logPhase() {}
+export function logMemory() {}
+export function logStartup() {}
+export function logProviderEvent() {}
+export function logProviderRequest() {}
+export function logProviderPhaseStart() {}
+export function logProviderPhaseEnd() {}
+export function providerEndpointLabel() { return 'stub'; }
+export function formatBytes() { return '0 B'; }
+export function isVerbosePlaybackLogging() { return false; }
+`;
+  await fsp.writeFile(stub, stubSource);
   const outfile = path.join(tmpDir, 'cc-bundle.mjs');
   await esbuild.build({
     stdin: {
