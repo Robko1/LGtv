@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.125';
+export const WEB_VERSION = '2.5.126';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.125',
+    version: '2.5.126',
     date: '2026-10-26',
     changes: [
       'AUTOMATIKUS, TELJES KÖRŰ INDULÁSI DIAGNOSZTIKA (CSAK A TESZTELÉSI IDŐSZAKBAN): a hibakeresési napló az IPK minden indításakor magától elindul, és a teljes indulást végigméri – a napló a kézi küldésig gyűlik, utána nem indul újra magától',
