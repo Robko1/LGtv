@@ -69,6 +69,17 @@ export interface PartialContent {
    * mentés, nincs adatvesztés), csak megjeleníti.
    */
   preview?: boolean;
+  /**
+   * AZ ÉLŐ LISTA ELKÉSZÜLT.
+   *
+   * Az élő szakasz a teljes csatornalistát egyszerre tölti le, de amíg a filmek
+   * és sorozatok készülnek, a részleges tartalom továbbra is `preview: true`.
+   * Ezért külön jelző kell: a felület CSAK ekkor dönthet a nézett csatornáról.
+   * Az első 1500 csatornás előnézetnél a jelző hamarabb NEM lehet igaz – a
+   * hiányos listából választott csatorna a betöltés végére másra váltana, vagy
+   * (ha az első adagban nincs magyar adó) egy külföldi csatornát indítana.
+   */
+  liveComplete?: boolean;
   channels?: Channel[];
   liveCategories?: Category[];
   movies?: Movie[];
@@ -1156,6 +1167,7 @@ export async function importXtreamProvider(
     liveCategories,
     totals: { live: liveStreamCount },
     preview: true,
+    liveComplete: true,
   });
   onProgress({
     phase: 'Élő csatornák kész',
@@ -2019,7 +2031,7 @@ export async function importM3UProvider(
     warnings: m3uWarnings,
   };
 
-  await onPartial({ preview: true, channels: live, liveCategories: liveCats, totals: { live: live.length } });
+  await onPartial({ preview: true, liveComplete: true, channels: live, liveCategories: liveCats, totals: { live: live.length } });
   await onPartial({ preview: true, movies: content.movies, vodCategories: vodCats, totals: { vod: movies.length } });
 
   const totalMs = Math.round(performance.now() - startedAt);

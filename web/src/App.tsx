@@ -16,6 +16,7 @@ import {
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
+import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import {
   describeCatalogDiff,
   describeCatalogSummary,
@@ -284,6 +285,37 @@ export function App() {
   const [refreshLivePromptOpen, setRefreshLivePromptOpen] = useState(false);
   const diagnosticEventsRef = useRef<NetworkDiagnosticEvent[]>([]);
   const refreshLivePromptShownRef = useRef(false);
+  /**
+   * AZ ÉLŐ CSATORNÁK UTÁNI ABLAK – FÓKUSZ A JOBB OLDALI GOMBON.
+   *
+   * A távirányító nyilai csak akkor mozgatják a kijelölést, ha az már az
+   * ablakon BELÜL van; különben a bal/jobb nyíl a hangerőt állítaná, az OK
+   * pedig semmit nem tenne. Ezért az ablak megnyílásakor AZONNAL (késlekedés
+   * nélkül) a jobb oldali, alapértelmezett gombra tesszük a fókuszt.
+   * Ugyanezt a gombot jelöli a `data-tv-default`, ezért a webOS réteg
+   * globális fókuszkezelője sem rántja vissza az első (bal) gombra.
+   */
+  const refreshLivePromptRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!refreshLivePromptOpen) return;
+    const focusDefault = () => {
+      const container = refreshLivePromptRef.current;
+      if (!container) return;
+      // Ha a néző már az ablakban navigál, nem raboljuk el a fókuszt.
+      const active = document.activeElement as HTMLElement | null;
+      if (active && container.contains(active)) return;
+      const target = container.querySelector<HTMLElement>('[data-tv-default]')
+        || container.querySelector<HTMLElement>('button:not(:disabled)');
+      target?.focus({ preventScroll: true } as any);
+    };
+    focusDefault();
+    const first = window.setTimeout(focusDefault, 60);
+    const second = window.setTimeout(focusDefault, 220);
+    return () => {
+      window.clearTimeout(first);
+      window.clearTimeout(second);
+    };
+  }, [refreshLivePromptOpen]);
   const diagnosticFinishedRef = useRef(false);
   /**
    * A diagnosztika felületre írásának ritkítása (lásd handleRefreshProvider).
@@ -485,16 +517,38 @@ export function App() {
    * így egy betöltés sem viheti át a kijelölést egy véletlen külföldi adóra,
    * és az alapértelmezett „Magyarország” lista sem cserélődik le.
    */
-  const keepOrMoveActiveChannel = useCallback((candidateList: Channel[], remember: boolean): void => {
-    const watchedId = activeChannelIdRef.current;
-    if (watchedId && candidateList.some((channel) => channel.id === watchedId)) return;
-    const fallback = candidateList[0];
-    if (!fallback || fallback.id === watchedId) return;
-    activeChannelIdRef.current = fallback.id;
-    setActiveChannelId(fallback.id);
-    if (remember) storageService.rememberLastChannel(fallback.id);
-    appLog(`A nézett csatorna (${watchedId || 'nincs'}) nincs az új listában; átállás: ${fallback.name}.`);
-  }, []);
+  const keepOrMoveActiveChannel = useCallback(
+    (candidateList: Channel[], remember: boolean, options: { allowSwitch?: boolean } = {}): void => {
+      const watchedId = activeChannelIdRef.current;
+      if (watchedId && candidateList.some((channel) => channel.id === watchedId)) return;
+      /*
+       * HIÁNYOS (ELŐNÉZET) LISTA: ilyenkor TILOS csatornát választani.
+       *
+       * A betöltés első 1500 csatornás adagja még nem a teljes lista. Ha ebből
+       * választanánk, a betöltés végén (a teljes listával) újra kellene
+       * választani – a néző szeme előtt váltana a program. Ha pedig az első
+       * adagban egyáltalán nincs magyar adó, a lista első (külföldi)
+       * csatornája indulna el: pontosan ez volt a „más ország csatornáját
+       * játssza le” hiba. Ezért előnézetből NEM döntünk; a döntés a teljes
+       * élő lista megérkezésekor (liveComplete) történik.
+       */
+      const fallback = firstPlayableHungarianChannel(candidateList);
+      if (!fallback || fallback.id === watchedId) return;
+      /*
+       * Hiányos (előnézet) listából CSAK magyar adót lehet választani: az a
+       * teljes listában is ugyanaz lesz (a magyar sorrend a szolgáltató
+       * sorrendjét tartja), ezért később nem kell váltani. Külföldi adót a
+       * hiányos listából NEM indítunk – arra várunk, míg a teljes lista
+       * megérkezik (liveComplete).
+       */
+      if (options.allowSwitch === false && !isHungarianChannel(fallback)) return;
+      activeChannelIdRef.current = fallback.id;
+      setActiveChannelId(fallback.id);
+      if (remember) storageService.rememberLastChannel(fallback.id);
+      appLog(`A nézett csatorna (${watchedId || 'nincs'}) nincs az új listában; átállás: ${fallback.name}.`);
+    },
+    []
+  );
 
   // A menü országokat mutat, nem szolgáltatói alkategóriákat. Egy ország
   // összes csatornája egyetlen választható elem alá kerül.
@@ -637,14 +691,44 @@ export function App() {
     return map;
   }, [channels]);
 
+  /*
+   * AZ ÉLŐ LISTA TELJES-E?
+   *
+   * A betöltés közben az első 1500 csatornás adag már a felületre kerül, de a
+   * lista még hiányos. Amíg hiányos, a program NEM választ csatornát a
+   * listából: különben a lista első (gyakran külföldi) adóját indítaná el, vagy
+   * a betöltés végén másik csatornára váltana. A döntés a teljes élő lista
+   * megérkezésekor történik, és mindig a magyar sorrend első lejátszható
+   * csatornájára esik.
+   */
+  const [liveListComplete, setLiveListComplete] = useState(true);
+
   // Active channel reference
   const activeChannel = useMemo(() => {
-    const base = channelsById.get(activeChannelId) || channels[0] || null;
+    /*
+     * A tartalékot CSAK akkor számoljuk ki, ha a kiválasztott azonosító nincs
+     * a listában: a magyar csatorna keresése egy 20-60 ezer elemű listán
+     * végigfut, és ezt az EPG minden frissítése (30 másodpercenként)
+     * újraszámoltatta volna.
+     */
+    const resolveFallback = (): Channel | null => {
+      const pick = firstPlayableHungarianChannel(channels);
+      const hungarianPick = pick && isHungarianChannel(pick) ? pick : undefined;
+      // Ha a kiválasztott azonosító nincs a listában (első betöltés, törölt
+      // csatorna), a MAGYAR sorrend első játszható adója a tartalék – nem a
+      // nyers lista első, gyakran külföldi csatornája.
+      if (hungarianPick) return hungarianPick;
+      // Hiányos (előnézet) listából külföldi adást NEM indítunk: megvárjuk a
+      // teljes élő listát, hogy ne egy véletlen külföldi csatorna induljon el.
+      if (!liveListComplete) return null;
+      return pick || channels[0] || null;
+    };
+    const base = channelsById.get(activeChannelId) || resolveFallback();
     if (!base || !activeEpg || activeEpg.id !== base.id) return base;
     // Csak akkor készítünk új objektumot, ha tényleg változott a műsor.
     if (base.epgNow === activeEpg.now && base.epgNext === activeEpg.next && JSON.stringify(base.epgUpcoming || []) === JSON.stringify(activeEpg.upcoming || [])) return base;
     return { ...base, epgNow: activeEpg.now, epgNext: activeEpg.next, epgUpcoming: activeEpg.upcoming };
-  }, [channelsById, channels, activeChannelId, activeEpg]);
+  }, [channelsById, channels, activeChannelId, activeEpg, liveListComplete]);
 
   // A csatornalista a kiválasztott kategóriát, a kedvenceket vagy a kiválasztott mappát mutatja.
   const filteredChannels = useMemo(() => {
@@ -1448,9 +1532,20 @@ export function App() {
     // megvan, azon maradunk; csak ha eltűnt, választunk magyar csatornát.
     const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
     const savedStillExists = Boolean(savedLastId && normalizedContent.channels.some((channel) => channel.id === savedLastId));
-    const firstDefaultChannel = normalizedContent.channels.find((channel) => (channel.countryCode || 'INT').toUpperCase() === defaultCountryCode)
+    /*
+     * ELSŐ BETÖLTÉS: a beolvasás után a főoldalon az ELSŐ MAGYAR csatorna
+     * indul el (Magyarország az alapértelmezett ország), nem egy másik ország
+     * adója és nem az ország-elválasztó „##### HUNGARIA #####” sor.
+     *
+     * A korábban megjegyzett csatornát CSAK a MEGLÉVŐ szolgáltató
+     * szerkesztésekor (újratöltésekor) folytatjuk – egy új szolgáltatónál a
+     * régi listából megjegyzett azonosító nem öröklődhet át.
+     */
+    const isEditOfActiveProvider = Boolean(replacingId) && activeProviderRef.current?.id === providerId;
+    const firstDefaultChannel = firstPlayableHungarianChannel(normalizedContent.channels)
+      || normalizedContent.channels.find((channel) => (channel.countryCode || 'INT').toUpperCase() === defaultCountryCode)
       || normalizedContent.channels[0];
-    if (savedStillExists) {
+    if (savedStillExists && isEditOfActiveProvider) {
       setActiveChannelId(savedLastId!);
       handleUpdateSettings({ activeProviderId: providerId });
     } else if (firstDefaultChannel) {
@@ -1534,9 +1629,13 @@ export function App() {
   };
 
   // Delete Provider
+  /*
+   * A megerősítést a Beállítások ablak SAJÁT, távirányítóval is kezelhető
+   * sávja adja (mint a mappáknál) – a `window.confirm` a TV webOS
+   * böngészőjében nem jelenik meg / azonnal `false`-t ad, ezért a piros kuka
+   * eddig hatástalan volt.
+   */
   const handleDeleteProvider = (id: string) => {
-    if (!confirm('Biztosan törölni szeretnéd ezt a szolgáltatói listát?')) return;
-
     const updated = providers.filter((p) => p.id !== id);
     setProviders(updated);
     storageService.saveProviders(updated);
@@ -1557,6 +1656,9 @@ export function App() {
       setSelectedFavoriteFolderId(null);
       setSelectedCategoryId('all');
       setIsOnlyFavorites(false);
+      // A megjegyzett csatorna sem öröklődhet át a következő szolgáltatóra.
+      storageService.clearLastChannel();
+      setActiveChannelId('');
       handleUpdateSettings({ activeProviderId: undefined, lastPlayedChannelId: undefined });
     }
   };
@@ -1608,6 +1710,12 @@ export function App() {
     setDiagnosticFinishedAt(null);
     setRefreshLivePromptOpen(false);
     refreshLivePromptShownRef.current = false;
+    /*
+     * A betöltés alatt a lista először HIÁNYOS (első 1500 csatorna). Ilyenkor
+     * nem választunk csatornát, nehogy a lista első – gyakran külföldi –
+     * adója induljon el, és a betöltés végén újra kelljen váltani.
+     */
+    setLiveListComplete(false);
     diagnosticFinishedRef.current = false;
     setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: initialProgress, events: [], error: null, startedAt: refreshStartedAt, finished: false, finishedAt: null });
     /*
@@ -1682,10 +1790,21 @@ export function App() {
         setChannels(orderedVisibleChannels);
         channelsRef.current = orderedVisibleChannels;
         activeProviderRef.current = draft.provider;
-        // Csatornaváltás CSAK a valóban elveszett csatorna után, és mindig
-        // magyar csatornára (a hungaryFirst sorrend első eleme).
-        keepOrMoveActiveChannel(orderedVisibleChannels, false);
-        if (partial.channels.length > 0 && !refreshLivePromptShownRef.current) {
+        /*
+         * Csatornaváltás CSAK a TELJES élő lista után, és akkor is csak akkor,
+         * ha a nézett csatorna valóban nincs benne. Előnézetből (első 1500
+         * csatorna) nem döntünk: a hiányos listából választott csatorna a
+         * betöltés végén másikra váltana, vagy egy külföldi adót indítana.
+         */
+        const liveComplete = partial.liveComplete === true || partial.preview !== true;
+        if (liveComplete) setLiveListComplete(true);
+        keepOrMoveActiveChannel(orderedVisibleChannels, false, { allowSwitch: liveComplete });
+        /*
+         * A felugró ablak az ÉLŐ szakasz befejezésekor jelenik meg (a filmek és
+         * sorozatok még töltődnek) – nem a hiányos előnézet közben, mert akkor
+         * a néző elől eltakarná a már nézhető adást a betöltés legelején.
+         */
+        if (liveComplete && partial.channels.length > 0 && !refreshLivePromptShownRef.current) {
           refreshLivePromptShownRef.current = true;
           setRefreshLivePromptOpen(true);
         }
@@ -1822,6 +1941,7 @@ export function App() {
         setNetworkDiagnosticSink(null);
         providerRefreshActiveRef.current = false;
         setProviderContentReady(true);
+        setLiveListComplete(true);
         return;
       }
 
@@ -1947,7 +2067,13 @@ export function App() {
        * (többnyire külföldi) adója: ezért „vette át” a betöltés a beállított
        * Magyar ország / magyar csatornák helyét.
        */
-      keepOrMoveActiveChannel(hungaryFirst(refreshedContent.channels), true);
+      /*
+       * A frissítés végén a MEGJELENÍTETT (a nézett csatornát is megtartó)
+       * listából döntünk, nem a nyers szolgáltatói listából: ha a nézett adó
+       * a listában maradt, a lejátszás UGYANAZON a csatornán folytatódik.
+       */
+      setLiveListComplete(true);
+      keepOrMoveActiveChannel(hungaryFirst(persistedChannels), true);
       setCategories((current) => (sameCategories(current, contentForStorage.liveCategories) ? current : contentForStorage.liveCategories));
       if (moviesToShow) setMovies(moviesToShow);
       setVodCategories((current) => (sameCategories(current, contentForStorage.vodCategories) ? current : contentForStorage.vodCategories));
@@ -2034,6 +2160,7 @@ export function App() {
         finishedAt,
       }));
       providerRefreshActiveRef.current = false;
+      setLiveListComplete(true);
 
       // Hálózati szintű hiba (nem jött válasz a szervertől): egyetlen gyors
       // kéréssel megállapítjuk, hogy az internet maga működik-e. Ebből derül
@@ -2526,6 +2653,38 @@ export function App() {
       // nem renderel.
       if (isVideoFullscreen && !customStreamUrl) {
         showFullscreenLiveOsd();
+      }
+
+      /*
+       * NYITOTT ABLAK, DE A FÓKUSZ KÍVÜL MARADT.
+       *
+       * Ilyenkor a bal/jobb nyíl a hangerőt állítaná (vagy semmit nem tenne),
+       * az OK pedig nem választana – a néző azt látná, hogy „nem működik a
+       * távirányító”. A nyilak/OK most először az ablak alapértelmezett
+       * gombjára viszik a fókuszt, és az eseményt elnyelik.
+       */
+      if (isTvArrowKey(key) || key === 'Enter' || key === 'NumpadEnter') {
+        const activeNow = document.activeElement as HTMLElement | null;
+        const insideDialog = Boolean(activeNow && activeNow.closest && activeNow.closest('[role="dialog"]'));
+        if (!insideDialog) {
+          const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
+          if (dialogs.length > 0) {
+            /*
+             * A LEGFELSŐ ablak kell. A DOM-sorrend nem elég: az élő csatornák
+             * utáni ablak a Beállítások ablaka ELŐTT van a fában, pedig ez
+             * látszik felül (z-115). Ezért ha nyitva van, mindig ez a cél.
+             */
+            const top = refreshLivePromptRef.current || dialogs[dialogs.length - 1];
+            const jump = top.querySelector<HTMLElement>('[data-tv-default]')
+              || top.querySelector<HTMLElement>('button:not(:disabled)');
+            if (jump) {
+              e.preventDefault();
+              e.stopPropagation();
+              jump.focus({ preventScroll: true } as any);
+              return;
+            }
+          }
+        }
       }
 
       // Védelmi tartalék a LoadingDiagnosticModal saját kezelője mögött: a
@@ -3209,13 +3368,13 @@ export function App() {
       />
 
       {refreshLivePromptOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák frissítve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRefreshLivePromptOpen(false); } }} className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+        <div ref={refreshLivePromptRef} role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák frissítve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRefreshLivePromptOpen(false); } }} className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-cyan-400/50 bg-[#081329] p-5 text-white shadow-2xl">
             <div className="text-lg font-black text-cyan-200">Az élő TV-csatornák frissítve</div>
             <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok frissítése még folyamatban van. Szeretnéd tovább nézni a diagnosztikát, vagy folytassuk a háttérben?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button onClick={() => setRefreshLivePromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Nem, tovább nézem</button>
-              <button onClick={() => { setRefreshLivePromptOpen(false); closeRefreshDiagnostic(); closeLastImportDiagnostic(); setIsSettingsOpen(false); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
+              <button data-tv-default="" onClick={() => { setRefreshLivePromptOpen(false); closeRefreshDiagnostic(); closeLastImportDiagnostic(); setIsSettingsOpen(false); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
             </div>
           </div>
         </div>
@@ -3386,15 +3545,25 @@ export function App() {
              * a TELJES (nem előnézet) lista után döntünk; addig a nézett
              * csatorna változatlan marad.
              */
+            /*
+             * Az első betöltésnél is ugyanaz a szabály: amíg a lista csak
+             * előnézet (hiányos), a lejátszó nem indíthat adást a listából –
+             * különben a nyers első, gyakran külföldi csatorna indulna el.
+             * A döntés a teljes élő lista (liveComplete) megérkezésekor lesz.
+             */
+            setLiveListComplete(partial.liveComplete === true || partial.preview !== true);
             if (partial.preview) {
               if (partial.totals) setTotalCounts((previous) => ({ live: partial.totals?.live ?? previous.live, vod: partial.totals?.vod ?? previous.vod, series: partial.totals?.series ?? previous.series }));
               return;
             }
+            setLiveListComplete(true);
             const savedLastChannelId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
             const savedLastChannelExists = Boolean(savedLastChannelId && orderedChannels.some((channel) => channel.id === savedLastChannelId));
-            const firstHungarianChannel = orderedChannels.find((channel) =>
-              (channel.countryCode || 'INT').toUpperCase() === 'HU'
-            ) || orderedChannels[0];
+            /*
+             * Az első VALÓBAN lejátszható magyar adó: a „##### HUNGARIA #####”
+             * alakú ország-elválasztó sor nem kaphatja meg a lejátszást.
+             */
+            const firstHungarianChannel = firstPlayableHungarianChannel(orderedChannels);
             if (savedLastChannelExists) {
               if (activeChannelIdRef.current !== savedLastChannelId) {
                 activeChannelIdRef.current = savedLastChannelId!;

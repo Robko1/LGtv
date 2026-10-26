@@ -526,3 +526,115 @@ test('8. a globális webOS navigáció nem írja felül a Kedvencek vízszintes 
     dom.window.close();
   }
 });
+
+/* ─────────── Az élő csatornák utáni ablak fókusza ─────────── */
+
+/*
+ * A TV-n mért hiba: az „Az élő TV-csatornák frissítve” ablak megnyílásakor a
+ * fókusz a BAL oldali gombra került (a webOS globális fókuszkezelője vakon az
+ * első gombot választotta), a bal/jobb nyíl pedig a háttérben a hangerőt
+ * állította. A néző azt látta, hogy „nem működik a távirányító”.
+ */
+function promptDom() {
+  const html = `<!doctype html><html><head></head><body class="webos-tv">
+    <header><button data-tv-header="" data-tv-header-default="" tabindex="0">Menü</button></header>
+    <div data-tv-folders=""></div>
+    <div role="listbox" aria-label="Csatornalista" data-selected-id="ch-0">
+      <div data-channel-id="ch-0"><div role="option" tabindex="0">1. Csatorna</div></div>
+    </div>
+    <div id="root"></div>
+  </body></html>`;
+  const virtualConsole = new VirtualConsole();
+  const dom = new JSDOM(html, { url: 'https://tv.local/', runScripts: 'dangerously', virtualConsole });
+  dom.window.eval(WEBOS_JS);
+  if (!dom.window.document.getElementById('webos-tv-fix-css')) {
+    dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+  }
+  // A jsdom nem ad méretet; a fókuszálható elemek és a térbeli lépés így is
+  // ugyanazt az utat járja, mint a TV-n.
+  dom.window.Element.prototype.getClientRects = function getClientRects() {
+    return this.hasAttribute('hidden') ? [] : [{ width: 10, height: 10 }];
+  };
+  return dom;
+}
+
+/** A valódi React-ablak vázlata: bal gomb, jobb (alapértelmezett) gomb. */
+function addRefreshPrompt(doc) {
+  const overlay = doc.createElement('div');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Az élő TV-csatornák frissítve');
+  overlay.innerHTML = `
+    <div>
+      <button id="stay">Nem, tovább nézem</button>
+      <button id="close-bg" data-tv-default="">Bezár, háttérben</button>
+    </div>`;
+  const left = overlay.querySelector('#stay');
+  const right = overlay.querySelector('#close-bg');
+  left.getBoundingClientRect = () => ({ left: 0, width: 200, right: 200, top: 100, bottom: 150, height: 50 });
+  right.getBoundingClientRect = () => ({ left: 220, width: 200, right: 420, top: 100, bottom: 150, height: 50 });
+  doc.body.appendChild(overlay);
+  return { overlay, left, right };
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('3. az élő csatornák utáni ablak a JOBB oldali gombot jelöli ki', async () => {
+  const dom = promptDom();
+  const { window } = dom;
+  try {
+    const doc = window.document;
+    doc.querySelector('[data-tv-header-default]').focus();
+    const { right } = addRefreshPrompt(doc);
+    // A webOS fókuszkezelője 120 + 100 ms után nyúl az új ablakhoz.
+    await wait(400);
+    assert.equal(doc.activeElement, right,
+      'a jobb oldali (alapértelmezett) gombnak kell kapnia a fókuszt');
+  } finally { dom.window.close(); }
+});
+
+test('3. ablaknyitáskor a nyíl és az OK azonnal az ablakon belül működik', async () => {
+  const dom = promptDom();
+  const { window } = dom;
+  try {
+    const doc = window.document;
+    // A fókusz a háttérben maradt (ez volt a TV-n mért állapot).
+    doc.querySelector('[data-tv-header-default]').focus();
+    const { left, right } = addRefreshPrompt(doc);
+    await wait(400);
+    assert.equal(doc.activeElement, right, 'nyitáskor a jobb gomb a kijelölt');
+
+    press(window, 'ArrowLeft', 37);
+    assert.equal(doc.activeElement, left, 'balra a bal oldali gombra lép');
+
+    press(window, 'ArrowRight', 39);
+    assert.equal(doc.activeElement, right, 'jobbra vissza a jobb oldali gombra');
+
+    let clicked = 0;
+    right.addEventListener('click', () => { clicked++; });
+    /*
+     * A böngésző a fókuszált gombon az Enterhez maga kattintást készít, ezért
+     * a kezelő nem nyeli el az eseményt (különben nem lenne választás).
+     * A régi webOS a gombot 'OK' néven küldi – ilyenkor a kezelő kattint.
+     */
+    const enter = press(window, 'Enter', 13);
+    assert.equal(enter.defaultPrevented, false, 'az OK/Enter eseménye nem veszhet el');
+    press(window, 'OK', 13);
+    assert.equal(clicked, 1, 'az OK a kijelölt (jobb oldali) gombot választja');
+  } finally { dom.window.close(); }
+});
+
+test('3. fókusz nélkül érkező első nyíl sem a hangerőt állítja', async () => {
+  const dom = promptDom();
+  const { window } = dom;
+  try {
+    const doc = window.document;
+    doc.body.focus();
+    const { right } = addRefreshPrompt(doc);
+    // A sweep még nem futott le – a nyíl már most az ablakba lépjen.
+    press(window, 'ArrowDown', 40);
+    await wait(20);
+    assert.equal(doc.activeElement, right,
+      'a nyíl az ablak alapértelmezett gombjára lép, nem a háttérre');
+  } finally { dom.window.close(); }
+});
