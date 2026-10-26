@@ -316,6 +316,88 @@ test('7. az első használható csatornaadag azonnal megjelenik (előnézet)', (
   assert.match(APP, /if \(!partial\.preview\) \{[\s\S]{0,400}?saveLiveContentSafely\(draft\)/);
 });
 
+test('7. a 100%-os diagnosztika a valós darabszámokat és kategóriákat mutatja', () => {
+  /*
+   * A TV-n ez jelent meg (2.5.116, 1-es napló) – pedig MINDEN sikerült:
+   *
+   *   Részben kész
+   *   20 190 csatorna • 40 000 film • 15 000 sorozat • FIGYELEM: A szolgáltató
+   *   102 815 filmet adott vissza egyetlen válaszként; a beépített korlát miatt
+   *   az első 40 000 elemet dolgozzuk fel …
+   *
+   * A napló szerint a mentés is rendben volt (élő: 20 190 elem; filmek és
+   * sorozatok IndexedDB-ben). Vagyis a felület hibát mutatott egy sikeres
+   * betöltésre, és a korlát miatt a katalógus egy része el sem készült.
+   */
+  assert.match(IMPORT, /export function describeCatalogSummary\(/,
+    'nincs közös összefoglaló a végeredményhez');
+  assert.match(IMPORT, /csatorna \(\$\{nf\(countUsedCategories\(channels/,
+    'a csatornaszám mellett nincs kategórias zám');
+  assert.match(IMPORT, /film \(\$\{nf\(countUsedCategories\(movies/,
+    'a filmszám mellett nincs kategórias zám');
+  assert.match(IMPORT, /sorozat \(\$\{nf\(countUsedCategories\(series/,
+    'a sorozatszám mellett nincs kategórias zám');
+  // Csak VALÓDI hiány számít figyelmeztetésnek.
+  assert.match(IMPORT, /phase: warnings\.length \? 'Figyelmeztetés' : 'Kész'/,
+    'a részleges állapot nem a valódi hiánytól függ');
+  assert.doesNotMatch(IMPORT, /'Részben kész'/,
+    'a „Részben kész” félrevezető állapot megmaradt');
+  // A biztonsági korlát MEGJEGYZÉS, nem figyelmeztetés.
+  assert.match(IMPORT, /notes\.push\(\s*`A szolgáltató \$\{allVod\.length\.toLocaleString/,
+    'a film-korlát nem megjegyzésként jelenik meg');
+  assert.match(IMPORT, /notes\.push\(\s*`A szolgáltató \$\{allSeries\.length\.toLocaleString/,
+    'a sorozat-korlát nem megjegyzésként jelenik meg');
+  assert.match(IMPORT, /const MAX_MOVIES = 150000;/, 'a filmkorlát nem engedi a teljes katalógust');
+  assert.match(IMPORT, /const MAX_SERIES = 60000;/, 'a sorozatkorlát nem engedi a teljes katalógust');
+  // Az App ugyanazt az összefoglalót használja, nem saját szöveget.
+  assert.match(APP, /const summary = describeCatalogSummary\(contentForStorage\);/);
+  assert.doesNotMatch(APP, /'Részben kész'/);
+});
+
+test('7. a Frissítés csak a változásokat dolgozza fel', () => {
+  /*
+   * A felhasználó kérése: a Frissítés gomb ellenőrizze újra a kategóriákat és
+   * a tartalmat, és csak az új / módosult / törölt elemeket dolgozza fel –
+   * a teljes listákat ne töltse le újra, ha nincs rá szükség.
+   */
+  assert.match(IMPORT, /export const FULL_CHECK_WINDOW_MS = 10 \* 60 \* 1000;/,
+    'nincs frissességi ablak a teljes ellenőrzéshez');
+  assert.match(IMPORT, /export async function checkProviderChanges\(/,
+    'nincs olcsó változásvizsgálat');
+  assert.match(IMPORT, /export function diffCatalogs</,
+    'nincs különbségszámítás');
+  // Az import a NYERS kategórialistákból számol ujjlenyomatot.
+  assert.match(IMPORT, /rawCatalogFingerprint\(rawLiveCategories, rawVodCategories, rawSeriesCategories\)/,
+    'az ujjlenyomat nem a nyers kategórialistákból készül');
+  // Növekményes ág: változás nélkül visszaadja, hogy nincs mit tenni.
+  assert.match(IMPORT, /if \(check\.unchanged && check\.fresh\) \{[\s\S]{0,400}?return \{ unchanged: true, check \};/,
+    'a „nincs változás” eset nem rövidül le');
+  assert.match(APP, /\{ incremental: manual \}/,
+    'az App nem kéri a növekményes módot');
+  assert.match(APP, /'unchanged' in result && result\.unchanged/,
+    'az App nem kezeli a „nincs változás” eredményt');
+  assert.match(APP, /phase: 'Kész – nincs változás'/,
+    'a „nincs változás” nem jelenik meg a felületen');
+  // Csak a változott listát mentjük.
+  assert.match(APP, /const touches = \(diff: \{ added: number; removed: number; changed: number \}, categoriesChanged: boolean\) =>/,
+    'nincs döntés arról, kell-e menteni');
+  assert.match(APP, /if \(touches\(channelDiff, liveCategoriesChanged\)\) saveLiveContentSafely\(contentForStorage\);/,
+    'az élő lista mentése nem a változástól függ');
+  assert.match(APP, /if \(touches\(movieDiff, vodCategoriesChanged\)\) await saveVodContentSafely\(contentForStorage\);/,
+    'a filmek mentése nem a változástól függ');
+  assert.match(APP, /if \(touches\(seriesDiff, seriesCategoriesChanged\)\) await saveSeriesContentSafely\(contentForStorage\);/,
+    'a sorozatok mentése nem a változástól függ');
+  // A frissítés végén a valós eredmény látszik.
+  assert.match(APP, /describeCatalogDiff\(channelDiff, 'csatorna'\)/);
+  assert.match(APP, /Változás: \$\{changeText\}/);
+  // A szinkron-állapot a tárolóban él (és nem content- előtaggal).
+  const STORE = read('web/src/services/contentStore.ts');
+  assert.match(STORE, /const SYNC_KEY = 'sync-state';/,
+    'a szinkron-állapot kulcsa a content-takarítás elé esne');
+  assert.match(STORE, /export function saveSyncState\(/);
+  assert.match(STORE, /export function loadSyncState\(/);
+});
+
 test('7. a teljes élő lista 60 mp-es időkeretet kap, nem 9 mp-et (1-es napló)', () => {
   /*
    * A TV-n (2.5.115) ez volt:

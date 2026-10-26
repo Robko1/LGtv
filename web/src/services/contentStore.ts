@@ -38,11 +38,17 @@ export interface ImportedContent {
   seriesCategories: Category[];
   totals: { live: number; vod: number; series: number };
   /**
-   * A betöltés közben keletkezett figyelmeztetések (pl. a szolgáltató néhány
-   * kategóriát nem adott ki). A felület a betöltés végén megjeleníti őket,
-   * hogy a hiány ne maradjon észrevétlen.
+   * VALÓDI hiányok: a szolgáltató néhány kategóriát nem adott ki, vagy egy
+   * szakasz nem töltődött le. Ezeket a felület a betöltés végén megjeleníti,
+   * mert adat hiányzik.
    */
   warnings?: string[];
+  /**
+   * MEGJEGYZÉSEK: olyan tények, amelyek nem hiba és nem is hiány (pl. a
+   * tartalom a biztonsági korlátig jött le, vagy a bulk-végpont helyett
+   * kategóriánként sikerült a letöltés). Nem teszik „részlegessé” a betöltést.
+   */
+  notes?: string[];
 }
 
 const LIVE_KEY = 'content-live';
@@ -677,6 +683,45 @@ export function saveLiveContent(content: ImportedContent): void {
   backend.remove(LIVE_KEY);
   for (const key of previousKeys) backend.remove(key);
   appLog('Élő csatornák elmentve: ' + channels.length + ' elem, ' + chunkCount + ' adag, tároló=' + backend.name);
+}
+
+/* ------------------------------------------------- szinkron-állapot */
+
+/**
+ * Mikor volt az utolsó TELJES szinkron, és milyen volt akkor a szolgáltató
+ * kategórialistája?
+ *
+ * A frissítés ebből tudja meg, hogy érdemes-e újra letölteni a több tíz MB-os
+ * listákat: ha a kategóriák ujjlenyomata azonos, és az utolsó teljes
+ * ellenőrzés friss, akkor nincs mit újratölteni.
+ *
+ * A kulcs szándékosan NEM `content-` előtagú: a `sweepStorage()` a content-
+ * kulcsokat takarítja, és ez az állapot nem tartalom.
+ */
+const SYNC_KEY = 'sync-state';
+
+export interface SyncState {
+  providerId: string;
+  /** A három kategórialista együttes ujjlenyomata. */
+  fingerprint: string;
+  /** A legutóbbi teljes szinkron ideje (Date.now()). */
+  fullSyncAt: number;
+}
+
+export function loadSyncState(providerId: string): SyncState | null {
+  try {
+    const raw = backend.get(SYNC_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw) as SyncState;
+    if (!state || typeof state.fingerprint !== 'string' || state.providerId !== providerId) return null;
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSyncState(state: SyncState): void {
+  write(SYNC_KEY, state);
 }
 
 /* ----------------------------------------------- adagolt (chunked) mentés */
@@ -1436,6 +1481,7 @@ export function clearContent(): void {
   for (const key of seriesKeys) backend.remove(key);
   backend.remove(VOD_META_KEY);
   backend.remove(SERIES_META_KEY);
+  backend.remove(SYNC_KEY);
   // A film- és sorozatlista az IndexedDB-ben van: azt is törölni kell.
   void contentChunkStore().then((store) => store?.clear());
 }
