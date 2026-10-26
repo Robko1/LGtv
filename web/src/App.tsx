@@ -16,7 +16,7 @@ import {
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
-import { loadLiveChannelsForCategories, PartialContent, refreshProviderContent } from './services/providerImport';
+import { loadAllLiveChannels, loadLiveChannelsForCategories, PartialContent, refreshProviderContent } from './services/providerImport';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
 import { xtreamService } from './services/xtreamService';
@@ -715,11 +715,27 @@ export function App() {
       category_id: stripPrefix(category.id),
       category_name: category.name,
     }));
+    /*
+     * TÚL SOK KATEGÓRIA = NEM ORSZÁG SZERINT VAN ELOSZTVA.
+     *
+     * Az 5-ös TV-napló (2.5.113) szerint ennél a szolgáltatónál a 340 élő
+     * kategóriából csak 1 volt magyar nevű, a többi 339 mind a „Nemzetközi”
+     * gyűjtőbe esett. Ha ezt kategóriánként kérnénk le, 339 kérés indulna –
+     * a néző csak egy végtelennek tűnő töltést látna. Ilyenkor inkább EGY
+     * nagy kéréssel jön le a teljes lista, pontosan úgy, ahogy induláskor
+     * tenné: gyorsabb is, és a panelt sem terheljük szét.
+     */
+    const MAX_CATEGORIES_PER_LOAD = 40;
+    const tooManyCategories = categoryIds.length > MAX_CATEGORIES_PER_LOAD;
     let cancelled = false;
-    appLog(`${countryCode} ország csatornáinak betöltése indul (${categoryIds.length} kategória).`);
+    appLog(tooManyCategories
+      ? `${countryCode} ország csatornái: ${categoryIds.length} kategória lenne, ezért a teljes lista töltődik egy kéréssel.`
+      : `${countryCode} ország csatornáinak betöltése indul (${categoryIds.length} kategória).`);
     void (async () => {
       try {
-        const loaded = await loadLiveChannelsForCategories(activeProvider, xtreamCategories, categoryIds);
+        const loaded = tooManyCategories
+          ? await loadAllLiveChannels(activeProvider)
+          : await loadLiveChannelsForCategories(activeProvider, xtreamCategories, categoryIds);
         if (cancelled) return;
         if (loaded.length === 0) {
           appLog(`${countryCode} ország: a szolgáltató nem adott csatornát.`);
