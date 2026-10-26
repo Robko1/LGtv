@@ -226,7 +226,8 @@ try {
   check(liveChars > 0, 'az induló készlet elmentődött a localStorage-ba', `${liveChars} karakter`);
   check(liveChars < 120_000, 'a localStorage-ban csak a kis magyar készlet van (nem a 20 000-es lista)', `${liveChars} karakter`);
   check(Boolean(idbFullMeta), 'a teljes lista fejléce az IndexedDB-ben van');
-  check((idbFullMeta?.chunks ?? 0) >= 40, 'a teljes lista adagokban van az IndexedDB-ben', String(idbFullMeta?.chunks));
+  // 1200 csatorna/adag: a 20 000-es lista ~17 adag (a korábbi 400-as adagolásnál 51 volt).
+  check((idbFullMeta?.chunks ?? 0) >= 2, 'a teljes lista adagokban van az IndexedDB-ben', String(idbFullMeta?.chunks));
   check(!first.needsLiveCacheCompaction(), 'az új formátum nem igényel átállást');
 
   /* ============ 2. ÚJRAINDÍTÁS: magyar készlet azonnal, teljes lista IDB-ből */

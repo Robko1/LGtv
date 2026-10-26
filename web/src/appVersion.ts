@@ -1,10 +1,25 @@
-export const WEB_VERSION = '2.5.126';
+export const WEB_VERSION = '2.5.127';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.127',
+    date: '2026-10-26',
+    changes: [
+      'TARTÓS TÁROLÁS – NINCS TÖBB ÚJRATÖLTÉS INDÍTÁSKOR: a csatornák, filmek és sorozatok mostantól egyetlen, TARTÓS (persisted) IndexedDB-adatbázisban maradnak az IPK teljes bezárása után is; a böngésző nem dobhatja el az adatokat, és a kvótát automatikusan megnöveljük (StorageManager.persist, régi webOS-on webkitPersistentStorage.requestQuota – 256 MB)',
+      'A MENTÉS NEM A 67 MP-ES IMPORT VÉGÉRE KERÜL: minden kész szakasz (élő, filmek, sorozatok) AZONNAL, külön, kötegelt tranzakciókban íródik a tartós tárba – ha az alkalmazást közben bezárják, a már betöltött listák akkor is megmaradnak',
+      'ATOMIKUS FEJLÉC ÉS KAPCSOLAT-ÚJRANYITÁS: a lista fejléce csak az összes adag sikeres kiírása UTÁN válik érvényessé; ha a webOS az import alatt bezárja az adatbázis-kapcsolatot, a következő írás automatikusan újranyitja (onclose / onversionchange + időkorlát) – nem marad félkész, üres cache',
+      'GYORSABB MENTÉS: 400 helyett 1200 elem/adag és 12 adag/tranzakció – 102 824 filmnél 257 helyett ~8 tranzakció; a több tíz másodperces mentés néhány másodpercre rövidült',
+      'EGYETLEN, AZONNALI VISSZATÖLTÉS: a három párhuzamos, 800/900/1200 ms-os időzítős betöltő helyett egyetlen tároló-felmérés és egy megosztott visszatöltés fut, hálózat nélkül; a Mozi/Sorozat menü erre csatlakozik, nincs többszöri dekódolás',
+      'NINCS 13 MP-ES FŐSZÁL-LEÁLLÁS: a három 100 ezres elemenkénti összehasonlítás megszűnt; a változást darabszám-eltérésből, olcsón állapítjuk meg, és a 20 részletes VOD-metaadat külön, kis rekordban él tovább',
+      'NINCS FELUGRÓ ABLAK AZ AUTOMATIKUS BETÖLTÉSNÉL: a diagnosztika és a „csatornák frissítve” párbeszéd csak a kézi Frissítés gombra jelenik meg; az első betöltés és a háttér-ellenőrzés csendben fut',
+      'STALE-WHILE-REVALIDATE: a gyorsítótár azonnal kiszolgálásra kerül, a frissességet csak 12 óra után, egyetlen olcsó kategória-kéréssel ellenőrizzük – változatlan katalógusnál csak a frissességi bélyeg íródik újra, nem a teljes 25 MB',
+      'A 2.5.126-os, 18:44-es napló alapján: induláskor a localStorage 9 kulcs / 1860 karakter, az IndexedDB üres volt, ezért 2850 ms-nél automatikus teljes letöltés indult (67,6 mp, 76 MB) – most a mentett lista azonnal, letöltés nélkül töltődik vissza',
+    ],
+  },
   {
     version: '2.5.126',
     date: '2026-10-26',

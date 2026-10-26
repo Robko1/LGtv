@@ -2,35 +2,39 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Season, Series, WatchHistoryItem } from './types/iptv';
 import { storageService } from './services/storageService';
 import {
+  CATALOG_TTL_MS,
+  cancelStoredContentRestore,
+  catalogNeedsCheck,
   clearContent,
   describeStoredContent,
   ImportedContent,
-  LoadedLiveFull,
+  inspectStoredCatalogs,
   loadLive,
-  loadLiveBoot,
-  loadLiveFull,
-  loadSeriesAsync,
-  loadVodAsync,
+  markCatalogChecked,
   needsLiveCacheCompaction,
   ProviderRef,
+  restoreStoredContent,
+  saveCatalogExtras,
   saveContent,
   saveLiveContentSafely,
   saveSeriesContentSafely,
   saveVodContentSafely,
+  setCatalogFingerprint,
+  StoredCatalogPlan,
   sweepStorage,
 } from './services/contentStore';
-import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
+import { appLog, appLogError, logPhase } from './services/appLog';
 import { fsPerf } from './services/fullscreenPerf';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import {
-  describeCatalogDiff,
+  checkProviderChanges,
   describeCatalogSummary,
-  diffCatalogs,
   FULL_CHECK_WINDOW_MS,
   loadAllLiveChannels,
   loadLiveChannelsForCategories,
   PartialContent,
+  providerFingerprint,
   refreshProviderContent,
 } from './services/providerImport';
 import { flagFor } from './utils/flags';
@@ -1005,313 +1009,145 @@ export function App() {
   }, [activeView, customStreamUrl, activeChannel?.id, activeProvider?.id]);
 
   /*
-   * A filmek és sorozatok betöltése a mentett tárból.
+   * EGYETLEN, MEGOSZTOTT VISSZATÖLTÉS A TARTÓS TÁRBÓL.
    *
-   * FONTOS (indulás és a Mozi/Sorozat megnyitásának gyorsasága):
-   *  - a betöltés NEM a legelső képkocka előtt indul, hanem a főoldal
-   *    megjelenése után, üresjáratban (1,2 mp),
-   *  - és NEM is kell kivárni: amint a néző a Mozi vagy a Sorozat menüre
-   *    lép, az `ensureVodLoaded()` azonnal elindítja (lásd handleViewChange).
-   *  - adagonként töltődik, adagok között a felület visszakapja a vezérlést,
-   *    így a TV nem fagy le a több tízezer elemű lista olvasásakor.
-   * Csak EGYSZER fut le (az első kérésre), utána a memóriában lévő listát
-   * használjuk – nincs ismételt betöltés nézetváltáskor.
+   * A korábbi kód HÁROM külön effektben, három időzítővel (800 ms, 900 ms,
+   * 1200 ms + requestIdleCallback) olvasta ugyanazokat a listákat, és a
+   * filmeket/sorozatokat gyakran kétszer dekódolta. A 2.5.126-os naplóban
+   * emiatt volt 13 mp-es főszál-leállás és felesleges várakozás az indulásnál.
+   *
+   * Most: egy tároló-felmérés (inspectStoredCatalogs), egy visszatöltés
+   * (restoreStoredContent), amelyre a Mozi menü is rákapcsolódhat. Nincs
+   * időzítő, nincs dupla olvasás, nincs felugró ablak.
    */
-  const vodLoadStartedRef = useRef(false);
-  const ensureVodLoaded = useCallback(() => {
-    if (vodLoadStartedRef.current) return;
-    const provider = bootLive.provider;
-    if (!provider) return;
-    vodLoadStartedRef.current = true;
-    // A mentett tartalom mindig egyetlen, meghatározott sorrendben töltődik:
-    // élő csatornák (a modul indulásakor), filmek, majd sorozatok. A film- és
-    // sorozat-cache soha nem indul egyszerre, mert az régi webOS TV-n üres
-    // vagy félkész 0/elemszámú nézethez és memória-csúcshoz vezethet.
-    appLog(`Mentett tartalom betöltése indul (tároló: ${provider.id}).`);
-    logMemory('tartalom betöltése előtt');
+  const [bootProbeDone, setBootProbeDone] = useState(() => bootChannels.length > 0);
+  const [catalogPlanReady, setCatalogPlanReady] = useState(false);
+  const catalogPlanRef = useRef<StoredCatalogPlan | null>(null);
+  const bootProbeStartedRef = useRef(false);
+  const restoreRunningRef = useRef(false);
 
-    const loadStoredContent = async (): Promise<void> => {
-      try {
-        logPhase('filmlista cache betöltése indul');
-        const vod = await loadVodAsync(provider);
-        setMovies(vod.movies);
-        setVodCategories(vod.categories);
-        appLog(`Filmek a felületen: ${vod.movies.length}.`);
-        logPhase(`filmek betöltve a felületre (${vod.movies.length} db)`);
-      } catch (error) {
-        // A film-cache hibája nem akadályozhatja a sorozat-cache következő,
-        // külön szakaszát és az élő TV-t.
-        appLogError('Filmek betöltése', error);
-      }
-
-      // A két nagy dekódolás között adjuk vissza a főszálat a webOS-nak.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 32));
-
-      try {
-        logPhase('sorozatlista cache betöltése indul');
-        const ser = await loadSeriesAsync(provider);
-        setSeries(ser.series);
-        setSeriesCategories(ser.categories);
-        appLog(`Sorozatok a felületen: ${ser.series.length}.`);
-        logPhase(`sorozatok betöltve a felületre (${ser.series.length} db)`);
-      } catch (error) {
-        appLogError('Sorozatok betöltése', error);
-      }
-    };
-
-    void loadStoredContent().finally(() => logMemory('tartalom betöltése után'));
+  const runRestore = useCallback(async (plan?: StoredCatalogPlan | null): Promise<void> => {
+    const target = plan || catalogPlanRef.current;
+    if (!target || restoreRunningRef.current) return;
+    restoreRunningRef.current = true;
+    appLog(`Mentett katalógus visszatöltése indul (tároló: ${target.provider.id}).`);
+    try {
+      await restoreStoredContent(target, {
+        onStage: (stage) => logPhase(stage),
+        onLive: (full) => {
+          if (providerRefreshActiveRef.current) return;
+          setChannels((current) => current.length >= full.channels.length
+            ? current
+            : restoreSavedChannelOrder(hungaryFirst(full.channels), target.provider.id));
+          setCategories((current) => (current.length ? current : full.categories));
+          setTotalCounts((current) => (current.live >= full.totals.live
+            ? current : { ...current, live: full.totals.live }));
+          appLog(`Teljes élő lista a felületen: ${full.channels.length} csatorna (tartós tár).`);
+        },
+        onVod: (vod) => {
+          if (providerRefreshActiveRef.current) return;
+          setMovies(vod.movies);
+          if (vod.categories.length) setVodCategories(vod.categories);
+          appLog(`Filmek a felületen: ${vod.movies.length} (letöltés nélkül).`);
+        },
+        onSeries: (ser) => {
+          if (providerRefreshActiveRef.current) return;
+          setSeries(ser.series);
+          if (ser.categories.length) setSeriesCategories(ser.categories);
+          appLog(`Sorozatok a felületen: ${ser.series.length} (letöltés nélkül).`);
+        },
+      });
+    } finally {
+      restoreRunningRef.current = false;
+    }
   }, []);
 
+  /** A Mozi/Sorozat menü azonnal kérheti; a futó visszatöltésre csatlakozik. */
+  const ensureVodLoaded = useCallback(() => { void runRestore(); }, [runRestore]);
+
   /*
-   * HIDEG INDÍTÁS MENTETT ADATBÓL – INDEXEDDB-BE ÉPÍTVE.
+   * HIDEG INDÍTÁS – EGY ELLENŐRZÉS, AZONNALI INDULÁS, NINCS FELUGRÓ ABLAK.
    *
-   * A hideg indítás eddig kizárólag a localStorage-ból olvasott. A webOS-on
-   * ez a tár kicsi és megosztott (beállítások, kézi napló, gyorsítótárak),
-   * ezért a benne lévő fejléc elveszhet. Ilyenkor a program üresnek látta
-   * magát, „nincs használható mentett lista” állapotba került, és a
-   * szolgáltatótól AZONNAL újratöltött MINDENT (élő lista, filmek,
-   * sorozatok) – ez volt az elfogadhatatlan viselkedés újraindításkor.
-   *
-   * A teljes katalógus viszont az IndexedDB-ben van (nagy kvóta, önálló
-   * tároló). Ezért induláskor, ha a localStorage-ban nincs használható lista,
-   * az IndexedDB-ből állítjuk helyre a kezdőképernyő tartalmát: a magyar
-   * csatornákat (a mentett sorrend magyar-első), a kategóriákat, majd a
-   * filmeket és a sorozatokat – HÁLÓZAT NÉLKÜL. A letöltés csak akkor
-   * indul, ha egyik tárolóban sincs semmi.
-   *
-   * A naplóba előbb egy tároló-jelentés kerül (kulcsszám, karakterek,
-   * IndexedDB darabszámok), hogy egy újabb hiba esetén egyetlen sorból
-   * látszódjon, hol volt a katalógus.
+   * A helyi induló készlet (magyar csatornák) már a modul betöltésekor a
+   * React állapotába került. Itt csak azt nézzük meg, hogy a TARTÓS tárban
+   * van-e teljes katalógus; ha igen, azonnal, hálózat nélkül visszatöltjük.
+   * A szolgáltatói letöltés kizárólag akkor indul, ha egyik tárban sincs
+   * használható lista.
    */
-  const bootProbeStartedRef = useRef(false);
-  const [bootProbeDone, setBootProbeDone] = useState(() => bootChannels.length > 0);
   useEffect(() => {
-    if (bootProbeStartedRef.current) return;
-    if (bootChannels.length > 0) {
-      setBootProbeDone(true);
-      return;
-    }
+    if (bootProbeStartedRef.current) return undefined;
     bootProbeStartedRef.current = true;
     let cancelled = false;
     void (async () => {
       try {
-        const report = await describeStoredContent();
+        const plan = await inspectStoredCatalogs();
+        const report = plan?.report || await describeStoredContent();
         appLog(
           `TÁROLÓ-JELENTÉS: localStorage=${report.localKeys} kulcs / ${report.localChars} karakter; `
-          + `induló készlet (localStorage)=${report.liveLocal} csatorna; IndexedDB: `
+          + `induló készlet=${report.liveLocal} csatorna; tartós tár: `
           + `élő=${report.liveIdb}, film=${report.vodIdb}, sorozat=${report.seriesIdb}.`
         );
-        const boot = await loadLiveBoot();
         if (cancelled) return;
-        if (!boot.provider || boot.channels.length === 0) {
-          appLog('Indulás: a tárolóban nincs használható csatornalista (localStorage és IndexedDB is üres).');
+        catalogPlanRef.current = plan;
+        setCatalogPlanReady(true);
+        if (!plan || (!plan.bootChannels.length && !plan.hasLive && !plan.hasVod && !plan.hasSeries)) {
+          appLog('Indulás: nincs használható mentett lista – automatikus első betöltés indul.');
+          setLiveRecoveryNeeded(true);
+          setBootProbeDone(true);
           return;
         }
-        const recoveredProvider = boot.provider;
-        const prepared = restoreSavedChannelOrder(hungaryFirst(boot.channels), recoveredProvider.id);
-        setChannels(prepared);
-        channelsRef.current = prepared;
-        if (boot.categories.length) setCategories(boot.categories);
-        setTotalCounts((current) => ({
-          live: Math.max(current.live, boot.totals.live),
-          vod: Math.max(current.vod, boot.totals.vod),
-          series: Math.max(current.series, boot.totals.series),
-        }));
-        setActiveProvider(recoveredProvider);
+        if (!bootChannels.length && plan.bootChannels.length) {
+          const prepared = restoreSavedChannelOrder(hungaryFirst(plan.bootChannels), plan.provider.id);
+          setChannels(prepared);
+          if (plan.bootCategories.length) setCategories(plan.bootCategories);
+          const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
+          const recoveredActiveId = savedLastId && prepared.some((channel) => channel.id === savedLastId)
+            ? savedLastId
+            : firstPlayableHungarianChannel(prepared)?.id;
+          if (recoveredActiveId) {
+            activeChannelIdRef.current = recoveredActiveId;
+            setActiveChannelId(recoveredActiveId);
+          }
+          appLog(`INDULÁS MENTETT ADATBÓL: ${prepared.length} csatorna azonnal, letöltés nélkül.`);
+        }
+        setActiveProvider(plan.provider);
         setProviderContentReady(true);
+        setTotalCounts((current) => ({
+          live: Math.max(current.live, plan.counts.live),
+          vod: Math.max(current.vod, plan.counts.vod),
+          series: Math.max(current.series, plan.counts.series),
+        }));
         setLiveRecoveryNeeded(false);
         setBootProbeDone(true);
-        /*
-         * A NÉZETT CSATORNA: ha a megjegyzett adó megvan a helyreállított
-         * listában, az indul; különben a legelső MAGYAR adó – ugyanaz a
-         * szabály, mint a betöltés végén.
-         */
-        const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
-        const recoveredActiveId = savedLastId && prepared.some((channel) => channel.id === savedLastId)
-          ? savedLastId
-          : firstPlayableHungarianChannel(prepared)?.id;
-        if (recoveredActiveId) {
-          activeChannelIdRef.current = recoveredActiveId;
-          setActiveChannelId(recoveredActiveId);
-        }
-        appLog(
-          `INDULÁS MENTETT ADATBÓL: ${prepared.length} csatorna azonnal, letöltés nélkül `
-          + `(a teljes lista: ${boot.totals.live} csatorna, ${boot.categories.length} kategória).`
-        );
-
-        /*
-         * A KATALÓGUS TÖBBI RÉSZE – a kezdőképernyő kifestése UTÁN.
-         *
-         * Sorban, egymás után (nem egyszerre): teljes élő lista → filmek →
-         * sorozatok. Így a visszaállítás nem vesz el CPU-t az első
-         * képkockától, és nem lesz memóriacsúcs a TV-n.
-         */
-        const providerForRestore = recoveredProvider;
-        window.setTimeout(() => {
-          if (cancelled || providerRefreshActiveRef.current) return;
-          void (async () => {
-            try {
-              if (boot.totals.live > prepared.length) {
-                const full = await loadLiveFull(providerForRestore);
-                if (cancelled || !full || providerRefreshActiveRef.current) return;
-                setChannels((current) => (current.length >= full.channels.length
-                  ? current
-                  : restoreSavedChannelOrder(hungaryFirst(full.channels), providerForRestore.id)));
-                if (full.categories.length) setCategories((current) => (current.length ? current : full.categories));
-                setTotalCounts((current) => (current.live >= full.totals.live ? current : full.totals));
-                appLog(`Teljes élő csatornalista a felületen: ${full.channels.length} csatorna (IndexedDB).`);
-              }
-              const vod = await loadVodAsync(providerForRestore);
-              if (cancelled) return;
-              if (vod.movies.length) {
-                setMovies(vod.movies);
-                if (vod.categories.length) setVodCategories(vod.categories);
-                appLog(`Filmek a tárolóból: ${vod.movies.length} film, letöltés nélkül.`);
-              }
-              const ser = await loadSeriesAsync(providerForRestore);
-              if (cancelled) return;
-              if (ser.series.length) {
-                setSeries(ser.series);
-                if (ser.categories.length) setSeriesCategories(ser.categories);
-                appLog(`Sorozatok a tárolóból: ${ser.series.length} sorozat, letöltés nélkül.`);
-              }
-            } catch (error) {
-              appLogError('Mentett katalógus betöltése', error);
-            }
-          })();
-        }, 800);
+        // NINCS 800/900/1200 ms várakozás: a háttér-visszatöltés azonnal indul.
+        void runRestore(plan);
       } catch (error) {
-        appLogError('Induló készlet betöltése a tárolóból', error);
+        appLogError('Indulás a tartós tárból', error);
+        setLiveRecoveryNeeded(true);
       } finally {
         if (!cancelled) setBootProbeDone(true);
       }
     })();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (!bootLive.provider) return;
-    const ric = (window as any).requestIdleCallback;
-    let timer = 0;
-    // A késleltetés szándékos: a lejátszás elindulása és az első képkocka
-    // előzi meg a nagy JSON-ok beolvasását. Ha a néző közben a Mozi/Sorozat
-    // menüre lép, az ensureVodLoaded() azonnal elindítja.
-    timer = window.setTimeout(() => {
-      const start = () => {
-        /*
-         * EGYSZERI ÁTÁLLÁS A KIS localStorage-KÉSZLETRE.
-         *
-         * A korábbi verzió a TELJES élő listát a localStorage-ba mentette
-         * (20 190 csatorna ≈ 3,9 MB). Ez a webOS ~5 MB-os kvótáját a határig
-         * töltötte, ezért a mentés kvótahibába futott – és az alkalmazás
-         * üresen indult. Itt, üresjáratban, egyszer újramentjük:
-         *   • localStorage: csak az induló (magyar) készlet,
-         *   • IndexedDB:   a teljes lista.
-         * Ezzel ~3,8 MB szabadul fel, és a lista újraindítás után is megmarad.
-         */
-        let compact = false;
-        try {
-          compact = needsLiveCacheCompaction();
-        } catch {
-          compact = false;
-        }
-        // A félbe maradt, elárvult tároló-adagok törlése (egyszer, induláskor):
-        // helyet ad a következő mentésnek és nem lassítja a betöltést.
-        try {
-          sweepStorage();
-        } catch {
-          /* a takarítás sosem akadályozhatja az indulást */
-        }
-        if (compact && bootLive.provider && bootChannels.length > 0 && !providerRefreshActiveRef.current) {
-          appLog('Tároló: az élő csatornalista áthelyezése (magyar készlet a localStorage-ba, teljes lista az IndexedDB-be).');
+    // A félbe maradt generációk takarítása egyszer, az első képkocka UTÁN.
+    const sweepTimer = window.setTimeout(() => {
+      try {
+        sweepStorage();
+        if (needsLiveCacheCompaction() && bootLive.provider && bootChannels.length > 0
+          && !providerRefreshActiveRef.current) {
           saveLiveContentSafely({
             provider: bootLive.provider,
             savedAt: bootLive.savedAt || new Date().toISOString(),
             channels: bootChannels,
-            movies: [],
-            series: [],
+            movies: [], series: [],
             liveCategories: bootLive.categories,
-            vodCategories: [],
-            seriesCategories: [],
+            vodCategories: [], seriesCategories: [],
             totals: bootLive.totals,
           });
         }
-        ensureVodLoaded();
-      };
-      if (typeof ric === 'function') ric(start, { timeout: 2000 });
-      else start();
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [ensureVodLoaded]);
-
-  /*
-   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE AZ INDEXEDDB-BŐL.
-   *
-   * A localStorage-ban szándékosan csak az INDULÓ készlet van (a magyar
-   * csatornák), mert a teljes 20 000 csatornás lista ~3,9 MB, és a webOS
-   * ~5 MB-os kvótáján osztozik a beállításokkal, a poszter-gyorsítótárral és
-   * a kézi naplóval (akár 1 MB). A 2.5.114-es TV-napló szerint a tár már a
-   * mentés közben megtelt (75 kulcs / 5115 kB), a félbeszakadt mentés pedig
-   * törölte a korábbi adagokat – ezért indult az alkalmazás üresen minden
-   * újraindítás után.
-   *
-   * A teljes lista ezért az IndexedDB-ben van (nagy kvóta, megmarad), és itt,
-   * az ELSŐ KÉPKOCKA UTÁN, üresjáratban kerül vissza a felületre. A nézett
-   * csatorna nem változik, a lejátszás nem indul újra (a stream URL ugyanaz).
-   */
-  const liveFullLoadStartedRef = useRef(false);
-  useEffect(() => {
-    const provider = bootLive.provider;
-    if (!provider) return undefined;
-    let cancelled = false;
-
-    const applyFullLiveList = (full: LoadedLiveFull) => {
-      if (cancelled || providerRefreshActiveRef.current) return;
-      // Csak UGYANAHHOZ a szolgáltatóhoz tartozó listát fogadjuk el: ha a
-      // localStorage fejléce egy másik (régebbi) szolgáltatóé, a két lista
-      // keveredése rosszabb lenne, mint a régi lista megtartása.
-      if (full.provider && full.provider.id !== provider.id) return;
-      setChannels((current) => {
-        // Ha közben egy import már teljesebb listát adott, nem írjuk felül.
-        if (current.length >= full.channels.length) return current;
-        const prepared = restoreSavedChannelOrder(hungaryFirst(full.channels), provider.id);
-        const merged = preserveChannelPreferences(prepared, current, false);
-        appLog(`Teljes élő csatornalista a felületen: ${merged.length} csatorna (IndexedDB).`);
-        return merged;
-      });
-      setCategories((current) => (current.length ? current : full.categories));
-      setTotalCounts((current) => (current.live >= full.totals.live ? current : full.totals));
-    };
-
-    /*
-     * Ha a localStorage-ból EGYETLEN adag sem volt olvasható (a korábbi verzió
-     * félbeszakadt mentése), azonnal indulunk – ilyenkor ez a lista pótolja a
-     * hiányzó tartalmat. Egyébként 900 ms-ot várunk: addigra a főoldal és a
-     * lejátszás elindult, és a film/sorozat betöltése (1,2 s) sem esik egybe
-     * vele. A magyar lista közben már látszik, ehhez nem kell a teljes lista.
-     */
-    const delay = bootLive.pendingFull || bootChannels.length === 0 ? 0 : 900;
-    const timer = window.setTimeout(() => {
-      if (cancelled || liveFullLoadStartedRef.current) return;
-      liveFullLoadStartedRef.current = true;
-      logPhase('teljes élő csatornalista betöltése indul (IndexedDB)');
-      void loadLiveFull(provider)
-        .then((full) => {
-          if (full) {
-            applyFullLiveList(full);
-            return;
-          }
-          // A fejléc szerint VAN mentett lista, de sem a localStorage-ból, sem
-          // az IndexedDB-ből nem jött vissza: helyreállítás kell.
-          if (bootLive.pendingFull) setLiveRecoveryNeeded(true);
-        })
-        .catch((error) => appLogError('Teljes élő csatornalista betöltése', error));
-    }, delay);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, []);
+      } catch { /* a takarítás sosem akadályozhatja az indulást */ }
+    }, 1500);
+    return () => { cancelled = true; window.clearTimeout(sweepTimer); };
+  }, [runRestore]);
 
   // Kedvencek / sorrend módosítása után mentsük a tartalmat (késleltetve).
   //
@@ -1948,7 +1784,7 @@ export function App() {
   // a több tízezer film letöltését. A részleges szakaszok csak előnézetként
   // jelennek meg; a teljes, metaadattal kiegészített snapshot egyszer kerül
   // tartósan mentésre az import végén.
-  const handleRefreshProvider = async (providerOrId: string | ProviderAccount, manual = true) => {
+  const handleRefreshProvider = async (providerOrId: string | ProviderAccount, manual = true, silent = false) => {
     // QR-es hozzáadás után a React providers állapota ebben a renderben még régi lehet.
     // Az átadott ProviderAccount ezért közvetlenül használható, nem veszhet el az első import.
     const provider = typeof providerOrId === 'string'
@@ -1956,6 +1792,8 @@ export function App() {
       : providerOrId;
     if (!provider) return;
     const id = provider.id;
+    // Egy futó háttér-visszatöltés nem írhatja felül a friss import eredményét.
+    cancelStoredContentRestore();
     const refreshGeneration = refreshGenerationRef.current + 1;
     refreshGenerationRef.current = refreshGeneration;
     const providersForRefresh = providers.some((p) => p.id === id)
@@ -1978,7 +1816,8 @@ export function App() {
     clearEpgCache();
     setEpgRevision((revision) => revision + 1);
     setProviderContentReady(false);
-    setDiagnosticOpen(true);
+    // Automatikus betöltésnél NINCS felugró diagnosztikai ablak.
+    setDiagnosticOpen(manual && !silent);
     setDiagnosticEvents([]);
     diagnosticEventsRef.current = [];
     setDiagnosticError(null);
@@ -2034,7 +1873,14 @@ export function App() {
       warnings: [],
     };
 
-    /** Egy-egy szakasz azonnal a felületre kerül; tartós mentés csak a végén van. */
+    /** Melyik szakasz került MÁR a tartós tárba az import közben. */
+    const durableSaved = { live: false, vod: false, series: false };
+
+    /**
+     * Egy-egy szakasz azonnal a felületre kerül, ÉS azonnal a tartós tárba is.
+     * A 67 mp-es import alatt bármikor bezárhatják az alkalmazást: ilyenkor a
+     * már kész listák megmaradnak, nem kell újra letölteni őket.
+     */
     const applyPartial = async (partial: PartialContent): Promise<void> => {
       if (refreshGenerationRef.current !== refreshGeneration) return;
       if (partial.totals) draft.totals = { ...draft.totals, ...partial.totals };
@@ -2082,7 +1928,7 @@ export function App() {
          * sorozatok még töltődnek) – nem a hiányos előnézet közben, mert akkor
          * a néző elől eltakarná a már nézhető adást a betöltés legelején.
          */
-        if (liveComplete && partial.channels.length > 0 && !refreshLivePromptShownRef.current) {
+        if (manual && !silent && liveComplete && partial.channels.length > 0 && !refreshLivePromptShownRef.current) {
           refreshLivePromptShownRef.current = true;
           setRefreshLivePromptOpen(true);
         }
@@ -2128,14 +1974,25 @@ export function App() {
       // ELŐNÉZET (a teljes lista még töltődik): csak megjelenítés, hogy a
       // néző azonnal választhasson csatornát. Félkész listát NEM mentünk a
       // tárolóba – így nem maradhat hiányos adat a TV-n.
-      if (!partial.preview) {
-        // A TÁROLÁS HIBÁJA NEM BETÖLTÉSI HIBA. Az adat már itt van a memóriában
-        // és a felületen; a cache csak a következő indulást gyorsítja. Ezért a
-        // mentést mindig külön védjük: egy megtelt tár miatt soha ne álljon meg
-        // a betöltés és ne jelenjen meg hibaüzenet.
-        if (partial.channels) saveLiveContentSafely(draft);
-        if (partial.movies) await saveVodContentSafely(draft);
-        if (partial.series) await saveSeriesContentSafely(draft);
+      if (partial.durable || !partial.preview) {
+        /*
+         * A TÁROLÁS HIBÁJA NEM BETÖLTÉSI HIBA – de a mentésnek MOST kell
+         * megtörténnie, nem a 67 mp-es import legvégén. A draft későbbi
+         * szakaszai nem írhatják át egy már futó mentés adatait, ezért
+         * pillanatképet (snapshot) adunk át.
+         */
+        const snapshot: ImportedContent = {
+          ...draft,
+          channels: draft.channels.slice(),
+          movies: draft.movies.slice(),
+          series: draft.series.slice(),
+          liveCategories: draft.liveCategories.slice(),
+          vodCategories: draft.vodCategories.slice(),
+          seriesCategories: draft.seriesCategories.slice(),
+        };
+        if (partial.channels) { durableSaved.live = true; saveLiveContentSafely(snapshot); }
+        if (partial.movies) { durableSaved.vod = true; await saveVodContentSafely(snapshot); }
+        if (partial.series) { durableSaved.series = true; await saveSeriesContentSafely(snapshot); }
       }
 
       setProviders((current) => {
@@ -2306,49 +2163,35 @@ export function App() {
         },
       };
       /*
-       * CSAK A VÁLTOZÁSOKAT DOLGOZZUK FEL.
+       * NINCS TÖBB 100 EZER ELEMES ÖSSZEHASONLÍTÁS A FŐSZÁLON.
        *
-       * A frissítés végén összevetjük a most letöltött listát a tárolttal, és
-       * csak azt írjuk ki, ami tényleg új, módosult vagy törölt. Ha semmi nem
-       * változott, a tárolóhoz hozzá sem nyúlunk – nincs 100 adag újraírása
-       * egy olyan listáért, ami bitre ugyanaz.
+       * A 2.5.126-os TV-napló 13 027 ms-es főszál-leállást mért közvetlenül
+       * az import után: három `diffCatalogs()` hívás 100 ezer elemen épített
+       * Map-et, Set-et és stringeket, és CSAK EZUTÁN kezdődött a mentés. Ha a
+       * néző közben bezárta az alkalmazást, semmi nem íródott ki – és a
+       * következő indulás újra letöltött mindent.
        *
-       * A kulcs a szolgáltató stabil azonosítója (stream_id / series_id), nem
-       * a sorszám: egy csatorna törlése nem jelölheti „megváltozottnak” az
-       * összes utána következőt.
+       * Most a listákat már az import KÖZBEN, szakaszonként, kötegelten írjuk
+       * a tartós tárba. Itt csak a változás TÉNYÉT állapítjuk meg – olcsón,
+       * darabszám-eltérésből –, és csak azokat a szakaszokat mentjük, amelyek
+       * valamilyen okból kimaradtak.
        */
-      const channelDiff = diffCatalogs(
-        previousChannels,
-        persistedChannels,
-        (channel) => String(channel.streamId ?? channel.id),
-        (channel) => `${channel.name}|${channel.categoryId}|${channel.streamUrl}|${channel.logo}`
-      );
-      const movieDiff = diffCatalogs(
-        previousMovies,
-        persistedMovies,
-        (movie) => String(movie.streamId ?? movie.id),
-        (movie) => `${movie.title}|${movie.categoryId}|${movie.poster}`
-      );
-      const seriesDiff = diffCatalogs(
-        previousSeries,
-        persistedSeries,
-        (item) => String(item.seriesId ?? item.id),
-        (item) => `${item.title}|${item.categoryId}|${item.poster}`
-      );
+      const countLabel = (label: string, before: number, after: number): string => {
+        const delta = after - before;
+        if (delta === 0) return '';
+        return `${delta > 0 ? '+' : '−'}${Math.abs(delta).toLocaleString('hu-HU')} ${label}`;
+      };
+      const changes = [
+        countLabel('csatorna', previousChannels.length, persistedChannels.length),
+        countLabel('film', previousMovies.length, persistedMovies.length),
+        countLabel('sorozat', previousSeries.length, persistedSeries.length),
+      ].filter(Boolean);
       if (liveToShow) setChannels(liveToShow);
       channelsRef.current = liveToShow || previousChannels;
       /*
        * A lejátszó és a D-pad navigáció CSAK akkor áll át másik csatornára, ha
        * a nézett azonosító valóban nincs az új listában – és akkor is a MAGYAR
-       * sorrend első csatornájára. Korábban ez a nyers, rendezetlen
-       * `refreshedContent.channels[0]` volt, vagyis a szolgáltató lista első
-       * (többnyire külföldi) adója: ezért „vette át” a betöltés a beállított
-       * Magyar ország / magyar csatornák helyét.
-       */
-      /*
-       * A frissítés végén a MEGJELENÍTETT (a nézett csatornát is megtartó)
-       * listából döntünk, nem a nyers szolgáltatói listából: ha a nézett adó
-       * a listában maradt, a lejátszás UGYANAZON a csatornán folytatódik.
+       * sorrend első csatornájára.
        */
       setLiveListComplete(true);
       keepOrMoveActiveChannel(hungaryFirst(persistedChannels), true);
@@ -2358,24 +2201,21 @@ export function App() {
       if (seriesToShow) setSeries(seriesToShow);
       setSeriesCategories((current) => (sameCategories(current, contentForStorage.seriesCategories) ? current : contentForStorage.seriesCategories));
       setTotalCounts(contentForStorage.totals);
-      // A preview-szakaszok szándékosan nem írnak tartós listát. A végső,
-      // enrichmentelt snapshotot pontosan egyszer mentjük, így a részleges
-      // betöltések nem okoznak dupla/nem-metaadatos mentést.
-      /*
-       * MENTÉS CSAK AKKOR, HA VAN MIT MENTENI.
-       * Új szolgáltatónál (vagy ha a kategóriák változtak) természetesen
-       * mindent kiírunk; egyébként csak azt a listát, amelyik tényleg
-       * megváltozott – így egy „semmi sem változott” frissítés nem ír ki
-       * több ezer sort a tárolóba.
-       */
-      const liveCategoriesChanged = !sameCategories(categoriesRef.current, contentForStorage.liveCategories);
-      const vodCategoriesChanged = !sameCategories(vodCategoriesRef.current, contentForStorage.vodCategories);
-      const seriesCategoriesChanged = !sameCategories(seriesCategoriesRef.current, contentForStorage.seriesCategories);
-      const touches = (diff: { added: number; removed: number; changed: number }, categoriesChanged: boolean) =>
-        !isSameProvider || categoriesChanged || diff.added + diff.removed + diff.changed > 0;
-      if (touches(channelDiff, liveCategoriesChanged)) saveLiveContentSafely(contentForStorage);
-      if (touches(movieDiff, vodCategoriesChanged)) await saveVodContentSafely(contentForStorage);
-      if (touches(seriesDiff, seriesCategoriesChanged)) await saveSeriesContentSafely(contentForStorage);
+
+      // A szakaszok már a tartós tárban vannak. Csak a hiányzókat pótoljuk,
+      // hogy egy régebbi importút (M3U, hiba utáni részleges eredmény) se
+      // maradjon mentés nélkül.
+      if (!durableSaved.live) saveLiveContentSafely(contentForStorage);
+      if (!durableSaved.vod) await saveVodContentSafely(contentForStorage);
+      if (!durableSaved.series) await saveSeriesContentSafely(contentForStorage);
+      // A 20 részletes VOD-metaadat külön, néhány kB-os rekordba kerül:
+      // visszatöltéskor a megfelelő filmekre/sorozatokra ráolvassuk.
+      await saveCatalogExtras(id, contentForStorage.movies, contentForStorage.series);
+      const fingerprint = 'fingerprint' in result && typeof result.fingerprint === 'string'
+        ? result.fingerprint
+        : providerFingerprint(contentForStorage);
+      setCatalogFingerprint(fingerprint, draft.provider);
+      markCatalogChecked();
       dirtyRef.current = false;
 
       const finishedAt = performance.now();
@@ -2393,11 +2233,7 @@ export function App() {
        * kategóriaszámokkal, és csak VALÓDI hiány számít figyelmeztetésnek.
        */
       const summary = describeCatalogSummary(contentForStorage);
-      const changeText = [
-        describeCatalogDiff(channelDiff, 'csatorna'),
-        describeCatalogDiff(movieDiff, 'film'),
-        describeCatalogDiff(seriesDiff, 'sorozat'),
-      ].filter(Boolean).join(', ');
+      const changeText = changes.join(', ');
       const finalProgress = {
         phase: summary.phase,
         detail:
@@ -2536,10 +2372,59 @@ export function App() {
       if (autoRestoreStartedRef.current) return;
       autoRestoreStartedRef.current = true;
       appLog(`Nincs használható mentett lista – automatikus helyreállítás indul: ${candidate.name}.`);
-      void refreshRef.current(candidate, false);
-    }, 2500);
+      // Nincs 2,5 mp várakozás: azonnal indul, és NEM nyit felugró ablakot.
+      void refreshRef.current(candidate, false, true);
+    }, 0);
     return () => window.clearTimeout(timer);
   }, [liveRecoveryNeeded, bootProbeDone]);
+
+  /*
+   * STALE-WHILE-REVALIDATE – a referencia xtream-catalog.ts elve.
+   *
+   * A mentett katalógust AZONNAL, ellenőrzés nélkül kiszolgáljuk. A
+   * frissességet csak a TTL lejárta után, EGYETLEN olcsó (~44 kB)
+   * kategória-kéréssel vizsgáljuk, az első képkockától számított 45 mp
+   * múlva, teljesen hangtalanul. Ha nem változott semmi, CSAK a
+   * frissességi bélyeget írjuk újra – nem a 25 MB-nyi listát.
+   */
+  const backgroundCheckStartedRef = useRef(false);
+  useEffect(() => {
+    if (!catalogPlanReady || backgroundCheckStartedRef.current) return undefined;
+    const plan = catalogPlanRef.current;
+    if (!plan || !catalogNeedsCheck(plan.state)) return undefined;
+    const account = providers.find((item) => item.id === plan.provider.id)
+      || providers.find((item) => item.isActive) || providers[0];
+    if (!account || account.type !== 'xtream' || !account.serverUrl
+      || !account.username || !account.password) return undefined;
+    backgroundCheckStartedRef.current = true;
+    const ttlHours = Math.round(CATALOG_TTL_MS / (60 * 60 * 1000));
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const check = await checkProviderChanges({
+            serverUrl: account.serverUrl!,
+            username: account.username!,
+            password: account.password!,
+            fingerprint: plan.state?.fingerprint || undefined,
+            lastFullSyncAt: plan.savedAt || undefined,
+          });
+          if (check.unchanged) {
+            markCatalogChecked();
+            appLog(
+              `Háttér-ellenőrzés (${ttlHours} órás frissességi ablak): a kategóriák nem változtak `
+              + `(${check.counts.live}/${check.counts.vod}/${check.counts.series}); a teljes listák nem töltődnek újra.`
+            );
+          } else {
+            appLog('Háttér-ellenőrzés: a katalógus változott – csendes frissítés indul, felugró ablak nélkül.');
+            void refreshRef.current(account, false, true);
+          }
+        } catch (error) {
+          appLogError('Háttér-ellenőrzés', error);
+        }
+      })();
+    }, 45000);
+    return () => window.clearTimeout(timer);
+  }, [catalogPlanReady, providers]);
 
   const closeRefreshDiagnostic = useCallback(() => {
     // A VISSZA csak a diagnosztikai ablakot zárja be; a háttérben már futó

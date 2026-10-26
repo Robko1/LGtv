@@ -70,6 +70,17 @@ export interface PartialContent {
    */
   preview?: boolean;
   /**
+   * A SZAKASZ VÉGLEGES ÉS TARTÓSÍTANDÓ.
+   *
+   * A teljes import 60–70 mp. Ha a mentést csak a LEGVÉGÉRE tesszük (a régi
+   * kód így működött), akkor egy bezárás az import utáni másodpercekben
+   * mindhárom listát elveszíti – a következő indulás pedig újra letölt
+   * mindent. A `durable` jelző azt mondja a felületnek, hogy ez a lista
+   * KÉSZ: azonnal, külön szakaszként írja a tartós tárba, miközben a többi
+   * szakasz még letöltés alatt áll.
+   */
+  durable?: boolean;
+  /**
    * AZ ÉLŐ LISTA ELKÉSZÜLT.
    *
    * Az élő szakasz a teljes csatornalistát egyszerre tölti le, de amíg a filmek
@@ -1168,6 +1179,7 @@ export async function importXtreamProvider(
     totals: { live: liveStreamCount },
     preview: true,
     liveComplete: true,
+    durable: true,
   });
   onProgress({
     phase: 'Élő csatornák kész',
@@ -1404,7 +1416,7 @@ export async function importXtreamProvider(
     movies = decodedMovies;
     vodCats = buildCategories(vodCategories, 'vc-', 'movie', vodCounts);
 
-    await onPartial({ preview: true, movies, vodCategories: vodCats, totals: { vod: movies.length } });
+    await onPartial({ preview: true, durable: true, movies, vodCategories: vodCats, totals: { vod: movies.length } });
     logProviderPhaseEnd(
       'filmek',
       `${movies.length} film, ${vodCats.length} kategória (út=${bulkUsed ? 'bulk (1 kérés)' : 'kategóriánként'})`,
@@ -1610,7 +1622,7 @@ export async function importXtreamProvider(
     series = decodedSeries;
     seriesCats = buildCategories(seriesCategories, 'sc-', 'series', seriesCounts);
 
-    await onPartial({ preview: true, series, seriesCategories: seriesCats, totals: { series: series.length } });
+    await onPartial({ preview: true, durable: true, series, seriesCategories: seriesCats, totals: { series: series.length } });
     logProviderPhaseEnd(
       'sorozatok',
       `${series.length} sorozat, ${seriesCats.length} kategória (út=${bulkSeriesUsed ? 'bulk (1 kérés)' : 'kategóriánként'})`,
@@ -2031,8 +2043,8 @@ export async function importM3UProvider(
     warnings: m3uWarnings,
   };
 
-  await onPartial({ preview: true, liveComplete: true, channels: live, liveCategories: liveCats, totals: { live: live.length } });
-  await onPartial({ preview: true, movies: content.movies, vodCategories: vodCats, totals: { vod: movies.length } });
+  await onPartial({ preview: true, durable: true, liveComplete: true, channels: live, liveCategories: liveCats, totals: { live: live.length } });
+  await onPartial({ preview: true, durable: true, movies: content.movies, vodCategories: vodCats, totals: { vod: movies.length } });
 
   const totalMs = Math.round(performance.now() - startedAt);
   logPhase(`M3U import kész: ${totalMs} ms`);
