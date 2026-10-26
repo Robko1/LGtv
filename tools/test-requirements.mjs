@@ -1172,6 +1172,18 @@ test('13. a Supabase napló-Edge Function nem ad vissza QR-linket, és öt rekor
   assert.match(EDGE, /log_number: body\.logNumber/);
   assert.match(EDGE, /started_at: startedAt/);
   assert.doesNotMatch(EDGE, /url: base \+|QRCode|expiresAt: expires/);
+  /*
+   * A takarítás a BEÉRKEZÉS ideje szerint dönt, és NEM a sorszám szerint.
+   *
+   * Egy frissen telepített IPK-nál a napló sorszáma a localStorage törlése
+   * miatt újra 1-ről indul. A korábbi `order=log_number.desc` rendezésben ez
+   * az #1-es napló az utolsó helyre került, a törlés pedig pontosan azt
+   * törölte – miközben a TV „sikeresen elküldve” (HTTP 201) üzenetet kapott.
+   * A napló tehát soha nem érkezett meg, pedig a küldés sikeresnek látszott.
+   */
+  assert.doesNotMatch(EDGE, /order=log_number\.desc/);
+  assert.match(EDGE, /select=id,log_number,created_at&order=created_at\.desc&limit=1000/);
+  assert.match(EDGE, /order=created_at\.desc&limit=" \+ MAX_LOG_ROWS/);
 });
 
 /* ══════════════ 14. Feliratkeresés naplózása és kézi újrapróbálkozás ══════════════ */
