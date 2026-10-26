@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bug, Circle, Clock3, History, Loader2, Send } from 'lucide-react';
 import {
   dateTimeText,
+  discardSentAppLog,
   getAppLogText,
   manualLogSnapshot,
   startManualLogging,
@@ -123,8 +124,17 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
       rememberDiagnosticLog(record);
       setSentRecord(record);
       setHistory((previous) => [record, ...previous.filter((item) => item.logNumber !== record.logNumber)].slice(0, 5));
-      setNotice(`Elküldve: napló #${record.logNumber} – ${formatRecordDate(record.createdAt)}. A naplózás automatikusan leállt.`);
-      setSnapshot(manualLogSnapshot());
+      /*
+       * SIKERES KÜLDÉS: a napló tartalma már a szerveren van, ezért a TV-n
+       * nem maradhat: a RAM-ból (akár 1 MB) és a localStorage-ból is
+       * törlődik, így felszabadul a memória és a szűk tárhely. A következő
+       * naplózás tiszta adatokkal indul.
+       *
+       * SIKERTELEN küldésnél ez NEM fut le (a hibaágban marad a napló), hogy
+       * a gombbal újra elküldhető legyen.
+       */
+      setSnapshot(discardSentAppLog());
+      setNotice(`Elküldve: napló #${record.logNumber} – ${formatRecordDate(record.createdAt)}. A naplózás automatikusan leállt, a napló tartalma törlődött a TV-ről.`);
     } catch (cause) {
       setError(`A napló küldése nem sikerült: ${String(cause).slice(0, 180)}`);
       setSnapshot(manualLogSnapshot());

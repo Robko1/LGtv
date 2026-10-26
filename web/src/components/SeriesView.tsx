@@ -216,7 +216,8 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                   onSelectedCategoryChange?.(cat.id);
                   setIsCategoryMenuOpen(false);
                 }}
-                className={`w-full text-left px-4 py-3 rounded-lg text-base font-bold transition-all ${
+                /* A kategórianevek nagyobb betűvel, a doboz KÖZEPÉRE igazítva (a doboz mérete változatlan). */
+                className={`flex h-12 w-full items-center justify-center overflow-hidden rounded-lg px-4 text-center text-xl sm:text-2xl font-bold leading-none transition-all ${
                   selectedCategory === cat.id
                     ? 'bg-cyan-400 text-slate-950 font-black'
                     : 'bg-[#0e1d3a] text-slate-300 border border-slate-700/60 hover:bg-[#142850]'

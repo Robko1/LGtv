@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.5.122';
+export const WEB_VERSION = '2.5.123';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.123',
+    date: '2026-10-26',
+    changes: [
+      'KÉZI HIBAKERESÉSI NAPLÓ – SIKERES KÜLDÉS UTÁN TÖRLŐDIK: eddig a már elküldött napló a memóriában (akár 1 MB) és a localStorage-ban (120 000 karakter) is ott maradt. Most siker esetén mindkettő törlődik, így felszabadul a TV memóriája és tárhelye; a következő naplózás tiszta adatokkal indul, és ugyanazokat az eseményeket rögzíti',
+      'SIKERTELEN KÜLDÉSNÉL a napló megmarad a memóriában és a tárban is, hogy a „Küldés” gombbal újra elküldhető legyen – a törlés kizárólag a sikeres küldés után fut le',
+      'MOZI/SOROZAT KATEGÓRIALISTA: a lenyíló lista kategórianevei nagyobb betűvel (text-xl / nagyobb kijelzőn text-2xl), vízszintesen és függőlegesen a doboz közepére igazítva jelennek meg; a dobozok mérete és a lista elrendezése változatlan',
+      'BETÖLTÉSI DIAGNOSZTIKA – NAGYOBB FELIRATOK: a fázis neve, a részletek, a csík alatti „ELTELT IDŐ / HÁLÓZATI KÉRÉSEK” sor, valamint a négy alsó kártya (Teljes idő, Sikeres, Adat, Leghosszabb) feliratai és számai akkorák, mint a felső fehér cím; a hibát és a kész állapotot mutató dobozok szövege is ekkora. A kör közepén a betöltési százalék mérete nem változott',
+      'A BETÖLTÉSI DIAGNOSZTIKA tetejéről a kék „QUANTUM IPTV CORE” verziófelirat teljesen eltűnt',
+    ],
+  },
   {
     version: '2.5.122',
     date: '2026-10-26',

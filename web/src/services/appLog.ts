@@ -371,6 +371,31 @@ export function clearAppLog(): void {
 }
 
 /**
+ * A SIKERESEN ELKÜLDÖTT NAPLÓ ELDOBÁSA.
+ *
+ * A napló tartalma a küldés után is a memóriában (akár 1 MB) ÉS a
+ * localStorage-ban (120 000 karakter) maradt, holott a Supabase-en már megvan.
+ * Ez feleslegesen foglalta a TV memóriáját és a szűk tárhelyét.
+ *
+ * Ezért sikeres küldés után a napló sorai a RAM-ból és a localStorage-ból is
+ * törlődnek, a munkamenet (naplószám, kezdő időpont, stopperóra) lezárul, és a
+ * következő naplózás tiszta adatokkal indul – ugyanazokkal az eseményekkel.
+ *
+ * SIKERTELEN küldésnél ez a függvény NEM fut le: olyankor a napló a memóriában
+ * marad, hogy a „Küldés” gombbal újra elküldhető legyen.
+ *
+ * A naplózási funkciók és a naplózott események köre változatlan: csak a már
+ * elküldött tartalom tűnik el.
+ */
+export function discardSentAppLog(): ManualLogSnapshot {
+  clearAppLog();
+  activeLogNumber = null;
+  activeLogStartedAt = 0;
+  activeLogStoppedAt = 0;
+  return manualLogSnapshot();
+}
+
+/**
  * Naplószintű biztonsági öv: a későbbi hibakeresési sorok se tehessenek ki
  * véletlenül Xtream-belépési adatot. A stream- és felirat-útvonalakban a
  * felhasználónév/jelszó a `live|movie|series|subtitle` után áll; a query

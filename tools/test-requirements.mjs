@@ -1726,8 +1726,8 @@ test('22. az élő lista újraindítás után is megmarad (localStorage + Indexe
     'két különböző szolgáltató listája keveredhet');
   // A verzió is a mentés-javítást hirdeti.
   const version = read('web/src/appVersion.ts');
-  assert.match(version, /export const WEB_VERSION = '2\.5\.122';/,
-    'a verzió nem 2.5.122');
+  assert.match(version, /export const WEB_VERSION = '2\.5\.123';/,
+    'a verzió nem 2.5.123');
   assert.match(version, /ADATVESZTÉS ÚJRAINDÍTÁSKOR/,
     'a kiadási napló nem írja le az adatvesztés javítását');
 });
@@ -1800,4 +1800,82 @@ test('23. hideg indítás mentett adatból (nincs újratöltés) és leálló el
     'a napló-ablak nem figyeli, hogy aktív-e a naplózás');
   assert.match(DIAG_MODAL, /if \(!isOpen \|\| !loggingActive\) return undefined;/,
     'a napló-ablak leállított naplózásnál is frissíti a számlálót');
+});
+
+/* ───── 24. Sikeres küldés után törlődő napló, nagyobb feliratok ───── */
+
+test('24. sikeres küldés után a napló törlődik, a feliratok nagyobbak', () => {
+  const APPLOG = read('web/src/services/appLog.ts');
+  const DIAG_MODAL = read('web/src/components/DiagnosticShareModal.tsx');
+  const MOVIES = read('web/src/components/MoviesView.tsx');
+  const SERIES = read('web/src/components/SeriesView.tsx');
+  const LOADING = read('web/src/components/LoadingDiagnosticModal.tsx');
+
+  /*
+   * 1. SIKERES KÜLDÉS UTÁN TÖRLŐDŐ NAPLÓ.
+   *
+   * A napló tartalma a küldés után is a memóriában (akár 1 MB) és a
+   * localStorage-ban (120 000 karakter) maradt. Most siker esetén mindkettő
+   * törlődik, a következő naplózás tiszta adatokkal indul; sikertelen
+   * küldésnél a napló megmarad az újrapróbálkozáshoz.
+   */
+  assert.match(
+    APPLOG,
+    /export function discardSentAppLog\(\): ManualLogSnapshot \{/,
+    'nincs „sikeres küldés után törlődik a napló” művelet',
+  );
+  const discardBody = APPLOG.slice(APPLOG.indexOf('export function discardSentAppLog'));
+  assert.match(discardBody.slice(0, 400), /clearAppLog\(\);/, 'a törlés nem üríti a memóriabeli naplót');
+  assert.match(
+    APPLOG,
+    /localStorage\.removeItem\(`iptv_rt_\$\{STORE_KEY\}`\)/,
+    'a törlés nem viszi ki a naplót a localStorage-ból',
+  );
+  assert.match(discardBody.slice(0, 400), /activeLogNumber = null;/, 'a lezárt napló sorszáma aktív marad');
+  assert.match(discardBody.slice(0, 400), /activeLogStartedAt = 0;/, 'a lezárt napló kezdete aktív marad');
+
+  // A törlés KIZÁRÓLAG a sikeres ágban fut le, a hibaágban nem.
+  const sendIndex = DIAG_MODAL.indexOf('const record = await sendDiagnosticLog(');
+  const discardIndex = DIAG_MODAL.indexOf('setSnapshot(discardSentAppLog());');
+  const catchIndex = DIAG_MODAL.indexOf('} catch (cause) {');
+  assert.ok(sendIndex > 0 && discardIndex > 0 && catchIndex > 0, 'a küldés/törlés bekötése hiányzik');
+  assert.ok(sendIndex < discardIndex && discardIndex < catchIndex,
+    'a napló nem a SIKERES küldés után törlődik');
+  const catchBody = DIAG_MODAL.slice(catchIndex, DIAG_MODAL.indexOf('} finally {'));
+  assert.doesNotMatch(catchBody, /discardSentAppLog/,
+    'sikertelen küldésnél is törlődne a napló (nem lenne mit újraküldeni)');
+  assert.match(DIAG_MODAL, /setSnapshot\(discardSentAppLog\(\)\);/, 'a felület nem törli a naplót siker után');
+
+  /*
+   * 2. MOZI/SOROZAT KATEGÓRIALISTA: nagyobb, középre igazított feliratok.
+   * A doboz mérete változatlan (h-12 = a korábbi py-3 + text-base magasság).
+   */
+  for (const [name, source] of [['mozi', MOVIES], ['sorozat', SERIES]]) {
+    const menu = source.slice(source.indexOf('isCategoryMenuOpen &&'));
+    const button = menu.slice(0, menu.indexOf('{cat.name}'));
+    assert.match(button, /flex h-12 w-full items-center justify-center/, `${name}: a kategóriafelirat nincs középre igazítva`);
+    assert.match(button, /text-center/, `${name}: a kategóriafelirat nincs vízszintesen középen`);
+    assert.match(button, /text-xl sm:text-2xl/, `${name}: a kategóriafelirat betűmérete nem nőtt`);
+    assert.doesNotMatch(button, /text-left .*?text-base/, `${name}: a kategóriafelirat maradt a régi méreten`);
+  }
+
+  /*
+   * 3. BETÖLTÉSI DIAGNOSZTIKA: nagyobb feliratok, a kék verziófelirat nélkül.
+   * A kör közepén a százalék NEM változott.
+   */
+  assert.doesNotMatch(LOADING, /QUANTUM IPTV/, 'a kék verziófelirat még ott van a diagnosztikai ablak tetején');
+  assert.doesNotMatch(LOADING, /packageJson/, 'a verziófelirat importja is maradt');
+  assert.match(LOADING, /BETÖLTÉSI DIAGNOSZTIKA/, 'a diagnosztika címe eltűnt');
+  assert.match(LOADING, /<h2 id="loading-diagnostic-title" className="text-xl sm:text-2xl lg:text-3xl/, 'a cím mérete megváltozott');
+  assert.match(LOADING, /text-3xl sm:text-4xl lg:text-5xl font-black font-mono/, 'a kör közepén a százalék mérete megváltozott');
+  // A csík fölötti és alatti szövegek.
+  assert.match(LOADING, /text-xl sm:text-2xl lg:text-3xl font-bold text-cyan-200/, 'a fázis felirata nem nőtt');
+  assert.match(LOADING, /text-lg sm:text-xl lg:text-2xl text-slate-300/, 'a részletek felirata nem nőtt');
+  assert.match(LOADING, /text-base sm:text-xl lg:text-2xl font-mono text-slate-300/, 'az eltelt idő sora nem nőtt');
+  // A négy kártya felirata és száma a fejléc címével azonos méretű.
+  const metric = LOADING.slice(LOADING.indexOf('const Metric:'));
+  const metricSizes = metric.match(/text-xl sm:text-2xl lg:text-3xl/g) || [];
+  assert.ok(metricSizes.length >= 2, 'a kártyák felirata/száma nem akkora, mint a fehér cím');
+  assert.match(LOADING, /text-rose-200 text-xl sm:text-2xl lg:text-3xl/, 'a hiba dobozának betűmérete nem nőtt');
+  assert.match(LOADING, /text-emerald-200 text-xl sm:text-2xl lg:text-3xl/, 'a kész doboz betűmérete nem nőtt');
 });
