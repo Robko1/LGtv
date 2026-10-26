@@ -42,7 +42,7 @@ import {
   loadRawPlaylist,
   saveRawPlaylist,
 } from './contentStore';
-import { xtreamService, XtreamCategory, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
+import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled } from './net';
@@ -545,6 +545,110 @@ async function enrichFirstVodMetadata(
 
 /* --------------------------------------------------------------- Xtream */
 
+/**
+ * Az adott országba sorolt Élő kategóriák azonosítói (a kategórianév alapján).
+ *
+ * A szolgáltatók nem adnak országlistát: az országot a kategória nevéből
+ * állapítjuk meg ugyanazzal a szabállyal, amivel a csatornáét is
+ * (utils/flags.ts). Ezért tudjuk már a kicsi kategóriaválaszból eldönteni,
+ * melyik kategóriát kell egyáltalán letölteni.
+ */
+export function pickCategoryIdsByCountry(
+  categories: XtreamCategory[],
+  countryCode: string
+): Array<string | number> {
+  const safe = Array.isArray(categories) ? categories : [];
+  const ids: Array<string | number> = [];
+  for (const category of safe) {
+    if (!category || category.category_id === undefined || category.category_id === null) continue;
+    if (flagFor(String(category.category_name || '')).countryCode !== countryCode) continue;
+    ids.push(category.category_id);
+  }
+  return ids;
+}
+
+/**
+ * HÁROM KÉRÉS PÁRHUZAMOSAN. A kategóriánkénti lista kicsi, de sok kategória
+ * lehet; a teljesen soros letöltés lassabb lenne, mint az egyben kért teljes
+ * lista, a korlátlan párhuzamosság viszont szétszaggatná a panelt (a betöltő
+ * szándékosan kímélő üzemű).
+ */
+const LIVE_CATEGORY_CONCURRENCY = 3;
+
+async function fetchLiveStreamsForCategories(
+  server: string,
+  user: string,
+  pass: string,
+  categoryIds: Array<string | number>,
+  wrap: (task: () => Promise<XtreamLiveStream[]>) => Promise<XtreamLiveStream[]>
+): Promise<XtreamLiveStream[]> {
+  const streams: XtreamLiveStream[] = [];
+  for (let start = 0; start < categoryIds.length; start += LIVE_CATEGORY_CONCURRENCY) {
+    const batch = categoryIds.slice(start, start + LIVE_CATEGORY_CONCURRENCY);
+    const parts = await Promise.all(batch.map((categoryId) => wrap(() =>
+      providerRequest(
+        () => xtreamService.liveStreams(server, user, pass, categoryId),
+        'Élő csatornalista (kategóriánként)'
+      )
+    )));
+    for (const part of parts) streams.push(...part);
+    await yieldToUi();
+  }
+  return streams;
+}
+
+/**
+ * EGY ORSZÁG CSATORNÁI IGÉNY SZERINT (a néző 2. pontja).
+ *
+ * Induláskor csak a magyar csatornák jönnek le; a többi ország neve már akkor
+ * is látszik az országlistában, de a csatornáit csak akkor töltjük le, amikor
+ * a néző megnyitja azt az országot. Ez a függvény tölti le a kiválasztott
+ * ország élő kategóriáit, és adja vissza kész Channel listaként.
+ *
+ * A hívó felel a listák összefésüléséért és a mentésért – ez a függvény csak a
+ * hálózat és a dekódolás.
+ */
+export async function loadLiveChannelsForCategories(
+  provider: ProviderRef,
+  categories: XtreamCategory[],
+  categoryIds: Array<string | number>
+): Promise<Channel[]> {
+  if (!Array.isArray(categoryIds) || categoryIds.length === 0) return [];
+  const server = xtreamService.cleanUrl(provider.serverUrl || '');
+  const user = (provider.username || '').trim();
+  const pass = (provider.password || '').trim();
+  logProviderEvent(
+    `Élő csatornák: ${categoryIds.length} kategória töltődik igény szerint.`
+  );
+  const streams = await fetchLiveStreamsForCategories(server, user, pass, categoryIds, (task) => task());
+  const categoryMap = makeCategoryMap(Array.isArray(categories) ? categories : []);
+  const rows: Array<Array<string | number>> = [];
+  const seen = new Set<string>();
+  for (const stream of streams) {
+    if (!stream || stream.stream_id === undefined || stream.stream_id === null) continue;
+    const streamId = String(stream.stream_id);
+    if (seen.has(streamId)) continue;
+    seen.add(streamId);
+    const category = resolveCategory(categoryMap, stream.category_id, 'lc-');
+    const name = (stream.name || 'Csatorna').trim();
+    const info = flagFor(category.name || name);
+    rows.push([
+      stream.num ?? rows.length + 1,
+      name,
+      normalizeLogoUrl(stream.stream_icon, xtreamService.playerApiBase(server, '', '')),
+      category.id,
+      category.name,
+      stream.stream_id,
+      info.flag,
+      info.countryCode,
+      stream.epg_channel_id || '',
+    ]);
+  }
+  const channels = decodeChannelsForImport(rows, provider);
+  logProviderEvent(`Élő csatornák: ${channels.length} csatorna töltődött be igény szerint.`);
+  return channels;
+}
+
 export async function importXtreamProvider(
   input: { name: string; serverUrl: string; username: string; password: string },
   onProgress: ProgressFn = () => {},
@@ -718,28 +822,82 @@ export async function importXtreamProvider(
      * kategórianeve a stream saját category_id-jából képződik – nem lesz
      * hiányos lista.
      */
-    const liveCatsPromise = providerRequest(
+    /*
+     * INDULÁSKOR CSAK A MAGYAR CSATORNÁK.
+     *
+     * A néző kérése: induláskor csak az alap magyar TV-csatornák töltődjenek
+     * be, más országoké ne. A 4-es TV-napló mutatja, miért fontos ez: a teljes
+     * élő lista 20 190 csatorna, és a tárolóban ~4 MB-ot foglal a TV ~5 MB-os
+     * kvótájából – emiatt a filmlistából csak 5800 elem fért el, a
+     * sorozatlistából pedig EGY ADAG SEM:
+     *
+     *   TÁROLÓ HIBA: content-series-chunk … foglaltság=68 kulcs / 5059 kB
+     *
+     * Ezért a kategóriák MOST MÁR ELŐBB jönnek (eddig párhuzamosan futottak a
+     * csatornákkal): nélkülük nem tudnánk eldönteni, mit kell egyáltalán
+     * lekérni. A kategórialista kicsi és gyors, ezért ez nem látszik az
+     * indulási időben.
+     */
+    const liveCats = await providerRequest(
       () => xtreamService.liveCategories(server, user, pass),
       'Élő kategóriák'
     ).catch((error) => {
       if (isNetworkRequestCancelled(error)) throw error;
       return [] as XtreamCategory[];
     });
-    const liveStreams = await Promise.all([
-      providerRequest(
+
+    const hungarianCategoryIds = pickCategoryIdsByCountry(liveCats, 'HU');
+
+    /*
+     * Ha a bejelentkezés is elbukott, annak a hibája sokkal érthetőbb
+     * ("rossz a jelszó" / "a szerver nem elérhető"), mint a csatornakérésé.
+     * Ez a referencia viselkedés, és most már több kérésre is kell.
+     */
+    const withAuthProbe = async (task: () => Promise<XtreamLiveStream[]>) => {
+      try {
+        return await task();
+      } catch (error: unknown) {
+        const probe = await authPromise;
+        if (!probe.ok) throw probe.error;
+        throw error;
+      }
+    };
+
+    let liveStreams: XtreamLiveStream[];
+    if (hungarianCategoryIds.length > 0) {
+      logProviderEvent(
+        `Élő csatornák: induláskor csak a magyar kategóriák töltődnek le ` +
+        `(${hungarianCategoryIds.length}/${liveCats.length} kategória).`
+      );
+      liveStreams = await fetchLiveStreamsForCategories(server, user, pass, hungarianCategoryIds, withAuthProbe);
+      if (liveStreams.length === 0) {
+        /*
+         * Van magyar nevű kategória, de üres – ilyenkor inkább letöltjük a
+         * teljes listát, minthogy üres főoldalt adjunk a nézőnek.
+         */
+        logProviderEvent(
+          'Élő csatornák: a magyar kategóriák üresek voltak, ezért a teljes lista töltődik le.'
+        );
+        liveStreams = await withAuthProbe(() => providerRequest(
+          () => xtreamService.liveStreams(server, user, pass),
+          'Élő csatornalista'
+        ));
+      }
+    } else {
+      /*
+       * A szolgáltató kategóriái nem ország szerint vannak elnevezve (pl. csak
+       * "Sport", "News"), így nem tudjuk kiszűrni a magyarokat. Ilyenkor a
+       * teljes lista jön le – különben üres lenne a főoldal.
+       */
+      logProviderEvent(
+        `Élő csatornák: nincs magyar nevű élő kategória (${liveCats.length} kategória), ` +
+        'ezért a teljes lista töltődik le.'
+      );
+      liveStreams = await withAuthProbe(() => providerRequest(
         () => xtreamService.liveStreams(server, user, pass),
         'Élő csatornalista'
-      ),
-      liveCatsPromise.then(() => null),
-    ]).then(([streams]) => streams).catch(async (error: unknown) => {
-      // Nem jött a csatornalista: ha a bejelentkezés is elbukott, annak
-      // a hibája sokkal érthetőbb ("rossz a jelszó" / "a szerver nem
-      // érhető el"), mint a csatornakérésé. Ez a referencia viselkedése.
-      const probe = await authPromise;
-      if (!probe.ok) throw probe.error;
-      throw error;
-    });
-    const liveCats = await liveCatsPromise;
+      ));
+    }
     const liveCategoryMap = makeCategoryMap(liveCats);
     const liveRows: Array<Array<string | number>> = [];
     const liveCounts = new Map<string, number>();

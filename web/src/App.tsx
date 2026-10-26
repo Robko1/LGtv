@@ -16,7 +16,8 @@ import {
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
-import { PartialContent, refreshProviderContent } from './services/providerImport';
+import { loadLiveChannelsForCategories, PartialContent, refreshProviderContent } from './services/providerImport';
+import { flagFor } from './utils/flags';
 import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
 import { xtreamService } from './services/xtreamService';
 import { parseEpisodeMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './services/vodMetadata';
@@ -95,7 +96,7 @@ function preserveChannelPreferences(incoming: Channel[], existing: Channel[], pr
     .map(({ channel }) => channel);
 }
 
-function buildCountryCategories(channels: Channel[]): Category[] {
+function buildCountryCategories(channels: Channel[], providerCategories: Category[] = []): Category[] {
   const grouped = new Map<string, { name: string; flag: string; channelCount: number; subCategories: Set<string> }>();
   for (const channel of channels) {
     const code = (channel.countryCode || 'INT').toUpperCase();
@@ -107,6 +108,33 @@ function buildCountryCategories(channels: Channel[]): Category[] {
     };
     current.channelCount += 1;
     if (channel.categoryId) current.subCategories.add(channel.categoryId);
+    if (code === 'HU') {
+      current.name = 'Magyarország';
+      current.flag = '🇭🇺';
+    }
+    grouped.set(code, current);
+  }
+  /*
+   * MINDEN ORSZÁG NEVE MÁR INDULÁSKOR ELÉRHETŐ (a néző 3. kérése).
+   *
+   * Induláskor csak a magyar csatornák töltődnek le, így a csatornákból egyedül
+   * Magyarország adódna – a többi ország el is tűnne a listából. Ezért az
+   * országokat a szolgáltató ÉLŐ KATEGÓRIÁIBÓL is képezzük: azok a kicsi
+   * kategóriaválasszal már induláskor megvannak, és a nevükből ugyanaz a
+   * szabály állapítja meg az országot, mint a csatornáknál. A csatornaszám 0,
+   * amíg a néző meg nem nyitja azt az országot – akkor töltődnek le.
+   */
+  const safeProviderCategories = Array.isArray(providerCategories) ? providerCategories : [];
+  for (const category of safeProviderCategories) {
+    const info = flagFor(String(category.name || ''));
+    const code = (info.countryCode || 'INT').toUpperCase();
+    const current = grouped.get(code) || {
+      name: info.country || 'Nemzetközi',
+      flag: info.flag || '📺',
+      channelCount: 0,
+      subCategories: new Set<string>(),
+    };
+    if (category.id) current.subCategories.add(category.id);
     if (code === 'HU') {
       current.name = 'Magyarország';
       current.flag = '🇭🇺';
@@ -461,7 +489,10 @@ export function App() {
 
   // A menü országokat mutat, nem szolgáltatói alkategóriákat. Egy ország
   // összes csatornája egyetlen választható elem alá kerül.
-  const countryCategories = useMemo(() => buildCountryCategories(channels), [channels]);
+  const countryCategories = useMemo(
+    () => buildCountryCategories(channels, categories),
+    [channels, categories]
+  );
 
   /**
    * A csatornalistában KIVÁLASZTOTT ország (a fejléc zászlajához).
@@ -646,6 +677,69 @@ export function App() {
       return ch.categoryId === effectiveCategoryId;
     });
   }, [channels, channelsById, selectedCategoryId, selectedSubCategoryId, isOnlyFavorites, folders, selectedFavoriteFolderId, countryCategories, categorySearchQuery]);
+
+  /*
+   * EGY ORSZÁG CSATORNÁI CSAK MEGNYITÁSKOR (a néző 2. pontja).
+   *
+   * Induláskor csak a magyar csatornák töltődnek le, de az országlistában már
+   * akkor is ott van minden ország neve. Amikor a néző megnyit egy országot,
+   * amelynek még nincs letöltött csatornája, itt töltjük le a szolgáltató azon
+   * élő kategóriáit, és fésüljük be a listába. A mentés automatikusan követi
+   * (a channels változására futó mentés), így a következő indulásnál már bent
+   * lesznek.
+   *
+   * Az `attempted` halmaz azért kell, hogy egy sikertelen vagy üres letöltés
+   * ne indítson végtelen újrapróbálási kört: az effect a `channels` miatt
+   * amúgy újra lefutna.
+   */
+  const attemptedCountryRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!activeProvider) return undefined;
+    if (!selectedCategoryId.startsWith('country-')) return undefined;
+    const countryCode = selectedCategoryId.slice('country-'.length);
+    if (attemptedCountryRef.current.has(countryCode)) return undefined;
+    const hasChannels = channels.some(
+      (channel) => (channel.countryCode || 'INT').toUpperCase() === countryCode
+    );
+    if (hasChannels) return undefined;
+
+    const stripPrefix = (id: string) => String(id).replace(/^lc-/, '');
+    const wanted = (categories || []).filter(
+      (category) => flagFor(String(category.name || '')).countryCode === countryCode
+    );
+    const categoryIds = wanted.map((category) => stripPrefix(category.id)).filter((id) => id !== '');
+    if (categoryIds.length === 0) return undefined;
+
+    attemptedCountryRef.current.add(countryCode);
+    const xtreamCategories = wanted.map((category) => ({
+      category_id: stripPrefix(category.id),
+      category_name: category.name,
+    }));
+    let cancelled = false;
+    appLog(`${countryCode} ország csatornáinak betöltése indul (${categoryIds.length} kategória).`);
+    void (async () => {
+      try {
+        const loaded = await loadLiveChannelsForCategories(activeProvider, xtreamCategories, categoryIds);
+        if (cancelled) return;
+        if (loaded.length === 0) {
+          appLog(`${countryCode} ország: a szolgáltató nem adott csatornát.`);
+          return;
+        }
+        setChannels((previous) => {
+          const existing = new Set(previous.map((channel) => channel.id));
+          const fresh = loaded.filter((channel) => !existing.has(channel.id));
+          return fresh.length === 0 ? previous : [...previous, ...fresh];
+        });
+      } catch (error) {
+        // Egy sikertelen letöltés után engedjük újra próbálni (pl. másik
+        // ország megnyitása, majd visszatérés), de ne pörögjön magától.
+        attemptedCountryRef.current.delete(countryCode);
+        appLogError(`${countryCode} ország csatornái`, error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedCategoryId, channels, categories, activeProvider]);
+
 
   // A képernyőn megjelenő sorszám a jelenlegi szűrt lista pozíciója; az eredeti ch.num érintetlen.
   const activeChannelDisplayNumber = useMemo(() => {

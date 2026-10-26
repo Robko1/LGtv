@@ -231,11 +231,42 @@ export const xtreamService = {
 
   async liveCategories(serverUrl: string, username: string, password: string): Promise<XtreamCategory[]> {
     const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_live_categories`;
-    return asArray(await httpGetJson<ApiList<XtreamCategory>>(url));
+    /*
+     * RÖVID IDŐKERET (9 mp, nem az alap 15).
+     *
+     * Induláskor a kategóriákra AZ ELSŐ kérésnél meg kell várni a választ,
+     * mert csak ezután tudjuk eldönteni, melyik élő kategóriát kérjük le.
+     * Korábban párhuzamosan futott a csatornalistával, így a várakozás ingyen
+     * volt; sorosan viszont egy halott panelnél 15 + 9 = 24 mp lenne a két
+     * időkeret összege, és a betöltő nem állna le 20 mp alatt. A kategóriaválasz
+     * kicsi (néhány száz sor), a 9 mp bőven elég rá: a legrosszabb eset így
+     * 9 + 9 = 18 mp.
+     */
+    return asArray(await httpGetJson<ApiList<XtreamCategory>>(url, { timeoutMs: 9000 }));
   },
 
-  async liveStreams(serverUrl: string, username: string, password: string): Promise<XtreamLiveStream[]> {
-    const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_live_streams`;
+  async liveStreams(
+    serverUrl: string,
+    username: string,
+    password: string,
+    categoryId?: string | number,
+  ): Promise<XtreamLiveStream[]> {
+    /*
+     * KATEGÓRIÁNKÉNTI ÉLŐ LISTA.
+     *
+     * `category_id` nélkül a panel a TELJES élő listát adja (a néző
+     * szolgáltatójánál 20 190 csatorna, ~6,6 MB). Ez az, ami induláskor
+     * feleslegesen jön le: a néző csak a magyar csatornákat nézi, a többi
+     * ország listája pedig ~4 MB-ot foglal a TV ~5 MB-os tárolójából – emiatt a
+     * filmlistából csak 5800 elem fért el, a sorozatlistából pedig egy sem.
+     *
+     * Kategóriával a válasz kicsi, így induláskor csak a magyar kategóriák
+     * jönnek le; a többi ország akkor töltődik be, amikor a néző megnyitja.
+     */
+    const category = categoryId !== undefined && categoryId !== null
+      ? `&category_id=${encodeURIComponent(String(categoryId))}`
+      : '';
+    const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_live_streams${category}`;
     // Élő lista nagy (20k csatorna ~7MB), de a nem válaszoló panel ne
     // tartsa 30–45 másodpercig töltésben az importot. A hálózati réteg így
     // rövid, bizonyítható hibát ad, miközben a normál, gyors panel továbbra is
