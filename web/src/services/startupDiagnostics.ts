@@ -14,7 +14,7 @@
  *   5. BETÖLTÉS/FESTÉS  – navigációs időzítések, első festés, legnagyobb tartalom;
  *   6. ERŐFORRÁSOK      – mi töltődött le, mennyi ideig és mekkora adat;
  *   7. ELEM MEGJELENT   – minden fontos elem (ablak, lejátszó, fejléc, lista, OSD…);
- *   8. KÉPERNYŐ         – 250 ms-onként (csak változáskor) a látható állapot;
+ *   8. KÉPERNYŐ         – 500 ms-onként (csak változáskor) a látható állapot;
  *   9. ELRENDEZÉS-UGRÁS – a szemmel látható „ugrások” (layout shift) és forrásuk;
  *  10. KÉPKOCKA / FAGYÁS – kimaradt képkockák, hosszú feladatok, leállások.
  *
@@ -193,6 +193,39 @@ function describeMedia(): void {
       + `H.264=${can('video/mp4; codecs="avc1.42E01E"')}`
     );
   });
+}
+
+/*
+ * A LASSÚ PRÓBÁK NEM FUTNAK A REACT FESTÉSE ELŐTT (2.5.128).
+ *
+ * A localStorage írása/törlése/teljes bejárása és a <video> létrehozása a
+ * webOS-on szinkron, blokkoló művelet. A 21:31:49-es naplóban a diagnosztika
+ * +1430 ms-nál indult, és a felület +1751 ms-nál épült fel – közvetlenül
+ * egymás után, 167/350/200/183 ms-os képkocka-kihagyásokkal. Ezeket a
+ * kizárólag NAPLÓZÁSHOZ kellő méréseket most a következő feladatra tesszük:
+ * a napló tartalma változatlan, de a fő szál felszabadul az első festésre.
+ */
+let slowProbesDone = false;
+let slowProbesTimer: number | null = null;
+
+function clearSlowProbesTimer(): void {
+  if (slowProbesTimer === null) return;
+  try { window.clearTimeout(slowProbesTimer); } catch { /* már lejárt */ }
+  slowProbesTimer = null;
+}
+
+function runSlowStartupProbes(): void {
+  if (slowProbesDone) return;
+  slowProbesDone = true;
+  clearSlowProbesTimer();
+  describeStorage();
+  describeMedia();
+}
+
+function scheduleSlowStartupProbes(): void {
+  clearSlowProbesTimer();
+  slowProbesTimer = window.setTimeout(runSlowStartupProbes, 0);
+  cleanups.push(clearSlowProbesTimer);
 }
 
 /* ────────────────────────── 4. HTML előtti jelzések ─────────────────────── */
@@ -430,6 +463,37 @@ function watchElements(): void {
     for (const child of nested) record(child, direction);
   };
 
+  /*
+   * KÖTEGELT MUTÁCIÓK. A React a teljes főoldalat egy feladatban építi fel;
+   * korábban a figyelő minden egyes hozzáadott csomópontra AZONNAL végigjárta
+   * a részfát, és getBoundingClientRect()-tel kényszerített elrendezést. Ez
+   * volt a +1761…+2284 ms közötti 167/350/200/183 ms-os képkocka-kihagyások
+   * egyik oka. Most a mutációkat összegyűjtjük, és a festés UTÁN, adagonként
+   * dolgozzuk fel – a napló tartalma ugyanaz, a fő szál viszont szabad.
+   */
+  type PendingMutation = { element: Element; direction: 'MEGJELENT' | 'ELTŰNT' };
+  const pending: PendingMutation[] = [];
+  const MAX_PENDING = 160;
+  let flushTimer: number | null = null;
+
+  const flushPending = (): void => {
+    flushTimer = null;
+    if (!running) { pending.length = 0; return; }
+    let handled = 0;
+    while (pending.length > 0 && handled < 40) {
+      const item = pending.shift();
+      if (!item) break;
+      consider(item.element, item.direction);
+      handled += 1;
+    }
+    if (pending.length > 0 && flushTimer === null) {
+      flushTimer = window.setTimeout(flushPending, 0);
+    }
+  };
+  const scheduleFlush = (): void => {
+    if (flushTimer === null) flushTimer = window.setTimeout(flushPending, 0);
+  };
+
   const observer = new MutationObserver((records) => {
     if (!running) return;
     for (const recordItem of records) {
@@ -437,15 +501,20 @@ function watchElements(): void {
       for (let index = 0; index < added.length; index += 1) {
         const node = added[index];
         if (!node || node.nodeType !== 1) continue;
-        consider(node as Element, 'MEGJELENT');
+        if (pending.length < MAX_PENDING) {
+          pending.push({ element: node as Element, direction: 'MEGJELENT' });
+        }
       }
       const removed = recordItem.removedNodes;
       for (let index = 0; index < removed.length; index += 1) {
         const node = removed[index];
         if (!node || node.nodeType !== 1) continue;
-        consider(node as Element, 'ELTŰNT');
+        if (pending.length < MAX_PENDING) {
+          pending.push({ element: node as Element, direction: 'ELTŰNT' });
+        }
       }
     }
+    if (pending.length > 0) scheduleFlush();
   });
   observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
   cleanups.push(() => {
@@ -454,6 +523,11 @@ function watchElements(): void {
     } catch {
       /* már lecsatlakozott */
     }
+    if (flushTimer !== null) {
+      try { window.clearTimeout(flushTimer); } catch { /* már lejárt */ }
+      flushTimer = null;
+    }
+    pending.length = 0;
   });
 
   // A naplózás indításakor már a képernyőn lévő elemek is bekerülnek.
@@ -528,10 +602,13 @@ function startSampling(): void {
     dumpNewMarks();
     const age = elapsed();
     if (age > 45000) return;
-    const delay = age < 15000 ? 250 : 1000;
+    // Az első 15 mp-ben 500 ms-onként (korábban 250 ms): minden minta
+    // elrendezést kényszerít (getBoundingClientRect), ezért a sűrű polling
+    // mérhető képkocka-kihagyást okozott az indulás alatt.
+    const delay = age < 15000 ? 500 : 1000;
     screenTimer = window.setTimeout(tick, delay);
   };
-  screenTimer = window.setTimeout(tick, 250);
+  screenTimer = window.setTimeout(tick, 500);
   cleanups.push(() => {
     if (screenTimer !== null) {
       try {
@@ -694,8 +771,8 @@ export function startStartupDiagnostics(): void {
     line('A napló az IPK indításától fut, és a tesztidőszakban csak a napló elküldésekor áll le.');
     describeEnvironment();
     describePlatformBridge();
-    describeStorage();
-    describeMedia();
+    // A TÁROLÓ és MÉDIA sorok a következő feladatban íródnak (lásd fent).
+    scheduleSlowStartupProbes();
   } else {
     line('INDULÁSI DIAGNOSZTIKA FOLYTATVA (a naplózás újra aktív).');
   }
@@ -734,6 +811,8 @@ export function startStartupDiagnostics(): void {
 
 export function stopStartupDiagnostics(): void {
   if (!running) return;
+  // Ha a naplót nagyon gyorsan leállítják, a halasztott sorok se vesszenek el.
+  runSlowStartupProbes();
   running = false;
   logSummary();
   while (cleanups.length > 0) {

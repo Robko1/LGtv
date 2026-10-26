@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.5.128';
+export const WEB_VERSION = '2.5.129';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.129',
+    date: '2026-10-26',
+    changes: [
+      'ÜRES IPK GYORS, SIMA INDÍTÁSA: a 21:31:49-es TV-naplóban a felület már 1,75 mp-nél készen volt, mégis 9 257 ms-ig a takarókép látszott, és csak „időtúllépés” címen ugrott elő (a legnagyobb tartalom 11,5 mp-nél jelent meg). Most az üres alkalmazás azonnal, egyetlen váltással jelenik meg – nincs 9 mp-es várakozás, nincs ugrálás',
+      'NINCS TÖBB VÁRAKOZÁS A VIDEÓ ELSŐ KÉPKOCKÁJÁRA ÜRES ÁLLAPOTBAN: csatorna és szolgáltató nélkül nincs stream, ezért a __IPTV_VIDEO_READY__ soha nem jött el; a megjelenítés most a <html data-iptv-boot="empty"> jelzőből tudja, hogy a kész felület az üres állapot, és nem vár sem videóra, sem logóra, sem 3 csatornasorra',
+      'A KÉPKOCKA-ŐR NEM HALOGTATJA VÉGTELENÜL A MEGJELENÉST: az indulás körüli 167/350/200/183 ms-os képkocka-kihagyások miatt a takarókép korábban újra és újra fent maradt; most legfeljebb két újrapróbálás van, és egyetlen megjelenítési lánc fut (nincs több párhuzamos animációs kép)',
+      'ÜRES IPK-NÁL NEM INDUL HÁLÓZATI LETÖLTÉS: ha nincs szolgáltató és nincs mentett lista, a program nem próbál automatikus első betöltést, és a napló is ezt az egyértelmű üzenetet írja – 0 csatorna marad, amíg a felhasználó listát nem ad hozzá',
+      'A DIAGNOSZTIKA NEM LASSÍTJA AZ ELSŐ FESTÉST: a localStorage szinkron próbája és a <video> képességmérése a következő feladatra kerül, a MutationObserver a React által egyszerre beszúrt elemeket kötegelten dolgozza fel, a képernyő-mintavétel pedig 250 helyett 500 ms-onként fut – a napló tartalma változatlan',
+      'NINCS REJTETT DIAGNOSZTIKAI DOBOZ AZ INDULÁSKOR: a webOS híd felület-őre többé nem hoz létre 6 elemű, rejtett dobozt a DOM-ready pillanatában (a naplóban korábban +1917 ms-nél „DIAGNOSZTIKAI DOBOZ” sor volt); a doboz csak gombnyomásra vagy valódi, 15 mp utáni hiba esetén jelenik meg',
+      'SZEBB ÜRES KEZDŐKÉPERNYŐ: a „Nincs betöltött csatorna” állapot ikont, nagyobb címet és kártyás elrendezést kap – mindez statikusan, animáció és felugró ablak nélkül, hogy az első képkocka már kész legyen',
+      'GYORS BIZTONSÁGI HÁLÓ: ha a tároló-felmérés 3,5 mp alatt sem dönt, a már kirajzolt felület akkor is megjelenik – a legrosszabb eset sem a korábbi 9 mp-es kemény időtúllépés',
+    ],
+  },
   {
     version: '2.5.128',
     date: '2026-10-26',
