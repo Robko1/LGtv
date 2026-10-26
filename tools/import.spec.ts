@@ -51,6 +51,8 @@ function startFakeServer(options: {
   failVodBulk?: boolean;
   failSeriesBulk?: boolean;
   failAuth?: boolean;
+  /** A TELJES élő lista válaszának késleltetése (a lassú panel utánozása). */
+  liveDelayMs?: number;
 } = {}): Promise<{ server: http.Server; port: number }> {
   let listeningPort = 0;
   const server = http.createServer((req, res) => {
@@ -89,9 +91,14 @@ function startFakeServer(options: {
       case 'get_live_streams': {
         const wantedLive = url.searchParams.get('category_id');
         if (wantedLive !== null) liveCategoryRequests.push(wantedLive);
-        json(res, options.categoryAwareLive && wantedLive !== null
+        const livePayload = options.categoryAwareLive && wantedLive !== null
           ? LIVE_STREAMS.filter((stream) => String(stream.category_id) === wantedLive)
-          : LIVE_STREAMS);
+          : LIVE_STREAMS;
+        if (options.liveDelayMs && wantedLive === null) {
+          setTimeout(() => json(res, livePayload), options.liveDelayMs);
+          break;
+        }
+        json(res, livePayload);
         break;
       }
       case 'get_vod_categories':
@@ -344,6 +351,41 @@ async function main() {
   check('törlés után üres a tár', store.readSummary() === null && store.loadLive().channels.length === 0);
 
   /* --- 3. hibás belépés --- */
+  /* --- Az 1-es napló esete: a teljes lista 9 mp-nél tovább készül --- */
+  {
+    /*
+     * A TV-n (2.5.115) ez volt:
+     *   [élő kategóriák], OK, 375 ms, korlát=9000 ms
+     *   [élő csatornalista], HIBA, 9026 ms, korlát=9000 ms, ok=időtúllépés
+     *
+     * A teljes lista 20 190 csatornánál ~12 mp, tehát a 9 mp-es korlát miatt
+     * SOHA nem jöhetett le. Itt egy 10 mp-ig készülő (de élő) panelt
+     * utánozunk: a betöltésnek végig kell futnia, csatornavesztés nélkül.
+     */
+    const slowFake = await startFakeServer({ liveDelayMs: 10_000 });
+    const slowBase = `http://127.0.0.1:${slowFake.port}`;
+    const slowStarted = Date.now();
+    let slowCount = 0;
+    let slowError = '';
+    try {
+      const slowResult = await importXtreamProvider(
+        { name: 'Lassú lista', serverUrl: slowBase, username: 'teszt', password: 'titok' },
+        () => {}
+      );
+      slowCount = slowResult.content.channels.length;
+    } catch (error) {
+      slowError = String((error as Error)?.message ?? error).slice(0, 140);
+    }
+    const slowElapsed = Date.now() - slowStarted;
+    console.log('\nA teljes élő lista 9 mp-nél tovább készül (1-es napló esete):');
+    check(
+      'nem fut ki az időkorlát: mind a 4 csatorna megérkezik',
+      slowCount === 4,
+      slowError || `${slowCount} csatorna, ${slowElapsed} ms`
+    );
+    await new Promise<void>((resolve) => slowFake.server.close(() => resolve()));
+  }
+
   /* --- Minden élő csatorna lejön, egyetlen kéréssel --- */
   {
     liveCategoryRequests.length = 0;

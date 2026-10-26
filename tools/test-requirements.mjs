@@ -316,6 +316,32 @@ test('7. az első használható csatornaadag azonnal megjelenik (előnézet)', (
   assert.match(APP, /if \(!partial\.preview\) \{[\s\S]{0,400}?saveLiveContentSafely\(draft\)/);
 });
 
+test('7. a teljes élő lista 60 mp-es időkeretet kap, nem 9 mp-et (1-es napló)', () => {
+  /*
+   * A TV-n (2.5.115) ez volt:
+   *
+   *   [élő kategóriák], OK, 375 ms, korlát=9000 ms, HTTP 200, 23.4 kB
+   *   Élő csatornák: a teljes lista töltődik le (340 kategória).
+   *   [élő csatornalista], HIBA, 9026 ms, korlát=9000 ms, ok=időtúllépés
+   *
+   * A teljes lista 20 190 csatorna (~6,6 MB), ami a 2.5.112-es naplóban 12 mp
+   * alatt jött le – 9 mp-es korláttal tehát SOHA nem jöhet le. A filmeknél
+   * bevált minta érvényes: bulk kérés 60 mp, és `bulkList` is kell hozzá,
+   * különben a hálózati réteg csendben 30 mp-re vágja vissza.
+   */
+  const SVC = read('web/src/services/xtreamService.ts');
+  const start = SVC.indexOf('async liveStreams(');
+  const end = SVC.indexOf('async vodCategories(', start);
+  assert.ok(start > 0 && end > start, 'az élő lista kérése megtalálható');
+  const liveFn = SVC.slice(start, end);
+  assert.match(liveFn, /const timeoutMs = category \? 30000 : \(recentlyReachable\(\) \? 60000 : 9000\);/,
+    'a teljes élő lista 60 mp-et kap élő szervernél, 9 mp-et halottnál');
+  assert.match(liveFn, /bulkList: !category/,
+    'bulkList nélkül a hálózati réteg 30 mp-re vágná vissza');
+  assert.doesNotMatch(liveFn, /timeoutMs: 9000/,
+    'a 9 mp-es korlát nem maradhatott bent a teljes listán');
+});
+
 test('7. a tároló hibája NEM betöltési hiba (1-es napló, v2.5.114)', () => {
   /*
    * A TV-n ez jelent meg:
