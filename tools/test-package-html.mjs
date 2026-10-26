@@ -154,3 +154,39 @@ test('a csomagolt HTML-be égetett takarókép jelölője feloldódik', () => {
   assert.ok(!html.includes('__IPTV_SPLASH_DATA_URI__'), 'a jelölő feloldatlanul maradt a csomagban');
   assert.ok(html.includes('data:image/jpeg;base64,'), 'a takarókép nincs beégetve a csomagolt HTML-be');
 });
+
+test('a takarókép hátterét a <head> injektálja, nem a <body>', () => {
+  /*
+   * 2.5.112 HIBA: az injektáló szkript a <body>-ban volt. Lassú TV-n a
+   * böngésző már az injektálás ELŐTT kirajzolhatta a #tv-curtain réteget,
+   * így egy pillanatra csak a statikus CSS tartalék ZÖLD színátmenete
+   * látszott – ez volt a felhasználó „zöld háttér is bevillant” észrevétele.
+   * A <head>-ben a stílus garantáltan az első festés előtt bekerül.
+   */
+  const src = read('web/index.html');
+  const headEnd = src.indexOf('</head>');
+  const bodyStart = src.indexOf('<body');
+  assert.ok(headEnd > 0 && bodyStart > headEnd, 'a web/index.html <head>/<body> sorrendje váratlan');
+  const injector = src.indexOf("splashData");
+  assert.ok(injector > 0, 'nem található a takarókép-háttér injektáló szkriptje');
+  assert.ok(injector < headEnd, 'a takarókép-háttér injektálása a <head> után van – zöld villanás veszélye');
+  assert.ok(!src.slice(bodyStart).includes('splashData'), 'a <body>-ban is van injektáló szkript (duplikált)');
+});
+
+test('a 9 mp-es indulási korlát a teljes revealNow() utat használja', () => {
+  /*
+   * 2.5.112 HIBA: az időtúllépési ág a nyers reveal()-t hívta, így
+   * __IPTV_APP_READY__ sosem állt be, és a webos.js UI-őre 15 mp-nél
+   * diagUiFail()-t futtatott – a vörös hibaképernyő a majdnem kész főoldal
+   * elé ugrott („visszaugrott a takaróképre”).
+   */
+  const main = read('web/src/main.tsx');
+  assert.ok(
+    main.includes('revealNow("időtúllépés")'),
+    'a 9 mp-es ág nem a revealNow()-t hívja'
+  );
+  assert.ok(
+    !/^\s*reveal\("időtúllépés"\);/m.test(main),
+    'a 9 mp-es ág még mindig a nyers reveal()-t is hívja'
+  );
+});

@@ -696,14 +696,37 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
      * meg, amennyi befért, és a fejléc is ennyit jegyez: a következő indulás
      * a mentett listával azonnal indul, és a napló megmondja, mi maradt ki.
      */
-    if (!write(options.metaKey, {
+    /*
+     * A FEJLÉCNEK MINDIG MARADJON HELY.
+     *
+     * A 3-as számú TV-napló (2.5.111) pontosan ezt mutatta: a tároló
+     * `foglaltság=67 kulcs / 5060 kB`, azaz a ~5 MB-os kvóta teljesen
+     * megtelt, és bár 16 adag sikeresen belement, maga a FEJLÉC már nem
+     * fért el:
+     *
+     *   TÁROLÓ HIBA: content-vod-meta mentése végleg sikertelen; méret=5469
+     *   Filmlista mentése sikertelen → a lista fejléce nem menthető el
+     *
+     * Fejléc nélkül viszont a 16 beírt adag HIÁBA van bent: a betöltő a
+     * fejlécből tudná meg, hány adagot olvasson. Ilyenkor addig engedjük
+     * vissza a legutolsó adagokat, amíg a fejléc belefér – így a mentés
+     * kisebb, de TELJES és használható lesz.
+     */
+    const writeMeta = (chunks: number) => write(options.metaKey, {
       v: 1,
       totals: options.totals,
       cats: options.cats,
-      chunks: storedChunks,
+      chunks,
       chunkPrefix: generationPrefix,
-    } satisfies ChunkMeta)) {
-      throw new Error(`${options.label}: a lista fejléce nem menthető el.`);
+    } satisfies ChunkMeta);
+    let metaOk = writeMeta(storedChunks);
+    while (!metaOk && storedChunks > 1) {
+      storedChunks -= 1;
+      backend.remove(generationPrefix + storedChunks);
+      metaOk = writeMeta(storedChunks);
+    }
+    if (!metaOk) {
+      throw new Error(`${options.label}: a lista fejléce nem menthető el – a tároló megtelt.`);
     }
   } catch (error) {
     for (let index = 0; index < chunkCount; index++) {

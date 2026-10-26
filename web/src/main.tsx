@@ -228,7 +228,18 @@ try {
       // Ez az alkalmazás SAJÁT döntése, és az index.html 12 mp-es hálója elé
       // esik – tehát a takarékép soha nem tűnik el azelőtt, hogy az alkalmazás
       // befejezte volna a döntést a főoldal állapotáról.
-      reveal("időtúllépés");
+      //
+      // HIBA, AMIT EZ JAVÍT (2.5.112): korábban ez az ág a nyers reveal()-t
+      // hívta a revealNow() helyett. A takarókép lement, de
+      //   • a __IPTV_APP_READY__ jel NEM állt be,
+      //   • a 6/7 és 7/7 indulási fázis NEM íródott ki,
+      //   • és a 60 ms-os ellenőrző ciklus is megállt.
+      // A webos.js UI-őre viszont éppen a __IPTV_APP_READY__-t figyeli; ha a
+      // csatornalista akkor még nem volt a DOM-ban, 15 mp-nél diagUiFail()
+      // futott, és a vörös hibaképernyő a már majdnem kész főoldal ELÉ ugrott.
+      // Ez volt az „az utolsó másodpercre visszaugrott a takaróképre”.
+      // Most ez az ág is a teljes revealNow() utat járja be.
+      revealNow("időtúllépés");
       if (!headerReady()) fail("A felület 9 másodperc alatt nem rajzolódott ki.");
       return;
     }
