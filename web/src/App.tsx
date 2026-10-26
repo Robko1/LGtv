@@ -50,6 +50,28 @@ logPhase('mentett élő lista beolvasva (App modul)');
 // A betöltött tár régi vagy sérült adatait már az állapot létrehozásakor normalizáljuk.
 const bootChannels = Array.isArray(bootLive.channels) ? bootLive.channels : [];
 
+/*
+ * INDULÁS ÁLLAPOTA – jelzés a takaróképet kezelő main.tsx-nek.
+ *
+ * A 2.5.128-as (21:31:49-es) naplóban egy ÜRES, frissen telepített IPK
+ * 9 257 ms-ig mutatta a takaróképet, mert a main.tsx három csatornasorra és
+ * az első videókockára várt – üres alkalmazásban egyik sincs. A jelzőből a
+ * megjelenítő pontosan tudja, hogy a kész felület az ÜRES állapot.
+ *
+ * Az attribútumot a MODUL betöltésekor (még a React render ELŐTT) 'checking'
+ * értékre állítjuk, a tároló-felmérés után pedig 'empty' vagy 'content'
+ * lesz. Így a 3,5 mp-es gyors biztonsági háló is helyesen dönt.
+ */
+type BootState = 'checking' | 'empty' | 'content';
+function markBootState(state: BootState): void {
+  try {
+    if (typeof document !== 'undefined' && document.documentElement) {
+      document.documentElement.setAttribute('data-iptv-boot', state);
+    }
+  } catch { /* nincs DOM (pl. tesztkörnyezet) */ }
+}
+markBootState(bootChannels.length > 0 ? 'content' : 'checking');
+
 function restoreSavedChannelOrder(channels: Channel[], providerId?: string): Channel[] {
   if (!providerId || channels.length < 2) return channels;
   const savedOrder = storageService.getChannelOrder(providerId);
@@ -1078,6 +1100,7 @@ export function App() {
     if (bootProbeStartedRef.current) return undefined;
     bootProbeStartedRef.current = true;
     let cancelled = false;
+    let decided: BootState = 'empty';
     void (async () => {
       try {
         const plan = await inspectStoredCatalogs();
@@ -1091,11 +1114,26 @@ export function App() {
         catalogPlanRef.current = plan;
         setCatalogPlanReady(true);
         if (!plan || (!plan.bootChannels.length && !plan.hasLive && !plan.hasVod && !plan.hasSeries)) {
-          appLog('Indulás: nincs használható mentett lista – automatikus első betöltés indul.');
-          setLiveRecoveryNeeded(true);
+          decided = 'empty';
+          markBootState('empty');
+          if (providers.length === 0) {
+            /*
+             * ÜRES IPK: nincs szolgáltató, nincs lista. Ilyenkor NEM indul
+             * hálózati letöltés, NEM nyílik felugró ablak – a kész, üres
+             * felület azonnal megjelenik. Korábban ez a sor félrevezetően
+             * „automatikus első betöltés indul” üzenetet írt a naplóba.
+             */
+            appLog('Indulás: üres alkalmazás – nincs szolgáltató, nincs mentett lista. Letöltés nem indul; a felület azonnal használható.');
+            setLiveRecoveryNeeded(false);
+          } else {
+            appLog('Indulás: nincs használható mentett lista – automatikus első betöltés indul.');
+            setLiveRecoveryNeeded(true);
+          }
           setBootProbeDone(true);
           return;
         }
+        decided = 'content';
+        markBootState('content');
         if (!bootChannels.length && plan.bootChannels.length) {
           const prepared = restoreSavedChannelOrder(hungaryFirst(plan.bootChannels), plan.provider.id);
           setChannels(prepared);
@@ -1123,8 +1161,11 @@ export function App() {
         void runRestore(plan);
       } catch (error) {
         appLogError('Indulás a tartós tárból', error);
+        decided = 'empty';
         setLiveRecoveryNeeded(true);
       } finally {
+        // Ha bármi elakadt, a takarókép akkor sem maradhat fent 9 mp-ig.
+        markBootState(decided);
         if (!cancelled) setBootProbeDone(true);
       }
     })();

@@ -134,10 +134,24 @@ try {
     return !!root && root.childElementCount > 0 && !!document.querySelector("header");
   };
 
+  /*
+   * AZ ÜRES IPK JELE.
+   *
+   * A 21:31:49-es naplóban (üres, frissen telepített IPK) 9 257 ms-ig fent
+   * maradt a takarókép, és csak „időtúllépés” címen ugrott elő a felület.
+   * Oka: a listReady() legalább 3 csatornasorra várt, de üres alkalmazásnál
+   * NINCS egyetlen sor sem. Az App a tároló-felmérés után beállítja a
+   * <html data-iptv-boot="empty|content"> jelzőt – ebből pontosan tudjuk,
+   * hogy a kész állapot az ÜRES felület, és nem kell videóra/logóra várni.
+   */
+  const bootState = (): string =>
+    document.documentElement.getAttribute("data-iptv-boot") || "checking";
+  const emptyBoot = (): boolean => bootState() === "empty";
+
   // A csatornalista sorai (role="option") - ezek megjelenése jelenti a kész
-  // főoldalt. Ha nincs mentett szolgáltató/csatorna, a felület egy ablakot
-  // (role="dialog") mutat: ilyenkor nincs mire várni, azonnal megjelenhet.
+  // főoldalt. Üres IPK-nál az üres állapot maga a kész felület.
   const listReady = () =>
+    emptyBoot() ||
     document.querySelectorAll('[role="listbox"] [role="option"]').length >= 3 ||
     !!document.querySelector('[role="dialog"]');
 
@@ -173,6 +187,10 @@ try {
   };
 
   const videoSettled = () => {
+    // Üres alkalmazásnál NINCS stream, ezért az első képkocka SOHA nem jön
+    // el: a régi kód ilyenkor is végigvárta a VIDEO_WAIT_MS-et (majd a 9 mp-es
+    // időtúllépést). Ilyenkor a lejátszó posztere a végleges kép.
+    if (emptyBoot()) return true;
     // A lejátszó az első képkockánál __IPTV_VIDEO_READY__-t állít.
     // Ha nincs lejátszó (pl. nincs szolgáltató), nincs mit várni.
     const hasPlayer = !!document.querySelector('video[data-iptv-player="true"]');
@@ -208,6 +226,16 @@ try {
    * checkRender() önmaga is megjeleníti a felületet, semmi nem marad rejtve.
    */
   const FRAME_GAP_LIMIT_MS = 240;
+  /*
+   * A képváltás-őr NEM késleltetheti a megjelenítést végtelenül. A 2.5.128-as
+   * naplóban az indulás körüli 350/200/183 ms-os képkocka-kihagyások miatt
+   * az őr újra és újra elhalasztotta a váltást, egészen a 9 mp-es kemény
+   * korlátig – ez látszott „ugrálásnak”. Két újrapróbálás után inkább
+   * megjelenítjük a kész felületet.
+   */
+  const MAX_FRAME_GAP_RETRIES = 2;
+  let frameGapRetries = 0;
+  let revealPending = false;
   /** Nagy felbontású óra, ha van; egyébként a falióra. */
   const nowMs = (): number => {
     try {
@@ -222,8 +250,12 @@ try {
       const frameStartedAt = nowMs();
       window.requestAnimationFrame(() => {
         const frameGap = nowMs() - frameStartedAt;
-        if (frameGap > FRAME_GAP_LIMIT_MS && Date.now() - startedAt <= 9000) {
-          logPhase(`a takarókép fent marad: a fő szál ${Math.round(frameGap)} ms-ig foglalt volt`);
+        if (frameGap > FRAME_GAP_LIMIT_MS
+            && frameGapRetries < MAX_FRAME_GAP_RETRIES
+            && Date.now() - startedAt <= 9000) {
+          frameGapRetries += 1;
+          revealPending = false;
+          logPhase(`a takarókép fent marad: a fő szál ${Math.round(frameGap)} ms-ig foglalt volt (${frameGapRetries}/${MAX_FRAME_GAP_RETRIES})`);
           window.setTimeout(checkRendered, 120);
           return;
         }
@@ -244,6 +276,20 @@ try {
     reveal(reason);
   };
 
+  /*
+   * Egyetlen megjelenítési lánc. A 60 ms-os ellenőrző ciklus korábban minden
+   * körben újabb afterPaint-láncot indíthatott, ami több párhuzamos
+   * requestAnimationFrame-várakozást és látható „ugrálást” okozott.
+   */
+  const revealWhenPainted = (reason: string) => {
+    if (revealed || revealPending) return;
+    revealPending = true;
+    afterPaint(() => {
+      revealPending = false;
+      revealNow(reason);
+    });
+  };
+
   const logoStartedAt = { value: 0 };
 
   const checkRendered = () => {
@@ -255,6 +301,16 @@ try {
     const onlyDialog = !!document.querySelector('[role="dialog"]');
 
     if (chromeReady() && (listReady() || onlyDialog)) {
+      /*
+       * ÜRES IPK: nincs csatorna, nincs stream, nincs logó. A felület
+       * EGYETLEN kész egységként rajzolódott ki – azonnal, egyetlen
+       * festéssel jelenhet meg. Nincs 9 mp-es várakozás, nincs hirtelen
+       * „időtúllépés” ugrás.
+       */
+      if (emptyBoot()) {
+        revealWhenPainted("üres alkalmazás – kész felület");
+        return;
+      }
       // A logókra és az első képkockára a LISTA megjelenésétől számítunk:
       // így a korábbi lépések (bundle betöltése, tár olvasása) nem
       // "eszik meg" a várakozási időt, és a takarékép nem marad fent
@@ -264,9 +320,19 @@ try {
       const logosOk = logosSettled() || waited > LOGO_WAIT_MS;
       const videoOk = videoSettled() || waited > VIDEO_WAIT_MS;
       if (logosOk && videoOk) {
-        afterPaint(() => revealNow("kész főoldal"));
+        revealWhenPainted("kész főoldal");
         return;
       }
+    }
+
+    /*
+     * GYORS BIZTONSÁGI HÁLÓ: ha a tároló-felmérés valamiért nem döntött
+     * (pl. az IndexedDB megnyitása elakad), 3,5 mp után akkor is megjelenik
+     * a már kirajzolt felület. Így a legrosszabb eset sem 9 mp.
+     */
+    if (elapsed > 3500 && chromeReady() && bootState() === "checking") {
+      revealWhenPainted("gyors indulás – tároló-próba lassú");
+      return;
     }
 
     if (elapsed > 9000) {

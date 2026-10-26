@@ -357,6 +357,9 @@
 
   function diagShow() {
     if (!diagEnsure()) return;
+    // A doboz most csak később jön létre (nem az induláskor), ezért a
+    // „Felület” sorát a megjelenés pillanatában frissíteni kell.
+    diagUiCheck();
     // A tároló-próba csak itt, a valódi megjelenéskor fut – induláskor nem.
     diagStorageProbe();
     diag.el.style.display = 'block';
@@ -379,14 +382,26 @@
 
   function diagUiCheck() {
     try {
-      if (!diagEnsure()) return;
+      /*
+       * A REJTETT DOBOZ NEM JÖN LÉTRE AZ INDULÁSKOR (2.5.129).
+       *
+       * Korábban a doboz-létrehozó hívás már a DOM-ready pillanatában épített egy
+       * 6 elemű, fixed pozíciójú, display:none dobozt. A 21:31:49-es napló
+       * szerint ez +1917 ms-nál történt – pont a React első festésekor –, és
+       * a MutationObserver mind a 6 elemet végignaplózta. A felület-őrnek
+       * azonban NINCS szüksége a dobozra: elég a DOM-ot figyelni. A doboz
+       * csak akkor épül fel, ha a felhasználó ténylegesen megnyom egy gombot
+       * (diagKey), vagy ha 15 mp után valódi hiba van (diagUiFail).
+       */
       // A kirajzolt app (fejléc) számít, nem a splash megléte.
       var list = document.querySelector('[role="listbox"], [role="dialog"], header');
       if (list || window.__IPTV_APP_READY__) {
         diag.uiLoaded = true;
-        diag.uiLine.textContent = 'Felület: BET\u00d6LT\u0150D\u00d6TT \u2713';
-        diag.uiLine.style.color = '#4ade80';
-      } else {
+        if (diag.uiLine) {
+          diag.uiLine.textContent = 'Felület: BET\u00d6LT\u0150D\u00d6TT \u2713';
+          diag.uiLine.style.color = '#4ade80';
+        }
+      } else if (diag.uiLine) {
         diag.uiLine.textContent = 'Felület: M\u00c9G NEM t\u00f6lt\u0151d\u00f6tt be...';
         diag.uiLine.style.color = '#facc15';
       }
@@ -1636,6 +1651,13 @@
     var tryFocus = function() {
       focusRetry++;
       if (focusFirstChannelList() || focusRetry >= 4) return;
+      /*
+       * ÜRES IPK (2.5.129): nincs egyetlen csatornasor sem, ezért a próbát
+       * nem ismételjük négyszer. A 21:31:49-es naplóban ezek a DOM-bejárások
+       * éppen az első festés körül (1,7–2,3 mp) futottak, és 167–350 ms-os
+       * képkocka-kihagyásokat okoztak.
+       */
+      if (document.querySelector('[data-boot-empty]')) return;
       setTimeout(tryFocus, 500);
     };
     setTimeout(tryFocus, 400);

@@ -1008,12 +1008,26 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         aria-label="Csatornalista – nyilakkal navigálható, Enterrel választható, egérrel kattintható"
       >
         {visibleChannels.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400">
-            <p className="text-sm font-semibold">
+          /* data-boot-empty: jelzi az üres nézetet a webos.js fókusz-próbájának
+             és az indulási diagnosztikának. A megjelenítés a <html> elem
+             data-iptv-boot="empty" jelzője alapján dönt (lásd main.tsx). */
+          <div
+            data-boot-empty=""
+            className="flex h-full min-h-[220px] flex-col items-center justify-center p-8 text-center text-slate-400"
+          >
+            {!selectedFavoriteFolderId && !isOnlyFavorites && (
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-400/25 bg-cyan-400/10 text-cyan-300">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="2" y="7" width="20" height="13" rx="2" />
+                  <path d="m8 3 4 4 4-4" />
+                </svg>
+              </div>
+            )}
+            <p className="text-base font-semibold text-slate-200">
               {selectedFavoriteFolderId ? 'Ez a kedvenc mappa még üres' : isOnlyFavorites ? 'Válassz kedvenc mappát a fenti listából' : 'Nincs betöltött csatorna'}
             </p>
             {!selectedFavoriteFolderId && !isOnlyFavorites && (
-              <p className="text-xs mt-1 text-slate-500 max-w-xs leading-relaxed">
+              <p className="text-xs mt-2 text-slate-500 max-w-xs leading-relaxed">
                 Nyisd meg a <span className="text-cyan-300 font-bold">Menü → Listák</span> fület, és add hozzá a
                 szolgáltatód adatait (Xtream Codes vagy M3U). Utána megjelennek a saját csatornáid, filmjeid és
                 sorozataid.
