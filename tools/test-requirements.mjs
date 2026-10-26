@@ -596,7 +596,9 @@ test('8. Mozi/Sorozat: függőleges 5 oszlopos rács és fokozatos poszterbetöl
     assert.doesNotMatch(source, /items\.slice\(0,\s*RAIL_CARDS\)|visibleRails|RAIL_CARDS/, 'nincsenek vízszintes poszterpolcok');
     assert.doesNotMatch(source, /<input[\s\S]{0,400}?placeholder="(Film|Sorozat) keresése/, 'nincs keresőmező');
     assert.doesNotMatch(source, /PosterSettingsButton/, 'nincs „Poszterek” gomb');
-    assert.match(source, /const PAGE_SIZE = 20;/, '20 elem jelenik meg egy adagban');
+    // 2.5.114: a néző kérése szerint 20 helyett 25 poszter jön egy adagban,
+    // és a következő adag már a 15.-nél töltődik (lásd a 17. próbát).
+    assert.match(source, /const PAGE_SIZE = 25;/, '25 elem jelenik meg egy adagban');
     assert.match(source, /preloadPosterImage\(/, 'a poszterek háttérben előtölthetők');
     assert.match(source, /await preloadPosterImage\(/, 'egyszerre csak egy poszter előtöltése fut');
     assert.doesNotMatch(source, /visibleRails|RAIL_CARDS|categoryRows\.slice\(0, visibleRails\)/,
@@ -1278,4 +1280,23 @@ test('16. a Lejátszó alatti Pufferelés gombjai ténylegesen mentik a profilt'
   assert.match(APP, /storageService\.saveSettings\(updated\)/);
   assert.match(PLAYER, /const bufferModeRef = useRef\(settings\.bufferMode\);/);
   assert.match(PLAYER, /const bufferTiming = \(\) => bufferProfileTiming\(bufferModeRef\.current\);/);
+});
+
+test('17. a poszterek 25-ös adagokban jönnek, a 15.-nél már töltődik a következő', () => {
+  /*
+   * A néző kérése: egyszerre legfeljebb 25 poszter töltődjön be, és amikor
+   * görgetés közben eléri a 15.-et, automatikusan jöjjön a következő 25.
+   * Így a rács sosem tart/tölt be olyat, amire még nincs szükség.
+   */
+  for (const file of ['web/src/components/MoviesView.tsx', 'web/src/components/SeriesView.tsx']) {
+    const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    assert.match(src, /const PAGE_SIZE = 25;/, `${file}: nem 25-ös adag`);
+    assert.match(src, /const NEXT_BATCH_AT = 15;/, `${file}: nem a 15. poszternél vált`);
+    // Görgetésnél az adag 15. poszterének LÁTHATÓSÁGA a feltétel, nem a
+    // lista alja – különben a következő adag csak a legvégén érkezne meg.
+    assert.match(src, /Math\.max\(0, visibleCount - PAGE_SIZE\) \+ \(NEXT_BATCH_AT - 1\)/, `${file}: hibás küszöbszámítás`);
+    assert.match(src, /getBoundingClientRect\(\)\.top < el\.getBoundingClientRect\(\)\.bottom/, `${file}: a görgetési küszöb nem a 15. poszter láthatóságán alapul`);
+    assert.doesNotMatch(src, /index >= visibleCount - 5/, `${file}: még a régi (utolsó előtti 5) küszöb van benne`);
+    assert.doesNotMatch(src, /preloadedThroughRef\.current \+ 20,/, `${file}: az előtöltés nem az adagméretet használja`);
+  }
 });
