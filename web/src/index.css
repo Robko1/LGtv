@@ -415,3 +415,67 @@ body.has-mouse [role="option"]:hover {
 [data-live-accent="green"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"] {
   fill: #fbbf24 !important;
 }
+
+/*
+ * ============================================================================
+ * TELJES KÉPERNYŐ ⇄ FŐOLDAL – A LEJÁTSZÓ GEOMETRIÁJA CSS-OSZTÁLYBÓL
+ * ============================================================================
+ *
+ * MIÉRT: korábban a belépés JavaScripttel írt ~18 inline stílust a lejátszó
+ * dobozára, majd egy `void container.offsetHeight` kényszerített
+ * újrarendezéssel várta meg a hatást. A főoldali 16:9-es keret mérése
+ * (`syncMainPageLayout`) ugyanezt tette visszafelé – egyetlen váltás így
+ * 3–6 szinkron, teljes oldalas újrarendezést indított a TV lassú processzorán,
+ * és ez látszott akadásként/újrarajzolásként.
+ *
+ * MOST: a teljes képernyő geometriája KIZÁRÓLAG ebből az osztályból jön.
+ * A React csak az osztálynevet teszi fel/le (egy attribútum-írás), a böngésző
+ * egyetlen elrendezéssel festi ki a képkockát. Visszatéréskor az osztály
+ * eltávolítása MAGÁTÓL visszaadja a főoldali keretet, mert az inline
+ * stílusokat a teljes képernyő alatt már nem írja felül semmi.
+ * Az `!important` a főoldali mérés inline stílusai ellen kell.
+ */
+[data-tv-player].iptv-fs {
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  transform: none !important;
+  aspect-ratio: auto !important;
+  z-index: 2147483000 !important;
+  box-shadow: none !important;
+}
+
+/* A kép töltse ki a teljes kijelzőt, a forrás képarányát megtartva. */
+[data-tv-player].iptv-fs video {
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  image-rendering: auto !important;
+  filter: none !important;
+}
+
+/* Mozi/sorozat teljes képernyőn: a natív lejátszóhoz igazodó kitöltés. */
+[data-tv-player].iptv-fs[data-vod-active] video {
+  object-fit: fill !important;
+}
+
+/* A teljes képernyős doboz fókusza ne rajzoljon kék keretet a TV-n. */
+body.iptv-tv-fullscreen [data-tv-player].iptv-fs:focus {
+  outline: none !important;
+}

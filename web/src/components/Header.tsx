@@ -23,7 +23,7 @@ interface HeaderProps {
   countryName?: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+const HeaderComponent: React.FC<HeaderProps> = ({
   mirrorLayout = false,
   activeView,
   liveAccent = 'yellow',
@@ -195,3 +195,13 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+
+/*
+ * MEMOIZÁLT FEJLÉC.
+ *
+ * A teljes képernyő ⇄ főoldal váltás az App állapotát is frissíti (az OSD és
+ * az oldalsáv jelölése miatt). A fejléc minden propja változatlan ilyenkor,
+ * ezért a `React.memo` kihagyja a felesleges újrarenderelést – a háttér nem
+ * „épül újra” a váltás alatt.
+ */
+export const Header = React.memo(HeaderComponent);

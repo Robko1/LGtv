@@ -1,10 +1,23 @@
-export const WEB_VERSION = '2.5.118';
+export const WEB_VERSION = '2.5.119';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.119',
+    date: '2026-10-26',
+    changes: [
+      'TELJES KÉPERNYŐ ⇄ FŐOLDAL – VILLÁMGYORS VÁLTÁS: a lejátszó geometriája már NEM JavaScriptből, inline stílusokkal jön, hanem egyetlen CSS-osztályból (`.iptv-fs`). A React csak az osztálynevet teszi fel/le a commitban, így a váltás egyetlen elrendezéssel festődik ki – nincs `Object.assign`, nincs `offsetHeight`-os kényszerített újramérés',
+      'A VISSZATÉRÉS NEM RAJZOL ÚJRA SEMMIT: kilépéskor az osztály eltávolítása magától visszaadja a főoldali 16:9-es keretet, mert a teljes képernyő alatt egyetlen inline stílus sem változott meg. Elmaradt a 250 ms-os késleltetett újrarendezés, a második animációs kép és a két felesleges fókusz-időzítő (4 helyett 2 ellenőrzés)',
+      'A FŐOLDAL TÖBBI RÉSZE NEM RAJZOLÓDIK ÚJRA: a fejléc, az oldalsáv és a csatornalista a DOM-ban marad és változatlanul jelenik meg; a teljes képernyő alatt csak a lejátszó doboza változtat méretet és pozíciót',
+      'TELJES KÉPERNYŐN CSAK A SZÜKSÉGES FUNKCIÓK FUTNAK: a csatornalista EPG-órája és műsor-előtöltése szünetel, a már kiszámolt műsoradat viszont megmarad (nincs üres EPG-sor a visszatéréskor)',
+      'AZ EPG ÉS AZ OSD CSAK A LEJÁTSZÓ HELYREÁLLÁSA UTÁN INDUL ÚJRA: a lejátszó a főoldali geometria kifestett képkockája után küldi az `iptv-player-restored` jelzést, a csatornalista erre indítja újra a munkáját – így a visszatérés első képkockáján nincs háttérterhelés',
+      'CÉLZOTT HIBAKERESŐ NAPLÓZÁS (kézi naplózás alatt): a belépés commitja és első képkockája, a fókusz állapota, a kilépés geometriájának helyreállása, a főoldal jelölésének frissítése és az EPG/OSD újraindulása külön, időbélyeges sorban látszik – ebből pontosan megállapítható, mi lassítja a folyamatot',
+      'A NAPLÓ NEM HÍZIK: az azonos esemény 400 ms-on belüli ismétlődése csak számlálódik (a következő sorban „elnyomva: N”), a teljes képernyős témára 80 soros keret van, efölött a modul 30 másodpercre elhallgat, kikapcsolt naplózásnál pedig egyáltalán nem fut',
+    ],
+  },
   {
     version: '2.5.118',
     date: '2026-10-26',

@@ -1,7 +1,8 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
 import { Rewind, FastForward } from 'lucide-react';
 import { appLog, appLogCritical, isVerbosePlaybackLogging } from '../services/appLog';
+import { fsNow, fsPerf, fsPerfTimed } from '../services/fullscreenPerf';
 import {
   MediaProgressSample,
   StallDetector,
@@ -439,6 +440,25 @@ interface VideoPlayerProps {
   initialPositionSeconds?: number;
   onProgress?: (positionSeconds: number, durationSeconds: number) => void;
 }
+
+/*
+ * A főoldali (nem teljes képernyős) lejátszó-keret inline stílusa.
+ *
+ * SZÁNDÉKOSAN állandó objektum: a React így SOHA nem írja újra a stílust egy
+ * újrarenderelésnél, és a teljes képernyő váltásakor sem történik inline
+ * stílusírás (a geometriát a `.iptv-fs` CSS-osztály adja). A 16:9-es keretet
+ * a `syncMainPageLayout` mérése egészíti ki egyszer, a DOM-ban.
+ */
+const PLAYER_HOME_STYLE: React.CSSProperties = {
+  width: '100%',
+  // A főoldali keret 16:9-es (ezt a `syncMainPageLayout` mérése is ebben az
+  // alakban írja le) – így már az ELSŐ kifestett képkocka is helyes, és a
+  // teljes képernyő váltásakor nincs mit „visszaállítani”.
+  height: 'auto',
+  minHeight: 0,
+  maxHeight: 'none',
+  aspectRatio: '16 / 9',
+};
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   liveAccent = 'yellow',
@@ -1229,7 +1249,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Teljes képernyőn body-osztály jelzi a TV-s CSS-nek, hogy a főoldali
   // elemek (fejléc, óra doboz) teljesen tűnjenek el - a bal felső sarokban
   // átlátszó kék doboz ikon ennek a hiánya miatt látszott.
-  useEffect(() => {
+  //
+  // TELJESÍTMÉNY: ez `useLayoutEffect`, hogy az osztály MÉG A KIFESTÉS ELŐTT
+  // felkerüljön. Korábban (passzív effektként) a képkocka először a régi
+  // osztálykészlettel festődött ki, majd az osztályváltás egy MÁSODIK
+  // stílus-újraszámolást és újrafestést indított – ez volt a váltásnál
+  // látható „villanás”. Így egyetlen elrendezés/festés történik.
+  useLayoutEffect(() => {
     try {
       document.body.classList.toggle('iptv-tv-fullscreen', isFullscreen);
     } catch { /* SSR/teszt környezet */ }
@@ -1239,40 +1265,41 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isFullscreen]);
 
   /**
-   * TELJES KÉPERNYŐ: a doboz KÉNYSZERÍTETT teljes kijelzős geometriája.
+   * TELJES KÉPERNYŐ: a geometria KIZÁRÓLAG a `.iptv-fs` CSS-osztályból jön.
    *
-   * MIÉRT KELL: a főoldali 16:9-es keret mérése (`syncMainPageLayout`)
-   * INLINE `position: relative`, `inset: auto` és `aspectRatio: 16/9`
-   * értékeket ír a dobozra. Az inline stílus erősebb a `fixed` osztálynál,
-   * ezért a teljes képernyőre váltás után a doboz a régi helyén maradt (a
-   * fejléc alatt), és a kép nem töltötte ki a kijelzőt. Itt minden szükséges
-   * értéket felülírunk – a webOS régi Chromiumán is érvényes `vh` egységgel.
+   * KORÁBBAN itt egy `Object.assign(container.style, …)` írt fel ~18 inline
+   * stílust, majd egy `offsetHeight`-olvasás SZINKRON, teljes oldalas
+   * újrarendezést kényszerített – a TV lassú processzorán ez volt a
+   * látható akadás. Ráadásul ugyanezeket az inline értékeket a kilépéskor a
+   * `syncMainPageLayout` mérésének kellett visszaállítania (újabb írások és
+   * újabb kényszerített újrarendezés).
+   *
+   * MOST a React csak az osztálynevet teszi fel/le a commitban; a böngésző a
+   * képkockát EGY elrendezéssel festi ki. Kilépéskor az osztály eltávolítása
+   * magától visszaadja a főoldali 16:9-es keretet, mert a teljes képernyő
+   * alatt semmi nem írta felül az inline stílusokat.
+   *
+   * Az itteni effekt már csak a célzott teljesítménynaplózást végzi (kézi
+   * naplózás alatt), és a belépés első kifestett képkockáját méri.
    */
+  const fsModeRef = useRef(false);
   useEffect(() => {
-    if (!isFullscreen) return;
-    const container = containerRef.current;
-    if (!container) return;
-    Object.assign(container.style, {
-      position: 'fixed',
-      left: '0px',
-      top: '0px',
-      right: '0px',
-      bottom: '0px',
-      width: '100vw',
-      height: '100vh',
-      minWidth: '0px',
-      minHeight: '0px',
-      maxWidth: 'none',
-      maxHeight: 'none',
-      margin: '0px',
-      padding: '0px',
-      border: '0px',
-      transform: 'none',
-      aspectRatio: 'auto',
-      zIndex: '2147483000',
+    if (fsModeRef.current === isFullscreen) return;
+    fsModeRef.current = isFullscreen;
+    if (!isVerbosePlaybackLogging()) return;
+    if (isFullscreen) {
+      const started = fsNow();
+      fsPerf('BE: commit kész', 'geometria CSS-osztályból; nincs JS stílusírás, nincs kényszerített újramérés');
+      const frame = window.requestAnimationFrame(() => {
+        fsPerfTimed('BE: első képkocka', started, 'a lejátszó már teljes képernyős');
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+    const started = fsNow();
+    const frame = window.requestAnimationFrame(() => {
+      fsPerfTimed('KI: geometria visszaállítva', started, 'főoldali 16:9-es keret');
     });
-    // Egyetlen kényszerített újramérés: a videóréteg a webOS-on későn frissül.
-    void container.offsetHeight;
+    return () => window.cancelAnimationFrame(frame);
   }, [isFullscreen]);
 
   /**
@@ -1296,7 +1323,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         /* régi motor */
       }
     };
-    const timers = [0, 80, 260, 600].map((delay) => window.setTimeout(assertFocus, delay));
+    /*
+     * TELJESÍTMÉNY: korábban négy időzítő (0/80/260/600 ms) futott, és minden
+     * `focus()` a fókusz körüli görgetést/elrendezést is kiválthatott.
+     * A főoldal a váltás alatt már nem rajzolódik újra (a lejátszó doboza a
+     * commitban kapja meg a `.iptv-fs` osztályt), ezért egy azonnali és egy
+     * késői ellenőrzés bőven elég – a fókuszt így sem veszítheti el a doboz.
+     */
+    const timers = [0, 200].map((delay) => window.setTimeout(assertFocus, delay));
+    if (isVerbosePlaybackLogging()) {
+      const started = fsNow();
+      timers.push(window.setTimeout(() => {
+        const container = containerRef.current;
+        const active = document.activeElement as HTMLElement | null;
+        const ok = !!container && (active === container || !!container.contains(active));
+        fsPerfTimed('BE: fókusz ellenőrizve', started, ok ? 'a lejátszón maradt' : 'a fókusz visszakerült a lejátszóra');
+      }, 260));
+    }
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [isFullscreen]);
 
@@ -1313,6 +1356,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     if (isFullscreen) {
       wasFullscreenRef.current = true;
+      /*
+       * Teljes képernyőn csak a nézéshez szükséges dolgok fussanak: a
+       * csatornalista erre az eseményre állítja le az EPG-óráját és a
+       * műsor-előtöltést. (A visszaindítás az `iptv-player-restored`
+       * eseményre történik, a lejátszó helyreállása UTÁN.)
+       */
+      window.dispatchEvent(new CustomEvent('iptv-fullscreen-entered'));
       window.requestAnimationFrame(() => {
         containerRef.current?.focus({ preventScroll: true } as any);
       });
@@ -1323,6 +1373,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Egyetlen következő képkockás fókuszjelzés elég; nincs késleltetett ismétlés.
       window.requestAnimationFrame(() => {
         window.dispatchEvent(new CustomEvent('iptv-focus-selected-channel'));
+      });
+      /*
+       * A FŐOLDAL MUNKÁJA CSAK A LEJÁTSZÓ HELYREÁLLÁSA UTÁN INDULHAT ÚJRA.
+       *
+       * A geometria a commitban, a `.iptv-fs` osztály törlésével azonnal
+       * helyreáll, de a csatornalista EPG-letöltése és a főoldali OSD csak a
+       * kifestett képkocka után kaphat munkát – különben a visszatérés első
+       * képkockáján CPU-t és hálózatot venne el a kirajzolástól. Ezért két
+       * képkockát várunk (az első festés után), és csak akkor jelezünk.
+       */
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const started = fsNow();
+          window.dispatchEvent(new CustomEvent('iptv-player-restored'));
+          if (isVerbosePlaybackLogging()) {
+            fsPerfTimed('KI: OSD/EPG újraindult', started, 'a lejátszó már a főoldali helyén');
+          }
+        });
       });
     }
   }, [isFullscreen]);
@@ -3732,28 +3800,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Teljes képernyőből VISSZATÉRÉSKOR csak a főoldali lejátszó méretét
-  // állítjuk helyre. A teljes képernyős megjelenítés logikáját szándékosan
-  // nem módosítjuk. WebOS-en a fullscreenből kilépés után a régi viewport
-  // néha megmarad, ezért több képkockán és a tényleges konténer méretváltozásán
-  // keresztül is újramérjük a 16:9-es főoldali keretet.
+  /*
+   * FŐOLDALI 16:9-ES KERET (a nem teljes képernyős lejátszó mérete).
+   *
+   * MI VÁLTOZOTT (2.5.119) ÉS MIÉRT:
+   * Korábban ez az effekt a `[isFullscreen, isVod, streamUrl]` függőségek
+   * MINDEN változására lefutott, és a teljes képernyőből visszatéréskor egy
+   * szinkron stílusírással + `offsetHeight`-olvasással kényszerített
+   * újrarendezéssel állította helyre a keretet, majd egy animációs képben és
+   * egy 250 ms-os időzítőben MÉG KÉTSZER megismételte. Egyetlen váltás így
+   * három teljes oldalas elrendezést indított – ez volt a látható akadás.
+   *
+   * Most a teljes képernyő geometriája a `.iptv-fs` CSS-osztályból jön
+   * (web/src/index.css), ezért a kilépéskor NINCS mit helyreállítani: az
+   * osztály eltávolítása magától visszaadja a főoldali keretet, mert a teljes
+   * képernyő alatt egyetlen inline stílus sem változott meg.
+   *
+   * Ez az effekt tehát csak akkor ír stílust, ha a keret mérete TÉNYLEG
+   * megváltozott (új csatorna, átméretezés, elforgatás), és a mérést
+   * animációs képkockába teszi – így a váltás közben nem kényszerít
+   * szinkron újrarendezést.
+   */
+  const appliedLayoutKeyRef = useRef<string>('');
+  const layoutStreamRef = useRef<string | null>(null);
   useEffect(() => {
     if (isVod || isFullscreen) return;
 
-    let frame1 = 0;
-    const settleTimers: number[] = [];
-    const syncMainPageLayout = () => {
-      if (isFullscreen) return;
-      // Biztonsági háló: a teljes képernyős állapot a body-osztályon is látszik,
-      // így egy korábban ütemezett (elavult) hívás sem teheti vissza a 16:9-es
-      // keretet a teljes képernyős dobozra.
-      try {
-        if (document.body.classList.contains('iptv-tv-fullscreen')) return;
-      } catch { /* régi motor */ }
-      const container = containerRef.current;
-      const video = htmlVideoRef.current;
-      if (!container || !video) return;
+    const container = containerRef.current;
+    const video = htmlVideoRef.current;
+    if (!container || !video) return;
 
+    const writeHomeGeometry = () => {
       Object.assign(container.style, {
         position: 'relative',
         inset: 'auto',
@@ -3788,52 +3865,69 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         filter: 'none',
         backfaceVisibility: 'hidden',
       });
-      // Egyetlen kényszerített újramérés a webOS Chromium későn frissülő
-      // videórétegéhez. A korábbi két egymást követő mérés ugyanazt a
-      // kényszerített elrendezést verte ki – a második felesleges volt.
-      void container.offsetHeight;
-    };
-    /*
-     * Teljesítmény: minden csatornaváltáskor NINEZ kényszerített
-     * újramérés futott (4 időzítő + 4 animációs kép), és mindegyik
-     * újrarajzolta a teljes 16:9-es keretet. Ez feleslegesen lassította a
-     * csatornaváltást a tévén.
-     *
-     * Most: egy azonnali szinkron, egy animációs kép (a böngésző akkor
-     * végzi el az elrendezést) és EGY időzítő késői elrendezés-változásra.
-     * A ResizeObserver szintén csak akkor hívja meg, ha tényleg változott a
-     * méret – nem minden képkockánál.
-     */
-    const syncAfterLayout = () => {
-      syncMainPageLayout();
-      frame1 = window.requestAnimationFrame(() => {
-        syncMainPageLayout();
-      });
-      settleTimers.forEach((timer) => window.clearTimeout(timer));
-      settleTimers.length = 0;
-      settleTimers.push(window.setTimeout(syncMainPageLayout, 250) as unknown as number);
     };
 
-    syncAfterLayout();
-    const parent = containerRef.current?.parentElement;
+    let frame = 0;
+    // A csatorna-/filmváltás után a stílust már szinkron beírtuk; az első
+    // mérés ilyenkor csak a méret-kulcsot rögzíti (nincs második írás).
+    let geometryWrittenSync = false;
+    const applyMeasuredLayout = () => {
+      frame = 0;
+      if (isFullscreen) return;
+      // Biztonsági háló: a teljes képernyős állapot a body-osztályon is
+      // látszik, így egy korábban ütemezett (elavult) hívás sem teheti
+      // vissza a 16:9-es keretet a teljes képernyős dobozra.
+      try {
+        if (document.body.classList.contains('iptv-tv-fullscreen')) return;
+      } catch { /* régi motor */ }
+      const host = container.parentElement;
+      const width = host ? host.clientWidth : 0;
+      const height = host ? host.clientHeight : 0;
+      const key = `${width}x${height}|${streamUrl}`;
+      // A teljes képernyőről visszatérés UGYANEKKORA keretet ad – ilyenkor
+      // nincs stílusírás és nincs kényszerített újramérés.
+      if (key === appliedLayoutKeyRef.current) return;
+      appliedLayoutKeyRef.current = key;
+      if (geometryWrittenSync) { geometryWrittenSync = false; return; }
+      writeHomeGeometry();
+    };
+    const scheduleLayout = () => {
+      if (frame) return; // egy képkockán belül legfeljebb egyszer mérünk
+      frame = window.requestAnimationFrame(applyMeasuredLayout);
+    };
+
+    /*
+     * Új csatorna / új film: az első képkockának már a 16:9-es keretben kell
+     * megjelennie, ezért ilyenkor egyszer, szinkron írunk. Kényszerített
+     * újramérés NINCS – a böngésző a képkockát úgyis kiszámolja.
+     * Teljes képernyőről visszatéréskor viszont ide nem lépünk be.
+     */
+    if (layoutStreamRef.current !== streamUrl) {
+      layoutStreamRef.current = streamUrl;
+      appliedLayoutKeyRef.current = '';
+      geometryWrittenSync = true;
+      writeHomeGeometry();
+    }
+    scheduleLayout();
+
+    const parent = container.parentElement;
     const observer = typeof ResizeObserver !== 'undefined' && parent
-      ? new ResizeObserver(syncAfterLayout)
+      ? new ResizeObserver(scheduleLayout)
       : null;
     if (parent) observer?.observe(parent);
-    window.addEventListener('resize', syncAfterLayout);
-    window.addEventListener('orientationchange', syncAfterLayout);
-    window.visualViewport?.addEventListener('resize', syncAfterLayout);
-    document.addEventListener('fullscreenchange', syncAfterLayout);
-    document.addEventListener('visibilitychange', syncAfterLayout);
+    window.addEventListener('resize', scheduleLayout);
+    window.addEventListener('orientationchange', scheduleLayout);
+    window.visualViewport?.addEventListener('resize', scheduleLayout);
+    document.addEventListener('fullscreenchange', scheduleLayout);
+    document.addEventListener('visibilitychange', scheduleLayout);
     return () => {
       observer?.disconnect();
-      window.cancelAnimationFrame(frame1);
-      settleTimers.forEach((timer) => window.clearTimeout(timer));
-      window.removeEventListener('resize', syncAfterLayout);
-      window.removeEventListener('orientationchange', syncAfterLayout);
-      window.visualViewport?.removeEventListener('resize', syncAfterLayout);
-      document.removeEventListener('fullscreenchange', syncAfterLayout);
-      document.removeEventListener('visibilitychange', syncAfterLayout);
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', scheduleLayout);
+      window.removeEventListener('orientationchange', scheduleLayout);
+      window.visualViewport?.removeEventListener('resize', scheduleLayout);
+      document.removeEventListener('fullscreenchange', scheduleLayout);
+      document.removeEventListener('visibilitychange', scheduleLayout);
     };
   }, [isFullscreen, isVod, streamUrl]);
 
@@ -3948,36 +4042,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onClick={handleSurfaceTap}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className={`relative w-full ${isFullscreen ? 'h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
-      /*
-       * TELJES KÉPERNYŐ: a geometria INLINE, `vh` egységgel.
-       *
-       * A `100dvh` a régi webOS Chrome-on (webOS 3/4/5) nem létezik, a
-       * Tailwind `inset` shorthandje szintén újabb – ilyenkor a doboz nem
-       * töltötte ki a kijelzőt. A `position: fixed` és a bal/felső/alsó/jobb
-       * érték itt közvetlenül, minden motortól függetlenül érvényes.
-       */
-      style={isFullscreen
-        ? {
-            position: 'fixed',
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-            width: '100vw',
-            height: '100vh',
-            minWidth: 0,
-            minHeight: 0,
-            maxWidth: 'none',
-            maxHeight: 'none',
-            margin: 0,
-            padding: 0,
-            border: 0,
-            transform: 'none',
-            aspectRatio: 'auto',
-            zIndex: 2147483000,
-          }
-        : { width: '100%', height: '100%', minHeight: 0, maxHeight: 'none', aspectRatio: 'auto' }}
+      /* A TELJES KÉPERNYŐ geometriája a `.iptv-fs` CSS-osztályból jön
+         (web/src/index.css), nem inline stílusból: így a váltás egyetlen
+         attribútum-írás, a kilépéskor pedig az osztály eltávolítása magától
+         visszaadja a főoldali 16:9-es keretet. A `fixed` osztály a webos.js
+         TV-s szabályaihoz kell (a lejátszó OSD-jének elrejtése a főoldalon). */
+      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
+      /* Állandó főoldali stílus: teljes képernyőn a CSS-osztály írja felül
+         `!important`-tal, ezért a React itt SOHA nem ír stílust a váltáskor. */
+      style={PLAYER_HOME_STYLE}
     >
       {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
       {/* Amíg az első képkocka meg nem érkezik, a doboz NEM fekete: a

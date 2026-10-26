@@ -15,6 +15,7 @@ import {
   sweepStorage,
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
+import { fsPerf } from './services/fullscreenPerf';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import {
@@ -664,6 +665,20 @@ export function App() {
       }
     };
   }, [isVideoFullscreen, activeChannelId, customStreamUrl, showFullscreenLiveOsd]);
+
+  /*
+   * CÉLZOTT TELJESÍTMÉNYNAPLÓ (csak kézi naplózás alatt): a lejátszó a saját
+   * commitját és az első képkockát naplózza, itt pedig az látszik, mikor
+   * állt át a főoldal jelölése (OSD/oldalsáv). A két sor időbélyegéből
+   * pontosan kiderül, mennyi időt visz el a főoldal újrarajzolása.
+   */
+  const fsAppModeRef = useRef(false);
+  useEffect(() => {
+    if (fsAppModeRef.current === isVideoFullscreen) return;
+    fsAppModeRef.current = isVideoFullscreen;
+    fsPerf(isVideoFullscreen ? 'BE: főoldal jelölése kész' : 'KI: főoldal jelölése kész',
+      'OSD és oldalsáv állapota frissítve');
+  }, [isVideoFullscreen]);
   const [nextEpisodeToPlay, setNextEpisodeToPlay] = useState<{ series: Series; episode: Episode } | null>(null);
 
   // Modals state
@@ -3279,7 +3294,14 @@ export function App() {
                 onDisplayOrderChange={handleDisplayOrderChange}
                 onAssignToFolder={handleAssignChannelToFolder}
                 onSelectFavoriteFolder={handleSelectFavoriteFolder}
-                isActive={activeView === 'live' && !customStreamUrl && !isVideoFullscreen}
+                /*
+                 * A lista `isActive` jelzője NEM követi a teljes képernyőt:
+                 * így a váltás nem indít teljes újrarenderelést (és nem
+                 * dobja el a kiszámolt EPG-t). Teljes képernyőn a lista
+                 * magától szüneteltet (`epgPaused`), és a lejátszó
+                 * `iptv-player-restored` jelzésére indul újra.
+                 */
+                isActive={activeView === 'live' && !customStreamUrl}
               />
             </div>
         </div>

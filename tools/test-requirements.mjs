@@ -238,12 +238,31 @@ test('5. a teljes képernyőre lépés nem indít új lejátszást (ugyanaz a <v
 
 /* ──────────────────── 6. Teljesítmény / újrarajzolás ─────────────── */
 
-test('6. a főoldali kép méretezése nem kényszerít kilenc újraelrendezést csatornaváltáskor', () => {
-  // Korábban: 4 időzítő + 3 egymásba ágyazott animációs kép + 2
-  // kényszerített mérés futott minden váltáskor.
+test('6. a főoldali kép méretezése nem kényszerít újraelrendezést a teljes képernyő váltásakor', () => {
+  /*
+   * 2.5.119: a teljes képernyő geometriája CSS-osztályból jön, ezért a
+   * váltásnak NEM szabad JS-stílusírást vagy kényszerített újramérést
+   * indítania. A mérés animációs képkockába kerül, és csak akkor ír, ha a
+   * keret mérete tényleg megváltozott.
+   */
   assert.doesNotMatch(PLAYER, /\[80, 180, 350, 600\]\.forEach\(\(delay\) => \{\s*settleTimers\.push\(window\.setTimeout\(syncMainPageLayout/);
   assert.doesNotMatch(PLAYER, /frame2|frame3/);
-  assert.match(PLAYER, /settleTimers\.push\(window\.setTimeout\(syncMainPageLayout, 250\)/);
+  assert.doesNotMatch(PLAYER, /settleTimers\.push\(window\.setTimeout\(syncMainPageLayout, 250\)/,
+    'a visszatéréskor nem futhat 250 ms-os késleltetett újrarendezés');
+  // Nincs kényszerített újramérés (offsetHeight) egyik irányban sem.
+  assert.doesNotMatch(PLAYER, /void\s+container\.offsetHeight/,
+    'a váltás nem kényszeríthet szinkron újrarendezést');
+  assert.doesNotMatch(PLAYER, /Object\.assign\(container\.style,\s*\{\s*\n\s*position: 'fixed'/,
+    'a teljes képernyős geometriát nem inline stílus írja');
+  // A mérés animációs képkockában, egyszer fut.
+  assert.match(PLAYER, /appliedLayoutKeyRef/);
+  assert.match(PLAYER, /frame = window\.requestAnimationFrame\(applyMeasuredLayout\)/,
+    'a keret mérése animációs képkockában történik');
+  assert.match(PLAYER, /if \(key === appliedLayoutKeyRef\.current\) return;/,
+    'változatlan méretnél nincs stílusírás');
+  // A teljes képernyős geometria a CSS-osztályból jön, a React nem ír stílust.
+  assert.match(PLAYER, /style=\{PLAYER_HOME_STYLE\}/, 'a React nem ír inline stílust a váltáskor');
+  assert.match(PLAYER, /iptv-fs h-screen max-h-none aspect-auto fixed inset-0/, 'a teljes képernyős osztály a dobozon');
 });
 
 test('6. a csatornakeresés térképen fut, nem lineáris kereséssel', () => {
@@ -527,13 +546,23 @@ test('8. a build verzióeltérésnél szinkronizál, nem áll le hibával', () =
  * töltötte ki a kijelzőt. A régi webOS Chrome a `dvh`/`inset` értékeket sem
  * ismeri. Ezek a próbák a javítást rögzítik.
  */
-test('5. teljes képernyőn a doboz INLINE is fixed, 100vh-val (régi webOS Chrome)', () => {
-  // A stílus-objektumban közvetlenül ott kell lennie a fix tájolásnak.
-  assert.match(PLAYER, /position: 'fixed'/, 'a teljes képernyős geometria inline position: fixed');
-  assert.match(PLAYER, /height: '100vh'/, 'a magasság vh-ban (a dvh-t a régi webOS nem ismeri)');
-  // A dvh-t a régi webOS Chrome (3.x/4.x/5.x) nem ismeri – csak kommentben maradhat.
+test('5. teljes képernyőn a doboz fixed, 100vh-val (régi webOS Chrome)', () => {
+  /*
+   * 2.5.119: a teljes képernyős geometria a `.iptv-fs` CSS-osztályból jön
+   * (web/src/index.css). A cél ugyanaz, mint korábban: a doboz töltse ki a
+   * kijelzőt, a régi webOS Chrome által is ismert `vh` egységgel, legyen a
+   * legfelső réteg, és teljes képernyőn ne fusson a 16:9-es keret mérése.
+   */
+  const css = read('web/src/index.css');
+  const fsBlock = css.slice(css.indexOf('[data-tv-player].iptv-fs'));
+  assert.ok(fsBlock.length > 0, 'van .iptv-fs szabály a globális CSS-ben');
+  assert.match(fsBlock, /position: fixed !important;/, 'a teljes képernyős doboz fix');
+  assert.match(fsBlock, /height: 100vh !important;/, 'a magasság vh-ban (a dvh-t a régi webOS nem ismeri)');
+  assert.match(fsBlock, /z-index: 2147483000 !important;/, 'a lejátszó a legfelső réteg');
+  assert.match(fsBlock, /object-fit: cover !important;/, 'a kép kitölti a kijelzőt');
+  // A dvh-t a régi webOS Chrome (3.x/4.x/5.x) nem ismeri – nem használhatjuk.
   assert.doesNotMatch(PLAYER, /'100dvh'|h-\[100dvh\]/, 'nem maradhat dvh a teljes képernyős méretekben');
-  assert.match(PLAYER, /zIndex: 2147483000/, 'a lejátszó a legfelső réteg');
+  assert.doesNotMatch(fsBlock, /100dvh/, 'a teljes képernyős CSS sem használhat dvh-t');
   // A 16:9-es keret mérése teljes képernyőn NEM futhat.
   assert.match(PLAYER, /if \(isVod \|\| isFullscreen\) return;/);
 });
@@ -550,8 +579,9 @@ test('5. kilépéskor visszaáll a 16:9-es keret (a teljes képernyős geometria
 test('5. teljes képernyőn a fókusz a lejátszón marad (nem a rejtett listán)', () => {
   assert.match(PLAYER, /const assertFocus = \(\) => \{/);
   assert.match(PLAYER, /if \(active && active !== container && container\.contains\(active\)\) return;/);
-  // Több időpontban is ellenőrzünk, hogy egy késői újrarajzolás ne vigye el.
-  assert.match(PLAYER, /\[0, 80, 260, 600\]\.map\(\(delay\) => window\.setTimeout\(assertFocus, delay\)\)/);
+  // 2.5.119: két ellenőrzés (azonnali + késői) elég, mert a főoldal a
+  // váltás alatt nem rajzolódik újra – korábban négy focus() futott.
+  assert.match(PLAYER, /\[0, 200\]\.map\(\(delay\) => window\.setTimeout\(assertFocus, delay\)\)/);
 });
 
 test('5. a webOS gombkezelő csak a LÁTHATÓ csatornalistát használja', () => {
