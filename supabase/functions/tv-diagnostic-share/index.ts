@@ -133,9 +133,19 @@ async function findExisting(logNumber, startedAt) {
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 }
 
+/*
+ * Csak az öt LEGÚJABBAN BEÉRKEZETT napló marad meg.
+ *
+ * FONTOS: a rendezés `created_at`, és NEM `log_number`. A napló sorszáma a
+ * TV localStorage-ében nő, ezért egy frissen telepített IPK-nál újra 1-ről
+ * indul. Amikor a táblában már volt 15–19, a beérkező #1-es napló a
+ * `log_number desc` rendezésben az utolsó helyre került, a törlés pedig
+ * pontosan azt törölte – a TV közben „sikeresen elküldve” üzenetet kapott
+ * (HTTP 201), a napló mégis elveszett. Ezért a beérkezés ideje dönt.
+ */
 async function pruneToFive() {
   try {
-    const result = await db("?select=id,log_number,created_at&order=log_number.desc.nullslast,created_at.desc&limit=1000");
+    const result = await db("?select=id,log_number,created_at&order=created_at.desc&limit=1000");
     if (!result.ok) {
       console.error("diagnostic pruning lookup failed", result.status);
       return;
@@ -171,7 +181,10 @@ async function handle(req) {
     // A korábbi QR-korszakból maradt sorokat is takarítsuk le akkor, ha a TV
     // csak a történetet kérdezi le, nem éppen új naplót küld.
     await pruneToFive();
-    const result = await db("?log_number=not.is.null&select=log_number,started_at,created_at&order=log_number.desc,created_at.desc&limit=" + MAX_LOG_ROWS);
+    // Ugyanaz a rendezés, mint a törlésnél: a beérkezés ideje dönt, mert egy
+    // friss telepítésnél a sorszám újra 1-ről indul, és a kisebb számú, de
+    // újabb naplónak a lista ELEJÉN a helye.
+    const result = await db("?log_number=not.is.null&select=log_number,started_at,created_at&order=created_at.desc&limit=" + MAX_LOG_ROWS);
     if (!result.ok) {
       const reason = await responseReason(result);
       console.error("diagnostic history failed", reason);
