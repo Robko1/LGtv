@@ -7,6 +7,7 @@ import {
   catalogNeedsCheck,
   clearContent,
   describeStoredContent,
+  lastStoredContentReport,
   ImportedContent,
   inspectStoredCatalogs,
   loadLive,
@@ -1104,7 +1105,7 @@ export function App() {
     void (async () => {
       try {
         const plan = await inspectStoredCatalogs();
-        const report = plan?.report || await describeStoredContent();
+        const report = plan?.report || lastStoredContentReport() || await describeStoredContent();
         appLog(
           `TÁROLÓ-JELENTÉS: localStorage=${report.localKeys} kulcs / ${report.localChars} karakter; `
           + `induló készlet=${report.liveLocal} csatorna; tartós tár: `

@@ -129,6 +129,25 @@ try {
     try { (window as any).__IPTV_REVEAL__?.(reason); } catch { /* nincs window */ }
   };
 
+  /*
+   * ELŐFESTÉS A TAKARÓKÉP ALATT (2.5.131 – a „nagy felvillanás” javítása).
+   *
+   * A 22:32:49-es naplóban a REVEAL +2770 ms-nál volt, de a legnagyobb
+   * tartalom csak +3602 ms-nál lett kifestve, és +2879…+3479 között 600 ms-ra
+   * leállt a fő szál. A #root ugyanis `visibility: hidden` volt: a böngésző
+   * a teljes 4K-s felületet CSAK a takarókép levétele UTÁN festette ki,
+   * ezért a néző egy üres képkockát látott („egy nagy felvillanás”).
+   *
+   * A HTML-híd `__IPTV_PREPARE_REVEAL__()` láthatóvá teszi a #root-ot, de az
+   * átlátszatlan #tv-curtain továbbra is eltakarja. Így a drága festés még a
+   * takarókép ALATT, láthatatlanul megtörténik, és a REVEAL már csak egyetlen
+   * kompozitor-váltás. Az afterPaint két képkockája ekkor már a VALÓDI fát
+   * méri, és a képkocka-őr is a tényleges festési költséget látja.
+   */
+  const preparePaint = () => {
+    try { (window as any).__IPTV_PREPARE_REVEAL__?.(); } catch { /* nincs HTML-híd */ }
+  };
+
   const headerReady = () => {
     const root = document.getElementById("root");
     return !!root && root.childElementCount > 0 && !!document.querySelector("header");
@@ -284,6 +303,9 @@ try {
   const revealWhenPainted = (reason: string) => {
     if (revealed || revealPending) return;
     revealPending = true;
+    // Ha a korai előfestés valamiért kimaradt, itt még pótoljuk: a két
+    // animációs kép alatt a felület már látható (de takart) legyen.
+    preparePaint();
     afterPaint(() => {
       revealPending = false;
       revealNow(reason);
@@ -291,6 +313,7 @@ try {
   };
 
   const logoStartedAt = { value: 0 };
+  let prepared = false;
 
   const checkRendered = () => {
     if (revealed) return;
@@ -299,8 +322,21 @@ try {
     // Nincs beállított szolgáltató: a felület egy ablakot mutat, és ez már
     // a teljes, kész állapot – nincs mire várni.
     const onlyDialog = !!document.querySelector('[role="dialog"]');
+    const chromeOk = chromeReady();
 
-    if (chromeReady() && (listReady() || onlyDialog)) {
+    /*
+     * A FESTÉST NEM A REVEAL PILLANATÁRA HAGYJUK. Amint a fejléc és a
+     * mappasáv a DOM-ban van, a felületet a takarókép alatt kifestetjük;
+     * a hátralévő tároló-próba és az afterPaint két képkockája alatt a
+     * böngésző már a kész képet tartja a kompozitorban.
+     */
+    if (chromeOk && !prepared) {
+      prepared = true;
+      preparePaint();
+      logPhase('főoldal előfestve a takarókép alatt');
+    }
+
+    if (chromeOk && (listReady() || onlyDialog)) {
       /*
        * ÜRES IPK: nincs csatorna, nincs stream, nincs logó. A felület
        * EGYETLEN kész egységként rajzolódott ki – azonnal, egyetlen

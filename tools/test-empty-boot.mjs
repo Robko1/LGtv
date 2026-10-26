@@ -96,9 +96,13 @@ test('üres indulás: a webOS híd nem épít rejtett diagnosztikai dobozt', () 
     'az üres IPK-n a fókusz-próba továbbra is négyszer járja be a DOM-ot');
 });
 
-test('üres indulás: a verzió mindkét helyen 2.5.129', () => {
-  assert.match(read('web/src/appVersion.ts'), /export const WEB_VERSION = '2\.5\.129';/);
-  assert.match(read('webos/appinfo.json'), /"version": "2\.5\.129"/);
+test('üres indulás: a futó verzió és az IPK verziója megegyezik', () => {
+  const version = read('web/src/appVersion.ts');
+  const match = version.match(/export const WEB_VERSION = '([^']+)';/);
+  assert.ok(match, 'hiányzik a WEB_VERSION konstans');
+  const appinfo = JSON.parse(read('webos/appinfo.json'));
+  assert.equal(appinfo.version, match[1],
+    'a webOS appinfo.json verziója eltér a futó alkalmazásétól');
 });
 
 /* ─────────────────── 2. a VALÓDI megjelenítési logika ──────────────────── */
@@ -239,6 +243,48 @@ test('üres IPK: a kész felület azonnal megjelenik, videó és csatornasorok n
     h.runtime.checkRendered();
     await h.tick(50);
     assert.equal(h.revealReasons.length, 1, 'többször is megjelent a felület (ugrálás)');
+  } finally {
+    h.close();
+  }
+});
+
+/*
+ * 2.5.131 – A „NAGY FELVILLANÁS” JAVÍTÁSA.
+ * A 22:32:49-es napló: REVEAL +2770 ms, de a legnagyobb tartalom csak
+ * +3602 ms-nál festődött ki (közte 600 ms főszál-leállás). A #root
+ * `visibility: hidden` volt, ezért a teljes felület csak a takarókép
+ * levétele UTÁN lett kifestve. Most az előfestés a takarókép ALATT fut.
+ */
+test('a főoldal MÉG a takarókép alatt kifestésre kerül (nincs felvillanás)', async (t) => {
+  const h = await bootRevealHarness({ bootState: 'empty', rows: 0, video: true, emptyMarker: true });
+  if (!h) { t.skip('esbuild hiányzik'); return; }
+  try {
+    let prepareCalls = 0;
+    const realPrepare = h.window.__IPTV_PREPARE_REVEAL__;
+    assert.equal(typeof realPrepare, 'function', 'hiányzik a HTML előfestő híd');
+    h.window.__IPTV_PREPARE_REVEAL__ = (...args) => {
+      prepareCalls += 1;
+      return realPrepare(...args);
+    };
+
+    // A DOM kész, de a tároló-próba még nem döntött: a megjelenítő ilyenkor
+    // azonnal előfest, és a takaróképet FENT tartja.
+    h.runtime.checkRendered();
+    assert.ok(prepareCalls >= 1, 'a főoldal nem lett előfestve a takarókép alatt');
+    assert.equal(h.window.__IPTV_PREPARED__, true, 'a HTML nem jegyezte meg az előfestést');
+    assert.match(h.doc.documentElement.className, /iptv-prerender/);
+    assert.equal(h.window.getComputedStyle(h.doc.getElementById('root')).visibility, 'visible',
+      'a #root az előfestés után is rejtve maradt');
+    assert.ok(h.doc.getElementById('tv-curtain'),
+      'az előfestés alatt a takaróképnek fent kell maradnia');
+
+    await h.tick(200);
+    assert.equal(h.revealReasons.length, 1, 'a takarókép nem tűnt el');
+    assert.equal(h.doc.getElementById('tv-curtain'), null);
+    assert.match(h.doc.documentElement.className, /iptv-prerender/,
+      'a megjelenés után a #root véletlenül újra rejtve lenne');
+    assert.match(h.doc.documentElement.className, /iptv-revealed/);
+    assert.equal(h.failures.length, 0);
   } finally {
     h.close();
   }

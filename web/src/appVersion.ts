@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.5.130';
+export const WEB_VERSION = '2.5.131';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.131',
+    date: '2026-10-26',
+    changes: [
+      'NINCS TÖBB NAGY FELVILLANÁS AZ INDULÁSKOR: a 22:32:49-es naplóban a takarókép +2770 ms-nál tűnt el, de a legnagyobb tartalom csak +3602 ms-nál festődött ki – közte 600 ms-ra leállt a fő szál. Oka: a #root `visibility: hidden` volt, ezért a teljes 4K-s felületet a böngésző CSAK a takarókép levétele UTÁN festette ki, és a néző addig egy üres képkockát látott',
+      'KÉTLÉPCSŐS MEGJELENÉS: amint a fejléc és a mappasáv a DOM-ban van, az `iptv-prerender` osztály a takarókép ALATT láthatóvá teszi a kész felületet; a drága festés így láthatatlanul, a REVEAL előtt történik. A megjelenéskor már csak egyetlen kompozitor-váltás van, és az afterPaint két képkockája is a VALÓDI fát méri',
+      'A TÁROLÓ-JELENTÉS NEM FUT KÉTSZER: üres induláskor az `inspectStoredCatalogs()` és az App boot-effektje is végigjárta az IndexedDB metaadatokat (3 felesleges olvasás + egy újabb localStorage-bejárás). A boot alatt a jelentést most megosztjuk, így rövidebb az első festésig tartó út',
+      'A KÉZI HIBAKERESÉSI NAPLÓ „UTOLSÓ 5 ELKÜLDÖTT NAPLÓ” SORAI OLVASHATÓBBAK: minden rekord saját, legalább 76 px magas dobozt kap, a napló sorszáma 26–30 px, az időbélyeg 18–20 px, mindkettő sormagassága pontosan a dobozhoz igazodik',
+      'A NAGY FELIRATOK NEM LÓGNAK KI: a sorszám és az idő sortörés-biztos (flex-wrap, min-w-0, break-words, overflow-hidden), így keskenyebb képernyőn is a saját dobozában marad a szöveg – nincs levágás vagy túlcsordulás',
+    ],
+  },
   {
     version: '2.5.130',
     date: '2026-10-26',
