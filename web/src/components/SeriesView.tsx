@@ -18,8 +18,18 @@ interface SeriesViewProps {
   isActive: boolean;
 }
 
-/* Függőleges, ötoszlopos rács; a poszterek 20-as adagokban jelennek meg. */
-const PAGE_SIZE = 20;
+/* Függőleges, ötoszlopos rács; a poszterek 25-ös adagokban jelennek meg. */
+const PAGE_SIZE = 25;
+/*
+ * A KÖVETKEZŐ ADAG KÜSZÖBE – az adag 15. posztere.
+ *
+ * Egyszerre legfeljebb 25 poszter kerül a DOM-ba (és töltődik be a
+ * hálózatról). Amikor a néző görgetés közben eléri az utolsó adag 15.
+ * poszterét, a következő 25 már a háttérben megérkezik – mire a 25.-hez
+ * ér, kész van. Így a rács mindig csak annyit tart, amennyi látszik,
+ * és nincs előre betöltve semmi, amire még nincs szükség.
+ */
+const NEXT_BATCH_AT = 15;
 let seriesReturnSnapshot: { scrollTop: number; visibleCount: number } | null = null;
 
 const SeriesViewComponent: React.FC<SeriesViewProps> = ({
@@ -141,7 +151,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     };
     const start = () => {
       if (cancelled) return;
-      const batchEnd = Math.min(preloadedThroughRef.current + 20, filteredSeries.length, visibleCountRef.current);
+      const batchEnd = Math.min(preloadedThroughRef.current + PAGE_SIZE, filteredSeries.length, visibleCountRef.current);
       const tick = async () => {
         if (cancelled || preloadedThroughRef.current >= batchEnd) return;
         const entry = filteredSeries[preloadedThroughRef.current];
@@ -222,15 +232,21 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
       {/* Függőleges sorozatposzter-rács, adagonként bővülő listával. */}
       <div ref={seriesGridRef} data-tv-navigation-owner="posters" data-scroll-keep="" onScroll={(e) => {
         const el = e.currentTarget;
-        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
-        if (nearBottom && visibleCount < filteredSeries.length) {
+        // Az utolsó adag 15. posztere (abszolút sorszám). Ha ez már látható,
+        // jöhet a következő 25 – jóval azelőtt, hogy a lista vége érne.
+        const trigger = Math.max(0, visibleCount - PAGE_SIZE) + (NEXT_BATCH_AT - 1);
+        const triggerCard = el.querySelector<HTMLElement>(`[data-poster-index="${trigger}"]`);
+        const reachedTrigger = !!triggerCard
+          && triggerCard.getBoundingClientRect().top < el.getBoundingClientRect().bottom;
+        if (reachedTrigger && visibleCount < filteredSeries.length) {
           setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredSeries.length));
         }
       }} onFocusCapture={(e) => {
         const target = e.target as HTMLElement;
         const card = target.closest<HTMLElement>('[data-poster-index]');
         const index = Number(card?.dataset.posterIndex);
-        if (Number.isFinite(index) && index >= visibleCount - 5 && visibleCount < filteredSeries.length) {
+        const focusTrigger = Math.max(0, visibleCount - PAGE_SIZE) + (NEXT_BATCH_AT - 1);
+        if (Number.isFinite(index) && index >= focusTrigger && visibleCount < filteredSeries.length) {
           setVisibleCount((count) => Math.min(count + PAGE_SIZE, filteredSeries.length));
         }
       }} className="flex-1 overflow-y-auto px-3 pt-6 pb-6 md:px-4 md:pt-6 md:pb-6 lg:px-5 lg:pt-6 lg:pb-6 xl:px-6 xl:pt-6 xl:pb-6">
