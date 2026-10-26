@@ -275,7 +275,9 @@ check(/PERSIST_DELAY_MS = 5000/.test(APPLOG)
   'a diagnosztikai napló összevontan ment és nem soronként végzi a lejárat-ellenőrzést');
 check(/activeView !== 'live' \|\| customStreamUrl/.test(APP)
   && /isActive=\{activeView === 'live'/.test(APP)
-  && /!isActive \|\| !epgReady/.test(CHANNEL_LIST),
+  && /if \(!isActive \|\| !activeProvider \|\| activeProvider\.type !== 'xtream'\) \{/.test(CHANNEL_LIST)
+  && /if \(!epgActive \|\| !epgReady\) return;/.test(CHANNEL_LIST)
+  && /const epgActive = isActive && !epgPaused;/.test(CHANNEL_LIST),
   'a rejtett filmnézetben az EPG-előtöltés és az óra nem fut háttérben');
 check(/dublinFormatter\(\)\.formatToParts\(date\)/.test(APPLOG),
   'az időbélyeg-formázó gyorsítótárazott (nincs új Intl példány soronként)');

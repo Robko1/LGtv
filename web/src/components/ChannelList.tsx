@@ -92,14 +92,38 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   const [epgClock, setEpgClock] = useState(() => Date.now());
   const [localEpg, setLocalEpg] = useState<Record<string, EpgNowNext>>({});
 
+  /*
+   * TELJES KÉPERNYŐ ALATT AZ EPG-MUNKA SZÜNETEL, ÉS CSAK A LEJÁTSZÓ
+   * HELYREÁLLÁSA UTÁN INDUL ÚJRA.
+   *
+   * A VideoPlayer a belépéskor `iptv-fullscreen-entered`, a főoldali
+   * geometria helyreállása után (a kifestett képkockában) pedig
+   * `iptv-player-restored` eseményt küld. Így a visszatérés első
+   * képkockáján nem indul EPG-letöltés/háttérszámítás – az csak ezután kap
+   * munkát. A teljes képernyő alatt pedig semmi nem fogyaszt CPU-t a
+   * nézésből.
+   */
+  const [epgPaused, setEpgPaused] = useState(false);
+  useEffect(() => {
+    const onEnter = () => setEpgPaused(true);
+    const onRestore = () => setEpgPaused(false);
+    window.addEventListener('iptv-fullscreen-entered', onEnter);
+    window.addEventListener('iptv-player-restored', onRestore);
+    return () => {
+      window.removeEventListener('iptv-fullscreen-entered', onEnter);
+      window.removeEventListener('iptv-player-restored', onRestore);
+    };
+  }, []);
+  const epgActive = isActive && !epgPaused;
+
   // A lista sárga EPG-sávja az OSD-vel azonos ütemben frissül.
   // Az időbélyegek alapján számoljuk újra a kitöltést, nem a csatornaváltáshoz kötjük.
   useEffect(() => {
-    if (!isActive) return;
+    if (!epgActive) return;
     setEpgClock(Date.now());
     const timer = window.setInterval(() => setEpgClock(Date.now()), 10000);
     return () => window.clearInterval(timer);
-  }, [isActive]);
+  }, [epgActive]);
 
   useEffect(() => {
     if (!selectedFavoriteFolderId) {
@@ -284,10 +308,18 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   // gondoskodnak az EPG-ről. Így a lista nem függ attól, hogy az App előtöltése
   // éppen lefutott-e, és a műsor koppintás nélkül is megjelenik.
   useEffect(() => {
-    if (!isActive || !epgReady || !activeProvider || activeProvider.type !== 'xtream') {
+    /*
+     * A teljes képernyő csak SZÜNETELTETI az EPG-munkát: a már kiszámolt
+     * műsoradatot NEM dobjuk el, különben a visszatéréskor egy pillanatra
+     * üres EPG-sorok látszanának (ez volt a látható „újrarajzolás”).
+     * A tárolt adatot csak akkor töröljük, ha a lista tényleg más nézetbe
+     * kerül (nem élő TV) vagy nincs szolgáltató.
+     */
+    if (!isActive || !activeProvider || activeProvider.type !== 'xtream') {
       setLocalEpg({});
       return;
     }
+    if (!epgActive || !epgReady) return;
     let cancelled = false;
     let cursor = 0;
     // A nézett és a képernyőn látható csatornák EPG-je azonnal induljon,
@@ -381,12 +413,12 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       window.clearTimeout(startTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
     };
-  }, [isActive, epgReady, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
+  }, [isActive, epgActive, epgReady, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
 
   // A gyorsítótárból 30 másodpercenként újraszámoljuk az éppen futó műsort,
   // ezért a cím és a sárga haladási sáv magától frissül.
   useEffect(() => {
-    if (!isActive || !activeProvider || activeProvider.type !== 'xtream') return;
+    if (!epgActive || !activeProvider || activeProvider.type !== 'xtream') return;
     setLocalEpg((previous) => {
       let changed = false;
       const next = { ...previous };
@@ -409,7 +441,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       }
       return changed ? next : previous;
     });
-  }, [isActive, epgClock, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
+  }, [epgActive, epgClock, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
 
   // A teljes képernyőre lépéskor a lista lekerül a képernyőről, ezért
   // a görgetési helyzetet külön, nézetenként mentjük és visszaállítjuk.
