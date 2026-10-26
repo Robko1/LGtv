@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.131';
+export const WEB_VERSION = '2.5.132';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.131',
+    version: '2.5.132',
     date: '2026-10-26',
     changes: [
       'NINCS TÖBB NAGY FELVILLANÁS AZ INDULÁSKOR: a 22:32:49-es naplóban a takarókép +2770 ms-nál tűnt el, de a legnagyobb tartalom csak +3602 ms-nál festődött ki – közte 600 ms-ra leállt a fő szál. Oka: a #root `visibility: hidden` volt, ezért a teljes 4K-s felületet a böngésző CSAK a takarókép levétele UTÁN festette ki, és a néző addig egy üres képkockát látott',
