@@ -21,6 +21,7 @@ export const WEB_VERSION_HISTORY = [
       'NAPLÓ – SZOLGÁLTATÓ-BEOLVASÁS FIGYELŐ: a kézi naplózás alatt minden szolgáltatói kérés külön sorban látszik (végpont, eltelt idő, időkorlát, HTTP státusz, válasz mérete), minden betöltési szakasz kezdetével és végével (darabszám + eltelt idő), az újrapróbálkozásokkal, a kihagyott kategóriákkal és a megszakító állapotával. Ebből a naplóból állapítható meg pontosan, hol és miért lassú a betöltés',
       'ÉRTHETŐ HIBAÜZENET: az időtúllépés többé nem „Nem sikerült elérni a szervert”-ként jelenik meg – a kettő javítása teljesen más (a címet/hálózatot kell nézni, vagy a lista méretét)',
       'ROUTER-VÉDELEM: a „fetch failed” alakú kapcsolati hiba is hálózati hibának számít, így egy elérhetetlen szervernél a megszakító valóban kinyit (korábban egyes motorokon nem, és a program tovább próbálkozott egy halott címen)',
+      'KIADÁS JAVÍTVA: az IPK-ellenőrzés a fejlesztői belépő maradványát sima szövegrészlet-kereséssel vizsgálta, ezért egyetlen forráskomment is leállította a buildet (a webos.js beégetve kerül a csomagolt index.html-be). Az ellenőrzés most a valódi script-hivatkozást keresi, és új teszt (tools/test-package-html.mjs) már az npm test alatt jelez, ha ilyesmi bekerülne',
     ],
   },
   {

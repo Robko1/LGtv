@@ -342,7 +342,7 @@ jobs:
             exit 1
           }
           python3 - <<'PY'
-          import json, os
+          import json, os, re
           from pathlib import Path
           base = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos")
           packaged = json.loads((base / "appinfo.json").read_text())
@@ -358,8 +358,21 @@ jobs:
           if (base / "assets" / "intro.mp4").exists():
               raise SystemExit("HIBA: az induló videó (assets/intro.mp4) még benne van a csomagban.")
           html = (base / "index.html").read_text()
-          if 'id="root"' not in html or '/src/main.tsx' in html:
+          if 'id="root"' not in html:
               raise SystemExit("HIBA: a csomagolt index.html hiányos vagy nem production build.")
+          # A fejlesztői belépő (`<script type="module" src="/src/main.tsx">`) nem
+          # maradhat a csomagban: a Chrome<61 TV-motorokon az app el sem indulna.
+          #
+          # Korábban ez sima szövegrészlet-keresés volt (a `/src/main.tsx`
+          # előfordulását nézte bárhol a HTML-ben), ezért egy olyan
+          # FORRÁSKOMMENT is megbuktatta a kiadást, amely csak MEGEMLÍTETTE a
+          # fájlnevet – a webos.js beégetve kerül az index.html-be, és pont ez
+          # állította le a 2.5.108-as buildet. Most a valódi script-hivatkozást
+          # keressük; egy komment vagy egy szöveg nem számít annak.
+          if re.search(r'<script[^>]*\ssrc=["\'][^"\']*/src/main\.tsx', html):
+              raise SystemExit("HIBA: a csomagolt index.html a fejlesztői belépőt tartalmazza (nem production build).")
+          if re.search(r'<script[^>]*\ssrc=["\']/src/', html):
+              raise SystemExit("HIBA: a csomagolt index.html fejlesztői /src/ hivatkozást tartalmaz (nem production build).")
           if "LG webOS TV · FEKVŐ 1920 × 1080" in html:
               raise SystemExit("HIBA: régi, fölösleges indítófelirat maradt.")
           if 'class="boot-spinner"' in html or 'class="boot-text"' in html:
