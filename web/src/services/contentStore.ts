@@ -2024,6 +2024,26 @@ export interface StorageReport {
   bootChars: number;
 }
 
+/**
+ * AZ UTOLSÓ TÁROLÓ-JELENTÉS – NINCS KÉTSZERES IDB-BEJÁRÁS (2.5.131).
+ *
+ * A 22:32:49-es naplóban az üres indulás +1889…+2705 ms között kétszer is
+ * végigjárta az IndexedDB metaadatokat: `inspectStoredCatalogs()` belülről
+ * hívta a `describeStoredContent()`-ot, majd az App boot-effektje – mivel a
+ * plan üres volt – MÉG EGYSZER meghívta. Ez 3 felesleges IDB-olvasás és egy
+ * újabb localStorage-bejárás volt közvetlenül az első festés előtt.
+ *
+ * A felmérés minden híváskor FRISS jelentést készít, és eltárolja; az App
+ * ezt az értéket használja fel, amikor nincs plan. Így nincs sem második
+ * bejárás, sem elavult gyorsítótár: import/frissítés után a következő
+ * felmérés felülírja. A többi hívó (tesztek, kézi frissítés) továbbra is a
+ * saját, friss `describeStoredContent()`-ját kapja.
+ */
+let lastStorageReport: StorageReport | null = null;
+export function lastStoredContentReport(): StorageReport | null {
+  return lastStorageReport;
+}
+
 export async function describeStoredContent(): Promise<StorageReport> {
   const report: StorageReport = {
     localKeys: 0, localChars: 0, liveLocal: 0, liveIdb: 0, vodIdb: 0, seriesIdb: 0, bootChars: 0,
@@ -2381,6 +2401,7 @@ async function hasStoredList(store: ChunkStore | null, metaKey: string, localMet
 export async function inspectStoredCatalogs(): Promise<StoredCatalogPlan | null> {
   const state = await readCatalogState();
   const report = await describeStoredContent();
+  lastStorageReport = report;
   let boot: LoadedLive = loadLive();
   if (!boot.provider || boot.channels.length === 0) {
     try { boot = await loadLiveBoot(); } catch { /* a helyi próba eredménye marad */ }

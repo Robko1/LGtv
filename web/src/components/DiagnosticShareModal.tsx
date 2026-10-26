@@ -201,18 +201,47 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-base font-black text-white">{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()).slice(0, 10) : '—'}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">KEZDETE</div></div>
           </div>
 
+          {/*
+            UTOLSÓ 5 NAPLÓ – A SORSZÁM ÉS AZ IDŐ AKKORA, AMENNYIT A SAJÁT
+            FÜGGŐLEGES DOBOZA ENGED (2.5.131).
+
+            Korábban mindkét felirat `text-sm` (14 px) volt egy alacsony
+            sorban, ezért a TV-n kicsi és nehezen olvasható volt. Most minden
+            rekord egy legalább 72 px magas doboz: a sorszám 30/34 px, az
+            időbélyeg 20/24 px, mindkettő `leading-none`, tehát pontosan a
+            saját sorában ül. A `flex-wrap` + `min-w-0` + `break-words` +
+            `overflow-hidden` gondoskodik róla, hogy a hosszú
+            `ÉÉÉÉ-HH-NN ÓÓ:PP:MM` idő soha ne folyjon ki vagy lógjon túl a
+            dobozon – ha kell, a saját sorába tördelődik.
+          */}
           <div className="rounded-xl border border-cyan-500/35 bg-[#081329] p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-black tracking-wider text-cyan-200"><History className="h-5 w-5" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
+            <div className="mb-3 flex items-center gap-2 text-base font-black tracking-wider text-cyan-200"><History className="h-6 w-6 shrink-0" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
             {history.length ? (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {history.slice(0, 5).map((record) => (
-                  <div key={`${record.logNumber}-${record.createdAt}`} className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${sentRecord?.logNumber === record.logNumber ? 'border-emerald-400/70 bg-emerald-500/10' : 'border-slate-700/80 bg-[#0b1730]'}`}>
-                    <span className="font-black text-white">Napló #{record.logNumber}</span>
-                    <span className="flex items-center gap-2 font-mono text-slate-300"><Clock3 className="h-4 w-4 text-cyan-300" />{formatRecordDate(record.createdAt)}</span>
+                  <div
+                    key={`${record.logNumber}-${record.createdAt}`}
+                    data-diagnostic-history-row=""
+                    className={`flex min-h-[72px] w-full flex-wrap items-center justify-between gap-x-5 gap-y-1 overflow-hidden rounded-xl border-2 px-4 py-3 ${sentRecord?.logNumber === record.logNumber ? 'border-emerald-400/70 bg-emerald-500/10' : 'border-slate-700/80 bg-[#0b1730]'}`}
+                  >
+                    <span
+                      data-diagnostic-history-number=""
+                      className="shrink-0 whitespace-nowrap text-3xl font-black leading-none tracking-tight text-white tabular-nums sm:text-[34px]"
+                    >
+                      Napló #{record.logNumber}
+                    </span>
+                    <span
+                      data-diagnostic-history-date=""
+                      title={formatRecordDate(record.createdAt)}
+                      className="flex min-w-0 max-w-full items-center gap-2 font-mono text-xl font-bold leading-none text-slate-100 tabular-nums sm:text-2xl"
+                    >
+                      <Clock3 className="h-5 w-5 shrink-0 text-cyan-300" />
+                      <span className="min-w-0 break-words">{formatRecordDate(record.createdAt)}</span>
+                    </span>
                   </div>
                 ))}
               </div>
-            ) : <p className="text-sm text-slate-500">Még nincs elküldött napló.</p>}
+            ) : <p className="text-base text-slate-500">Még nincs elküldött napló.</p>}
           </div>
 
           {notice && <p role="status" className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-3 text-center text-sm font-bold text-emerald-200">{notice}</p>}

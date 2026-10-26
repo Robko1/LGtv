@@ -1750,8 +1750,11 @@ test('22. az élő lista újraindítás után is megmarad (localStorage + Indexe
     'két különböző szolgáltató listája keveredhet');
   // A verzió is a mentés-javítást hirdeti.
   const version = read('web/src/appVersion.ts');
-  assert.match(version, /export const WEB_VERSION = '2\.5\.129';/,
-    'a verzió nem 2.5.129');
+  const match = version.match(/export const WEB_VERSION = '([^']+)';/);
+  assert.ok(match, 'hiányzik a WEB_VERSION konstans');
+  const appinfo = JSON.parse(read('webos/appinfo.json'));
+  assert.equal(appinfo.version, match[1],
+    'a webOS appinfo.json verziója eltér a futó alkalmazásétól');
   assert.match(version, /ADATVESZTÉS ÚJRAINDÍTÁSKOR/,
     'a kiadási napló nem írja le az adatvesztés javítását');
 });

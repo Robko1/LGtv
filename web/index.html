@@ -77,6 +77,24 @@
       html.iptv-booting #root {
         visibility: hidden;
       }
+      /*
+       * KÉTLÉPCSŐS MEGJELENÉS – NINCS TÖBB FELVILLANÁS (2.5.131).
+       *
+       * A 22:32:49-es naplóban a takarókép +2770 ms-nál tűnt el, de a legnagyobb
+       * tartalom csak +3602 ms-nál festődött ki; közte 600 ms-os főszál-leállás
+       * volt (+3479 ms). Oka: a `visibility: hidden` miatt a böngésző a teljes
+       * főoldalt CSAK a takarókép levétele után rasterizálta – a néző addig egy
+       * üres/fekete képkockát látott. Ez volt az „egy nagy felvillanás”.
+       *
+       * Most a megjelenítés ELŐTT néhány képkockával az `iptv-prerender` osztály
+       * láthatóvá teszi a #root-ot, de a TELJESEN ÁTLÁTSZATLAN #tv-curtain
+       * (z-index 2147483000) még mindig eltakarja. A böngésző így a drága
+       * 4K-s festést a takarókép ALATT, láthatatlanul végzi el; a REVEAL
+       * pillanatában már csak egyetlen kompozitor-váltás történik.
+       */
+      html.iptv-prerender #root {
+        visibility: visible;
+      }
       /* NINCS BEÚSZÁS. A korábbi 140 ms-os áttűnés alatt a felület
          áttetsző volt, és alatta a takarékép háttér látszott – ez volt a
          "villogás" a rendszerindítás végén. A megjelenés mostantól
@@ -273,10 +291,42 @@
         // képernyőváltás. Ha a hívás később (vagy korábban) történne, a
         // képernyő villogna: egyszer a félkész felület, egyszer a kész.
         window.__IPTV_REVEALED__ = false;
+        /*
+         * ELŐFESTÉS A TAKARÓKÉP ALATT.
+         *
+         * A main.tsx ezt akkor hívja, amikor a főoldal DOM-ja már kész, de a
+         * takarókép még fent van. A #root ilyenkor válik `visibility: visible`
+         * elemmé, és a két animációs kép (afterPaint) már a VALÓDI felületet
+         * festi ki – nem egy üres, rejtett fát. A #tv-curtain mindvégig fedi.
+         * A visszafelé út nincs: ha a kód valamiért nem hívná meg, a REVEAL
+         * maga is meghívja, így a #root soha nem marad rejtve.
+         */
+        window.__IPTV_PREPARED__ = false;
+        window.__IPTV_PREPARE_REVEAL__ = function (fallback) {
+          if (window.__IPTV_PREPARED__) return;
+          window.__IPTV_PREPARED__ = true;
+          try {
+            var h = document.documentElement;
+            if (!/\biptv-prerender\b/.test(h.className)) {
+              h.className = (h.className + ' iptv-prerender')
+                .replace(/\s+/g, ' ').replace(/^ | $/g, '');
+            }
+            // Szinkron elrendezés-kényszerítés: a festendő fa már készen álljon,
+            // amikor a main.tsx két requestAnimationFrame-je elindul.
+            var root = byId('root');
+            if (root) { var forcedLayout = root.offsetHeight; }
+            bootMark(fallback
+              ? 'ELŐFESTÉS – csak a REVEAL pillanatában pótolva'
+              : 'ELŐFESTÉS – a főoldal a takarókép alatt kifestve');
+          } catch (e) {}
+        };
         window.__IPTV_REVEAL__ = function (reason) {
           if (window.__IPTV_REVEALED__) return;
           window.__IPTV_REVEALED__ = true;
           try {
+            // Biztonsági háló: ha az előfestés valamiért kimaradt, a #root
+            // ekkor is láthatóvá válik, mielőtt a takaróképet levesszük.
+            if (window.__IPTV_PREPARE_REVEAL__) window.__IPTV_PREPARE_REVEAL__(true);
             // A három művelet EGYETLEN feladatban fut, hogy a böngésző egy
             // festésben hajtsa végre őket: nincs félkész kép, nincs villanás.
             //   1) a saját takarékép-réteg eltűnik,

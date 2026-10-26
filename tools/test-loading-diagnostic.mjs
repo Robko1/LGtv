@@ -98,6 +98,21 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
 });
 const { window } = dom;
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
+/*
+ * A React mount/effect ütemezése a CI-n (több párhuzamos node --test folyamat
+ * mellett) néha 30 ms-nál tovább tart. A korábbi fix `await tick()` ilyenkor
+ * még az effect ELŐTT olvasta az intervals halmazt, és a teszt időnként
+ * hibát jelzett egy valójában helyes komponensre. Rövid poll-oldalú várakozás:
+ * a feltételnek legkésőbb 2 mp-en belül teljesülnie kell.
+ */
+const waitFor = async (predicate, timeout = 2000) => {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    await tick(20);
+  }
+  return predicate();
+};
 const checks = [];
 let failed = false;
 function check(ok, message) {
@@ -119,8 +134,8 @@ try {
     finishedAt: null,
     progress: { phase: 'Betöltés', percent: 40 },
   });
-  await tick();
-  check(intervals.size === 1, 'folyamat közben pontosan egy elteltidő-interval fut');
+  check(await waitFor(() => intervals.size === 1),
+    'folyamat közben pontosan egy elteltidő-interval fut');
 
   const dialog = window.document.querySelector('[role="dialog"]');
   dialog?.dispatchEvent(new window.KeyboardEvent('keydown', {
@@ -128,8 +143,8 @@ try {
   }));
   check(test.closeCount() === 1, 'a VISSZA/Escape a betöltési diagnosztikát bezárja');
   test.update({ isOpen: false, startedAt, finishedAt: null, progress: { phase: 'Betöltés', percent: 40 } });
-  await tick();
-  check(intervals.size === 0, 'bezárás után az elteltidő-interval leáll');
+  check(await waitFor(() => intervals.size === 0),
+    'bezárás után az elteltidő-interval leáll');
 
   const finishedAt = window.performance.now();
   test.update({
@@ -139,14 +154,16 @@ try {
     progress: { phase: 'Kész', percent: 100 },
   });
   await tick();
-  check(intervals.size === 0, '100 százaléknál nem indul elteltidő-interval');
+  check(await waitFor(() => intervals.size === 0),
+    '100 százaléknál nem indul elteltidő-interval');
   const finishedText = window.document.querySelector('[role="dialog"]')?.textContent || '';
   test.update({ isOpen: false, startedAt, finishedAt, progress: { phase: 'Kész', percent: 100 } });
   await tick(10);
   test.update({ isOpen: true, startedAt, finishedAt, progress: { phase: 'Kész', percent: 100 } });
   await tick();
   const reopenedText = window.document.querySelector('[role="dialog"]')?.textContent || '';
-  check(intervals.size === 0, 'kész snapshot újranyitásakor sem indul új timer');
+  check(await waitFor(() => intervals.size === 0),
+    'kész snapshot újranyitásakor sem indul új timer');
   check(
     reopenedText.match(/TELJES IDŐ:\s*([^•]+)/)?.[1] === finishedText.match(/TELJES IDŐ:\s*([^•]+)/)?.[1],
     'kész snapshot újranyitásakor az eltelt idő változatlan marad',
