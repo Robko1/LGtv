@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.107';
+export const WEB_VERSION = '2.5.108';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.107',
+    version: '2.5.108',
     date: '2026-10-26',
     changes: [
       'FILM/SOROZAT BETÖLTÉS JAVÍTVA: a hálózati réteg a kért 60 másodperces időkeretet csendben 30 másodpercre vágta vissza, ezért a nagy (több tízezer elemű) film- és sorozatlista egyetlen válaszként soha nem fért bele az időbe – a betöltés mindig a jóval lassúbb, kategóriánkénti újratöltésre esett vissza. A nagy lista-végpontok most megkapják a kért időt (felső korlát 90 mp)',
