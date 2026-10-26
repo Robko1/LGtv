@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.127';
+export const WEB_VERSION = '2.5.128';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.127',
+    version: '2.5.128',
     date: '2026-10-26',
     changes: [
       'TARTÓS TÁROLÁS – NINCS TÖBB ÚJRATÖLTÉS INDÍTÁSKOR: a csatornák, filmek és sorozatok mostantól egyetlen, TARTÓS (persisted) IndexedDB-adatbázisban maradnak az IPK teljes bezárása után is; a böngésző nem dobhatja el az adatokat, és a kvótát automatikusan megnöveljük (StorageManager.persist, régi webOS-on webkitPersistentStorage.requestQuota – 256 MB)',
