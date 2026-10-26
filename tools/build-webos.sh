@@ -253,7 +253,10 @@ if "__IPTV_SPLASH_DATA_URI__" not in html:
 if splash_bg.is_file():
     import base64
     data_uri = "data:image/jpeg;base64," + base64.b64encode(splash_bg.read_bytes()).decode("ascii")
-    html = html.replace("__IPTV_SPLASH_DATA_URI__", data_uri)
+    # Csak AZ ELSŐ előfordulást cseréljük: a Python str.replace alapból mindet
+    # cseréli, és egy megjegyzésben szereplő jelölő oda is beégette a 120 kB-os
+    # képet – ez volt az IPK 2.5.106 → 2.5.110 közti ~185 kB-os ugrásának fele.
+    html = html.replace("__IPTV_SPLASH_DATA_URI__", data_uri, 1)
     print(f"splash-bg.jpg beégetve a takaróképbe: {len(data_uri)} karakter")
 else:
     # Jelölő nélkül maradna egy érvénytelen url(); ilyenkor üresre cseréljük,

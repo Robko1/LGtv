@@ -119,6 +119,28 @@ test('a CI IPK-ellenőrzése a valódi script-hivatkozást keresi, nem szövegr�
   );
 });
 
+test('az indulókép jelölője pontosan egyszer szerepel – nem ég be kétszer', () => {
+  /*
+   * A build a jelölőt a splash-bg.jpg base64 változatával helyettesíti. A Python
+   * `str.replace` alapértelmezésben MINDEN előfordulást cserél, és a jelölő egy
+   * MAGYARÁZÓ MEGJEGYZÉSBEN is szerepelt – így a 120 kB-os kép KÉTSZER került a
+   * csomagolt HTML-be. Ez volt az IPK 2.5.106 (984 816 B) → 2.5.110 (1 173 774 B)
+   * ugrásának 97%-a: a beégetett kép gzipben 183 847 bájtot tett ki.
+   */
+  const page = read('web/index.html');
+  const occurrences = page.split('__IPTV_SPLASH_DATA_URI__').length - 1;
+  assert.equal(occurrences, 1, 'a jelölő nem pontosan egyszer szerepel a web/index.html-ben');
+  assert.ok(
+    read('tools/build-webos.sh').includes('html.replace("__IPTV_SPLASH_DATA_URI__", data_uri, 1)'),
+    'a build nem csak az első előfordulást cseréli – egy véletlen említés duplázná a képet'
+  );
+  const built = path.join(ROOT, 'build/webos/index.html');
+  if (!fs.existsSync(built)) return;
+  const html = fs.readFileSync(built, 'utf8');
+  const embedded = (html.match(/data:image\/jpeg;base64,/g) || []).length;
+  assert.equal(embedded, 1, `a csomagolt HTML-ben ${embedded} beégetett indulókép van, 1 helyett`);
+});
+
 test('a csomagolt HTML-be égetett takarókép jelölője feloldódik', () => {
   /*
    * A build a __IPTV_SPLASH_DATA_URI__ jelölőt base64 képpel helyettesíti.

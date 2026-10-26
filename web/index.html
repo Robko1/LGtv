@@ -177,7 +177,9 @@
         // a kész főoldal meg nem jelenik, egyetlen váltással.
         //
         // A KÉP BEÉGETVE (data URI): a build a splash-bg.jpg-t base64-ben
-        // írja be a __IPTV_SPLASH_DATA_URI__ helyére. Erre azért van szükség,
+        // írja be a jelölő helyére (lásd a tools/build-webos.sh Python lépését;
+        // a jelölőt ide SZÓ SZERINT leírni tilos, mert oda is bekerülne a kép).
+        // Erre azért van szükség,
         // mert a külső fájl betöltése és dekódolása aszinkron: az első
         // kirajzolásnál még csak a zöld színátmenet volt a képernyőn, és a
         // kép csak utána „ugrott” a helyére – a webOS saját indítóképe után
