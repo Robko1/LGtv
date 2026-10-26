@@ -7,10 +7,17 @@
  *
  * A napló szigorúan korlátozott méretű: a legrégebbi sorok automatikusan
  * törlődnek, így hosszú használat után sem növeli a memóriát.
+ *
+ * TESZT IDŐSZAK: a `diagnosticsConfig.ts` kapcsolója bekapcsolva a naplózás az
+ * IPK indításakor magától elindul, és a napló elküldéséig fut. A kapcsoló
+ * kikapcsolásával a régi viselkedés (csak kézi indítás) áll vissza.
  */
+import { TEST_STARTUP_DIAGNOSTICS } from './diagnosticsConfig';
 
 // A kézi diagnosztikai napló és a Supabase-export felső határa 1 000 000 karakter.
-// A napló NEM fut automatikusan: csak a SÁRGA gomb ablakában, a felhasználó
+// A naplózás a TESZTELÉSI IDŐSZAKBAN az IPK indításakor magától elindul
+// (`diagnosticsConfig.ts` kapcsolója), és a kézi küldésig gyűlik. A kapcsoló
+// kikapcsolása után a régi viselkedés él: csak a SÁRGA ablak
 // „Naplózás indítása” gombjára kapcsol be.
 const MAX_CHARS = 1_000_000;
 const MAX_BUFFER_CHARS = MAX_CHARS - 512;
@@ -51,6 +58,51 @@ let activeLogStartedAt = 0;
  */
 let activeLogStoppedAt = 0;
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * AUTOMATIKUS NAPLÓZÁS (CSAK A TESZTELÉSI IDŐSZAKBAN)
+ *
+ * A naplózás a `TEST_STARTUP_DIAGNOSTICS` kapcsolóval az IPK indításakor
+ * magától elindul. A napló a kézi küldésig gyűlik; a TV kilépésekor (pagehide)
+ * – a korábbi viselkedés szerint – leáll, de ha az app előtérbe kerül és a
+ * naplót NEM küldték el, ugyanabban a munkamenetben folytatódik, hogy semmi
+ * ne vesszen el. Küldés után nem indul újra magától.
+ * ══════════════════════════════════════════════════════════════════════════ */
+let autoStartedSession = false;
+let autoSuppressed = false;
+let autoResumePending = false;
+/** Mikor indult a tesztidőszak automatikus munkamenete (a részletes lejátszás-ablakhoz). */
+let autoSessionStartedAt = 0;
+
+/** A naplózás életciklusára csatlakozó külső modulok (indulási diagnosztika). */
+export interface LoggingLifecycleHooks {
+  onStart?: () => void;
+  onStop?: () => void;
+}
+
+const lifecycleHooks: LoggingLifecycleHooks[] = [];
+
+/**
+ * Csatlakozás a naplózás életciklusához. Ha a naplózás már fut, az `onStart`
+ * azonnal lefut, így az indulási diagnosztika nem marad le a napló kezdetéről.
+ */
+export function registerLoggingLifecycleHooks(hooks: LoggingLifecycleHooks): void {
+  lifecycleHooks.push(hooks);
+  if (loggingEnabled) {
+    try { hooks.onStart?.(); } catch { /* a figyelő hibája nem állíthatja meg a naplót */ }
+  }
+}
+
+function runLifecycleHooks(phase: 'start' | 'stop'): void {
+  for (const hook of lifecycleHooks) {
+    try {
+      if (phase === 'start') hook.onStart?.();
+      else hook.onStop?.();
+    } catch {
+      /* egy figyelő hibája nem akadályozhatja a naplózást */
+    }
+  }
+}
+
 /*
  * A régi mérési számlálók megmaradnak a diagnosztikai híd kompatibilitása miatt,
  * de most csak a kézzel indított naplózás alatt növekednek.
@@ -58,9 +110,25 @@ let activeLogStoppedAt = 0;
 let measurementStartedAt = Date.now();
 const measurementCounters = { logLines: 0, errors: 0, longTasks: 0, critical: 0 };
 
-/** A részletes lejátszási diagnosztika kizárólag kézi naplózás közben futhat. */
+/**
+ * A részletes lejátszási diagnosztika (doboz-geometria, kodek-próba,
+ * localStorage-bejárás, másodpercenkénti idővonal) csak akkor fut, ha a
+ * naplózás aktív.
+ *
+ * KÉZI NAPLÓZÁSNÁL: végig, változatlanul (ez a korábbi viselkedés).
+ *
+ * A TESZTIDŐSZAK AUTOMATIKUS NAPLÓJÁNÁL csak az INDULÁSI ABLAKBAN (az első
+ * 60 másodpercben), mert ezek a mérések csatornaváltásonként több tíz ms-nyi
+ * munkát végeznek, és a nézés közbeni folyamatos naplózás lassítaná az élő
+ * adást. Így a legelső csatornabetöltés és az indulás teljes részletességgel
+ * a naplóban van, a későbbi tévézés viszont ugyanolyan gyors marad, mint a
+ * naplózás nélkül.
+ */
+const AUTO_VERBOSE_WINDOW_MS = 60000;
 export function isVerbosePlaybackLogging(): boolean {
-  return loggingEnabled;
+  if (!loggingEnabled) return false;
+  if (!autoStartedSession) return true;
+  return Date.now() - autoSessionStartedAt <= AUTO_VERBOSE_WINDOW_MS;
 }
 
 export interface ManualLogSnapshot {
@@ -320,13 +388,29 @@ export function startManualLogging(): ManualLogSnapshot {
   appLog(`INDULÁS [0 ms] kézi naplózás elindítva; napló=#${activeLogNumber}`);
   appLog(`Eszköz: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'ismeretlen környezet'}`);
   appLog('FIGYELŐ ELINDULT; kézi naplózás aktív; a lejátszás- és fagyásfigyelés mostantól rögzít.');
+  // Az indulási diagnosztika (BOOT-DIAG) itt kapcsolódik be, hogy a legelső
+  // rögzített soroktól kezdve teljes legyen a kép.
+  runLifecycleHooks('start');
   return manualLogSnapshot();
 }
 
 /** Kézi naplózás leállítása; az elküldéshez a kész napló memóriában marad. */
 export function stopManualLogging(reason = 'kézi leállítás'): ManualLogSnapshot {
+  // Az indulási diagnosztika összegzése még a naplózás leállása ELŐTT íródik ki,
+  // különben a záró sorok elvesznének. A figyelők ilyenkor mindig leállnak.
+  runLifecycleHooks('stop');
   if (loggingEnabled) {
     appLog(`=== NAPLÓZÁS LEÁLLÍTVA; napló=#${activeLogNumber ?? 'ismeretlen'}; ok=${reason} ===`);
+  }
+  /*
+   * A tesztidőszak automatikus naplója:
+   *   • a TV kilépése/háttérbe kerülése NEM dobja el a naplót – előtérbe
+   *     kerüléskor ugyanaz a munkamenet folytatódik;
+   *   • a küldés vagy a kézi leállítás végleges: nem indul újra magától.
+   */
+  if (autoStartedSession) {
+    if (/elhagyása|pagehide|beforeunload|háttér/i.test(reason)) autoResumePending = true;
+    else autoSuppressed = true;
   }
   loggingEnabled = false;
   // A stopperóra MEGÁLL: a leállított naplónál az eltelt idő nem nő tovább.
@@ -342,6 +426,51 @@ export function stopManualLogging(reason = 'kézi leállítás'): ManualLogSnaps
     forceFlushTimer = null;
     writeLogToStorage();
   }
+  return manualLogSnapshot();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * AUTOMATIKUS NAPLÓZÁS – CSAK A TESZTELÉSI IDŐSZAKBAN
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * A tesztidőszak automatikus naplózásának indítása (az IPK indulásakor fut).
+ *
+ * A `TEST_STARTUP_DIAGNOSTICS` kapcsoló kikapcsolása után ez a függvény nem
+ * csinál semmit: a naplózás a régi módon, csak a SÁRGA ablak gombjára indul.
+ * Sikeres kézi elküldés után sem indul újra magától (`autoSuppressed`).
+ */
+export function startAutomaticTestLogging(): ManualLogSnapshot {
+  if (!TEST_STARTUP_DIAGNOSTICS) return manualLogSnapshot();
+  if (loggingEnabled || autoSuppressed) return manualLogSnapshot();
+  autoStartedSession = true;
+  autoResumePending = false;
+  autoSessionStartedAt = Date.now();
+  const snapshot = startManualLogging();
+  if (snapshot.enabled) {
+    appLog('TESZT IDŐSZAK: a naplózás az IPK indításakor AUTOMATIKUSAN elindult; a napló a kézi elküldésig gyűlik.');
+  }
+  return snapshot;
+}
+
+/**
+ * A TV-ből való kilépés/háttérbe kerülés utáni FOLYTATÁS.
+ *
+ * A napló csak akkor folytatódik, ha a tesztidőszak automatikus naplója volt az
+ * aktív munkamenet, nem küldték el, és a felhasználó sem állította le kézzel.
+ * A korábban rögzített sorok MEGMARADNAK (nincs törlés), csak a rögzítés
+ * kapcsol be újra – így a napló az indulástól a küldésig egyetlen folyam.
+ */
+export function resumeAutomaticTestLogging(): ManualLogSnapshot {
+  if (!TEST_STARTUP_DIAGNOSTICS || loggingEnabled) return manualLogSnapshot();
+  if (!autoStartedSession || autoSuppressed || !autoResumePending) return manualLogSnapshot();
+  autoResumePending = false;
+  if (activeLogNumber === null || activeLogStartedAt <= 0) return startManualLogging();
+  loggingEnabled = true;
+  activeLogStoppedAt = 0;
+  startRuntimeWatchdog();
+  appLog(`=== NAPLÓZÁS FOLYTATVA; napló=#${activeLogNumber}; az app visszatért az előtérbe ===`);
+  runLifecycleHooks('start');
   return manualLogSnapshot();
 }
 
@@ -392,6 +521,16 @@ export function discardSentAppLog(): ManualLogSnapshot {
   activeLogNumber = null;
   activeLogStartedAt = 0;
   activeLogStoppedAt = 0;
+  /*
+   * A napló elküldve: a tesztidőszak automatikus naplózása EBBEN a
+   * munkamenetben nem indul újra magától (sem háttérbe kerüléskor, sem
+   * előtérbe való visszatéréskor). A következő IPK-indítás új munkamenetet
+   * kezd, ugyanúgy, mint eddig.
+   */
+  autoSuppressed = true;
+  autoStartedSession = false;
+  autoResumePending = false;
+  autoSessionStartedAt = 0;
   return manualLogSnapshot();
 }
 
@@ -920,6 +1059,9 @@ export function installCrashHandlers(): void {
         appLogCritical(`HÁTTÉRBE KERÜLT (visibilitychange); ${uiStateSnapshot()}`);
       } else {
         appLog('ELŐTÉRBE KERÜLT (visibilitychange).');
+        // Tesztidőszak: ha a naplót nem küldték el, a rögzítés ugyanabban a
+        // munkamenetben folytatódik (a kilépésnél lezárt napló nem vész el).
+        resumeAutomaticTestLogging();
       }
     });
   } catch { /* nem elérhető */ }

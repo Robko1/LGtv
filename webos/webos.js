@@ -16,6 +16,127 @@
   window.WEBOS_SMALL_PLAYER = true;
   window.WEBOS_NATIVE_HLS = true;
 
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
+   * INDULÁSI JELZÉSEK – a TESZT IDŐSZAK teljes körű diagnosztikájához.
+   *
+   * Ez a szkript fut a legelsőként az alkalmazásban, még az app bundle-je
+   * ELŐTT. A naplózás ilyenkor még nem létezik, ezért ide, egy kis
+   * (legfeljebb 300 elemű) pufferbe írjuk a korai lépéseket: a webOS híd
+   * meglétét, a platform-választ, a dokumentum életciklusát. A bundle
+   * elindulása után a diagnosztika időbélyeggel együtt átemeli ezeket a
+   * naplóba.
+   *
+   * Csak a naplózáshoz kell – a távirányító/kezelő működését nem érinti,
+   * és ha a naplózás ki van kapcsolva, a puffer tartalmát senki nem olvassa.
+   * ES5: ne legyen benne nyíl-függvény vagy template literal!
+   * ═══════════════════════════════════════════════════════════════════════
+   */
+  var diagBootMarks = window.__IPTV_STARTUP_MARKS__;
+  if (!diagBootMarks) {
+    diagBootMarks = [];
+    window.__IPTV_STARTUP_MARKS__ = diagBootMarks;
+  }
+  if (!window.__IPTV_BOOT_EPOCH__) window.__IPTV_BOOT_EPOCH__ = Date.now();
+  var diagBootClosed = false;
+  function diagBootMark(label) {
+    if (diagBootClosed) return;
+    try {
+      if (diagBootMarks.length >= 300) { diagBootClosed = true; return; }
+      diagBootMarks.push({ at: Date.now(), label: String(label) });
+    } catch (e) {}
+  }
+  window.__IPTV_BOOT_MARK__ = diagBootMark;
+  diagBootMark('webOS szkript elindult (ES5 távirányító-kezelő)');
+
+  /* A webOS platform-hídjának pillanatnyi állapota – mit lát az app a TV-ből. */
+  (function () {
+    try {
+      var w = window;
+      var sys = w.webOSSystem;
+      var info = sys && sys.deviceInfo ? sys.deviceInfo : null;
+      var parts = [];
+      parts.push('webOSSystem=' + (sys ? 'van' : 'NINCS'));
+      parts.push('webOS=' + (w.webOS ? 'van' : 'nincs'));
+      parts.push('PalmSystem=' + (w.PalmSystem ? 'van' : 'nincs'));
+      parts.push('PalmServiceBridge=' + (w.PalmServiceBridge ? 'van' : 'nincs'));
+      if (info) {
+        parts.push('modell=' + (info.modelName || info.model || '?'));
+        parts.push('webOS=' + (info.version || '?'));
+        if (info.sdkVersion) parts.push('SDK=' + info.sdkVersion);
+      } else {
+        parts.push('deviceInfo=nincs');
+      }
+      diagBootMark('webOS híd: ' + parts.join('; '));
+    } catch (e) {}
+  })();
+
+  /*
+   * A webOS oldali "folyamatok" (rendszerállapot) lekérdezése – csak a
+   * diagnosztikához, nem blokkoló módon. Ha a Luna-híd nem elérhető, a hívás
+   * csendben kimarad. Az eredmény ugyanabba a jelzés-pufferbe kerül.
+   */
+  (function () {
+    try {
+      var w = window;
+      if (!w.webOS || !w.webOS.service || typeof w.webOS.service.request !== 'function') {
+        diagBootMark('webOS Luna híd: nem elérhető (nincs webOS.service.request)');
+        return;
+      }
+      var finished = 0;
+      function done(name, text) {
+        finished++;
+        diagBootMark('webOS ' + name + ': ' + text);
+      }
+      function request(uri, params, name, format) {
+        try {
+          w.webOS.service.request(uri, {
+            method: 'get',
+            parameters: params,
+            onSuccess: function (res) { try { done(name, format(res)); } catch (e) {} },
+            onFailure: function (err) {
+              try {
+                done(name, 'a TV nem adott adatot (' + String((err && (err.errorText || err.errorCode)) || 'nincs válasz') + ')');
+              } catch (e) {}
+            }
+          });
+        } catch (e) {}
+      }
+      request('luna://com.webos.service.tv.systemproperty', { keys: ['modelName', 'firmwareVersion', 'sdkVersion', 'boardType'] },
+        'TV rendszerinformáció',
+        function (res) {
+          return 'modell=' + (res.modelName || '?') + '; firmware=' + (res.firmwareVersion || '?') +
+            '; SDK=' + (res.sdkVersion || '?') + '; alaplap=' + (res.boardType || '?');
+        });
+      request('luna://com.webos.applicationManager/getForegroundAppInfo', { },
+        'előtérben futó alkalmazás',
+        function (res) {
+          if (!res || res.returnValue === false) return 'a TV nem adott adatot';
+          return 'appId=' + (res.appId || '?') + (res.processId ? '; folyamat=' + res.processId : '');
+        });
+      request('luna://com.webos.service.memorymanager/getMemoryStatus', { },
+        'memória-állapot',
+        function (res) {
+          if (!res || res.returnValue === false) return 'a TV nem adott adatot';
+          var used = res.usedMemory || res.memoryInfo && res.memoryInfo.used || '?';
+          var total = res.totalMemory || res.memoryInfo && res.memoryInfo.total || '?';
+          return 'használt=' + used + '; összes=' + total;
+        });
+      setTimeout(function () {
+        if (finished === 0) diagBootMark('webOS Luna híd: a rendszerállapot nem válaszolt 3 mp-en belül');
+      }, 3000);
+    } catch (e) {}
+  })();
+
+  try {
+    document.addEventListener('DOMContentLoaded', function () {
+      diagBootMark('webOS: DOM kész (a React előkészíthető)');
+    });
+    window.addEventListener('load', function () {
+      diagBootMark('webOS: minden erőforrás betöltve (load)');
+    });
+  } catch (e) {}
+
   try { console.log('[webOS] TV webOS 2.5.1 inicializálás – induló videó + távirányító fix (ES5)'); } catch (e) {}
 
   // ---------- Gombkód / kulcsnév egységesítés ----------
@@ -1439,6 +1560,7 @@
   if (window.webOS) {
     try { console.log('[webOS] webOS API elérhető'); } catch (e) {}
     window.addEventListener('webOSRelaunch', function(e) {
+      diagBootMark('webOS: újraindítás / előtérbe hozás (webOSRelaunch)');
       try { console.log('[webOS] Relaunch:', e); } catch (e2) {}
       // handlesRelaunch=true esetén a webOS csak az activate() hívás után
       // hozza vissza az alkalmazást az előtérbe. Újabb TV-ken webOSSystem,
@@ -1458,6 +1580,7 @@
     });
     document.addEventListener('visibilitychange', function() {
       if (!document.hidden) {
+        diagBootMark('webOS: az app előtérbe került (visibilitychange)');
         try { console.log('[webOS] App előtérbe került – fókusz vissza'); } catch (e) {}
         setTimeout(focusFirstChannelList, 300);
       }
@@ -1466,6 +1589,7 @@
 
   // ---------- DOM ready – fókusz + CSS ----------
   function onReady() {
+    diagBootMark('webOS: a távirányító-kezelő réteg kész (DOM ready)');
     injectTvCss();
     try {
       document.body.classList.add('webos-tv', 'lg-webos', 'tv-mode');
@@ -1488,6 +1612,7 @@
      * pillanatban, amikor a takarókép lemegy – az ugyanis pont akkor
      * villanna a néző szeme elé, amikor a felület készen áll.
      */
+    diagBootMark('webOS: felület-ellenőrzés megkezdve (a React felépülése)');
     diagUiCheck();
     var uiPoll = setInterval(function() {
       diagUiCheck();

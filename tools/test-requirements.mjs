@@ -1159,7 +1159,7 @@ test('16. egy új import érvényteleníti a régi hálózati sor- és retry-él
   assert.match(APP, /if \(refreshGenerationRef\.current !== refreshGeneration \|\| isNetworkRequestCancelled\(error\)\) return/);
 });
 
-test('11. a diagnosztikai napló csak kézi indítás után fut, és kilépéskor leáll', () => {
+test('11. a napló a tesztidőszakban magától indul, kézzel is indítható, és kilépéskor leáll', () => {
   const LOG = read('web/src/services/appLog.ts');
   assert.match(LOG, /export function startManualLogging\(\): ManualLogSnapshot/);
   assert.match(LOG, /export function stopManualLogging\(reason = 'kézi leállítás'\): ManualLogSnapshot/);
@@ -1726,8 +1726,8 @@ test('22. az élő lista újraindítás után is megmarad (localStorage + Indexe
     'két különböző szolgáltató listája keveredhet');
   // A verzió is a mentés-javítást hirdeti.
   const version = read('web/src/appVersion.ts');
-  assert.match(version, /export const WEB_VERSION = '2\.5\.124';/,
-    'a verzió nem 2.5.124');
+  assert.match(version, /export const WEB_VERSION = '2\.5\.125';/,
+    'a verzió nem 2.5.125');
   assert.match(version, /ADATVESZTÉS ÚJRAINDÍTÁSKOR/,
     'a kiadási napló nem írja le az adatvesztés javítását');
 });
@@ -1878,4 +1878,98 @@ test('24. sikeres küldés után a napló törlődik, a feliratok nagyobbak', ()
   assert.ok(metricSizes.length >= 2, 'a kártyák felirata/száma nem akkora, mint a fehér cím');
   assert.match(LOADING, /text-rose-200 text-xl sm:text-2xl lg:text-3xl/, 'a hiba dobozának betűmérete nem nőtt');
   assert.match(LOADING, /text-emerald-200 text-xl sm:text-2xl lg:text-3xl/, 'a kész doboz betűmérete nem nőtt');
+});
+
+/* ───── 25. Automatikus, teljes körű indulási diagnosztika (tesztidőszak) ───── */
+
+test('25. a naplózás az IPK indulásakor magától elindul, és a teljes indulást rögzíti', () => {
+  const CONFIG = read('web/src/services/diagnosticsConfig.ts');
+  const DIAG = read('web/src/services/startupDiagnostics.ts');
+  const LOG = read('web/src/services/appLog.ts');
+  const MAIN = read('web/src/main.tsx');
+  const WEBOS = read('webos/webos.js');
+  const PAGE_SRC = read('web/index.html');
+
+  /*
+   * 1. A TESZTIDŐSZAK EGYETLEN KAPCSOLÓJA.
+   * A hibák kijavítása után ezt az egy értéket kell false-ra állítani; a
+   * kapcsoló kikapcsolva a naplózás a régi módon, csak kézzel indul.
+   */
+  assert.match(CONFIG, /export const TEST_STARTUP_DIAGNOSTICS = true;/,
+    'nincs bekapcsolt tesztidőszakos kapcsoló az automatikus naplózáshoz');
+  assert.match(LOG, /import \{ TEST_STARTUP_DIAGNOSTICS \} from '\.\/diagnosticsConfig';/,
+    'a naplózás nem a tesztidőszakos kapcsolótól függ');
+  assert.match(LOG, /if \(!TEST_STARTUP_DIAGNOSTICS\) return manualLogSnapshot\(\);/,
+    'a kapcsoló kikapcsolva sem állítaná vissza a régi (csak kézi) működést');
+
+  // 2. Automatikus indítás + folytatás kilépés/háttérbe kerülés után.
+  assert.match(LOG, /export function startAutomaticTestLogging\(\): ManualLogSnapshot \{/,
+    'nincs automatikus napló-indító');
+  assert.match(LOG, /export function resumeAutomaticTestLogging\(\): ManualLogSnapshot \{/,
+    'a kilépés utáni folytatás hiányzik');
+  assert.match(LOG, /autoStartedSession = true;/, 'az automatikus munkamenet jelölése hiányzik');
+  assert.match(LOG, /resumeAutomaticTestLogging\(\);/, 'az előtérbe kerülés nem folytatja a naplót');
+  const discardBody = LOG.slice(LOG.indexOf('export function discardSentAppLog'));
+  assert.match(discardBody.slice(0, 1400), /autoSuppressed = true;/,
+    'kézi küldés után a naplózás újra magától elindulhat');
+  assert.match(LOG, /runLifecycleHooks\('stop'\);[\s\S]{0,260}?NAPLÓZÁS LEÁLLÍTVA/,
+    'a leállítási összegzés nem a naplózás leállása előtt íródik ki');
+  assert.match(LOG, /export function registerLoggingLifecycleHooks\(/,
+    'a naplózás életciklusára nem lehet csatlakozni');
+  // A kilépéskori leállás (korábbi viselkedés) megmarad.
+  assert.match(LOG, /stopManualLogging\('IPK\/app elhagyása'\)/,
+    'az app elhagyásakor nem áll le a naplózás');
+
+  // 3. A bundle ELŐTTI lépések átkerülnek a naplóba (egy idővonalon).
+  assert.match(PAGE_SRC, /window\.__IPTV_STARTUP_MARKS__/, 'a HTML nem gyűjti a korai indulási jelzéseket');
+  assert.match(PAGE_SRC, /window\.__IPTV_BOOT_EPOCH__/, 'nincs közös indulási időpont (idővonal)');
+  assert.match(PAGE_SRC, /bootMark\('fázis ' \+ stage \+ '\/7/, 'a HTML fázisai nem kerülnek a jelzések közé');
+  assert.match(PAGE_SRC, /bootMark\('REVEAL/, 'a takarókép levétele nem kerül a jelzések közé');
+  assert.match(PAGE_SRC, /bootMark\('INDULÁSI HIBA/, 'az indulási hiba nem kerül a jelzések közé');
+  assert.match(PAGE_SRC, /bootMark\('erőforrás nem töltődött be/, 'az erőforrás-hiba nem kerül a jelzések közé');
+  assert.match(PAGE_SRC, /bootMark\('DOM tartalom betöltve \(DOMContentLoaded\)'\)/,
+    'a DOM kész lépés nem kerül a jelzések közé');
+
+  // 4. A webOS oldal (ES5!) jelzései.
+  assert.match(WEBOS, /function diagBootMark\(label\)/,
+    'a webOS szkript nem rögzíti a saját indulási lépéseit');
+  assert.match(WEBOS, /diagBootMark\('webOS híd: '/, 'a webOS híd állapota nem kerül a jelzések közé');
+  assert.match(WEBOS, /com\.webos\.service\.tv\.systemproperty/,
+    'a TV rendszerinformációja nem kerül a naplóba');
+  assert.match(WEBOS, /getForegroundAppInfo/, 'az előtérben futó alkalmazás nem kerül a naplóba');
+  assert.match(WEBOS, /getMemoryStatus/, 'a memória-állapot nem kerül a naplóba');
+  const es5Start = WEBOS.indexOf('INDULÁSI JELZÉSEK');
+  const es5End = WEBOS.indexOf("console.log('[webOS] TV webOS 2.5.1 inicializálás");
+  assert.ok(es5Start > 0 && es5End > es5Start, 'nem található az új webOS diagnosztika-blokk');
+  const es5Block = WEBOS.slice(es5Start, es5End);
+  assert.doesNotMatch(es5Block, /=>/, 'az új webOS diagnosztika nyíl-függvényt használ (ES5 hiba)');
+  assert.doesNotMatch(es5Block, /`/, 'az új webOS diagnosztika template literal-t használ (ES5 hiba)');
+  assert.doesNotMatch(es5Block, /\b(?:const|let)\s+[A-Za-z_$]/, 'az új webOS diagnosztika const/let-et használ (ES5 hiba)');
+
+  // 5. A diagnosztika minden kért területet méri.
+  for (const marker of [
+    'KÖRNYEZET:', 'webOS HÍD:', 'TÁROLÓ:', 'MÉDIA:',
+    'BETÖLTÉS', 'ELSŐ FESTÉS:', 'ERŐFORRÁSOK', 'LASSÚ ERŐFORRÁS',
+    'ELEM MEGJELENT', 'ELTŰNT', 'KÉPERNYŐ:',
+    'ELRENDEZÉS-UGRÁS', 'KÉPKOCKA-KIHAGYÁS', 'ÖSSZEGZÉS:',
+  ]) {
+    assert.ok(DIAG.includes(marker), `a diagnosztikából hiányzik: ${marker}`);
+  }
+  assert.match(DIAG, /export function attachStartupDiagnostics\(\): void \{/,
+    'a diagnosztika nem csatlakozik a naplózás életciklusához');
+  assert.match(DIAG, /onStart: \(\) => startStartupDiagnostics\(\),/, 'nincs indulási bekötés');
+  assert.match(DIAG, /onStop: \(\) => stopStartupDiagnostics\(\)/, 'nincs leállítási bekötés');
+  assert.match(DIAG, /new MutationObserver\(/, 'nem figyeli a megjelenő elemeket');
+  assert.match(DIAG, /layout-shift/, 'nem méri az elrendezés-ugrásokat');
+  assert.match(DIAG, /largest-contentful-paint/, 'nem méri a legnagyobb tartalmat');
+  assert.match(DIAG, /requestAnimationFrame/, 'nem figyeli a kimaradt képkockákat');
+  // A figyelők a naplózás leállásakor felszabadulnak (nincs háttérteher).
+  assert.match(DIAG, /cleanups\.push\(/, 'a figyelők nem takaríthatók ki');
+  assert.match(DIAG, /while \(cleanups\.length > 0\)/, 'a leállításkor nem fut le a takarítás');
+
+  // 6. Bekötés az indításba.
+  assert.match(MAIN, /attachStartupDiagnostics\(\);/, 'az indulási diagnosztika nincs bekötve');
+  assert.match(MAIN, /startAutomaticTestLogging\(\);/, 'a naplózás nem indul el magától az IPK indulásakor');
+  assert.ok(MAIN.indexOf('attachStartupDiagnostics();') < MAIN.indexOf('startAutomaticTestLogging();'),
+    'a diagnosztika a naplózás indítása UTÁN csatlakozik (az első sorok elvesznének)');
 });
