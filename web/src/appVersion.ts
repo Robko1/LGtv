@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.129';
+export const WEB_VERSION = '2.5.130';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.129',
+    version: '2.5.130',
     date: '2026-10-26',
     changes: [
       'ÜRES IPK GYORS, SIMA INDÍTÁSA: a 21:31:49-es TV-naplóban a felület már 1,75 mp-nél készen volt, mégis 9 257 ms-ig a takarókép látszott, és csak „időtúllépés” címen ugrott elő (a legnagyobb tartalom 11,5 mp-nél jelent meg). Most az üres alkalmazás azonnal, egyetlen váltással jelenik meg – nincs 9 mp-es várakozás, nincs ugrálás',
