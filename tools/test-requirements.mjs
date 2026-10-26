@@ -262,25 +262,29 @@ test('7. a bejelentkezés nem blokkolja a csatornalistát (a probe a háttérben
   assert.ok(awaitIndex > liveIndex, 'a fiókadatokra csak a csatornák után várunk');
 });
 
-test('7. induláskor csak a magyar élő kategóriák töltődnek le', () => {
+test('7. induláskor a TELJES élő lista töltődik le, egyetlen kéréssel', () => {
   /*
-   * Induláskor csak az alap magyar csatornák jönnek le, a többi országé nem.
-   * Ehhez a kategóriáknak MOST MÁR ELŐBB kell megérkezniük (korábban
-   * párhuzamosan futottak a csatornákkal): nélkülük nem tudnánk eldönteni,
-   * melyik kategóriát kérjük le egyáltalán.
+   * Az 1-es TV-napló (2.5.114) megmutatta a kategórianeveket:
+   *
+   *   Élő kategóriák nevei: összes=340, magyar=1; magyar nevek: [HU] HUNGARIA;
+   *   minta a többiből: FRANCE FHD | TV | FRANCE HD/SD | TV | FR LIGUE1 + | TV |
+   *
+   * A szolgáltató tehát ország szerint nevezi el a kategóriákat, de csak EGY
+   * magyar kategóriát ad – a magyar szűrés ezért 107 csatornát adott a korábbi
+   * 20 190 helyett. A felhasználó kérése egyértelmű: minden TV-csatorna és
+   * kategória töltődjön le, egyszer.
    */
   const catsIndex = IMPORT.indexOf('const liveCats = await providerRequest(');
-  const filterIndex = IMPORT.indexOf("pickCategoryIdsByCountry(liveCats, 'HU')");
   const streamsIndex = IMPORT.indexOf('let liveStreams: XtreamLiveStream[];');
   assert.ok(catsIndex > 0, 'a kategóriák letöltése megtalálható');
-  assert.ok(filterIndex > catsIndex, 'a magyar szűrés a kategóriák után van');
-  assert.ok(streamsIndex > filterIndex, 'a csatornák csak a szűrés után jönnek le');
-  assert.match(IMPORT, /xtreamService\.liveStreams\(server, user, pass, categoryId\)/,
-    'a kategóriák kategóriánként töltődnek le');
-  assert.match(IMPORT, /nincs magyar nevű élő kategória/,
-    'a magyar kategória nélküli esetre nincs biztonsági ág');
-  assert.match(IMPORT, /a magyar kategóriák üresek voltak/,
-    'üres magyar kategóriáknál nincs visszaállás a teljes listára');
+  assert.ok(streamsIndex > catsIndex, 'a csatornák a kategóriák után jönnek le');
+  assert.match(IMPORT, /Élő csatornák: a teljes lista töltődik le/,
+    'a napló kimondja, hogy a teljes lista jön le');
+  assert.match(IMPORT, /xtreamService\.liveStreams\(server, user, pass\),\s*\n\s*'Élő csatornalista'/,
+    'a teljes lista EGYETLEN kérésben jön le');
+  assert.doesNotMatch(IMPORT,
+    /hungarianCategoryIds\)\s*;|fetchLiveStreamsForCategories\(server, user, pass, hungarianCategoryIds/,
+    'az import nem szűr magyar kategóriára (ez vágta le a listát 107 csatornára)');
   assert.match(IMPORT, /\.catch\(\(error\) => \{[\s\S]{0,180}?return \[\] as XtreamCategory\[\];/,
     'kategóriahiba nem állítja meg a csatornákat');
 });
@@ -309,7 +313,45 @@ test('7. az első használható csatornaadag azonnal megjelenik (előnézet)', (
   assert.match(IMPORT, /const FIRST_BATCH_CHANNELS = \d+;/);
   assert.match(IMPORT, /if \(liveProcessed === FIRST_BATCH_CHANNELS\) \{[\s\S]{0,400}?preview: true/);
   // Az előnézet NEM íródik a tárolóba (nincs félkész mentés, nincs adatvesztés).
-  assert.match(APP, /if \(!partial\.preview\) \{[\s\S]{0,200}?saveLiveContent\(draft\)/);
+  assert.match(APP, /if \(!partial\.preview\) \{[\s\S]{0,400}?saveLiveContentSafely\(draft\)/);
+});
+
+test('7. a tároló hibája NEM betöltési hiba (1-es napló, v2.5.114)', () => {
+  /*
+   * A TV-n ez jelent meg:
+   *
+   *   BETÖLTÉSI HIBA
+   *   Sorozatlista: egyetlen adag sem menthető el – a tároló megtelt
+   *                 (38 adag, 15000 elem).
+   *
+   * Pedig a letöltés sikeres volt. A cache hibája nem teheti tönkre a
+   * betöltést: minden mentés külön védett, és a hiba csak a naplóba kerül.
+   */
+  const STORE = read('web/src/services/contentStore.ts');
+  assert.match(APP, /saveLiveContentSafely\(contentForStorage\)/,
+    'a végső mentés védett (élő)');
+  assert.match(APP, /await saveVodContentSafely\(contentForStorage\)/,
+    'a végső mentés védett (film)');
+  assert.match(APP, /await saveSeriesContentSafely\(contentForStorage\)/,
+    'a végső mentés védett (sorozat)');
+  for (const name of ['saveLiveContentSafely', 'saveVodContentSafely', 'saveSeriesContentSafely']) {
+    assert.match(STORE, new RegExp(`export (async )?function ${name}\\([\\s\\S]{0,220}?try \\{`),
+      `${name}: a mentés try/catch-ben fut`);
+  }
+  // A nagy listák IndexedDB-be mennek: a localStorage ~5,2 M karaktere kevés.
+  assert.match(STORE, /openIdbStore\(/, 'a film/sorozat IndexedDB-t használ');
+  assert.match(STORE, /saveChunkedAuto\(\{/, 'a két nagy lista az automatikus útra került');
+  assert.match(STORE, /readIdbChunks\(idb, VOD_META_KEY\)/, 'a filmlista IndexedDB-ből is betölt');
+  assert.match(STORE, /readIdbChunks\(idb, SERIES_META_KEY\)/, 'a sorozatlista IndexedDB-ből is betölt');
+});
+
+test('7. az élő csatornalista elsőbbséget kap a tárolóban', () => {
+  const STORE = read('web/src/services/contentStore.ts');
+  // Ha a tár tele van, előbb az előző generáció, majd a film/sorozat adagok adják a helyet.
+  assert.match(STORE, /function evictLowerPriorityChunks\(/);
+  assert.match(STORE, /const freed = evictLowerPriorityChunks\(\);[\s\S]{0,120}?ok = write\(chunkKey, \{ rows \}/,
+    'az élő adag írása előtt felszabadítja a film/sorozat helyet');
+  assert.match(STORE, /Tároló: \$\{removed\} film\/sorozat adag törölve/);
 });
 
 test('7. ha a csatornák nem jönnek, a bejelentkezés hibája a hasznosabb üzenet', () => {

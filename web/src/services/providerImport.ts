@@ -573,12 +573,6 @@ export function countCountriesInCategories(categories: XtreamCategory[]): number
   return codes.size;
 }
 
-/**
- * Ennyi különböző országnál tekintjük a kategórianeveket ország-szervezésűnek.
- * Alatta a szűrés nem megbízható: inkább a teljes lista jön le (a korábbi,
- * bevált viselkedés), minthogy a néző csatornákat veszítsen.
- */
-const MIN_COUNTRIES_FOR_FILTER = 5;
 
 export function pickCategoryIdsByCountry(
   categories: XtreamCategory[],
@@ -689,7 +683,7 @@ export async function loadAllLiveChannels(provider: ProviderRef): Promise<Channe
   const server = xtreamService.cleanUrl(provider.serverUrl || '');
   const user = (provider.username || '').trim();
   const pass = (provider.password || '').trim();
-  logProviderEvent('Élő csatornák: a teljes lista töltődik (a kategóriák nem ország szerint vannak elnevezve).');
+  logProviderEvent('Élő csatornák: a teljes lista töltődik le (a kategóriák száma túl sok az egyenkénti kéréshez).');
   const streams = await providerRequest(
     () => xtreamService.liveStreams(server, user, pass),
     'Élő csatornalista'
@@ -969,57 +963,29 @@ export async function importXtreamProvider(
     };
 
     /*
-     * CSAK AKKOR SZŰRÜNK, HA A KATEGÓRIÁK TÉNYLEG ORSZÁGOK.
+    /*
+     * MINDEN ÉLŐ CSATORNA ÉS KATEGÓRIA – EGYSZER.
      *
-     * Ha a 340 kategóriából összesen 1–2 különböző ország olvasható ki, akkor a
-     * nevek nem országok, és a magyar szűrés megbízhatatlanul kevés csatornát
-     * adna (az 5-ös naplóban 107-et a korábbi 20 190 helyett). Ilyenkor inkább
-     * a teljes lista jön le – lassabb, de egyetlen csatorna sem vész el.
+     * Az 1-es TV-napló (2.5.114) megmutatta a kategórianeveket:
+     *   Élő kategóriák nevei: összes=340, magyar=1; magyar nevek: [HU] HUNGARIA;
+     *   minta a többiből: FRANCE FHD | TV | FRANCE HD/SD | TV | FR LIGUE1 + | TV | …
+     *
+     * A szolgáltató tehát ország szerint nevezi el a kategóriákat, de csak EGY
+     * magyar kategóriát ad („[HU] HUNGARIA”), ezért a magyar szűrés 107
+     * csatornát adott a korábbi 20 190 helyett. A felhasználó kérése
+     * egyértelmű: a TV-csatornák és a kategóriák MIND töltődjenek le, egyszer,
+     * és utána rendben jelenjenek meg – ez nem sok adat.
+     *
+     * A teljes lista egyetlen kérés (a napló szerint ~12 s, ~200 kB), a
+     * kategóriák pedig a válaszból képződnek, így egyetlen csatorna sem vész el,
+     * és nincs kategóriánkénti kérésözön sem.
      */
-    const countryCount = countCountriesInCategories(liveCats);
-    const countryOrganized = countryCount >= MIN_COUNTRIES_FOR_FILTER;
-    if (!countryOrganized) {
-      logProviderEvent(
-        `Élő kategóriák: csak ${countryCount} különböző ország olvasható ki a nevekből, ` +
-        'így a kategóriák nem ország szerint vannak – a teljes lista töltődik le.'
-      );
-    }
-
+    logProviderEvent(`Élő csatornák: a teljes lista töltődik le (${liveCats.length} kategória).`);
     let liveStreams: XtreamLiveStream[];
-    if (hungarianCategoryIds.length > 0 && countryOrganized) {
-      logProviderEvent(
-        `Élő csatornák: induláskor csak a magyar kategóriák töltődnek le ` +
-        `(${hungarianCategoryIds.length}/${liveCats.length} kategória).`
-      );
-      liveStreams = await fetchLiveStreamsForCategories(server, user, pass, hungarianCategoryIds, withAuthProbe);
-      if (liveStreams.length === 0) {
-        /*
-         * Van magyar nevű kategória, de üres – ilyenkor inkább letöltjük a
-         * teljes listát, minthogy üres főoldalt adjunk a nézőnek.
-         */
-        logProviderEvent(
-          'Élő csatornák: a magyar kategóriák üresek voltak, ezért a teljes lista töltődik le.'
-        );
-        liveStreams = await withAuthProbe(() => providerRequest(
-          () => xtreamService.liveStreams(server, user, pass),
-          'Élő csatornalista'
-        ));
-      }
-    } else {
-      /*
-       * A szolgáltató kategóriái nem ország szerint vannak elnevezve (pl. csak
-       * "Sport", "News"), így nem tudjuk kiszűrni a magyarokat. Ilyenkor a
-       * teljes lista jön le – különben üres lenne a főoldal.
-       */
-      logProviderEvent(
-        `Élő csatornák: nincs magyar nevű élő kategória (${liveCats.length} kategória), ` +
-        'ezért a teljes lista töltődik le.'
-      );
-      liveStreams = await withAuthProbe(() => providerRequest(
-        () => xtreamService.liveStreams(server, user, pass),
-        'Élő csatornalista'
-      ));
-    }
+    liveStreams = await withAuthProbe(() => providerRequest(
+      () => xtreamService.liveStreams(server, user, pass),
+      'Élő csatornalista'
+    ));
     const liveCategoryMap = makeCategoryMap(liveCats);
     const liveRows: Array<Array<string | number>> = [];
     const liveCounts = new Map<string, number>();

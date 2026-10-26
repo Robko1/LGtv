@@ -108,6 +108,41 @@ function makeContent(count: number, tag: string, streamBase: number): AnyRecord 
   };
 }
 
+function makeLiveContent(count: number, streamBase: number): AnyRecord {
+  const channels: AnyRecord[] = [];
+  for (let index = 0; index < count; index += 1) {
+    channels.push({
+      id: `live-p1-${streamBase + index}`,
+      num: index + 1,
+      name: `Csatorna ${index} HD – hosszabb név, hogy a sor reális méretű legyen`,
+      logo: `https://pelda.hu/logo/${index}.png`,
+      streamUrl: String(streamBase + index),
+      streamId: streamBase + index,
+      categoryId: `lc-${index % 20}`,
+      categoryName: `Kategória ${index % 20}`,
+      country: 'Magyarország',
+      countryCode: 'HU',
+      flag: '🇭🇺',
+      epgChannelId: '',
+    });
+  }
+  const liveCategories = [];
+  for (let index = 0; index < 20; index += 1) {
+    liveCategories.push({ id: `lc-${index}`, name: `Kategória ${index}`, type: 'live' });
+  }
+  return {
+    provider: { id: 'p1', name: 'Próba', serverUrl: 'http://127.0.0.1', username: 'u', password: 'p' },
+    savedAt: '',
+    channels,
+    movies: [],
+    series: [],
+    liveCategories,
+    vodCategories: [],
+    seriesCategories: [],
+    totals: { live: count, vod: 0, series: 0 },
+  };
+}
+
 /* ── Futtatás ────────────────────────────────────────────────────────── */
 
 let failures = 0;
@@ -255,6 +290,35 @@ async function main(): Promise<void> {
     `új=${tightFresh} / összes=${tightLoad.movies.length}`
   );
   store.delete('iptv_rt_ballast');
+
+  /*
+   * AZ 1-ES NAPLÓ ESETE (2.5.114).
+   *
+   *   TÁROLÓ HIBA: content-live-chunk-v1-…-4-0 mentése végleg sikertelen;
+   *                foglaltság=75 kulcs / 5115 kB
+   *
+   * A tár már az első élő adagnál tele volt – az előző import filmjeivel –,
+   * ezért egyetlen csatorna sem mentődött el. Az élő listának ELSŐBNE kell
+   * lennie: ha kell, a filmek adják a helyet.
+   */
+  console.log('\nTároló: az élő csatornalista elsőbbséget kap (1-es napló esete):');
+  store.clear();
+  store2.clearContent();
+  await store2.saveVodContent(makeContent(4_000, 'tele', 10_000) as never);
+  const beforeLive = totalChars();
+  const live = makeLiveContent(1_000, 500_000);
+  store2.saveLiveContent(live as never);
+  const liveLoad = store2.loadLive();
+  check(
+    liveLoad.channels.length === 1_000,
+    'a TELJES élő lista befért, pedig a tár tele volt filmekkel',
+    `előtte=${Math.round(beforeLive / 1000)} kB, utána=${Math.round(totalChars() / 1000)} kB`
+  );
+  check(
+    totalChars() <= QUOTA_CHARS,
+    'a mentés nem lépte túl a kvótát',
+    `${totalChars()} / ${QUOTA_CHARS} karakter`
+  );
 
   console.log('');
   assert.equal(failures, 0, `${failures} tároló-próba nem sikerült`);

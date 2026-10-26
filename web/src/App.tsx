@@ -9,9 +9,9 @@ import {
   loadVodAsync,
   ProviderRef,
   saveContent,
-  saveLiveContent,
-  saveSeriesContent,
-  saveVodContent,
+  saveLiveContentSafely,
+  saveSeriesContentSafely,
+  saveVodContentSafely,
   sweepStorage,
 } from './services/contentStore';
 import { appLog, appLogError, logMemory, logPhase } from './services/appLog';
@@ -972,9 +972,9 @@ export function App() {
         + `${channels.length} csatorna, ${movies.length} film, ${series.length} sorozat).`);
       void (async () => {
         try {
-          if (changedChannels) saveLiveContent(content);
-          if (changedMovies) await saveVodContent(content);
-          if (changedSeries) await saveSeriesContent(content);
+          if (changedChannels) saveLiveContentSafely(content);
+          if (changedMovies) await saveVodContentSafely(content);
+          if (changedSeries) await saveSeriesContentSafely(content);
         } catch (error) {
           console.error('A tartalom mentése nem sikerült:', error);
           appLogError('Tartalom mentése', error);
@@ -1723,9 +1723,13 @@ export function App() {
       // néző azonnal választhasson csatornát. Félkész listát NEM mentünk a
       // tárolóba – így nem maradhat hiányos adat a TV-n.
       if (!partial.preview) {
-        if (partial.channels) saveLiveContent(draft);
-        if (partial.movies) await saveVodContent(draft);
-        if (partial.series) await saveSeriesContent(draft);
+        // A TÁROLÁS HIBÁJA NEM BETÖLTÉSI HIBA. Az adat már itt van a memóriában
+        // és a felületen; a cache csak a következő indulást gyorsítja. Ezért a
+        // mentést mindig külön védjük: egy megtelt tár miatt soha ne álljon meg
+        // a betöltés és ne jelenjen meg hibaüzenet.
+        if (partial.channels) saveLiveContentSafely(draft);
+        if (partial.movies) await saveVodContentSafely(draft);
+        if (partial.series) await saveSeriesContentSafely(draft);
       }
 
       setProviders((current) => {
@@ -1866,9 +1870,9 @@ export function App() {
       // A preview-szakaszok szándékosan nem írnak tartós listát. A végső,
       // enrichmentelt snapshotot pontosan egyszer mentjük, így a részleges
       // betöltések nem okoznak dupla/nem-metaadatos mentést.
-      saveLiveContent(contentForStorage);
-      await saveVodContent(contentForStorage);
-      await saveSeriesContent(contentForStorage);
+      saveLiveContentSafely(contentForStorage);
+      await saveVodContentSafely(contentForStorage);
+      await saveSeriesContentSafely(contentForStorage);
       dirtyRef.current = false;
 
       const finishedAt = performance.now();

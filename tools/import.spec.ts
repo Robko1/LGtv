@@ -344,7 +344,7 @@ async function main() {
   check('törlés után üres a tár', store.readSummary() === null && store.loadLive().channels.length === 0);
 
   /* --- 3. hibás belépés --- */
-  /* --- Induláskor csak a magyar élő kategóriák jönnek le --- */
+  /* --- Minden élő csatorna lejön, egyetlen kéréssel --- */
   {
     liveCategoryRequests.length = 0;
     const huFake = await startFakeServer({ categoryAwareLive: true });
@@ -353,26 +353,29 @@ async function main() {
       { name: 'Magyar próba', serverUrl: huBase, username: 'teszt', password: 'titok' },
       () => {}
     );
-    console.log('\nInduláskor csak a magyar csatornák:');
+    console.log('\nMinden élő csatorna lejön, egyetlen kéréssel:');
     const huNames = huResult.content.channels.map((channel) => channel.name).sort();
+    /*
+     * Az 1-es TV-napló (2.5.114) szerint a szolgáltató 340 élő kategóriájából
+     * csak EGY magyar ([HU] HUNGARIA) – a kategóriánkénti szűrés ezért 107
+     * csatornát adott a 20 190 helyett. Most a teljes lista jön le, egyetlen
+     * kérésben: a felhasználó kérése szerint minden csatorna és kategória kell.
+     */
     check(
-      'csak a magyar kategóriát kérte le (a német nem jött le)',
-      liveCategoryRequests.length === 1 && liveCategoryRequests[0] === '10',
+      'NEM kér kategóriánként (ez vágta le a listát 107 csatornára)',
+      liveCategoryRequests.length === 0,
       `(kért kategóriák: ${liveCategoryRequests.join(', ') || 'egy sem'})`
     );
     check(
-      'csak a 2 magyar csatorna érkezett meg',
-      huNames.length === 2 && huNames[0] === 'M1 HD' && huNames[1] === 'RTL Klub',
+      'mind a 4 csatorna megérkezik (a magyar és a külföldi is)',
+      huNames.length === 4 && huNames.includes('M1 HD') && huNames.includes('RTL Klub')
+        && huNames.includes('Sport1') && huNames.includes('Movie Channel'),
       `(${huNames.join(', ') || 'üres'})`
-    );
-    check(
-      'a nem magyar csatornák NEM töltődtek le induláskor',
-      !huNames.includes('Sport1') && !huNames.includes('Movie Channel')
     );
     const huCatNames = huResult.content.liveCategories.map((cat) => cat.name).sort();
     check(
       'a szolgáltató TELJES kategórialistája megmarad (a többi ország neve is elérhető)',
-      huCatNames.length === 6 && huCatNames[0] === 'Angol' && huCatNames.includes('Magyarország'),
+      huCatNames.includes('Angol') && huCatNames.includes('Magyarország') && huCatNames.includes('Németország'),
       `(${huCatNames.join(', ') || 'üres'})`
     );
     await new Promise<void>((resolve) => huFake.server.close(() => resolve()));
