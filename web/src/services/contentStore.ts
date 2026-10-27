@@ -1914,7 +1914,9 @@ export async function loadLiveFull(
     const rows = await chunked.readChunk(index);
     for (const channel of decodeChannels(rows, storedProvider)) channels.push(channel);
     onProgress?.(channels.length);
-    if (index % 4 === 3) await yieldToStorage();
+    // 2.5.143: MINDEN adag után lélegzés. A 19-es naplóban 17 adag olvasása
+    // 3,6 mp-re fagyasztotta a főszálat; így a festés közben folyamatosan fut.
+    await yieldToStorage();
   }
   if (channels.length === 0) return null;
   const totals = {
@@ -2434,13 +2436,35 @@ export async function inspectStoredCatalogs(): Promise<StoredCatalogPlan | null>
   };
 }
 
-let activeRestore: Promise<void> | null = null;
+let restoreChain: Promise<void> = Promise.resolve();
 let restoreCancelled = false;
+/**
+ * MELYIK SZAKASZ KÉSZÜLT MÁR EL.
+ *
+ * 2.5.143 – AZ INDULÁS FAGYÁSÁNAK FŐ OKA.
+ *
+ * A 16:27:15-ös (19-es) TV-napló szerint az indulásnál a háttér-visszatöltés
+ * a TELJES katalógust (20 190 élő csatorna + 102 789 film + 24 977 sorozat)
+ * dekódolta, MÉG A TAKARÓKÉP ALATT. A napló mérése:
+ *
+ *   INDULÁS [4045 ms] teljes élő csatornalista a tartós tárból
+ *   … 10 másodperccel később …
+ *   Teljes élő csatornalista betöltve (IndexedDB): 20190 csatorna, 17 adag
+ *   KÉPKOCKA-KIHAGYÁS: 3666 ms (a fő szál foglalt volt)
+ *   KÉPKOCKA-ÖSSZEGZÉS: 2 képkocka az első 8 s-ban
+ *
+ * Emiatt a megjelenés csak +11,9 mp-nél történt meg, pedig a felület már
+ * +4,8 mp-nél kész volt. Mostantól a szakaszok KÜLÖN kérhetők: az élő lista
+ * a megjelenés UTÁN, üresjáratban töltődik be, a filmek/sorozatok pedig csak
+ * akkor, amikor a néző tényleg megnyitja a Mozi vagy Sorozat menüt.
+ */
+let restoreDone: { live: boolean; vod: boolean } = { live: false, vod: false };
 
 /** A felület bezárásakor / új import indításakor a háttér-visszatöltés leáll. */
 export function cancelStoredContentRestore(): void {
   restoreCancelled = true;
-  activeRestore = null;
+  restoreChain = Promise.resolve();
+  restoreDone = { live: false, vod: false };
 }
 
 /**
@@ -2449,15 +2473,32 @@ export function cancelStoredContentRestore(): void {
  * Sorrend: élő → filmek → sorozatok, minden szakasz után visszaadva a
  * főszálat. A visszafejtett listákat a `decodedCache` megőrzi, így a Mozi
  * vagy Sorozat menü későbbi megnyitása nem olvas újra 100 ezres JSON-t.
+ *
+ * `options.scope`:
+ *   • 'all'    – minden szakasz (alapértelmezés, kompatibilitás),
+ *   • 'live'   – csak az élő csatornalista (indulás után, üresjáratban),
+ *   • 'vod'    – csak a filmek és sorozatok (a Mozi/Sorozat menü nyitásakor).
+ * A szakaszok egymás után, sorban futnak, és egy már kész szakaszt nem
+ * olvasunk újra – így a felület megjelenése nem vár a nagy listákra.
  */
-export function restoreStoredContent(plan: StoredCatalogPlan, handlers: RestoreHandlers = {}): Promise<void> {
-  if (activeRestore) return activeRestore;
+export function restoreStoredContent(
+  plan: StoredCatalogPlan,
+  handlers: RestoreHandlers = {},
+  options: { scope?: 'all' | 'live' | 'vod' } = {},
+): Promise<void> {
+  const scope = options.scope || 'all';
+  const wantLive = scope === 'all' || scope === 'live';
+  const wantVod = scope === 'all' || scope === 'vod';
+  if ((!wantLive || restoreDone.live) && (!wantVod || restoreDone.vod)) {
+    return Promise.resolve();
+  }
   restoreCancelled = false;
   const startedAt = Date.now();
   const run = async (): Promise<void> => {
+    if (restoreCancelled) return;
     const provider = plan.provider;
     let loaded = '';
-    if (plan.hasLive && !restoreCancelled) {
+    if (wantLive && !restoreDone.live && plan.hasLive && !restoreCancelled) {
       // Két különböző szolgáltató listája NEM keveredhet: ha a tartós tár
       // fejléce másik fiókhoz tartozik, azt a listát nem fogadjuk el.
       const store = await contentChunkStore();
@@ -2470,13 +2511,14 @@ export function restoreStoredContent(plan: StoredCatalogPlan, handlers: RestoreH
         if (full && full.channels.length && !restoreCancelled) {
           handlers.onLive?.(full);
           loaded += ` élő=${full.channels.length}`;
+          restoreDone.live = true;
         }
       } else {
         appLog('Tároló: a mentett élő lista másik szolgáltatóhoz tartozik – nem keverjük.');
       }
       await yieldToStorage();
     }
-    if (plan.hasVod && !restoreCancelled) {
+    if (wantVod && !restoreDone.vod && plan.hasVod && !restoreCancelled) {
       handlers.onStage?.('filmlista a tartós tárból');
       const vod = await loadVodAsync(provider);
       if (vod.movies.length && !restoreCancelled) {
@@ -2485,7 +2527,7 @@ export function restoreStoredContent(plan: StoredCatalogPlan, handlers: RestoreH
       }
       await yieldToStorage();
     }
-    if (plan.hasSeries && !restoreCancelled) {
+    if (wantVod && !restoreDone.vod && plan.hasSeries && !restoreCancelled) {
       handlers.onStage?.('sorozatlista a tartós tárból');
       const ser = await loadSeriesAsync(provider);
       if (ser.series.length && !restoreCancelled) {
@@ -2493,14 +2535,19 @@ export function restoreStoredContent(plan: StoredCatalogPlan, handlers: RestoreH
         loaded += ` sorozat=${ser.series.length}`;
       }
     }
+    if (wantVod) restoreDone.vod = true;
     if (!restoreCancelled) {
       appLog(`TARTÓS VISSZATÖLTÉS készen (${Date.now() - startedAt} ms, letöltés nélkül):${loaded || ' üres'}.`);
     }
   };
-  let task: Promise<void>;
-  task = run()
+  // SORBAN FUTÓ SZAKASZOK: az élő lista és a filmek/sorozatok nem
+  // akadályozzák és nem szakítják meg egymást.
+  const task = restoreChain
+    .then(run)
     .catch((error) => appLogError('Tartós katalógus visszatöltése', error))
-    .finally(() => { if (activeRestore === task) activeRestore = null; });
-  activeRestore = task;
+    .finally(() => {
+      if (restoreChain === task) restoreChain = Promise.resolve();
+    });
+  restoreChain = task;
   return task;
 }

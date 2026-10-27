@@ -48,6 +48,7 @@ import {
 } from './services/providerImport';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
+import { channelNowNext, clearGuide, ensureGuide, guideStatus, guideUpcoming } from './services/epgGuide';
 import { xtreamService } from './services/xtreamService';
 import { parseEpisodeMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './services/vodMetadata';
 
@@ -1053,9 +1054,24 @@ export function App() {
     const provider = activeProvider;
     if (activeView !== 'live' || customStreamUrl || !channel || !provider || provider.type !== 'xtream') return;
     if (providerRefreshActiveRef.current || !providerContentReady) return;
+
+    /*
+     * 2.5.143: ELŐBB A TELJES MŰSORÚJSÁGBÓL (XMLTV) NÉZZÜK.
+     *
+     * A 19-es TV-napló bizonyítéka szerint ezen a panelen a rövid EPG
+     * végpont 19 bájtos, üres választ ad ({"epg_listings":[]}) – vagyis
+     * hiába kérdeztük 18-szor. Ha a műsorújság már be van töltve, innen
+     * azonnal megvan a műsor, hálózat nélkül.
+     */
+    const fromGuide = channelNowNext(provider, channel);
+    if (fromGuide && (fromGuide.now || fromGuide.next)) {
+      const upcoming = guideUpcoming(channel);
+      setActiveEpg({ id: channel.id, now: fromGuide.now || channel.epgNow, next: fromGuide.next || channel.epgNext, upcoming });
+      return;
+    }
+    // A rövid EPG-hez a stream-azonosító kell (a stream URL-ből).
     const streamId = streamIdFor(channel);
     if (!streamId) return;
-
     let cancelled = false;
     const timer = setTimeout(() => {
       loadShortEpg(provider, streamId, 6)
@@ -1080,7 +1096,7 @@ export function App() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [activeView, customStreamUrl, activeChannel?.id, activeProvider?.id, providerContentReady]);
+  }, [activeView, customStreamUrl, activeChannel?.id, activeProvider?.id, providerContentReady, epgRevision]);
 
   /*
    * EGYETLEN, MEGOSZTOTT VISSZATÖLTÉS A TARTÓS TÁRBÓL.
@@ -1100,11 +1116,14 @@ export function App() {
   const bootProbeStartedRef = useRef(false);
   const restoreRunningRef = useRef(false);
 
-  const runRestore = useCallback(async (plan?: StoredCatalogPlan | null): Promise<void> => {
+  const runRestore = useCallback(async (
+    plan?: StoredCatalogPlan | null,
+    scope: 'all' | 'live' | 'vod' = 'all',
+  ): Promise<void> => {
     const target = plan || catalogPlanRef.current;
     if (!target || restoreRunningRef.current) return;
     restoreRunningRef.current = true;
-    appLog(`Mentett katalógus visszatöltése indul (tároló: ${target.provider.id}).`);
+    appLog(`Mentett katalógus visszatöltése indul (tároló: ${target.provider.id}, szakasz: ${scope}).`);
     try {
       await restoreStoredContent(target, {
         onStage: (stage) => logPhase(stage),
@@ -1130,14 +1149,91 @@ export function App() {
           if (ser.categories.length) setSeriesCategories(ser.categories);
           appLog(`Sorozatok a felületen: ${ser.series.length} (letöltés nélkül).`);
         },
-      });
+      }, { scope });
     } finally {
       restoreRunningRef.current = false;
     }
   }, []);
 
-  /** A Mozi/Sorozat menü azonnal kérheti; a futó visszatöltésre csatlakozik. */
-  const ensureVodLoaded = useCallback(() => { void runRestore(); }, [runRestore]);
+  /**
+   * A Mozi/Sorozat menü azonnal kérheti – CSAK a filmeket és sorozatokat.
+   *
+   * 2.5.143: az indulásnál már NEM töltjük be a 100 ezres film- és 25 ezres
+   * sorozatlistát. A 19-es TV-napló szerint ez a háttérben, a takarókép alatt
+   * futott, és 3,6 mp-re fagyasztotta a főszálat (2 képkocka az első 8
+   * másodpercben). A menü megnyitásakor viszont a néző erre számít, és a
+   * lista adagokban, lélegzve töltődik be.
+   */
+  const ensureVodLoaded = useCallback(() => { void runRestore(catalogPlanRef.current, 'vod'); }, [runRestore]);
+
+  const guideStatusSafe = useCallback((): { channels: number } => {
+    try { return guideStatus(); } catch { return { channels: 0 }; }
+  }, []);
+
+  /**
+   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE – A MEGJELENÉS UTÁN, ÜRESJÁRATBAN.
+   *
+   * 2.5.143. A korábbi kód az indulásnál azonnal a teljes katalógust
+   * dekódolta (20 190 élő csatorna + 102 789 film + 24 977 sorozat). A
+   * 16:27:15-ös (19-es) TV-napló mérése szerint ez a takarókép ALATT futott:
+   *
+   *   INDULÁS [4045 ms] teljes élő csatornalista a tartós tárból
+   *   Teljes élő csatornalista betöltve (IndexedDB): 20190 csatorna (≈10 mp)
+   *   KÉPKOCKA-KIHAGYÁS: 3666 ms; 2 képkocka az első 8 s-ban
+   *   REVEAL csak +11925 ms-nál
+   *
+   * A megoldás: az induló készlet (107 magyar csatorna, localStorage) azonnal
+   * kész, a teljes lista pedig csak a megjelenés után, egy rövid üresjárat
+   * után töltődik be – adagokban, minden adag után visszaadva a főszálat.
+   * Így a néző azonnal látja a kész felületet, a lista pedig észrevétlenül
+   * egészül ki a háttérben.
+   */
+  const liveRestoreScheduledRef = useRef(false);
+  const scheduleLiveRestore = useCallback((plan: StoredCatalogPlan | null) => {
+    if (liveRestoreScheduledRef.current || !plan) return;
+    liveRestoreScheduledRef.current = true;
+    let started = false;
+    let fallbackTimer = 0;
+    const begin = (reason: string) => {
+      if (started) return;
+      started = true;
+      window.removeEventListener('iptv-app-ready', onReady);
+      if (fallbackTimer) window.clearTimeout(fallbackTimer);
+      // A megjelenés utáni első képkockák a felületé: csak utána dolgozunk.
+      window.setTimeout(() => {
+        if (providerRefreshActiveRef.current) return;
+        appLog(`A teljes élő lista visszatöltése a háttérben indul (${reason}).`);
+        void runRestore(plan, 'live');
+      }, 500);
+      /*
+       * A TELJES MŰSORÚJSÁG (XMLTV) – AZ ÉLŐ LISTA UTÁN.
+       *
+       * A 19-es TV-napló szerint a rövid EPG végpont minden kérésre üres
+       * (19 bájtos) választ ad, ezért a műsort a szolgáltató teljes
+       * műsorújságjából töltjük be – egyszer, a háttérben, a kész felület
+       * fölött. A betöltés végén egy újrarajzolás jelzi a listának, hogy
+       * mostantól van mit megjeleníteni.
+       */
+      window.setTimeout(() => {
+        if (providerRefreshActiveRef.current) return;
+        void ensureGuide(plan.provider)
+          .then(() => {
+            const status = guideStatusSafe();
+            if (status.channels > 0) setEpgRevision((revision) => revision + 1);
+          })
+          .catch(() => { /* a naplóban már ott a valódi ok */ });
+      }, 3500);
+    };
+    const onReady = () => begin('a felület megjelent');
+    if (typeof (window as unknown as { __IPTV_APP_READY__?: boolean }).__IPTV_APP_READY__ === 'boolean'
+      && (window as unknown as { __IPTV_APP_READY__?: boolean }).__IPTV_APP_READY__) {
+      begin('a felület már kész');
+      return;
+    }
+    window.addEventListener('iptv-app-ready', onReady);
+    // Biztonsági háló: ha a jelzés valamiért elmarad, 6 mp után akkor is indul.
+    fallbackTimer = window.setTimeout(() => begin('biztonsági időzítő'), 6000);
+  }, [runRestore, guideStatusSafe]);
 
   /*
    * HIDEG INDÍTÁS – EGY ELLENŐRZÉS, AZONNALI INDULÁS, NINCS FELUGRÓ ABLAK.
@@ -1226,8 +1322,17 @@ export function App() {
         }));
         setLiveRecoveryNeeded(false);
         setBootProbeDone(true);
-        // NINCS 800/900/1200 ms várakozás: a háttér-visszatöltés azonnal indul.
-        void runRestore(plan);
+        /*
+         * A TELJES LISTA A MEGJELENÉS UTÁN TÖLTŐDIK BE – NEM A TAKARÓKÉP ALATT.
+         *
+         * 2.5.143: a 19-es TV-naplóban a 20 190 csatornás lista visszatöltése
+         * a takarókép alatt futott, és 3666 ms-ra fagyasztotta a fő szálat
+         * („2 képkocka az első 8 s-ban”), ezért a megjelenés +11,9 mp-re
+         * tolódott – pedig a felület +4,8 mp-nél már kész volt. Mostantól a
+         * kurta, 107 csatornás induló készlet elegendő a megjelenéshez, a
+         * teljes lista pedig a kész felület fölött, üresjáratban érkezik.
+         */
+        scheduleLiveRestore(plan);
       } catch (error) {
         appLogError('Indulás a tartós tárból', error);
         decided = 'empty';
@@ -1257,7 +1362,7 @@ export function App() {
       } catch { /* a takarítás sosem akadályozhatja az indulást */ }
     }, 1500);
     return () => { cancelled = true; window.clearTimeout(sweepTimer); };
-  }, [runRestore]);
+  }, [runRestore, scheduleLiveRestore]);
 
   // Kedvencek / sorrend módosítása után mentsük a tartalmat (késleltetve).
   //
@@ -2048,6 +2153,8 @@ export function App() {
     lastRefreshProviderIdRef.current = id;
     providerRefreshActiveRef.current = true;
     clearEpgCache();
+    // A szolgáltató katalógusa megváltozott: a régi műsorújság is elavult.
+    clearGuide();
     setEpgRevision((revision) => revision + 1);
     setProviderContentReady(false);
     // Automatikus betöltésnél NINCS felugró diagnosztikai ablak.

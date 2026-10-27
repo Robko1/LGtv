@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.5.142';
+export const WEB_VERSION = '2.5.143';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.143',
+    date: '2026-10-27',
+    changes: [
+      'AZ EPG VÉGRE MEGJELENIK A FŐOLDALON: a 19-es TV-napló (16:27:15) bebizonyította, hogy a szolgáltató rövid EPG végpontja MINDEN kérésre üres választ ad – 18 kérés ment ki induláskor, mindegyik 19 bájtos ({"epg_listings":[]}) válasszal. Ezért a program mostantól a szolgáltató TELJES műsorújságját (XMLTV, xmltv.php) tölti le egyszer, a háttérben, és abból adja a most futó és a következő műsort a csatorna epg_channel_id-ja alapján. A letöltés folyamatosan, kis darabokban olvas (a felület nem fagy le), csak a mostani és a következő órák műsorát tartja meg, 30 percig érvényes, és a rövid EPG marad tartaléknak. Ha a panel három egymás utáni kérésre is üres, a program többé nem terheli fölöslegesen a hálózatot',
+      'AZ INDÍTÁS NEM FAGY LE A BUNDLE KIÉRTÉKELÉSE ALATT: a napló 2101 ms-os hosszú feladatot és 1667/3666 ms-os képkocka-kihagyást mért az első 8 másodpercben. A nagy program mostantól egy pici ES5 betöltő indítja, MIUTÁN a betöltőképernyő már kifestődött (két képkocka), a core-js/regenerator/fetch polyfill pedig csak a régi motorokon töltődik le – modern webOS-on egyáltalán nem',
+      'A BETÖLTŐ ANIMÁCIÓ EGYENLETESEBB: a vignetta 190 px-es belső árnyéka és a filmszemcse négyszeres túlnyúlású rétege minden képkockán a teljes felületet újrafestette; a vignetta saját, izolált rétegbe került, a szemcse pedig a mozgatásához éppen elég 6%-os túlnyúláson belül mozog. A látvány változatlan (ugyanaz az Inditas.html terv), a festés negyede',
+      'AZ ÉLŐ LISTA ÉS A FILMEK BETÖLTÉSE SZÉTVÁLIK: a teljes élő csatornalista (20 190 sor, 17 adag) eddig a betöltőképernyő felfedése KÖZBEN futott. Most a felfedés után, üresjáratban töltődik be, a film- és sorozatkatalógus pedig csak akkor, amikor a Mozi/Sorozat menü először megnyílik – az indulás így érezhetően gyorsabb és egyenletesebb',
+    ],
+  },
   {
     version: '2.5.142',
     date: '2026-10-27',

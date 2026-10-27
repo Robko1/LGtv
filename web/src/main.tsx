@@ -329,6 +329,15 @@ try {
     logPhase('főoldal kész és kirajzolva');
     try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
     /*
+     * JELZÉS A HÁTTÉRMUNKÁNAK (2.5.143).
+     *
+     * Az App ebből tudja, hogy a felület már a képernyőn van, és csak ezután
+     * kezdi el a teljes (20 ezer csatornás) lista visszatöltését a tartós
+     * tárból. Korábban ez a takarókép ALATT futott, és 3,6 mp-re fagyasztotta
+     * a fő szálat – a megjelenés csak +11,9 mp-nél történt meg.
+     */
+    try { window.dispatchEvent(new CustomEvent('iptv-app-ready')); } catch { /* régi motor */ }
+    /*
      * A betöltőképernyő 100%-a csak MOST, a tényleges kész állapotban áll be –
      * nem egy időzítő, hanem a valóban kirajzolt és használható főoldal.
      * A webOS indítóképe és a kész főoldal egyetlen váltással cserélődik.
