@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.143';
+export const WEB_VERSION = '2.5.144';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.143',
+    version: '2.5.144',
     date: '2026-10-27',
     changes: [
       'AZ EPG VÉGRE MEGJELENIK A FŐOLDALON: a 19-es TV-napló (16:27:15) bebizonyította, hogy a szolgáltató rövid EPG végpontja MINDEN kérésre üres választ ad – 18 kérés ment ki induláskor, mindegyik 19 bájtos ({"epg_listings":[]}) válasszal. Ezért a program mostantól a szolgáltató TELJES műsorújságját (XMLTV, xmltv.php) tölti le egyszer, a háttérben, és abból adja a most futó és a következő műsort a csatorna epg_channel_id-ja alapján. A letöltés folyamatosan, kis darabokban olvas (a felület nem fagy le), csak a mostani és a következő órák műsorát tartja meg, 30 percig érvényes, és a rövid EPG marad tartaléknak. Ha a panel három egymás utáni kérésre is üres, a program többé nem terheli fölöslegesen a hálózatot',
