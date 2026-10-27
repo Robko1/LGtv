@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.151';
+export const WEB_VERSION = '2.5.152';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.151',
+    version: '2.5.152',
     date: '2026-10-27',
     changes: [
       'NINCS TÖBBÉ VILÁGOS KÉK VILLANÁS: a 35–39. napló észrevétele szerint a takarókép után – és csatornaváltásnál a főoldalon – világos türkiz kocka villant be. Két forrása volt: a webOS ablak háttere (appinfo bgColor, világos türkiz) és a html/takarókép alapszíne. Mostantól MINDEN alapszín a kész felület sötétje (#080d1a): ha bármelyik réteg egy pillanatra hiányzik, sötétet lát, nem kék villanást',
