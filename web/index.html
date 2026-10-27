@@ -193,8 +193,13 @@
       #boot-screen .scan {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 3;
         pointer-events: none; opacity: .42;
-        background: repeating-linear-gradient(180deg, rgba(0,0,0,.30) 0 1px, rgba(0,0,0,0) 1px 3px);
-        mix-blend-mode: multiply;
+        /*
+         * 2.5.149: NINCS `mix-blend-mode`. A teljes képernyős keverési mód a TV
+         * GPU-ján minden képkockán újraolvasta a háttérréteget – emiatt nem
+         * tudott rendesen futni a betöltő animáció. A pásztázó sorok
+         * megjelenése ugyanaz, csak sima átlátszó sötét csíkokkal.
+         */
+        background: repeating-linear-gradient(180deg, rgba(2,10,14,.34) 0 1px, rgba(0,0,0,0) 1px 3px);
       }
       #boot-screen .bloom {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 6;
@@ -214,11 +219,13 @@
         display: flex; flex-direction: column; justify-content: space-between;
         padding: 24px 28px;
         padding: clamp(20px,3.4vh,54px) clamp(24px,4.2vw,86px);
-        transition: opacity .7s ease, transform .7s ease, filter .7s ease;
-      }
-      #boot-screen .ui.handoff {
-        opacity: 0; transform: scale(1.035);
-        filter: blur(6px); -webkit-filter: blur(6px);
+        /*
+         * 2.5.149: a lezáró „elengedés” (6 px blur + nagyítás) KIKERÜLT.
+         * A 28–30. naplóban a takarókép levétele emiatt várt 1,4–2,4 mp-et:
+         * a TV GPU-ja a teljes műszerfalat bemásolta és elhomályosította
+         * pont abban a pillanatban, amikor a kész felületnek meg kellett
+         * volna jelennie. A felfedés egyetlen stílusváltás.
+         */
       }
 
       #boot-screen .rule {
@@ -371,7 +378,6 @@
         border: 3px solid rgba(126,240,210,.12);
         border-top-color: #7FF0D2;
         border-right-color: rgba(126,240,210,.55);
-        box-shadow: 0 0 18px rgba(126,240,210,.22);
         animation: boot-rot 1.9s linear infinite;
         will-change: transform;
         transform: translateZ(0);
@@ -1198,17 +1204,17 @@
           setText('boot-buildstate', 'KÉSZ');
           setText('boot-veilsub', 'MINDEN KÉSZ \u00b7 100%');
           update({ percent: 100, etaSeconds: 0 });
-          /* A dizájn lezárása: virágzás + áttűnő fátyol + a műszerfal elengedése. */
-          var bloom = byId('boot-bloom');
-          if (bloom && bloom.classList) {
-            bloom.classList.remove('fire');
-            var reflow = bloom.offsetWidth;
-            bloom.classList.add('fire');
-          }
-          var veil = byId('boot-veil');
-          if (veil && veil.classList) veil.classList.add('show');
-          var ui = byId('boot-ui');
-          if (ui && ui.classList) ui.classList.add('handoff');
+          /*
+           * NINCS BEFEJEZŐ EFFEKT (2.5.149).
+           *
+           * A 28–30. napló szerint a takarókép levétele a 100% jelzés után még
+           * 1,4–2,4 mp-et várt. Az ok a lezáró látvány volt: teljes képernyős
+           * virágzás-animáció, áttűnő fátyol és egy 6 px-es blur a teljes
+           * műszerfalra – mindezt a TV GPU-ja a legrosszabb pillanatban
+           * rajzolta újra, miközben a kész felület várt a megjelenésre.
+           * A felfedés mostantól egyetlen stílusváltás; a betöltőképernyő
+           * 100%-a csak az adat, amit a HTML-híd megkap.
+           */
           if (typeof bootMark === 'function') bootMark('betöltőképernyő: 100% – a felület kész');
         }
 

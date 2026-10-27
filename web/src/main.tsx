@@ -216,22 +216,24 @@ try {
    */
   const VIDEO_WAIT_MS = 1200;
   const LOGO_WAIT_MS = 600;
-  /**
-   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE A TAKARÓKÉP ALATT (2.5.145).
+  /*
+   * A TELJES ÉLŐ LISTA MÁR NEM A TAKARÓKÉP ALATT TÖLTŐDIK BE (2.5.149).
    *
-   * A 21–23. napló mindhárom indulásánál 2–3,9 mp-es képkocka-kihagyás volt
-   * PONT akkor, amikor a teljes (20 190 csatornás) lista betöltése a már
-   * látható felület alatt futott. A 2.5.140-ben ez a munka a takarókép
-   * alatt zajlott, ezért ott nem lehetett látni.
+   * A 28–30. napló mérése szerint a 20 190 csatornás lista dekódolása a TV-n
+   * 3 mp volt, az alkalmazás pedig 1,5 mp-re fagyott tőle – mindkettő a
+   * takarókép alatt, ezért a felfedés csak 7–10 mp-nél történt meg. Most a
+   * látható felület (fejléc, csatornalista az induló készlettel, lejátszó)
+   * készenléte dönt, a teljes lista pedig a felfedés UTÁN érkezik.
    *
-   * Ezért a felfedés mostantól megvárja az élő lista visszatöltését – de
-   * LEGFELJEBB `LIVE_WAIT_MS`-ig a csatornalista megjelenésétől számítva.
-   * A tipikus idő ~1 mp (a napló 19-ben 752 ms volt), a korlát csak a
-   * biztonsági háló arra az esetre, ha a tároló elakad.
+   * A `liveReady()` csak a naplózáshoz marad meg: a felfedés nem vár rá.
    */
-  const LIVE_WAIT_MS = 6000;
-  const liveReady = (): boolean =>
-    (window as any).__IPTV_LIVE_READY__ === true || emptyBoot();
+  /**
+   * A teljes lista készenléte – MÁR CSAK NAPLÓZÁSRA (2.5.149).
+   * A felfedés nem vár rá: a takarókép akkor megy le, amikor a LÁTHATÓ
+   * felület kész, a 20 190 csatornás lista pedig utána töltődik be.
+   */
+  const liveListReady = (): boolean =>
+    (window as any).__IPTV_LIVE_READY__ === true;
 
   const chromeReady = () => {
     const root = document.getElementById("root");
@@ -319,7 +321,7 @@ try {
    * korlátig – ez látszott „ugrálásnak”. Két újrapróbálás után inkább
    * megjelenítjük a kész felületet.
    */
-  const MAX_FRAME_GAP_RETRIES = 2;
+  const MAX_FRAME_GAP_RETRIES = 1;
   let frameGapRetries = 0;
   let revealPending = false;
   /** Nagy felbontású óra, ha van; egyébként a falióra. */
@@ -349,7 +351,6 @@ try {
          */
         if (frameGap > FRAME_GAP_LIMIT_MS
             && frameGapRetries < MAX_FRAME_GAP_RETRIES
-            && !liveReady()
             && Date.now() - startedAt <= 9000) {
           frameGapRetries += 1;
           revealPending = false;
@@ -368,24 +369,38 @@ try {
     revealed = true;
     stage(6, "App állapot / Storage");
     stage(7, "Főképernyő kész");
-    logPhase('főoldal kész és kirajzolva');
+    logPhase(liveListReady()
+      ? 'főoldal kész és kirajzolva'
+      : 'főoldal kész és kirajzolva – a teljes élő lista a háttérben töltődik tovább');
     try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
     /*
-     * JELZÉS A HÁTTÉRMUNKÁNAK (2.5.143).
+     * A VÁLTÁS AZ ELSŐ HELYEN (2.5.149).
      *
-     * Az App ebből tudja, hogy a felület már a képernyőn van, és csak ezután
-     * kezdi el a teljes (20 ezer csatornás) lista visszatöltését a tartós
-     * tárból. Korábban ez a takarókép ALATT futott, és 3,6 mp-re fagyasztotta
-     * a fő szálat – a megjelenés csak +11,9 mp-nél történt meg.
+     * A 28–30. napló szerint a takarókép levétele a „főoldal kész” jelzés után
+     * még 1,4–2,4 mp-et várt, mert a betöltőképernyő 100%-os lezárása
+     * (virágzás, fátyol, blur-ös elengedés) a TV GPU-ján drága volt, és a
+     * felfedés csak utána következett. Most a felfedés fut ELŐBB – egyetlen
+     * stílusváltás, semmi más –, és a betöltőképernyő könyvelése csak utána,
+     * amikor az már nem is látszik.
      */
-    try { window.dispatchEvent(new CustomEvent('iptv-app-ready')); } catch { /* régi motor */ }
-    /*
-     * A betöltőképernyő 100%-a csak MOST, a tényleges kész állapotban áll be –
-     * nem egy időzítő, hanem a valóban kirajzolt és használható főoldal.
-     * A webOS indítóképe és a kész főoldal egyetlen váltással cserélődik.
-     */
-    bootScreenComplete();
     reveal(reason);
+    /*
+     * A jelzés a felfedés UTÁN megy ki – az App ebből indítja a teljes lista
+     * visszatöltését. `window.CustomEvent` (nem a globális), mert a régi
+     * webOS motorokon és a teszt-környezetben is ez a helyes példány.
+     */
+    try {
+      if (typeof (window as any).CustomEvent === 'function') {
+        window.dispatchEvent(new (window as any).CustomEvent('iptv-app-ready'));
+      } else {
+        const legacy = document.createEvent('Event');
+        legacy.initEvent('iptv-app-ready', false, false);
+        window.dispatchEvent(legacy);
+      }
+    } catch { /* régi motor */ }
+    window.setTimeout(() => {
+      try { bootScreenComplete(); } catch { /* a HTML-réteg hibája nem akadály */ }
+    }, 0);
   };
 
   /*
@@ -474,15 +489,16 @@ try {
       const logosOk = logosSettled() || waited > LOGO_WAIT_MS;
       const videoOk = videoSettled() || waited > VIDEO_WAIT_MS;
       /*
-       * A takarókép addig marad, amíg a teljes élő lista be nem töltődött:
-       * így a felfedés pillanatában MINDEN kész, és semmi nem ugrik meg a
-       * már látható felületen. A korlát miatt a legrosszabb eset sem hosszú.
+       * A FELFEDÉS NEM VÁR A TELJES (20 190 CSATORNÁS) LISTÁRA (2.5.149).
+       *
+       * A 28–30. napló: a lista dekódolása 3 mp, az alkalmazás 1,5 mp-re
+       * fagyott tőle – mindkettő a takarókép ALATT, ezért a felfedés 7–10
+       * mp-re tolódott. A látható felület viszont enélkül is kész: a fejléc,
+       * a csatornalista (induló készlettel) és a lejátszó már megvan.
+       * A teljes lista a felfedés UTÁN, a kész felület fölött érkezik
+       * (App: startBackgroundWork → iptv-app-ready).
        */
-      const liveOk = liveReady() || waited > LIVE_WAIT_MS;
-      if (logosOk && videoOk && liveOk) {
-        if (!liveReady()) {
-          logPhase('felfedés az élő lista visszatöltése előtt (időkorlát)');
-        }
+      if (logosOk && videoOk) {
         revealWhenPainted("kész főoldal");
         return;
       }
