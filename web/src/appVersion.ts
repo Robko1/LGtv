@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.135';
+export const WEB_VERSION = '2.5.136';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.135',
+    version: '2.5.136',
     date: '2026-10-27',
     changes: [
       'FOLYAMATOS INDULÁS – NINCS TÖBB ZÖLD VAGY FEKETE FELVILLANÁS: a 00:14:19 (#2) és 00:14:56 (#3) TV-naplók alapján a takarókép két CSS háttérrétege (éles JPEG + apró PNG) miatt a böngésző az első festéskor csak a lapos #6ccbd3 színt mutatta. Most a teljes, 1920×1080-as indítókép egy VALÓDI <img decoding="sync"> elemre kerül, amelyet a böngésző már az első képkockán szinkron dekódol; a tartalék pedig EGYETLEN, 192×108-as PNG, ugyanannak a képnek a kicsinyített mása',
