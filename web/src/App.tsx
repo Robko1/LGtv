@@ -673,10 +673,7 @@ export function App() {
   const videoFullscreenRef = useRef(false);
   const applyVideoFullscreen = useCallback((value: boolean) => {
     videoFullscreenRef.current = value;
-    const apply = () => setIsVideoFullscreen(value);
-    const raf = (window as unknown as { requestAnimationFrame?: (cb: () => void) => number }).requestAnimationFrame;
-    if (typeof raf === 'function') raf(() => raf(apply));
-    else window.setTimeout(apply, 0);
+    setIsVideoFullscreen(value);
   }, []);
   const [liveAccent, setLiveAccent] = useState<'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white'>(() => {
     try {
