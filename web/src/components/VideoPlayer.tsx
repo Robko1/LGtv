@@ -3229,6 +3229,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     });
     const probeTimer = window.setTimeout(() => {
+      // Csak akkor indítjuk el a hálózati sávfejléc-beolvasást, ha a lejátszás elindult,
+      // így a probe kérés nem verseng az első videószegmensek letöltésével.
+      if (!playbackStartedRef.current) return;
       setLunaTvSubtitleTracks((previous) => {
         if (previous.length === 0) {
           void probeLiveSubtitles(streamUrl).then((tracks) => {
@@ -3433,7 +3436,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           appLog(`ERŐFORRÁS-DIAG PRÓBA START; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}; ${runtimeDiagnosticState()}`);
         }
       }
-      video.pause();
       /*
        * HIBAÁLLAPOT TÖRLÉSE.
        *
