@@ -224,12 +224,15 @@ test('a webOS indítóképe és a HTML háttere UGYANABBÓL a takarokep.jpg-ből
     'a webos/splash-screen.png nem a takaroképből készült');
 });
 
-test('a body/html háttere a takarókép színéhez illeszkedik, majd a kész felület sötétkékje', () => {
+test('a body/html háttere a REVEAL-nál NEM vált – nincs fekete kocka', () => {
   assert.match(PAGE, /html\s*\{\s*background-color:\s*#7fb9bd;/);
   assert.match(PAGE, /\.iptv-curtain\s*\{[^}]*background-color:\s*#7fb9bd;/);
-  assert.match(PAGE, /html\.iptv-booting body\s*\{\s*background-color:\s*#7fb9bd !important;/);
+  // 2.5.147: a kész felület felülete (body) MÁR az első festéstől sötétkék,
+  // ezért a takarókép levételekor nincs színváltás – ez adta a fekete képet.
+  assert.match(PAGE, /html\.iptv-booting body\s*\{\s*background-color:\s*#080d1a !important;/);
   assert.match(PAGE, /html\.iptv-revealed body\s*\{\s*background-color:\s*#080d1a !important;/);
-  assert.match(PAGE, /document\.body\.style\.backgroundColor = '#080d1a';/);
+  assert.doesNotMatch(PAGE, /document\.body\.style\.backgroundColor/,
+    'a REVEAL nem írhatja át a body hátterét (ez volt a fekete villanás)');
   assert.match(PAGE, /document\.documentElement\.style\.backgroundColor = '#7fb9bd';/);
   // A platform bgColor a takarokép mért átlagszíne – nem fekete, nem fehér.
   assert.equal(String(APPINFO.bgColor).toLowerCase(), '#84bebc');
@@ -361,9 +364,12 @@ test('a VOD/sorozat részlisták nem rajzolják újra a teljes App-ot minden ada
 
 /* ─────────────── 8. VERZIÓ ─────────────── */
 
-test('a verzió mindkét helyen 2.5.145, és a változások a kiadási jegyzékben vannak', () => {
-  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.145';/);
-  assert.equal(APPINFO.version, '2.5.145');
+test('a verzió mindkét helyen 2.5.147, és a változások a kiadási jegyzékben vannak', () => {
+  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.147';/);
+  assert.equal(APPINFO.version, '2.5.147');
+  assert.match(VERSION, /VÁLTÁS EGYETLEN KÉPKOCKA/, 'a 2.5.147 fekete kép javítása hiányzik a jegyzékből');
+  assert.match(VERSION, /NINCS HANG A FŐOLDAL ELŐTT/, 'a 2.5.147 hangzár-javítása hiányzik a jegyzékből');
+  assert.match(VERSION, /VÉGIG FUT EGY MOZGÁS/, 'a 2.5.147 folyamatos animációja hiányzik a jegyzékből');
   assert.match(VERSION, /ÚJ BETÖLTŐKÉPERNYŐ A TAKAROKEP\.JPG-BŐL/);
   assert.match(VERSION, /CSAK VALÓS BETÖLÉSI ADATOK/);
   assert.match(VERSION, /AZ EPG VÉGRE MEGJELENIK A FŐOLDALON/, 'a 2.5.143 EPG-javítása hiányzik a jegyzékből');

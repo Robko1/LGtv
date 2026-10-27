@@ -23,8 +23,27 @@
  * bejelentkezéshez hasonlóan – a HTTP az alapértelmezés. Bármely más séma
  * (file://, udp://, javascript: stb.) nem használható bázisként.
  */
+/*
+ * A BÁZIS EGYSZER SZÁMOLÓDIK (2.5.147).
+ *
+ * A 20 190 élő csatorna visszatöltésekor a `logoBase()` MINDEN csatornánál
+ * újra lefutott: reguláris kifejezés + `new URL()`. A TV-n ez önmagában
+ * ~1 másodperc volt a betöltőképernyő alatt (a 24. napló 2,7 mp-es
+ * képkocka-kihagyása). A bázis viszont indulás közben állandó, ezért elég
+ * egyszer kiszámolni.
+ */
+let cachedLogoBaseInput: string | null = null;
+let cachedLogoBaseValue = '';
+
 function logoBase(baseUrl?: string): string {
   const trimmed = (baseUrl || '').trim();
+  if (cachedLogoBaseInput === trimmed) return cachedLogoBaseValue;
+  cachedLogoBaseInput = trimmed;
+  cachedLogoBaseValue = computeLogoBase(trimmed);
+  return cachedLogoBaseValue;
+}
+
+function computeLogoBase(trimmed: string): string {
   if (!trimmed) return '';
   // A player_api.php végződésű szervercímből csak a kiszolgáló maradjon.
   const withoutApi = trimmed.replace(/\/player_api\.php.*$/i, '').replace(/\/+$/, '');
@@ -44,10 +63,22 @@ function logoBase(baseUrl?: string): string {
 /** Csak ezek a sémák jeleníthetők meg <img>-ben. */
 const ALLOWED_PROTOCOL = /^(https?:|data:|blob:)$/;
 
+/** Kész, már kódolt, csak ASCII karaktereket tartalmazó http(s) cím. */
+const FAST_ABSOLUTE = /^https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
+
 export function normalizeLogoUrl(value: unknown, baseUrl?: string): string {
   if (typeof value !== 'string') return '';
   const raw = value.trim().replace(/^(['"])(.*)\1$/, '$2').trim();
   if (!raw) return '';
+
+  /*
+   * GYORS ÚT (2.5.147): a kész, már kódolt http(s) címeket nem kell
+   * újraértelmezni. A 20 190 csatorna logóinak túlnyomó része ilyen, és az
+   * eddigi `new URL()` hívás csatornánként kétszer futott le (a bázissal
+   * együtt) – a TV-n ez volt a lassú indulás egyik fő tétele. Csak ASCII
+   * címekre engedjük, hogy a `new URL()` százalék-kódolása ne változzon.
+   */
+  if (FAST_ABSOLUTE.test(raw)) return raw;
 
   // 1) Az abszolút cím önállóan is érvényes: a bázistól függetlenül megőrizzük,
   //    hogy egy érvénytelen báziscím ne vesse el vele együtt.

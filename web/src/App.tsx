@@ -225,16 +225,37 @@ function findHungaryCategoryId(categories: Category[]): string | undefined {
  * A magyar besorolást most EGYSZER számoljuk ki, a szétválasztás pedig
  * stabil, lineáris (O(n)) művelet.
  */
+/*
+ * A KATEGÓRIA-NÉV KIÉRTÉKELÉSE EGYSZER (2.5.147).
+ *
+ * A 20 190 csatorna rendezésénél a magyar kategória reguláris kifejezése
+ * csatornánként lefutott. A kategóriák száma néhány száz, ezért a nevet
+ * egyszer értékeljük ki, utána táblából olvassuk – a takarókép alatti
+ * főszál-foglaltság (2,7 mp-es képkocka-kihagyás) fő tételei közé tartozott.
+ */
+const hungarianCategoryCache = new Map<string, boolean>();
+const HUNGARIAN_CATEGORY = /\b(magyarország|hungary|hungarian)\b/i;
+function isHungarianCategory(name: string): boolean {
+  const key = name || '';
+  const cached = hungarianCategoryCache.get(key);
+  if (cached !== undefined) return cached;
+  const value = HUNGARIAN_CATEGORY.test(key);
+  if (hungarianCategoryCache.size >= 4000) hungarianCategoryCache.clear();
+  hungarianCategoryCache.set(key, value);
+  return value;
+}
+
 function hungaryFirst(list: Channel[]): Channel[] {
   if (list.length === 0) return list;
   const hungarian: Channel[] = [];
   const rest: Channel[] = [];
   for (let index = 0; index < list.length; index++) {
     const channel = list[index];
+    const code = channel.countryCode;
     const isHungary =
-      channel.countryCode?.toUpperCase() === 'HU' ||
+      code === 'HU' || code === 'hu' ||
       channel.country === 'Magyarország' ||
-      /\b(magyarország|hungary|hungarian)\b/i.test(channel.categoryName || '');
+      isHungarianCategory(channel.categoryName);
     if (isHungary) hungarian.push(channel);
     else rest.push(channel);
   }

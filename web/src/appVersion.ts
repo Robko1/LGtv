@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.146';
+export const WEB_VERSION = '2.5.147';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.147',
+    date: '2026-10-27',
+    changes: [
+      'AZ INDÍTÓKÉPERNYŐN VÉGIG FUT EGY MOZGÁS: a 2.5.145-ben minden animáció kikerült, és a néző visszajelzése szerint így „az animáció le sem fut”, a kép befagyottnak látszik. Visszajött EGYETLEN olcsó mozgás – a tárcsa körül forgó gyűrű, a sávon átvonuló fénycsík és a márkajel halk lélegzése. Mindhárom CSAK transform/opacity, saját kompozitor-rétegben: akkor is fut, amikor a csatornalista dekódolása foglalja a fő szálat (nincs vászon-részecske, nincs filmszemcse, nincs óra)',
+      'A VÁLTÁS EGYETLEN KÉPKOCKA – NINCS TÖBBÉ FEKETE KÉP: a takarókép eddig 200 ms alatt halványult el, és közben a html/body háttere tealról sötétkékre váltott; a két festés közé beszorult a videó még festetlen síkja, ez volt „a hatalmas fekete kép”. Mostantól a takarókép a REVEAL pillanatában, átmenet nélkül tűnik el (display:none), a háttérszín pedig már az első festéstől a kész felületé – a váltásnál egyetlen szín sem változik',
+      'NINCS HANG A FŐOLDAL ELŐTT: a 24. napló szerint az első csatorna 19:45:22-kor már lejátszott, a takarókép viszont csak 19:45:26-kor tűnt el – 3,3 mp-ig szólt a hang egy betöltőképernyő alatt. Mostantól a lejátszó a takarókép alatt NÉMÁN indul, és a hang a kész főoldal első kirajzolt képkockájánál nyílik ki',
+      'A VIDEÓ DOBOZA SOSEM FEKETE: a lejátszó háttere és a várakozó poszter a takaróképhez illő sötét türkiz lett a korábbi majdnem fekete helyett, a betöltés-jelző réteg pedig szintén nem tiszta fekete – így a képkocka előtti pillanatban sem villanhat be fekete felület',
+      'GYORSABB INDULÁS, KEVESEBB FŐSZÁL-FOGLALTSÁG: a 20 190 csatorna dekódolásakor a logócím-feldolgozás és a zászló-keresés csatornánként futott (több tízezer URL-értelmezés és több százezer reguláris kifejezés a TV-n) – mostantól a logóbázis egyszer számolódik, a kész http(s) címek gyors úton mennek át, a zászló- és kategória-keresés pedig gyorsítótárból jön',
+      'A FELFEDÉS NEM VÁR FELESLEGESEN: a képváltás-őr eddig a lista betöltése UTÁNI késleltetett képkockát is akadásnak látta, és kétszer elhalasztotta a váltást (5 mp helyett 9–11 mp-nél tűnt el a takarókép). Ha minden adat a helyén van, a váltás mostantól azonnal megtörténik',
+    ],
+  },
   {
     version: '2.5.146',
     date: '2026-10-27',

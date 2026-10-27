@@ -60,15 +60,31 @@ test('a HTML biztosítja az előfestést a takarókép alatt', () => {
   const reveal = PAGE.slice(PAGE.indexOf('window.__IPTV_REVEAL__ = function'));
   assert.match(reveal.slice(0, 900), /__IPTV_PREPARE_REVEAL__\(true\)/,
     'a REVEAL nem pótolja a kimaradt előfestést');
-  // 2.5.135: a takaróképet az áttűnés VÉGÉN távolítjuk el (külön,
-  // idempotens függvény), nem a REVEAL első sorában – így a kép
-  // folyamatosan ér át a kész felületbe.
+  // A réteg eltávolítása továbbra is külön, idempotens függvényben történik.
   assert.match(PAGE, /window\.__IPTV_FINISH_REVEAL__ = function/,
-    'hiányzik az áttűnést lezáró függvény');
+    'hiányzik a váltást lezáró függvény');
   assert.match(PAGE, /fading\.parentNode\.removeChild\(fading\)/,
     'a takarókép eltávolítása eltűnt');
-  assert.match(reveal.slice(0, 3600), /__IPTV_FINISH_REVEAL__\(\)/,
-    'a REVEAL nem indítja el az áttűnés lezárását');
+  assert.match(reveal.slice(0, 6000), /__IPTV_FINISH_REVEAL__\(\)/,
+    'a REVEAL nem zárja le a váltást');
+  /*
+   * 2.5.147: A VÁLTÁS EGYETLEN KÉPKOCKA. A 200 ms-os elhalványulás alatt a
+   * videó még festetlen síkja villant be („egy hatalmas fekete kép”). Ezért a
+   * takarókép a REVEAL pillanatában display:none-nal tűnik el, átmenet nélkül.
+   */
+  assert.match(reveal, /curtain\.style\.display = 'none'/,
+    'a takarókép nem egyetlen képkockával tűnik el');
+  assert.doesNotMatch(reveal, /opacity 200ms/,
+    'visszatért a 200 ms-os elhalványulás (ez adta a fekete kockát)');
+  assert.doesNotMatch(reveal, /document\.body\.style\.backgroundColor/,
+    'a REVEAL nem váltogathatja a háttérszínt');
+  // A hang zárja a REVEAL után, a kész felület első képkockájánál nyílik.
+  assert.match(PAGE, /window\.__IPTV_AUDIO_GATE__ = true;/,
+    'hiányzik az indulási hangzár');
+  assert.match(reveal, /__IPTV_AUDIO_GATE__ = false/,
+    'a REVEAL nem nyitja ki a hangzárat');
+  assert.match(reveal, /iptv-audio-open/,
+    'a lejátszó nem kap jelzést a hang kinyitásáról');
 });
 
 test('a főoldal a takarókép alatt már látható, de a takarókép fent marad', () => {
