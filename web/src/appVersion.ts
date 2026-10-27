@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.145';
+export const WEB_VERSION = '2.5.146';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.145',
+    version: '2.5.146',
     date: '2026-10-27',
     changes: [
       'AZ INDÍTÁS MEGINT A 2.5.140 MENETE SZERINT FUT: a 21., 22. és 23. napló mindhárom indulásánál 2–3,9 mp-es képkocka-kihagyás volt – PONT akkor, amikor a 20 190 csatornás teljes lista a MÁR LÁTHATÓ felület alatt töltődött be. Mostantól a teljes élő lista ismét a takarókép ALATT készül el, és a felfedés megvárja (legfeljebb 6 mp-ig): a felület akkor jelenik meg, amikor már minden kész, és utána semmi nem ugrik meg',
