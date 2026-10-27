@@ -130,8 +130,14 @@ webos_dir, build_dir = Path(sys.argv[1]), Path(sys.argv[2])
 src = Image.open(webos_dir / "splash-screen.png").convert("RGB")
 # A webOS indítókép és a HTML háttér UGYANAZ a kép: nincs átmenet/villanás.
 # JPEG, mert a fotó-szerű háttér így ~90 KB (PNG-ben 257 KB lenne).
+# BASELINE (nem progresszív) JPEG: a kép beégetett data URI, így a
+# progresszív "fokozatos" dekódolásnak nincs hálózati előnye, viszont a
+# böngésző egy részlegesen dekódolt, kockás köztes képet is kifesthetett –
+# ez volt a 23:25:43-es napló zöld/blokkos felvillanása. A baseline JPEG
+# vagy teljesen kész, vagy egyáltalán nincs: ilyenkor a kicsinyített réteg
+# látszik, ami ugyanazt a képet mutatja homályosan.
 src.resize((1280, 720), Image.Resampling.LANCZOS).save(
-    build_dir / "splash-bg.jpg", "JPEG", quality=72, optimize=True, progressive=True
+    build_dir / "splash-bg.jpg", "JPEG", quality=72, optimize=True, progressive=False
 )
 print("splash-bg.jpg:", (build_dir / "splash-bg.jpg").stat().st_size, "byte")
 PY
@@ -250,19 +256,40 @@ html = re.sub(r'<body\b[^>]*>', add_webos_body_classes, html, count=1)
 splash_bg = build_dir / "splash-bg.jpg"
 if "__IPTV_SPLASH_DATA_URI__" not in html:
     raise SystemExit("HIBA: a web/index.html nem tartalmazza a __IPTV_SPLASH_DATA_URI__ jelölőt.")
+if "__IPTV_SPLASH_TINY_URI__" not in html:
+    raise SystemExit("HIBA: a web/index.html nem tartalmazza a __IPTV_SPLASH_TINY_URI__ jelölőt.")
+import base64
+import io
+from PIL import Image
+
+data_uri = ""
+tiny_uri = ""
 if splash_bg.is_file():
-    import base64
+    # 1) A teljes indítókép (JPEG) - az első CSS réteg.
     data_uri = "data:image/jpeg;base64," + base64.b64encode(splash_bg.read_bytes()).decode("ascii")
-    # Csak AZ ELSŐ előfordulást cseréljük: a Python str.replace alapból mindet
-    # cseréli, és egy megjegyzésben szereplő jelölő oda is beégette a 120 kB-os
-    # képet – ez volt az IPK 2.5.106 → 2.5.110 közti ~185 kB-os ugrásának fele.
-    html = html.replace("__IPTV_SPLASH_DATA_URI__", data_uri, 1)
-    print(f"splash-bg.jpg beégetve a takaróképbe: {len(data_uri)} karakter")
+    # 2) AZONNAL DEKÓDOLHATÓ KICSINYÍTETT MÁSA (PNG) - a második CSS réteg.
+    #    A 23:25:43-es naplóban a first-paint 444 ms volt, a beégetett 1280x720
+    #    JPEG viszont csak később dekódolódott, így az első képkockán a zöld
+    #    tartalék színátmenet látszott („zöld háttér felvillanás”). Egy 48x27
+    #    pixeles, ~2 kB-os PNG dekódolása <1 ms: az első festés rögtön a VALÓDI
+    #    indítóképet mutatja (homályosan), és a teljes kép élesen kerül fölé.
+    #    PNG szándékosan: a csomagban pontosan EGY data:image/jpeg lehet
+    #    (lásd tools/test-package-html.mjs), az ikonok is PNG-k.
+    tiny = Image.open(splash_bg).convert("RGB").resize((48, 27), Image.Resampling.BOX)
+    buf = io.BytesIO()
+    tiny.save(buf, "PNG", optimize=True)
+    tiny_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    print(f"splash-bg.jpg beégetve: {len(data_uri)} karakter; kicsinyített: {len(tiny_uri)} karakter")
 else:
     # Jelölő nélkül maradna egy érvénytelen url(); ilyenkor üresre cseréljük,
-    # így a CSS a tartalék színátmenetre esik vissza.
-    html = html.replace("__IPTV_SPLASH_DATA_URI__", "")
-    print("FIGYELEM: nincs splash-bg.jpg - a takarókép a tartalék színátmenetet használja.")
+    # így a CSS a takarókép átlagszínére esik vissza.
+    print("FIGYELEM: nincs splash-bg.jpg - a takarókép az átlagszínt használja.")
+
+# Csak AZ ELSŐ előfordulást cseréljük: a Python str.replace alapból mindet
+# cseréli, és egy megjegyzésben szereplő jelölő oda is beégette a 120 kB-os
+# képet – ez volt az IPK 2.5.106 → 2.5.110 közti ~185 kB-os ugrásának fele.
+html = html.replace("__IPTV_SPLASH_DATA_URI__", data_uri, 1)
+html = html.replace("__IPTV_SPLASH_TINY_URI__", tiny_uri, 1)
 
 # Kiírás
 (build_dir / "index.html").write_text(html, encoding="utf-8")
