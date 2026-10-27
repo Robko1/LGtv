@@ -12,6 +12,7 @@ import {
   ImportedContent,
   inspectStoredCatalogs,
   loadLive,
+  loadSyncState,
   markCatalogChecked,
   needsLiveCacheCompaction,
   ProviderRef,
@@ -39,7 +40,6 @@ import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/chann
 import {
   checkProviderChanges,
   describeCatalogSummary,
-  FULL_CHECK_WINDOW_MS,
   loadAllLiveChannels,
   loadLiveChannelsForCategories,
   PartialContent,
@@ -47,7 +47,7 @@ import {
   refreshProviderContent,
 } from './services/providerImport';
 import { flagFor } from './utils/flags';
-import { clearEpgCache, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
+import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
 import { xtreamService } from './services/xtreamService';
 import { parseEpisodeMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './services/vodMetadata';
 
@@ -1034,15 +1034,25 @@ export function App() {
   /**
    * Az ÉPPEN NÉZETT csatorna műsora (most / következő) a szolgáltatótól.
    *
-   * Csak egyetlen kérés megy ki csatornaváltáskor (és az eredmény 5 percig
+   * Csak egyetlen kérés megy ki csatornaváltáskor (és az eredmény 15 percig
    * gyorsítótárazódik), ezért ez nem lassítja a zappingot. A nagy betöltés
    * idején (providerRefreshActiveRef) szándékosan nem indul kérés.
+   *
+   * FONTOS JAVÍTÁS (2.5.141) – AZ EPG A FRISSÍTÉS UTÁN SEM MARAD ÜRES.
+   *
+   * A függőségi lista korábban csak a csatorna és a szolgáltató azonosítóját
+   * figyelte. Ha a betöltés PONT akkor futott, amikor a háttér-frissítés
+   * dolgozott (providerRefreshActiveRef = true), a kérés kimaradt – és mivel
+   * a ref változása nem indít újrarenderelést, a kész felületen SOHA nem
+   * indult el az EPG a nézett csatornára. Most a `providerContentReady`
+   * (valódi állapot) is a függőségek között van: amikor a betöltés véget ér,
+   * az EPG magától betöltődik. A hiba pedig a naplóba kerül, nem tűnik el.
    */
   useEffect(() => {
     const channel = activeChannel;
     const provider = activeProvider;
     if (activeView !== 'live' || customStreamUrl || !channel || !provider || provider.type !== 'xtream') return;
-    if (providerRefreshActiveRef.current) return;
+    if (providerRefreshActiveRef.current || !providerContentReady) return;
     const streamId = streamIdFor(channel);
     if (!streamId) return;
 
@@ -1054,11 +1064,15 @@ export function App() {
           const { now, next } = nowNextFromEpg(entries);
           if (!now && !next) return;
           const current = now || channel.epgNow;
-          const upcoming = entries.filter((entry) => entry.start >= (current?.endTimestamp || 0)).slice(0, 3).map((entry) => ({ title: entry.title, time: new Date(entry.start * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }));
+          const upcoming = entries
+            .filter((entry) => entry.start > 0 && entry.start >= (current?.endTimestamp || 0))
+            .slice(0, 3)
+            .map((entry) => ({ title: entry.title, time: formatTime24(entry.start) }));
           setActiveEpg({ id: channel.id, now: current, next: next || channel.epgNext, upcoming });
         })
-        .catch(() => {
-          /* Az EPG hibája nem akadályozhatja a nézést. */
+        .catch((error) => {
+          /* Az EPG hibája nem akadályozhatja a nézést – de a naplóban látszik. */
+          appLogError(`EPG (nézett csatorna: ${channel.name})`, error);
         });
     }, 500);
 
@@ -1066,7 +1080,7 @@ export function App() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [activeView, customStreamUrl, activeChannel?.id, activeProvider?.id]);
+  }, [activeView, customStreamUrl, activeChannel?.id, activeProvider?.id, providerContentReady]);
 
   /*
    * EGYETLEN, MEGOSZTOTT VISSZATÖLTÉS A TARTÓS TÁRBÓL.
@@ -1877,6 +1891,72 @@ export function App() {
     }
   };
 
+  /**
+   * „NINCS VÁLTOZÁS” – a szolgáltató kategóriái azonosak a legutóbbival.
+   *
+   * Ilyenkor SEMMI nem történik a tartalommal: nincs letöltés, nincs
+   * csatornasorrend-törlés, nem ürül ki az EPG-gyorsítótár, és a futó
+   * kérések sem szakadnak meg. A felület a VALÓS eredményt mutatja, nem
+   * hibát. (A korábbi kód a vizsgálat előtt elvégezte a destruktív
+   * lépéseket, így egy „nincs változás” frissítés után is üres lett az EPG.)
+   */
+  const reportUnchangedRefresh = (
+    provider: ProviderAccount,
+    check: { counts: { live: number; vod: number; series: number }; ageMs: number | null },
+    startedAt: number
+  ) => {
+    const ageMinutes = Math.round((check.ageMs ?? 0) / 60000);
+    const snapshot: ImportedContent = {
+      provider: {
+        id: provider.id,
+        type: provider.type,
+        serverUrl: provider.serverUrl,
+        username: provider.username,
+        password: provider.password,
+      },
+      savedAt: '',
+      channels: channelsRef.current,
+      movies: moviesRef.current,
+      series: seriesRef.current,
+      liveCategories: categoriesRef.current,
+      vodCategories: vodCategoriesRef.current,
+      seriesCategories: seriesCategoriesRef.current,
+      totals: { live: channelsRef.current.length, vod: moviesRef.current.length, series: seriesRef.current.length },
+    };
+    const summary = describeCatalogSummary(snapshot);
+    const finalProgress = {
+      phase: 'Kész – nincs változás',
+      detail:
+        `A szolgáltató kategóriái ellenőrizve (${check.counts.live} élő / ${check.counts.vod} film / ` +
+        `${check.counts.series} sorozat): mindenben azonosak a legutóbbival, ezért a teljes listák nem ` +
+        `töltődtek le újra (utolsó teljes ellenőrzés: ${ageMinutes} perce). • ${summary.counts}`,
+      percent: 100,
+    };
+    const doneAt = performance.now();
+    diagnosticFinishedRef.current = true;
+    retryAttemptsRef.current = 0;
+    cancelAutoRetry();
+    setDiagnosticProgress(finalProgress);
+    setDiagnosticFinishedAt(doneAt);
+    setLastImportDiagnostic({
+      providerId: provider.id,
+      providerName: provider.name,
+      progress: finalProgress,
+      events: diagnosticEventsRef.current,
+      error: null,
+      startedAt,
+      finished: true,
+      finishedAt: doneAt,
+    });
+    flushDiagnosticNow();
+    setNetworkDiagnosticSink(null);
+    providerRefreshActiveRef.current = false;
+    setProviderContentReady(true);
+    setLiveListComplete(true);
+    bootScreenPhase('live', 'A szolgáltató listája változatlan – a mentett készlet érvényes.');
+    bootScreenDetail(`${finalProgress.detail}`);
+  };
+
   // Refresh Provider: újratölti a csatornákat, filmeket és sorozatokat, közben ugyanaz a diagnosztika jelenik meg., filmeket és sorozatokokat, közben ugyanaz a diagnosztika jelenik meg.
   //
   // A betöltés SZAKASZONKÉNT kerül a felületre (élő -> filmek -> sorozatok):
@@ -1892,6 +1972,61 @@ export function App() {
       : providerOrId;
     if (!provider) return;
     const id = provider.id;
+    const refreshStartedAt = performance.now();
+
+    /*
+     * OLCSÓ VÁLTOZÁSELLENŐRZÉS – MINDEN MELLÉKHATÁS ELŐTT (2.5.141).
+     *
+     * A Frissítés gomb először CSAK azt kérdezi meg a szolgáltatótól, hogy
+     * változtak-e a kategóriák (három kis lista, ~44 kB). Ha nem, itt
+     * visszatérünk: a mentett tartalom érintetlen marad.
+     *
+     * MIÉRT KELL EZ A SORREND: korábban a vizsgálat a teljes frissítés
+     * belsejében futott, de a destruktív lépések (kérések megszakítása,
+     * csatornasorrend törlése, EPG-gyorsítótár ürítése, „tartalom nem kész”
+     * jelzés) ELŐBB futottak le. Így egy „nincs változás” frissítés is
+     * elveszítette a néző sorrendjét és az EPG-jét – ez volt a „frissítés
+     * után nem töltődik be az EPG” egyik útja.
+     */
+    if (manual) {
+      const syncState = loadSyncState(id);
+      if (syncState) {
+        setDiagnosticOpen(!silent);
+        setDiagnosticEvents([]);
+        diagnosticEventsRef.current = [];
+        setDiagnosticError(null);
+        setDiagnosticStartedAt(refreshStartedAt);
+        setDiagnosticFinishedAt(null);
+        const probing = {
+          phase: 'Változások ellenőrzése…',
+          detail: 'Csak a szolgáltató kategórialistái töltődnek le (~44 kB); a csatornalisták nem.',
+          percent: 3,
+        };
+        setDiagnosticProgress(probing);
+        bootScreenProviderProgress(probing);
+        const probeGeneration = refreshGenerationRef.current;
+        let check: Awaited<ReturnType<typeof checkProviderChanges>> | null = null;
+        try {
+          check = await checkProviderChanges({
+            serverUrl: provider.serverUrl || '',
+            username: provider.username || '',
+            password: provider.password || '',
+            fingerprint: syncState.fingerprint,
+            lastFullSyncAt: syncState.fullSyncAt,
+          });
+        } catch (error) {
+          // Ha a vizsgálat nem megy (halott panel), a teljes import ad
+          // értelmes hibát – nem nyomjuk el, csak továbblépünk.
+          appLogError('Változás-ellenőrzés', error);
+        }
+        if (refreshGenerationRef.current !== probeGeneration) return;
+        if (check && check.unchanged) {
+          reportUnchangedRefresh(provider, check, refreshStartedAt);
+          return;
+        }
+      }
+    }
+
     // Egy futó háttér-visszatöltés nem írhatja felül a friss import eredményét.
     cancelStoredContentRestore();
     const refreshGeneration = refreshGenerationRef.current + 1;
@@ -1899,7 +2034,6 @@ export function App() {
     const providersForRefresh = providers.some((p) => p.id === id)
       ? providers
       : [provider, ...providers.map((p) => ({ ...p, isActive: false }))];
-    const refreshStartedAt = performance.now();
 
     // Ha korábbi EPG-előtöltés még fut, azt azonnal leállítjuk, hogy
     // semmilyen háttérkérés ne foglalja a kapcsolatot a fő Xtream betöltés elől.
@@ -2164,10 +2298,13 @@ export function App() {
           setLastImportDiagnostic(() => ({ providerId: id, providerName: provider.name, progress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: false }));
         },
         applyPartial,
-        // Kézi Frissítésnél először az olcsó változásvizsgálat fut: ha a
-        // kategóriák azonosak és az utolsó teljes ellenőrzés friss, a 76 MB-os
-        // listák nem töltődnek le újra.
-        { incremental: manual }
+        /*
+         * A változásvizsgálat MÁR a függvény elején lefutott (minden
+         * mellékhatás előtt), ezért itt már biztos, hogy a kategóriák
+         * változtak – vagy a vizsgálat nem volt elvégezhető. Újabb
+         * kategórialekérdezés felesleges lenne.
+         */
+        { incremental: false }
       );
       if (refreshGenerationRef.current !== refreshGeneration) return;
 
@@ -2176,44 +2313,7 @@ export function App() {
        * A felület a VALÓS eredményt mutatja – nem hibát.
        */
       if ('unchanged' in result && result.unchanged) {
-        const check = result.check;
-        const ageMinutes = Math.round((check.ageMs ?? 0) / 60000);
-        const nextInMinutes = Math.max(1, Math.ceil((FULL_CHECK_WINDOW_MS - (check.ageMs ?? 0)) / 60000));
-        const snapshot: ImportedContent = {
-          provider: draft.provider,
-          savedAt: '',
-          channels: channelsRef.current,
-          movies: moviesRef.current,
-          series: seriesRef.current,
-          liveCategories: categoriesRef.current,
-          vodCategories: vodCategoriesRef.current,
-          seriesCategories: seriesCategoriesRef.current,
-          totals: { live: channelsRef.current.length, vod: moviesRef.current.length, series: seriesRef.current.length },
-        };
-        const summary = describeCatalogSummary(snapshot);
-        const finalProgress = {
-          phase: 'Kész – nincs változás',
-          detail:
-            `A szolgáltató kategóriái ellenőrizve (${check.counts.live} élő / ${check.counts.vod} film / ` +
-            `${check.counts.series} sorozat): mindenben azonosak a legutóbbival, ezért a teljes listák nem ` +
-            `töltődtek le újra (utolsó teljes ellenőrzés: ${ageMinutes} perce). • ${summary.counts} • ` +
-            `A következő teljes ellenőrzés ${nextInMinutes} perc múlva esedékes.`,
-          percent: 100,
-        };
-        const doneAt = performance.now();
-        diagnosticFinishedRef.current = true;
-        retryAttemptsRef.current = 0;
-        cancelAutoRetry();
-        setDiagnosticProgress(finalProgress);
-        setDiagnosticFinishedAt(doneAt);
-        setLastImportDiagnostic({ providerId: id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: true, finishedAt: doneAt });
-        flushDiagnosticNow();
-        setNetworkDiagnosticSink(null);
-        providerRefreshActiveRef.current = false;
-        setProviderContentReady(true);
-        setLiveListComplete(true);
-        bootScreenPhase('live', 'A szolgáltató listája változatlan – a mentett készlet érvényes.');
-        bootScreenDetail(`${finalProgress.detail}`);
+        reportUnchangedRefresh(provider, result.check, refreshStartedAt);
         return;
       }
 
@@ -2395,7 +2495,15 @@ export function App() {
       if (refreshGenerationRef.current !== refreshGeneration || isNetworkRequestCancelled(error)) return;
       const finishedAt = performance.now();
       diagnosticFinishedRef.current = true;
-      setProviderContentReady(false);
+      /*
+       * HA MÁR VAN MENTETT LISTA, A HIBA NEM TÖRLI A FELÜLETET.
+       *
+       * Korábban itt feltétel nélkül „nem kész” jelzés ment ki. Sikertelen
+       * frissítés után viszont a mentett (működő) lista látszik tovább, ezért
+       * az EPG-nek és a listának továbbra is működnie kell – különben egy
+       * hibás frissítés után az EPG véglegesen üresen maradt.
+       */
+      setProviderContentReady(channelsRef.current.length > 0);
       flushDiagnosticNow();
       setNetworkDiagnosticSink(null);
       setDiagnosticFinishedAt(finishedAt);

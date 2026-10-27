@@ -28,6 +28,12 @@ export interface BootScreenReport {
   detail?: string;
   /** Tényleges csatornaszám (null = még nincs adat → „—”). */
   channels?: number | null;
+  /**
+   * Az eddig TÉNYLEGESEN letöltött bájtok összege (null = még nincs mérés).
+   * Csak sikeres válaszokból, a hálózati réteg méréséből származik – ezért
+   * nem kitalált érték, hanem a valóban átvitt adat.
+   */
+  bytesTotal?: number | null;
   /** Mért átviteli sebesség bájt/másodpercben (null = nincs mérés). */
   bytesPerSecond?: number | null;
   /** Becsült hátralévő idő másodpercben (null = nincs értelmes becslés). */
@@ -84,6 +90,8 @@ let phase = '';
 let step = '';
 let detail = '';
 let channels: number | null = null;
+/** A sikeres kérésekben tényleg átvitt bájtok összege. */
+let bytesTotal: number | null = null;
 let bytesPerSecond: number | null = null;
 let etaSeconds: number | null = null;
 let version = '';
@@ -100,7 +108,7 @@ function bridge(): BootScreenBridge | null {
 
 /** A képernyőnek átadott, eddig összegyűlt valós állapot. */
 function snapshot(): BootScreenReport {
-  return { percent, phase, step, detail, channels, bytesPerSecond, etaSeconds, version };
+  return { percent, phase, step, detail, channels, bytesTotal, bytesPerSecond, etaSeconds, version };
 }
 
 function push(): void {
@@ -241,6 +249,8 @@ export function bootScreenTransfer(event: {
   if (!Number.isFinite(bytes) || !Number.isFinite(durationMs) || bytes <= 0 || durationMs <= 0) return;
   const measured = (bytes / durationMs) * 1000;
   bytesPerSecond = bytesPerSecond === null ? measured : bytesPerSecond * 0.55 + measured * 0.45;
+  /* Az összesített, VALÓBAN átvitt adat (a „Letöltve” statisztika). */
+  bytesTotal = (bytesTotal === null ? 0 : bytesTotal) + bytes;
   refreshEta();
   push();
 }
@@ -277,6 +287,7 @@ export function resetBootScreenForTests(): void {
   step = '';
   detail = '';
   channels = null;
+  bytesTotal = null;
   bytesPerSecond = null;
   etaSeconds = null;
   version = '';

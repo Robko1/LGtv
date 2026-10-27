@@ -1934,7 +1934,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let secondFrame = 0;
     let thirdFrame = 0;
     let settleTimers: number[] = [];
+    /*
+     * EGY MÉRÉS-LÁNC EGYSZERRE (2.5.141).
+     *
+     * A `syncAfterLayout` egy teljes láncot indít: azonnali mérés, majd három
+     * további képkocka-mérés és négy késleltetett (80/180/350/600 ms) mérés.
+     * Görgetéskor ez eddig MINDEN eseményre újraindult – a lista görgetése
+     * közben másodpercenként több tucatszor futott le ugyanaz a nyolc
+     * geometria-mérés, miközben az első lánc úgyis a végleges helyzetet
+     * méri. Mostantól egy lánc van folyamatban; a futás közben érkező
+     * kérések összeolvadnak vele.
+     */
+    let syncPending = false;
     const syncAfterLayout = () => {
+      if (syncPending) return;
+      syncPending = true;
       retryCount = 0;
       syncBounds();
       frame = window.requestAnimationFrame(() => {
@@ -1943,6 +1957,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           syncBounds();
           thirdFrame = window.requestAnimationFrame(() => {
             syncBounds();
+            syncPending = false;
           });
           // Több lépcsőben újra mérjük, mert webOS böngésző forgatáskor késve adja a végleges viewportot
           settleTimers.forEach((t) => window.clearTimeout(t));
@@ -1962,7 +1977,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     window.addEventListener('resize', syncAfterLayout);
     window.addEventListener('orientationchange', syncAfterLayout);
     window.visualViewport?.addEventListener('resize', syncAfterLayout);
-    window.addEventListener('scroll', syncAfterLayout, true);
+    /*
+     * GÖRGETÉS: csak az OLDAL görgetése mozdíthatja a lejátszót. A
+     * csatornalista a saját görgetőjében mozog, mégis – a rögzítési fázisú
+     * (capture) figyelő miatt – eddig minden görgetett képkocka lefuttatta a
+     * teljes geometria-mérést. Ez volt a főoldali lista görgetésének egyik
+     * rejtett költsége; a belső görgetőket most kihagyjuk.
+     */
+    const onPageScroll = (event: Event) => {
+      const target = event.target;
+      if (target && target !== document && target !== document.documentElement && target !== document.body) return;
+      syncAfterLayout();
+    };
+    window.addEventListener('scroll', onPageScroll, true);
     document.addEventListener('fullscreenchange', syncAfterLayout);
     document.addEventListener('visibilitychange', syncAfterLayout);
     return () => {
@@ -1971,10 +1998,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.cancelAnimationFrame(secondFrame);
       window.cancelAnimationFrame(thirdFrame);
       settleTimers.forEach((t) => window.clearTimeout(t));
+      syncPending = false;
       window.removeEventListener('resize', syncAfterLayout);
       window.removeEventListener('orientationchange', syncAfterLayout);
       window.visualViewport?.removeEventListener('resize', syncAfterLayout);
-      window.removeEventListener('scroll', syncAfterLayout, true);
+      window.removeEventListener('scroll', onPageScroll, true);
       document.removeEventListener('fullscreenchange', syncAfterLayout);
       document.removeEventListener('visibilitychange', syncAfterLayout);
     };

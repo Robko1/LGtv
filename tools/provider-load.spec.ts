@@ -322,9 +322,18 @@ async function main(): Promise<void> {
     'az első festés a takarokep.jpg teljes háttere (nincs képvillanás)',
     htmlSource.includes('id="boot-bg"') && htmlSource.includes('src="splash-bg.jpg"')
   );
+  /*
+   * A folyamatjelző SOHA nem kap véletlen vagy időzített értéket: a
+   * százalékot kizárólag a valódi betöltési szakaszok írják
+   * (__IPTV_BOOT_PERCENT__). A vászon-animáció (konstelláció, részecskék)
+   * használhat Math.random-ot – az kép, nem mérés –, ezért a tiltás csak a
+   * folyamatjelző közelében érvényes.
+   */
+  const randomNearProgress = /Math\.random[^\n]*(boot-pct|boot-fill|boot-channels|__IPTV_BOOT_PERCENT__|completeBoot|restartBoot)|(boot-pct|boot-fill|boot-channels|__IPTV_BOOT_PERCENT__|completeBoot|restartBoot)[^\n]*Math\.random/.test(htmlSource);
   check(
     'a betöltőképernyő nem fejezi be magától a betöltést (nincs szimulált érték)',
-    !/Math\.random\s*\(/.test(htmlSource) && !/setTimeout\(\s*(complete|restart)/.test(htmlSource)
+    !randomNearProgress && !/setTimeout\(\s*(complete|restart)/.test(htmlSource),
+    randomNearProgress ? '(Math.random a folyamatjelző közelében)' : ''
   );
   check(
     'a build külön app.js-be emeli a nagy JS-t (kicsi marad a HTML)',

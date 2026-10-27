@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 import { Channel } from '../types/iptv';
 import { ProviderRef } from '../services/contentStore';
-import { EpgEntry, clearEpgCache, loadShortEpg, streamIdFor } from '../services/epgService';
+import { EpgEntry, clearEpgCache, formatTime24, loadShortEpg, streamIdFor } from '../services/epgService';
 import { X, Calendar, Clock, Play, Search, RefreshCw } from 'lucide-react';
 
 interface EpgGuideModalProps {
@@ -27,12 +27,12 @@ interface ProgramRow {
 
 const PAGE_SIZE = 60;
 
+/*
+ * 24 ÓRÁS IDŐ. Korábban a készülék nyelvét használta (webOS-on gyakran
+ * en-US), ezért a magyar EPG-ben „12:35 PM – 01:15 PM” jelent meg.
+ */
 function formatRange(start: number, end: number): { start: string; end: string } {
-  const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
-  return {
-    start: start ? new Date(start * 1000).toLocaleTimeString([], opts) : '--:--',
-    end: end ? new Date(end * 1000).toLocaleTimeString([], opts) : '--:--',
-  };
+  return { start: formatTime24(start), end: formatTime24(end) };
 }
 
 export const EpgGuideModal: React.FC<EpgGuideModalProps> = ({
