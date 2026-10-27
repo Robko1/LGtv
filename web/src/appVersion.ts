@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.133';
+export const WEB_VERSION = '2.5.134';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.133',
+    version: '2.5.134',
     date: '2026-10-26',
     changes: [
       'NINCS TÖBB ZÖLD HÁTTÉR-VILLANÁS: a 23:25:43-es naplóban a first-paint 444 ms volt (előtte 1029 ms). A beégetett 1280×720-es JPEG dekódolása a CSS háttérképen NEM tartja vissza az első festést, ezért a mögötte lévő zöld színátmenet látszott. Most a második réteg egy 48×27-es, ~2 kB-os, azonnal dekódolható kicsinyített mása a VALÓDI indítóképnek – az első képkocka rögtön a helyes képet mutatja, és a teljes kép élesen kerül fölé',
