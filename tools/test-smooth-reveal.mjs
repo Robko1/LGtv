@@ -188,70 +188,52 @@ test('az előfestés két képkockáját a HTML-híd méri, nem a REVEAL', () =>
 
 /* ─────────────── 1/b. ZÖLD HÁTTÉR VILLANÁS (23:25:43) ──────────────────── */
 
-test('nincs több zöld tartalék színátmenet a takaróképen', () => {
-  assert.doesNotMatch(PAGE, /#5fe3b6|#4fd8e0/,
-    'a zöld színátmenet még mindig a takarókép tartaléka – ez villant be 444 ms-nél');
-  // A mért átlagszín marad: a webOS bgColor-jával egyezik.
-  assert.equal((PAGE.match(/background-color:\s*#6ccbd3/gi) || []).length >= 2, true,
-    'a takarókép/boot átlagszíne eltűnt');
-  assert.doesNotMatch(PAGE, /background-image:\s*linear-gradient\(135deg/,
-    'maradt színátmenetes tartalék hátkép');
+test('2.5.137: nincs zöld tartalék, a váz sötét és a HTML kicsi', () => {
+  assert.doesNotMatch(PAGE, /#5fe3b6|#4fd8e0|#6ccbd3/i,
+    'a régi lapos zöld/türkiz tartalék szín visszatért');
+  assert.match(PAGE, /html\s*\{\s*background-color:\s*#080d1a;/);
+  assert.match(PAGE, /\.iptv-curtain\s*\{[^}]*background-color:\s*#080d1a;/);
+  assert.equal((PAGE.match(/data:image\/jpeg;base64,/g) || []).length, 0,
+    'a beégetett kép visszatért – újra 2,5 mp lenne a válaszidő');
+  assert.doesNotMatch(PAGE, /splashLayer/, 'a két CSS háttérréteg visszatért');
+  assert.doesNotMatch(PAGE, /fonts\.googleapis\.com/, 'a külső betűtípus-kérés visszatért');
 });
 
-test('a takarókép első festése EGYETLEN, azonnal dekódolható képet kap', () => {
-  assert.equal(PAGE.split('__IPTV_SPLASH_TINY_URI__').length - 1, 1,
-    'a kicsinyített kép jelölője nem pontosan egyszer szerepel');
-  assert.match(PAGE, /var tinyImage = hasTiny \? 'url\(' \+ tinyData \+ '\)' : 'none';/,
-    'hiányzik a kicsinyített kép egyetlen CSS-rétege');
-  /* 2.5.135: NINCS több két CSS-réteg. Amíg a felső JPEG nem volt kész,
-     a Chrome egyik réteget sem festette ki, csak a lapos zöld hátteret. */
-  assert.doesNotMatch(PAGE, /var splashLayer =/,
-    'a teljes kép újra a CSS-háttér rétegei között van (zöld villanás)');
-  assert.match(PAGE, /"#tv-curtain\{background-image:" \+ tinyImage/,
-    'a tartalék kép nem a takaróképre kerül');
-  assert.match(PAGE, /"html\.iptv-booting body\{background-image:" \+ tinyImage/,
-    'a tartalék kép nem a body-ra kerül');
-  assert.match(PAGE, /<img id="tv-curtain-img"[^>]*decoding="sync"/,
-    'hiányzik a szinkron dekódolású, valódi <img> takarókép');
-  assert.match(PAGE, /var posterImage = hasSplash \? 'url\(' \+ splashData \+ '\)' : 'none';/,
-    'az üres főoldal nem kapja meg az indítóképet a lejátszó-dobozába');
-  assert.match(PAGE, /html\[data-iptv-boot=\\"empty\\"\] \[data-player-poster\]/,
-    'a lejátszó poszterére nem terjed ki az üres állapot szabálya');
+test('az első festés ELŐRE RAJZOLT, FIX váz – nincs kép-dekódolás', () => {
+  assert.match(PAGE, /<div id="tv-curtain" class="iptv-curtain"[^>]*>\s*<div id="iptv-skeleton">/);
+  for (const slot of ['header', 'player', 'osd', 'channels']) {
+    assert.match(PAGE, new RegExp(`data-iptv-slot="${slot}"`), `hiányzik a ${slot} régió`);
+  }
+  assert.match(PAGE, /\.sk-player\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9/);
+  assert.match(PAGE, /\.sk-thumb\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9/);
+  assert.match(PAGE, /html\[data-iptv-boot="empty"\] \[data-player-poster\]\s*\{[^}]*linear-gradient/,
+    'az üres lejátszó újra fekete vagy későn dekódolódó kép');
+  assert.match(PAGE, /<img class="sk-art" src="boot-logo\.jpg"[^>]*decoding="sync"/);
 });
 
-test('a teljes indítókép dekódolása már a HTML fejlécében elindul', () => {
+test('a kis logó dekódolása már a HTML fejlécében elindul', () => {
   const head = PAGE.slice(0, PAGE.indexOf('</head>'));
-  assert.match(head, /var preload = new Image\(\);/,
-    'hiányzik a korai kép-dekódolás');
-  assert.match(head, /preload\.decode\(\)/,
-    'a dekódolás nem indul el az első festés előtt');
-  assert.match(head, /preload\.src = splashData;/,
-    'a rejtett Image nem a beégetett képet tölti');
+  assert.match(head, /var preload = new Image\(\);/, 'hiányzik a korai kép-dekódolás');
+  assert.match(head, /preload\.decode\(\)/, 'a dekódolás nem indul el az első festés előtt');
+  assert.match(head, /preload\.src = 'boot-logo\.jpg';/, 'nem a kis helyi logót tölti');
+  assert.match(head, /<link rel="preload" as="image" href="boot-logo\.jpg"/);
 });
 
-test('a build feloldja a kicsinyített kép jelölőjét (PNG, nem JPEG)', () => {
+test('a build külön app.js/app.css fájlba emeli a nagy JS-t és CSS-t', () => {
   const build = read('tools/build-webos.sh');
-  assert.match(build, /html\.replace\("__IPTV_SPLASH_TINY_URI__", tiny_uri, 1\)/,
-    'a build nem cseréli ki a kicsinyített kép jelölőjét');
-  assert.match(build, /tiny_uri = "data:image\/png;base64,"/,
-    'a kicsinyített kép nem PNG (a csomagban pontosan egy JPEG lehet)');
-  assert.match(build, /resize\(\(192, 108\)/,
-    'a tartalék kép nem 192x108 pixeles');
-  assert.match(build, /quality=80, optimize=True, progressive=False/,
-    'a beégetett kép nem 1920x1080-as, baseline JPEG');
+  assert.match(build, /def externalize_styles/);
+  assert.match(build, /def externalize_scripts/);
+  assert.match(build, /<script src="app\.js"/);
+  assert.match(build, /href="app\.css"/);
+  assert.match(build, /progressive=False/, 'a splash-bg.jpg újra progresszív lenne');
+  assert.match(build, /shutil\.copy\(logo_src, build_dir \/ "boot-logo\.jpg"\)/);
   const built = path.join(ROOT, 'build/webos/index.html');
   if (!fs.existsSync(built)) return;
   const html = fs.readFileSync(built, 'utf8');
-  assert.ok(!html.includes('__IPTV_SPLASH_TINY_URI__'),
-    'a kicsinyített kép jelölője feloldatlan maradt a csomagban');
-  assert.ok(html.includes('data:image/png;base64,'),
-    'a kicsinyített kép nincs beégetve a csomagolt HTML-be');
-  // Progresszív JPEG részlegesen dekódolt, kockás köztes képet is festhet.
-  assert.match(build, /progressive=False/,
-    'a beégetett indítókép újra progresszív JPEG – részleges dekódolás villanhat');
+  assert.ok(html.length < 200_000, `a csomagolt index.html ${html.length} byte`);
+  assert.ok(!html.includes('__IPTV_SPLASH_TINY_URI__'));
+  assert.ok(html.includes('data:image/png;base64,'), 'a favicon eltűnt');
 });
-
-/* ─────────────────── 2. gyorsítás: nincs dupla tár-próba ─────────────────── */
 
 test('üres induláskor a tároló-jelentés csak egyszer fut le', () => {
   assert.match(STORE, /export function lastStoredContentReport\(\): StorageReport \| null \{/,

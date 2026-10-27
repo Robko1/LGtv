@@ -1,10 +1,23 @@
-export const WEB_VERSION = '2.5.136';
+export const WEB_VERSION = '2.5.137';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.137',
+    date: '2026-10-27',
+    changes: [
+      'NAGY VILLANÁS MEGSZÜNTETVE – EGY KÉP AZ ELEJÉTŐL A VÉGÉIG: a 01:41-es naplóban a HTML 1 760 370 byte volt, a TV válaszideje 2493 ms, az első festés 2569 ms. A platform takaróképének levétele után hosszú fekete kocka jött, majd a saját képünk, ami a főoldal betöltéséig (4674 ms) ott maradt. Most a webOS takaróképe és az app első festése UGYANAZ az előre rajzolt, sötét főoldali váz – nincs második kép, nincs nagy villanás',
+      'A HTML TÖREDÉKÉRE CSÖKKENT: a Vite által egy fájlba égetett ~1,2 MB ES5 JavaScriptet és ~120 KB CSS-t a build külön app.js / app.css fájlba emeli ki. Az index.html ~80 KB marad (csak a boot CSS, a webOS híd és a kész váz), így az első festés szinte azonnal, MÉG a platform takaróképének levétele ELŐTT megtörténik. Nincs 265 KB-os beégetett JPEG és 46 KB-os PNG sem',
+      'NINCS TÖBB KÜLSŐ BETŰTÍPUS-KÉRÉS: a Google Fonts 302 ms-ot (hálózat nélkül még többet) vett el az indulásból, és betűcserét okozott. Most a rendszer betűtípusát használjuk – teljesen offline indulás, nincs FOUT, nincs elrendezés-ugrás',
+      'FIX FŐOLDALI VÁZ – OSD ÉS 16:9: az index.html már az első képkockán megrajzolja a fix fejlécet, a 16:9-es lejátszó dobozt (benne a jóváhagyott logóval), a fix OSD sávot és a jobb oldali csatornalista 16:9-es előnézeti helyeit. A React csak az ADATOKAT rajzolja a kész helyekre, a régiók nem mozognak',
+      'AZ ÜRES LEJÁTSZÓ DOBOZA NEM FEKETE: a 4674 ms-es legnagyobb tartalmat okozó, későn dekódolódó háttérképet egy azonnal festő CSS-átmenetre és lejátszó ikonra cseréltük',
+      'XTREAM-KÓD BEVITELE UTÁN VISSZAJÖTT A BETÖLTÉSI DIAGNOSZTIKA ÉS A KÉRDÉSES ABLAK: a QR/új szolgáltató útja eddig csendes (manual=false) importot indított, ezért sem a folyamatjelző, sem az „élő csatornák betöltve – nézed a folyamatot vagy a csatornákat?” ablak nem jelent meg. Most a felhasználó által kezdeményezett első import is mutatja mindkettőt, és az ablakok portálon, minden más fölött nyílnak',
+      'KEVESEBB AKADOZÁS A FILMEK/SOROZATOK BETÖLTÉSE KÖZBEN: a részleges listák csak 5000 elemenként és legfeljebb 1,2 másodpercenként kerülnek a React állapotába (korábban 2000-enként, korlát nélkül), így nem kell százezres tömböt újrarajzolni minden adagnál; a feldolgozás gyakrabban ad vissza vezérlést a festésnek',
+    ],
+  },
   {
     version: '2.5.136',
     date: '2026-10-27',

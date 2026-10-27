@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Season, Series, WatchHistoryItem } from './types/iptv';
 import { storageService } from './services/storageService';
 import {
@@ -357,6 +358,17 @@ export function App() {
   const DIAGNOSTIC_FLUSH_MS = 250;
   const diagFlushTimerRef = useRef<number | null>(null);
   const lastProgressPaintRef = useRef(0);
+  /**
+   * 2.5.137 – NINCS AKADOZÁS A BETÖLTÉS ALATT.
+   * A filmek/sorozatok részleges listája korábban 2000 elemenként került be a
+   * React állapotába: egy 100 ezres tömb minden egyes setMovies() hívásnál
+   * újrarajzolta a teljes App-ot, ezért a csatornaváltás, a távirányító és a
+   * videó is megakadt, amíg a VOD import futott. Most legfeljebb 1,2
+   * másodpercenként rajzolunk; a memóriában (draft) így is minden adat megvan.
+   */
+  const VOD_PAINT_MS = 1200;
+  const lastVodPaintRef = useRef(0);
+  const lastSeriesPaintRef = useRef(0);
   const pushDiagnosticEvents = useCallback(() => {
     diagFlushTimerRef.current = null;
     // A lezárt import vagy a bezárt diagnosztika után egy késői hálózati
@@ -1757,7 +1769,9 @@ export function App() {
         };
         handleAddProvider(newProvider);
         // A provider mentése után automatikusan induljon a teljes listaimport.
-        window.setTimeout(() => { void handleRefreshProvider(newProvider, false); }, 250);
+        // 2.5.137: az első, felhasználó által kezdeményezett import NEM csendes:
+        // megjelenik a betöltési diagnosztika ÉS a kérdéses ablak is.
+        window.setTimeout(() => { void handleRefreshProvider(newProvider, true); }, 250);
       } else if (payload.type === 'm3u') {
         const newProvider = {
           id: 'qr_' + Date.now(),
@@ -1777,7 +1791,9 @@ export function App() {
         };
         handleAddProvider(newProvider);
         // M3U esetén is automatikusan induljon a beolvasás a mentés után.
-        window.setTimeout(() => { void handleRefreshProvider(newProvider, false); }, 250);
+        // 2.5.137: az első, felhasználó által kezdeményezett import NEM csendes:
+        // megjelenik a betöltési diagnosztika ÉS a kérdéses ablak is.
+        window.setTimeout(() => { void handleRefreshProvider(newProvider, true); }, 250);
       }
     } catch (e) {
       console.error('[QR] handle error', e);
@@ -1984,8 +2000,12 @@ export function App() {
         const nextMovies = keepIfFilled(moviesRef.current, partial.movies);
         if (nextMovies) {
           draft.movies = nextMovies;
-          setMovies(nextMovies);
           moviesRef.current = nextMovies;
+          const nowVod = Date.now();
+          if (partial.durable || nowVod - lastVodPaintRef.current >= VOD_PAINT_MS) {
+            lastVodPaintRef.current = nowVod;
+            setMovies(nextMovies);
+          }
         }
       }
       if (partial.vodCategories) {
@@ -1996,8 +2016,12 @@ export function App() {
         const nextSeries = keepIfFilled(seriesRef.current, partial.series);
         if (nextSeries) {
           draft.series = nextSeries;
-          setSeries(nextSeries);
           seriesRef.current = nextSeries;
+          const nowSeries = Date.now();
+          if (partial.durable || nowSeries - lastSeriesPaintRef.current >= VOD_PAINT_MS) {
+            lastSeriesPaintRef.current = nowSeries;
+            setSeries(nextSeries);
+          }
         }
       }
       if (partial.seriesCategories) {
@@ -3619,18 +3643,17 @@ export function App() {
         retryInSeconds={retryCountdown}
       />
 
-      {refreshLivePromptOpen && (
-        <div ref={refreshLivePromptRef} role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák frissítve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRefreshLivePromptOpen(false); } }} className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-cyan-400/50 bg-[#081329] p-5 text-white shadow-2xl">
-            <div className="text-lg font-black text-cyan-200">Az élő TV-csatornák frissítve</div>
-            <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok frissítése még folyamatban van. Szeretnéd tovább nézni a diagnosztikát, vagy folytassuk a háttérben?</p>
+      {refreshLivePromptOpen && createPortal(
+        <div ref={refreshLivePromptRef} role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák frissítve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRefreshLivePromptOpen(false); } }} className="fixed inset-0 flex items-center justify-center p-4 bg-black/75" style={{ zIndex: 2147482000 }}>
+          <div className="w-full max-w-lg rounded-2xl border border-cyan-400/50 bg-[#081329] p-6 text-white shadow-2xl">
+            <div className="text-xl font-black text-cyan-200">Az élő TV-csatornák betöltve</div>
+            <p className="mt-3 text-base text-slate-300">A filmek és sorozatok betöltése még folyamatban van. Mit szeretnél?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
-              <button onClick={() => setRefreshLivePromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Nem, tovább nézem</button>
-              <button data-tv-default="" onClick={() => { setRefreshLivePromptOpen(false); closeRefreshDiagnostic(); closeLastImportDiagnostic(); setIsSettingsOpen(false); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
+              <button onClick={() => { setRefreshLivePromptOpen(false); setLastImportDiagnosticOpen(true); }} className="py-3 rounded-xl border border-cyan-500/60 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-100 font-bold">Folyamat megtekintése</button>
+              <button data-tv-default="" onClick={() => { setRefreshLivePromptOpen(false); closeRefreshDiagnostic(); closeLastImportDiagnostic(); setIsSettingsOpen(false); setIsAddProviderOpen(false); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Csatornák megtekintése</button>
             </div>
           </div>
-        </div>
-      )}
+        </div>, document.body)}
 
       {/* 1. Kategóriák Drawer */}
       <CategoriesModal

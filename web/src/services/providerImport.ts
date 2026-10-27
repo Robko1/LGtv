@@ -135,7 +135,7 @@ const PROGRESS_UPDATE_EVERY = 500;
  * mellett. Most 3000 elemenként egyszer adunk át egy valódi, azonnali
  * macrotaszkot (MessageChannel), ami a festésnek is elég, de nem vár.
  */
-const UI_YIELD_EVERY = 3000;
+const UI_YIELD_EVERY = 1200;
 
 /**
  * Ennyi csatorna feldolgozása után jelenik meg az első használható adag.
@@ -1232,6 +1232,7 @@ export async function importXtreamProvider(
     }
     const vodCategoryMap = makeCategoryMap(vodCategories);
     const decodedMovies: Movie[] = [];
+    let lastVodPartialAt = 0;
     const vodCounts = new Map<string, number>();
     const seenMovieIds = new Set<string>();
     let vodProcessed = 0;
@@ -1389,10 +1390,14 @@ export async function importXtreamProvider(
                 decodedMovies.push(movie);
               }
               rows.length = 0;
-              // Incremental UI frissítés 2000 filmenként, hogy ne várjon a végéig
-              if (decodedMovies.length % 2000 < 500) {
+              /* 2.5.137: 5000 elemenként (és nem 2000-enként) adjuk át a
+                 részlistát. A `.slice()` egy 100 ezres tömbről és az azt
+                 követő teljes App-újrarajzolás okozta az akadozást. */
+              if (decodedMovies.length - lastVodPartialAt >= 5000) {
+                lastVodPartialAt = decodedMovies.length;
                 const partialCats = buildCategories(vodCategories, 'vc-', 'movie', vodCounts);
                 await onPartial({ preview: true, movies: decodedMovies.slice(), vodCategories: partialCats, totals: { vod: decodedMovies.length } });
+                await yieldToUi();
               }
             }
           },
@@ -1459,6 +1464,7 @@ export async function importXtreamProvider(
     }
     const seriesCategoryMap = makeCategoryMap(seriesCategories);
     const decodedSeries: Series[] = [];
+    let lastSeriesPartialAt = 0;
     const seriesCounts = new Map<string, number>();
     const seenSeriesIds = new Set<string>();
     let seriesProcessed = 0;
@@ -1598,9 +1604,11 @@ export async function importXtreamProvider(
                 decodedSeries.push(item);
               }
               rows.length = 0;
-              if (decodedSeries.length % 2000 < 500) {
+              if (decodedSeries.length - lastSeriesPartialAt >= 5000) {
+                lastSeriesPartialAt = decodedSeries.length;
                 const partialCats = buildCategories(seriesCategories, 'sc-', 'series', seriesCounts);
                 await onPartial({ preview: true, series: decodedSeries.slice(), seriesCategories: partialCats, totals: { series: decodedSeries.length } });
+                await yieldToUi();
               }
             }
           },

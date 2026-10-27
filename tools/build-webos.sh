@@ -172,6 +172,7 @@ import pathlib
 import json
 import re
 import os
+import shutil
 
 web_build = pathlib.Path("build/web/index.html")
 build_dir = pathlib.Path("build/webos")
@@ -248,62 +249,97 @@ html = re.sub(r'<body\b[^>]*>', add_webos_body_classes, html, count=1)
 # NINCS külön webOS splash overlay: a TV saját indítóképernyője (a logó
 # képkockája) után azonnal a főoldal jön (2.5.0-tól nincs induló videó).
 
-# A TAKARÓKÉP BEÉGETÉSE (data URI).
+# ═══════════════════════════════════════════════════════════════════════════
+# 2.5.137 – A HTML KICSI MARAD: a hatalmas JS/CSS KÜLÖN FÁJLBA KERÜL.
 #
-# A webOS indítóképével AZONOS képet base64-ben írjuk a HTML-be. Erre azért
-# van szükség, mert a külső splash-bg.jpg betöltése + dekódolása aszinkron:
-# az első festésnél még csak a zöld színátmenet látszott, és a kép csak utána
-# ugrott a helyére - a néző ezt úgy élte meg, hogy a takarókép "össze-vissza
-# ugrál" indítás közben. Beégetve már az első festésnél a végleges kép van a
-# képernyőn, és a takarókép egyetlen váltással tűnik el a kész főoldal javára.
+# A 01:41-es napló: a csomagolt index.html 1 760 370 byte volt, a TV
+# `válasz`=2493 ms, `first-paint`=2569 ms. A böngésző CSAK a teljes fájl
+# beolvasása UTÁN festett, ezért a platform takaróképének levétele után
+# hosszú FEKETE kocka jött, majd a „saját képünk” és végül a főoldal.
+#
+# Most a Vite által egy fájlba égetett ~1,2 MB-nyi ES5 JS-t és ~120 KB CSS-t
+# kiemeljük app.js / app.css fájlokba. Az index.html ~80 KB marad (csak a
+# boot CSS, a webOS híd és az ELŐRE RAJZOLT főoldali váz van benne), így az
+# első festés szinte azonnal megtörténik – MÉG a platform takaróképének
+# levétele ELŐTT. Nincs üres kocka, nincs második kép, nincs nagy villanás.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def externalize_styles(source: str) -> str:
+    """A nagy (Vite/Tailwind) <style> blokkokat app.css-be teszi át."""
+    chunks = []
+    first_at = [None]
+
+    def take(match):
+        inner = match.group(1)
+        if len(inner) < 40000:
+            return match.group(0)  # a kicsi boot CSS a HTML-ben marad
+        chunks.append(inner)
+        if first_at[0] is None:
+            first_at[0] = match.start()
+            return '<link rel="stylesheet" href="app.css">'
+        return ''
+
+    result = re.sub(r'<style[^>]*>([\s\S]*?)</style>', take, source)
+    if chunks:
+        (build_dir / "app.css").write_text("\n".join(chunks), encoding="utf-8")
+        print(f"app.css kiemelve: {sum(len(c) for c in chunks)} byte")
+    return result
+
+
+def externalize_scripts(source: str) -> str:
+    """A polyfill + ES5 app <script> blokkokat app.js-be teszi át, sorrendben."""
+    chunks = []
+    first_at = [None]
+
+    def take(match):
+        tag, inner = match.group(1), match.group(2)
+        if "IPTV-ES5-APP" not in inner and "IPTV-ES5-POLYFILLS" not in inner:
+            return match.group(0)
+        chunks.append(inner)
+        if first_at[0] is None:
+            first_at[0] = match.start()
+            # A marker-szövegeket attribútumként megőrizzük: a CI és a
+            # csomag-ellenőrző tesztek ezeket keresik az index.html-ben.
+            return ('<script src="app.js" data-iptv-es5-app="IPTV-ES5-APP" '
+                    'data-iptv-es5-polyfills="IPTV-ES5-POLYFILLS"></script>')
+        return ''
+
+    result = re.sub(r'<script([^>]*)>([\s\S]*?)</script>', take, source)
+    if not chunks:
+        raise SystemExit("HIBA: nem találtam az ES5 app/polyfill szkripteket a HTML-ben.")
+    (build_dir / "app.js").write_text("\n;\n".join(chunks), encoding="utf-8")
+    print(f"app.js kiemelve: {sum(len(c) for c in chunks)} byte")
+    return result
+
+
+html = externalize_styles(html)
+html = externalize_scripts(html)
+
+# A böngésző előolvasója MÁR a <head> feldolgozásakor kezdje letölteni az
+# 1,2 MB-os app.js-t, így mire a parser a dokumentum végére ér (ahol a
+# <script> áll), a fájl már a gyorsítótárban van. A váz eközben már kifestődött.
+if "<link rel=\"preload\" as=\"script\" href=\"app.js\">" not in html:
+    html = html.replace("</head>",
+        '<link rel="preload" as="script" href="app.js">\n</head>', 1)
+
+# A takarókép NINCS többé beégetve. A webOS saját splashBackground képe
+# (splash-screen.png) és az app első festése ugyanaz az előre rajzolt váz;
+# a 16:9-es dobozban lévő logó pedig külön, 37 KB-os helyi fájl.
 splash_bg = build_dir / "splash-bg.jpg"
-if "__IPTV_SPLASH_DATA_URI__" not in html:
-    raise SystemExit("HIBA: a web/index.html nem tartalmazza a __IPTV_SPLASH_DATA_URI__ jelölőt.")
-if "__IPTV_SPLASH_TINY_URI__" not in html:
-    raise SystemExit("HIBA: a web/index.html nem tartalmazza a __IPTV_SPLASH_TINY_URI__ jelölőt.")
-import base64
-import io
-from PIL import Image
+if not splash_bg.is_file():
+    raise SystemExit("HIBA: hiányzik a splash-bg.jpg (a CI IPK-ellenőrzése keresi).")
+logo_src = pathlib.Path("tools/boot-logo.jpg")
+if not logo_src.is_file():
+    raise SystemExit("HIBA: hiányzik a tools/boot-logo.jpg (a főoldali váz logója).")
+shutil.copy(logo_src, build_dir / "boot-logo.jpg")
+print(f"boot-logo.jpg a csomagban: {logo_src.stat().st_size} byte")
 
-data_uri = ""
-tiny_uri = ""
-if splash_bg.is_file():
-    # 1) A teljes, 1920x1080-as indítókép (JPEG). Egyetlen példányban kerül a
-    #    HTML-be: a <head> szkriptje adja át a törzsben lévő VALÓDI <img>-nek.
-    #    A CSS background-image dekódolása NEM tartja vissza az első festést,
-    #    a decoding="sync" képelem viszont igen – ez szüntette meg a 00:14-es
-    #    naplók lapos zöld felvillanását.
-    data_uri = "data:image/jpeg;base64," + base64.b64encode(splash_bg.read_bytes()).decode("ascii")
-    # 2) AZONNAL DEKÓDOLHATÓ TARTALÉK (PNG) – EGYETLEN CSS-réteg.
-    #    A 2.5.133/134 két réteget tett egymás mögé (éles JPEG + 48x27 PNG).
-    #    Amíg a felső JPEG nem volt kész, a Chrome egyik réteget sem festette
-    #    ki, csak a lapos #6ccbd3 hátteret: ez volt a „zöld háttér villanás”.
-    #    Most a tartalék ÖNMAGÁBAN, 192x108-as felbontásban (~34 kB) mutatja a
-    #    VALÓDI képet (csak puhábban), az éles kép pedig külön <img> elemen
-    #    érkezik fölé. PNG szándékosan: a csomagban pontosan EGY
-    #    data:image/jpeg lehet (lásd tools/test-package-html.mjs).
-    tiny = Image.open(splash_bg).convert("RGB").resize((192, 108), Image.Resampling.BOX)
-    buf = io.BytesIO()
-    tiny.save(buf, "PNG", optimize=True)
-    tiny_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
-    print(f"splash-bg.jpg beégetve: {len(data_uri)} karakter; tartalék: {len(tiny_uri)} karakter")
-else:
-    # Jelölő nélkül maradna egy érvénytelen url(); ilyenkor üresre cseréljük,
-    # így a CSS a takarókép átlagszínére esik vissza.
-    print("FIGYELEM: nincs splash-bg.jpg - a takarókép az átlagszínt használja.")
-
-# Csak AZ ELSŐ előfordulást cseréljük: a Python str.replace alapból mindet
-# cseréli, és egy megjegyzésben szereplő jelölő oda is beégette a 120 kB-os
-# képet – ez volt az IPK 2.5.106 → 2.5.110 közti ~185 kB-os ugrásának fele.
-html = html.replace("__IPTV_SPLASH_DATA_URI__", data_uri, 1)
-html = html.replace("__IPTV_SPLASH_TINY_URI__", tiny_uri, 1)
-
-# Kiírás
+# Az egyetlen képre mutató hivatkozások relative URL-ek maradnak: a webOS
+# az index.html melletti fájlokat helyben, hálózat nélkül olvassa.
 (build_dir / "index.html").write_text(html, encoding="utf-8")
 print(f"webOS index.html kész: {len(html)} bytes")
 
 # provision.html másolása ha van – QR telefonos beállítás LG TV-n is
-import shutil
 provision_src = pathlib.Path("build/web/provision.html")
 if provision_src.exists():
     shutil.copy(provision_src, build_dir / "provision.html")
