@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.141';
+export const WEB_VERSION = '2.5.142';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.141',
+    version: '2.5.142',
     date: '2026-10-27',
     changes: [
       'AZ INDÍTÓKÉPERNYŐ AZ EREDETI INDITAS.HTML TERV: a korábbi saját változat helyett az eredeti terv minden rétege átkerült – sötétedő fátyol, vignetta, rács, filmszemcse, pásztázó fény, vászon-animáció (konstelláció, amely 90% felett háromszöggé zárul), bloom, a fejléc TV-jelvénye a „Premium · 4K HDR · Magyar” felirattal, a 72 osztású tárcsa, a dőlt betűs állapotsor, a négy mérőszám, a szegmentált sáv a 000…100 skálával, a TIPP-lábléc, a borostyánsárga build-sor és az „INDÍTÁS” felirat. A betöltési logika és az IPTV működése VÁLTOZATLAN – csak a megjelenés lett az eredeti',
