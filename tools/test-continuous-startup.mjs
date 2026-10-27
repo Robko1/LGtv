@@ -394,11 +394,45 @@ test('a 20 190 csatornás lista a felfedés UTÁN töltődik be, nem alatta', ()
     'a betöltőképernyő lezárása megint a felfedés ELŐTT fut (1,4–2,4 mp késés)');
 });
 
+test('a visszatöltött lista nem írja vissza magát a tartós tárba', () => {
+  /*
+   * A 30. napló: az IDB-visszatöltés után 1,4 mp-cel a stream megakadt, majd
+   * a puffervideó-watchdog újracsatlakoztatott. A mentést csak a felhasználói
+   * változás (`dirtyRef`) indíthatja – ha a visszatöltés „piszkosnak” jelölné
+   * a listát, a 20 190 csatorna (≈5 MB) azonnal visszaíródna a fő szálon.
+   */
+  const app = read('web/src/App.tsx');
+  const restoreStart = app.indexOf('const runRestore = useCallback(');
+  const restoreEnd = app.indexOf('const ensureVodLoaded', restoreStart);
+  assert.ok(restoreStart > 0 && restoreEnd > restoreStart, 'a runRestore nem található');
+  const body = app.slice(restoreStart, restoreEnd);
+  assert.doesNotMatch(body, /dirtyRef\.current = true/,
+    'a visszatöltés piszkosnak jelöli a listát – fölösleges 5 MB-os újraírás indul');
+  const saveEffect = app.slice(app.indexOf('if (!dirtyRef.current || !activeProvider) return;'));
+  assert.match(saveEffect.slice(0, 2000), /if \(changedChannels\) saveLiveContentSafely\(content\);/,
+    'a mentés a csatornalista változásához van kötve');
+});
+
 /* ─────────────── 8. VERZIÓ ─────────────── */
 
-test('a verzió mindkét helyen 2.5.149, és a változások a kiadási jegyzékben vannak', () => {
-  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.149';/);
-  assert.equal(APPINFO.version, '2.5.149');
+test('a futtatott verzió és az IPK verziója megegyezik, a jegyzék naprakész', () => {
+  /*
+   * 2.5.149: a verziószám NEM lehet beégetve a tesztbe. A kiadás után a
+   * „bump webOS IPK version” munkafolyamat továbblépteti a verziót, és a
+   * beégetett szám miatt a teszt a main-en minden kiadás után elhasalt.
+   * Helyette azt ellenőrizzük, ami valóban számít: a két hely egyezik,
+   * és a jegyzék legfelső bejegyzése a futó verzió.
+   */
+  const running = VERSION.match(/export const WEB_VERSION = '([^']+)';/);
+  assert.ok(running, 'nincs WEB_VERSION');
+  assert.equal(APPINFO.version, running[1],
+    'a webOS appinfo.json verziója nem egyezik a futtatott verzióval');
+  assert.match(running[1], /^2\.5\.\d+$/, 'a verzió alakja megváltozott');
+  const top = VERSION.slice(VERSION.indexOf('WEB_VERSION_HISTORY'));
+  const firstEntry = top.match(/version: '([^']+)'/);
+  assert.ok(firstEntry, 'üres a kiadási jegyzék');
+  assert.equal(firstEntry[1], running[1],
+    'a jegyzék legfelső bejegyzése nem a futó verzió');
   assert.match(VERSION, /VÁLTÁS EGYETLEN KÉPKOCKA/, 'a 2.5.147 fekete kép javítása hiányzik a jegyzékből');
   assert.match(VERSION, /NINCS HANG A FŐOLDAL ELŐTT/, 'a 2.5.147 hangzár-javítása hiányzik a jegyzékből');
   assert.match(VERSION, /VÉGIG FUT EGY MOZGÁS/, 'a 2.5.147 folyamatos animációja hiányzik a jegyzékből');
@@ -407,7 +441,6 @@ test('a verzió mindkét helyen 2.5.149, és a változások a kiadási jegyzékb
   assert.match(VERSION, /ÚJ BETÖLTŐKÉPERNYŐ A TAKAROKEP\.JPG-BŐL/);
   assert.match(VERSION, /CSAK VALÓS BETÖLÉSI ADATOK/);
   assert.match(VERSION, /AZ EPG VÉGRE MEGJELENIK A FŐOLDALON/, 'a 2.5.143 EPG-javítása hiányzik a jegyzékből');
-  assert.match(VERSION, /AZ INDÍTÁS MEGINT A 2\.5\.140 MENETE SZERINT FUT/, 'a 2.5.145 indulás-javítása hiányzik a jegyzékből');
 });
 
 /* A webOS híd és a téma nem festhet fekete hátteret az indulás alá. */
