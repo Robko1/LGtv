@@ -219,10 +219,11 @@ test('a takarókép réteg alapszíne sem sötét (nincs sötét keret)', () => 
     !/background-color:\s*#0d1b2a/i.test(html),
     'a takarókép/boot háttér még mindig sötétkék (#0d1b2a)'
   );
-  // Csak azokat a blokkokat nézzük, amelyek valóban háttérszínt állítanak
-  // (a `html.iptv-revealed #tv-curtain { display: none; }` szándékosan kimarad).
+  // Csak azokat a blokkokat nézzük, amelyek valóban háttérszínt állítanak.
+  // 2.5.135: a takarókép a .iptv-curtain osztályt használja (a #tv-curtain
+  // azonosító a diagnosztika és az áttűnés miatt marad meg rajta).
   const bootBlocks = html.match(
-    /(?:html\.iptv-booting body|#tv-curtain)\s*\{[^}]*background-color:[^}]*\}/g
+    /(?:html\.iptv-booting body|#tv-curtain|\.iptv-curtain)\s*\{[^}]*background-color:[^}]*\}/g
   ) || [];
   assert.ok(bootBlocks.length >= 2, `nem találhatók a takarókép CSS-blokkjai (${bootBlocks.length})`);
   for (const block of bootBlocks) {

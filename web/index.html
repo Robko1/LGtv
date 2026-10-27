@@ -49,91 +49,111 @@
       ::-webkit-scrollbar-thumb:hover {
         background: rgba(56, 189, 248, 0.6);
       }
-      /* EGY PILLANAT ALATTI INDULÁS.
-         Amíg a teljes főoldal (fejléc + csatornalista + lejátszó) fel nem épült,
-         a képernyő a webOS indítóképét mutatja (ugyanaz a logó-képkocka), a
-         #root pedig rejtve van. Így nincs "darabos" felépülés: a webOS
-         töltőképe után EGYBEN jelenik meg a kész felület. A képet a HTML
-         melletti splash-screen.png adja (a webOS csomagban ott van); ha nem
-         érhető el, a logó színeihez illő átmenet látszik. A 7 mp-es
-         biztonsági háló garantálja, hogy semmi ne maradjon rejtve. */
-      /* A háttérkép (splash-bg.jpg) a build által készített fájl: a webOS
-         indítóképével AZONOS kép. A url()-t szándékosan a szkript injektálja
-         (a Vite a HTML CSS-ében fel akarná oldani). A statikus tartalék CSAK
-         az átlagszín: a korábbi zöld színátmenet akkor villant be, amikor a
-         beégetett kép dekódolása nem ért véget az első festésig (23:25:43). */
-      html.iptv-booting body {
-        /* A TAKARÓKÉP ALAPSZÍNE. A splash-screen.png mért átlagszíne
-           (#6ccbd3, vízszintes-türkiz): korábban sötétkék (#0d1b2a) volt,
-           így amíg a beégetett kép dekódolása tartott, egy SÖTÉT keret
-           villant – az appinfo.json fekete bgColor-jával ez volt a
-           „nagy gyors feketeség villanás”. Most a késleltetett keret is a
-           takarókép színével egyezik, így nincs látható váltás. */
+      /* ═══════════════════════════════════════════════════════════════════
+         FOLYAMATOS INDULÁS (2.5.135) – NINCS ZÖLD, NINCS FEKETE VILLANÁS.
+
+         A 00:14:19 (#2) és 00:14:56 (#3) TV-naplókban a webOS rendszerindító
+         képe után két villanás volt: egy LAPOS ZÖLD és egy FEKETE képkocka.
+
+         1. ZÖLD: a takarókép két CSS HÁTTÉRRÉTEGBŐL állt (éles JPEG, alatta
+            egy 48×27-es PNG). Amíg a felső JPEG dekódolása tartott, a Chrome
+            EGYIK réteget sem festette ki – csak a lapos #6ccbd3 hátteret.
+         2. FEKETE: a REVEAL ugyanabban a feladatban törölte a takaróképet és
+            levette az iptv-booting osztályt; a build által beégetett
+            fekete body-háttér és az üres, fekete lejátszó-
+            doboz miatt a következő képkocka majdnem teljesen fekete volt.
+
+         Most:
+           • a takarókép egy VALÓDI <img decoding="sync"> (1920×1080, PONTOSAN
+             ugyanaz a kép, mint a webOS splashBackground) – a böngésző az első
+             festéskor szinkron dekódolja, nincs lapos színű köztes képkocka;
+           • a tartalék EGYETLEN közepes felbontású PNG (ugyanannak a képnek a
+             kicsinyített mása), nem egy szín;
+           • a html/body háttere induláskor a takarókép színe, a REVEAL után
+             az app sötétkékje – SEHOL NINCS #000;
+           • a takarókép nem ugrik le: a már kifestett felület FÖLÖTT, rövid
+             kompozitor-átmenettel halványul el (nem a felület úszik be!).
+         ═══════════════════════════════════════════════════════════════ */
+      html {
+        /* A vászon soha nem fekete: a webOS bgColor-jával azonos türkiz. */
         background-color: #6ccbd3;
+      }
+      html.iptv-revealed {
+        background-color: #080d1a;
+      }
+      html.iptv-booting body {
+        /* A TAKARÓKÉP ALAPSZÍNE (a splash-screen.png mért átlagszíne).
+           !important: az ES5/webOS híd később beégetett
+           fekete body-háttér szabálya nem írhatja felül. */
+        background-color: #6ccbd3 !important;
         background-image: none;
         background-position: center center;
         background-size: cover;
         background-repeat: no-repeat;
       }
+      html.iptv-revealed body {
+        /* NINCS FEKETE. A build és a webos.js korábban #000-ra állította a
+           body-t, ezért a REVEAL utáni első képkocka fekete keretet/területet
+           mutatott. Most az app saját sötétkék alapszínét használjuk. */
+        background-color: #080d1a !important;
+        background-image: none;
+      }
       html.iptv-booting #root {
         visibility: hidden;
       }
       /*
-       * KÉTLÉPCSŐS MEGJELENÉS – NINCS TÖBB FELVILLANÁS (2.5.131).
-       *
-       * A 22:32:49-es naplóban a takarókép +2770 ms-nál tűnt el, de a legnagyobb
-       * tartalom csak +3602 ms-nál festődött ki; közte 600 ms-os főszál-leállás
-       * volt (+3479 ms). Oka: a `visibility: hidden` miatt a böngésző a teljes
-       * főoldalt CSAK a takarókép levétele után rasterizálta – a néző addig egy
-       * üres/fekete képkockát látott. Ez volt az „egy nagy felvillanás”.
-       *
-       * Most a megjelenítés ELŐTT néhány képkockával az `iptv-prerender` osztály
-       * láthatóvá teszi a #root-ot, de a TELJESEN ÁTLÁTSZATLAN #tv-curtain
-       * (z-index 2147483000) még mindig eltakarja. A böngésző így a drága
-       * 4K-s festést a takarókép ALATT, láthatatlanul végzi el; a REVEAL
-       * pillanatában már csak egyetlen kompozitor-váltás történik.
+       * KÉTLÉPCSŐS MEGJELENÉS (2.5.131) – változatlanul kell: a drága
+       * teljes képernyős festés a takarókép ALATT, láthatatlanul történik,
+       * így az áttűnés pillanatában a kész felület már a kompozitorban van.
        */
       html.iptv-prerender #root {
         visibility: visible;
       }
-      /* NINCS BEÚSZÁS. A korábbi 140 ms-os áttűnés alatt a felület
-         áttetsző volt, és alatta a takarékép háttér látszott – ez volt a
-         "villogás" a rendszerindítás végén. A megjelenés mostantól
-         egyetlen, azonnali váltás: a takarékép eltűnik, a kész felület
-         ott van. */
       html.iptv-revealed #root {
         visibility: visible;
       }
-      /* SAJÁT TAKARÉKÉP-RÉTEG.
-         A webOS rendszerindító képe a notifyAppLoaded()-ig látszik; ez a
-         réteg alatta UGYANAZT A KÉPET mutatja (a webOS indítóképének
-         képkockáját: splash-bg.jpg, a logóval). Korábban csak a színátmenet
-         volt itt, ezért látszott a rendszerindítás után egy üres ZÖLD
-         képernyő a kész főoldal előtt. A képet a lentebbi szkript injektálja
-         (a Vite feloldaná a HTML CSS-ében a url()-t); a színátmenet csak
-         tartalék arra az esetre, ha a kép nem érhető el. */
-      #tv-curtain {
+      /* SAJÁT TAKARÉKÉP-RÉTEG. A webOS rendszerindító képe és ez a réteg
+         PIXELRE UGYANAZT a képet mutatják, ezért a platform takaróképének
+         levétele (notifyAppLoaded) nem okoz látható váltást. */
+      .iptv-curtain {
         position: fixed;
         left: 0;
         top: 0;
         right: 0;
         bottom: 0;
         z-index: 2147483000;
-        /* A TAKARÓKÉP ALAPSZÍNE. A splash-screen.png mért átlagszíne
-           (#6ccbd3, vízszintes-türkiz): korábban sötétkék (#0d1b2a) volt,
-           így amíg a beégetett kép dekódolása tartott, egy SÖTÉT keret
-           villant – az appinfo.json fekete bgColor-jával ez volt a
-           „nagy gyors feketeség villanás”. Most a késleltetett keret is a
-           takarókép színével egyezik, így nincs látható váltás. */
         background-color: #6ccbd3;
         background-image: none;
         background-position: center center;
         background-size: cover;
         background-repeat: no-repeat;
         pointer-events: none;
+        opacity: 1;
+        will-change: opacity;
       }
-      html.iptv-revealed #tv-curtain {
-        display: none;
+      .iptv-curtain > img {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+        object-position: center center;
+        border: 0;
+      }
+      /* A FOLYAMATOS ÁTTŰNÉS (2.5.135).
+         A korábbi, 140 ms-os „beúszás” azért villogott, mert a FELÜLETET
+         tette áttetszővé, és alatta látszott a zöld takarókép. Most éppen
+         fordítva: a TELJESEN ÁTLÁTSZATLAN takaróképet halványítjuk el a már
+         kifestett, átlátszatlan felület FÖLÖTT. A két kép így folyamatosan
+         egymásba ér, nincs üres/fekete köztes képkocka.
+         Az !important azért kell, mert a webos.js minden elemre rákényszeríti
+         a `transition-duration: 0s !important` szabályt. */
+      #tv-curtain.iptv-fading {
+        opacity: 0;
+        -webkit-transition: opacity 200ms linear !important;
+        transition: opacity 200ms linear !important;
       }
       /* INDULÓ VIDEÓ NINCS (2.5.0): a webOS saját indítóképernyője a logó
          képkockáját mutatja (splashBackground), utána azonnal a főoldal jön.
@@ -173,32 +193,25 @@
     </style>
     <script>
       /*
-       * TAKARÓKÉP HÁTTERÉNEK INJEKTÁLÁSA – SZIGORÚAN A <head>-BEN.
+       * TAKARÓKÉP ELŐKÉSZÍTÉSE – SZIGORÚAN A <head>-BEN (2.5.135).
        *
-       * A webOS indítóképével AZONOS kép a #tv-curtain rétegre és a body-ra
-       * kerül, így a rendszerindítós után egyetlen váltás marad, és soha nem
-       * látszik a tartalék színátmenet („zöld képernyő”).
+       * A beégetett, 1920×1080-as JPEG itt, egyetlen példányban szerepel.
+       * A dokumentum törzsében lévő VALÓDI <img> ezt a változót kapja meg forrásként:
+       * a CSS background-image dekódolása ugyanis NEM tartja vissza az első
+       * festést (23:25:43: first-paint 444 ms, zöld villanás), míg egy
+       * decoding="sync" képelemét igen.
        *
-       * A KÉP BEÉGETVE (data URI): a build a splash-bg.jpg-t base64-ben írja
-       * be a jelölő helyére (lásd a tools/build-webos.sh Python lépését).
-       * FONTOS: a jelölőt máshol SZÓ SZERINT leírni TILOS (még megjegyzésben
-       * sem), mert oda is bekerülne a 120 KB-os kép.
+       * FONTOS: a beégetési jelölőket máshol SZÓ SZERINT leírni TILOS.
        */
       (function () {
         try {
-          var bgStyle = document.createElement('style');
           var splashData = '__IPTV_SPLASH_DATA_URI__';
           var tinyData = '__IPTV_SPLASH_TINY_URI__';
           var hasSplash = !!splashData && splashData.indexOf('data:image/') === 0;
           var hasTiny = !!tinyData && tinyData.indexOf('data:image/') === 0;
-          var splashImage = hasSplash ? 'url(' + splashData + ')' : "url('splash-bg.jpg')";
-          /*
-           * A TELJES KÉP DEKÓDOLÁSA MÁR A HTML FELDOLGOZÁSAKOR ELINDUL.
-           * A CSS background-image dekódolása NEM tartja vissza az első
-           * festést: a 23:25:43-es naplóban a first-paint 444 ms volt (előtte
-           * 1029 ms), ezért a kép még nem volt kész, és a zöld tartalék
-           * látszott. Egy rejtett Image + decode() több száz ms előnyt ad.
-           */
+          window.__IPTV_BOOT_PICTURE__ = hasSplash ? splashData : '';
+          /* A teljes kép dekódolása már a HTML feldolgozásakor elindul, így
+             a törzsben lévő <img> szinkron dekódolása gyakorlatilag azonnali. */
           if (hasSplash) {
             try {
               var preload = new Image();
@@ -210,27 +223,25 @@
                   pending.then(function () {}, function () {});
                 }
               }
-              // A referenciát szándékosan megtartjuk: a dekódolt bitmap így
-              // nem eviktálódik, amíg a takarókép látszik (REVEAL-ig).
               window.__IPTV_SPLASH_PRELOAD__ = preload;
             } catch (e) {}
           }
-          /*
-           * NINCS TÖBB ZÖLD HÁTTÉR (2.5.133). A második réteg egy 48x27-es,
-           * azonnal dekódolható (~2 kB), beégetett kicsinyített mása a VALÓDI
-           * indítóképnek – nem egy zöld színátmenet. Az első festés tehát
-           * rögtön a HELYES képet mutatja (csak homályosan); amint a teljes
-           * JPEG megvan, az éles kép kerül fölé, egyetlen finom váltással.
-           */
+          var bgStyle = document.createElement('style');
+          /* EGYETLEN tartalék réteg: ugyanannak a képnek a közepes
+             felbontású, azonnal dekódolható PNG mása. Nem színátmenet és nem
+             a teljes kép második CSS-rétege (az okozta a zöld villanást). */
           var tinyImage = hasTiny ? 'url(' + tinyData + ')' : 'none';
-          var splashLayer = splashImage + ',' + tinyImage;
+          var posterImage = hasSplash ? 'url(' + splashData + ')' : 'none';
           bgStyle.textContent =
-            "html.iptv-booting body{background-image:" + splashLayer + ";" +
-            "background-position:center center,center center;background-size:cover,cover;" +
-            "background-repeat:no-repeat,no-repeat;}" +
-            "#tv-curtain{background-image:" + splashLayer + ";" +
-            "background-position:center center,center center;background-size:cover,cover;" +
-            "background-repeat:no-repeat,no-repeat;}";
+            "html.iptv-booting body{background-image:" + tinyImage + ";}" +
+            "#tv-curtain{background-image:" + tinyImage + ";}" +
+            /* Az ÜRES IPK lejátszó-doboza a REVEAL UTÁN is ugyanazt a képet
+               mutatja: a főoldal első képkockája így nem fekete, hanem a már
+               látott indítókép. Csak az adatok változnak, a kép megmarad. */
+            "html[data-iptv-boot=\"empty\"] [data-player-poster]{" +
+            "background-image:" + posterImage + ";" +
+            "background-position:center center;background-size:cover;" +
+            "background-repeat:no-repeat;}";
           (document.head || document.documentElement).appendChild(bgStyle);
         } catch (e) {}
       })();
@@ -241,8 +252,24 @@
          képkockáját mutatja (appinfo.json: splashBackground), majd a program
          azonnal a főoldallal indul. Az itteni szkript csak az indulási
          lépés/hiba jelzéshez kell (a TV-n is olvasható hibaüzenet). -->
-    <!-- A takarékép rétege: a kész felület megjelenéséig fedi a képernyőt. -->
-    <div id="tv-curtain" aria-hidden="true"></div>
+    <!-- A takarékép rétege: a kész felület megjelenéséig fedi a képernyőt.
+         VALÓDI <img>, nem CSS háttér: a TV így már az ELSŐ festésnél a kész,
+         éles indítóképet mutatja. A src-t a következő, azonnal futó szkript
+         adja át a <head>-ben beégetett adat-URI-ból (nincs második másolat). -->
+    <div id="tv-curtain" class="iptv-curtain" aria-hidden="true"><img id="tv-curtain-img" alt="" decoding="sync" fetchpriority="high" draggable="false"></div>
+    <script>
+      (function () {
+        try {
+          var image = document.getElementById('tv-curtain-img');
+          var source = window.__IPTV_BOOT_PICTURE__;
+          if (image && source) image.src = source;
+          // Inline biztosíték: a webOS téma és a build/webos.js body-szabályai
+          // a régi motorokon is felülírhatják volna a CSS-t. Így a vászon és a
+          // body már az ELSŐ festésnél a takarókép színét mutatja.
+          document.body.style.backgroundColor = '#6ccbd3';
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <div id="boot-error-screen">
       <div id="boot-stage" class="boot-stage"></div>
@@ -307,7 +334,7 @@
         // ez a nézőnek úgy tűnt, mintha a takarókép össze-vissza ugrálna.
         // Beégetve a kép már az ELSŐ festésnél ott van, egyetlen váltás marad.
         // A TAKARÓKÉP HÁTTERÉT A <head>-BEN LÉVŐ SZKRIPT INJEKTÁLJA.
-        // (Korábban ez itt, a <body>-ban volt: lassú TV-n a böngésző
+        // (Korábban ez a dokumentum törzsében volt: lassú TV-n a böngésző
         // még az injektálás ELŐTT kirajzolhatta a réteget, így egy
         // pillanatra csak a tartalék ZÖLD színátmenet látszott – ez volt
         // a „zöld háttér is bevillant”. A <head>-ben a stílus biztosan
@@ -375,35 +402,104 @@
             }
           } catch (e) {}
         };
+        /* A FOLYAMATOS ÁTTŰNÉS VÉGE: ilyenkor tűnik el végleg a takarókép.
+           Külön függvény, mert a transitionend mellett egy rövid időzítő is
+           hívja (ha a TV motorja nem ad transitionend eseményt). */
+        var revealFinishTimer = null;
+        window.__IPTV_REVEAL_DONE__ = false;
+        window.__IPTV_FINISH_REVEAL__ = function () {
+          if (window.__IPTV_REVEAL_DONE__) return;
+          window.__IPTV_REVEAL_DONE__ = true;
+          try {
+            if (revealFinishTimer !== null) window.clearTimeout(revealFinishTimer);
+          } catch (e) {}
+          var fading = byId('tv-curtain');
+          if (fading && fading.parentNode) fading.parentNode.removeChild(fading);
+          try {
+            var html = document.documentElement;
+            html.className = html.className
+              .replace(/\biptv-handoff\b/g, '')
+              .replace(/\s+/g, ' ')
+              .replace(/^ | $/g, '');
+          } catch (e2) {}
+          bootMark('ÁTTŰNÉS KÉSZ – az indítókép teljesen eltűnt');
+        };
         window.__IPTV_REVEAL__ = function (reason) {
           if (window.__IPTV_REVEALED__) return;
           window.__IPTV_REVEALED__ = true;
           try {
-            // Biztonsági háló: ha az előfestés valamiért kimaradt, a #root
-            // ekkor is láthatóvá válik, mielőtt a takaróképet levesszük.
+            // Biztonsági háló: ha az előfestés kimaradt, a #root ekkor is
+            // láthatóvá válik, MÉG a takarókép alatt.
             if (window.__IPTV_PREPARE_REVEAL__) window.__IPTV_PREPARE_REVEAL__(true);
-            // A három művelet EGYETLEN feladatban fut, hogy a böngésző egy
-            // festésben hajtsa végre őket: nincs félkész kép, nincs villanás.
-            //   1) a saját takarékép-réteg eltűnik,
-            //   2) a #root láthatóvá válik,
-            //   3) a html osztály iptv-revealed lesz.
-            var splash = document.getElementById('tv-curtain');
-            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
             var h = document.documentElement;
+            var curtain = byId('tv-curtain');
+            /* 1) A platform indítóképe AKKOR tűnik el, amikor a mi azonos
+                  képünk már biztosan fent van – nincs üres köztes kocka. */
+            try {
+              if (window.webOSSystem && typeof window.webOSSystem.notifyAppLoaded === 'function') {
+                window.webOSSystem.notifyAppLoaded();
+              }
+            } catch (eNotify) {}
+            /* 2) A html/body háttere a kész felület sötétkékjére vált, de a
+                  takarókép MÉG ÁTLÁTSZATLANUL fent van: ezt senki nem látja.
+                  (A build/webos.js fekete body-hátterét az !important CSS
+                  felülírja – ez volt a „fekete felvillanás”.) */
             h.className = h.className
-              .replace(/\biptv-booting\b/, 'iptv-revealed')
+              .replace(/\biptv-booting\b/, 'iptv-revealed iptv-handoff')
               .replace(/\s+/g, ' ')
               .replace(/^ | $/g, '');
-          } catch (e) {}
-          // A platform indítóképe pontosan itt, a kész főoldal mellett
-          // tűnik el – egyetlen váltás, nincs villanás.
-          try {
-            if (window.webOSSystem && typeof window.webOSSystem.notifyAppLoaded === 'function') {
-              window.webOSSystem.notifyAppLoaded();
+            try { document.body.style.backgroundColor = '#080d1a'; } catch (eBody) {}
+            /* 3) FOLYAMATOS ÁTTŰNÉS: NEM a felületet halványítjuk (az
+                  áttetsző UI alatt régen látszott a zöld háttér), hanem az
+                  átlátszatlan takaróképet, a kifestett felület FÖLÖTT. */
+            if (curtain) {
+              try {
+                // A kezdő opacity értéket ki kell kényszeríteni, különben a
+                // Chrome-nak nincs honnan indítania az átmenetet.
+                var computed = window.getComputedStyle ? window.getComputedStyle(curtain) : null;
+                curtain.style.opacity = (computed && computed.opacity) || '1';
+                var forced = curtain.offsetHeight;
+                curtain.className = 'iptv-curtain iptv-fading';
+                // Inline !important: a webos.css és a webos.js is rákényszeríti
+                // minden elemre a `transition-duration: 0s !important` szabályt.
+                // Az inline fontosság minden szerzői szabályt legyőz, így a
+                // régebbi webOS Chrome-on sem marad el az áttűnés.
+                try {
+                  curtain.style.setProperty('transition', 'opacity 200ms linear', 'important');
+                  // A hosszú alakokat is külön, inline fontossággal írjuk:
+                  // így egyetlen szerzői `transition-duration: 0s !important`
+                  // sem tudja lenullázni az áttűnést.
+                  curtain.style.setProperty('transition-property', 'opacity', 'important');
+                  curtain.style.setProperty('transition-duration', '200ms', 'important');
+                  curtain.style.setProperty('transition-timing-function', 'linear', 'important');
+                  curtain.style.setProperty('transition-delay', '0s', 'important');
+                } catch (eTransition) {}
+                curtain.style.opacity = '0';
+                curtain.addEventListener('transitionend', function () {
+                  window.__IPTV_FINISH_REVEAL__();
+                });
+              } catch (eFade) {
+                window.__IPTV_FINISH_REVEAL__();
+              }
+            } else {
+              window.__IPTV_FINISH_REVEAL__();
             }
-          } catch (e) {}
-          bootMark('REVEAL – a kész felület megjelent (' + (reason || '') + ')');
-          try { console.log('REVEAL ' + (Date.now() - started) + ' ms (' + (reason || '') + ')'); } catch (e) {}
+          } catch (e) {
+            window.__IPTV_FINISH_REVEAL__();
+          }
+          /* A felület MÁR KÉSZ: az áttűnés csak a szemnek szól. Ha a
+             transitionend elmarad, 240 ms múlva akkor is eltűnik a kép. */
+          try {
+            if (!window.__IPTV_REVEAL_DONE__) {
+              revealFinishTimer = window.setTimeout(function () {
+                window.__IPTV_FINISH_REVEAL__();
+              }, 240);
+            }
+          } catch (eTimer) {
+            window.__IPTV_FINISH_REVEAL__();
+          }
+          bootMark('REVEAL – folyamatos áttűnés a kész felületre (' + (reason || '') + ')');
+          try { console.log('REVEAL ' + (Date.now() - started) + ' ms (' + (reason || '') + ')'); } catch (eLog) {}
         };
 
         /*

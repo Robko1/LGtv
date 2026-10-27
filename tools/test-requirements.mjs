@@ -94,16 +94,23 @@ test('1. a megjelenítés két animációs kép után történik (a kész kép m
   assert.match(MAIN, /revealNow\(/);
 });
 
-test('1. a takarékép-réteg eltűnik a megjelenéskor, és nincs beúszás (nincs villogás)', () => {
+test('1. a takarékép-réteg folyamatos áttűnés után tűnik el', () => {
   const { window, dom, calls } = bootPage();
   try {
     const curtain = window.document.getElementById('tv-curtain');
     assert.ok(curtain, 'a saját takarékép-réteg létezik');
     assert.equal(window.getComputedStyle(curtain).display !== 'none', true);
     window.__IPTV_REVEAL__('teszt');
-    assert.equal(window.document.getElementById('tv-curtain'), null, 'a réteg a váltáskor eltűnik');
-    assert.equal(calls.length, 1, 'a webOS indítóképét ugyanekkor emeljük le');
-    // A korábbi 140 ms-os áttűnés volt a "villogás": nem maradhat.
+    // 2.5.135: NEM ugrik le egyik pillanatról a másikra – a kifestett
+    // felület fölött, 200 ms alatt halványul el. A felület már kész.
+    assert.equal(calls.length, 1, 'a webOS indítóképét a REVEAL-kor emeljük le');
+    assert.match(curtain.className, /iptv-fading/, 'a takarókép nem kezdte meg az áttűnést');
+    assert.equal(curtain.style.opacity, '0', 'a takarókép opacity-ja nem 0');
+    assert.match(window.document.documentElement.className, /iptv-revealed/);
+    window.__IPTV_FINISH_REVEAL__();
+    assert.equal(window.document.getElementById('tv-curtain'), null, 'az áttűnés végén a réteg eltűnik');
+    assert.equal(calls.length, 1, 'a notifyAppLoaded csak egyszer fut');
+    // A korábbi, FELÜLETET áttetszővé tevő beúszás nem maradhat.
     assert.doesNotMatch(PAGE, /animation:\s*iptvReveal/);
     assert.doesNotMatch(PAGE, /@keyframes iptvReveal/);
   } finally {

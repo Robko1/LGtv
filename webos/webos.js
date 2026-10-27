@@ -438,7 +438,9 @@
     markRootForTv();
     try {
       var css = [
-        'body.webos-tv, body.lg-webos { background:#000; overflow:hidden; }',
+        /* 2.5.135: NEM #000. A fekete body háttér volt a REVEAL utáni
+           „fekete felvillanás”; az app saját sötétkék alapszínét használjuk. */
+        'body.webos-tv, body.lg-webos { background:#080d1a; overflow:hidden; }',
         '/* NAGY TV-KIJELZŐ: a korábbi zoom 1.4 megoldás kilógó ablakokat és',
         '   levágott széleket okozott ezen a webOS-en. Helyette rem-alapú',
         '   betűméret-nagyítás: a felület minden eleme arányosan nő, de a',

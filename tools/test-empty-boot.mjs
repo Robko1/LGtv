@@ -280,6 +280,9 @@ test('a főoldal MÉG a takarókép alatt kifestésre kerül (nincs felvillanás
 
     await h.tick(200);
     assert.equal(h.revealReasons.length, 1, 'a takarókép nem tűnt el');
+    // 2.5.135: a takarókép 200 ms alatt halványul el; a transitionend
+    // (vagy a 240 ms-os biztonsági időzítő) után kerül ki a DOM-ból.
+    h.window.__IPTV_FINISH_REVEAL__?.();
     assert.equal(h.doc.getElementById('tv-curtain'), null);
     assert.match(h.doc.documentElement.className, /iptv-prerender/,
       'a megjelenés után a #root véletlenül újra rejtve lenne');

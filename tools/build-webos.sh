@@ -120,26 +120,27 @@ cp "$WEBOS_DIR/icon-rt2.png" "$BUILD_DIR/icon-rt2.png"
 cp "$WEBOS_DIR/largeIcon-rt2.png" "$BUILD_DIR/largeIcon-rt2.png"
 # Indítókép (appinfo.json: splashBackground): a logóból kivágott képkocka.
 cp "$WEBOS_DIR/splash-screen.png" "$BUILD_DIR/splash-screen.png"
-# Kisebb (128 színű) változat: a HTML CSS-e ezt használja háttérként az
-# "egy pillanat alatti megjelenés" alatt (a teljes kép 411 KB, ez ~90 KB).
+# 2.5.135: a HTML takaróképe PONTOSAN UGYANABBAN a felbontásban készül, mint
+# a webOS rendszerindító képe (1920x1080). Korábban 1280x720 volt, ezért a
+# platform indítóképéről a saját takaróképre váltáskor a logó belobbant /
+# elmosódott. A valódi <img decoding="sync"> szinkron dekódolja, így az első
+# festés már az éles, azonos képet mutatja.
 python3 - "$WEBOS_DIR" "$BUILD_DIR" <<'PY'
 import sys
 from pathlib import Path
 from PIL import Image
 webos_dir, build_dir = Path(sys.argv[1]), Path(sys.argv[2])
 src = Image.open(webos_dir / "splash-screen.png").convert("RGB")
-# A webOS indítókép és a HTML háttér UGYANAZ a kép: nincs átmenet/villanás.
-# JPEG, mert a fotó-szerű háttér így ~90 KB (PNG-ben 257 KB lenne).
-# BASELINE (nem progresszív) JPEG: a kép beégetett data URI, így a
-# progresszív "fokozatos" dekódolásnak nincs hálózati előnye, viszont a
-# böngésző egy részlegesen dekódolt, kockás köztes képet is kifesthetett –
-# ez volt a 23:25:43-es napló zöld/blokkos felvillanása. A baseline JPEG
-# vagy teljesen kész, vagy egyáltalán nincs: ilyenkor a kicsinyített réteg
-# látszik, ami ugyanazt a képet mutatja homályosan.
-src.resize((1280, 720), Image.Resampling.LANCZOS).save(
-    build_dir / "splash-bg.jpg", "JPEG", quality=72, optimize=True, progressive=False
+# A webOS indítókép és a HTML takaróképe UGYANAZ a kép, UGYANABBAN a
+# felbontásban: nincs átmenet, nincs nagyítási villanás.
+# JPEG, mert a fotó-szerű háttér így ~200 KB (veszteségmentes PNG 411 KB).
+# BASELINE (nem progresszív) JPEG: a progresszív "fokozatos" dekódolás egy
+# részlegesen dekódolt, kockás köztes képet is kifesthet – ez volt a
+# 23:25:43-es napló zöld/blokkos felvillanása.
+src.save(
+    build_dir / "splash-bg.jpg", "JPEG", quality=80, optimize=True, progressive=False
 )
-print("splash-bg.jpg:", (build_dir / "splash-bg.jpg").stat().st_size, "byte")
+print("splash-bg.jpg (1920x1080):", (build_dir / "splash-bg.jpg").stat().st_size, "byte")
 PY
 mkdir -p "$BUILD_DIR/assets"
 # A többi asset (logók, kicsi ikonok) bekerül; videó nem lehet köztük.
@@ -208,7 +209,9 @@ injection = f"""
 <style>
 /* webOS TV - fekvő teljes képernyő, kisebb lejátszó */
 body.webos-tv, body.lg-webos {{
-  background: #000;
+  /* 2.5.135: NEM #000. A fekete body háttér volt a REVEAL utáni „fekete
+     felvillanás” (a #root 6/14/24 px-es TV-paddingjén átlátszott). */
+  background: #080d1a;
   overflow: hidden;
 }}
 /* NINCS induló videó/splash overlay: a webOS saját indítóképernyője (a logó
@@ -265,21 +268,25 @@ from PIL import Image
 data_uri = ""
 tiny_uri = ""
 if splash_bg.is_file():
-    # 1) A teljes indítókép (JPEG) - az első CSS réteg.
+    # 1) A teljes, 1920x1080-as indítókép (JPEG). Egyetlen példányban kerül a
+    #    HTML-be: a <head> szkriptje adja át a törzsben lévő VALÓDI <img>-nek.
+    #    A CSS background-image dekódolása NEM tartja vissza az első festést,
+    #    a decoding="sync" képelem viszont igen – ez szüntette meg a 00:14-es
+    #    naplók lapos zöld felvillanását.
     data_uri = "data:image/jpeg;base64," + base64.b64encode(splash_bg.read_bytes()).decode("ascii")
-    # 2) AZONNAL DEKÓDOLHATÓ KICSINYÍTETT MÁSA (PNG) - a második CSS réteg.
-    #    A 23:25:43-es naplóban a first-paint 444 ms volt, a beégetett 1280x720
-    #    JPEG viszont csak később dekódolódott, így az első képkockán a zöld
-    #    tartalék színátmenet látszott („zöld háttér felvillanás”). Egy 48x27
-    #    pixeles, ~2 kB-os PNG dekódolása <1 ms: az első festés rögtön a VALÓDI
-    #    indítóképet mutatja (homályosan), és a teljes kép élesen kerül fölé.
-    #    PNG szándékosan: a csomagban pontosan EGY data:image/jpeg lehet
-    #    (lásd tools/test-package-html.mjs), az ikonok is PNG-k.
-    tiny = Image.open(splash_bg).convert("RGB").resize((48, 27), Image.Resampling.BOX)
+    # 2) AZONNAL DEKÓDOLHATÓ TARTALÉK (PNG) – EGYETLEN CSS-réteg.
+    #    A 2.5.133/134 két réteget tett egymás mögé (éles JPEG + 48x27 PNG).
+    #    Amíg a felső JPEG nem volt kész, a Chrome egyik réteget sem festette
+    #    ki, csak a lapos #6ccbd3 hátteret: ez volt a „zöld háttér villanás”.
+    #    Most a tartalék ÖNMAGÁBAN, 192x108-as felbontásban (~34 kB) mutatja a
+    #    VALÓDI képet (csak puhábban), az éles kép pedig külön <img> elemen
+    #    érkezik fölé. PNG szándékosan: a csomagban pontosan EGY
+    #    data:image/jpeg lehet (lásd tools/test-package-html.mjs).
+    tiny = Image.open(splash_bg).convert("RGB").resize((192, 108), Image.Resampling.BOX)
     buf = io.BytesIO()
     tiny.save(buf, "PNG", optimize=True)
     tiny_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
-    print(f"splash-bg.jpg beégetve: {len(data_uri)} karakter; kicsinyített: {len(tiny_uri)} karakter")
+    print(f"splash-bg.jpg beégetve: {len(data_uri)} karakter; tartalék: {len(tiny_uri)} karakter")
 else:
     # Jelölő nélkül maradna egy érvénytelen url(); ilyenkor üresre cseréljük,
     # így a CSS a takarókép átlagszínére esik vissza.

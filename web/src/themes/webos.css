@@ -1,8 +1,11 @@
 /* LG webOS TV – külön kinézet, kisebb lejátszó, fekvő splash, Magic Remote */
 body.webos-theme {
   --tv-focus-color: #fbbf24;
-  --tv-bg: #000000;
-  background: #000;
+  /* 2.5.135: NINCS #000. A body fekete háttere a REVEAL utáni első
+     képkockán átlátszott a #root TV-paddingjén, és a lejátszó üres
+     területével együtt „fekete felvillanásnak” látszott. */
+  --tv-bg: #080d1a;
+  background: #080d1a;
 }
 
 /* webOS – kisebb TV lejátszó, középen, 1280px max */
