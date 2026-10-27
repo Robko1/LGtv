@@ -1166,74 +1166,86 @@ export function App() {
    */
   const ensureVodLoaded = useCallback(() => { void runRestore(catalogPlanRef.current, 'vod'); }, [runRestore]);
 
+  /**
+   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE – A TAKARÓKÉP ALATT (2.5.145).
+   *
+   * MIÉRT VÁLTOZOTT VISSZA A 2.5.140 MENETÉRE:
+   *
+   * A 21., 22. és 23. napló mindhárom indulása 2–3,9 mp-es képkocka-
+   * kihagyást mutatott. A 2.5.143-ban a teljes lista a felfedés UTÁN
+   * töltődött be: a néző már látta a kész felületet, amikor a fő szál
+   * megállt – ezért „ugrált” minden. A 2.5.140-ben ugyanez a munka a
+   * takarókép ALATT futott, és pont ezért volt jó: a felfedés pillanatában
+   * minden készen volt.
+   *
+   * Ezért most a lista ismét AZONNAL, a tároló-próba után indul – de csak
+   * az ÉLŐ adag (a 20 190 csatorna ~1 mp a csendes TV-n; a napló 19-ben
+   * 752 ms volt). A 127 766 film/sorozat továbbra is csak a Mozi/Sorozat
+   * menü megnyitásakor töltődik be, és a műsorújság (XMLTV) is csak akkor
+   * indul, ha ez a betöltés már befejeződött – a két nagy munka nem
+   * versenyez egymással.
+   */
   const guideStatusSafe = useCallback((): { channels: number } => {
     try { return guideStatus(); } catch { return { channels: 0 }; }
   }, []);
 
-  /**
-   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE – A MEGJELENÉS UTÁN, ÜRESJÁRATBAN.
-   *
-   * 2.5.143. A korábbi kód az indulásnál azonnal a teljes katalógust
-   * dekódolta (20 190 élő csatorna + 102 789 film + 24 977 sorozat). A
-   * 16:27:15-ös (19-es) TV-napló mérése szerint ez a takarókép ALATT futott:
-   *
-   *   INDULÁS [4045 ms] teljes élő csatornalista a tartós tárból
-   *   Teljes élő csatornalista betöltve (IndexedDB): 20190 csatorna (≈10 mp)
-   *   KÉPKOCKA-KIHAGYÁS: 3666 ms; 2 képkocka az első 8 s-ban
-   *   REVEAL csak +11925 ms-nál
-   *
-   * A megoldás: az induló készlet (107 magyar csatorna, localStorage) azonnal
-   * kész, a teljes lista pedig csak a megjelenés után, egy rövid üresjárat
-   * után töltődik be – adagokban, minden adag után visszaadva a főszálat.
-   * Így a néző azonnal látja a kész felületet, a lista pedig észrevétlenül
-   * egészül ki a háttérben.
-   */
-  const liveRestoreScheduledRef = useRef(false);
-  const scheduleLiveRestore = useCallback((plan: StoredCatalogPlan | null) => {
-    if (liveRestoreScheduledRef.current || !plan) return;
-    liveRestoreScheduledRef.current = true;
-    let started = false;
-    let fallbackTimer = 0;
-    const begin = (reason: string) => {
-      if (started) return;
-      started = true;
-      window.removeEventListener('iptv-app-ready', onReady);
-      if (fallbackTimer) window.clearTimeout(fallbackTimer);
-      // A megjelenés utáni első képkockák a felületé: csak utána dolgozunk.
-      window.setTimeout(() => {
-        if (providerRefreshActiveRef.current) return;
-        appLog(`A teljes élő lista visszatöltése a háttérben indul (${reason}).`);
-        void runRestore(plan, 'live');
-      }, 500);
-      /*
-       * A TELJES MŰSORÚJSÁG (XMLTV) – AZ ÉLŐ LISTA UTÁN.
-       *
-       * A 19-es TV-napló szerint a rövid EPG végpont minden kérésre üres
-       * (19 bájtos) választ ad, ezért a műsort a szolgáltató teljes
-       * műsorújságjából töltjük be – egyszer, a háttérben, a kész felület
-       * fölött. A betöltés végén egy újrarajzolás jelzi a listának, hogy
-       * mostantól van mit megjeleníteni.
-       */
-      window.setTimeout(() => {
-        if (providerRefreshActiveRef.current) return;
-        void ensureGuide(plan.provider)
-          .then(() => {
-            const status = guideStatusSafe();
-            if (status.channels > 0) setEpgRevision((revision) => revision + 1);
-          })
-          .catch(() => { /* a naplóban már ott a valódi ok */ });
-      }, 3500);
-    };
-    const onReady = () => begin('a felület megjelent');
-    if (typeof (window as unknown as { __IPTV_APP_READY__?: boolean }).__IPTV_APP_READY__ === 'boolean'
-      && (window as unknown as { __IPTV_APP_READY__?: boolean }).__IPTV_APP_READY__) {
-      begin('a felület már kész');
+  const liveReadyRef = useRef(false);
+  const markLiveReady = useCallback(() => {
+    if (liveReadyRef.current) return;
+    liveReadyRef.current = true;
+    try {
+      (window as unknown as { __IPTV_LIVE_READY__?: boolean }).__IPTV_LIVE_READY__ = true;
+      window.dispatchEvent(new CustomEvent('iptv-live-ready'));
+    } catch { /* régi motor */ }
+  }, []);
+
+  const startBackgroundWork = useCallback((plan: StoredCatalogPlan | null) => {
+    if (!plan) {
+      // Nincs mit visszatölteni (üres telepítés): a felület azonnal kész.
+      markLiveReady();
       return;
     }
-    window.addEventListener('iptv-app-ready', onReady);
-    // Biztonsági háló: ha a jelzés valamiért elmarad, 6 mp után akkor is indul.
-    fallbackTimer = window.setTimeout(() => begin('biztonsági időzítő'), 6000);
-  }, [runRestore, guideStatusSafe]);
+    void runRestore(plan, 'live')
+      .catch(() => { /* a naplóban már ott a valódi ok */ })
+      .finally(() => markLiveReady());
+    /*
+     * A TELJES MŰSORÚJSÁG (XMLTV) – CSAK AZ ÉLŐ LISTA UTÁN.
+     *
+     * A 19-es TV-napló szerint a rövid EPG végpont minden kérésre üres
+     * (19 bájtos) választ ad, ezért a műsort a szolgáltató teljes
+     * műsorújságjából töltjük be (62 MB, ~30 mp a TV-n). Ez a letöltés a
+     * 21–23. naplóban EGYÜTT futott az élő lista visszatöltésével, és
+     * mindkettőt a töredékére lassította (az élő lista 1 mp helyett 18 mp).
+     * Mostantól sorban, egymás után futnak; a műsorújság a háttérben,
+     * darabokban olvasva érkezik, a felület fölött.
+     */
+    const guideTimer = window.setTimeout(() => {
+      if (providerRefreshActiveRef.current) return;
+      void ensureGuide(plan.provider)
+        .then(() => {
+          const status = guideStatusSafe();
+          if (status.channels > 0) setEpgRevision((revision) => revision + 1);
+        })
+        .catch(() => { /* a naplóban már ott a valódi ok */ });
+    }, 2500);
+    // Ha a visszatöltés hibára fut, a jelzés DB-ben is elindul – de a
+    // műsorújságot ne várjuk örökre.
+    const safetyTimer = window.setTimeout(() => {
+      if (!liveReadyRef.current) markLiveReady();
+    }, 12_000);
+    /*
+     * A műsorújság 3 óráig érvényes. Félóránként megnézzük: ha lejárt,
+     * csendben újratöltjük (a `ensureGuide` a friss gyorsítótárnál azonnal
+     * visszatér, hálózat nélkül). Kikapcsolt képernyőn és szolgáltatói
+     * frissítés alatt nem indítunk letöltést.
+     */
+    const refreshTimer = window.setInterval(() => {
+      if (providerRefreshActiveRef.current) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
+    }, 30 * 60 * 1000);
+    return { guideTimer, safetyTimer, refreshTimer };
+  }, [runRestore, markLiveReady, guideStatusSafe]);
 
   /*
    * HIDEG INDÍTÁS – EGY ELLENŐRZÉS, AZONNALI INDULÁS, NINCS FELUGRÓ ABLAK.
@@ -1249,6 +1261,7 @@ export function App() {
     bootProbeStartedRef.current = true;
     let cancelled = false;
     let decided: BootState = 'empty';
+    let backgroundWork: ReturnType<typeof startBackgroundWork> = undefined;
     void (async () => {
       try {
         // VALÓS lépés: a tároló ellenőrzése ténylegesen elindult.
@@ -1288,6 +1301,7 @@ export function App() {
             appLog('Indulás: nincs használható mentett lista – automatikus első betöltés indul.');
             setLiveRecoveryNeeded(true);
           }
+          startBackgroundWork(null);
           setBootProbeDone(true);
           return;
         }
@@ -1332,11 +1346,15 @@ export function App() {
          * kurta, 107 csatornás induló készlet elegendő a megjelenéshez, a
          * teljes lista pedig a kész felület fölött, üresjáratban érkezik.
          */
-        scheduleLiveRestore(plan);
+        // 2.5.140-es menet: a teljes élő lista AZONNAL, a takarókép alatt.
+        backgroundWork = startBackgroundWork(plan);
       } catch (error) {
         appLogError('Indulás a tartós tárból', error);
         decided = 'empty';
         setLiveRecoveryNeeded(true);
+        // Ha a tároló-próba hibára fut, nincs mit visszatölteni: a felfedés
+        // ne várjon hiába a jelzésre.
+        markLiveReady();
       } finally {
         // Ha bármi elakadt, a takarókép akkor sem maradhat fent 9 mp-ig.
         markBootState(decided);
@@ -1361,8 +1379,16 @@ export function App() {
         }
       } catch { /* a takarítás sosem akadályozhatja az indulást */ }
     }, 1500);
-    return () => { cancelled = true; window.clearTimeout(sweepTimer); };
-  }, [runRestore, scheduleLiveRestore]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(sweepTimer);
+      if (backgroundWork) {
+        window.clearTimeout(backgroundWork.guideTimer);
+        window.clearTimeout(backgroundWork.safetyTimer);
+        window.clearInterval(backgroundWork.refreshTimer);
+      }
+    };
+  }, [runRestore, startBackgroundWork, markLiveReady]);
 
   // Kedvencek / sorrend módosítása után mentsük a tartalmat (késleltetve).
   //

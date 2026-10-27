@@ -97,17 +97,19 @@ test('a teljes háttér a takarókép, felül a valós órával és a négy val�
     assert.match(PAGE, /#boot-bg\s*\{[^}]*width:\s*100%[^}]*height:\s*100%[^}]*object-fit:\s*cover/s,
       'a háttérkép nem tölti ki a teljes képernyőt');
 
-    // Jobb felső sarok: a fejléc jobb oldali blokkjában a valós óra + dátum.
+    /*
+     * 2.5.145: A JOBB FELSŐ SAROKBAN A SAJÁT LOGÓNK VAN, ÓRA NINCS.
+     * A felhasználó kérésére az óra/dátum kikerült: semmi nem ketyeg a
+     * betöltés alatt, nincs másodpercenkénti újrarajzolás.
+     */
     const head = doc.querySelector('.boot-head');
     const meta = doc.querySelector('.boot-headmeta');
-    const clock = doc.getElementById('boot-clock');
-    assert.ok(head && meta && clock, 'hiányzik a fejléc/óra');
-    assert.ok(head.contains(meta) && meta.contains(clock), 'az óra nem a jobb felső blokkban van');
-    assert.match(clock.textContent, /^\d{2}:\d{2}$/, 'az óra nem valós időt mutat');
-    const now = new Date();
-    const expected = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    assert.ok(clock.textContent === expected, `az óra nem a TV rendszeridejét mutatja (${clock.textContent})`);
-    assert.match(PAGE, /\.boot-clockbox\s*\{[^}]*align-items:\s*flex-end/);
+    assert.ok(head && meta, 'hiányzik a fejléc jobb oldali blokkja');
+    assert.equal(doc.getElementById('boot-clock'), null, 'az óra visszakerült a fejlécbe');
+    assert.equal(doc.getElementById('boot-date'), null, 'a dátum visszakerült a fejlécbe');
+    assert.ok(!/setInterval\(tickClock/.test(PAGE), 'a másodpercenként futó óra visszakerült');
+    assert.ok(meta.querySelector('.headmark-right svg'),
+      'a jobb felső sarokban nincs logó');
 
     // A négy kért, valós adat.
     for (const id of ['boot-pct', 'boot-channels', 'boot-speed', 'boot-eta']) {
@@ -359,12 +361,13 @@ test('a VOD/sorozat részlisták nem rajzolják újra a teljes App-ot minden ada
 
 /* ─────────────── 8. VERZIÓ ─────────────── */
 
-test('a verzió mindkét helyen 2.5.143, és a változások a kiadási jegyzékben vannak', () => {
-  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.143';/);
-  assert.equal(APPINFO.version, '2.5.143');
+test('a verzió mindkét helyen 2.5.145, és a változások a kiadási jegyzékben vannak', () => {
+  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.145';/);
+  assert.equal(APPINFO.version, '2.5.145');
   assert.match(VERSION, /ÚJ BETÖLTŐKÉPERNYŐ A TAKAROKEP\.JPG-BŐL/);
   assert.match(VERSION, /CSAK VALÓS BETÖLÉSI ADATOK/);
   assert.match(VERSION, /AZ EPG VÉGRE MEGJELENIK A FŐOLDALON/, 'a 2.5.143 EPG-javítása hiányzik a jegyzékből');
+  assert.match(VERSION, /AZ INDÍTÁS MEGINT A 2\.5\.140 MENETE SZERINT FUT/, 'a 2.5.145 indulás-javítása hiányzik a jegyzékből');
 });
 
 /* A webOS híd és a téma nem festhet fekete hátteret az indulás alá. */

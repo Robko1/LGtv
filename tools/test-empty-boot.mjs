@@ -117,6 +117,7 @@ test('üres indulás: a futó verzió és az IPK verziója megegyezik', () => {
  */
 async function bootRevealHarness({
   bootState, video = true, emptyMarker = true, rows = 0, dialog = false, stream = null,
+  liveReady = true,
 } = {}) {
   if (!esbuild) return null;
   const source = read('web/src/main.tsx');
@@ -152,6 +153,12 @@ async function bootRevealHarness({
 
   if (bootState) doc.documentElement.setAttribute('data-iptv-boot', bootState);
   if (stream) doc.documentElement.setAttribute('data-iptv-stream', stream);
+  /*
+   * 2.5.145: a felfedés megvárja a teljes élő lista visszatöltését (az App a
+   * `__IPTV_LIVE_READY__` jelzővel tudatja). A próbák alapból kész
+   * állapotot szimulálnak; külön próba nézi a várakozást.
+   */
+  if (liveReady) window.__IPTV_LIVE_READY__ = true;
 
   const root = doc.getElementById('root');
   root.innerHTML = '<header></header><div data-tv-folders=""></div>';
@@ -415,6 +422,55 @@ test('nincs lejátszandó stream: nem várunk az első videókockára', async (t
     assert.equal(h.revealReasons.length, 1, 'a takarókép hiába várt a nem létező videókockára');
     assert.match(h.revealReasons[0], /kész főoldal/);
     assert.equal(h.failures.length, 0);
+  } finally {
+    h.close();
+  }
+});
+
+test('a takarókép megvárja a teljes élő lista visszatöltését', async (t) => {
+  /*
+   * 2.5.145: A 21–23. napló mindhárom indulásánál 2–3,9 mp-es képkocka-
+   * kihagyás volt, amikor a 20 190 csatornás lista a MÁR LÁTHATÓ felület
+   * alatt töltődött be. Ezért a felfedés megvárja az App jelzését
+   * (`__IPTV_LIVE_READY__`) – a lista a takarókép alatt készül el.
+   */
+  const h = await bootRevealHarness({
+    bootState: 'content', rows: 4, video: true, emptyMarker: false, stream: 'none', liveReady: false,
+  });
+  if (!h) { t.skip('esbuild hiányzik'); return; }
+  try {
+    h.runtime.checkRendered();
+    await h.tick(200);
+    assert.equal(h.revealReasons.length, 0,
+      'a takarókép a teljes élő lista előtt fellebbent (a lista a látható felület alatt töltődne)');
+
+    // Az App befejezte: most már megjelenhet.
+    h.window.__IPTV_LIVE_READY__ = true;
+    h.runtime.checkRendered();
+    await h.tick(200);
+    assert.equal(h.revealReasons.length, 1, 'a jelzés után sem tűnt el a takarókép');
+    assert.match(h.revealReasons[0], /kész főoldal/);
+  } finally {
+    h.close();
+  }
+});
+
+test('elakadt tárolónál a takarókép a korláton belül akkor is lekerül', async (t) => {
+  const h = await bootRevealHarness({
+    bootState: 'content', rows: 4, video: true, emptyMarker: false, stream: 'none', liveReady: false,
+  });
+  if (!h) { t.skip('esbuild hiányzik'); return; }
+  try {
+    h.runtime.checkRendered();
+    await h.tick(100);
+    assert.equal(h.revealReasons.length, 0);
+    // A `LIVE_WAIT_MS` (6 mp) letelte után a felfedés nem vár tovább.
+    h.advance(6500);
+    h.runtime.checkRendered();
+    await h.tick(200);
+    assert.equal(h.revealReasons.length, 1, 'a felfedés örökre várt volna');
+    assert.ok(h.phases.some((line) => /időkorlát/.test(line)),
+      'a napló nem jelzi, hogy a felfedés az időkorlát miatt történt');
   } finally {
     h.close();
   }

@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.144';
+export const WEB_VERSION = '2.5.145';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.145',
+    date: '2026-10-27',
+    changes: [
+      'AZ INDÍTÁS MEGINT A 2.5.140 MENETE SZERINT FUT: a 21., 22. és 23. napló mindhárom indulásánál 2–3,9 mp-es képkocka-kihagyás volt – PONT akkor, amikor a 20 190 csatornás teljes lista a MÁR LÁTHATÓ felület alatt töltődött be. Mostantól a teljes élő lista ismét a takarókép ALATT készül el, és a felfedés megvárja (legfeljebb 6 mp-ig): a felület akkor jelenik meg, amikor már minden kész, és utána semmi nem ugrik meg',
+      'A BETÖLTŐKÉPERNYŐN NINCS TÖBBÉ FOLYAMATOS MOZGÁS: kikerült a vászon-részecske animáció (a „mozgó pontok”), a végtelenül úszó háttérkép, a forgó tárcsa-osztás és a mozgó filmszemcse. A látvány ugyanaz az Inditas.html terv, de a TV-nek nem kell minden képkockán újrarajzolnia a teljes képernyőt – ez volt a látható akadozás fő oka',
+      'AZ ÓRA ÉS A DÁTUM KIKERÜLT A JOBB FELSŐ SAROKBÓL: helyette mindkét sarokban a saját logónk látszik (bal: márkajel + szöveg, jobb: a TV-logó). Ezzel a másodpercenkénti újrarajzolás is megszűnt',
+      'A KÉT NAGY HÁTTÉRMUNKA MÁR NEM VERSENYEZ: a 21–23. naplóban a teljes műsorújság (62 MB XMLTV) EGYÜTT töltődött az élő listával, és mindkettőt a töredékére lassította – az élő lista 1 mp helyett 18 mp alatt készült el. Mostantól sorban futnak: előbb az élő lista, utána a műsorújság, és az is csak 2,5 mp-es késleltetéssel, darabokban olvasva',
+      'EGYENLETESEBB TÁROLÓ-OLVASÁS: az IndexedDB-adagok 1200 helyett 500 sorosak, így a főszál rövidebb, gyakoribb szünetekkel dolgozik (a régi mentett lista változatlanul olvasható)',
+      'A MŰSORÚJSÁG 3 ÓRÁIG ÉRVÉNYES (eddig 30 perc): csatornánként 12 órára előre tart műsort, így nem kell félóránként 62 MB-ot újratölteni a videó-adatfolyam mellett. A napló 10 MB-onként jelzi a haladást',
+    ],
+  },
   {
     version: '2.5.144',
     date: '2026-10-27',

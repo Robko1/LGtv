@@ -44,8 +44,15 @@ interface GuideEntry {
   t: string;
 }
 
-/** Ennyi ideig használjuk ugyanazt a műsorújságot, utána újra letöltjük. */
-const GUIDE_TTL_MS = 30 * 60 * 1000;
+/**
+ * Ennyi ideig használjuk ugyanazt a műsorújságot, utána újra letöltjük.
+ *
+ * 2.5.145: 30 perc helyett 3 óra. A fájl 62 MB – a TV-n ez a letöltés a
+ * videó-adatfolyammal osztozik, ezért nem pazaroljuk félóránként. Cserébe
+ * csatornánként 12 órára előre tartunk műsort (nem csak 24 órára 4 darabot),
+ * így a gyorsítótár a 3 óra alatt sem ürül ki.
+ */
+const GUIDE_TTL_MS = 3 * 60 * 60 * 1000;
 /** Egy kérés felső korlátja (nagy panelnél is belefér). */
 const REQUEST_TIMEOUT_MS = 90_000;
 /** Ennél nagyobb fájlt nem olvasunk tovább (memória-védelem). */
@@ -53,15 +60,15 @@ const MAX_BYTES = 64 * 1024 * 1024;
 /** Ennyivel korábbi műsort még megtartunk (az éppen futó miatt). */
 const KEEP_BEFORE_SEC = 2 * 3600;
 /** Ennyivel későbbi műsort tartunk meg (a „következő” miatt). */
-const KEEP_AFTER_SEC = 24 * 3600;
+const KEEP_AFTER_SEC = 12 * 3600;
 /**
  * Csatornánként ennyi műsort tartunk meg olvasás közben. A fájl sorrendje
  * nem garantált, ezért néhány tartalékkal többet olvasunk be, és a rendezés
  * után vágjuk vissza a felülethez szükséges mennyiségre.
  */
-const MAX_ENTRIES_PER_CHANNEL = 6;
-/** Rendezés után csatornánként ennyi műsor marad (most + következő + 2). */
-const KEEP_ENTRIES_PER_CHANNEL = 4;
+const MAX_ENTRIES_PER_CHANNEL = 16;
+/** Rendezés után csatornánként ennyi műsor marad (most + következő ~12 óra). */
+const KEEP_ENTRIES_PER_CHANNEL = 14;
 /** Ennél több csatornát nem indexelünk (memória-védelem). */
 const MAX_CHANNELS = 40_000;
 
@@ -173,6 +180,11 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
   list.push({ s: start, e: stop, t: title });
 }
 
+/** Hány blokk feldolgozása után adjuk vissza a főszálat. */
+const YIELD_EVERY_BLOCKS = 40;
+/** A legutóbbi szünet óta feldolgozott blokkok száma. */
+let blocksSinceYield = 0;
+
 /** A szövegdarab feldolgozása; csak a BEFEJEZETT blokkokat értelmezzük. */
 function feed(text: string): void {
   buffer += text;
@@ -195,7 +207,34 @@ function feed(text: string): void {
   let match = blockRe.exec(complete);
   while (match) {
     consumeBlock(match[1].toLowerCase(), match[2] || '', match[3] || '');
+    blocksSinceYield += 1;
+    if (blocksSinceYield >= YIELD_EVERY_BLOCKS) {
+      blocksSinceYield = 0;
+      // Rövid szünet a hívónak: a 62 MB-os fájl így nem egyetlen hosszú
+      // feladat, hanem sok apró lépés (a felület közben fest).
+      yieldRequested = true;
+      return;
+    }
     match = blockRe.exec(complete);
+  }
+}
+
+/**
+ * A `feed()` jelezte, hogy itt az ideje visszaadni a vezérlést.
+ *
+ * A maradék szöveget NEM dobjuk el: a feldolgozatlan rész a `buffer`-ben
+ * marad, és a következő híváskor onnan folytatjuk.
+ */
+let yieldRequested = false;
+
+/** Feldolgozás visszaadott szünetekkel: amíg van mit, addig darabolunk. */
+async function feedWithBreath(text: string): Promise<void> {
+  feed(text);
+  while (yieldRequested) {
+    yieldRequested = false;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    // A megmaradt, befogadott szöveget tovább dolgozzuk fel.
+    if (buffer.length) feed('');
   }
 }
 
@@ -244,13 +283,14 @@ async function download(provider: { serverUrl?: string; username?: string; passw
       // Régi motor: nincs stream, egyben olvassuk (ez már csak tartalék út).
       const text = await response.text();
       lastBytes = text.length;
-      feed(text);
+      await feedWithBreath(text);
       finishParsing();
       return;
     }
     const reader = body.getReader();
     const decoder = new TextDecoder('utf-8');
     let bytes = 0;
+    let lastLoggedBytes = 0;
     let lastYield = Date.now();
     for (;;) {
       const { done, value } = await reader.read();
@@ -262,11 +302,17 @@ async function download(provider: { serverUrl?: string; username?: string; passw
         appLog(`EPG: a műsorújság ${Math.round(MAX_BYTES / 1048576)} MB-nál nagyobb – a további részt nem olvassuk.`);
         break;
       }
-      feed(decoder.decode(value, { stream: true }));
+      await feedWithBreath(decoder.decode(value, { stream: true }));
       // LÉLEGZÉS: 250 ms-onként visszaadjuk a főszálat, hogy a felület fusson.
       if (Date.now() - lastYield > 250) {
         lastYield = Date.now();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      // Haladásjelzés a naplóba (10 MB-onként): a TV-n ebből látszik, hogy
+      // a letöltés él és halad – nem kell a 30 mp-es végére várni.
+      if (bytes - lastLoggedBytes >= 10 * 1024 * 1024) {
+        lastLoggedBytes = bytes;
+        appLog(`EPG: műsorújság olvasása – ${(bytes / 1048576).toFixed(0)} MB, eddig ${index.size} csatorna.`);
       }
     }
     lastBytes = bytes;
