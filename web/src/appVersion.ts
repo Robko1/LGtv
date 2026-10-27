@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.147';
+export const WEB_VERSION = '2.5.148';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.147',
+    version: '2.5.148',
     date: '2026-10-27',
     changes: [
       'AZ INDÍTÓKÉPERNYŐN VÉGIG FUT EGY MOZGÁS: a 2.5.145-ben minden animáció kikerült, és a néző visszajelzése szerint így „az animáció le sem fut”, a kép befagyottnak látszik. Visszajött EGYETLEN olcsó mozgás – a tárcsa körül forgó gyűrű, a sávon átvonuló fénycsík és a márkajel halk lélegzése. Mindhárom CSAK transform/opacity, saját kompozitor-rétegben: akkor is fut, amikor a csatornalista dekódolása foglalja a fő szálat (nincs vászon-részecske, nincs filmszemcse, nincs óra)',
