@@ -921,19 +921,23 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       const row = document.querySelector<HTMLElement>(`[data-channel-id="${id}"] [role="option"]`)
         || document.querySelector<HTMLElement>(`[data-channel-id="${id}"]`);
       if (!row) return;
-      try {
-        const legacy = row as HTMLElement & { scrollIntoViewIfNeeded?: (center?: boolean) => void };
-        if (typeof legacy.scrollIntoViewIfNeeded === 'function') legacy.scrollIntoViewIfNeeded(false);
-        else row.scrollIntoView({ block: 'nearest', behavior: 'auto' as any });
-      } catch { /* régi motor */ }
+      // Csak akkor görgetünk, ha a sor nincs a látható területen, elkerülve a felesleges elrendezés-újraszámolást.
+      const list = channelScrollRef.current;
+      if (list) {
+        const rect = row.getBoundingClientRect();
+        const listRect = list.getBoundingClientRect();
+        if (rect.top < listRect.top || rect.bottom > listRect.bottom) {
+          try {
+            const legacy = row as HTMLElement & { scrollIntoViewIfNeeded?: (center?: boolean) => void };
+            if (typeof legacy.scrollIntoViewIfNeeded === 'function') legacy.scrollIntoViewIfNeeded(false);
+            else row.scrollIntoView({ block: 'nearest', behavior: 'auto' as any });
+          } catch { /* régi motor */ }
+        }
+      }
       row.focus({ preventScroll: true } as any);
     };
     const onRestore = () => {
-      // Három lépés: a lista újrarenderelődik, majd a lassú webOS-on a sorok
-      // is késve épülnek fel – a harmadik próba ezt fogja meg.
-      window.setTimeout(restore, 30);
-      window.setTimeout(restore, 220);
-      window.setTimeout(restore, 620);
+      window.requestAnimationFrame(restore);
     };
     window.addEventListener('iptv-focus-selected-channel', onRestore);
     return () => window.removeEventListener('iptv-focus-selected-channel', onRestore);
