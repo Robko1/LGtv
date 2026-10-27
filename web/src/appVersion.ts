@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.149';
+export const WEB_VERSION = '2.5.150';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.149',
+    version: '2.5.150',
     date: '2026-10-27',
     changes: [
       'AZ INDULÁS NEM VÁR TÖBBÉ A 20 190 CSATORNÁS LISTÁRA: a 28–30. napló mérése szerint a teljes élő lista dekódolása a TV-n 3 mp volt, és az alkalmazás 1,5 mp-re fagyott tőle – mindkettő a takarókép ALATT, ezért a felfedés csak 7–10 mp-nél történt meg. Mostantól a takarókép akkor megy le, amikor a LÁTHATÓ felület kész (fejléc, csatornalista az induló készlettel, lejátszó) és a videó első képkockája megjelent; a teljes lista utána, a már működő felület fölött érkezik, és a látható magyar lista sorrendjét nem változtatja meg',
