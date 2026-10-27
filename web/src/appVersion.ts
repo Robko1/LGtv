@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.154';
+export const WEB_VERSION = '2.5.155';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.154',
+    version: '2.5.155',
     date: '2026-10-27',
     changes: [
       'A FELFEDÉS NEM VÁR KÉPKOCKÁRA: a 41–44. napló mérése szerint a videó elindulásakor a TV 1,2–3,9 mp-ig EGYETLEN képkockát sem ad (a requestAnimationFrame nem hívódik meg), miközben a JavaScript tovább fut. A régi képkocka-őr ezt „foglalt fő szálnak” látta, és elhalasztotta a takarókép levételét – a 41. naplóban 3,6 mp helyett 6,5 mp-nél történt meg a felfedés. Mostantól a képkockára legfeljebb 350 ms-ot várunk, utána a váltás megtörténik; a késés ténye csak a naplóba kerül',
