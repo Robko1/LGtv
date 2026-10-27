@@ -394,6 +394,25 @@ test('a 20 190 csatornás lista a felfedés UTÁN töltődik be, nem alatta', ()
     'a betöltőképernyő lezárása megint a felfedés ELŐTT fut (1,4–2,4 mp késés)');
 });
 
+test('a visszatöltött lista nem írja vissza magát a tartós tárba', () => {
+  /*
+   * A 30. napló: az IDB-visszatöltés után 1,4 mp-cel a stream megakadt, majd
+   * a puffervideó-watchdog újracsatlakoztatott. A mentést csak a felhasználói
+   * változás (`dirtyRef`) indíthatja – ha a visszatöltés „piszkosnak” jelölné
+   * a listát, a 20 190 csatorna (≈5 MB) azonnal visszaíródna a fő szálon.
+   */
+  const app = read('web/src/App.tsx');
+  const restoreStart = app.indexOf('const runRestore = useCallback(');
+  const restoreEnd = app.indexOf('const ensureVodLoaded', restoreStart);
+  assert.ok(restoreStart > 0 && restoreEnd > restoreStart, 'a runRestore nem található');
+  const body = app.slice(restoreStart, restoreEnd);
+  assert.doesNotMatch(body, /dirtyRef\.current = true/,
+    'a visszatöltés piszkosnak jelöli a listát – fölösleges 5 MB-os újraírás indul');
+  const saveEffect = app.slice(app.indexOf('if (!dirtyRef.current || !activeProvider) return;'));
+  assert.match(saveEffect.slice(0, 2000), /if \(changedChannels\) saveLiveContentSafely\(content\);/,
+    'a mentés a csatornalista változásához van kötve');
+});
+
 /* ─────────────── 8. VERZIÓ ─────────────── */
 
 test('a verzió mindkét helyen 2.5.149, és a változások a kiadási jegyzékben vannak', () => {

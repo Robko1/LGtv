@@ -216,17 +216,6 @@ try {
    */
   const VIDEO_WAIT_MS = 1200;
   const LOGO_WAIT_MS = 600;
-  /*
-   * A TELJES ÉLŐ LISTA MÁR NEM A TAKARÓKÉP ALATT TÖLTŐDIK BE (2.5.149).
-   *
-   * A 28–30. napló mérése szerint a 20 190 csatornás lista dekódolása a TV-n
-   * 3 mp volt, az alkalmazás pedig 1,5 mp-re fagyott tőle – mindkettő a
-   * takarókép alatt, ezért a felfedés csak 7–10 mp-nél történt meg. Most a
-   * látható felület (fejléc, csatornalista az induló készlettel, lejátszó)
-   * készenléte dönt, a teljes lista pedig a felfedés UTÁN érkezik.
-   *
-   * A `liveReady()` csak a naplózáshoz marad meg: a felfedés nem vár rá.
-   */
   /**
    * A teljes lista készenléte – MÁR CSAK NAPLÓZÁSRA (2.5.149).
    * A felfedés nem vár rá: a takarókép akkor megy le, amikor a LÁTHATÓ

@@ -1188,23 +1188,25 @@ export function App() {
   const ensureVodLoaded = useCallback(() => { void runRestore(catalogPlanRef.current, 'vod'); }, [runRestore]);
 
   /**
-   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE – A TAKARÓKÉP ALATT (2.5.145).
+   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE – A FELFEDÉS UTÁN (2.5.149).
    *
-   * MIÉRT VÁLTOZOTT VISSZA A 2.5.140 MENETÉRE:
+   * A TÖRTÉNET (miért lett ez a menetrend):
+   *   • 2.5.143 – a teljes lista a felfedés UTÁN: a 21–23. napló 2–3,9 mp-es
+   *     képkocka-kihagyást mutatott, mert a dekódolás a már látható felületre
+   *     esett („ugrált minden”).
+   *   • 2.5.145 – ezért a lista a TAKARÓKÉP ALATT futott: ott nem látszott,
+   *     de a felfedés 7–10 mp-re tolódott (28–30. napló) – ez lett a
+   *     „katasztrofális indulás”.
+   *   • 2.5.149 – a kettő között: a felfedés a LÁTHATÓ felületre vár, a lista
+   *     pedig a felfedés UTÁN, 1,2 mp üresjárat után indul (startBackgroundWork).
+   *     A dekódolás adagonként lélegzik (loadLiveFull → yieldToStorage), a
+   *     lista-visszatöltés pedig NEM jelöl „piszkosnak”, tehát nem írja vissza
+   *     a 20 190 csatornát a tartós tárba (az a fölösleges 5 MB-os újraírás
+   *     is a fő szálat fogta).
    *
-   * A 21., 22. és 23. napló mindhárom indulása 2–3,9 mp-es képkocka-
-   * kihagyást mutatott. A 2.5.143-ban a teljes lista a felfedés UTÁN
-   * töltődött be: a néző már látta a kész felületet, amikor a fő szál
-   * megállt – ezért „ugrált” minden. A 2.5.140-ben ugyanez a munka a
-   * takarókép ALATT futott, és pont ezért volt jó: a felfedés pillanatában
-   * minden készen volt.
-   *
-   * Ezért most a lista ismét AZONNAL, a tároló-próba után indul – de csak
-   * az ÉLŐ adag (a 20 190 csatorna ~1 mp a csendes TV-n; a napló 19-ben
-   * 752 ms volt). A 127 766 film/sorozat továbbra is csak a Mozi/Sorozat
-   * menü megnyitásakor töltődik be, és a műsorújság (XMLTV) is csak akkor
-   * indul, ha ez a betöltés már befejeződött – a két nagy munka nem
-   * versenyez egymással.
+   * A 127 766 film/sorozat továbbra is csak a Mozi/Sorozat menü megnyitásakor
+   * töltődik be, a műsorújság (XMLTV) pedig csak a lista után – a két nagy
+   * munka nem versenyez egymással.
    */
   const guideStatusSafe = useCallback((): { channels: number } => {
     try { return guideStatus(); } catch { return { channels: 0 }; }
