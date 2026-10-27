@@ -60,8 +60,15 @@ test('a HTML biztosítja az előfestést a takarókép alatt', () => {
   const reveal = PAGE.slice(PAGE.indexOf('window.__IPTV_REVEAL__ = function'));
   assert.match(reveal.slice(0, 900), /__IPTV_PREPARE_REVEAL__\(true\)/,
     'a REVEAL nem pótolja a kimaradt előfestést');
-  assert.match(reveal.slice(0, 900), /removeChild\(splash\)/,
+  // 2.5.135: a takaróképet az áttűnés VÉGÉN távolítjuk el (külön,
+  // idempotens függvény), nem a REVEAL első sorában – így a kép
+  // folyamatosan ér át a kész felületbe.
+  assert.match(PAGE, /window\.__IPTV_FINISH_REVEAL__ = function/,
+    'hiányzik az áttűnést lezáró függvény');
+  assert.match(PAGE, /fading\.parentNode\.removeChild\(fading\)/,
     'a takarókép eltávolítása eltűnt');
+  assert.match(reveal.slice(0, 3600), /__IPTV_FINISH_REVEAL__\(\)/,
+    'a REVEAL nem indítja el az áttűnés lezárását');
 });
 
 test('a főoldal a takarókép alatt már látható, de a takarókép fent marad', () => {
@@ -111,6 +118,11 @@ test('a REVEAL egyetlen váltás: takarókép le, #root látható, indítókép 
     window.__IPTV_REVEAL__('teszt');
 
     assert.equal(window.__IPTV_REVEALED__, true);
+    const fading = doc.getElementById('tv-curtain');
+    assert.ok(fading, 'a takaróképnek az áttűnés alatt is fent kell maradnia');
+    assert.match(fading.className, /iptv-fading/);
+    assert.equal(fading.style.opacity, '0');
+    window.__IPTV_FINISH_REVEAL__();
     assert.equal(doc.getElementById('tv-curtain'), null);
     assert.equal(window.getComputedStyle(doc.getElementById('root')).visibility, 'visible');
     assert.doesNotMatch(doc.documentElement.className, /iptv-booting/);
@@ -136,6 +148,8 @@ test('ha az előfestés kimarad, a REVEAL akkor is láthatóvá teszi a felület
     assert.equal(window.__IPTV_PREPARED__, true, 'a REVEAL nem pótolta az előfestést');
     assert.match(doc.documentElement.className, /iptv-prerender/);
     assert.equal(window.getComputedStyle(doc.getElementById('root')).visibility, 'visible');
+    assert.match(doc.getElementById('tv-curtain').className, /iptv-fading/);
+    window.__IPTV_FINISH_REVEAL__();
     assert.equal(doc.getElementById('tv-curtain'), null);
     assert.equal(calls.length, 1);
   } finally {
@@ -184,15 +198,25 @@ test('nincs több zöld tartalék színátmenet a takaróképen', () => {
     'maradt színátmenetes tartalék hátkép');
 });
 
-test('a takarókép első festése azonnal dekódolható kicsinyített képet kap', () => {
+test('a takarókép első festése EGYETLEN, azonnal dekódolható képet kap', () => {
   assert.equal(PAGE.split('__IPTV_SPLASH_TINY_URI__').length - 1, 1,
     'a kicsinyített kép jelölője nem pontosan egyszer szerepel');
   assert.match(PAGE, /var tinyImage = hasTiny \? 'url\(' \+ tinyData \+ '\)' : 'none';/,
-    'hiányzik a kicsinyített kép CSS-rétege');
-  assert.match(PAGE, /var splashLayer = splashImage \+ ',' \+ tinyImage;/,
-    'a teljes kép és a kicsinyített kép nincs egymás mögé rétegezve');
-  assert.doesNotMatch(PAGE, /splashLayer =[\s\S]{0,120}linear-gradient/,
-    'a zöld színátmenet még mindig a CSS-rétegek között van');
+    'hiányzik a kicsinyített kép egyetlen CSS-rétege');
+  /* 2.5.135: NINCS több két CSS-réteg. Amíg a felső JPEG nem volt kész,
+     a Chrome egyik réteget sem festette ki, csak a lapos zöld hátteret. */
+  assert.doesNotMatch(PAGE, /var splashLayer =/,
+    'a teljes kép újra a CSS-háttér rétegei között van (zöld villanás)');
+  assert.match(PAGE, /"#tv-curtain\{background-image:" \+ tinyImage/,
+    'a tartalék kép nem a takaróképre kerül');
+  assert.match(PAGE, /"html\.iptv-booting body\{background-image:" \+ tinyImage/,
+    'a tartalék kép nem a body-ra kerül');
+  assert.match(PAGE, /<img id="tv-curtain-img"[^>]*decoding="sync"/,
+    'hiányzik a szinkron dekódolású, valódi <img> takarókép');
+  assert.match(PAGE, /var posterImage = hasSplash \? 'url\(' \+ splashData \+ '\)' : 'none';/,
+    'az üres főoldal nem kapja meg az indítóképet a lejátszó-dobozába');
+  assert.match(PAGE, /html\[data-iptv-boot=\\"empty\\"\] \[data-player-poster\]/,
+    'a lejátszó poszterére nem terjed ki az üres állapot szabálya');
 });
 
 test('a teljes indítókép dekódolása már a HTML fejlécében elindul', () => {
@@ -211,8 +235,10 @@ test('a build feloldja a kicsinyített kép jelölőjét (PNG, nem JPEG)', () =>
     'a build nem cseréli ki a kicsinyített kép jelölőjét');
   assert.match(build, /tiny_uri = "data:image\/png;base64,"/,
     'a kicsinyített kép nem PNG (a csomagban pontosan egy JPEG lehet)');
-  assert.match(build, /resize\(\(48, 27\)/,
-    'a kicsinyített kép nem 48x27 pixeles');
+  assert.match(build, /resize\(\(192, 108\)/,
+    'a tartalék kép nem 192x108 pixeles');
+  assert.match(build, /quality=80, optimize=True, progressive=False/,
+    'a beégetett kép nem 1920x1080-as, baseline JPEG');
   const built = path.join(ROOT, 'build/webos/index.html');
   if (!fs.existsSync(built)) return;
   const html = fs.readFileSync(built, 'utf8');

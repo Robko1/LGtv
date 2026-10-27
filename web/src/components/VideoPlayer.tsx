@@ -4061,12 +4061,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           data-player-poster=""
           className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-[#0a1220] pointer-events-none"
         >
-          <div className="h-16 w-16 md:h-24 md:w-24 flex items-center justify-center overflow-hidden rounded-xl border border-cyan-800/50 bg-[#0e1e3e]">
-            <ChannelLogo url={channel?.logo} name={channel?.name || ''} retryKey={channel?.id} />
-          </div>
-          <div className="max-w-[80%] truncate text-center text-lg font-bold text-slate-300 md:text-2xl">
-            {channel?.name || 'Kapcsolódás…'}
-          </div>
+          {/* 2.5.135 – FOLYAMATOS INDULÁS.
+              Üres IPK-n nincs csatorna: a logó-doboz és a „Kapcsolódás…”
+              felirat csak egy sötét, majdnem fekete téglalapot adott volna a
+              képernyő közepére (ez volt a „fekete felvillanás”). A HTML
+              fejlécéből injektált CSS ilyenkor a webOS indítóképét teszi a
+              doboz hátterére, ezért a REVEAL után is UGYANAZ a kép látszik –
+              csak a kezelőfelület épül köré. Ha már van csatorna, a logó és
+              a csatornanév változatlanul megjelenik. */}
+          {channel && (
+            <>
+              <div className="h-16 w-16 md:h-24 md:w-24 flex items-center justify-center overflow-hidden rounded-xl border border-cyan-800/50 bg-[#0e1e3e]">
+                <ChannelLogo url={channel.logo} name={channel.name || ''} retryKey={channel.id} />
+              </div>
+              <div className="max-w-[80%] truncate text-center text-lg font-bold text-slate-300 md:text-2xl">
+                {channel.name || 'Kapcsolódás…'}
+              </div>
+            </>
+          )}
         </div>
       )}
 

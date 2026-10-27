@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.134';
+export const WEB_VERSION = '2.5.135';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.135',
+    date: '2026-10-27',
+    changes: [
+      'FOLYAMATOS INDULÁS – NINCS TÖBB ZÖLD VAGY FEKETE FELVILLANÁS: a 00:14:19 (#2) és 00:14:56 (#3) TV-naplók alapján a takarókép két CSS háttérrétege (éles JPEG + apró PNG) miatt a böngésző az első festéskor csak a lapos #6ccbd3 színt mutatta. Most a teljes, 1920×1080-as indítókép egy VALÓDI <img decoding="sync"> elemre kerül, amelyet a böngésző már az első képkockán szinkron dekódol; a tartalék pedig EGYETLEN, 192×108-as PNG, ugyanannak a képnek a kicsinyített mása',
+      'A TAKARÓKÉP PONTOSAN UGYANABBAN A FELBONTÁSBAN KÉSZÜL, MINT A WEBOS RENDSZERINDÍTÓ KÉPE: korábban a beégetett kép 1280×720 volt, ezért a platform splashBackground-járól a saját takaróképre váltáskor a logó belobbant / elmosódott. Most 1920×1080, baseline JPEG, nincs nagyítási ugrás',
+      'NINCS FEKETE KÉPKOCKA A REVEALNÉL: a build által beégetett és a webOS híd által injektált `body { background:#000 }` szabályt az app saját sötétkék (#080d1a) alapszínére cseréltük, a html vászna pedig induláskor a takarókép színét veszi fel. A #root TV-paddingjén átlátszó fekete keret megszűnt',
+      'A KÉPERNYŐ NEM UGRIK, HANEM FOLYAMATOSAN ÁTTŰNIK: a REVEAL nem törli azonnal a takaróképet, hanem a már KIFESTETT felület fölött 200 ms alatt halványítja el (kompozitor-átmenet). Nem a felület úszik be – az áttetsző UI alatt korábban látszott a zöld háttér, ezért villogott. Most az átlátszatlan takarókép tűnik el fokozatosan; transitionend vagy 240 ms-os biztonsági időzítő után a réteg végleg kikerül a DOM-ból',
+      'AZ ÜRES IPK FŐOLDALA MEGTARTJA AZ INDÍTÓKÉPET: a lejátszó üres poszter-doboza („Kapcsolódás…”) eddig egy nagy sötét téglalap volt. Most ugyanazt a logós képet mutatja, amíg nincs csatorna, így a REVEAL utáni első képkocka nem fekete, hanem a már látott indítókép – csak a kezelőfelület épül köré. Ez az előre rajzolt, fix váz első lépése: a régiók nem mozognak, csak az adatok változnak',
+      'A TAKARÓKÉP LEVÉTELE TOVÁBBRA IS EGYETLEN, IDŐZÍTETT ESEMÉNY: a notifyAppLoaded() pontosan akkor fut, amikor a saját, azonos képű takarókép már fent van; a 12 mp-es biztonsági háló és a kétlépcsős előfestés változatlan marad',
+    ],
+  },
   {
     version: '2.5.134',
     date: '2026-10-26',
