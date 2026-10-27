@@ -26,6 +26,13 @@ import {
   sweepStorage,
 } from './services/contentStore';
 import { appLog, appLogError, logPhase } from './services/appLog';
+import {
+  bootScreenChannels,
+  bootScreenDetail,
+  bootScreenPhase,
+  bootScreenProviderProgress,
+  bootScreenTransfer,
+} from './services/bootScreen';
 import { fsPerf } from './services/fullscreenPerf';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
@@ -820,6 +827,24 @@ export function App() {
     return { ...base, epgNow: activeEpg.now, epgNext: activeEpg.next, epgUpcoming: activeEpg.upcoming };
   }, [channelsById, channels, activeChannelId, activeEpg, liveListComplete]);
 
+  /*
+   * VAN-E EGYÁLTALÁN LEJÁTSZANDÓ STREAM?
+   *
+   * A takarókép levételét vezérlő main.tsx ebből tudja, hogy kell-e az első
+   * videókockára várni. Üres telepítésnél (nincs csatorna, nincs közvetlen
+   * stream-cím) nincs lejátszandó adás: ilyenkor a kész, üres felület
+   * AZONNAL megjelenhet, nem várunk hiába a képkockára.
+   *
+   * Az érték a VALÓS állapotból származik (aktív csatorna / beírt stream),
+   * nem időzítőből.
+   */
+  useEffect(() => {
+    try {
+      const hasStream = !!(customStreamUrl || activeChannel);
+      document.documentElement.setAttribute('data-iptv-stream', hasStream ? 'active' : 'none');
+    } catch { /* nincs DOM (teszt/SSR) */ }
+  }, [customStreamUrl, activeChannel]);
+
   // A csatornalista a kiválasztott kategóriát, a kedvenceket vagy a kiválasztott mappát mutatja.
   const filteredChannels = useMemo(() => {
     const globalQuery = categorySearchQuery.trim().toLocaleLowerCase();
@@ -1116,8 +1141,11 @@ export function App() {
     let decided: BootState = 'empty';
     void (async () => {
       try {
+        // VALÓS lépés: a tároló ellenőrzése ténylegesen elindult.
+        bootScreenPhase('storage', 'A készülék tárolójának ellenőrzése…');
         const plan = await inspectStoredCatalogs();
         const report = plan?.report || lastStoredContentReport() || await describeStoredContent();
+        bootScreenPhase('stored', `Tároló megnyitva: ${report.liveIdb} mentett csatorna a tartós tárban.`);
         appLog(
           `TÁROLÓ-JELENTÉS: localStorage=${report.localKeys} kulcs / ${report.localChars} karakter; `
           + `induló készlet=${report.liveLocal} csatorna; tartós tár: `
@@ -1129,6 +1157,14 @@ export function App() {
         if (!plan || (!plan.bootChannels.length && !plan.hasLive && !plan.hasVod && !plan.hasSeries)) {
           decided = 'empty';
           markBootState('empty');
+          /*
+           * ÜRES TELEPÍTÉS = KÉSZ ÁLLAPOT. Nincs csatorna, nincs stream,
+           * ezért nincs első videókocka sem, amire várni kellene. A
+           * betöltőképernyőn a valós 0 csatorna látszik, majd a kész
+           * felület megjelenésekor 100% lesz.
+           */
+          bootScreenChannels(0);
+          bootScreenPhase('empty', 'Nincs mentett lista – a kész felület azonnal használható.');
           if (providers.length === 0) {
             /*
              * ÜRES IPK: nincs szolgáltató, nincs lista. Ilyenkor NEM indul
@@ -1160,6 +1196,12 @@ export function App() {
             setActiveChannelId(recoveredActiveId);
           }
           appLog(`INDULÁS MENTETT ADATBÓL: ${prepared.length} csatorna azonnal, letöltés nélkül.`);
+          // A betöltőképernyőn a VALÓBAN visszatöltött csatornák száma látszik.
+          bootScreenChannels(prepared.length);
+          bootScreenPhase('restored', `${prepared.length} csatorna betöltve a tartós tárból.`);
+        } else {
+          bootScreenChannels(bootChannels.length);
+          bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
         }
         setActiveProvider(plan.provider);
         setProviderContentReady(true);
@@ -1881,6 +1923,8 @@ export function App() {
     setDiagnosticError(null);
     const initialProgress = { phase: 'Frissítés indul…', percent: 2 };
     setDiagnosticProgress(initialProgress);
+    // A betöltőképernyő ugyanezt a VALÓDI folyamatjelzőt kapja meg.
+    bootScreenProviderProgress(initialProgress);
     setDiagnosticStartedAt(refreshStartedAt);
     setDiagnosticFinishedAt(null);
     setRefreshLivePromptOpen(false);
@@ -1906,6 +1950,12 @@ export function App() {
      */
     lastProgressPaintRef.current = 0;
     setNetworkDiagnosticSink((event) => {
+      /*
+       * A betöltőképernyő sebessége KIZÁRÓLAG a ténylegesen átvitt bájtokból
+       * és a mért eltelt időből származik (net.ts). Hibánál nem írjuk felül:
+       * nem mutatunk kitalált értéket.
+       */
+      bootScreenTransfer(event);
       if (diagnosticFinishedRef.current || refreshGenerationRef.current !== refreshGeneration) return;
       diagnosticEventsRef.current = [...diagnosticEventsRef.current, event].slice(-250);
       scheduleDiagnosticFlush();
@@ -1973,6 +2023,12 @@ export function App() {
         channelsRef.current = orderedVisibleChannels;
         activeProviderRef.current = draft.provider;
         /*
+         * A betöltőképernyőn a TÉNYLEGESEN a felületre került csatornák
+         * száma látszik (előnézetnél is: annyi, amennyi valóban megérkezett).
+         */
+        bootScreenChannels(orderedVisibleChannels.length);
+        bootScreenDetail(`${orderedVisibleChannels.length} csatorna a felületen · ${provider.name}`);
+        /*
          * Csatornaváltás CSAK a TELJES élő lista után, és akkor is csak akkor,
          * ha a nézett csatorna valóban nincs benne. Előnézetből (első 1500
          * csatorna) nem döntünk: a hiányos listából választott csatorna a
@@ -1980,6 +2036,13 @@ export function App() {
          */
         const liveComplete = partial.liveComplete === true || partial.preview !== true;
         if (liveComplete) setLiveListComplete(true);
+        /*
+         * A betöltőképernyő 5/7 lépése AKKOR kész, amikor a szolgáltató ÉLŐ
+         * listája ténylegesen megérkezett – nem előbb, és nem időzítőre.
+         */
+        if (liveComplete && partial.channels.length > 0) {
+          bootScreenPhase('live', `${orderedVisibleChannels.length} élő csatorna betöltve (${provider.name}).`);
+        }
         keepOrMoveActiveChannel(orderedVisibleChannels, false, { allowSwitch: liveComplete });
         /*
          * A felugró ablak az ÉLŐ szakasz befejezésekor jelenik meg (a filmek és
@@ -2092,6 +2155,12 @@ export function App() {
           if (progress.percent < 99 && now - lastProgressPaintRef.current < DIAGNOSTIC_FLUSH_MS) return;
           lastProgressPaintRef.current = now;
           setDiagnosticProgress(progress);
+          /*
+           * UGYANAZ a valós folyamatjelzés megy a betöltőképernyőre is.
+           * Nincs külön, kitalált százalék: a szolgáltatói betöltés valódi
+           * fázisai (bejelentkezés, élő lista, feldolgozás) adják az értéket.
+           */
+          bootScreenProviderProgress(progress);
           setLastImportDiagnostic(() => ({ providerId: id, providerName: provider.name, progress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: false }));
         },
         applyPartial,
@@ -2143,6 +2212,8 @@ export function App() {
         providerRefreshActiveRef.current = false;
         setProviderContentReady(true);
         setLiveListComplete(true);
+        bootScreenPhase('live', 'A szolgáltató listája változatlan – a mentett készlet érvényes.');
+        bootScreenDetail(`${finalProgress.detail}`);
         return;
       }
 
@@ -2315,6 +2386,8 @@ export function App() {
       flushDiagnosticNow();
       setNetworkDiagnosticSink(null);
       providerRefreshActiveRef.current = false;
+      bootScreenPhase('live', `${summary.counts}`);
+      bootScreenDetail(`${summary.counts}${summary.extra ? ` • ${summary.extra}` : ''}`);
     } catch (error) {
       // Egy új frissítés vagy a felhasználó megszakítása a régi importot is
       // leállíthatja. Ez nem felhasználói hiba, és a régi async hívás nem
@@ -2328,6 +2401,8 @@ export function App() {
       setDiagnosticFinishedAt(finishedAt);
       const message = error instanceof Error ? error.message : 'A frissítés nem sikerült.';
       setDiagnosticError(message);
+      // A betöltőképernyő a VALÓDI hibaszöveget mutatja (nem kitalált értéket).
+      bootScreenDetail('HIBA: ' + message);
       setDiagnosticProgress((prev: any) => ({ ...(prev || {}), phase: 'Hiba', percent: Math.min(99, Math.max(0, prev?.percent || 0)) }));
       setLastImportDiagnostic((current) => ({
         providerId: id,

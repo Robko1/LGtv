@@ -233,9 +233,14 @@ jobs:
           img = Image.open(splash)
           if img.size != (1920, 1080):
               raise SystemExit(f"HIBA: az indítókép mérete {img.size}, várt 1920x1080.")
-          if splash.stat().st_size > 900 * 1024:
-              raise SystemExit("HIBA: az indítókép túl nagy (a csomag mérete miatt max ~900 KB).")
-          print(f"OK: indítókép (logó képkocka) {img.size}, {splash.stat().st_size} byte.")
+          # 2.5.139: az indítókép a takarokep.jpg VESZTESÉGMENTES változata
+          # (a felhasználó által megadott borítókép). Fotó-szerű képnél a PNG
+          # 1920x1080-ban ~1,1 MB; ez vállalható, mert a platform indítóképe
+          # PONTOSAN ugyanaz a kép, mint a HTML betöltőképernyő háttere, így
+          # nincs szín- vagy élességugrás a váltásnál.
+          if splash.stat().st_size > 1400 * 1024:
+              raise SystemExit("HIBA: az indítókép túl nagy (max ~1,4 MB).")
+          print(f"OK: indítókép (takarokep.jpg) {img.size}, {splash.stat().st_size} byte.")
           PY
           bash -n tools/build-webos.sh
           node --check webos/webos.js
@@ -250,8 +255,9 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          # A TV saját indítóképernyője a VIDEÓ ELSŐ KOCKÁJA (a fehér villanás
-          # ellen), és a rendszer forgó fogaskereke se jelenjen meg a videó előtt.
+          # A TV saját indítóképernyője a takarokep.jpg (a betöltőképernyő
+          # hátterével AZONOS kép), és a rendszer forgó fogaskereke se jelenjen
+          # meg a kép előtt.
           if manifest.get("splashBackground") != "splash-screen.png":
               raise SystemExit("HIBA: a webOS manifest nem a splash-screen.png indítóképet használja.")
           if manifest.get("spinnerOnLaunch") is not False:
@@ -266,7 +272,7 @@ jobs:
           mean = ImageStat.Stat(splash_img).mean
           if all(channel > 250 for channel in mean):
               raise SystemExit("HIBA: az indítókép tiszta fehér - ez fehér villanást okozna.")
-          print(f"LG webOS verziók egyeznek: {match.group(1)}; indítókép = a logó képkockája, spinner nélkül.")
+          print(f"LG webOS verziók egyeznek: {match.group(1)}; indítókép = a takarokep.jpg, spinner nélkül.")
           PY
           echo "OK: webOS-frissítő, platformtisztaság, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
 
@@ -391,9 +397,10 @@ jobs:
           ipk_files = Path("/tmp/ipk-files.txt").read_text()
           if "/splash-bg.jpg" not in ipk_files:
               raise SystemExit("HIBA: hiányzik a betöltés alatti háttér (splash-bg.jpg) a csomagból.")
-          # 2.5.137: a HTML kicsi maradt, a JS/CSS/logó KÜLÖN fájl. Ha ezek
-          # hiányoznak, a TV-n nem indul el az alkalmazás (üres képernyő).
-          for needed in ("/app.js", "/app.css", "/boot-logo.jpg"):
+          # 2.5.139: a HTML kicsi maradt, a JS/CSS és a két indítókép KÜLÖN
+          # fájl. Ha ezek hiányoznak, a TV-n nem indul el az alkalmazás vagy
+          # nem jelenik meg a takarókép (üres/fekete képernyő).
+          for needed in ("/app.js", "/app.css", "/splash-screen.png", "/splash-bg.jpg"):
               if needed not in ipk_files:
                   raise SystemExit(f"HIBA: hiányzik a {needed} fájl az IPK-ból – a HTML nem tudja betölteni.")
           if len(html) > 200_000:
@@ -406,7 +413,7 @@ jobs:
               raise SystemExit("HIBA: module script maradt a csomagban - a Chrome<61 TV-motorokon (webOS 3.x/4.0) az app el sem indulna!")
           if "IPTV-ES5-APP" not in html or "IPTV-ES5-POLYFILLS" not in html:
               raise SystemExit("HIBA: az ES5-re fordított app vagy a polyfill blokk hiányzik a csomagolt HTML-ből.")
-          print(f"OK: HTML {len(html)} byte, indítókép a logó képkockája, nincs induló videó, verzió {packaged.get('version')}.")
+          print(f"OK: HTML {len(html)} byte, indítókép a takarokep.jpg, nincs induló videó, verzió {packaged.get('version')}.")
           PY
           echo "OK: IPK tartalma rendben"
 

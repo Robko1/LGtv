@@ -3,21 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#080d1a" />
+    <meta name="theme-color" content="#7fb9bd" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="description" content="TV - Villámgyors Xtream Codes és M3U IPTV lejátszó Mozi és Sorozat támogatással, több hangsávval és 4-es nézettel." />
     <title>TV - Prémium IPTV Lejátszó</title>
-    <!-- 2.5.137: NINCS külső betűtípus-hálózati kérés. A 01:41-es naplóban a
-         Google Fonts 302 ms-ig tartott, hálózat nélkül pedig a DNS-várakozás
-         még tovább nyújtotta a `load` eseményt. A rendszer betűtípusa amúgy is
-         ugyanazt mutatta. Így nincs FOUT és nincs betűcsere okozta ugrálás. -->
+    <!-- NINCS külső betűtípus-hálózati kérés: a rendszer betűtípusát használjuk,
+         így nincs FOUT és nincs betűcsere okozta ugrálás. -->
     <link rel="icon" type="image/png" href="data:image/png;base64,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" />
-    <!-- A 16:9-es kis képernyőben megjelenő logó. UGYANAZ a kép van a webOS
-         takaróképén (splash-screen.png) is, így a TV ellenőrzése után nem
-         „jön egy új kép”: a néző ugyanazt a vázat látja tovább. -->
-    <link rel="preload" as="image" href="boot-logo.jpg" fetchpriority="high">
+    <!-- A TELJES KÉPERNYŐS BETÖLTŐKÉP: a repóban tárolt takarokep.jpg-ből a
+         build készíti (1920x1080, baseline JPEG, `splash-bg.jpg`). A webOS
+         saját indítóképe (splashBackground: splash-screen.png) UGYANEBBŐL a
+         képből készül, ezért a platform képéről a saját képernyőnkre váltás
+         nem hoz új látványt – nincs villanás. -->
+    <link rel="preload" as="image" href="splash-bg.jpg" fetchpriority="high">
     <style>
       * { -webkit-tap-highlight-color: transparent; user-select: none; }
       input, textarea { user-select: text; }
@@ -27,39 +27,48 @@
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         overflow-x: hidden;
       }
+
       /* ═══════════════════════════════════════════════════════════════════
-         2.5.137 – EGY KÉP AZ ELEJÉTŐL A VÉGÉIG (nincs nagy villanás).
+         ÚJ BETÖLTŐKÉPERNYŐ (Inditas.html alapján).
 
-         A 01:41:00-es napló (2.5.136):
-           válasz=2493 ms, first-paint=2569 ms, LEGNAGYOBB TARTALOM=4674 ms.
-         A TV a saját ellenőrzése után levette a takaróképet → a webes ablak
-         még NEM festett (fekete kocka) → 2,5 mp-nél megjött a SAJÁT képünk,
-         ami aztán ott maradt, amíg a főoldal betöltött. Ez a „nagy villanás”.
+         A teljes háttér a takarokep.jpg-ből készült `splash-bg.jpg`.
+         A jobb felső sarokban a TV VALÓS rendszerideje jár. A százalék,
+         a csatornaszám, a sávszélesség és a hátralévő idő KIZÁRÓLAG a futó
+         alkalmazás által jelentett, tényleges adatokból kerül ide – amíg
+         nincs ilyen adat, „—” áll a helyén. Nincs szimulált érték, nincs
+         időzített automatikus befejezés és nincs demó-újraindítás.
 
-         Most NINCS két kép. A webOS takaróképe (splashBackground) és az app
-         első festése UGYANAZ az előre rajzolt, SÖTÉT főoldali váz:
-           • fix fejléc,
-           • fix 16:9 lejátszó doboz (benne a jóváhagyott logó),
-           • fix OSD sáv,
-           • fix jobb oldali csatornalista 16:9-es előnézeti helyekkel.
-         A váz TISZTA HTML + CSS (nincs kép-dekódolás, nincs base64), ezért az
-         első festés azonnal megtörténik. A React csak az ADATOKAT rajzolja a
-         már kész helyekre – a régiók nem mozognak, nincs elrendezés-ugrás.
+         A réteg a kész főoldal fölött, 200 ms alatt halványul el; a főoldalt
+         a main.tsx már ELŐZŐLEG kifestette a takarókép alatt (#root
+         `iptv-prerender` alatt látható), ezért a váltás egyetlen kompozitor
+         lépés, nem villanás.
          ═══════════════════════════════════════════════════════════════ */
-      html { background-color: #080d1a; }
+      html { background-color: #7fb9bd; }
       html.iptv-revealed { background-color: #080d1a; }
-      html.iptv-booting body { background-color: #080d1a !important; }
+      html.iptv-booting body { background-color: #7fb9bd !important; }
       html.iptv-revealed body { background-color: #080d1a !important; }
       html.iptv-booting #root { visibility: hidden; }
       html.iptv-prerender #root { visibility: visible; }
       html.iptv-revealed #root { visibility: visible; }
 
+      /* ÜRES TELEPÍTÉS: a lejátszó doboza a kész felületen sem lehet fekete.
+         A takarókép színeihez illeszkedő színátmenet + lejátszás jel, és
+         NINCS későn dekódolódó háttérkép (az 4674 ms-os LCP oka az volt). */
+      html[data-iptv-boot="empty"] [data-player-poster] {
+        background: linear-gradient(135deg, #123a44 0%, #0d2630 55%, #17505c 100%) !important;
+        display: flex !important; align-items: center; justify-content: center;
+      }
+      html[data-iptv-boot="empty"] [data-player-poster]::after {
+        content: '▶'; font-size: 5rem; line-height: 1; color: #9fe8d6; opacity: .78;
+      }
+
       .iptv-curtain {
         position: fixed; left: 0; top: 0; right: 0; bottom: 0;
         z-index: 2147483000;
-        background-color: #080d1a;
+        background-color: #7fb9bd;
         pointer-events: none;
         opacity: 1;
+        overflow: hidden;
         will-change: opacity;
       }
       #tv-curtain.iptv-fading {
@@ -67,84 +76,248 @@
         -webkit-transition: opacity 200ms linear !important;
         transition: opacity 200ms linear !important;
       }
-      /* ---- ELŐRE RAJZOLT, FIX FŐOLDALI VÁZ ---- */
-      #iptv-skeleton, #iptv-skeleton * { box-sizing: border-box; }
-      #iptv-skeleton {
-        position: absolute; inset: 0;
-        display: flex; flex-direction: column;
-        background: #080d1a;
-        color: #1e3a5f;
+
+      /* ---- BETÖLTŐKÉPERNYŐ ---- */
+      #boot-screen { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; }
+      #boot-bg {
+        position: absolute; left: 0; top: 0;
+        width: 100%; height: 100%;
+        display: block;
+        object-fit: cover; -o-object-fit: cover;
+        object-position: center center;
+        /* A kép a teljes hátteret kitölti, nem torzul. */
       }
-      .sk-header {
-        flex: 0 0 8.9%;
-        display: flex; align-items: center; gap: 1.3%;
-        padding: 0 1.45%;
-        background: #070e1e;
-        border-bottom: 2px solid #1b3358;
+      /*
+       * A FÁTYOL A VILÁGOS TAKARÓKÉPHEZ IGAZODIK.
+       *
+       * A takarokep.jpg világos türkiz–kék fotó, ezért a sötét réteg csak a
+       * széleken erős (a fejléc és a lábléc olvashatóságához), középen pedig
+       * alig – így a kép TÉNYLEG látszik, nem feketedik ki. A szöveg
+       * olvashatóságát erős szövegárnyék adja.
+       */
+      .boot-scrim {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+        background:
+          radial-gradient(120% 90% at 50% 44%, rgba(3,17,22,0.16) 0%, rgba(3,17,22,0.30) 52%, rgba(3,17,22,0.66) 100%),
+          linear-gradient(180deg, rgba(3,17,22,0.70) 0%, rgba(3,17,22,0.20) 24%, rgba(3,17,22,0.26) 62%, rgba(3,17,22,0.84) 100%);
       }
-      .sk-logo {
-        width: 2.8%; aspect-ratio: 1 / 1;
-        border: 2px solid #22d3ee; border-radius: 22%;
-        background: #123a55;
+      .boot-vignette {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+        box-shadow: inset 0 0 190px rgba(2,12,16,0.55);
+      }
+      .boot-grid {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+        opacity: 0.26;
+        background-image:
+          repeating-linear-gradient(90deg, rgba(143,182,180,0.16) 0 1px, rgba(0,0,0,0) 1px 84px),
+          repeating-linear-gradient(0deg, rgba(143,182,180,0.10) 0 1px, rgba(0,0,0,0) 1px 84px);
+      }
+      .boot-ui {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+        display: flex; flex-direction: column; justify-content: space-between;
+        padding: 3.4vh 4.2vw;
+        color: #EAFFF9;
+        font-family: "Segoe UI", "SF Pro Display", -apple-system, "Helvetica Neue", Arial, sans-serif;
+        text-rendering: optimizeLegibility;
+      }
+      .boot-rule { height: 1px; background: linear-gradient(90deg, rgba(126,240,210,0.55), rgba(143,182,180,0.16) 45%, rgba(143,182,180,0)); }
+      .boot-rule.btm { background: linear-gradient(90deg, rgba(143,182,180,0), rgba(143,182,180,0.20) 55%, rgba(126,240,210,0.5)); }
+      .boot-micro {
+        font-size: 11px; letter-spacing: 0.34em; text-transform: uppercase;
+        color: #8FB6B4; font-weight: 600;
+      }
+
+      /* ---- FEJLÉC + VALÓS ÓRA (jobb felső sarok) ---- */
+      .boot-head { display: flex; flex-direction: column; }
+      .boot-headrow { display: flex; align-items: center; justify-content: space-between; }
+      .boot-brand { display: flex; align-items: center; }
+      .boot-mark {
+        width: 58px; height: 58px; border-radius: 14px;
+        background: linear-gradient(150deg, #B9F7E1, #4FC7B4 45%, #0E7C74);
+        box-shadow: 0 0 0 1px rgba(234,255,249,0.38), 0 0 22px rgba(126,240,210,0.35);
         display: flex; align-items: center; justify-content: center;
+        margin-right: 15px;
       }
-      .sk-logo::after { content: '▶'; color: #22d3ee; font-size: 1.1vw; }
-      .sk-hbar { background: #1e3a5f; border-radius: 8px; height: 1.5vh; }
-      .sk-hbar.dim { background: #142b4a; height: 1.1vh; }
-      .sk-h-right { margin-left: auto; display: flex; gap: 0.9vw; }
-      .sk-h-pill { width: 4.2vw; height: 3.6vh; background: #142b4a; border-radius: 10px; }
-      .sk-main { flex: 1 1 auto; min-height: 0; display: flex; gap: 1.25%; padding: 2.2% 1.25%; }
-      .sk-left { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1.5%; }
-      /* 16:9 – FIX, soha nem változik (a főoldali lejátszóval azonos arány). */
-      .sk-player {
-        position: relative;
-        width: 100%; aspect-ratio: 16 / 9; max-height: 74%;
-        background: #0b1730; border: 2px solid #1b3358; border-radius: 18px;
+      .boot-mark svg { width: 34px; height: 34px; display: block; }
+      .boot-wordmark { display: flex; flex-direction: column; }
+      .boot-wordmark b {
+        font-size: 24px; font-weight: 700; letter-spacing: 0.42em;
+        line-height: 1; color: #EAFFF9; text-shadow: 0 2px 14px rgba(4,20,26,0.9);
+      }
+      .boot-wordmark span {
+        margin-top: 7px; font-size: 10px; letter-spacing: 0.40em;
+        text-transform: uppercase; color: #7FF0D2; font-weight: 600;
+      }
+      .boot-headmeta { display: flex; align-items: center; }
+      .boot-chip {
+        display: flex; align-items: center;
+        padding: 8px 14px; margin-right: 22px;
+        border: 1px solid rgba(143,182,180,0.30);
+        background: linear-gradient(180deg, rgba(7,59,62,0.55), rgba(4,20,26,0.55));
+        font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+        color: #CFEDE6; font-weight: 600;
+      }
+      .boot-dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #FFB23F; box-shadow: 0 0 10px #FFB23F;
+        margin-right: 9px; opacity: 0.9;
+      }
+      .boot-clockbox { display: flex; flex-direction: column; align-items: flex-end; }
+      .boot-clock {
+        display: flex; align-items: baseline;
+        font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+        font-variant-numeric: tabular-nums;
+        font-size: 26px; line-height: 1; color: #EAFFF9;
+        text-shadow: 0 2px 12px rgba(4,20,26,0.9);
+      }
+      .boot-clock b { font-weight: 600; }
+      .boot-clock i {
+        font-style: normal; font-size: 15px; font-weight: 600;
+        margin-left: 9px; color: #7FF0D2;
+        text-shadow: 0 0 12px rgba(126,240,210,0.75);
+      }
+      .boot-date {
+        margin-top: 7px; font-size: 10px; letter-spacing: 0.24em;
+        text-transform: uppercase; color: #8FB6B4; font-weight: 600;
+        white-space: nowrap;
+      }
+      .boot-head .boot-rule { margin-top: 17px; }
+
+      /* ---- KÖZÉP: TÁRCSA + ÁLLAPOT + MÉRŐ ---- */
+      .boot-main { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; }
+      .boot-eyebrow { display: flex; align-items: center; margin-bottom: 22px; }
+      .boot-eyebrow .boot-rule { width: 74px; margin-right: 15px; }
+      .boot-dialrow { display: flex; align-items: center; }
+      .boot-dial { position: relative; width: 250px; height: 250px; flex: none; margin-right: 52px; }
+      .boot-dial svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+      .boot-track { stroke: rgba(234,255,249,0.13); }
+      .boot-ring {
+        stroke: #7FF0D2; stroke-linecap: round;
+        filter: drop-shadow(0 0 7px rgba(126,240,210,0.85));
+      }
+      .boot-readout {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+      }
+      .boot-pct {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-variant-numeric: tabular-nums;
+        font-size: 74px; font-weight: 600; letter-spacing: -0.05em;
+        line-height: 0.92; color: #EAFFF9;
+        text-shadow: 0 0 34px rgba(126,240,210,0.55), 0 4px 22px rgba(4,20,26,0.9);
+      }
+      .boot-pct sup {
+        font-size: 26px; font-weight: 500; letter-spacing: 0;
+        vertical-align: super; margin-left: 4px; color: #7FF0D2;
+      }
+      .boot-pct-label {
+        margin-top: 10px; font-size: 10px; letter-spacing: 0.40em;
+        text-transform: uppercase; color: #8FB6B4; font-weight: 600;
+      }
+      .boot-statusblock { min-width: 0; flex: 1 1 auto; }
+      .boot-step {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase;
+        color: #FFB23F; margin-bottom: 12px;
+      }
+      .boot-status {
+        margin: 0; font-size: 38px; font-weight: 300; letter-spacing: -0.015em;
+        line-height: 1.12; color: #EAFFF9; text-shadow: 0 3px 24px rgba(4,20,26,0.95);
+      }
+      .boot-detail {
+        margin-top: 13px;
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-size: 12px; letter-spacing: 0.10em; text-transform: uppercase;
+        color: #A9CFC9; line-height: 1.5;
+        max-width: 900px;
+      }
+      .boot-meter { margin-top: 34px; }
+      .boot-meterhead { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 11px; }
+      .boot-stats { display: flex; }
+      .boot-stat { display: flex; flex-direction: column; margin-right: 44px; }
+      .boot-stat b {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-variant-numeric: tabular-nums; font-weight: 600;
+        font-size: 19px; color: #EAFFF9; letter-spacing: 0.02em;
+      }
+      .boot-stat span {
+        margin-top: 5px; font-size: 10px; letter-spacing: 0.28em;
+        text-transform: uppercase; color: #8FB6B4; font-weight: 600;
+      }
+      .boot-eta { display: flex; flex-direction: column; align-items: flex-end; }
+      .boot-eta b {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-variant-numeric: tabular-nums; font-weight: 600;
+        font-size: 19px; color: #7FF0D2;
+      }
+      .boot-eta span {
+        margin-top: 5px; font-size: 10px; letter-spacing: 0.28em;
+        text-transform: uppercase; color: #8FB6B4; font-weight: 600;
+      }
+      .boot-bar {
+        position: relative; height: 16px;
+        border: 1px solid rgba(126,240,210,0.28);
+        background: linear-gradient(180deg, rgba(4,20,26,0.72), rgba(7,59,62,0.42));
         overflow: hidden;
-        display: flex; align-items: center; justify-content: center;
       }
-      .sk-player .sk-art { height: 100%; width: auto; max-width: 100%; object-fit: contain; display: block; }
-      .sk-osd {
-        position: absolute; left: 2.5%; right: 2.5%; bottom: 3%;
-        height: 12%; background: rgba(6, 12, 26, 0.86); border-radius: 16px;
-        display: flex; align-items: center; gap: 1.4%; padding: 0 2.5%;
+      .boot-fill {
+        position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+        background: linear-gradient(90deg, #0E7C74 0%, #33C3AC 42%, #7FF0D2 78%, #EAFFF9 100%);
+        box-shadow: 0 0 22px rgba(126,240,210,0.55);
       }
-      .sk-osd .sk-play { color: #22d3ee; font-size: 2.4vw; line-height: 1; }
-      .sk-osd .sk-btn { width: 2vw; height: 2.6vh; background: #1e3a5f; border-radius: 8px; }
-      .sk-osd .sk-track { flex: 1 1 auto; height: 0.8vh; background: #142b4a; border-radius: 4px; position: relative; }
-      .sk-osd .sk-track::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 32%; background: #22d3ee; border-radius: 4px; }
-      .sk-osd .sk-vol { width: 7vw; height: 2vh; background: #1e3a5f; border-radius: 10px; }
-      .sk-info { flex: 1 1 auto; min-height: 0; background: #0b1730; border: 2px solid #1b3358; border-radius: 18px; padding: 1.4% 2%; }
-      .sk-info .sk-hbar { width: 42%; }
-      .sk-info .sk-hbar.dim { width: 68%; margin-top: 1.4vh; }
-      .sk-info .sk-hbar.dim.short { width: 52%; margin-top: 1.1vh; }
-      .sk-side {
-        flex: 0 0 22.1%; min-width: 0;
-        background: #070e1e; border: 2px solid #1b3358; border-radius: 20px;
-        display: flex; flex-direction: column; gap: 0.9%;
-        padding: 1.8% 4.7%;
+      .boot-segs {
+        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+        background: repeating-linear-gradient(90deg, rgba(3,16,20,0.92) 0 3px, rgba(0,0,0,0) 3px 13px);
       }
-      .sk-folder { flex: 0 0 6.5%; background: #0b1730; border-radius: 12px; }
-      .sk-row {
-        flex: 1 1 0; min-height: 0;
-        display: flex; align-items: center; gap: 4%;
-        background: #0b1730; border-radius: 12px; padding: 0 3%;
+      .boot-headmark {
+        position: absolute; top: -4px; bottom: -4px; width: 2px; left: 0;
+        background: #EAFFF9; box-shadow: 0 0 14px 3px rgba(126,240,210,0.9);
       }
-      /* A kis képernyős csatorna-előnézetek is 16:9-esek és FIXEK. */
-      .sk-thumb { flex: 0 0 30%; aspect-ratio: 16 / 9; background: #102646; border-radius: 8px; }
-      .sk-lines { flex: 1 1 auto; min-width: 0; }
-      .sk-lines .sk-hbar { width: 100%; }
-      .sk-lines .sk-hbar.dim { width: 70%; margin-top: 1.2vh; }
-      /* Az ÜRES alkalmazás lejátszó-doboza sem fekete: a váz színeit viszi
-         tovább, amíg nincs adat. Nincs későn dekódolódó háttérkép (ez volt a
-         4674 ms-es legnagyobb tartalom). */
-      html[data-iptv-boot="empty"] [data-player-poster] {
-        background: linear-gradient(135deg, #0b1c38 0%, #0a1220 55%, #10294a 100%) !important;
-        display: flex !important; align-items: center; justify-content: center;
+      .boot-scale { display: flex; justify-content: space-between; margin-top: 9px; }
+      .boot-scale span {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-size: 9px; letter-spacing: 0.2em; color: rgba(143,182,180,0.75);
       }
-      html[data-iptv-boot="empty"] [data-player-poster]::after {
-        content: '▶'; font-size: 5rem; line-height: 1; color: #22d3ee; opacity: .75;
+
+      /* ---- LÁBLÉC ---- */
+      .boot-foot { display: flex; flex-direction: column; }
+      .boot-footrow { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 14px; }
+      .boot-tip { display: flex; align-items: center; min-width: 0; }
+      .boot-tipkey {
+        padding: 5px 9px; margin-right: 14px; border: 1px solid rgba(126,240,210,0.45);
+        color: #7FF0D2; font-size: 10px; letter-spacing: 0.24em; font-weight: 700;
       }
+      .boot-tip span {
+        font-size: 14px; color: #CFEDE6; text-shadow: 0 2px 12px rgba(4,20,26,0.9);
+      }
+      .boot-build {
+        font-family: ui-monospace, "SF Mono", Consolas, monospace;
+        font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+        color: rgba(143,182,180,0.8); white-space: nowrap;
+      }
+
+      /* ---- KISEBB KIJELZŐ / BIZTONSÁGI TERÜLET ---- */
+      @media (max-width: 1100px) {
+        .boot-dial { width: 200px; height: 200px; margin-right: 34px; }
+        .boot-pct { font-size: 58px; }
+        .boot-pct sup { font-size: 20px; }
+        .boot-status { font-size: 30px; }
+        .boot-chip { display: none; }
+        .boot-stat { margin-right: 26px; }
+      }
+      @media (max-height: 620px) {
+        .boot-ui { padding: 18px 4.2vw; }
+        .boot-dial { width: 168px; height: 168px; }
+        .boot-pct { font-size: 48px; }
+        .boot-status { font-size: 25px; }
+        .boot-meter { margin-top: 18px; }
+        .boot-date { display: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #tv-curtain.iptv-fading { -webkit-transition: none !important; transition: none !important; }
+      }
+
+      /* ---- HIBAKÉPERNYŐ ---- */
       #boot-error-screen {
         position: fixed; top: 0; left: 0; right: 0; bottom: 0;
         display: none; flex-direction: column; align-items: center; justify-content: center;
@@ -159,70 +332,366 @@
       }
     </style>
     <script>
-      /* Nincs base64 kép a HTML-ben. A logó külön, HELYI fájl (boot-logo.jpg),
-         amit a <head> preloaddal azonnal elkezdünk letölteni és dekódolni.
-         A 2.5.136-os 265 KB-os beégetett JPEG helyett ez ~37 KB, és nem növeli
-         a HTML válaszidejét (2493 ms → a HTML töredéke). */
+      /*
+       * KORAI INDULÁSI JELZÉSEK + A BETÖLTŐKÉP ELŐMELEGÍTÉSE.
+       *
+       * A naplózás ilyenkor még nem létezik, ezért a legelső lépések egy kis
+       * pufferbe kerülnek; a bundle naplója időbélyeggel együtt emeli át őket.
+       * A kép előmelegítése a <head>-ben indul, hogy az ELSŐ festés már a
+       * valódi takaróképet mutassa (nincs üres/flat kocka).
+       * ES5: nincs nyíl-függvény, nincs template literal, nincs const/let.
+       */
       (function () {
         try {
-          window.__IPTV_BOOT_PICTURE__ = 'boot-logo.jpg';
+          window.__IPTV_STARTUP_STAGE__ = 1;
+          window.__IPTV_STARTUP_DIAG__ = true;
+          var started = Date.now();
+          if (!window.__IPTV_BOOT_EPOCH__) window.__IPTV_BOOT_EPOCH__ = started;
+          var marks = window.__IPTV_STARTUP_MARKS__;
+          if (!marks) { marks = []; window.__IPTV_STARTUP_MARKS__ = marks; }
+          if (typeof window.__IPTV_BOOT_MARK__ !== 'function') {
+            window.__IPTV_BOOT_MARK__ = function (label) {
+              try {
+                if (marks.length >= 300) return;
+                marks.push({ at: Date.now(), label: String(label) });
+              } catch (e) {}
+            };
+          }
+          window.__IPTV_BOOT_MARK__('HTML induló szkript elindult');
+
+          window.__IPTV_BOOT_PICTURE__ = 'splash-bg.jpg';
           var preload = new Image();
           preload.decoding = 'sync';
-          preload.src = 'boot-logo.jpg';
+          preload.src = 'splash-bg.jpg';
           if (typeof preload.decode === 'function') {
             var pending = preload.decode();
             if (pending && typeof pending.then === 'function') {
               pending.then(function () {}, function () {});
             }
           }
-          window.__IPTV_SPLASH_PRELOAD__ = preload;
-          document.documentElement.style.backgroundColor = '#080d1a';
+          window.__IPTV_BOOT_PRELOAD__ = preload;
+          document.documentElement.style.backgroundColor = '#7fb9bd';
         } catch (e) {}
       })();
     </script>
   </head>
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
-    <!-- A webOS SAJÁT takaróképe (splashBackground) az LG ellenőrzés alatt
-         változatlanul látszik. Alatta az alábbi, vele AZONOS főoldali váz már
-         az első festésnél készen van: amikor a notifyAppLoaded() leveszi a
-         platform képét, a néző ugyanazt a képet látja tovább. -->
+    <!--
+      BETÖLTŐKÉPERNYŐ – a takarokep.jpg teljes háttere, valós rendszeridővel.
+      Ez a réteg addig van fent, amíg a főoldal ténylegesen kirajzolódott és
+      használható nem lett. Az adatokat a futó alkalmazás jelenti a
+      window.__IPTV_BOOT__ hídon keresztül; a HTML önmagában NEM talál ki
+      értékeket és nem fejeződik be magától.
+    -->
     <div id="tv-curtain" class="iptv-curtain" aria-hidden="true">
-      <div id="iptv-skeleton">
-        <div class="sk-header" data-iptv-slot="header">
-          <div class="sk-logo"></div>
-          <div style="width:11.5%"><div class="sk-hbar"></div><div class="sk-hbar dim" style="width:70%;margin-top:1.1vh"></div></div>
-          <div class="sk-h-right"><div class="sk-h-pill"></div><div class="sk-h-pill"></div><div class="sk-h-pill"></div><div class="sk-h-pill"></div></div>
-        </div>
-        <div class="sk-main">
-          <div class="sk-left">
-            <div class="sk-player" data-iptv-slot="player">
-              <img class="sk-art" src="boot-logo.jpg" alt="" decoding="sync" fetchpriority="high" draggable="false">
-              <div class="sk-osd" data-iptv-slot="osd">
-                <span class="sk-play">▶</span><span class="sk-btn"></span><span class="sk-btn"></span><span class="sk-btn"></span>
-                <span class="sk-track"></span><span class="sk-vol"></span>
+      <div id="boot-screen">
+        <img id="boot-bg" src="splash-bg.jpg" alt="" decoding="sync" fetchpriority="high" draggable="false">
+        <div class="boot-scrim"></div>
+        <div class="boot-vignette"></div>
+        <div class="boot-grid"></div>
+        <div class="boot-ui">
+          <header class="boot-head">
+            <div class="boot-headrow">
+              <div class="boot-brand">
+                <span class="boot-mark">
+                  <svg viewBox="0 0 48 48" aria-hidden="true">
+                    <polygon points="19,13 19,35 35,24" fill="#08312f"></polygon>
+                  </svg>
+                </span>
+                <span class="boot-wordmark">
+                  <b>TV</b>
+                  <span>IPTV R.T &middot; LG webOS</span>
+                </span>
+              </div>
+              <div class="boot-headmeta">
+                <span class="boot-chip"><span class="boot-dot"></span>Valós betöltés</span>
+                <span class="boot-clockbox">
+                  <span class="boot-clock"><b id="boot-clock">--:--</b><i id="boot-clock-sec">--</i></span>
+                  <span class="boot-date" id="boot-date">&mdash;</span>
+                </span>
               </div>
             </div>
-            <div class="sk-info"><div class="sk-hbar"></div><div class="sk-hbar dim"></div><div class="sk-hbar dim short"></div></div>
-          </div>
-          <div class="sk-side" data-iptv-slot="channels">
-            <div class="sk-folder"></div>
-            <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-hbar"></div><div class="sk-hbar dim"></div></div></div>
-            <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-hbar"></div><div class="sk-hbar dim"></div></div></div>
-            <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-hbar"></div><div class="sk-hbar dim"></div></div></div>
-            <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-hbar"></div><div class="sk-hbar dim"></div></div></div>
-            <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-hbar"></div><div class="sk-hbar dim"></div></div></div>
-            <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-hbar"></div><div class="sk-hbar dim"></div></div></div>
-            <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-hbar"></div><div class="sk-hbar dim"></div></div></div>
-            <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-hbar"></div><div class="sk-hbar dim"></div></div></div>
-          </div>
+            <div class="boot-rule"></div>
+          </header>
+
+          <main class="boot-main">
+            <div class="boot-eyebrow">
+              <span class="boot-rule"></span>
+              <span class="boot-micro">Rendszerindítás &middot; a TV valós betöltési adatai</span>
+            </div>
+            <div class="boot-dialrow">
+              <div class="boot-dial">
+                <svg viewBox="0 0 300 300" aria-hidden="true">
+                  <g id="boot-ticks"></g>
+                  <circle class="boot-track" cx="150" cy="150" r="122" fill="none" stroke-width="2"></circle>
+                  <circle id="boot-ring" class="boot-ring" cx="150" cy="150" r="122" fill="none" stroke-width="7"
+                          stroke-dasharray="766.5" stroke-dashoffset="766.5" transform="rotate(-90 150 150)"></circle>
+                  <circle cx="150" cy="150" r="140" fill="none" stroke="rgba(234,255,249,0.28)"
+                          stroke-width="1" stroke-dasharray="2 10"></circle>
+                </svg>
+                <div class="boot-readout">
+                  <div class="boot-pct"><span id="boot-pct">0</span><sup>%</sup></div>
+                  <div class="boot-pct-label">betöltés</div>
+                </div>
+              </div>
+              <div class="boot-statusblock">
+                <div class="boot-step" id="boot-step">indulás</div>
+                <h1 class="boot-status" id="boot-status">Az alkalmazás indítása…</h1>
+                <div class="boot-detail" id="boot-detail">A betöltési adatok a TV-n futó alkalmazásból származnak.</div>
+              </div>
+            </div>
+            <div class="boot-meter">
+              <div class="boot-meterhead">
+                <div class="boot-stats">
+                  <div class="boot-stat"><b id="boot-channels">&mdash;</b><span>csatorna</span></div>
+                  <div class="boot-stat"><b id="boot-speed">&mdash;</b><span>sávszélesség</span></div>
+                </div>
+                <div class="boot-eta"><b id="boot-eta">&mdash;</b><span>hátralévő idő</span></div>
+              </div>
+              <div class="boot-bar">
+                <div class="boot-fill" id="boot-fill"></div>
+                <div class="boot-segs"></div>
+                <div class="boot-headmark" id="boot-head"></div>
+              </div>
+              <div class="boot-scale"><span>000</span><span>025</span><span>050</span><span>075</span><span>100</span></div>
+            </div>
+          </main>
+
+          <footer class="boot-foot">
+            <div class="boot-rule btm"></div>
+            <div class="boot-footrow">
+              <div class="boot-tip">
+                <span class="boot-tipkey">TIPP</span>
+                <span>A betöltés alatt a TV valódi rendszerideje és a tényleges betöltési adatok láthatók.</span>
+              </div>
+              <div class="boot-build" id="boot-build">IPTV R.T &middot; webOS TV</div>
+            </div>
+          </footer>
         </div>
       </div>
     </div>
+
     <script>
+      /*
+       * BETÖLTŐKÉPERNYŐ-HÍD (ES5).
+       *
+       * A képernyő KIZÁRÓLAG azt rajzolja ki, amit az alkalmazás jelent:
+       *   window.__IPTV_BOOT__.update({
+       *     percent, phase, step, detail, channels,
+       *     bytesPerSecond, etaSeconds, version
+       *   });
+       *   window.__IPTV_BOOT__.complete();
+       *
+       * NINCS szimulált érték, NINCS Math.random, NINCS időzített
+       * automatikus befejezés és NINCS demó-újraindítás. Az egyetlen
+       * időzítő az óra (a TV valós rendszerideje), másodpercenként.
+       * Ha egy adat még nem érkezett meg, „—” látszik a helyén.
+       */
       (function () {
-        try { document.body.style.backgroundColor = '#080d1a'; } catch (e) {}
+        var RING_LEN = 2 * Math.PI * 122;
+        var MONTHS = ['január', 'február', 'március', 'április', 'május', 'június',
+          'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
+        var WEEKDAYS = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
+        var state = {
+          percent: 0,
+          phase: '',
+          step: '',
+          detail: '',
+          channels: null,
+          bytesPerSecond: null,
+          etaSeconds: null,
+          version: ''
+        };
+        var lastPhaseReported = '';
+        var bootMark = window.__IPTV_BOOT_MARK__;
+        var DASH = '\u2014';
+
+        function byId(id) { return document.getElementById(id); }
+        function setText(id, text) {
+          var el = byId(id);
+          if (el) el.textContent = text;
+        }
+        function toNumber(value) {
+          return (typeof value === 'number' && isFinite(value)) ? value : null;
+        }
+        function pad2(value) { return value < 10 ? '0' + value : '' + value; }
+        function groupThousands(value) {
+          return String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+        }
+        function formatSpeed(bytesPerSecond) {
+          if (bytesPerSecond === null) return DASH;
+          var mbit = (bytesPerSecond * 8) / 1000000;
+          if (!isFinite(mbit) || mbit < 0) return DASH;
+          return (mbit < 10 ? mbit.toFixed(2) : mbit.toFixed(1)) + ' Mbps';
+        }
+        function formatEta(seconds) {
+          if (seconds === null) return DASH;
+          var total = Math.max(0, Math.round(seconds));
+          if (total > 99 * 60) total = 99 * 60;
+          return pad2(Math.floor(total / 60)) + ':' + pad2(total % 60);
+        }
+
+        function drawTicks() {
+          var group = byId('boot-ticks');
+          if (!group) return;
+          var svgNs = 'http://www.w3.org/2000/svg';
+          for (var i = 0; i < 72; i++) {
+            var angle = (i / 72) * Math.PI * 2;
+            var long = (i % 6 === 0);
+            var r1 = long ? 104 : 110;
+            var r2 = 116;
+            var x1 = 150 + Math.cos(angle) * r1;
+            var y1 = 150 + Math.sin(angle) * r1;
+            var x2 = 150 + Math.cos(angle) * r2;
+            var y2 = 150 + Math.sin(angle) * r2;
+            var line = document.createElementNS(svgNs, 'line');
+            line.setAttribute('x1', x1.toFixed(1));
+            line.setAttribute('y1', y1.toFixed(1));
+            line.setAttribute('x2', x2.toFixed(1));
+            line.setAttribute('y2', y2.toFixed(1));
+            line.setAttribute('stroke', long ? 'rgba(126,240,210,0.85)' : 'rgba(143,182,180,0.42)');
+            line.setAttribute('stroke-width', long ? '2' : '1');
+            group.appendChild(line);
+          }
+        }
+
+        function render() {
+          var percent = Math.max(0, Math.min(100, state.percent));
+          setText('boot-pct', String(Math.floor(percent)));
+          var ring = byId('boot-ring');
+          if (ring) ring.setAttribute('stroke-dashoffset', (RING_LEN * (1 - percent / 100)).toFixed(2));
+          var fill = byId('boot-fill');
+          if (fill) fill.style.width = percent.toFixed(2) + '%';
+          var head = byId('boot-head');
+          if (head) {
+            head.style.left = 'calc(' + percent.toFixed(2) + '% - 1px)';
+            head.style.opacity = percent >= 99.9 ? '0' : '1';
+          }
+          if (state.phase) setText('boot-status', state.phase);
+          if (state.step) setText('boot-step', state.step);
+          if (state.detail) setText('boot-detail', state.detail);
+          setText('boot-channels', state.channels === null ? DASH : groupThousands(state.channels));
+          setText('boot-speed', formatSpeed(state.bytesPerSecond));
+          setText('boot-eta', formatEta(state.etaSeconds));
+          if (state.version) setText('boot-build', 'v' + state.version + ' \u00b7 LG webOS TV');
+        }
+
+        function update(data) {
+          if (!data || typeof data !== 'object') return;
+          if (typeof data.phase === 'string' && data.phase) state.phase = data.phase;
+          if (typeof data.step === 'string') state.step = data.step;
+          if (typeof data.detail === 'string') {
+            state.detail = data.detail;
+          }
+          if (typeof data.version === 'string' && data.version) state.version = data.version;
+          if ('percent' in data) {
+            var percent = toNumber(data.percent);
+            state.percent = percent === null ? 0 : percent;
+          }
+          if ('channels' in data) state.channels = toNumber(data.channels);
+          if ('bytesPerSecond' in data) state.bytesPerSecond = toNumber(data.bytesPerSecond);
+          if ('etaSeconds' in data) state.etaSeconds = toNumber(data.etaSeconds);
+          render();
+          /* Csak a VALÓDI szakaszváltás kerül a diagnosztikai jelzések közé. */
+          if (state.phase && state.phase !== lastPhaseReported && typeof bootMark === 'function') {
+            lastPhaseReported = state.phase;
+            bootMark('betöltés: ' + state.phase + ' (' + Math.floor(state.percent) + '%)');
+          }
+        }
+
+        function complete() {
+          update({ percent: 100, etaSeconds: 0 });
+        }
+
+        function tickClock() {
+          var now = new Date();
+          setText('boot-clock', pad2(now.getHours()) + ':' + pad2(now.getMinutes()));
+          setText('boot-clock-sec', pad2(now.getSeconds()));
+          setText('boot-date', now.getFullYear() + '. ' + MONTHS[now.getMonth()] + ' ' +
+            now.getDate() + ' \u00b7 ' + WEEKDAYS[now.getDay()]);
+        }
+
+        window.__IPTV_BOOT__ = {
+          update: update,
+          complete: complete,
+          state: function () {
+            return {
+              percent: state.percent,
+              phase: state.phase,
+              step: state.step,
+              detail: state.detail,
+              channels: state.channels,
+              bytesPerSecond: state.bytesPerSecond,
+              etaSeconds: state.etaSeconds,
+              version: state.version
+            };
+          }
+        };
+
+        /*
+         * A WEBOS SAJÁT INDÍTÓKÉPÉNEK LEVÉTELE.
+         *
+         * A platform a `splashBackground` képet addig takarja, amíg az app
+         * meg nem hívja a `notifyAppLoaded()`-et. Ha ezt csak a főoldal
+         * megjelenésekor hívnánk meg (a régi viselkedés), a néző a teljes
+         * betöltés alatt CSAK a fotót látná – a valós óra és a betöltési
+         * adatok soha nem lennének láthatók.
+         *
+         * Ezért AKKOR vesszük le, amikor a SAJÁT betöltőképernyőnk már ki van
+         * festve: a háttér ugyanaz a kép, tehát nincs vizuális váltás, csak a
+         * valós adatok jelennek meg rajta. A takaró réteg (és benne a
+         * betöltőképernyő) ezután a kész főoldalig fent marad.
+         */
+        var platformSplashReleased = false;
+        function releasePlatformSplash() {
+          if (platformSplashReleased) return;
+          platformSplashReleased = true;
+          try {
+            if (window.webOSSystem && typeof window.webOSSystem.notifyAppLoaded === 'function') {
+              window.webOSSystem.notifyAppLoaded();
+            }
+          } catch (eNotify) {}
+          try { if (typeof bootMark === 'function') bootMark('PLATFORM INDÍTÓKÉP LEVÉVE – a saját betöltőképernyő már festve van'); } catch (eMark) {}
+        }
+        window.__IPTV_PLATFORM_SPLASH_OFF__ = function () { releasePlatformSplash(); };
+        window.__IPTV_RELEASE_PLATFORM_SPLASH__ = function () { releasePlatformSplash(); };
+        function afterTwoFrames(fn) {
+          try {
+            if (typeof window.requestAnimationFrame === 'function') {
+              window.requestAnimationFrame(function () { window.requestAnimationFrame(fn); });
+              return;
+            }
+          } catch (e) {}
+          window.setTimeout(fn, 32);
+        }
+
+        try {
+          drawTicks();
+          tickClock();
+          setInterval(tickClock, 1000);
+          render();
+
+          /*
+           * A háttérkép DEKÓDOLT állapotában váltunk: a kép a <head>
+           * preloadjában már letöltődött, itt csak a kifestésre várunk.
+           */
+          var bgImage = byId('boot-bg');
+          if (bgImage && !bgImage.complete) {
+            bgImage.addEventListener('load', function () { afterTwoFrames(releasePlatformSplash); });
+            bgImage.addEventListener('error', function () { releasePlatformSplash(); });
+          } else {
+            afterTwoFrames(releasePlatformSplash);
+          }
+          /* Ha bármi elakadna, a load esemény után mindenképp levesszük. */
+          window.addEventListener('load', function () {
+            window.setTimeout(releasePlatformSplash, 0);
+          });
+          /* Végső biztonsági háló: 1,5 mp után sem takarhat a platform kép. */
+          window.setTimeout(releasePlatformSplash, 1500);
+        } catch (e) {}
       })();
     </script>
+
     <div id="root"></div>
     <div id="boot-error-screen">
       <div id="boot-stage" class="boot-stage"></div>
@@ -243,10 +712,6 @@
          * kerülnek. Amikor a bundle elindítja a naplózást, a diagnosztika
          * ezeket időbélyeggel együtt átemeli a naplóba – így a napló a
          * legelső pillanattól teljes.
-         *
-         * A puffer csak akkor nő, ha a webOS szkript vagy ez a szkript fut;
-         * a naplózás kikapcsolt állapotában semmilyen háttérmunka nem
-         * történik vele.
          */
         var bootMarks = window.__IPTV_STARTUP_MARKS__ || (window.__IPTV_STARTUP_MARKS__ = []);
         if (!window.__IPTV_BOOT_EPOCH__) window.__IPTV_BOOT_EPOCH__ = started;
@@ -257,7 +722,7 @@
           } catch (e) {}
         }
         window.__IPTV_BOOT_MARK__ = bootMark;
-        bootMark('HTML induló szkript elindult');
+        bootMark('HTML induló szkript elindult (takarókép + valós óra)');
 
         function byId(id) { return document.getElementById(id); }
 
@@ -270,36 +735,17 @@
         }
         window.__IPTV_STARTUP_STAGE_SET__ = show;
 
-        // A webOS indítóképével AZONOS háttér (a build készíti: splash-bg.jpg).
-        // FONTOS: a #tv-curtain rétegre is ezt tesszük, nem csak a body-ra.
-        // A takarékép réteg fedi a body-t, ezért korábban csak a zöld
-        // színátmenet látszott belőle – ez volt a "zöld üres képernyő" a
-        // rendszerindítás után. Most a logós kép látszik egészen addig, amíg
-        // a kész főoldal meg nem jelenik, egyetlen váltással.
-        //
-        // A KÉP BEÉGETVE (data URI): a build a splash-bg.jpg-t base64-ben
-        // írja be a jelölő helyére (lásd a tools/build-webos.sh Python lépését;
-        // a jelölőt ide SZÓ SZERINT leírni tilos, mert oda is bekerülne a kép).
-        // Erre azért van szükség,
-        // mert a külső fájl betöltése és dekódolása aszinkron: az első
-        // kirajzolásnál még csak a zöld színátmenet volt a képernyőn, és a
-        // kép csak utána „ugrott” a helyére – a webOS saját indítóképe után
-        // ez a nézőnek úgy tűnt, mintha a takarókép össze-vissza ugrálna.
-        // Beégetve a kép már az ELSŐ festésnél ott van, egyetlen váltás marad.
-        // A TAKARÓKÉP HÁTTERÉT A <head>-BEN LÉVŐ SZKRIPT INJEKTÁLJA.
-        // (Korábban ez a dokumentum törzsében volt: lassú TV-n a böngésző
-        // még az injektálás ELŐTT kirajzolhatta a réteget, így egy
-        // pillanatra csak a tartalék ZÖLD színátmenet látszott – ez volt
-        // a „zöld háttér is bevillant”. A <head>-ben a stílus biztosan
-        // az első festés előtt kerül a dokumentumba.)
+        // A takarókép háttere a CSS-ben van (a build által készített
+        // splash-bg.jpg). A <head> már beállította a html alapszínét, ezért
+        // az első festéskor nem üres/fehér kocka látszik.
 
         // ---------- Egy pillanat alatti megjelenés ----------
-        // A #root addig rejtve van (a webOS indítókép látszik), amíg a
-        // teljes főoldal fel nem épült. Ekkor EGYBEN jelenik meg.
+        // A #root addig rejtve van (a betöltőképernyő látszik), amíg a teljes
+        // főoldal fel nem épült. Ekkor EGYBEN jelenik meg.
         //
         // A webOS indítóképét a webOSSystem.notifyAppLoaded() hívás emeli le.
         // Ez a hívás UGYANEBBEN a feladatban fut, mint a megjelenítés: a
-        // takarékép eltűnése és a kész főoldal megjelenése egyetlen
+        // takarókép eltűnése és a kész főoldal megjelenése egyetlen
         // képernyőváltás. Ha a hívás később (vagy korábban) történne, a
         // képernyő villogna: egyszer a félkész felület, egyszer a kész.
         window.__IPTV_REVEALED__ = false;
@@ -332,9 +778,6 @@
               : 'ELŐFESTÉS – a főoldal a takarókép alatt kifestve');
             /*
              * A KÉT KÉPKOCKÁT ITT, EGYSZER MÉRJÜK MEG – nem a REVEAL-ben.
-             * A 23:25:43-es naplóban az előfestés után 167/183/217 ms-os
-             * kihagyások voltak, és a revealWhenPainted() még két újabb
-             * rAF-et várt: +639 ms (üres döntés) -> +933 ms (REVEAL).
              * Ha ez a jelző igaz, a felület már ki van festve, és a
              * megjelenítés AZONNAL megtörténhet.
              */
@@ -386,25 +829,32 @@
             if (window.__IPTV_PREPARE_REVEAL__) window.__IPTV_PREPARE_REVEAL__(true);
             var h = document.documentElement;
             var curtain = byId('tv-curtain');
-            /* 1) A platform indítóképe AKKOR tűnik el, amikor a mi azonos
-                  képünk már biztosan fent van – nincs üres köztes kocka. */
+            /* 1) A platform indítóképe AKKOR tűnik el, amikor a mi ugyanabból
+                  a képből készült betöltőképernyőnk már biztosan fent van –
+                  nincs üres köztes kocka. */
             try {
-              if (window.webOSSystem && typeof window.webOSSystem.notifyAppLoaded === 'function') {
+              if (typeof window.__IPTV_RELEASE_PLATFORM_SPLASH__ === 'function') {
+                window.__IPTV_RELEASE_PLATFORM_SPLASH__();
+              } else if (window.webOSSystem && typeof window.webOSSystem.notifyAppLoaded === 'function') {
+                // Ha a korai levétel valamiért kimaradt (pl. régi HTML), itt pótoljuk.
                 window.webOSSystem.notifyAppLoaded();
               }
             } catch (eNotify) {}
             /* 2) A html/body háttere a kész felület sötétkékjére vált, de a
-                  takarókép MÉG ÁTLÁTSZATLANUL fent van: ezt senki nem látja.
-                  (A build/webos.js fekete body-hátterét az !important CSS
-                  felülírja – ez volt a „fekete felvillanás”.) */
+                  takarókép MÉG ÁTLÁTSZATLANUL fent van: ezt senki nem látja. */
             h.className = h.className
               .replace(/\biptv-booting\b/, 'iptv-revealed iptv-handoff')
               .replace(/\s+/g, ' ')
               .replace(/^ | $/g, '');
             try { document.body.style.backgroundColor = '#080d1a'; } catch (eBody) {}
-            /* 3) FOLYAMATOS ÁTTŰNÉS: NEM a felületet halványítjuk (az
-                  áttetsző UI alatt régen látszott a zöld háttér), hanem az
-                  átlátszatlan takaróképet, a kifestett felület FÖLÖTT. */
+            /*
+             * A <head> a takarókép átlagszínét írta be inline a html elemre
+             * (hogy az első festés ne legyen üres). A kész felületnél ezt
+             * visszavonjuk, hogy a `html.iptv-revealed` sötétkékje érvényesüljön.
+             */
+            try { document.documentElement.style.backgroundColor = ''; } catch (eHtml) {}
+            /* 3) FOLYAMATOS ÁTTŰNÉS: NEM a felületet halványítjuk, hanem az
+                  átlátszatlan betöltőképernyőt, a kifestett felület FÖLÖTT. */
             if (curtain) {
               try {
                 // A kezdő opacity értéket ki kell kényszeríteni, különben a
@@ -415,13 +865,8 @@
                 curtain.className = 'iptv-curtain iptv-fading';
                 // Inline !important: a webos.css és a webos.js is rákényszeríti
                 // minden elemre a `transition-duration: 0s !important` szabályt.
-                // Az inline fontosság minden szerzői szabályt legyőz, így a
-                // régebbi webOS Chrome-on sem marad el az áttűnés.
                 try {
                   curtain.style.setProperty('transition', 'opacity 200ms linear', 'important');
-                  // A hosszú alakokat is külön, inline fontossággal írjuk:
-                  // így egyetlen szerzői `transition-duration: 0s !important`
-                  // sem tudja lenullázni az áttűnést.
                   curtain.style.setProperty('transition-property', 'opacity', 'important');
                   curtain.style.setProperty('transition-duration', '200ms', 'important');
                   curtain.style.setProperty('transition-timing-function', 'linear', 'important');
@@ -461,15 +906,20 @@
          *
          * FONTOS – EZ 12 MP, NEM 7: a főoldal saját döntése (main.tsx) legfeljebb
          * 9 másodpercet vár, és utána maga jeleníti meg a kész(nek tekintett)
-         * felületet. Korábban ez a háló 7 másodpercnél sütött el, vagyis a
-         * takarékép KORÁBBAN tűnt el, mint ahogy az alkalmazás befejezte volna
-         * a főoldal építését: a néző előbb a félkész oldalt látta, aztán
-         * sorban megérkeztek a sorok, az EPG és a logók – ez volt az
-         * „össze-vissza ugráló takarókép”. A háló most szándékosan a
-         * alkalmazás saját korlátja FELETT van, így normál esetben mindig az
-         * alkalmazás dönt, a háló csak a valóban elakadt indítást menti meg.
+         * felületet. A háló szándékosan az alkalmazás saját korlátja FELETT
+         * van, így normál esetben mindig az alkalmazás dönt, a háló csak a
+         * valóban elakadt indítást menti meg.
          */
         window.setTimeout(function () {
+          /*
+           * Ha 12 mp alatt az alkalmazás EGYÁLTALÁN nem jelzett kész állapotot,
+           * akkor nem egy üres képernyőt tárunk fel: a valódi hibaképernyő
+           * jelenik meg a hibaüzenettel (és a takarókép közben eltűnik).
+           */
+          if (typeof window.__IPTV_STARTUP_FAIL__ === 'function' && !appReady()) {
+            window.__IPTV_STARTUP_FAIL__('Az alkalmazás 12 másodperc alatt nem indult el (a főoldal nem rajzolódott ki).');
+            return;
+          }
           window.__IPTV_REVEAL__('biztonsági háló');
         }, 12000);
 

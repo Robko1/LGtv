@@ -2,6 +2,25 @@
 
 Ez a repó kizárólag LG webOS TV-hez készül. Az alkalmazás élő TV-csatornákat, filmeket, sorozatokat, EPG-t, kedvenceket és telefonos QR-beállítást kezel.
 
+## Indulás és betöltőképernyő (2.5.139)
+
+A TV indítása a saját `takarokep.jpg` borítóképpel kezdődik, és a kész főoldal
+kirajzolódásáig egyetlen, folyamatos képernyő látszik:
+
+- a webOS saját indítóképe (`splashBackground`) és a HTML betöltőképernyő
+  háttere **ugyanabból a `takarokep.jpg`-ből** készül, ezért a platform képéről
+  a sajátunkra váltás nem hoz új látványt (nincs fekete kocka, nincs villanás);
+- a jobb felső sarokban a **TV valós rendszerideje** jár;
+- a százalék, a csatornaszám, a mért sávszélesség és a hátralévő idő
+  **kizárólag a futó alkalmazás tényleges adataiból** származik – nincs
+  szimulált érték és nincs időzített „befejezés”. Amíg egy adat nem érkezett
+  meg, `—` látszik a helyén;
+- a réteg **akkor tűnik el**, amikor a főoldal már ki van festve és
+  használható. Üres telepítés (nincs csatorna) is kész állapot, és ha nincs
+  lejátszandó stream, a program nem vár az első videókockára.
+
+Részletek: [BOOT-SCREEN-2026-10-27.md](BOOT-SCREEN-2026-10-27.md).
+
 ## Lejátszás és távirányító
 
 - HTML5 `<video>` lejátszó a TV webOS médiamotorján.
@@ -132,6 +151,8 @@ web/src/services/diagnosticShareService.ts
                              Supabase küldés/history, 503 újrapróba
 web/src/services/playbackRecovery.ts
                              élő/VOD helyreállítási döntési logika
+takarokep.jpg                az indítókép/betöltőképernyő EGYETLEN forrása
+tools/make-splash.py         takarokep.jpg → splash-screen.png + splash-bg.jpg
 webos/                       LG manifest, webOS bridge, ikonok, indítókép
 supabase/                    Edge Function és SQL migráció
 tools/                       build- és futásidejű tesztek
@@ -144,12 +165,16 @@ A programból eltávolított, nem használt régi gyökérfájlok: a régi indul
 ```bash
 npm ci --no-audit --no-fund
 npm ci --prefix web --no-audit --no-fund
+pip install Pillow            # az indítókép generálásához (tools/make-splash.py)
 npm test
 (cd web && ./node_modules/.bin/tsc --noEmit)
 npm --prefix web run build
 npm run smoke
-VERSION=2.5.90 bash tools/build-webos.sh
+VERSION=2.5.139 bash tools/build-webos.sh
 ```
+
+A build az indítóképet **minden alkalommal** a `takarokep.jpg`-ből generálja
+(`tools/make-splash.py`), ezért az IPK-ba nem kerülhet elavult kép.
 
 A build kimenete helyben `webos/IPTV-RT.ipk`, de az IPK a `.gitignore` szerint nem kerül a `main` forráságba. A kézi GitHub Actions build a sikeres csomagot a verziózott Release-be tölti fel.
 

@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.5.138';
+export const WEB_VERSION = '2.5.139';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.139',
+    date: '2026-10-27',
+    changes: [
+      'ÚJ BETÖLTŐKÉPERNYŐ A TAKAROKEP.JPG-BŐL: a teljes háttérben a takarókép látszik (ugyanaz a kép, mint a webOS saját indítóképe), a jobb felső sarokban a TV VALÓS rendszerideje jár. A régi előre rajzolt főoldali váz (skeleton) és a hozzá tartozó külön logó-fájl megszűnt',
+      'CSAK VALÓS BETÖLÉSI ADATOK: a százalék a ténylegesen befejezett indulási szakaszokból (bundle, React, tároló, mentett lista, szolgáltató, élő csatornák, festés), a csatornaszám a felületre került csatornák valódi száma, a sávszélesség a net.ts által mért bájt/eltelt idő, a hátralévő idő a mért haladásból számolt becslés. Nincs szimulált érték, nincs Math.random és nincs időzített automatikus befejezés vagy demó-újraindítás',
+      'A TAKARÓKÉP AKKOR TŰNIK EL, AMIKOR A FŐFELÜLET TÉNYLEGESEN KIRAJZOLÓDOTT: a main.tsx a kész (előfestett) főoldal fölött 200 ms alatt halványítja el, transitionend vagy 240 ms után a réteg ki is kerül a DOM-ból. A webOS notifyAppLoaded() ugyanabban a pillanatban fut, a platform indítóképe és a saját képernyőnk ugyanaz a kép',
+      'ÜRES TELEPÍTÉS = KÉSZ ÁLLAPOT: ha nincs csatorna és nincs közvetlen stream-cím (data-iptv-stream="none"), a program NEM vár az első videókockára – a kész, üres felület azonnal megjelenik',
+      'AZ INDÍTÓKÉP EGYETLEN FORRÁSBÓL KÉSZÜL: a tools/make-splash.py a takarokep.jpg-ből állítja elő a webos/splash-screen.png (platform) és a splash-bg.jpg (HTML háttér) fájlt, 1920x1080-ban, a build pedig minden alkalommal a forrásból generál – így az IPK-ba nem kerülhet elavult kép',
+    ],
+  },
   {
     version: '2.5.138',
     date: '2026-10-27',

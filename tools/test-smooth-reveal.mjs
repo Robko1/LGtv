@@ -188,35 +188,66 @@ test('az előfestés két képkockáját a HTML-híd méri, nem a REVEAL', () =>
 
 /* ─────────────── 1/b. ZÖLD HÁTTÉR VILLANÁS (23:25:43) ──────────────────── */
 
-test('2.5.137: nincs zöld tartalék, a váz sötét és a HTML kicsi', () => {
-  assert.doesNotMatch(PAGE, /#5fe3b6|#4fd8e0|#6ccbd3/i,
-    'a régi lapos zöld/türkiz tartalék szín visszatért');
-  assert.match(PAGE, /html\s*\{\s*background-color:\s*#080d1a;/);
-  assert.match(PAGE, /\.iptv-curtain\s*\{[^}]*background-color:\s*#080d1a;/);
+test('2.5.139: a betöltőképernyő a takarokep.jpg teljes háttere – nincs beégetett kép', () => {
+  assert.match(PAGE, /<img id="boot-bg" src="splash-bg\.jpg"[^>]*decoding="sync"/,
+    'a teljes képernyős háttér nem a takaróképből készült helyi fájl');
+  assert.match(PAGE, /#boot-bg\s*\{[^}]*object-fit:\s*cover/,
+    'a háttérkép nem tölti ki torzítás nélkül a teljes képernyőt');
   assert.equal((PAGE.match(/data:image\/jpeg;base64,/g) || []).length, 0,
     'a beégetett kép visszatért – újra 2,5 mp lenne a válaszidő');
+  assert.doesNotMatch(PAGE, /iptv-skeleton|\.sk-player|\.sk-thumb|boot-logo/,
+    'a régi előre rajzolt főoldali váz visszatért');
   assert.doesNotMatch(PAGE, /splashLayer/, 'a két CSS háttérréteg visszatért');
   assert.doesNotMatch(PAGE, /fonts\.googleapis\.com/, 'a külső betűtípus-kérés visszatért');
 });
 
-test('az első festés ELŐRE RAJZOLT, FIX váz – nincs kép-dekódolás', () => {
-  assert.match(PAGE, /<div id="tv-curtain" class="iptv-curtain"[^>]*>\s*<div id="iptv-skeleton">/);
-  for (const slot of ['header', 'player', 'osd', 'channels']) {
-    assert.match(PAGE, new RegExp(`data-iptv-slot="${slot}"`), `hiányzik a ${slot} régió`);
-  }
-  assert.match(PAGE, /\.sk-player\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9/);
-  assert.match(PAGE, /\.sk-thumb\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9/);
-  assert.match(PAGE, /html\[data-iptv-boot="empty"\] \[data-player-poster\]\s*\{[^}]*linear-gradient/,
-    'az üres lejátszó újra fekete vagy későn dekódolódó kép');
-  assert.match(PAGE, /<img class="sk-art" src="boot-logo\.jpg"[^>]*decoding="sync"/);
+test('a betöltőképernyő a jobb felső sarokban a TV VALÓS rendszeridejét mutatja', () => {
+  const header = PAGE.slice(PAGE.indexOf('<header class="boot-head">'));
+  assert.ok(header.indexOf('id="boot-clock"') > 0, 'hiányzik a valós óra a fejlécből');
+  assert.ok(header.indexOf('id="boot-date"') > 0, 'hiányzik a magyar dátum');
+  assert.ok(header.indexOf('id="boot-clock"') < header.indexOf('</header>'),
+    'az óra nem a fejlécben (jobb felső sarok) van');
+  assert.match(PAGE, /\.boot-clockbox\s*\{[^}]*align-items:\s*flex-end/,
+    'az óra nincs jobbra igazítva');
+  // A valódi idő: new Date() + óra/perc/másodperc, másodpercenként.
+  assert.match(PAGE, /var now = new Date\(\);/);
+  assert.match(PAGE, /now\.getHours\(\)/);
+  assert.match(PAGE, /setInterval\(tickClock, 1000\)/);
 });
 
-test('a kis logó dekódolása már a HTML fejlécében elindul', () => {
-  const head = PAGE.slice(0, PAGE.indexOf('</head>'));
-  assert.match(head, /var preload = new Image\(\);/, 'hiányzik a korai kép-dekódolás');
-  assert.match(head, /preload\.decode\(\)/, 'a dekódolás nem indul el az első festés előtt');
-  assert.match(head, /preload\.src = 'boot-logo\.jpg';/, 'nem a kis helyi logót tölti');
-  assert.match(head, /<link rel="preload" as="image" href="boot-logo\.jpg"/);
+test('a betöltési adatok KIZÁRÓLAG az alkalmazásból származnak (nincs szimuláció)', () => {
+  const start = PAGE.indexOf('BETÖLTŐKÉPERNYŐ-HÍD');
+  assert.ok(start > 0, 'nem található a betöltőképernyő-híd');
+  const scriptStart = PAGE.lastIndexOf('<script>', start);
+  const script = PAGE.slice(scriptStart, PAGE.indexOf('</script>', PAGE.indexOf('window.__IPTV_BOOT__ = {')));
+  // A megjegyzések kiszűrése: a tiltó listát a MAGATARTÁSRA, nem kommentre nézzük.
+  const code = script.replace(/\/\*[\s\S]*?\*\//g, '');
+  // A demó (Inditas.html) szimulált értékei és időzített újraindítása TILOS.
+  assert.doesNotMatch(code, /Math\.random/, 'a képernyő kitalált értéket állít elő');
+  /*
+   * Időzítő csak a valós rendszeridőre (óra) és a platform indítóképének
+   * levételére futhat – a betöltési állapotot (percent/phase) időzítő NEM
+   * írhatja, mert az szimulált befejezés lenne.
+   */
+  const timers = code.match(/setTimeout\([^;]*?\)/g) || [];
+  for (const call of timers) {
+    assert.doesNotMatch(call, /percent|complete\(|state\./,
+      `időzítő írja a betöltési állapotot: ${call.slice(0, 60)}`);
+  }
+  assert.equal((code.match(/setInterval\(/g) || []).length, 1,
+    'csak az óra időzítője futhat a betöltőképernyőn');
+  assert.match(code, /setInterval\(tickClock, 1000\)/, 'az óra nem másodpercenként jár');
+  assert.doesNotMatch(PAGE, /CHANNELS = 12480|PROGRAMS = 96420|simulating/,
+    'a demó szimulált számlálói visszatértek');
+  // Minden mutató a valós adatot várja, alapból „—” látszik.
+  assert.match(script, /function update\(data\)/);
+  assert.match(script, /'percent' in data/);
+  assert.match(script, /setText\('boot-channels', state\.channels === null \? DASH : groupThousands\(state\.channels\)\)/);
+  assert.match(script, /setText\('boot-speed', formatSpeed\(state\.bytesPerSecond\)\)/);
+  assert.match(script, /setText\('boot-eta', formatEta\(state\.etaSeconds\)\)/);
+  for (const id of ['boot-channels', 'boot-speed', 'boot-eta']) {
+    assert.match(PAGE, new RegExp(`id="${id}">&mdash;</b>`), `${id} nem „—” értékkel indul`);
+  }
 });
 
 test('a build külön app.js/app.css fájlba emeli a nagy JS-t és CSS-t', () => {
@@ -225,8 +256,11 @@ test('a build külön app.js/app.css fájlba emeli a nagy JS-t és CSS-t', () =>
   assert.match(build, /def externalize_scripts/);
   assert.match(build, /<script src="app\.js"/);
   assert.match(build, /href="app\.css"/);
-  assert.match(build, /progressive=False/, 'a splash-bg.jpg újra progresszív lenne');
-  assert.match(build, /shutil\.copy\(logo_src, build_dir \/ "boot-logo\.jpg"\)/);
+  assert.match(build, /make-splash\.py" --out-dir "\$BUILD_DIR"/,
+    'a build nem a takarokep.jpg-ből készíti az indítóképet');
+  const splash = read('tools/make-splash.py');
+  assert.match(splash, /SOURCE = ROOT \/ "takarokep\.jpg"/, 'az indítókép forrása nem a takarokep.jpg');
+  assert.match(splash, /progressive=False/, 'a splash-bg.jpg újra progresszív lenne');
   const built = path.join(ROOT, 'build/webos/index.html');
   if (!fs.existsSync(built)) return;
   const html = fs.readFileSync(built, 'utf8');

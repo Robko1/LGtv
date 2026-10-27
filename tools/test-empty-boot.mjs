@@ -115,7 +115,9 @@ test('üres indulás: a futó verzió és az IPK verziója megegyezik', () => {
  * naplózó segédfüggvényt használ – ezeket mind mi adjuk át, így a kód
  * változtatás nélkül, a maga valójában fut le.
  */
-async function bootRevealHarness({ bootState, video = true, emptyMarker = true, rows = 0, dialog = false } = {}) {
+async function bootRevealHarness({
+  bootState, video = true, emptyMarker = true, rows = 0, dialog = false, stream = null,
+} = {}) {
   if (!esbuild) return null;
   const source = read('web/src/main.tsx');
   const from = source.indexOf('  const startedAt = Date.now();');
@@ -149,6 +151,7 @@ async function bootRevealHarness({ bootState, video = true, emptyMarker = true, 
   };
 
   if (bootState) doc.documentElement.setAttribute('data-iptv-boot', bootState);
+  if (stream) doc.documentElement.setAttribute('data-iptv-stream', stream);
 
   const root = doc.getElementById('root');
   root.innerHTML = '<header></header><div data-tv-folders=""></div>';
@@ -186,6 +189,18 @@ async function bootRevealHarness({ bootState, video = true, emptyMarker = true, 
   const phases = [];
   const stages = [];
   const failures = [];
+  /*
+   * A main.tsx a betöltőképernyő-hídon jelenti a VALÓS lépéseket. A kivágott
+   * blokk nem importálhat, ezért a híd függvényeit is átadjuk neki – így a
+   * teszt a kiszállított döntési kódot futtatja, a hívást pedig rögzíti.
+   */
+  const boot = [];
+  const bootBridge = {
+    start: (version) => boot.push(['start', version]),
+    phase: (name, detail) => boot.push(['phase', name, detail]),
+    detail: (text) => boot.push(['detail', text]),
+    complete: () => boot.push(['complete']),
+  };
   const context = {
     document: doc,
     window,
@@ -196,6 +211,10 @@ async function bootRevealHarness({ bootState, video = true, emptyMarker = true, 
     logPhase: (message) => phases.push(String(message)),
     stage: (n, label) => stages.push(`${n}:${label}`),
     fail: (message) => failures.push(String(message)),
+    bootScreenStart: bootBridge.start,
+    bootScreenPhase: bootBridge.phase,
+    bootScreenDetail: bootBridge.detail,
+    bootScreenComplete: bootBridge.complete,
   };
 
   const factory = new Function(
@@ -213,6 +232,7 @@ async function bootRevealHarness({ bootState, video = true, emptyMarker = true, 
     phases,
     stages,
     failures,
+    boot,
     advance: (ms) => { clock += ms; },
     setPerfNow: (fn) => { perfNow = fn; },
     tick: (ms = 90) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -345,4 +365,68 @@ test('a képkocka-őr legfeljebb kétszer halaszt, utána mindenképp megjelenik
   } finally {
     h.close();
   }
+});
+
+/*
+ * 2.5.139 – A BETÖLTŐKÉPERNYŐ VALÓS ADATOKKAL.
+ *
+ * A régi képernyő előre rajzolt főoldali váz volt (skeleton). Az új a
+ * takarokep.jpg teljes hátterét mutatja, a jobb felső sarokban a TV valós
+ * rendszeridejével, a százalékot/csatornaszámot/sebességet/hátralévő időt
+ * pedig KIZÁRÓLAG az alkalmazás jelentheti. Ezek a tesztek azt zárják ki,
+ * hogy a képernyő magától „szimuláljon” egy betöltést.
+ */
+test('a betöltőképernyő a valós lépéseket kapja, és a kész felületnél zárul', async (t) => {
+  const h = await bootRevealHarness({ bootState: 'empty', rows: 0, video: true, emptyMarker: true });
+  if (!h) { t.skip('esbuild hiányzik'); return; }
+  try {
+    h.runtime.checkRendered();
+    await h.tick(200);
+
+    const names = h.boot.map((entry) => entry[0]);
+    assert.ok(names.includes('phase'), 'a main.tsx nem jelentett egyetlen valós szakaszt sem');
+    assert.ok(names.includes('complete'), 'a 100% nem a kész felületnél állt be');
+    // A 100% a REVEAL előtt, ugyanabban a pillanatban történik.
+    const completeAt = h.boot.findIndex((entry) => entry[0] === 'complete');
+    assert.equal(h.boot.slice(completeAt + 1).filter((entry) => entry[0] === 'complete').length, 0,
+      'a befejezés többször futott le');
+    assert.equal(h.revealReasons.length, 1);
+    assert.ok(!h.boot.some((entry) => entry[0] === 'start'),
+      'a kivágott megjelenítési blokk nem indíthat új betöltési munkamenetet');
+  } finally {
+    h.close();
+  }
+});
+
+test('nincs lejátszandó stream: nem várunk az első videókockára', async (t) => {
+  /*
+   * Van csatornalista és van <video> elem, de az App azt jelzi, hogy nincs
+   * aktív stream (data-iptv-stream="none"): ilyenkor az első képkocka soha
+   * nem jönne el, ezért a kész felületnek AZONNAL meg kell jelennie.
+   */
+  const h = await bootRevealHarness({
+    bootState: 'content', rows: 4, video: true, emptyMarker: false, stream: 'none',
+  });
+  if (!h) { t.skip('esbuild hiányzik'); return; }
+  try {
+    assert.equal(h.window.__IPTV_VIDEO_READY__, undefined);
+    h.runtime.checkRendered();
+    await h.tick(200);
+    assert.equal(h.revealReasons.length, 1, 'a takarókép hiába várt a nem létező videókockára');
+    assert.match(h.revealReasons[0], /kész főoldal/);
+    assert.equal(h.failures.length, 0);
+  } finally {
+    h.close();
+  }
+});
+
+test('az App a valós stream-állapotot jelzi a megjelenítőnek', () => {
+  const app = read('web/src/App.tsx');
+  assert.match(app, /document\.documentElement\.setAttribute\('data-iptv-stream'/,
+    'hiányzik a lejátszandó stream valós jelzője');
+  assert.match(app, /const hasStream = !!\(customStreamUrl \|\| activeChannel\)/,
+    'a stream-jelző nem a tényleges csatornából/stream-címből származik');
+  const main = read('web/src/main.tsx');
+  assert.match(main, /if \(streamState\(\) === "none"\) return true;/,
+    'a videó-kész állapot nem veszi figyelembe, hogy nincs mit lejátszani');
 });

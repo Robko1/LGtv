@@ -319,8 +319,12 @@ async function main(): Promise<void> {
     `(háló=${safetyNet} ms, alkalmazás=${appLimit} ms)`
   );
   check(
-    'az első festés előre rajzolt, fix főoldali váz (nincs képvillanás)',
-    htmlSource.includes('id="iptv-skeleton"')
+    'az első festés a takarokep.jpg teljes háttere (nincs képvillanás)',
+    htmlSource.includes('id="boot-bg"') && htmlSource.includes('src="splash-bg.jpg"')
+  );
+  check(
+    'a betöltőképernyő nem fejezi be magától a betöltést (nincs szimulált érték)',
+    !/Math\.random\s*\(/.test(htmlSource) && !/setTimeout\(\s*(complete|restart)/.test(htmlSource)
   );
   check(
     'a build külön app.js-be emeli a nagy JS-t (kicsi marad a HTML)',
