@@ -60,7 +60,28 @@ try {
   process.exit(0);
 }
 
-const html = fs.readFileSync(FILE, 'utf8');
+/*
+ * 2.5.139: a build a nagy JS/CSS-t KÜLÖN fájlba emeli (app.js / app.css), a
+ * jsdom viszont alapból nem tölt le erőforrásokat. Ezért – a füstteszthez
+ * hasonlóan – a két fájlt visszaágyazzuk, hogy a vizsgált oldal valóban
+ * lefuttassa az alkalmazást.
+ */
+const inlineAssets = (source) => {
+  let html = source;
+  const appPath = path.join(path.dirname(FILE), 'app.js');
+  const cssPath = path.join(path.dirname(FILE), 'app.css');
+  if (fs.existsSync(appPath)) {
+    const js = fs.readFileSync(appPath, 'utf8');
+    html = html.replace(/<script src="app\.js"[^>]*><\/script>/, () => `<script>${js}</script>`);
+  }
+  if (fs.existsSync(cssPath)) {
+    const css = fs.readFileSync(cssPath, 'utf8');
+    html = html.replace(/<link rel="stylesheet" href="app\.css">/, () => `<style>${css}</style>`);
+  }
+  return html;
+};
+
+const html = inlineAssets(fs.readFileSync(FILE, 'utf8'));
 const vc = new VirtualConsole();
 vc.on('jsdomError', () => { /* a TV-specifikus API-k hiánya nem hiba itt */ });
 vc.on('error', () => { /* a React konzolhibái külön tesztben vannak */ });

@@ -393,8 +393,26 @@
        * csak akkor épül fel, ha a felhasználó ténylegesen megnyom egy gombot
        * (diagKey), vagy ha 15 mp után valódi hiba van (diagUiFail).
        */
-      // A kirajzolt app (fejléc) számít, nem a splash megléte.
-      var list = document.querySelector('[role="listbox"], [role="dialog"], header');
+      /*
+       * A kirajzolt app (fejléc) számít, nem a splash megléte.
+       *
+       * FONTOS (2.5.139): a betöltőképernyőnek is van <header> eleme (márka +
+       * a TV valós rendszerideje), ezért egy globális querySelector('header')
+       * már a React ELŐTT „betöltött felületet” jelentene – így egy valódi
+       * elakadásnál sem jelenne meg a 15 mp-es hibaképernyő. A takaró réteg
+       * (és a benne lévő betöltőképernyő) elemeit ezért kihagyjuk.
+       */
+      var list = null;
+      var candidates = document.querySelectorAll('[role="listbox"], [role="dialog"], header');
+      for (var ci = 0; ci < candidates.length; ci++) {
+        var inside = false;
+        var walker = candidates[ci];
+        while (walker) {
+          if (walker.id === 'tv-curtain' || walker.id === 'boot-screen') { inside = true; break; }
+          walker = walker.parentNode;
+        }
+        if (!inside) { list = candidates[ci]; break; }
+      }
       if (list || window.__IPTV_APP_READY__) {
         diag.uiLoaded = true;
         if (diag.uiLine) {

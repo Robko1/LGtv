@@ -1,5 +1,11 @@
 # Egy kép az elejétől a végéig – 2.5.137 (2026-10-27)
 
+> **FIGYELEM – TÖRTÉNETI DOKUMENTUM.** A 2.5.139-es kiadásban az itt leírt
+> előre rajzolt főoldali váz (`#iptv-skeleton`, `.sk-*`, `boot-logo.jpg`) és a
+> hozzá tartozó `tools/make-splash-skeleton.py` **megszűnt**: helyette a
+> `takarokep.jpg` teljes háttere + a TV valós rendszerideje + valós betöltési
+> adatok vannak. Az aktuális állapot: [BOOT-SCREEN-2026-10-27.md](BOOT-SCREEN-2026-10-27.md).
+
 **TV-napló:** `807bcdb8-3bed-4d13-ab65-d228369124fa` (01:41:00, 79 sor, 2.5.136).
 
 ## A felhasználó leírása

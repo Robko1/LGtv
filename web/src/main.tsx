@@ -10,6 +10,12 @@ import {
   measurementSnapshot, resetMeasurements, uiStateSnapshot,
 } from "./services/appLog";
 import { attachStartupDiagnostics } from "./services/startupDiagnostics";
+import {
+  bootScreenComplete,
+  bootScreenDetail,
+  bootScreenPhase,
+  bootScreenStart,
+} from "./services/bootScreen";
 import { WEB_VERSION } from "./appVersion";
 
 /*
@@ -29,6 +35,12 @@ installCrashHandlers();
 try { startAutomaticTestLogging(); } catch { /* a naplózás hibája nem akadályozhatja az indulást */ }
 logStartup(WEB_VERSION);
 logPhase('bundle betöltve (main.tsx)');
+/*
+ * BETÖLTŐKÉPERNYŐ: az első VALÓS adat a bundle betöltése. A képernyő ettől
+ * kezdve a futó alkalmazásból kapja a százalékot, a csatornaszámot, a mért
+ * sebességet és a hátralévő idő becslését (web/src/services/bootScreen.ts).
+ */
+bootScreenStart(WEB_VERSION);
 
 /*
  * DIAGNOSZTIKAI HÍD.
@@ -107,6 +119,7 @@ try {
     </StrictMode>
   );
   stage(5, "React mount elindítva");
+  bootScreenPhase('react', 'A React felület felépítése elindult.');
 
   const startedAt = Date.now();
 
@@ -146,6 +159,7 @@ try {
    */
   const preparePaint = () => {
     try { (window as any).__IPTV_PREPARE_REVEAL__?.(); } catch { /* nincs HTML-híd */ }
+    bootScreenPhase('painted', 'A főoldal a betöltőképernyő alatt kifestve.');
   };
 
   /** A HTML-híd már két képkockán át festette a felületet a takarókép alatt. */
@@ -153,9 +167,15 @@ try {
     try { return !!(window as any).__IPTV_PREPAINT_SETTLED__; } catch { return false; }
   };
 
+  /*
+   * FONTOS: a fejlécet a #root-ON BELÜL keressük. A betöltőképernyőnek is van
+   * <header> eleme (a márka + a valós óra), ezért egy globális
+   * document.querySelector("header") már a React előtt igazat adna – a
+   * takarókép a félkész felület előtt lemegy.
+   */
   const headerReady = () => {
     const root = document.getElementById("root");
-    return !!root && root.childElementCount > 0 && !!document.querySelector("header");
+    return !!root && root.childElementCount > 0 && !!root.querySelector("header");
   };
 
   /*
@@ -198,7 +218,8 @@ try {
   const LOGO_WAIT_MS = 600;
 
   const chromeReady = () => {
-    return headerReady() && !!document.querySelector("[data-tv-folders]");
+    const root = document.getElementById("root");
+    return headerReady() && !!root && !!root.querySelector("[data-tv-folders]");
   };
 
   const logosSettled = () => {
@@ -215,6 +236,17 @@ try {
     // el: a régi kód ilyenkor is végigvárta a VIDEO_WAIT_MS-et (majd a 9 mp-es
     // időtúllépést). Ilyenkor a lejátszó posztere a végleges kép.
     if (emptyBoot()) return true;
+    /*
+     * VAN-E EGYÁLTALÁN LEJÁTSZANDÓ STREAM?
+     *
+     * Az App az aktív csatorna (illetve a beírt közvetlen stream-cím) alapján
+     * a <html data-iptv-stream="none|active"> jelzőt állítja. Ha nincs
+     * lejátszandó stream, nincs első videókocka sem: ilyenkor AZONNAL kész
+     * a felület, nem várunk 1,2 mp-et (és pláne nem a 9 mp-es korlátig).
+     */
+    const streamState = (): string =>
+      document.documentElement.getAttribute("data-iptv-stream") || "unknown";
+    if (streamState() === "none") return true;
     // A lejátszó az első képkockánál __IPTV_VIDEO_READY__-t állít.
     // Ha nincs lejátszó (pl. nincs szolgáltató), nincs mit várni.
     const hasPlayer = !!document.querySelector('video[data-iptv-player="true"]');
@@ -296,7 +328,12 @@ try {
     stage(7, "Főképernyő kész");
     logPhase('főoldal kész és kirajzolva');
     try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
-    // A webOS indítóképe és a kész főoldal egyetlen váltással cserélődik.
+    /*
+     * A betöltőképernyő 100%-a csak MOST, a tényleges kész állapotban áll be –
+     * nem egy időzítő, hanem a valóban kirajzolt és használható főoldal.
+     * A webOS indítóképe és a kész főoldal egyetlen váltással cserélődik.
+     */
+    bootScreenComplete();
     reveal(reason);
   };
 
@@ -333,6 +370,7 @@ try {
 
   const logoStartedAt = { value: 0 };
   let prepared = false;
+  let shellReported = false;
 
   const checkRendered = () => {
     if (revealed) return;
@@ -342,6 +380,16 @@ try {
     // a teljes, kész állapot – nincs mire várni.
     const onlyDialog = !!document.querySelector('[role="dialog"]');
     const chromeOk = chromeReady();
+
+    /*
+     * VALÓS HELYZETJELZÉS: a fejléc és a mappasáv ténylegesen kirajzolódott.
+     * Ez a betöltőképernyő 6/7 lépése – nem időzítő, hanem a DOM állapota.
+     */
+    if (chromeOk && !shellReported) {
+      shellReported = true;
+      bootScreenPhase('shell', 'A fejléc és a csatornalista kirajzolódott.');
+      bootScreenDetail('A felület használható, a megjelenítés előkészítése…');
+    }
 
     /*
      * A FESTÉST NEM A REVEAL PILLANATÁRA HAGYJUK. Amint a fejléc és a

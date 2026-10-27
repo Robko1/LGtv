@@ -1,6 +1,6 @@
 # IPTV R.T – LG webOS TV csomag
 
-A `webos/` mappa az LG TV manifestet, a távirányító webOS-hídját, az alkalmazás ikonjait és a logó képkockáját tartalmazza. A React/Vite forrás a `web/` mappában van.
+A `webos/` mappa az LG TV manifestet, a távirányító webOS-hídját, az alkalmazás ikonjait és a `takarokep.jpg`-ből készült indítóképet tartalmazza. A React/Vite forrás a `web/` mappában van.
 
 ## Fontos fájlok
 
@@ -9,12 +9,20 @@ webos/appinfo.json       webOS manifest, id: hu.rt.iptv.webos
 webos/webos.js           ES5-kompatibilis Magic Remote/D-pad bridge
 webos/icon-rt2.png       launcher ikon
 webos/largeIcon-rt2.png  nagy launcher ikon
-webos/splash-screen.png  1920×1080 logó-képkocka indítóképnek
+webos/splash-screen.png  1920×1080 indítókép (a takarokep.jpg-ből generálva)
 tools/build-webos.sh     web build + ES5 + IPK build
 webos/tools/build-ipk.py helyi fejlesztői IPK-csomagoló
 ```
 
-Az induló MP4 nincs a programban és nincs a `webos/assets/` mappában. A webOS saját indítóképe a `splash-screen.png`.
+Az induló MP4 nincs a programban és nincs a `webos/assets/` mappában.
+
+Az indítókép **egyetlen forrása** a repó gyökerében lévő `takarokep.jpg`.
+A `tools/make-splash.py` ebből készíti a `webos/splash-screen.png` (webOS
+`splashBackground`) és a `web/public/splash-bg.jpg` (a HTML betöltőképernyő
+háttere) fájlt, 1920×1080-ban. A build minden alkalommal a forrásból generál
+(`python3 tools/make-splash.py --out-dir build/webos`), így a kettő mindig
+ugyanaz a kép – a platform indítóképéről a saját képernyőnkre váltás nem hoz
+új látványt. Részletek: [../BOOT-SCREEN-2026-10-27.md](../BOOT-SCREEN-2026-10-27.md).
 
 ## Helyi build
 
@@ -23,7 +31,8 @@ A repó gyökeréből:
 ```bash
 npm ci --no-audit --no-fund
 npm ci --prefix web --no-audit --no-fund
-VERSION=2.5.90 bash tools/build-webos.sh
+pip install Pillow
+VERSION=2.5.139 bash tools/build-webos.sh
 ```
 
 Kimenet: `webos/IPTV-RT.ipk`. Ez lokális, fejlesztői/Developer Mode csomag; a fájl szándékosan nincs a `main` forráságban, csak a build és a GitHub Release használja.

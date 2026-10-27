@@ -74,6 +74,18 @@ const dom = new JSDOM(html, {
     window.alert = () => {};
     window.confirm = () => true;
     window.prompt = () => null;
+    /*
+     * A webOS híd: a platform indítóképét a notifyAppLoaded() emeli le. A
+     * füstteszt azt is ellenőrzi, hogy ez PONTOSAN EGYSZER, a kész felületnél
+     * történik meg (nem korábban, nem többször).
+     */
+    window.__SMOKE_NOTIFY__ = { count: 0, at: 0 };
+    window.webOSSystem = {
+      notifyAppLoaded: () => {
+        window.__SMOKE_NOTIFY__.count += 1;
+        window.__SMOKE_NOTIFY__.at = Date.now();
+      },
+    };
 
     // jsdom nem implementálja matchMedia, de a valódi Android WebView
     // és böngészők igen. Adjuk hozzá a MediaQueryList API tesztstabil stubját.
@@ -129,7 +141,16 @@ function visibleText(doc) {
 function finish() {
   const doc = dom.window.document;
   const root = doc.getElementById('root');
-  const splash = doc.getElementById('boot-splash');
+  // 2.5.139: a régi #boot-splash helyett a takaró réteg és a betöltőképernyő
+  // megléte számít. A kész felületnél EGYIK SEM maradhat a DOM-ban.
+  const curtain = doc.getElementById('tv-curtain');
+  const bootScreen = doc.getElementById('boot-screen');
+  const splash = curtain || bootScreen;
+  const bootState = (() => {
+    try { return dom.window.__IPTV_BOOT__ ? dom.window.__IPTV_BOOT__.state() : null; } catch { return null; }
+  })();
+  const notifyCount = dom.window.__SMOKE_NOTIFY__ ? dom.window.__SMOKE_NOTIFY__.count : 0;
+  const bootAttr = doc.documentElement.getAttribute('data-iptv-boot');
   const errorBox = doc.getElementById('boot-error');
   const rendered = !!root && root.childElementCount > 0 && root.innerHTML.length > 500;
   const text = visibleText(doc);
@@ -143,6 +164,8 @@ function finish() {
   console.log(`Fájl: ${path.relative(process.cwd(), file)}`);
   console.log(`#root gyerekei: ${root ? root.childElementCount : 'nincs #root'} (${root ? root.innerHTML.length : 0} karakter)`);
   console.log(`Kezdőképernyő még látható: ${splash ? 'igen' : 'nem (a felület átvette)'}`);
+  console.log(`Betöltési állapot: ${bootState ? `${Math.round(bootState.percent)}% – ${bootState.phase || '?'}` : 'nincs híd'}`);
+  console.log(`notifyAppLoaded: ${notifyCount}x, data-iptv-boot=${bootAttr || 'nincs'}`);
   if (errorBox && errorBox.textContent) console.log('Kezdőképernyő hibaszövege: ' + errorBox.textContent);
 
   if (errorPageHit.length || boundaryErrors.length) {
@@ -159,9 +182,18 @@ function finish() {
     process.exit(1);
   }
 
-  if (rendered && !splash) {
-    console.log('\nOK: a webes felület felépült, az APK nem lesz fekete képernyős.');
+  const bootOk = !splash && notifyCount === 1 && !!bootState && Math.round(bootState.percent) === 100;
+  if (rendered && bootOk) {
+    console.log('\nOK: a webes felület felépült, a betöltőképernyő eltűnt, az APK nem lesz fekete képernyős.');
     process.exit(0);
+  }
+
+  if (rendered && !bootOk) {
+    console.log('\nHIBA: a felület felépült, de a betöltőképernyő/indítókép állapota nem megfelelő:');
+    if (splash) console.log('  - a takaró réteg még a DOM-ban van');
+    if (notifyCount !== 1) console.log(`  - notifyAppLoaded ${notifyCount}x futott (várt: 1)`);
+    if (!bootState || Math.round(bootState.percent) !== 100) console.log('  - a betöltési állapot nem 100%');
+    process.exit(1);
   }
 
   console.log('\nHIBA: a webes felület nem épült fel – ez az APK-ban üres/fekete képernyő lenne.');
@@ -173,15 +205,19 @@ function finish() {
 }
 
 const timer = setInterval(() => {
-  const root = dom.window.document.getElementById('root');
-  const splash = dom.window.document.getElementById('boot-splash');
+  const doc = dom.window.document;
+  const root = doc.getElementById('root');
+  // 2.5.139: a takaró réteg (és a benne lévő betöltőképernyő) eltűnése a jel.
+  // A réteget a 200 ms-os áttűnés VÉGE távolítja el (transitionend vagy
+  // 240 ms-os tartalék), ezért erre várunk – nem a felület első festésére.
+  const curtain = doc.getElementById('tv-curtain');
   const rendered = !!root && root.childElementCount > 0 && root.innerHTML.length > 500;
-  const crashed = visibleText(dom.window.document).includes('Hiba a felület betöltése közben')
+  const crashed = visibleText(doc).includes('Hiba a felület betöltése közben')
     || captured.some((line) => line.includes('IPTV-RT hiba'));
   if (crashed) {
     clearInterval(timer);
     finish();
-  } else if (rendered && !splash) {
+  } else if (rendered && !curtain) {
     clearInterval(timer);
     finish();
   } else if (Date.now() > deadline) {

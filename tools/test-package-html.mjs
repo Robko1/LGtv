@@ -119,11 +119,12 @@ test('a CI IPK-ellenőrzése a valódi script-hivatkozást keresi, nem szövegr�
   );
 });
 
-test('2.5.137: NINCS beégetett indulókép – a HTML kicsi marad', () => {
+test('2.5.139: NINCS beégetett indulókép – a HTML kicsi marad', () => {
   /*
    * A beégetett 265 KB-os JPEG + 46 KB-os PNG volt a 2493 ms-es válaszidő
-   * egyik oka. Most a logó külön, 37 KB-os HELYI fájl, a váz pedig tiszta
-   * HTML/CSS. A `str.replace` régi duplázási hibája így eleve nem fordulhat elő.
+   * egyik oka. Most a takarókép külön, HELYI `splash-bg.jpg`, a betöltőképernyő
+   * pedig tiszta HTML/CSS. A `str.replace` régi duplázási hibája így eleve
+   * nem fordulhat elő.
    */
   const page = read('web/index.html');
   assert.ok(!page.includes('__IPTV_SPLASH_DATA_URI__'));
@@ -146,7 +147,9 @@ test('a csomagolt HTML a külső app.js/app.css fájlokra hivatkozik', () => {
   assert.match(html, /IPTV-ES5-APP/, 'a CI által keresett ES5 jelölő eltűnt');
   assert.match(html, /IPTV-ES5-POLYFILLS/, 'a polyfill jelölő eltűnt');
   assert.doesNotMatch(html, /<script[^>]*type="module"/);
-  assert.match(html, /id="iptv-skeleton"/, 'az előre rajzolt váz hiányzik a csomagból');
+  assert.match(html, /id="boot-screen"/, 'a betöltőképernyő hiányzik a csomagból');
+  assert.match(html, /<img id="boot-bg" src="splash-bg\.jpg"/,
+    'a takarokép háttere hiányzik a csomagból');
 });
 
 test('a takarókép hátterét a <head> injektálja, nem a <body>', () => {
@@ -164,6 +167,8 @@ test('a takarókép hátterét a <head> injektálja, nem a <body>', () => {
   const injector = src.indexOf("__IPTV_BOOT_PICTURE__");
   assert.ok(injector > 0, 'nem található a korai kép-előmelegítő szkript');
   assert.ok(injector < headEnd, 'az előmelegítés nem a <head>-ben van');
+  assert.match(src.slice(0, headEnd), /__IPTV_BOOT_PICTURE__ = 'splash-bg\.jpg'/,
+    'a korai előmelegítés nem a takarókép fájljára mutat');
   assert.ok(!src.slice(bodyStart).includes("var preload = new Image()"),
     'a <body>-ban is van kép-előmelegítő (duplikált)');
 });
@@ -193,13 +198,18 @@ test('az app bgColor a takarókép színével egyezik – nincs fekete villanás
    * (világos türkiz). A webOS a bgColor-t festi az alkalmazás első kirajzolt
    * képkockája ELŐTT – ez volt a felhasználó „nagy gyors feketeség villanás”
    * észrevétele az IPK indításakor.
+   *
+   * 2.5.139: az indítókép a takarokep.jpg, aminek a mért átlagszíne #84bebc.
+   * A bgColor ezt követi, tehát a platform és a saját képernyő között nincs
+   * színugrás.
    */
   const info = JSON.parse(read('webos/appinfo.json'));
   assert.equal(
     String(info.bgColor).toLowerCase(),
-    '#213c51',
-    'a bgColor nem az új, sötét főoldali váz átlagszíne – fekete/világos keret villanhat induláskor'
+    '#84bebc',
+    'a bgColor nem a takarokep.jpg átlagszíne – színugrás villanhat induláskor'
   );
+  assert.equal(info.splashBackground, 'splash-screen.png');
   assert.ok(info.splashBackground, 'hiányzik a splashBackground');
 });
 
@@ -214,14 +224,21 @@ test('a takarókép réteg alapszíne a főoldali váz sötétkékje (nincs kere
     !/background-color:\s*#0d1b2a/i.test(html),
     'a takarókép/boot háttér még mindig sötétkék (#0d1b2a)'
   );
-  /* 2.5.137: a takarókép, a vászon és a body VÉGIG ugyanazt a sötétkéket
-     mutatják – így nincs színugrás a platform képének levételekor. */
-  assert.match(html, /html\s*\{\s*background-color:\s*#080d1a;/);
-  assert.match(html, /\.iptv-curtain\s*\{[^}]*background-color:\s*#080d1a;/);
-  assert.match(html, /html\.iptv-booting body\s*\{\s*background-color:\s*#080d1a !important;/);
-  assert.match(html, /#iptv-skeleton\s*\{[^}]*background:\s*#080d1a;/);
+  /* 2.5.139: amíg a takarókép dekódolása tart, a háttér a takarokep.jpg
+     MÉRT átlagszíne (#84bebc), nem egy idegen sötétkék. A kész felület
+     megjelenésekor vált #080d1a-ra – a két állapot a saját határa.
+     A webOS saját indítóképe UGYANEZ a fotó, ezért a platform képéről a
+     saját képernyőnkre váltás nem hoz új látványt. */
+  assert.match(html, /html\s*\{\s*background-color:\s*#7fb9bd;/);
+  assert.match(html, /\.iptv-curtain\s*\{[^}]*background-color:\s*#7fb9bd;/);
+  assert.match(html, /html\.iptv-booting body\s*\{\s*background-color:\s*#7fb9bd !important;/);
+  assert.match(html, /html\.iptv-revealed body\s*\{\s*background-color:\s*#080d1a !important;/);
+  assert.match(html, /<img id="boot-bg" src="splash-bg\.jpg"/,
+    'a teljes képernyős takarókép hiányzik');
   assert.doesNotMatch(html, /background-color:\s*#6ccbd3/i,
     'a régi világos türkiz háttér visszatért');
+  assert.doesNotMatch(html, /#iptv-skeleton|\.sk-player/,
+    'a régi előre rajzolt főoldali váz visszatért');
 });
 
 test('a takarókép nem esik le egy lefagyott képkocka közepére', () => {
