@@ -304,14 +304,11 @@ try {
    */
   const FRAME_GAP_LIMIT_MS = 240;
   /*
-   * A képváltás-őr NEM késleltetheti a megjelenítést végtelenül. A 2.5.128-as
-   * naplóban az indulás körüli 350/200/183 ms-os képkocka-kihagyások miatt
-   * az őr újra és újra elhalasztotta a váltást, egészen a 9 mp-es kemény
-   * korlátig – ez látszott „ugrálásnak”. Két újrapróbálás után inkább
-   * megjelenítjük a kész felületet.
+   * 2.5.153: az újrapróbálkozás MEGSZŰNT. A 41–44. napló bizonyítja, hogy a
+   * „képkocka-kihagyás” nem a saját munkánktól van, hanem a videó-indítástól,
+   * ezért a váltás halasztása nem javított semmin – csak 1–3 mp-et tett a
+   * felfedésre.
    */
-  const MAX_FRAME_GAP_RETRIES = 1;
-  let frameGapRetries = 0;
   let revealPending = false;
   /** Nagy felbontású óra, ha van; egyébként a falióra. */
   const nowMs = (): number => {
@@ -322,34 +319,46 @@ try {
     } catch { /* nincs performance */ }
     return Date.now();
   };
+  /*
+   * A VÁLTÁS KÉPKOCKÁRA VÁR – DE LEGFELJEBB 350 ms-IG (2.5.153).
+   *
+   * A 41–44. napló mérése: a videó elindulásakor a TV NEM ad képkockát
+   * 1,2–3,9 mp-ig (a `requestAnimationFrame` nem hívódik meg), miközben a
+   * JavaScript tovább fut – a naplóban közben sorban jönnek a média- és
+   * EPG-események. A régi „képkocka-őr” ezt úgy értelmezte, hogy „a fő szál
+   * foglalt”, és ELHALASZTOTTA a takarókép levételét: a 41. naplóban a
+   * felfedés 3,6 mp-nél már esedékes volt, mégis 6,5 mp-nél történt meg.
+   *
+   * A takarókép levétele EGYETLEN stílusváltás, amihez nem kell új képkocka:
+   * a felület már elő van festve alatta. Ezért mostantól a képkockára
+   * legfeljebb 350 ms-ot várunk – utána a váltás megtörténik. A késés
+   * tényét a napló rögzíti, de a felfedést nem halasztja.
+   */
+  const REVEAL_PAINT_TIMEOUT_MS = 350;
+  let paintFallbacks = 0;
   const afterPaint = (fn: () => void) => {
-    window.requestAnimationFrame(() => {
-      const frameStartedAt = nowMs();
+    let done = false;
+    const finish = (how: 'képkocka' | 'időzítő', gap: number) => {
+      if (done) return;
+      done = true;
+      if (how === 'időzítő') {
+        paintFallbacks += 1;
+        logPhase('a váltás nem vár tovább képkockára (a videó-pipeline visszatartotta)');
+      } else if (gap > FRAME_GAP_LIMIT_MS) {
+        logPhase(`képkocka-kihagyás a váltás előtt: ${Math.round(gap)} ms (nem halasztjuk)`);
+      }
+      fn();
+    };
+    const timer = window.setTimeout(() => finish('időzítő', REVEAL_PAINT_TIMEOUT_MS), REVEAL_PAINT_TIMEOUT_MS);
+    try {
       window.requestAnimationFrame(() => {
-        const frameGap = nowMs() - frameStartedAt;
-        /*
-         * 2.5.147 – NE HALASSZUK A VÁLTÁST, HA MINDEN ADAT A HELYÉN VAN.
-         *
-         * A 24., 25. és 26. napló mindhárom indulásánál a teljes élő lista
-         * ~5 mp-nél már kész volt, a REVEAL mégis +9–11 mp-nél történt meg:
-         * a képváltás-őr a lista beszúrása utáni 2,7 mp-es késleltetett
-         * képkockát „folyamatban lévő akadásnak” látta, és kétszer is
-         * elhalasztotta a váltást. A kompozitor a kész képkockát mindig
-         * EGÉSZÉBEN teszi ki, ezért befejezett adatok mellett nincs mitől
-         * félni – a takarókép ilyenkor azonnal lemehet.
-         */
-        if (frameGap > FRAME_GAP_LIMIT_MS
-            && frameGapRetries < MAX_FRAME_GAP_RETRIES
-            && Date.now() - startedAt <= 9000) {
-          frameGapRetries += 1;
-          revealPending = false;
-          logPhase(`a takarókép fent marad: a fő szál ${Math.round(frameGap)} ms-ig foglalt volt (${frameGapRetries}/${MAX_FRAME_GAP_RETRIES})`);
-          window.setTimeout(checkRendered, 120);
-          return;
-        }
-        fn();
+        const frameStartedAt = nowMs();
+        window.requestAnimationFrame(() => {
+          window.clearTimeout(timer);
+          finish('képkocka', nowMs() - frameStartedAt);
+        });
       });
-    });
+    } catch { /* az időzítő mindenképpen lefut */ }
   };
 
   let revealed = false;
@@ -361,6 +370,17 @@ try {
     logPhase(liveListReady()
       ? 'főoldal kész és kirajzolva'
       : 'főoldal kész és kirajzolva – a teljes élő lista a háttérben töltődik tovább');
+    /*
+     * A FELFEDÉS BONTÁSA (2.5.153) – a következő naplóból egyértelműen
+     * látszik, melyik lépés késleltette a váltást, ha még mindig késik.
+     */
+    try {
+      logPhase(
+        `FELFEDÉS: ${Date.now() - startedAt} ms; videó-kész=${videoSettled() ? 'igen' : 'nem'}; `
+        + `logó-kész=${logosSettled() ? 'igen' : 'nem'}; előfestés=${prepaintSettled() ? 'igen' : 'nem'}; `
+        + `képkocka-várakozás=${paintFallbacks}`,
+      );
+    } catch { /* a napló hibája nem akadály */ }
     try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
     /*
      * A VÁLTÁS AZ ELSŐ HELYEN (2.5.149), a 100% UTÁNA (2.5.151).

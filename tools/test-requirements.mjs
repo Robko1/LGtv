@@ -84,13 +84,21 @@ test('1. a megjelenítés egyszeri: ismételt hívásra nincs második váltás 
   }
 });
 
-test('1. a megjelenítés két animációs kép után történik (a kész kép már a képernyőn)', () => {
-  // A main.tsx a reveal-t két requestAnimationFrame után hívja: az első
-  // képben a rejtett felület már a DOM-ban van, a másodikra kirajzolódott.
-  assert.match(MAIN, /const afterPaint = \(fn: \(\) => void\) => \{[\s\S]{0,220}requestAnimationFrame/);
+test('1. a megjelenítés két animációs kép után történik – de legfeljebb 350 ms várakozással', () => {
+  /*
+   * A main.tsx a reveal-t két requestAnimationFrame után hívja: az első
+   * képben a rejtett felület már a DOM-ban van, a másodikra kirajzolódott.
+   *
+   * 2.5.153: a 41–44. napló szerint a videó elindulásakor a TV 1,2–3,9 mp-ig
+   * nem ad képkockát, ezért a képkocka-várakozásnak időkorlátja van –
+   * különben a takarókép percekig fent marad.
+   */
+  assert.match(MAIN, /const afterPaint = \(fn: \(\) => void\) => \{[\s\S]{0,900}?requestAnimationFrame/);
   const afterPaint = MAIN.slice(MAIN.indexOf('const afterPaint'));
-  const body = afterPaint.slice(0, afterPaint.indexOf('};'));
+  const body = afterPaint.slice(0, afterPaint.indexOf('\n  };'));
   assert.equal((body.match(/requestAnimationFrame/g) || []).length, 2, 'két kép kell a festés biztosításához');
+  assert.match(MAIN, /const REVEAL_PAINT_TIMEOUT_MS = 350;/,
+    'nincs időkorlát: a TV képkocka-kihagyása percekig fogva tarthatja a takaróképet');
   assert.match(MAIN, /revealNow\(/);
 });
 
@@ -1759,8 +1767,14 @@ test('22. az élő lista újraindítás után is megmarad (localStorage + Indexe
     'a felület nem tölti vissza a teljes listát a tartós tárból');
   assert.match(STORE, /const full = await loadLiveFull\(provider\);/,
     'a teljes élő lista nem az IndexedDB-ből jön vissza');
-  assert.match(APP, /restoreSavedChannelOrder\(hungaryFirst\(full\.channels\), target\.provider\.id\)/,
+  /*
+   * 2.5.153: a rendezés ELŐRE, a React-commit előtt történik (a prepare-változóba),
+   * mert a 41–44. naplóban a commit közbeni rendezés 1,5–1,8 mp-re fagyasztotta
+   * a képet. A mentett sorrend megmarad – csak a helye változott.
+   */
+  assert.match(APP, /const prepared = restoreSavedChannelOrder\(\s*hungaryFirst\(full\.channels\),\s*target\.provider\.id,\s*\)/,
     'a visszatöltött teljes lista elveszítheti a mentett sorrendet');
+  assert.match(APP, /startTransition\(\(\) => \{/, 'a teljes lista commitja nem szakítható meg (startTransition)');
   assert.match(APP, /needsLiveCacheCompaction\(\)/,
     'az első indítás nem helyezi át a régi, nagy listát');
   assert.match(APP, /const \[liveRecoveryNeeded, setLiveRecoveryNeeded\] = useState\(/,

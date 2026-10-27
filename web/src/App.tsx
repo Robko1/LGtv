@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Season, Series, WatchHistoryItem } from './types/iptv';
 import { storageService } from './services/storageService';
@@ -1150,12 +1150,31 @@ export function App() {
         onStage: (stage) => logPhase(stage),
         onLive: (full) => {
           if (providerRefreshActiveRef.current) return;
-          setChannels((current) => current.length >= full.channels.length
-            ? current
-            : restoreSavedChannelOrder(hungaryFirst(full.channels), target.provider.id));
-          setCategories((current) => (current.length ? current : full.categories));
-          setTotalCounts((current) => (current.live >= full.totals.live
-            ? current : { ...current, live: full.totals.live }));
+          /*
+           * A 20 191 CSATORNÁS LISTA BESZÚRÁSA – ELŐKÉSZÍTÉS ÉS COMMIT KÜLÖN (2.5.153).
+           *
+           * A 41–44. napló: a visszatöltés alatt 1,5–1,8 mp-es képkocka-
+           * kihagyás volt, MIKÖZBEN a lista már látszott. Az ok: a rendezés
+           * (magyar-első + mentett sorrend) és a teljes lista React-commitja
+           * egyetlen, megszakíthatatlan munkaként futott.
+           *
+           * Mostantól a rendezés ELŐRE, a commit előtt történik (nem a React
+           * render közben), a commit pedig `startTransition`-ben megy: a React
+           * félbe tudja szakítani, és a böngésző közben kifesthet – így a
+           * felület nem fagy meg, csak a lista jelenik meg.
+           */
+          const prepStartedAt = Date.now();
+          const prepared = restoreSavedChannelOrder(
+            hungaryFirst(full.channels),
+            target.provider.id,
+          );
+          appLog(`Teljes élő lista előkészítve: ${prepared.length} csatorna (${Date.now() - prepStartedAt} ms).`);
+          startTransition(() => {
+            setChannels((current) => current.length >= full.channels.length ? current : prepared);
+            setCategories((current) => (current.length ? current : full.categories));
+            setTotalCounts((current) => (current.live >= full.totals.live
+              ? current : { ...current, live: full.totals.live }));
+          });
           appLog(`Teljes élő lista a felületen: ${full.channels.length} csatorna (tartós tár).`);
         },
         onVod: (vod) => {
@@ -1297,7 +1316,7 @@ export function App() {
      * biztonsági háló most 15 mp – ha a felfedés valamiért elmaradna, a
      * teljes lista DB-ben is betöltődik.
      */
-    const startAfterReveal = () => { timers.restoreTimer = window.setTimeout(startRestore, 400); };
+    const startAfterReveal = () => { timers.restoreTimer = window.setTimeout(startRestore, 1200); };
     if (revealNow()) {
       startAfterReveal();
     } else {
