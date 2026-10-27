@@ -363,33 +363,34 @@ try {
       : 'főoldal kész és kirajzolva – a teljes élő lista a háttérben töltődik tovább');
     try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
     /*
-     * A VÁLTÁS AZ ELSŐ HELYEN (2.5.149).
+     * A VÁLTÁS AZ ELSŐ HELYEN (2.5.149), a 100% UTÁNA (2.5.151).
      *
-     * A 28–30. napló szerint a takarókép levétele a „főoldal kész” jelzés után
-     * még 1,4–2,4 mp-et várt, mert a betöltőképernyő 100%-os lezárása
-     * (virágzás, fátyol, blur-ös elengedés) a TV GPU-ján drága volt, és a
-     * felfedés csak utána következett. Most a felfedés fut ELŐBB – egyetlen
-     * stílusváltás, semmi más –, és a betöltőképernyő könyvelése csak utána,
-     * amikor az már nem is látszik.
+     * A felhasználói kérés: „ha 100%-nál ugorhat a főoldal”. A takarókép
+     * levétele EGYETLEN stílusváltás (nincs elhalványulás), ezért a felfedés
+     * azonnal megtörténik; a betöltőképernyő 100%-a – és az utána következő
+     * könyvelés – már nem látszik, mert a takarókép ebben a feladatban
+     * eltűnik. A 2.5.149-ben kivett virágzás/fátyol/blur továbbra sem tér
+     * vissza: nincs drága GPU-munka a váltás előtt.
      */
     reveal(reason);
+    try { bootScreenComplete(); } catch { /* a HTML-réteg hibája nem akadály */ }
     /*
      * A jelzés a felfedés UTÁN megy ki – az App ebből indítja a teljes lista
      * visszatöltését. `window.CustomEvent` (nem a globális), mert a régi
      * webOS motorokon és a teszt-környezetben is ez a helyes példány.
      */
     try {
-      if (typeof (window as any).CustomEvent === 'function') {
-        window.dispatchEvent(new (window as any).CustomEvent('iptv-app-ready'));
-      } else {
+      let signal: Event | null = null;
+      const custom = (window as any).CustomEvent;
+      if (typeof custom === 'function') {
+        signal = new custom('iptv-app-ready');
+      } else if (typeof document.createEvent === 'function') {
         const legacy = document.createEvent('Event');
         legacy.initEvent('iptv-app-ready', false, false);
-        window.dispatchEvent(legacy);
+        signal = legacy;
       }
+      if (signal) window.dispatchEvent(signal);
     } catch { /* régi motor */ }
-    window.setTimeout(() => {
-      try { bootScreenComplete(); } catch { /* a HTML-réteg hibája nem akadály */ }
-    }, 0);
   };
 
   /*
@@ -399,6 +400,11 @@ try {
    */
   const revealWhenPainted = (reason: string) => {
     if (revealed) return;
+    /*
+     * 2.5.151: 99% – „Váltás a főoldalra”. Ez az UTOLSÓ, festett állapot,
+     * amit a néző lát: utána (100%-nál) jön a főoldal.
+     */
+    if (!revealed) bootScreenPhase('ready');
     // Ha a korai előfestés valamiért kimaradt, itt még pótoljuk: a két
     // animációs kép alatt a felület már látható (de takart) legyen.
     preparePaint();
@@ -426,6 +432,7 @@ try {
   const logoStartedAt = { value: 0 };
   let prepared = false;
   let shellReported = false;
+  let framesReported = false;
 
   const checkRendered = () => {
     if (revealed) return;
@@ -456,6 +463,16 @@ try {
       prepared = true;
       preparePaint();
       logPhase('főoldal előfestve a takarókép alatt');
+    }
+
+    /*
+     * 2.5.151: a sáv VALÓS lépése. Amikor a HTML-híd két képkockán át már
+     * kifestette a kész felületet a takarókép alatt, a néző a 94% helyett
+     * 97%-ot lát – nem áll meg a folyamatjelző a váltásig.
+     */
+    if (prepaintSettled() && !framesReported) {
+      framesReported = true;
+      bootScreenPhase('frames', 'A főoldal két képkockán át kifestve.');
     }
 
     if (chromeOk && (listReady() || onlyDialog)) {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#7fb9bd" />
+    <meta name="theme-color" content="#080d1a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -47,16 +47,20 @@
          mozgás fut (forgó gyűrű, vonuló fénycsík, lüktető pont) – ez adja
          a „megy a program” érzést, miközben a háttérben töltés zajlik.
          ═══════════════════════════════════════════════════════════════ */
-      /* A HÁTTÉRSZÍN A REVEAL-NÁL NEM VÁLTOZIK (2.5.147).
-         A 24–26. napló „hatalmas fekete képe” abból a pillanatból jött,
-         amikor a REVEAL a html/body hátterét tealról #080d1a-ra váltotta,
-         MIKÖZBEN a takarókép 200 ms alatt elhalványult: a két festés közé
-         beszorult a videó még festetlen (fekete) síkja.
-         Mostantól a body – a kész felület felülete – az első festéstől
-         #080d1a, a html alapszíne pedig végig a takarókép mért átlagszíne
-         (ez adja a webOS saját indítóképéről való átvételt). A REVEAL-nál
-         így EGYETLEN háttérszín sem változik. */
-      html { background-color: #7fb9bd; }
+      /* A HÁTTÉRSZÍN SOHA NEM VILÁGOS (2.5.151).
+         A 35–39. napló/használói észrevétel: a takarókép után – és
+         csatornaváltásnál a főoldalon – VILÁGOS TÜRKIZ (teal) kocka villant
+         be. Két forrása volt:
+           • a webOS ablak háttere (appinfo.json bgColor: világos türkiz) –
+             ez látszik minden olyan pillanatban, amikor a lap éppen nem
+             festett (a head-szkript és az első festés között 1,6 mp volt
+             ilyen!);
+           • a html és a takarókép (#tv-curtain) alapszíne, ami szintén
+             világos türkiz volt.
+         Mostantól MINDEN alapszín a kész felület sötétje (#080d1a): ha
+         bármelyik réteg egy pillanatra hiányzik, a néző sötétet lát, nem
+         világos kék villanást. A REVEAL-nál továbbra sem váltunk színt. */
+      html { background-color: #080d1a; }
       html.iptv-booting body { background-color: #080d1a !important; }
       html.iptv-revealed body { background-color: #080d1a !important; }
       html.iptv-booting #root { visibility: hidden; }
@@ -77,7 +81,9 @@
       .iptv-curtain {
         position: fixed; left: 0; top: 0; right: 0; bottom: 0;
         z-index: 2147483000;
-        background-color: #7fb9bd;
+        /* 2.5.151: a takarókép alapja is sötét – a boot screen saját háttere
+           (#04141A) fölötte van, de ha az még nem festett, nem villan be kék. */
+        background-color: #080d1a;
         pointer-events: none;
         opacity: 1;
         overflow: hidden;
@@ -160,9 +166,19 @@
         /* 2.5.145: a háttér STATIKUS. A korábbi végtelen „úszás” minden
            képkockán újrarajzolta a teljes 1,2 MB-os fotót – a TV-n ez volt a
            legdrágább folyamatos munka a betöltőképernyő alatt. Ugyanaz a kép,
-           ugyanaz a kivágás, csak mozgás nélkül. */
-        opacity: 1;
+           ugyanaz a kivágás, csak mozgás nélkül.
+
+           2.5.151: a fotó NEM blokkolhatja az első festést. A 35. naplóban az
+           első festés 1853 ms volt, mert a `decoding="sync"` a 1,2 MB-os kép
+           dekódolásáig visszatartotta a képkockát – addig a világos türkiz
+           háttér látszott. Most a sötét betöltőképernyő és az animáció
+           AZONNAL megjelenik, a fotó pedig dekódolás után 160 ms alatt úszik
+           be (ez nem a főoldalra váltás, csak a háttér). */
+        opacity: 0;
+        -webkit-transition: opacity .16s linear;
+        transition: opacity .16s linear;
       }
+      #boot-bg.is-ready { opacity: 1; }
 
       /* ---------- optikai rétegek ---------- */
       #boot-screen .scrim {
@@ -743,7 +759,7 @@
             }
           }
           window.__IPTV_BOOT_PRELOAD__ = preload;
-          document.documentElement.style.backgroundColor = '#7fb9bd';
+          document.documentElement.style.backgroundColor = '#080d1a';
         } catch (e) {}
       })();
     </script>
@@ -806,7 +822,7 @@
           </svg>
 
           <!-- A teljes háttér: a takarokep.jpg-ből készült helyi splash-bg.jpg -->
-          <img id="boot-bg" src="splash-bg.jpg" alt="" decoding="sync" fetchpriority="high" draggable="false">
+          <img id="boot-bg" src="splash-bg.jpg" alt="" fetchpriority="high" draggable="false">
 
           <div class="scrim"></div>
           <div class="vig"></div>
@@ -1282,12 +1298,28 @@
            * preloadjában már letöltődött, itt csak a kifestésre várunk.
            */
           var bgImage = byId('boot-bg');
-          if (bgImage && !bgImage.complete) {
-            bgImage.addEventListener('load', function () { afterTwoFrames(releasePlatformSplash); });
-            bgImage.addEventListener('error', function () { releasePlatformSplash(); });
-          } else {
-            afterTwoFrames(releasePlatformSplash);
+          /*
+           * A FOTÓ BEÚSZÁSA (2.5.151) – a kép dekódolása már NEM blokkolja az
+           * első festést (nincs `decoding="sync"`), ezért a sötét betöltő-
+           * képernyő és a folyamatjelző azonnal látszik; a háttérkép akkor
+           * jelenik meg, amikor a motor kész vele.
+           */
+          function revealBootPicture() {
+            try { if (bgImage) bgImage.className = 'is-ready'; } catch (eReady) {}
           }
+          if (bgImage) {
+            if (bgImage.complete) revealBootPicture();
+            else bgImage.addEventListener('load', revealBootPicture);
+            bgImage.addEventListener('error', revealBootPicture);
+          }
+          /*
+           * 2.5.151: a platform indítóképét NEM a fotó betöltése után vesszük
+           * le, hanem amint a SAJÁT betöltőképernyőnk kifestődött (két
+           * képkocka). A saját képernyő alapja sötét, a fotó pedig utána úszik
+           * be – így a folyamatjelző animáció AZONNAL látszik, nem vár a
+           * 1,2 MB-os kép dekódolására.
+           */
+          afterTwoFrames(releasePlatformSplash);
           /* Ha bármi elakadna, a load esemény után mindenképp levesszük. */
           window.addEventListener('load', function () {
             window.setTimeout(releasePlatformSplash, 0);

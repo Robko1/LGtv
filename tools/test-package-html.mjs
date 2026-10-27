@@ -191,26 +191,55 @@ test('a 9 mp-es indulási korlát a teljes revealNow() utat használja', () => {
   );
 });
 
-test('az app bgColor a takarókép színével egyezik – nincs fekete villanás', () => {
+test('az app bgColor sötét – nem villan be világos kék a lap festése előtt', () => {
   /*
-   * 2.5.113 HIBA: az appinfo.json bgColor-je #000000 (tiszta fekete) volt,
-   * miközben magának a splash-screen.png-nek a mért átlagszíne #6ccbd3
-   * (világos türkiz). A webOS a bgColor-t festi az alkalmazás első kirajzolt
-   * képkockája ELŐTT – ez volt a felhasználó „nagy gyors feketeség villanás”
-   * észrevétele az IPK indításakor.
+   * A webOS a bgColor-t festi az alkalmazás első kirajzolt képkockája ELŐTT,
+   * és minden olyan pillanatban, amikor a lap éppen nem festett.
    *
-   * 2.5.139: az indítókép a takarokep.jpg, aminek a mért átlagszíne #84bebc.
-   * A bgColor ezt követi, tehát a platform és a saját képernyő között nincs
-   * színugrás.
+   * 2.5.113: #000000 volt → „nagy gyors feketeség villanás”.
+   * 2.5.139: a takarokep.jpg mért átlagszíne, #84bebc (világos türkiz).
+   * 2.5.151: a 35. naplóban az első festés 1853 ms volt, és addig ez a
+   * világos türkiz látszott – a felhasználó „villogó kék” észrevétele.
+   * Mostantól a bgColor a kész felület sötétje: ha a lap egy pillanatra nem
+   * fest, a néző sötétet lát, nem világos kék villanást.
    */
   const info = JSON.parse(read('webos/appinfo.json'));
   assert.equal(
     String(info.bgColor).toLowerCase(),
-    '#84bebc',
-    'a bgColor nem a takarokep.jpg átlagszíne – színugrás villanhat induláskor'
+    '#080d1a',
+    'a bgColor nem sötét – világos kocka villanhat a lap első festése előtt'
   );
   assert.equal(info.splashBackground, 'splash-screen.png');
   assert.ok(info.splashBackground, 'hiányzik a splashBackground');
+  // A platform indítóképét a saját betöltőképernyő festése után vesszük le.
+  assert.match(read('web/index.html'), /afterTwoFrames\(releasePlatformSplash\);/,
+    'a platform indítóképének levétele nem a saját képernyő festéséhez van kötve');
+});
+
+test('nincs világos türkiz szín a lapban vagy a webOS háttérben', () => {
+  /*
+   * 2.5.151 – a 35–39. napló használói észrevétele: a takarókép után és
+   * csatornaváltásnál VILÁGOS KÉK (türkiz) kocka villant be. Ezek a régi
+   * alapszínek (#7fb9bd) és a webOS ablak háttere (#84bebc) voltak.
+   * A teszt a TELJES forrásfát nézi, hogy egy későbbi kör véletlenül se
+   * hozza vissza őket.
+   */
+  const files = [
+    'web/index.html',
+    'web/src/index.css',
+    'web/src/themes/webos.css',
+    'webos/appinfo.json',
+  ];
+  for (const file of files) {
+    let text = '';
+    try { text = read(file); } catch { continue; }
+    for (const colour of ['#7fb9bd', '#84bebc', '#6ccbd3']) {
+      assert.ok(
+        text.toLowerCase().indexOf(colour) === -1,
+        `${file}: világos türkiz alapszín (${colour}) – ez villan be a takarókép után`
+      );
+    }
+  }
 });
 
 test('a takarókép réteg alapszíne a főoldali váz sötétkékje (nincs keret)', () => {
@@ -229,8 +258,15 @@ test('a takarókép réteg alapszíne a főoldali váz sötétkékje (nincs kere
      megjelenésekor vált #080d1a-ra – a két állapot a saját határa.
      A webOS saját indítóképe UGYANEZ a fotó, ezért a platform képéről a
      saját képernyőnkre váltás nem hoz új látványt. */
-  assert.match(html, /html\s*\{\s*background-color:\s*#7fb9bd;/);
-  assert.match(html, /\.iptv-curtain\s*\{[^}]*background-color:\s*#7fb9bd;/);
+  /*
+   * 2.5.151: a html és a takarókép alapszíne is a kész felület sötétje.
+   * Korábban világos türkiz volt (#7fb9bd) – ez villant be a takarókép után
+   * és csatornaváltásnál a főoldalon.
+   */
+  assert.match(html, /html\s*\{\s*background-color:\s*#080d1a;/);
+  assert.match(html, /\.iptv-curtain\s*\{[^}]*background-color:\s*#080d1a;/);
+  assert.doesNotMatch(html, /background-color:\s*#7fb9bd/i,
+    'a világos türkiz alapszín visszatért');
   /* 2.5.147: a kész felület felülete (body) már az első festéstől sötétkék,
      a html alapszíne pedig végig a takarókép átlagszíne – a REVEAL-nál
      EGYETLEN háttérszín sem vált, ezért nincs fekete kocka. */

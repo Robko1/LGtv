@@ -205,8 +205,18 @@ test('az előfestés két képkockáját a HTML-híd méri, nem a REVEAL', () =>
 /* ─────────────── 1/b. ZÖLD HÁTTÉR VILLANÁS (23:25:43) ──────────────────── */
 
 test('2.5.139: a betöltőképernyő a takarokep.jpg teljes háttere – nincs beégetett kép', () => {
-  assert.match(PAGE, /<img id="boot-bg" src="splash-bg\.jpg"[^>]*decoding="sync"/,
+  assert.match(PAGE, /<img id="boot-bg" src="splash-bg\.jpg"/,
     'a teljes képernyős háttér nem a takaróképből készült helyi fájl');
+  /*
+   * 2.5.151: a `decoding="sync"` KIKERÜLT. A 35. naplóban az első festés
+   * 1853 ms volt, mert a szinkron dekódolás a kép elkészültéig visszatartotta
+   * a képkockát – addig a világos platform-háttér látszott. A fotó most a
+   * sötét betöltőképernyő fölött úszik be, az animáció azonnal indul.
+   */
+  assert.doesNotMatch(PAGE, /<img id="boot-bg"[^>]*decoding="sync"/,
+    'a szinkron képdekódolás ismét blokkolja az első festést');
+  assert.match(PAGE, /#boot-bg\.is-ready\s*\{\s*opacity:\s*1;\s\}/,
+    'a háttérkép beúszása hiányzik');
   assert.match(PAGE, /#boot-bg\s*\{[^}]*object-fit:\s*cover/,
     'a háttérkép nem tölti ki torzítás nélkül a teljes képernyőt');
   assert.equal((PAGE.match(/data:image\/jpeg;base64,/g) || []).length, 0,

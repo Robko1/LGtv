@@ -1281,20 +1281,28 @@ export function App() {
       } catch { return false; }
     };
     /*
-     * RÖVID ÜRESJÁRAT A FELFEDÉS UTÁN.
+     * RÖVID ÜRESJÁRAT A FELFEDÉS UTÁN (2.5.151).
      *
      * A dekódolás a TV-n 3 mp, a lista beírása a felületre további ~1,5 mp
-     * főszál-foglaltság. Ha ez a felfedés pillanatára esne, a néző pont az
-     * első másodpercekben látna akadozást – ezért a visszatöltés a felfedés
-     * után 1,2 mp-cel indul, amikor a kép már stabilan áll.
+     * főszál-foglaltság. Ha ez a felfedés PILLANATÁRA esne, a felfedés két
+     * előfestő képkockája (afterPaint) egy 200–1500 ms-os képkocka-kihagyást
+     * mérne, a képkocka-őr pedig elhalasztaná a váltást – a 35. naplóban
+     * pontosan ez tolta 6,2 mp-re a felfedést.
+     *
+     * Ezért a teljes lista a felfedés UTÁN, 400 ms-mal indul – ekkor a kész
+     * főoldal már a képernyőn van, a videó pedig a saját síkján fut.
+     *
+     * A 4 mp-es tartalékot KIVETTEM: az a felfedés ELŐTT indította a
+     * dekódolást, és pont azzal késleltette a felfedést, amire vártunk. A
+     * biztonsági háló most 15 mp – ha a felfedés valamiért elmaradna, a
+     * teljes lista DB-ben is betöltődik.
      */
-    const startAfterReveal = () => window.setTimeout(startRestore, 1200);
+    const startAfterReveal = () => window.setTimeout(startRestore, 400);
     if (revealNow()) {
       startAfterReveal();
     } else {
       window.addEventListener('iptv-app-ready', startAfterReveal, { once: true } as AddEventListenerOptions);
-      // Ha a felfedés valamiért elmaradna, 4 mp után DB-ben is elindul.
-      window.setTimeout(startRestore, 4000);
+      window.setTimeout(startRestore, 15000);
     }
     /*
      * A TELJES MŰSORÚJSÁG (XMLTV) – CSAK AZ ÉLŐ LISTA UTÁN.
@@ -1442,8 +1450,9 @@ export function App() {
     })();
     /*
      * A félbe maradt generációk takarítása egyszer, a felfedés UTÁN.
-     * 2.5.149: 1,5 mp helyett 8 mp – a 28–30. naplóban ez a lépés is a
-     * betöltőképernyő alá esett, és fölöslegesen foglalta a fő szálat.
+     * 2.5.149/2.5.151: 1,5 mp helyett 12 mp – a 28–30. és a 35–39. naplóban
+     * ez a lépés is a betöltőképernyő, illetve a felfedés alá esett, és
+     * fölöslegesen foglalta a fő szálat.
      */
     const sweepTimer = window.setTimeout(() => {
       try {
@@ -1461,7 +1470,7 @@ export function App() {
           });
         }
       } catch { /* a takarítás sosem akadályozhatja az indulást */ }
-    }, 8000);
+    }, 12000);
     return () => {
       cancelled = true;
       window.clearTimeout(sweepTimer);
