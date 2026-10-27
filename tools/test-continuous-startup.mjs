@@ -362,14 +362,48 @@ test('a VOD/sorozat részlisták nem rajzolják újra a teljes App-ot minden ada
     'a részleges frissítés után nem adjuk vissza a vezérlést a festésnek');
 });
 
+/* ─────────────── 7/b. A TELJES LISTA A FELFEDÉS UTÁN ─────────────── */
+
+test('a 20 190 csatornás lista a felfedés UTÁN töltődik be, nem alatta', () => {
+  /*
+   * 2.5.149: a 28–30. napló szerint a lista dekódolása 3 mp, az alkalmazás
+   * 1,5 mp-re fagyott tőle – a takarókép alatt, ezért 7–10 mp lett az
+   * indulás. Mostantól a felfedés a LÁTHATÓ felületre vár, a lista pedig a
+   * kész felület fölött érkezik.
+   */
+  const app = read('web/src/App.tsx');
+  assert.match(app, /addEventListener\('iptv-app-ready', startAfterReveal/,
+    'a háttér-visszatöltés nem a felfedés után indul');
+  assert.match(app, /const startAfterReveal = \(\) => window\.setTimeout\(startRestore, 1200\)/,
+    'a visszatöltés a felfedés pillanatára esik (nincs üresjárat)');
+  assert.match(app, /window\.setTimeout\(startRestore, 4000\)/,
+    'nincs biztonsági indítás, ha a felfedés elmarad');
+  assert.match(app, /\.finally\(\(\) => \{\s*markLiveReady\(\);\s*scheduleGuide\(\);/,
+    'a műsorújság nem a lista visszatöltése UTÁN indul');
+  const main = read('web/src/main.tsx');
+  assert.doesNotMatch(main, /const liveOk = liveReady\(\)/,
+    'a felfedés ismét a teljes listára vár');
+  assert.match(main, /if \(logosOk && videoOk\) \{/,
+    'a felfedés feltétele nem a látható felület');
+  // A felfedés ELŐBB fut, mint a betöltőképernyő lezárása (az utóbbi drága).
+  const revealFn = main.slice(main.indexOf('const revealNow = (reason: string) => {'));
+  const body = revealFn.slice(0, 2600);
+  const revealAt = body.indexOf('reveal(reason);');
+  const completeAt = body.indexOf('bootScreenComplete();');
+  assert.ok(revealAt > 0 && completeAt > revealAt,
+    'a betöltőképernyő lezárása megint a felfedés ELŐTT fut (1,4–2,4 mp késés)');
+});
+
 /* ─────────────── 8. VERZIÓ ─────────────── */
 
-test('a verzió mindkét helyen 2.5.147, és a változások a kiadási jegyzékben vannak', () => {
-  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.147';/);
-  assert.equal(APPINFO.version, '2.5.147');
+test('a verzió mindkét helyen 2.5.149, és a változások a kiadási jegyzékben vannak', () => {
+  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.149';/);
+  assert.equal(APPINFO.version, '2.5.149');
   assert.match(VERSION, /VÁLTÁS EGYETLEN KÉPKOCKA/, 'a 2.5.147 fekete kép javítása hiányzik a jegyzékből');
   assert.match(VERSION, /NINCS HANG A FŐOLDAL ELŐTT/, 'a 2.5.147 hangzár-javítása hiányzik a jegyzékből');
   assert.match(VERSION, /VÉGIG FUT EGY MOZGÁS/, 'a 2.5.147 folyamatos animációja hiányzik a jegyzékből');
+  assert.match(VERSION, /NEM VÁR TÖBBÉ A 20 190 CSATORNÁS LISTÁRA/, 'a 2.5.149 indulás-javítása hiányzik a jegyzékből');
+  assert.match(VERSION, /FELFEDÉS NEM VÁR A BETÖLTŐKÉPERNYŐ LEZÁRÁSÁRA/, 'a 2.5.149 felfedés-javítása hiányzik a jegyzékből');
   assert.match(VERSION, /ÚJ BETÖLTŐKÉPERNYŐ A TAKAROKEP\.JPG-BŐL/);
   assert.match(VERSION, /CSAK VALÓS BETÖLÉSI ADATOK/);
   assert.match(VERSION, /AZ EPG VÉGRE MEGJELENIK A FŐOLDALON/, 'a 2.5.143 EPG-javítása hiányzik a jegyzékből');

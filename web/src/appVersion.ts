@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.148';
+export const WEB_VERSION = '2.5.149';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.149',
+    date: '2026-10-27',
+    changes: [
+      'AZ INDULÁS NEM VÁR TÖBBÉ A 20 190 CSATORNÁS LISTÁRA: a 28–30. napló mérése szerint a teljes élő lista dekódolása a TV-n 3 mp volt, és az alkalmazás 1,5 mp-re fagyott tőle – mindkettő a takarókép ALATT, ezért a felfedés csak 7–10 mp-nél történt meg. Mostantól a takarókép akkor megy le, amikor a LÁTHATÓ felület kész (fejléc, csatornalista az induló készlettel, lejátszó) és a videó első képkockája megjelent; a teljes lista utána, a már működő felület fölött érkezik, és a látható magyar lista sorrendjét nem változtatja meg',
+      'A FELFEDÉS NEM VÁR A BETÖLTŐKÉPERNYŐ LEZÁRÁSÁRA: eddig a 100%-os befejező látvány (teljes képernyős virágzás, áttűnő fátyol, 6 px-es blur a műszerfalon) futott le ELŐBB, és ez a TV GPU-ján 1,4–2,4 mp-et vett igénybe – a takarókép csak utána tűnt el. Ez a látvány kikerült: a felfedés egyetlen stílusváltás, a betöltőképernyő könyvelése már a felfedés UTÁN fut',
+      'A KÉPKOCKA-ŐR LEGFELJEBB EGYSZER HALASZT: a 28–30. naplóban a kétszeri halasztás további 1,4–2,4 mp-et tett a felfedésre',
+      'A TÁROLÓ-TAKARÍTÁS 8 MP-CEL KÉSŐBB FUT (eddig 1,5 mp): a 28–30. naplóban ez is a betöltőképernyő alá esett, és fölöslegesen foglalta a fő szálat',
+      'A MŰSORÚJSÁG (XMLTV) A TELJES LISTA UTÁN INDUL: a 29. naplóban a 62 MB-os feldolgozás 21,6 mp volt, és közben a videó képkockái akadoztak – mostantól a lista-visszatöltés befejezése után, 2,5 mp-es késleltetéssel indul',
+      'A HÁTTÉRJELZÉS (iptv-app-ready) A FELFEDÉS UTÁN MEGY KI, és a régi webOS motorokhoz is kompatibilis esemény-példányt használ',
+    ],
+  },
   {
     version: '2.5.148',
     date: '2026-10-27',

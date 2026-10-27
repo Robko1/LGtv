@@ -1226,9 +1226,74 @@ export function App() {
       markLiveReady();
       return;
     }
-    void runRestore(plan, 'live')
-      .catch(() => { /* a naplóban már ott a valódi ok */ })
-      .finally(() => markLiveReady());
+    /*
+     * A TELJES LISTA (20 190 CSATORNA) A KÉSZ FELÜLET FÖLÖTT TÖLTŐDIK BE (2.5.149).
+     *
+     * A 28–30. napló mérése: a teljes élő lista dekódolása a TV-n 3 mp, az
+     * alkalmazás pedig 1,5 mp-re fagyott tőle – MINDKETTŐ a takarókép alatt,
+     * ezért a felfedés 7–10 mp-re tolódott. A néző ezt „katasztrofális
+     * indulásként” látta.
+     *
+     * Ezért a felfedés már NEM vár a teljes listára: a takarókép akkor megy
+     * le, amikor a LÁTHATÓ felület (fejléc, csatornalista az induló
+     * készlettel, lejátszó) kész és a videó első képkockája megjelent. A
+     * teljes lista ezután, a már működő felület fölött, háttérben érkezik –
+     * a látható magyar lista sorrendje nem változik meg tőle.
+     *
+     * A visszatöltés akkor indul, amikor a főoldal tényleg a képernyőn van
+     * (`iptv-app-ready`), hogy a dekódolás ne a felfedés Pillanatára essen.
+     */
+    let started = false;
+    /*
+     * A MŰSORÚJSÁG (XMLTV) A TELJES ÉLŐ LISTA UTÁN INDUL.
+     *
+     * A 29. napló: a 62 MB-os műsorújság feldolgozása 21,6 mp volt, és közben
+     * a videó képkockái akadoztak. Ezért a lista visszatöltése UTÁN, 2,5 mp
+     * késleltetéssel indul – de csak akkor, ha a felület már látható.
+     */
+    const timers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0 };
+    const scheduleGuide = () => {
+      timers.guideTimer = window.setTimeout(() => {
+        if (providerRefreshActiveRef.current) return;
+        void ensureGuide(plan.provider)
+          .then(() => {
+            const status = guideStatusSafe();
+            if (status.channels > 0) setEpgRevision((revision) => revision + 1);
+          })
+          .catch(() => { /* a naplóban már ott a valódi ok */ });
+      }, 2500);
+    };
+    const startRestore = () => {
+      if (started) return;
+      started = true;
+      void runRestore(plan, 'live')
+        .catch(() => { /* a naplóban már ott a valódi ok */ })
+        .finally(() => {
+          markLiveReady();
+          scheduleGuide();
+        });
+    };
+    const revealNow = (): boolean => {
+      try {
+        return document.documentElement.className.indexOf('iptv-revealed') >= 0;
+      } catch { return false; }
+    };
+    /*
+     * RÖVID ÜRESJÁRAT A FELFEDÉS UTÁN.
+     *
+     * A dekódolás a TV-n 3 mp, a lista beírása a felületre további ~1,5 mp
+     * főszál-foglaltság. Ha ez a felfedés pillanatára esne, a néző pont az
+     * első másodpercekben látna akadozást – ezért a visszatöltés a felfedés
+     * után 1,2 mp-cel indul, amikor a kép már stabilan áll.
+     */
+    const startAfterReveal = () => window.setTimeout(startRestore, 1200);
+    if (revealNow()) {
+      startAfterReveal();
+    } else {
+      window.addEventListener('iptv-app-ready', startAfterReveal, { once: true } as AddEventListenerOptions);
+      // Ha a felfedés valamiért elmaradna, 4 mp után DB-ben is elindul.
+      window.setTimeout(startRestore, 4000);
+    }
     /*
      * A TELJES MŰSORÚJSÁG (XMLTV) – CSAK AZ ÉLŐ LISTA UTÁN.
      *
@@ -1240,18 +1305,9 @@ export function App() {
      * Mostantól sorban, egymás után futnak; a műsorújság a háttérben,
      * darabokban olvasva érkezik, a felület fölött.
      */
-    const guideTimer = window.setTimeout(() => {
-      if (providerRefreshActiveRef.current) return;
-      void ensureGuide(plan.provider)
-        .then(() => {
-          const status = guideStatusSafe();
-          if (status.channels > 0) setEpgRevision((revision) => revision + 1);
-        })
-        .catch(() => { /* a naplóban már ott a valódi ok */ });
-    }, 2500);
     // Ha a visszatöltés hibára fut, a jelzés DB-ben is elindul – de a
     // műsorújságot ne várjuk örökre.
-    const safetyTimer = window.setTimeout(() => {
+    timers.safetyTimer = window.setTimeout(() => {
       if (!liveReadyRef.current) markLiveReady();
     }, 12_000);
     /*
@@ -1260,12 +1316,12 @@ export function App() {
      * visszatér, hálózat nélkül). Kikapcsolt képernyőn és szolgáltatói
      * frissítés alatt nem indítunk letöltést.
      */
-    const refreshTimer = window.setInterval(() => {
+    timers.refreshTimer = window.setInterval(() => {
       if (providerRefreshActiveRef.current) return;
       if (typeof document !== 'undefined' && document.hidden) return;
       void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
     }, 30 * 60 * 1000);
-    return { guideTimer, safetyTimer, refreshTimer };
+    return timers;
   }, [runRestore, markLiveReady, guideStatusSafe]);
 
   /*
@@ -1382,7 +1438,11 @@ export function App() {
         if (!cancelled) setBootProbeDone(true);
       }
     })();
-    // A félbe maradt generációk takarítása egyszer, az első képkocka UTÁN.
+    /*
+     * A félbe maradt generációk takarítása egyszer, a felfedés UTÁN.
+     * 2.5.149: 1,5 mp helyett 8 mp – a 28–30. naplóban ez a lépés is a
+     * betöltőképernyő alá esett, és fölöslegesen foglalta a fő szálat.
+     */
     const sweepTimer = window.setTimeout(() => {
       try {
         sweepStorage();
@@ -1399,7 +1459,7 @@ export function App() {
           });
         }
       } catch { /* a takarítás sosem akadályozhatja az indulást */ }
-    }, 1500);
+    }, 8000);
     return () => {
       cancelled = true;
       window.clearTimeout(sweepTimer);
