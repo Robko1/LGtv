@@ -4,6 +4,7 @@ import { ArrowUp, ArrowDown, Trash2, Star } from 'lucide-react';
 import { ChannelLogo } from './ChannelLogo';
 import { ProviderRef } from '../services/contentStore';
 import { EpgNowNext, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from '../services/epgService';
+import { appLogError } from '../services/appLog';
 import { normalizeTvKey, isTvArrowKey } from '../utils/tvKeys';
 
 interface ChannelListProps {
@@ -91,6 +92,18 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   const lastReorderTapAt = useRef(0);
   const [epgClock, setEpgClock] = useState(() => Date.now());
   const [localEpg, setLocalEpg] = useState<Record<string, EpgNowNext>>({});
+  /*
+   * EPG-ÚJRAPRÓBÁLKOZÁS.
+   *
+   * Korábban egyetlen sikertelen kérés (megszakított kapcsolat, időtúllépés,
+   * éppen nyitott megszakító) UTÁN az adott csatorna EPG-je örökre üres
+   * maradt: a hiba csendben elnyelődött, és csak a lista újrarajzolása
+   * indított volna új kérést. Most csatornánként számoljuk a kísérleteket, és
+   * a 30 másodperces kör legfeljebb háromszor próbálja újra – utána a
+   * hibának a naplóban látszania kell, nem a felületen.
+   */
+  const epgAttemptsRef = useRef<Map<string, { count: number; at: number }>>(new Map());
+  const [epgRetryTick, setEpgRetryTick] = useState(0);
 
   /*
    * TELJES KÉPERNYŐ ALATT AZ EPG-MUNKA SZÜNETEL, ÉS CSAK A LEJÁTSZÓ
@@ -388,11 +401,24 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         if (!streamId) continue;
         try {
           const entries = await loadShortEpg(activeProvider, streamId, 6);
+          const attempts = epgAttemptsRef.current.get(channel.id);
+          if (attempts) epgAttemptsRef.current.delete(channel.id);
           if (!cancelled && entries.length) {
             queueEpg(channel.id, nowNextFromEpg(entries, Date.now()));
           }
-        } catch {
-          // Egy csatorna EPG-hibája ne akadályozza a többi sor betöltését.
+        } catch (error) {
+          /*
+           * Egy csatorna EPG-hibája ne akadályozza a többi sor betöltését –
+           * de NEM is tűnhet el nyomtalanul: a naplóban látszania kell, mert
+           * eddig pont ezért nem lehetett megmondani, miért nem töltődik be
+           * az EPG a TV-n.
+           */
+          const previous = epgAttemptsRef.current.get(channel.id);
+          const count = (previous?.count || 0) + 1;
+          epgAttemptsRef.current.set(channel.id, { count, at: Date.now() });
+          if (count === 1) {
+            appLogError(`EPG (${channel.name}, stream ${streamId})`, error);
+          }
         }
         await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
       }
@@ -413,7 +439,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       window.clearTimeout(startTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
     };
-  }, [isActive, epgActive, epgReady, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
+  }, [isActive, epgActive, epgReady, epgRevision, epgRetryTick, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
 
   // A gyorsítótárból 30 másodpercenként újraszámoljuk az éppen futó műsort,
   // ezért a cím és a sárga haladási sáv magától frissül.
@@ -441,6 +467,25 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       }
       return changed ? next : previous;
     });
+    /*
+     * ÚJRAPRÓBÁLKOZÁS: ha egy látható csatornának még most sincs EPG-je, és a
+     * korábbi kísérlet legalább 60 másodperce volt (legfeljebb háromszor),
+     * indítsunk új kérést. Így egy átmeneti hiba nem hagyja örökre üresen a
+     * sort, de egy EPG-t nem adó szolgáltatót sem terhelünk folyamatosan.
+     */
+    const nowMs = Date.now();
+    let retry = false;
+    for (const channel of epgQueue) {
+      const streamId = streamIdFor(channel);
+      if (!streamId) continue;
+      if (getCachedShortEpg(activeProvider, streamId, 6).length > 0) continue;
+      const attempt = epgAttemptsRef.current.get(channel.id);
+      if (!attempt || attempt.count >= 3) continue;
+      if (nowMs - attempt.at < 60000) continue;
+      retry = true;
+      break;
+    }
+    if (retry) setEpgRetryTick((tick) => tick + 1);
   }, [epgActive, epgClock, epgRevision, activeProvider?.id, activeProvider?.serverUrl, activeProvider?.username, activeProvider?.password, epgQueue]);
 
   // A teljes képernyőre lépéskor a lista lekerül a képernyőről, ezért

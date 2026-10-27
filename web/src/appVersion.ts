@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.5.140';
+export const WEB_VERSION = '2.5.141';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.141',
+    date: '2026-10-27',
+    changes: [
+      'AZ INDÍTÓKÉPERNYŐ AZ EREDETI INDITAS.HTML TERV: a korábbi saját változat helyett az eredeti terv minden rétege átkerült – sötétedő fátyol, vignetta, rács, filmszemcse, pásztázó fény, vászon-animáció (konstelláció, amely 90% felett háromszöggé zárul), bloom, a fejléc TV-jelvénye a „Premium · 4K HDR · Magyar” felirattal, a 72 osztású tárcsa, a dőlt betűs állapotsor, a négy mérőszám, a szegmentált sáv a 000…100 skálával, a TIPP-lábléc, a borostyánsárga build-sor és az „INDÍTÁS” felirat. A betöltési logika és az IPTV működése VÁLTOZATLAN – csak a megjelenés lett az eredeti',
+      'FRISSÍTÉS = CSAK VÁLTOZÁSELLENŐRZÉS: a Frissítés gomb először kizárólag azt kérdezi meg a szolgáltatótól, változtak-e a kategóriák (~44 kB). Ha nincs változás, a program itt visszatér: NEM tölti le újra a csatorna-, film- és sorozatlistát, nem törli a csatornasorrendet, nem üríti az EPG-gyorsítótárat, és nem állítja „nem kész” állapotba a felületet. A mentett tartalom érintetlen marad, a diagnosztika pedig a valódi darabszámokat és az ellenőrzés korát mutatja',
+      'AZ EPG BETÖLTÉSE JAVÍTVA: 24 órás, nyelvfüggetlen időpont („12:35” – eddig a TV nyelvén „12:35 PM” jelent meg magyar felületen), azok a panelek is adnak műsort, amelyek csak a „most fut” jelzőt küldik időbélyeg nélkül, a sikertelen kérések a naplóba kerülnek (eddig nyom nélkül elvesztek), és a látható sorok legfeljebb háromszor újrapróbálkoznak 60 másodpercenként',
+      'AZ EPG A FRISSÍTÉS UTÁN SEM MARAD ÜRES: a nézett csatorna műsora akkor is betöltődik, ha a kérés a háttér-frissítés idejére esett – a felület kész állapota (providerContentReady) mostantól a függőségek között van, tehát a betöltés végén magától elindul. Sikertelen frissítés után a mentett lista nem veszik el, ezért az EPG is működik tovább',
+      'FŐOLDALI TERHELÉS CSÖKKENTVE: a lejátszó geometria-mérése (egy azonnali + három képkocka- és négy késleltetett mérés) eddig a csatornalista görgetésének MINDEN eseményére újraindult; mostantól egy mérés-lánc van folyamatban, és a belső görgetők nem indítanak mérést. A webOS réteg 500 ms-onként futó, örökös párbeszéd-ablak keresése megszűnt: a fókusz-visszaállítás eseményre (DOM-változásra) történik, álló képernyőn nulla munkával',
+    ],
+  },
   {
     version: '2.5.140',
     date: '2026-10-27',

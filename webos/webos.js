@@ -1682,6 +1682,29 @@
     };
     setTimeout(tryFocus, 400);
 
+    /*
+     * Ha modal bezárul, fókusz vissza a listára.
+     *
+     * KORÁBBAN EZ 500 ms-ONKÉNT FUTOTT, ÖRÖKKÉ: a TV-n nézés közben is
+     * másodpercenként kétszer végigfutott a dokumentumon egy
+     * querySelector('[role="dialog"]'). Ez a láthatatlan, folyamatos
+     * háttérterhelés a főoldalon (lista görgetése, EPG-frissítés, zapping)
+     * minden képkocka idejéből elvett egy kicsit – pontosan az a fajta
+     * „indokolatlan teher”, amit a 2.5.141 kiadás megszüntet.
+     *
+     * A bezárás mindig DOM-változás (a párbeszéd ablaka kikerül a fából),
+     * ezért a lenti MutationObserver jelzi. Így eseményre futunk, nem
+     * órára, és álló képernyőn NULLA munkát végzünk.
+     */
+    var lastDialogState = false;
+    var syncDialogState = function() {
+      var hasDialog = !!document.querySelector('[role="dialog"]');
+      if (lastDialogState && !hasDialog) {
+        setTimeout(focusFirstChannelList, 150);
+      }
+      lastDialogState = hasDialog;
+    };
+
     // Figyeljük a dialog megjelenését – ha nyílik, fókusz rá
     try {
       // FONTOS (TV-lassulás): a teljes DOM-fára figyelő observer korábban
@@ -1694,6 +1717,7 @@
         if (dialogSweepTimer) return;
         dialogSweepTimer = setTimeout(function() {
           dialogSweepTimer = 0;
+          if (syncDialogState) syncDialogState();
           var dlg = topDialog();
           if (!dlg) return;
           if (dlg.contains(document.activeElement)) return;
@@ -1724,16 +1748,6 @@
       observer.observe(document.body, { childList:true, subtree:true });
     } catch (e) {}
 
-    // Ha modal bezárul, fókusz vissza a listára
-    var lastDialogState = false;
-    setInterval(function(){
-      var hasDialog = !!document.querySelector('[role="dialog"]');
-      if (lastDialogState && !hasDialog) {
-        // Bezárult
-        setTimeout(focusFirstChannelList, 150);
-      }
-      lastDialogState = hasDialog;
-    }, 500);
   }
 
   if (document.readyState === 'loading') {

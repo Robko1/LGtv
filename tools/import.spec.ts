@@ -766,7 +766,17 @@ async function main() {
       `(kérések: ${requestedActions.join(', ')})`
     );
 
-    // 4) Régi teljes ellenőrzés → akkor is letölt, ha a kategóriák azonosak.
+    /*
+     * 4) RÉGI ELLENŐRZÉS, DE VÁLTOZATLAN KATEGÓRIÁK → NINCS ÚJRATÖLTÉS.
+     *
+     * 2.5.141: a felhasználó kérése szerint a Frissítés csak azt nézi meg,
+     * változott-e valami a szolgáltatónál; ha a kategóriák azonosak, a teljes
+     * listák nem töltődnek le újra attól sem, hogy a 10 perces ablak letelt.
+     * A kategóriákon BELÜLI változást a 12 órás háttér-ellenőrzés
+     * (CATALOG_TTL_MS) fedezi fel, illetve az újraindítás utáni első teljes
+     * szinkron – a kézi Frissítés nem indít felesleges többtízezer soros
+     * letöltést.
+     */
     const stateAfterChange = store.loadSyncState(freshProvider.id);
     store.saveSyncState({
       providerId: freshProvider.id,
@@ -776,8 +786,10 @@ async function main() {
     requestedActions.length = 0;
     const staleResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
     check(
-      'a frissességi ablak letelte után újra letölt',
-      'content' in staleResult && requestedActions.includes('get_live_streams'),
+      'a frissességi ablak letelte után is csak ellenőriz, nem tölt újra',
+      'unchanged' in staleResult
+        && staleResult.unchanged === true
+        && !requestedActions.includes('get_live_streams'),
       `(kérések: ${requestedActions.join(', ')})`
     );
 

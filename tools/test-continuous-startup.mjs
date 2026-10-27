@@ -359,9 +359,9 @@ test('a VOD/sorozat részlisták nem rajzolják újra a teljes App-ot minden ada
 
 /* ─────────────── 8. VERZIÓ ─────────────── */
 
-test('a verzió mindkét helyen 2.5.139, és a változások a kiadási jegyzékben vannak', () => {
-  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.139';/);
-  assert.equal(APPINFO.version, '2.5.139');
+test('a verzió mindkét helyen 2.5.141, és a változások a kiadási jegyzékben vannak', () => {
+  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.141';/);
+  assert.equal(APPINFO.version, '2.5.141');
   assert.match(VERSION, /ÚJ BETÖLTŐKÉPERNYŐ A TAKAROKEP\.JPG-BŐL/);
   assert.match(VERSION, /CSAK VALÓS BETÖLÉSI ADATOK/);
 });

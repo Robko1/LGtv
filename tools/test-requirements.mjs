@@ -399,10 +399,22 @@ test('7. a Frissítés csak a változásokat dolgozza fel', () => {
   assert.match(IMPORT, /rawCatalogFingerprint\(rawLiveCategories, rawVodCategories, rawSeriesCategories\)/,
     'az ujjlenyomat nem a nyers kategórialistákból készül');
   // Növekményes ág: változás nélkül visszaadja, hogy nincs mit tenni.
-  assert.match(IMPORT, /if \(check\.unchanged && check\.fresh\) \{[\s\S]{0,400}?return \{ unchanged: true, check \};/,
+  assert.match(IMPORT, /if \(check\.unchanged\) \{[\s\S]{0,400}?return \{ unchanged: true, check \};/,
     'a „nincs változás” eset nem rövidül le');
-  assert.match(APP, /\{ incremental: manual \}/,
-    'az App nem kéri a növekményes módot');
+  /*
+   * 2.5.141: a döntés az App LEGELEJÉN születik, minden destruktív lépés
+   * (kérés-megszakítás, sorrend törlése, EPG-ürítés, „nem kész” jelzés)
+   * ELŐTT. A betöltés csak változás esetén indul, és már nem kér
+   * növekményes módot (a vizsgálat fentebb lefutott).
+   */
+  assert.match(APP, /const syncState = loadSyncState\(id\);/,
+    'az App nem a mentett szinkron-állapotból indul');
+  assert.match(APP, /check = await checkProviderChanges\(\{/,
+    'az App nem kérdezi meg a szolgáltató változásait');
+  assert.match(APP, /if \(check && check\.unchanged\) \{\s*reportUnchangedRefresh\(provider, check, refreshStartedAt\);\s*return;/,
+    'a „nincs változás” nem lép ki minden mellékhatás előtt');
+  assert.match(APP, /\{ incremental: false \}/,
+    'a betöltés a vizsgálat után nem teljes módban indul');
   assert.match(APP, /'unchanged' in result && result\.unchanged/,
     'az App nem kezeli a „nincs változás” eredményt');
   assert.match(APP, /phase: 'Kész – nincs változás'/,

@@ -1755,15 +1755,25 @@ export async function importXtreamProvider(
 /* ------------------------------------------------- növekményes frissítés */
 
 /**
- * Két TELJES ellenőrzés között ennyi idő telhet el, ha a kategóriák nem
- * változtak.
+ * Tájékoztató érték: ennyi idő után számít „régi”-nek az utolsó teljes
+ * ellenőrzés a felületen megjelenő szövegben.
  *
- * AZ XTREAM API-nak nincs változás-végpontja: nem lehet megkérdezni, hogy
- * „mi új”. Egyetlen olcsó jelzés van: a három kategórialista (~44 kB, 1
- * másodperc alatt megjön). Ha ez mindenben azonos a legutóbbival, akkor a
- * teljes 76 MB újratöltése felesleges. A frissesség-ablak gondoskodik arról,
- * hogy a kategóriákon belüli változás is legkésőbb ennyi idő után kiderüljön:
- * az ablak letelte után a frissítés akkor is leTÖLTI a listákat.
+ * FONTOS VÁLTOZÁS (2.5.141) – A FRISSESSÉGI ABLAK MÁR NEM DÖNT.
+ *
+ * Korábban a Frissítés gomb csak akkor hagyta ki a teljes újratöltést, ha a
+ * kategóriák azonosak VOLTAK **és** az utolsó teljes szinkron 10 percen belül
+ * történt. Vagyis 10 perc után minden „frissítés” letöltötte a teljes, több
+ * tíz MB-os listát – pontosan az a felesleges újratöltés, amit a néző
+ * jelezni. A döntés mostantól KIZÁRÓLAG a változásvizsgálat eredménye:
+ *
+ *   • a kategóriák azonosak  → a mentett tartalom marad, nincs letöltés;
+ *   • a kategóriák változtak → teljes letöltés indul.
+ *
+ * A kategóriákon BELÜLI változást (pl. új film egy meglévő kategóriában)
+ * ettől függetlenül a 12 órás háttér-ellenőrzés (CATALOG_TTL_MS) fedezi fel,
+ * amely induláskor egyszer, csendesen lefut, és változás esetén magától
+ * frissít. Így nem veszik el tartalom, de a Frissítés gomb nem húz le
+ * feleslegesen több tíz MB-ot.
  */
 export const FULL_CHECK_WINDOW_MS = 10 * 60 * 1000;
 
@@ -2106,7 +2116,13 @@ export async function refreshProviderContent(
             fingerprint: state.fingerprint,
             lastFullSyncAt: state.fullSyncAt,
           });
-          if (check.unchanged && check.fresh) {
+          /*
+           * A DÖNTÉS KIZÁRÓLAG A VÁLTOZÁSVIZSGÁLAT EREDMÉNYE.
+           * A frissesség-ablak (check.fresh) már csak tájékoztató adat:
+           * nem kényszerít teljes újratöltést. A kategóriákon belüli
+           * változást a 12 órás háttér-ellenőrzés fedezi fel.
+           */
+          if (check.unchanged) {
             const ageMinutes = Math.round((check.ageMs ?? 0) / 60000);
             logProviderEvent(
               `Frissítés: a kategóriák nem változtak (${check.counts.live}/${check.counts.vod}/${check.counts.series}), ` +
@@ -2114,11 +2130,7 @@ export async function refreshProviderContent(
             );
             return { unchanged: true, check };
           }
-          logProviderEvent(
-            check.unchanged
-              ? 'Frissítés: a kategóriák nem változtak, de az utolsó teljes ellenőrzés régi – teljes letöltés következik.'
-              : 'Frissítés: a kategóriák változtak – teljes letöltés következik.'
-          );
+          logProviderEvent('Frissítés: a kategóriák változtak – teljes letöltés következik.');
         } catch (error) {
           // Ha az ellenőrzés nem megy (halott panel), a teljes import ad
           // értelmes hibát – nem nyomjuk el.

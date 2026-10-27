@@ -16,9 +16,16 @@ export interface EpgEntry {
   id: string;
   title: string;
   description: string;
-  /** Unix idő másodpercben. */
+  /** Unix idő másodpercben (0 = a szolgáltató nem adott időpontot). */
   start: number;
   end: number;
+  /**
+   * A szolgáltató „éppen most fut” jelzője (Xtream `now_playing`).
+   * Egyes panelek egyáltalán nem adnak időbélyeget, csak ezt a jelzőt –
+   * ilyenkor a műsorcím akkor is megjeleníthető, hogy nem találgatunk
+   * időpontot.
+   */
+  nowPlaying?: number;
 }
 
 export interface EpgNowNext {
@@ -125,6 +132,7 @@ export async function loadShortEpg(
       description: decodeBase64(item.description) || '',
       start: toTimestamp(item.start_timestamp, item.start),
       end: toTimestamp(item.stop_timestamp, item.end),
+      nowPlaying: Number(item.now_playing) === 1 ? 1 : 0,
     }));
 
     cache.set(key, { at: Date.now(), entries });
@@ -140,11 +148,25 @@ export async function loadShortEpg(
   }
 }
 
+/**
+ * 24 ÓRÁS, NYELVFÜGGETLEN IDŐ („12:35”).
+ *
+ * A korábbi `toLocaleTimeString([], …)` a készülék nyelvét használta, a
+ * webOS-on ez gyakran en-US: az EPG-ben „12:35 PM – 01:15 PM” jelent meg egy
+ * magyar felületen. A kézi formázás minden készüléken ugyanazt adja, és nem
+ * függ a telepített nyelvi csomagoktól (régi webOS-on az Intl hiányos).
+ */
+export function formatTime24(seconds: number): string {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value <= 0) return '--:--';
+  const date = new Date(value * 1000);
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  return `${hours < 10 ? '0' : ''}${hours}:${minutes < 10 ? '0' : ''}${minutes}`;
+}
+
 function fmtRange(start: number, end: number): string {
-  const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
-  const s = start ? new Date(start * 1000).toLocaleTimeString([], opts) : '--:--';
-  const e = end ? new Date(end * 1000).toLocaleTimeString([], opts) : '--:--';
-  return `${s} - ${e}`;
+  return `${formatTime24(start)} - ${formatTime24(end)}`;
 }
 
 /** A most futó és a következő műsor kiválasztása az EPG listából. */
@@ -156,7 +178,26 @@ export function nowNextFromEpg(entries: EpgEntry[], at: number = Date.now()): Ep
     // Ha nincs pontos találat, a legközelebbi jövőbeli műsort vesszük "most"-nak.
     now = entries.find((entry) => entry.start > nowSec) || null;
   }
-  if (!now) return {};
+  if (!now) {
+    /*
+     * IDŐBÉLYEG NÉLKÜLI PANEL.
+     *
+     * Néhány Xtream panel a `get_short_epg` válaszban csak címeket és a
+     * „now_playing” jelzőt adja, időpontot nem. Korábban ilyenkor MINDEN
+     * adat elveszett (az EPG üresen maradt), pedig a műsorcím valódi adat.
+     * Ilyenkor a most futó műsort mutatjuk, időpont nélkül („--:--”).
+     */
+    const flagged = entries.find((entry) => entry.nowPlaying === 1) || entries[0];
+    if (!flagged || !flagged.title) return {};
+    return {
+      now: {
+        title: flagged.title,
+        time: `${formatTime24(flagged.start)} - ${formatTime24(flagged.end)}`,
+        startTimestamp: 0,
+        endTimestamp: 0,
+      },
+    };
+  }
   const next = entries.find((entry) => entry.start >= (now as EpgEntry).end) || null;
   return {
     now: now
