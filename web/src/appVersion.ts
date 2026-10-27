@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.137';
+export const WEB_VERSION = '2.5.138';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.137',
+    version: '2.5.138',
     date: '2026-10-27',
     changes: [
       'NAGY VILLANÁS MEGSZÜNTETVE – EGY KÉP AZ ELEJÉTŐL A VÉGÉIG: a 01:41-es naplóban a HTML 1 760 370 byte volt, a TV válaszideje 2493 ms, az első festés 2569 ms. A platform takaróképének levétele után hosszú fekete kocka jött, majd a saját képünk, ami a főoldal betöltéséig (4674 ms) ott maradt. Most a webOS takaróképe és az app első festése UGYANAZ az előre rajzolt, sötét főoldali váz – nincs második kép, nincs nagy villanás',
