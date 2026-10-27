@@ -1253,7 +1253,7 @@ export function App() {
      * a videó képkockái akadoztak. Ezért a lista visszatöltése UTÁN, 2,5 mp
      * késleltetéssel indul – de csak akkor, ha a felület már látható.
      */
-    const timers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0 };
+    const timers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0, restoreTimer: 0 };
     const scheduleGuide = () => {
       timers.guideTimer = window.setTimeout(() => {
         if (providerRefreshActiveRef.current) return;
@@ -1297,12 +1297,12 @@ export function App() {
      * biztonsági háló most 15 mp – ha a felfedés valamiért elmaradna, a
      * teljes lista DB-ben is betöltődik.
      */
-    const startAfterReveal = () => window.setTimeout(startRestore, 400);
+    const startAfterReveal = () => { timers.restoreTimer = window.setTimeout(startRestore, 400); };
     if (revealNow()) {
       startAfterReveal();
     } else {
       window.addEventListener('iptv-app-ready', startAfterReveal, { once: true } as AddEventListenerOptions);
-      window.setTimeout(startRestore, 15000);
+      timers.restoreTimer = window.setTimeout(startRestore, 15000);
     }
     /*
      * A TELJES MŰSORÚJSÁG (XMLTV) – CSAK AZ ÉLŐ LISTA UTÁN.
@@ -1477,6 +1477,7 @@ export function App() {
       if (backgroundWork) {
         window.clearTimeout(backgroundWork.guideTimer);
         window.clearTimeout(backgroundWork.safetyTimer);
+        window.clearTimeout(backgroundWork.restoreTimer);
         window.clearInterval(backgroundWork.refreshTimer);
       }
     };

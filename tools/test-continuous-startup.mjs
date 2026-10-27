@@ -391,9 +391,9 @@ test('a 20 190 csatornás lista a felfedés UTÁN töltődik be, nem alatta', ()
   const app = read('web/src/App.tsx');
   assert.match(app, /addEventListener\('iptv-app-ready', startAfterReveal/,
     'a háttér-visszatöltés nem a felfedés után indul');
-  assert.match(app, /const startAfterReveal = \(\) => window\.setTimeout\(startRestore, 400\)/,
+  assert.match(app, /const startAfterReveal = \(\) => \{ timers\.restoreTimer = window\.setTimeout\(startRestore, 400\); \}/,
     'a visszatöltés a felfedés pillanatára esik (nincs üresjárat)');
-  assert.match(app, /window\.setTimeout\(startRestore, 15000\)/,
+  assert.match(app, /timers\.restoreTimer = window\.setTimeout\(startRestore, 15000\)/,
     'nincs biztonsági indítás, ha a felfedés elmarad');
   assert.doesNotMatch(app, /setTimeout\(startRestore, 4000\)/,
     'a 4 mp-es tartalék megint a felfedés ELŐTT indítja a dekódolást (ez késlelteti a váltást)');
