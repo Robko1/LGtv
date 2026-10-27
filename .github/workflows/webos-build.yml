@@ -388,8 +388,16 @@ jobs:
           if "iptv-booting" not in html or "__IPTV_REVEAL__" not in html:
               raise SystemExit("HIBA: hiányzik az egy pillanat alatti megjelenés (iptv-booting / __IPTV_REVEAL__).")
           # A betöltés alatti háttér a webOS indítóképével azonos kép kell legyen.
-          if "/splash-bg.jpg" not in Path("/tmp/ipk-files.txt").read_text():
+          ipk_files = Path("/tmp/ipk-files.txt").read_text()
+          if "/splash-bg.jpg" not in ipk_files:
               raise SystemExit("HIBA: hiányzik a betöltés alatti háttér (splash-bg.jpg) a csomagból.")
+          # 2.5.137: a HTML kicsi maradt, a JS/CSS/logó KÜLÖN fájl. Ha ezek
+          # hiányoznak, a TV-n nem indul el az alkalmazás (üres képernyő).
+          for needed in ("/app.js", "/app.css", "/boot-logo.jpg"):
+              if needed not in ipk_files:
+                  raise SystemExit(f"HIBA: hiányzik a {needed} fájl az IPK-ból – a HTML nem tudja betölteni.")
+          if len(html) > 200_000:
+              raise SystemExit(f"HIBA: a csomagolt index.html {len(html)} byte – újra több másodperc a first-paint.")
 
           if "focusSpatially" not in html or "normalizeKey" not in html:
               raise SystemExit("HIBA: a távirányító-kezelő nem került bele a csomagolt HTML-be.")

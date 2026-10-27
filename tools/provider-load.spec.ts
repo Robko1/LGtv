@@ -319,12 +319,12 @@ async function main(): Promise<void> {
     `(háló=${safetyNet} ms, alkalmazás=${appLimit} ms)`
   );
   check(
-    'a takarókép képe beégetve érkezik (nincs színátmenet-villanás az első festésnél)',
-    htmlSource.includes('__IPTV_SPLASH_DATA_URI__')
+    'az első festés előre rajzolt, fix főoldali váz (nincs képvillanás)',
+    htmlSource.includes('id="iptv-skeleton"')
   );
   check(
-    'a build a takaróképbe égeti a webOS indítóképét',
-    fs.readFileSync(path.join(projectDir, 'tools/build-webos.sh'), 'utf8').includes('__IPTV_SPLASH_DATA_URI__')
+    'a build külön app.js-be emeli a nagy JS-t (kicsi marad a HTML)',
+    fs.readFileSync(path.join(projectDir, 'tools/build-webos.sh'), 'utf8').includes('def externalize_scripts')
   );
   /*
    * A webOS kezelő piros „a felület nem töltődött be” doboza csak a takarókép

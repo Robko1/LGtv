@@ -1571,7 +1571,7 @@ test('19. az élő csatornák utáni ablak a JOBB oldali gombot jelöli ki', () 
    */
   const dialog = APP.slice(APP.indexOf('aria-label="Az élő TV-csatornák frissítve"') - 400);
   const right = dialog.slice(dialog.indexOf('data-tv-default'));
-  assert.match(right.slice(0, 400), /Bezár, háttérben/,
+  assert.match(right.slice(0, 400), /Csatornák megtekintése/,
     'a jobb oldali gombon van a data-tv-default jelölés');
   assert.match(APP, /const refreshLivePromptRef = useRef<HTMLDivElement \| null>\(null\);/,
     'nincs hivatkozás az ablakra');

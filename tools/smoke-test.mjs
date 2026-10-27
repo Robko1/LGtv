@@ -32,7 +32,27 @@ if (!fs.existsSync(file)) {
   process.exit(2);
 }
 
-const html = fs.readFileSync(file, 'utf8');
+/*
+ * 2.5.137: a csomagolt index.html már csak ~80 KB – a hatalmas ES5 app és a
+ * CSS külön app.js / app.css fájlban van. A jsdom NEM tölt be külső
+ * erőforrásokat, ezért a füstteszthez ezeket visszaágyazzuk (a TV-n a
+ * böngésző természetesen helyben, hálózat nélkül olvassa őket).
+ */
+let html = fs.readFileSync(file, 'utf8');
+const appJs = path.join(path.dirname(file), 'app.js');
+const appCss = path.join(path.dirname(file), 'app.css');
+if (fs.existsSync(appJs)) {
+  // FÜGGVÉNY kell: a minifikált JS-ben rengeteg a `$` (pl. `$&`), amit a
+  // String.replace szöveges cseréjeként speciális mintaként értelmezne.
+  const js = fs.readFileSync(appJs, 'utf8');
+  html = html.replace(/<script src="app\.js"[^>]*><\/script>/,
+    () => `<script>/*IPTV-ES5-APP*/\n${js}\n</script>`);
+}
+if (fs.existsSync(appCss)) {
+  const css = fs.readFileSync(appCss, 'utf8');
+  html = html.replace(/<link rel="stylesheet" href="app\.css">/,
+    () => `<style>${css}</style>`);
+}
 const captured = [];
 const vc = new VirtualConsole();
 vc.on('jsdomError', (e) => captured.push('JSDOM hiba: ' + (e && e.message)));

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 import { ProviderAccount } from '../types/iptv';
 import { ImportedContent } from '../services/contentStore';
@@ -54,6 +55,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     setDiagnosticError(null);
     setDiagnosticFinishedAt(null);
     setLiveLoadedPromptOpen(false);
+    promptShownRef.current = false;
   }, [isOpen, editProvider]);
 
   // Status state
@@ -93,6 +95,8 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     };
   }, [liveLoadedPromptOpen]);
   const diagnosticFinishedRef = useRef(false);
+  /** A „folyamat vagy csatornák” kérdést importonként egyszer tesszük fel. */
+  const promptShownRef = useRef(false);
 
   if (!isOpen) return null;
 
@@ -116,6 +120,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     setDiagnosticStartedAt(startedAt);
     diagnosticStartedAtRef.current = startedAt;
     diagnosticFinishedRef.current = false;
+    promptShownRef.current = false;
     setNetworkDiagnosticSink((event) => {
       if (diagnosticFinishedRef.current) return;
       setDiagnosticEvents((prev) => {
@@ -138,6 +143,8 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
         (partial) => {
           if (partial.channels?.length) {
             onLiveChannelsLoaded?.(partial);
+            promptShownRef.current = true;
+            setDiagnosticOpen(true);
             setLiveLoadedPromptOpen(true);
           }
         }
@@ -168,7 +175,14 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
       const finalProgress = { phase: 'Kész', detail: `${content.channels.length.toLocaleString('hu-HU')} csatorna • ${content.movies.length.toLocaleString('hu-HU')} film • ${content.series.length.toLocaleString('hu-HU')} sorozat`, percent: 100 };
       setProgress(finalProgress);
       setDiagnosticFinishedAt(finishedAt);
-      setLiveLoadedPromptOpen(false);
+      /* 2.5.137: a kérdéses ablak NEM tűnhet el automatikusan. Ha a részleges
+         callback nem jött volna (gyors bulk import), a végén akkor is megkérdezzük:
+         folyamat vagy csatornák. A diagnosztika is NYITVA marad a döntésig. */
+      if (!promptShownRef.current) {
+        promptShownRef.current = true;
+        setDiagnosticOpen(true);
+        setLiveLoadedPromptOpen(true);
+      }
       onDiagnosticUpdate?.({ providerId: provider.id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: diagnosticStartedAtRef.current, finished: true, finishedAt });
       setNetworkDiagnosticSink(null);
     } catch (error) {
@@ -205,6 +219,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     setDiagnosticStartedAt(startedAt);
     diagnosticStartedAtRef.current = startedAt;
     diagnosticFinishedRef.current = false;
+    promptShownRef.current = false;
     setNetworkDiagnosticSink((event) => {
       if (diagnosticFinishedRef.current) return;
       setDiagnosticEvents((prev) => {
@@ -461,27 +476,31 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
           )}
         </div>
       </div>
-      {liveLoadedPromptOpen && (
-        <div ref={livePromptRef} role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák betöltve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setLiveLoadedPromptOpen(false); } }} className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-cyan-400/50 bg-[#081329] p-5 text-white shadow-2xl">
-            <div className="text-lg font-black text-cyan-200">Az élő TV-csatornák betöltve</div>
-            <p className="mt-2 text-sm text-slate-300">A filmek és sorozatok betöltése még folyamatban van. Szeretnéd tovább nézni a folyamatot, vagy folytassuk a háttérben?</p>
+      {liveLoadedPromptOpen && createPortal(
+        <div ref={livePromptRef} role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák betöltve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setLiveLoadedPromptOpen(false); } }} className="fixed inset-0 flex items-center justify-center p-4 bg-black/75" style={{ zIndex: 2147482000 }}>
+          <div className="w-full max-w-lg rounded-2xl border border-cyan-400/50 bg-[#081329] p-6 text-white shadow-2xl">
+            <div className="text-xl font-black text-cyan-200">Az élő TV-csatornák betöltve</div>
+            <p className="mt-3 text-base text-slate-300">A filmek és sorozatok betöltése még folyamatban van. Mit szeretnél?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
-              <button onClick={() => setLiveLoadedPromptOpen(false)} className="py-3 rounded-xl border border-slate-600 bg-white/5 hover:bg-white/10 text-white font-bold">Nem, tovább nézem</button>
-              <button data-tv-default="" onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Bezár, háttérben</button>
+              {/* A FOLYAMATOT nézi: a diagnosztikai ablak NYITVA marad. */}
+              <button onClick={() => { setLiveLoadedPromptOpen(false); setDiagnosticOpen(true); }} className="py-3 rounded-xl border border-cyan-500/60 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-100 font-bold">Folyamat megtekintése</button>
+              {/* A CSATORNÁKAT nézi: minden ablak bezárul, a főoldal látszik. */}
+              <button data-tv-default="" onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Csatornák megtekintése</button>
             </div>
           </div>
-        </div>
-      )}
-      <LoadingDiagnosticModal
-        isOpen={diagnosticOpen}
-        progress={progress}
-        events={diagnosticEvents}
-        error={diagnosticError}
-        startedAt={diagnosticStartedAt}
-        finishedAt={diagnosticFinishedAt}
-        onClose={closeDiagnostic}
-      />
+        </div>, document.body)}
+      {diagnosticOpen && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2147481000 }}>
+          <LoadingDiagnosticModal
+            isOpen
+            progress={progress}
+            events={diagnosticEvents}
+            error={diagnosticError}
+            startedAt={diagnosticStartedAt}
+            finishedAt={diagnosticFinishedAt}
+            onClose={closeDiagnostic}
+          />
+        </div>, document.body)}
     </div>
   );
 };

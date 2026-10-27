@@ -1,29 +1,18 @@
 #!/usr/bin/env node
 /*
- * 2.5.135 – FOLYAMATOS INDULÁS (nincs zöld, nincs fekete felvillanás).
+ * 2.5.137 – A NAGY VILLANÁS MEGSZÜNTETÉSE (egy kép az elejétől a végéig).
  *
- * A két valós TV-napló:
- *   #2  2026-10-27 00:14:19 – első indítás (104 sor, 2.5.134)
- *   #3  2026-10-27 00:14:56 – ugyanannak az IPK-nak az újraindítása
+ * A 2026-10-27 01:41:00-es Supabase-napló (79 sor, 2.5.136, üres IPK):
+ *   átvitt = 1 760 370 B, válasz = 2493 ms, first-paint = 2569 ms,
+ *   LEGNAGYOBB TARTALOM = 4483 ms, majd 4674 ms (a saját poszter-képünk).
  *
- * Mindkettőben: first-paint 948/989 ms, FCP 948/990 ms, REVEAL +715/+1739 ms.
- * A felhasználó „fekete felvillanást” és „zöld háttér felvillanást” látott.
+ * A felhasználó: „amikor a LG TV elvégezte a dolgát, felvillan a fekete kép,
+ * aztán a saját képünk kerül sorra és ott marad, amíg be nem tölt a főoldal”.
  *
- * Okok:
- *   1. A takarókép két CSS HÁTTÉRRÉTEG volt (1280×720 JPEG + 48×27 PNG).
- *      Amíg a felső JPEG dekódolása tartott, a Chrome EGYIK réteget sem
- *      festette ki → csak a lapos #6ccbd3 szín látszott (zöld villanás).
- *   2. A REVEAL egyetlen feladatban törölte a takaróképet, levette a
- *      booting osztályt és meghívta a notifyAppLoaded()-ot. A build és a
- *      webos.js `body { background:#000 }` szabálya + az üres, fekete
- *      lejátszó-doboz miatt a következő képkocka közel fekete volt.
- *
- * Ezek a tesztek azt ellenőrzik, hogy a javítás NEM csak elemzés maradt:
- *   • valódi <img decoding="sync">, EGYETLEN tartalék PNG-réteg;
- *   • sehol nincs #000 háttér a boot-láncban;
- *   • a takarókép 1920×1080 = a webOS splashBackground felbontása;
- *   • a REVEAL áttűnéssel, nem ugrással adja át a képernyőt;
- *   • az üres főoldal megtartja az indítóképet (fix váz, csak adat változik).
+ * A javítás: NINCS két kép. A webOS takaróképe és az app első festése ugyanaz
+ * az előre rajzolt, sötét főoldali váz (fix fejléc, 16:9 lejátszó, fix OSD,
+ * 16:9 csatorna-előnézetek). A HTML 1,76 MB-ról ~114 KB-ra csökkent: a JS/CSS
+ * külön fájlba került, nincs beégetett JPEG/PNG, nincs külső betűtípus-kérés.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -39,9 +28,13 @@ const PAGE = read('web/index.html');
 const BUILD = read('tools/build-webos.sh');
 const WEBOS = read('webos/webos.js');
 const THEME = read('web/src/themes/webos.css');
+const APP = read('web/src/App.tsx');
+const ADDMODAL = read('web/src/components/AddPlaylistModal.tsx');
 const PLAYER = read('web/src/components/VideoPlayer.tsx');
+const IMPORT = read('web/src/services/providerImport.ts');
 const VERSION = read('web/src/appVersion.ts');
 const APPINFO = JSON.parse(read('webos/appinfo.json'));
+const MAKE_SPLASH = read('tools/make-splash-skeleton.py');
 
 function bootPage() {
   const calls = [];
@@ -57,181 +50,219 @@ function bootPage() {
   return { window: dom.window, dom, calls };
 }
 
-/* ─────────────── 1. ZÖLD VILLANÁS: valódi kép, egy réteg ─────────────── */
+/* ─────────────── 1. NINCS MÁSODIK KÉP / NINCS BASE64 ─────────────── */
 
-test('a takarókép VALÓDI, szinkron dekódolású <img> – nem CSS háttérréteg', () => {
-  assert.match(PAGE, /<div id="tv-curtain" class="iptv-curtain"[^>]*>\s*<img id="tv-curtain-img"[^>]*decoding="sync"/,
-    'hiányzik a decoding="sync" képelem a takaróképről');
-  assert.match(PAGE, /fetchpriority="high"/, 'a takarókép nem kiemelt prioritású');
-  assert.match(PAGE, /\.iptv-curtain > img\s*\{[^}]*object-fit:\s*cover/,
-    'a kép nem tölti ki a képernyőt (ugrálna a logó)');
-  // A src-t a <head> egyetlen beégetett adat-URI-jából kapja – nincs második
-  // 200 kB-os másolat a HTML-ben.
-  assert.match(PAGE, /window\.__IPTV_BOOT_PICTURE__ = hasSplash \? splashData : '';/);
-  assert.match(PAGE, /var source = window\.__IPTV_BOOT_PICTURE__;/);
-  assert.equal(PAGE.split('__IPTV_SPLASH_DATA_URI__').length - 1, 1,
-    'a teljes kép jelölője nem pontosan egyszer szerepel');
-  assert.doesNotMatch(PAGE, /var splashImage =/,
-    'a teljes kép újra CSS background-image lenne (a dekódolás nem blokkolná a festést)');
+test('a HTML-ben NINCS beégetett kép és NINCS két CSS háttérréteg', () => {
+  assert.equal((PAGE.match(/data:image\/jpeg;base64,/g) || []).length, 0,
+    'a teljes kép újra be van égetve a HTML-be (lassú válasz + késői festés)');
+  assert.equal((PAGE.match(/data:image\/png;base64,/g) || []).length, 1,
+    'csak a favicon lehet beégetve');
+  assert.equal(PAGE.includes('__IPTV_SPLASH_DATA_URI__'), false);
+  assert.equal(PAGE.includes('__IPTV_SPLASH_TINY_URI__'), false);
   assert.doesNotMatch(PAGE, /var splashLayer =/, 'a két CSS-réteg visszatért');
+  assert.doesNotMatch(PAGE, /background-image:\s*url\('splash-bg\.jpg'\)/);
+  assert.doesNotMatch(PAGE, /#6ccbd3|#5fe3b6|#4fd8e0/i,
+    'a régi, lapos zöld/türkiz tartalék szín még mindig a HTML-ben van');
 });
 
-test('egyetlen tartalék képréteg van, és az is a VALÓDI kép kicsinyített mása', () => {
-  assert.match(PAGE, /var tinyImage = hasTiny \? 'url\(' \+ tinyData \+ '\)' : 'none';/);
-  assert.match(PAGE, /"#tv-curtain\{background-image:" \+ tinyImage/);
-  assert.match(PAGE, /"html\.iptv-booting body\{background-image:" \+ tinyImage/);
-  assert.equal((PAGE.match(/background-image:" \+ tinyImage/g) || []).length, 2,
-    'a tartalék képet pontosan a takaróképre és a body-ra kell tenni');
-  // A build 192×108-as PNG-t készít ugyanabból a képből (nem 48×27, nem szín).
-  assert.match(BUILD, /resize\(\(192, 108\), Image\.Resampling\.BOX\)/);
-  assert.match(BUILD, /tiny_uri = "data:image\/png;base64,"/);
-  assert.doesNotMatch(BUILD, /linear-gradient\(135deg/);
+test('NINCS külső hálózati betűtípus-kérés az induláskor', () => {
+  assert.doesNotMatch(PAGE, /fonts\.googleapis\.com|fonts\.gstatic\.com/,
+    'a Google Fonts újra lelassítja a load eseményt (302 ms + DNS)');
+  assert.match(PAGE, /font-family:\s*-apple-system/,
+    'a rendszer betűtípusát kell használni (nincs FOUT)');
 });
 
-test('a takarókép a webOS indítóképével AZONOS felbontásban készül', () => {
-  assert.match(BUILD, /splash-screen\.png"\)\.convert\("RGB"\)/);
-  assert.match(BUILD, /src\.save\(\s*build_dir \/ "splash-bg\.jpg", "JPEG", quality=80, optimize=True, progressive=False/,
-    'a beégetett kép nem 1920×1080-as baseline JPEG');
-  assert.doesNotMatch(BUILD, /resize\(\(1280, 720\)/,
-    'a takarókép újra kisebb, mint a webOS indítóképe – a logó belobbanna');
-  assert.match(PAGE, /PIXELRE UGYANAZT a képet mutatják/);
+test('a logó külön, kis HELYI fájl, amit a <head> azonnal preloadol', () => {
+  assert.match(PAGE, /<link rel="preload" as="image" href="boot-logo\.jpg" fetchpriority="high">/);
+  assert.match(PAGE, /<img class="sk-art" src="boot-logo\.jpg"[^>]*decoding="sync"/);
+  assert.match(PAGE, /preload\.src = 'boot-logo\.jpg';/);
+  assert.match(PAGE, /preload\.decode\(\)/);
+  assert.ok(fs.statSync(path.join(ROOT, 'tools/boot-logo.jpg')).size < 60_000,
+    'a logó túl nagy – visszajön a lassú első festés');
 });
 
-/* ─────────────── 2. FEKETE VILLANÁS: sehol nincs #000 ─────────────── */
+/* ─────────────── 2. FIX FŐOLDALI VÁZ: OSD + 16:9 + CSATORNAHELYEK ─────────────── */
 
-test('a boot-láncban sehol nincs fekete body/vászon háttér', () => {
-  // A magyarázó kommentek (amelyek a régi hibát írják le) nem számítanak:
-  // csak a VALÓDI CSS-deklarációkat vizsgáljuk.
-  const cssOnly = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '');
-  assert.doesNotMatch(cssOnly, /background(-color)?:\s*#000\b/i,
-    'a HTML-ben maradt fekete háttér');
-  assert.doesNotMatch(WEBOS, /body\.webos-tv, body\.lg-webos \{ background:#000/i,
-    'a webos.js újra feketére állítja a body-t');
-  assert.doesNotMatch(BUILD, /body\.webos-tv, body\.lg-webos \{\{\s*background: #000/i,
-    'a buildbe égetett CSS újra feketére állítja a body-t');
-  assert.doesNotMatch(THEME, /body\.webos-theme\s*\{[^}]*background:\s*#000/i,
-    'a webos téma még mindig feketére állítja a body-t');
-  assert.match(THEME, /--tv-bg:\s*#080d1a;/);
-  assert.match(WEBOS, /body\.webos-tv, body\.lg-webos \{ background:#080d1a/);
-  assert.match(BUILD, /body\.webos-tv, body\.lg-webos \{\{\s*\/\* 2\.5\.135[\s\S]{0,180}background: #080d1a/);
+test('az első festés egy ELŐRE RAJZOLT, FIX főoldali váz (nem üres kocka)', () => {
+  const { window, dom } = bootPage();
+  try {
+    const doc = window.document;
+    const skeleton = doc.getElementById('iptv-skeleton');
+    assert.ok(skeleton, 'hiányzik az előre rajzolt főoldali váz');
+    assert.ok(doc.getElementById('tv-curtain'), 'hiányzik a takaró réteg');
+    for (const slot of ['header', 'player', 'osd', 'channels']) {
+      assert.ok(skeleton.querySelector(`[data-iptv-slot="${slot}"]`),
+        `hiányzik a fix ${slot} régió – az adatok nem tudnak a helyükre rajzolódni`);
+    }
+    assert.match(PAGE, /\.sk-player\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9/,
+      'a lejátszó doboza nem fix 16:9');
+    assert.match(PAGE, /\.sk-thumb\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9/,
+      'a kis csatorna-előnézetek nem fix 16:9-esek');
+    assert.equal(skeleton.querySelectorAll('.sk-row').length, 8,
+      'a csatornalista fix helyeinek száma megváltozott');
+    // A váz TISZTA HTML/CSS – nincs kép-dekódolás az első festéshez.
+    assert.equal(skeleton.querySelectorAll('img').length, 1,
+      'a vázban csak a kis logó lehet kép');
+  } finally {
+    dom.window.close();
+  }
 });
 
-test('a body hátterét inline stílus is biztosítja (gyenge CSS-motorokon is)', () => {
-  // A webos.css, a webos.js és a build is állítgatja a body-t; egy régebbi
-  // webOS Chrome-on ez !important nélkül felülírhatná a boot-színt.
-  assert.match(PAGE, /document\.body\.style\.backgroundColor = '#6ccbd3';/);
+test('a webOS takaróképe UGYANAZ a sötét főoldali váz (nincs második kép)', () => {
+  assert.match(MAKE_SPLASH, /def build\(\) -> Image\.Image:/);
+  assert.match(MAKE_SPLASH, /16:9 lejátszó doboz/);
+  assert.match(MAKE_SPLASH, /OSD sáv/);
+  assert.match(MAKE_SPLASH, /csatornalista/);
+  assert.match(MAKE_SPLASH, /quantize\(colors=96/,
+    'a takarókép nem kicsi – a TV lassan olvasná be');
+  assert.match(BUILD, /cp "\$WEBOS_DIR\/splash-screen\.png"/);
+  assert.match(BUILD, /shutil\.copy\(logo_src, build_dir \/ "boot-logo\.jpg"\)/);
+  assert.equal(APPINFO.splashBackground, 'splash-screen.png',
+    'a LG TV ellenőrzéséhez használt takaróképnek meg kell maradnia');
+});
+
+test('a HTML és a body háttere VÉGIG sötét – nincs fekete és nincs zöld kocka', () => {
+  assert.doesNotMatch(PAGE.replace(/\/\*[\s\S]*?\*\//g, ''), /background(-color)?:\s*#000\b/i);
+  assert.doesNotMatch(WEBOS, /body\.webos-tv, body\.lg-webos \{ background:#000/i);
+  assert.doesNotMatch(THEME, /body\.webos-theme\s*\{[^}]*background:\s*#000/i);
+  assert.match(PAGE, /html\s*\{\s*background-color:\s*#080d1a;/);
+  assert.match(PAGE, /html\.iptv-booting body\s*\{\s*background-color:\s*#080d1a !important;/);
+  assert.match(PAGE, /html\.iptv-revealed body\s*\{\s*background-color:\s*#080d1a !important;/);
   assert.match(PAGE, /document\.body\.style\.backgroundColor = '#080d1a';/);
+  assert.match(PAGE, /document\.documentElement\.style\.backgroundColor = '#080d1a';/);
+  // A bgColor sötét, nem fehér és nem a régi világos türkiz.
+  const rgb = String(APPINFO.bgColor).replace('#', '');
+  const values = [0, 2, 4].map((i) => Number.parseInt(rgb.slice(i, i + 2), 16));
+  assert.ok(values.every((v) => v < 120), 'a bgColor újra világos – villanást okozna');
+  assert.equal(APPINFO.bgColor.toLowerCase(), '#213c51');
 });
 
-test('a html vászna és a body háttere a takarókép színéről az app sötétkékjére vált', () => {
-  assert.match(PAGE, /html\s*\{\s*\/\*[^{]*\*\/\s*background-color:\s*#6ccbd3;/,
-    'a vászon induláskor nem a takarókép színe');
-  assert.match(PAGE, /html\.iptv-booting body\s*\{[\s\S]{0,320}background-color:\s*#6ccbd3 !important;/);
-  assert.match(PAGE, /html\.iptv-revealed body\s*\{[\s\S]{0,320}background-color:\s*#080d1a !important;/);
-  // Az !important kell: a webos.js később injektált `body.webos-tv` szabálya
-  // és a buildbe égetett CSS egyaránt próbálkozott a body háttérrel.
-  assert.match(PAGE, /html\.iptv-revealed\s*\{\s*background-color:\s*#080d1a;/);
+test('az üres lejátszó doboza nem fekete és NEM későn dekódolódó kép', () => {
+  assert.doesNotMatch(PAGE, /\[data-player-poster\][^}]*background-image:\s*url\(data:image\/jpeg/,
+    'a poszter újra későn dekódolódó hátteret kapott (4674 ms-es LCP)');
+  assert.match(PAGE, /html\[data-iptv-boot="empty"\] \[data-player-poster\]\s*\{[^}]*linear-gradient/);
+  assert.match(PAGE, /html\[data-iptv-boot="empty"\] \[data-player-poster\]::after/);
+  assert.match(PLAYER, /\{channel && \(/,
+    'a „Kapcsolódás…” felirat újra eltakarja az üres dobozt');
 });
 
-test('az üres IPK lejátszó-doboza nem fekete: megőrzi az indítóképet', () => {
-  assert.match(PAGE, /var posterImage = hasSplash \? 'url\(' \+ splashData \+ '\)' : 'none';/);
-  assert.match(PAGE, /html\[data-iptv-boot=\\"empty\\"\] \[data-player-poster\]/);
-  assert.match(PAGE, /"background-position:center center;background-size:cover;"/);
-  // A poszter belseje (logó-doboz + „Kapcsolódás…”) csak akkor látszik, ha
-  // van csatorna – különben eltakarná a képet.
-  const poster = PLAYER.slice(PLAYER.indexOf('data-player-poster'), PLAYER.indexOf('data-player-poster') + 1500);
-  assert.match(poster, /\{channel && \(\s*<>/,
-    'a poszter belseje nincs az üres állapothoz kötve');
-  assert.match(PLAYER, /2\.5\.135 – FOLYAMATOS INDULÁS/);
+/* ─────────────── 3. A HTML KICSI: KÜLSŐ app.js / app.css ─────────────── */
+
+test('a build kiemeli a hatalmas JS-t és CSS-t, az index.html kicsi marad', () => {
+  assert.match(BUILD, /def externalize_styles/);
+  assert.match(BUILD, /def externalize_scripts/);
+  assert.match(BUILD, /<link rel="stylesheet" href="app\.css">/);
+  assert.match(BUILD, /<script src="app\.js"/);
+  assert.match(BUILD, /data-iptv-es5-app="IPTV-ES5-APP"/);
+  assert.match(BUILD, /<link rel=\"preload\" as=\"script\" href=\"app\.js\">/,
+    'az app.js előolvasása hiányzik – a parser a dokumentum végén várakozna');
+  const built = path.join(ROOT, 'build/webos/index.html');
+  if (!fs.existsSync(built)) return;
+  const html = fs.readFileSync(built, 'utf8');
+  assert.ok(html.length < 200_000,
+    `a csomagolt index.html ${html.length} byte – újra 2,5 mp a válaszidő`);
+  assert.equal((html.match(/data:image\/jpeg;base64,/g) || []).length, 0);
+  assert.match(html, /<script src="app\.js"/);
+  assert.match(html, /href="app\.css"/);
+  assert.doesNotMatch(html, /<script[^>]*type="module"/);
+  assert.ok(fs.existsSync(path.join(ROOT, 'build/webos/app.js')));
+  assert.ok(fs.existsSync(path.join(ROOT, 'build/webos/app.css')));
+  assert.ok(fs.existsSync(path.join(ROOT, 'build/webos/boot-logo.jpg')));
+  assert.match(html, /id="iptv-skeleton"/,
+    'a váz nem maradt benne a csomagolt HTML-ben');
 });
 
-/* ─────────────── 3. FOLYAMATOS ÁTTŰNÉS (viselkedés) ─────────────── */
+test('a füstteszt visszaágyazza a külső fájlokat (jsdom nem tölt erőforrást)', () => {
+  const smoke = read('tools/smoke-test.mjs');
+  assert.match(smoke, /app\.js/);
+  assert.match(smoke, /app\.css/);
+  assert.match(smoke, /=> `<script>/,
+    'a String.replace $& mintákat kezelni kell függvénnyel (minifikált JS)');
+});
 
-test('a REVEAL nem ugrik: a takarókép a kész felület fölött halványul el', () => {
+/* ─────────────── 4. FOLYAMATOS ÁTTŰNÉS (viselkedés) ─────────────── */
+
+test('a REVEAL nem ugrik: a váz a kész felület fölött halványul el', () => {
   const { window, dom, calls } = bootPage();
   try {
     const doc = window.document;
-    assert.equal(window.__IPTV_REVEAL_DONE__, false);
     window.__IPTV_PREPARE_REVEAL__();
     window.__IPTV_REVEAL__('üres alkalmazás – kész felület');
-
     assert.equal(calls.length, 1, 'a notifyAppLoaded pontosan egyszer fut');
-    assert.equal(window.__IPTV_REVEALED__, true);
     assert.match(doc.documentElement.className, /iptv-revealed/);
-    assert.match(doc.documentElement.className, /iptv-handoff/);
     assert.doesNotMatch(doc.documentElement.className, /iptv-booting/);
     assert.equal(window.getComputedStyle(doc.getElementById('root')).visibility, 'visible');
-    assert.equal(doc.body.style.backgroundColor, 'rgb(8, 13, 26)',
-      'a body a REVEAL-kor nem az app sötétkék hátterét kapta');
-
     const curtain = doc.getElementById('tv-curtain');
-    assert.ok(curtain, 'a takarókép nem ugorhat le azonnal – ez volt a villanás');
+    assert.ok(curtain, 'a váz nem ugorhat le azonnal – ez volt a nagy villanás');
     assert.match(curtain.className, /iptv-fading/);
     assert.equal(curtain.style.opacity, '0');
-    assert.equal(window.__IPTV_REVEAL_DONE__, false);
-
-    // Az áttűnés vége: a réteg végleg eltűnik, de a felület látható marad.
     window.__IPTV_FINISH_REVEAL__();
     assert.equal(doc.getElementById('tv-curtain'), null);
     assert.equal(window.__IPTV_REVEAL_DONE__, true);
-    assert.doesNotMatch(doc.documentElement.className, /iptv-handoff/);
-    assert.match(doc.documentElement.className, /iptv-revealed/);
-    assert.match(doc.documentElement.className, /iptv-prerender/);
-    assert.equal(window.getComputedStyle(doc.getElementById('root')).visibility, 'visible');
-    assert.equal(calls.length, 1, 'az áttűnés vége nem hívhatja újra a notifyAppLoaded()-ot');
-
-    // Idempotens: a transitionend és az időzítő is hívhatja.
-    window.__IPTV_FINISH_REVEAL__();
     assert.equal(calls.length, 1);
   } finally {
     dom.window.close();
   }
 });
 
-test('az áttűnés a TAKARÓKÉPET halványítja, nem a felületet (nincs beúszás)', () => {
-  assert.match(PAGE, /#tv-curtain\.iptv-fading\s*\{[^}]*opacity:\s*0;[^}]*transition:\s*opacity 200ms linear !important;/,
-    'hiányzik az !important kompozitor-átmenet (a webos.js minden transitiont nulláz)');
-  assert.match(PAGE, /setProperty\('transition', 'opacity 200ms linear', 'important'\)/,
-    'hiányzik az inline !important átmenet – a webos.css 0s-re kényszerítheti');
-  assert.match(PAGE, /setProperty\('transition-duration', '200ms', 'important'\)/,
-    'a hosszú alak hiányzik – a webos.css 0s-re kényszerítheti az időtartamot');
-  assert.doesNotMatch(PAGE, /html\.iptv-revealed #root\s*\{[^}]*opacity/,
-    'a FELÜLET újra áttetsző lenne – alatta látszana a zöld háttér');
-  assert.doesNotMatch(PAGE, /@keyframes iptvReveal/);
-  // A REVEAL biztonsági időzítője és a 12 mp-es háló is megmarad.
-  assert.match(PAGE, /\}, 240\);/);
-  assert.match(PAGE, /window\.__IPTV_REVEAL__\('biztonsági háló'\);\s*\},\s*12000\)/);
-});
-
-test('a biztonsági időzítő akkor is eltávolítja a takaróképet, ha nincs transitionend', async () => {
+test('a biztonsági időzítő transitionend nélkül is eltávolítja a vázat', async () => {
   const { window, dom } = bootPage();
   try {
     window.__IPTV_REVEAL__('teszt');
-    assert.ok(window.document.getElementById('tv-curtain'), 'az áttűnésnek el kell indulnia');
+    assert.ok(window.document.getElementById('tv-curtain'));
     await new Promise((resolve) => setTimeout(resolve, 320));
-    assert.equal(window.document.getElementById('tv-curtain'), null,
-      'a 240 ms-os biztonsági időzítő nem távolította el a takaróképet');
+    assert.equal(window.document.getElementById('tv-curtain'), null);
     assert.equal(window.__IPTV_REVEAL_DONE__, true);
   } finally {
     dom.window.close();
   }
 });
 
-test('a webOS indítóképét a SAJÁT, azonos képű takarókép alatt engedjük el', () => {
-  const reveal = PAGE.slice(PAGE.indexOf('window.__IPTV_REVEAL__ = function'));
-  const notifyAt = reveal.indexOf('notifyAppLoaded()');
-  const fadeAt = reveal.indexOf("'iptv-curtain iptv-fading'");
-  const finishAt = reveal.indexOf('__IPTV_FINISH_REVEAL__()');
-  assert.ok(notifyAt > 0 && fadeAt > notifyAt,
-    'a notifyAppLoaded() az áttűnés ELŐTT kell fusson (különben üres kocka)');
-  assert.ok(finishAt > fadeAt, 'az áttűnés lezárása az áttűnés után kell jöjjön');
+/* ─────────────── 5. XTREAM IMPORT ABLAKAI ─────────────── */
+
+test('az új szolgáltató importja NEM csendes: diagnosztika + kérdéses ablak', () => {
+  assert.equal((APP.match(/handleRefreshProvider\(newProvider, true\)/g) || []).length, 2,
+    'a QR/új szolgáltató importja újra manual=false – nem jelenik meg a diagnosztika');
+  assert.match(APP, /setDiagnosticOpen\(manual && !silent\)/);
+  assert.match(APP, /if \(manual && !silent && liveComplete/);
+  assert.match(APP, /createPortal/);
+  assert.match(ADDMODAL, /createPortal/);
+  assert.match(ADDMODAL, /style=\{\{ zIndex: 2147482000 \}\}/,
+    'a kérdéses ablaknak minden más réteg fölött kell lennie');
+  assert.match(ADDMODAL, /style=\{\{ position: 'fixed', inset: 0, zIndex: 2147481000 \}\}/,
+    'a betöltési diagnosztikát portálra kell tenni');
 });
 
-/* ─────────────── 4. verzió / integráció ─────────────── */
+test('a kérdés: „Folyamat megtekintése” vagy „Csatornák megtekintése”', () => {
+  for (const source of [APP, ADDMODAL]) {
+    assert.match(source, /Folyamat megtekintése/);
+    assert.match(source, /Csatornák megtekintése/);
+  }
+  // A gyors (bulk) import végén is fel kell tenni a kérdést, nem csak a
+  // részleges callbacknél – különben soha nem jelenik meg az ablak.
+  assert.match(ADDMODAL, /if \(!promptShownRef\.current\)[\s\S]{0,320}setLiveLoadedPromptOpen\(true\)/);
+  assert.doesNotMatch(ADDMODAL, /setLiveLoadedPromptOpen\(false\);\s*onDiagnosticUpdate\?\.\(\{ providerId: provider\.id/,
+    'a kérdéses ablak a végén újra eltűnik');
+});
 
-test('a verzió mindkét helyen 2.5.135, és a változások szerepelnek a kiadási jegyzékben', () => {
-  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.135';/);
-  assert.equal(APPINFO.version, '2.5.135');
-  assert.match(VERSION, /FOLYAMATOS INDULÁS/);
-  assert.match(VERSION, /ÁTTŰNIK/);
+/* ─────────────── 6. KEVESEBB AKADOZÁS AZ IMPORT ALATT ─────────────── */
+
+test('a VOD/sorozat részlisták nem rajzolják újra a teljes App-ot minden adagnál', () => {
+  assert.match(APP, /const VOD_PAINT_MS = 1200;/);
+  assert.match(APP, /if \(partial\.durable \|\| nowVod - lastVodPaintRef\.current >= VOD_PAINT_MS\)/);
+  assert.match(APP, /if \(partial\.durable \|\| nowSeries - lastSeriesPaintRef\.current >= VOD_PAINT_MS\)/);
+  assert.match(IMPORT, /const UI_YIELD_EVERY = 1200;/);
+  assert.match(IMPORT, /decodedMovies\.length - lastVodPartialAt >= 5000/);
+  assert.match(IMPORT, /decodedSeries\.length - lastSeriesPartialAt >= 5000/);
+  assert.equal((IMPORT.match(/await yieldToUi\(\);/g) || []).length >= 2, true,
+    'a részleges frissítés után nem adjuk vissza a vezérlést a festésnek');
+});
+
+/* ─────────────── 7. VERZIÓ ─────────────── */
+
+test('a verzió mindkét helyen 2.5.137, és a változások a kiadási jegyzékben vannak', () => {
+  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.137';/);
+  assert.equal(APPINFO.version, '2.5.137');
+  assert.match(VERSION, /EGY KÉP AZ ELEJÉTŐL A VÉGÉIG/);
+  assert.match(VERSION, /FIX FŐOLDALI VÁZ/);
 });

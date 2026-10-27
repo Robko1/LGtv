@@ -119,40 +119,34 @@ test('a CI IPK-ellenőrzése a valódi script-hivatkozást keresi, nem szövegr�
   );
 });
 
-test('az indulókép jelölője pontosan egyszer szerepel – nem ég be kétszer', () => {
+test('2.5.137: NINCS beégetett indulókép – a HTML kicsi marad', () => {
   /*
-   * A build a jelölőt a splash-bg.jpg base64 változatával helyettesíti. A Python
-   * `str.replace` alapértelmezésben MINDEN előfordulást cserél, és a jelölő egy
-   * MAGYARÁZÓ MEGJEGYZÉSBEN is szerepelt – így a 120 kB-os kép KÉTSZER került a
-   * csomagolt HTML-be. Ez volt az IPK 2.5.106 (984 816 B) → 2.5.110 (1 173 774 B)
-   * ugrásának 97%-a: a beégetett kép gzipben 183 847 bájtot tett ki.
+   * A beégetett 265 KB-os JPEG + 46 KB-os PNG volt a 2493 ms-es válaszidő
+   * egyik oka. Most a logó külön, 37 KB-os HELYI fájl, a váz pedig tiszta
+   * HTML/CSS. A `str.replace` régi duplázási hibája így eleve nem fordulhat elő.
    */
   const page = read('web/index.html');
-  const occurrences = page.split('__IPTV_SPLASH_DATA_URI__').length - 1;
-  assert.equal(occurrences, 1, 'a jelölő nem pontosan egyszer szerepel a web/index.html-ben');
-  assert.ok(
-    read('tools/build-webos.sh').includes('html.replace("__IPTV_SPLASH_DATA_URI__", data_uri, 1)'),
-    'a build nem csak az első előfordulást cseréli – egy véletlen említés duplázná a képet'
-  );
+  assert.ok(!page.includes('__IPTV_SPLASH_DATA_URI__'));
+  assert.ok(!page.includes('__IPTV_SPLASH_TINY_URI__'));
+  assert.equal((page.match(/data:image\/jpeg;base64,/g) || []).length, 0);
+  assert.match(read('tools/build-webos.sh'), /def externalize_scripts/);
   const built = path.join(ROOT, 'build/webos/index.html');
   if (!fs.existsSync(built)) return;
   const html = fs.readFileSync(built, 'utf8');
-  const embedded = (html.match(/data:image\/jpeg;base64,/g) || []).length;
-  assert.equal(embedded, 1, `a csomagolt HTML-ben ${embedded} beégetett indulókép van, 1 helyett`);
+  assert.ok(html.length < 200_000, `a csomagolt HTML ${html.length} byte – túl lassú`);
+  assert.equal((html.match(/data:image\/jpeg;base64,/g) || []).length, 0);
 });
 
-test('a csomagolt HTML-be égetett takarókép jelölője feloldódik', () => {
-  /*
-   * A build a __IPTV_SPLASH_DATA_URI__ jelölőt base64 képpel helyettesíti.
-   * Ha a jelölő a forrásból eltűnne, a build `SystemExit`-tel állna le; ha a
-   * csomagolt HTML-ben maradna, érvénytelen url() kerülne a takaróképbe.
-   */
-  assert.ok(read('web/index.html').includes('__IPTV_SPLASH_DATA_URI__'));
+test('a csomagolt HTML a külső app.js/app.css fájlokra hivatkozik', () => {
   const built = path.join(ROOT, 'build/webos/index.html');
   if (!fs.existsSync(built)) return;
   const html = fs.readFileSync(built, 'utf8');
-  assert.ok(!html.includes('__IPTV_SPLASH_DATA_URI__'), 'a jelölő feloldatlanul maradt a csomagban');
-  assert.ok(html.includes('data:image/jpeg;base64,'), 'a takarókép nincs beégetve a csomagolt HTML-be');
+  assert.match(html, /<script src="app\.js"/, 'hiányzik a külső ES5 app');
+  assert.match(html, /href="app\.css"/, 'hiányzik a külső CSS');
+  assert.match(html, /IPTV-ES5-APP/, 'a CI által keresett ES5 jelölő eltűnt');
+  assert.match(html, /IPTV-ES5-POLYFILLS/, 'a polyfill jelölő eltűnt');
+  assert.doesNotMatch(html, /<script[^>]*type="module"/);
+  assert.match(html, /id="iptv-skeleton"/, 'az előre rajzolt váz hiányzik a csomagból');
 });
 
 test('a takarókép hátterét a <head> injektálja, nem a <body>', () => {
@@ -167,10 +161,11 @@ test('a takarókép hátterét a <head> injektálja, nem a <body>', () => {
   const headEnd = src.indexOf('</head>');
   const bodyStart = src.indexOf('<body');
   assert.ok(headEnd > 0 && bodyStart > headEnd, 'a web/index.html <head>/<body> sorrendje váratlan');
-  const injector = src.indexOf("splashData");
-  assert.ok(injector > 0, 'nem található a takarókép-háttér injektáló szkriptje');
-  assert.ok(injector < headEnd, 'a takarókép-háttér injektálása a <head> után van – zöld villanás veszélye');
-  assert.ok(!src.slice(bodyStart).includes('splashData'), 'a <body>-ban is van injektáló szkript (duplikált)');
+  const injector = src.indexOf("__IPTV_BOOT_PICTURE__");
+  assert.ok(injector > 0, 'nem található a korai kép-előmelegítő szkript');
+  assert.ok(injector < headEnd, 'az előmelegítés nem a <head>-ben van');
+  assert.ok(!src.slice(bodyStart).includes("var preload = new Image()"),
+    'a <body>-ban is van kép-előmelegítő (duplikált)');
 });
 
 test('a 9 mp-es indulási korlát a teljes revealNow() utat használja', () => {
@@ -202,13 +197,13 @@ test('az app bgColor a takarókép színével egyezik – nincs fekete villanás
   const info = JSON.parse(read('webos/appinfo.json'));
   assert.equal(
     String(info.bgColor).toLowerCase(),
-    '#6ccbd3',
-    'a bgColor nem a takarókép mért átlagszíne – fekete/sötét keret villanhat induláskor'
+    '#213c51',
+    'a bgColor nem az új, sötét főoldali váz átlagszíne – fekete/világos keret villanhat induláskor'
   );
   assert.ok(info.splashBackground, 'hiányzik a splashBackground');
 });
 
-test('a takarókép réteg alapszíne sem sötét (nincs sötét keret)', () => {
+test('a takarókép réteg alapszíne a főoldali váz sötétkékje (nincs keret)', () => {
   /*
    * Amíg a beégetett kép dekódolása tart, a background-color látszik.
    * Korábban #0d1b2a (sötétkék) volt: az első festésnél sötét keret villant,
@@ -219,16 +214,14 @@ test('a takarókép réteg alapszíne sem sötét (nincs sötét keret)', () => 
     !/background-color:\s*#0d1b2a/i.test(html),
     'a takarókép/boot háttér még mindig sötétkék (#0d1b2a)'
   );
-  // Csak azokat a blokkokat nézzük, amelyek valóban háttérszínt állítanak.
-  // 2.5.135: a takarókép a .iptv-curtain osztályt használja (a #tv-curtain
-  // azonosító a diagnosztika és az áttűnés miatt marad meg rajta).
-  const bootBlocks = html.match(
-    /(?:html\.iptv-booting body|#tv-curtain|\.iptv-curtain)\s*\{[^}]*background-color:[^}]*\}/g
-  ) || [];
-  assert.ok(bootBlocks.length >= 2, `nem találhatók a takarókép CSS-blokkjai (${bootBlocks.length})`);
-  for (const block of bootBlocks) {
-    assert.match(block, /background-color:\s*#6ccbd3/i, 'a blokk alapszíne nem a takarókép színe');
-  }
+  /* 2.5.137: a takarókép, a vászon és a body VÉGIG ugyanazt a sötétkéket
+     mutatják – így nincs színugrás a platform képének levételekor. */
+  assert.match(html, /html\s*\{\s*background-color:\s*#080d1a;/);
+  assert.match(html, /\.iptv-curtain\s*\{[^}]*background-color:\s*#080d1a;/);
+  assert.match(html, /html\.iptv-booting body\s*\{\s*background-color:\s*#080d1a !important;/);
+  assert.match(html, /#iptv-skeleton\s*\{[^}]*background:\s*#080d1a;/);
+  assert.doesNotMatch(html, /background-color:\s*#6ccbd3/i,
+    'a régi világos türkiz háttér visszatért');
 });
 
 test('a takarókép nem esik le egy lefagyott képkocka közepére', () => {
