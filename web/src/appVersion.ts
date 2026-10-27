@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.152';
+export const WEB_VERSION = '2.5.153';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.153',
+    date: '2026-10-27',
+    changes: [
+      'A FELFEDÉS NEM VÁR KÉPKOCKÁRA: a 41–44. napló mérése szerint a videó elindulásakor a TV 1,2–3,9 mp-ig EGYETLEN képkockát sem ad (a requestAnimationFrame nem hívódik meg), miközben a JavaScript tovább fut. A régi képkocka-őr ezt „foglalt fő szálnak” látta, és elhalasztotta a takarókép levételét – a 41. naplóban 3,6 mp helyett 6,5 mp-nél történt meg a felfedés. Mostantól a képkockára legfeljebb 350 ms-ot várunk, utána a váltás megtörténik; a késés ténye csak a naplóba kerül',
+      'A BETÖLTŐKÉPERNYŐ KÉPKOCKA-JELZÉSE IS IDŐKORLÁTOS: az előfestés „két képkocka” jelzése 300 ms után akkor is megérkezik, ha a TV nem fest (a 41. naplóban ez 4,5 mp-et várt)',
+      'A PLATFORM INDÍTÓKÉPE AZ ELSŐ TARTALMAS KÉPKOCKA UTÁN TŰNIK EL: a 35. naplóban +222 ms-nál lement, de az első festés csak 867 ms-nál történt meg – 645 ms-ig üres felület látszott. Most fotó → fotó a váltás, két biztonsági időzítővel (900 / 1500 ms)',
+      'A 20 191 CSATORNÁS LISTA BESZÚRÁSA NEM FAGYASZTJA MEG A KÉPET: a rendezés (magyar-első + mentett sorrend) a React-commit ELŐTT fut, maga a commit pedig startTransition-ben – a React félbe tudja szakítani, és a böngésző közben kifesthet. A 41–44. naplóban ez a lépés 1,5–1,8 mp-es képkocka-kihagyást okozott',
+      'A TELJES LISTA A FELFEDÉS UTÁN 1,2 mp-cel indul (a képkocka-őr már nem halaszt, ezért ez biztonságos), a 15 mp-es háló marad',
+      'A FELFEDÉS NAPLÓJA MEGMONDJA A BONTÁST: eltelt idő, videó-kész, logó-kész, előfestés, képkocka-várakozás – így a következő naplóból egyértelmű, melyik lépés késleltet',
+    ],
+  },
   {
     version: '2.5.152',
     date: '2026-10-27',

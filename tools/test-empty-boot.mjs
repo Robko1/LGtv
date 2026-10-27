@@ -64,10 +64,16 @@ test('üres indulás: a megjelenítő nem vár videóra, és nem pörög végtel
     'üres állapotban a videó első képkockájára várna');
   assert.match(main, /if \(emptyBoot\(\)\) \{[\s\S]{0,220}revealWhenPainted\("üres alkalmazás/,
     'nincs azonnali, külön üres megjelenítési út');
-  // 2.5.149: legfeljebb EGY újrapróbálkozás – a 28–30. naplóban a kétszeri
-  // halasztás 1,4–2,4 mp-cel tolta ki a felfedést.
-  assert.match(main, /MAX_FRAME_GAP_RETRIES = 1/,
-    'a képkocka-őr ismét végtelenül halogathatja a megjelenést');
+  /*
+   * 2.5.153: a képkocka-őr NEM halaszt. A 41–44. napló bizonyítja, hogy a
+   * hiányzó képkocka a videó-indítás miatt van (a JS közben fut), ezért a
+   * váltás halasztása csak 1–3 mp-et tett a felfedésre. A képkockára
+   * legfeljebb 350 ms-ot várunk.
+   */
+  assert.match(main, /const REVEAL_PAINT_TIMEOUT_MS = 350;/,
+    'a képkocka-várakozás nincs időhöz kötve – a felfedés percekig csúszhat');
+  assert.doesNotMatch(main, /MAX_FRAME_GAP_RETRIES/,
+    'a régi, halasztó képkocka-őr visszatért');
   assert.match(main, /const revealWhenPainted = /,
     'több párhuzamos megjelenítési lánc indulhat');
   assert.match(main, /elapsed > 3500 && chromeReady\(\) && bootState\(\) === "checking"/,
@@ -228,7 +234,7 @@ async function bootRevealHarness({
 
   const factory = new Function(
     ...Object.keys(context),
-    `${code}\n; return { checkRendered, get revealed() { return revealed; }, get pending() { return revealPending; }, get retries() { return frameGapRetries; } };`
+    `${code}\n; return { checkRendered, get revealed() { return revealed; }, get pending() { return revealPending; }, get paintFallbacks() { return paintFallbacks; } };`
   );
   const runtime = factory(...Object.values(context));
 
@@ -355,21 +361,25 @@ test('mentett tartalomnál marad a régi, kész-listára váró viselkedés', as
   }
 });
 
-test('a képkocka-őr legfeljebb kétszer halaszt, utána mindenképp megjelenik', async (t) => {
+test('a képkocka-kihagyás NEM halasztja el a megjelenítést (2.5.153)', async (t) => {
   const h = await bootRevealHarness({ bootState: 'empty', rows: 0, video: true, emptyMarker: true });
   if (!h) { t.skip('esbuild hiányzik'); return; }
   try {
-    // 400 ms-nál nagyobb képkocka-kihagyás szimulálása: a két rAF között
-    // ugrik a nagy felbontású óra. A 9 mp-es kemény korlátot nem használjuk:
-    // a MAX_FRAME_GAP_RETRIES önmagában is beengedi a megjelenést.
+    /*
+     * A 41–44. napló: a videó elindulásakor a TV 1,2–3,9 mp-ig nem ad
+     * képkockát, miközben a JavaScript fut. A régi őr ezt „foglalt szálnak”
+     * látta, és elhalasztotta a takarókép levételét (6,5 mp-es felfedés).
+     * Mostantól a nagy képkocka-kihagyás csak naplózás: a váltás megtörténik.
+     */
     let value = 0;
     h.setPerfNow(() => { value += 500; return value; });
     h.runtime.checkRendered();
     await h.tick(500);
 
     assert.equal(h.revealReasons.length, 1,
-      'a képkocka-őr miatt a felület nem jelent meg időben');
-    assert.ok(h.runtime.retries <= 2, 'a képkocka-őr kettőnél többször halasztott');
+      'a képkocka-kihagyás miatt a felület nem jelent meg időben');
+    assert.ok(h.phases.some((line) => /képkocka-kihagyás/.test(line)),
+      'a kihagyás ténye nem került a naplóba');
     assert.equal(h.failures.length, 0);
   } finally {
     h.close();

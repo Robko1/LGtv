@@ -1279,15 +1279,6 @@
         }
         window.__IPTV_PLATFORM_SPLASH_OFF__ = function () { releasePlatformSplash(); };
         window.__IPTV_RELEASE_PLATFORM_SPLASH__ = function () { releasePlatformSplash(); };
-        function afterTwoFrames(fn) {
-          try {
-            if (typeof window.requestAnimationFrame === 'function') {
-              window.requestAnimationFrame(function () { window.requestAnimationFrame(fn); });
-              return;
-            }
-          } catch (e) {}
-          window.setTimeout(fn, 32);
-        }
 
         try {
           drawTicks();
@@ -1313,18 +1304,38 @@
             bgImage.addEventListener('error', revealBootPicture);
           }
           /*
-           * 2.5.151: a platform indítóképét NEM a fotó betöltése után vesszük
-           * le, hanem amint a SAJÁT betöltőképernyőnk kifestődött (két
-           * képkocka). A saját képernyő alapja sötét, a fotó pedig utána úszik
-           * be – így a folyamatjelző animáció AZONNAL látszik, nem vár a
-           * 1,2 MB-os kép dekódolására.
+           * A PLATFORM INDÍTÓKÉPÉNEK LEVÉTELE – AZ ELSŐ TARTALMAS KÉPKOCKA UTÁN (2.5.153).
+           *
+           * A 35. naplóban a platform képe +222 ms-nál lement, de az első
+           * festés csak 867 ms-nál történt meg: 645 ms-ig üres (akkori
+           * világos türkiz) felület látszott. A 41. naplóban ez már sötét volt,
+           * de a fotó helyett sötét képernyő villant.
+           *
+           * Ezért mostantól a `first-contentful-paint` bejegyzésre várunk
+           * (a saját betöltőképernyőnk tényleg megjelent), és csak utána
+           * vesszük le a platform képét: fotó → fotó, nincs üres kocka.
+           * A két időzítő csak biztonsági háló, ha a festés-jelzés elmarad.
            */
-          afterTwoFrames(releasePlatformSplash);
-          /* Ha bármi elakadna, a load esemény után mindenképp levesszük. */
-          window.addEventListener('load', function () {
-            window.setTimeout(releasePlatformSplash, 0);
-          });
-          /* Végső biztonsági háló: 1,5 mp után sem takarhat a platform kép. */
+          try {
+            if (typeof window.PerformanceObserver === 'function') {
+              var paintObserver = new window.PerformanceObserver(function (list) {
+                try {
+                  var entries = list.getEntries();
+                  for (var pi = 0; pi < entries.length; pi++) {
+                    if (entries[pi].name === 'first-contentful-paint') {
+                      paintObserver.disconnect();
+                      releasePlatformSplash();
+                      return;
+                    }
+                  }
+                } catch (eObs) {}
+              });
+              paintObserver.observe({ type: 'paint', buffered: true });
+            }
+          } catch (ePaint) {}
+          /* Ha a festés-jelzés elmarad (nagyon régi motor), 900 ms után sem takarhat. */
+          window.setTimeout(releasePlatformSplash, 900);
+          /* Végső biztonsági háló: 1,5 mp után mindenképp. */
           window.setTimeout(releasePlatformSplash, 1500);
         } catch (e) {}
       })();
@@ -1420,20 +1431,36 @@
              * megjelenítés AZONNAL megtörténhet.
              */
             window.__IPTV_PREPAINT_SETTLED__ = false;
+            function settlePrepaint(why) {
+              if (window.__IPTV_PREPAINT_SETTLED__) return;
+              window.__IPTV_PREPAINT_SETTLED__ = true;
+              bootMark(why);
+            }
             try {
               if (typeof window.requestAnimationFrame === 'function') {
                 window.requestAnimationFrame(function () {
                   window.requestAnimationFrame(function () {
-                    window.__IPTV_PREPAINT_SETTLED__ = true;
-                    bootMark('ELŐFESTÉS KÉSZ – két képkocka a takarókép alatt');
+                    settlePrepaint('ELŐFESTÉS KÉSZ – két képkocka a takarókép alatt');
                   });
                 });
               } else {
-                window.__IPTV_PREPAINT_SETTLED__ = true;
+                settlePrepaint('ELŐFESTÉS KÉSZ – nincs képkocka-jelzés');
               }
             } catch (e) {
-              window.__IPTV_PREPAINT_SETTLED__ = true;
+              settlePrepaint('ELŐFESTÉS KÉSZ – képkocka-hiba');
             }
+            /*
+             * 2.5.153: A KÉPKOCKÁRA LEGFELJEBB 300 ms-OT VÁRUNK.
+             *
+             * A 41–44. napló: a videó elindulásakor a TV 1,2–3,9 mp-ig nem ad
+             * képkockát (a requestAnimationFrame nem hívódik meg), miközben a
+             * JavaScript tovább fut. A felfedés viszont erre várt, és emiatt
+             * 4–6,5 mp-re tolódott. A felület már ki van festve, ezért a
+             * képkocka-jelzés elmaradása nem akadály: 300 ms után továbblépünk.
+             */
+            window.setTimeout(function () {
+              settlePrepaint('ELŐFESTÉS KÉSZ – a képkocka-jelzésre nem várunk tovább');
+            }, 300);
           } catch (e) {}
         };
         /* A FOLYAMATOS ÁTTŰNÉS VÉGE: ilyenkor tűnik el végleg a takarókép.

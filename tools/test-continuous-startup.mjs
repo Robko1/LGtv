@@ -189,8 +189,10 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
   const revealAt = PAGE.indexOf('window.__IPTV_REVEAL__ = function');
   assert.ok(releaseAt > 0, 'hiányzik a platform indítókép korai levétele');
   assert.ok(releaseAt < revealAt, 'a levétel csak a REVEAL-nél történne meg');
-  assert.match(PAGE, /afterTwoFrames\(releasePlatformSplash\)/,
-    'a levétel nem várja meg a kép kifestését');
+  assert.match(PAGE, /first-contentful-paint/,
+    'a levétel nem az első tartalmas képkockához van kötve (fotó → üres kocka)');
+  assert.match(PAGE, /window\.setTimeout\(releasePlatformSplash, 900\)/,
+    'nincs biztonsági háló a platform kép levételére');
   assert.match(PAGE, /window\.__IPTV_RELEASE_PLATFORM_SPLASH__/,
     'a REVEAL nem ugyanazt a (kétszer nem futó) kaput használja');
 
@@ -201,7 +203,11 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
       else window.addEventListener('load', () => resolve(null));
       setTimeout(() => resolve(null), 500);
     });
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    /*
+     * 2.5.153: a levétel az első tartalmas képkockához van kötve; ha a motor
+     * nem ad festés-jelzést (a jsdom nem ad), 900 ms-os biztonsági háló fut.
+     */
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     assert.equal(calls.length, 1,
       'a platform indítókép nem került le a saját képernyő kifestésekor');
     // A REVEAL nem hívhatja meg még egyszer.
@@ -391,7 +397,7 @@ test('a 20 190 csatornás lista a felfedés UTÁN töltődik be, nem alatta', ()
   const app = read('web/src/App.tsx');
   assert.match(app, /addEventListener\('iptv-app-ready', startAfterReveal/,
     'a háttér-visszatöltés nem a felfedés után indul');
-  assert.match(app, /const startAfterReveal = \(\) => \{ timers\.restoreTimer = window\.setTimeout\(startRestore, 400\); \}/,
+  assert.match(app, /const startAfterReveal = \(\) => \{ timers\.restoreTimer = window\.setTimeout\(startRestore, 1200\); \}/,
     'a visszatöltés a felfedés pillanatára esik (nincs üresjárat)');
   assert.match(app, /timers\.restoreTimer = window\.setTimeout\(startRestore, 15000\)/,
     'nincs biztonsági indítás, ha a felfedés elmarad');

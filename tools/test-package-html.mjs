@@ -212,8 +212,14 @@ test('az app bgColor sötét – nem villan be világos kék a lap festése elő
   assert.equal(info.splashBackground, 'splash-screen.png');
   assert.ok(info.splashBackground, 'hiányzik a splashBackground');
   // A platform indítóképét a saját betöltőképernyő festése után vesszük le.
-  assert.match(read('web/index.html'), /afterTwoFrames\(releasePlatformSplash\);/,
-    'a platform indítóképének levétele nem a saját képernyő festéséhez van kötve');
+  /*
+   * 2.5.153: a platform indítóképét az ELSŐ TARTALMAS KÉPKOCKA után vesszük le
+   * (fotó → fotó, nincs üres kocka), két biztonsági időzítővel.
+   */
+  const page = read('web/index.html');
+  assert.match(page, /first-contentful-paint/, 'a platform kép levétele nem a festéshez van kötve');
+  assert.match(page, /window\.setTimeout\(releasePlatformSplash, 900\);/, 'nincs korai biztonsági háló');
+  assert.match(page, /window\.setTimeout\(releasePlatformSplash, 1500\);/, 'nincs végső biztonsági háló');
 });
 
 test('nincs világos türkiz szín a lapban vagy a webOS háttérben', () => {
@@ -287,16 +293,24 @@ test('a takarókép nem esik le egy lefagyott képkocka közepére', () => {
    * megjelenés előtt mérjük a két animációs kép közti időt, és foglalt szál
    * esetén a takarókép fent marad.
    */
+  /*
+   * 2.5.153 – MEGFORDULT A SZABÁLY.
+   *
+   * A 41–44. napló mérése: a videó elindulásakor a TV 1,2–3,9 mp-ig nem ad
+   * képkockát, miközben a JavaScript tovább fut (a naplóban közben jönnek a
+   * média- és EPG-események). A régi őr ezt „foglalt fő szálnak” látta, és
+   * elhalasztotta a takarókép levételét – a 41. naplóban 3,6 mp helyett
+   * 6,5 mp-nél történt meg a felfedés.
+   *
+   * Ezért mostantól a képkockára legfeljebb 350 ms-ot várunk, utána a váltás
+   * megtörténik; a kihagyás ténye csak a naplóba kerül.
+   */
   const main = read('web/src/main.tsx');
-  // Az afterPaint törzsét egészében vizsgáljuk: az őrfeltételnek a fn() hívás
-  // ELŐTT kell állnia, különben a megjelenés akkor is azonnal megtörténne.
-  const body = main.slice(main.indexOf('const afterPaint = '));
-  const guardAt = body.search(/if \(frameGap > FRAME_GAP_LIMIT_MS/);
-  const revealAt = body.indexOf('fn();');
-  assert.ok(guardAt > 0, 'hiányzik a képváltás-mérés az afterPaint-ben');
-  assert.ok(revealAt > 0, 'az afterPaint nem hívja az fn()-t');
-  assert.ok(guardAt < revealAt, 'a képváltás-őr a megjelenés UTÁN áll – nem véd');
-  const guardBody = body.slice(guardAt, revealAt);
-  assert.match(guardBody, /window\.setTimeout\(checkRendered/, 'lefagyott szálnál nincs újrapróbálás');
-  assert.match(guardBody, /return;/, 'a lefagyott ág nem szakítja meg a megjelenést');
+  const afterPaintAt = main.indexOf('const afterPaint = ');
+  const body = main.slice(afterPaintAt, main.indexOf('\n  };', afterPaintAt) + 5);
+  assert.match(main, /const REVEAL_PAINT_TIMEOUT_MS = 350;/, 'nincs időkorlát a képkocka-várakozásra');
+  assert.match(body, /window\.setTimeout\(\(\) => finish\('időzítő'/, 'az időzítős ág hiányzik');
+  assert.doesNotMatch(body, /setTimeout\(checkRendered/, 'a halasztó újrapróbálás visszatért');
+  assert.match(body, /finish\('képkocka'/, 'a képkockás befejezés hiányzik');
+  assert.match(body, /finish\('időzítő'/, 'az időzítős befejezés hiányzik');
 });
