@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.139';
+export const WEB_VERSION = '2.5.140';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.139',
+    version: '2.5.140',
     date: '2026-10-27',
     changes: [
       'ÚJ BETÖLTŐKÉPERNYŐ A TAKAROKEP.JPG-BŐL: a teljes háttérben a takarókép látszik (ugyanaz a kép, mint a webOS saját indítóképe), a jobb felső sarokban a TV VALÓS rendszerideje jár. A régi előre rajzolt főoldali váz (skeleton) és a hozzá tartozó külön logó-fájl megszűnt',
