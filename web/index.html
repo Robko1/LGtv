@@ -156,6 +156,11 @@
       #boot-screen .vig {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 2;
         box-shadow: inset 0 0 190px rgba(2,12,16,.95);
+        /* A 190 px-es belső árnyék a TV GPU-ján a teljes felületet
+           újrafestette minden képkockánál (KÉPKOCKA-KIHAGYÁS a naplóban).
+           Saját, izolált rétegben tartva a drága festés egyszer történik. */
+        contain: paint;
+        transform: translateZ(0);
       }
       #boot-screen .grid {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 3;
@@ -173,8 +178,12 @@
         mix-blend-mode: multiply;
       }
       #boot-screen .grain {
-        position: absolute; left: -50%; top: -50%; right: -50%; bottom: -50%;
+        position: absolute; left: -6%; top: -6%; right: -6%; bottom: -6%;
         z-index: 3; pointer-events: none; opacity: .16;
+        /* A korábbi -50%/-50% túlnyúlás a felület NÉGYSZERESÉT festette újra
+           másodpercenként négyszer. A 3%-os mozgatáshoz 6% túlnyúlás is elég,
+           így a drága zajréteg negyedakkora területen mozog. */
+        contain: paint;
         background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
         animation: boot-grain 1.1s steps(4) infinite;
       }

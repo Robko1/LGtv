@@ -271,29 +271,78 @@ def externalize_styles(source: str) -> str:
     return result
 
 
+# ─────────────────────────── BETÖLTŐ (2.5.143) ───────────────────────────
+# A 19-es TV-napló (16:27:15) mérése:
+#   • első festés 1308 ms, FCP 1629 ms – a HTML 173 KB, ez önmagában rendben;
+#   • „HOSSZÚ FELADAT: 2101 ms” és „KÉPKOCKA-KIHAGYÁS: 1667 / 3666 ms” – a
+#     betöltő animáció a bundle kiértékelése alatt megállt (az első 8 mp-ben
+#     összesen 2 képkocka ment ki).
+#
+# Ezért a nagy bundle-t egy pici ES5 betöltő indítja el, MIUTÁN a
+# betöltőképernyő már kifestődött (két képkocka): a felhasználó előbb látja a
+# saját animációt, a hosszú feladat pedig utána jön. Ráadásul a
+# core-js/regenerator/fetch polyfill (több száz KB) csak a RÉGI motorokon kell:
+# modern webOS-on (Chrome 68+) egyáltalán nem töltjük le és nem értékeljük ki.
+LOADER_JS = (
+    "(function(){"
+    "var d=document;"
+    "function start(){"
+    "var tag=d.querySelector('script[data-iptv-es5-app]');"
+    "if(!tag){return;}"
+    "var src=tag.getAttribute('src');"
+    "function run(){"
+    "var s=d.createElement('script');s.src=src;s.async=false;"
+    "(d.body||d.documentElement).appendChild(s);"
+    "}"
+    "var modern=!!(window.Promise&&window.fetch&&window.Symbol&&window.Map&&window.Set&&"
+    "window.WeakMap&&window.Intl&&Object.assign&&Array.from&&Object.entries&&"
+    "Element.prototype.closest&&String.prototype.includes);"
+    "if(modern){run();return;}"
+    "var p=d.createElement('script');p.src='polyfills.js';p.async=false;"
+    "p.onload=run;p.onerror=run;"
+    "(d.body||d.documentElement).appendChild(p);"
+    "}"
+    "var raf=window.requestAnimationFrame;"
+    "if(raf){raf(function(){raf(function(){setTimeout(start,0);});});}"
+    "else{setTimeout(start,16);}"
+    "})();"
+)
+
+
 def externalize_scripts(source: str) -> str:
-    """A polyfill + ES5 app <script> blokkokat app.js-be teszi át, sorrendben."""
-    chunks = []
-    first_at = [None]
+    """A polyfill + ES5 app <script> blokkokat külön fájlokba teszi át."""
+    polyfills = []
+    app_chunks = []
+    replaced = [False]
 
     def take(match):
-        tag, inner = match.group(1), match.group(2)
-        if "IPTV-ES5-APP" not in inner and "IPTV-ES5-POLYFILLS" not in inner:
+        inner = match.group(2)
+        is_app = "IPTV-ES5-APP" in inner
+        is_poly = "IPTV-ES5-POLYFILLS" in inner
+        if not is_app and not is_poly:
             return match.group(0)
-        chunks.append(inner)
-        if first_at[0] is None:
-            first_at[0] = match.start()
-            # A marker-szövegeket attribútumként megőrizzük: a CI és a
-            # csomag-ellenőrző tesztek ezeket keresik az index.html-ben.
-            return ('<script src="app.js" data-iptv-es5-app="IPTV-ES5-APP" '
-                    'data-iptv-es5-polyfills="IPTV-ES5-POLYFILLS"></script>')
-        return ''
+        (app_chunks if is_app else polyfills).append(inner)
+        if replaced[0]:
+            return ''
+        replaced[0] = True
+        # A(z) `app.js` hivatkozás MARAD a HTML-ben (a <head> preloadja és a
+        # csomag-ellenőrző tesztek ezt keresik), de ismeretlen típusú, ezért a
+        # böngésző NEM tölti be magától: csak a lenti, pici betöltő indítja.
+        return (
+            '<script src="app.js" type="text/iptv-deferred" '
+            'data-iptv-es5-app="IPTV-ES5-APP" '
+            'data-iptv-es5-polyfills="IPTV-ES5-POLYFILLS"></script>\n'
+            '<script>' + LOADER_JS + '</script>'
+        )
 
     result = re.sub(r'<script([^>]*)>([\s\S]*?)</script>', take, source)
-    if not chunks:
-        raise SystemExit("HIBA: nem találtam az ES5 app/polyfill szkripteket a HTML-ben.")
-    (build_dir / "app.js").write_text("\n;\n".join(chunks), encoding="utf-8")
-    print(f"app.js kiemelve: {sum(len(c) for c in chunks)} byte")
+    if not app_chunks:
+        raise SystemExit("HIBA: nem találtam az ES5 alkalmazás-szkriptet a HTML-ben.")
+    if polyfills:
+        (build_dir / "polyfills.js").write_text("\n;\n".join(polyfills), encoding="utf-8")
+        print(f"polyfills.js kiemelve: {sum(len(c) for c in polyfills)} byte (csak régi motoron töltődik)")
+    (build_dir / "app.js").write_text("\n;\n".join(app_chunks), encoding="utf-8")
+    print(f"app.js kiemelve: {sum(len(c) for c in app_chunks)} byte")
     return result
 
 

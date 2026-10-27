@@ -359,11 +359,12 @@ test('a VOD/sorozat részlisták nem rajzolják újra a teljes App-ot minden ada
 
 /* ─────────────── 8. VERZIÓ ─────────────── */
 
-test('a verzió mindkét helyen 2.5.141, és a változások a kiadási jegyzékben vannak', () => {
-  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.141';/);
-  assert.equal(APPINFO.version, '2.5.141');
+test('a verzió mindkét helyen 2.5.143, és a változások a kiadási jegyzékben vannak', () => {
+  assert.match(VERSION, /export const WEB_VERSION = '2\.5\.143';/);
+  assert.equal(APPINFO.version, '2.5.143');
   assert.match(VERSION, /ÚJ BETÖLTŐKÉPERNYŐ A TAKAROKEP\.JPG-BŐL/);
   assert.match(VERSION, /CSAK VALÓS BETÖLÉSI ADATOK/);
+  assert.match(VERSION, /AZ EPG VÉGRE MEGJELENIK A FŐOLDALON/, 'a 2.5.143 EPG-javítása hiányzik a jegyzékből');
 });
 
 /* A webOS híd és a téma nem festhet fekete hátteret az indulás alá. */

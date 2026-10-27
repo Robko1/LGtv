@@ -4,7 +4,8 @@ import { ArrowUp, ArrowDown, Trash2, Star } from 'lucide-react';
 import { ChannelLogo } from './ChannelLogo';
 import { ProviderRef } from '../services/contentStore';
 import { EpgNowNext, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from '../services/epgService';
-import { appLogError } from '../services/appLog';
+import { channelNowNext } from '../services/epgGuide';
+import { appLog, appLogError } from '../services/appLog';
 import { normalizeTvKey, isTvArrowKey } from '../utils/tvKeys';
 
 interface ChannelListProps {
@@ -103,6 +104,13 @@ const ChannelListView: React.FC<ChannelListProps> = ({
    * hibának a naplóban látszania kell, nem a felületen.
    */
   const epgAttemptsRef = useRef<Map<string, { count: number; at: number }>>(new Map());
+  /**
+   * A szolgáltató rövid EPG végpontja üres választ ad (19 bájt = `{"epg_listings":[]}`).
+   * Ilyenkor nem küldünk további kéréseket: a műsort a teljes műsorújság adja.
+   */
+  const shortEpgEmptyRef = useRef(0);
+  const shortEpgUnavailableRef = useRef(false);
+  const shortEpgProviderRef = useRef('');
   const [epgRetryTick, setEpgRetryTick] = useState(0);
 
   /*
@@ -332,6 +340,12 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       setLocalEpg({});
       return;
     }
+    // Új szolgáltatónál újra kiderül, hogy van-e rövid EPG.
+    if (shortEpgProviderRef.current !== activeProvider.id) {
+      shortEpgProviderRef.current = activeProvider.id;
+      shortEpgEmptyRef.current = 0;
+      shortEpgUnavailableRef.current = false;
+    }
     if (!epgActive || !epgReady) return;
     let cancelled = false;
     let cursor = 0;
@@ -345,11 +359,14 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         let changed = false;
         const next = { ...previous };
         for (const channel of epgQueue) {
-          const streamId = streamIdFor(channel);
-          if (!streamId) continue;
-          const entries = getCachedShortEpg(activeProvider, streamId, 6);
-          if (!entries.length) continue;
-          const epg = nowNextFromEpg(entries, Date.now());
+          // Előbb a teljes műsorújság (XMLTV), utána a rövid EPG gyorsítótár.
+          const epg = channelNowNext(activeProvider, channel) || (() => {
+            const streamId = streamIdFor(channel);
+            if (!streamId) return null;
+            const entries = getCachedShortEpg(activeProvider, streamId, 6);
+            return entries.length ? nowNextFromEpg(entries, Date.now()) : null;
+          })();
+          if (!epg || (!epg.now && !epg.next)) continue;
           const old = previous[channel.id];
           if (epg.now?.title !== old?.now?.title ||
               epg.now?.time !== old?.now?.time ||
@@ -399,12 +416,35 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         if (!channel) return;
         const streamId = streamIdFor(channel);
         if (!streamId) continue;
+        // Ha a teljes műsorújságból már megvan a műsor, nincs hálózati kérés.
+        const fromGuide = channelNowNext(activeProvider, channel);
+        if (fromGuide && (fromGuide.now || fromGuide.next)) {
+          queueEpg(channel.id, fromGuide);
+          continue;
+        }
+        /*
+         * ÜRES PANEL – NE KÉRDEZZÜK TOVÁBB.
+         *
+         * A 19-es TV-napló (16:27:15) szerint ezen a szolgáltatón a
+         * `get_short_epg` MINDEN kérésre 19 bájtos, üres választ ad
+         * ({"epg_listings":[]}) – 18 kérés ment ki induláskor, mind hiába.
+         * Ha három egymás utáni csatornára is üres a válasz, a munkás
+         * leáll: a maradékot a teljes műsorújság (XMLTV) adja.
+         */
+        if (shortEpgUnavailableRef.current) continue;
         try {
           const entries = await loadShortEpg(activeProvider, streamId, 6);
           const attempts = epgAttemptsRef.current.get(channel.id);
           if (attempts) epgAttemptsRef.current.delete(channel.id);
           if (!cancelled && entries.length) {
+            shortEpgEmptyRef.current = 0;
             queueEpg(channel.id, nowNextFromEpg(entries, Date.now()));
+          } else if (!cancelled) {
+            shortEpgEmptyRef.current += 1;
+            if (shortEpgEmptyRef.current >= 3 && !shortEpgUnavailableRef.current) {
+              shortEpgUnavailableRef.current = true;
+              appLog('EPG: a szolgáltató rövid EPG végpontja üres választ ad – a további kérések elmaradnak, a műsort a teljes műsorújságból töltjük.');
+            }
           }
         } catch (error) {
           /*
@@ -428,6 +468,8 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     const startTimer = window.setTimeout(() => {
       if (cancelled) return;
       queue = epgQueue.filter((channel) => {
+        const fromGuide = channelNowNext(activeProvider, channel);
+        if (fromGuide && (fromGuide.now || fromGuide.next)) return false;
         const streamId = streamIdFor(channel);
         return !!streamId && getCachedShortEpg(activeProvider, streamId, 6).length === 0;
       });
@@ -449,11 +491,13 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       let changed = false;
       const next = { ...previous };
       for (const channel of epgQueue) {
-        const streamId = streamIdFor(channel);
-        if (!streamId) continue;
-        const entries = getCachedShortEpg(activeProvider, streamId, 6);
-        if (!entries.length) continue;
-        const epg = nowNextFromEpg(entries, epgClock);
+        const epg = channelNowNext(activeProvider, channel, epgClock) || (() => {
+          const streamId = streamIdFor(channel);
+          if (!streamId) return null;
+          const entries = getCachedShortEpg(activeProvider, streamId, 6);
+          return entries.length ? nowNextFromEpg(entries, epgClock) : null;
+        })();
+        if (!epg || (!epg.now && !epg.next)) continue;
         const old = previous[channel.id];
         if (epg.now?.title !== old?.now?.title ||
             epg.now?.time !== old?.now?.time ||
