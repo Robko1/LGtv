@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.5.132';
+export const WEB_VERSION = '2.5.133';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.133',
+    date: '2026-10-26',
+    changes: [
+      'NINCS TÖBB ZÖLD HÁTTÉR-VILLANÁS: a 23:25:43-es naplóban a first-paint 444 ms volt (előtte 1029 ms). A beégetett 1280×720-es JPEG dekódolása a CSS háttérképen NEM tartja vissza az első festést, ezért a mögötte lévő zöld színátmenet látszott. Most a második réteg egy 48×27-es, ~2 kB-os, azonnal dekódolható kicsinyített mása a VALÓDI indítóképnek – az első képkocka rögtön a helyes képet mutatja, és a teljes kép élesen kerül fölé',
+      'A TELJES INDÍTÓKÉP DEKÓDOLÁSA MÁR A HTML FEJLÉCÉBEN ELINDUL: egy rejtett Image + decode() több száz ms előnyt ad a CSS-háttérrel szemben, és a statikus zöld tartalék színátmenetet is eltávolítottuk – csak a kép mért átlagszíne (#6ccbd3) marad végső tartaléknak',
+      'GYORSABB MEGJELENÉS – NINCS KÉTSZER KÉT ANIMÁCIÓS KÉP: a 23:25:43-es naplóban az üres döntés +639 ms-nál készült el, de a REVEAL csak +933 ms-nál történt, mert az előfestés utáni 167/183/217 ms-os képkocka-kihagyások miatt a megjelenítés még két újabb képkockát várt. A HTML-híd most AZONNAL, az előfestéskor méri a két képkockát, és ha lefutottak, a REVEAL azonnal megtörténik',
+      'A MEGJELENÍTÉSI DÖNTÉST 60 helyett 40 ms-onként ellenőrizzük, így a tároló-próba eredménye is hamarabb átkerül a képernyőre',
+    ],
+  },
   {
     version: '2.5.132',
     date: '2026-10-26',

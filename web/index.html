@@ -59,8 +59,9 @@
          biztonsági háló garantálja, hogy semmi ne maradjon rejtve. */
       /* A háttérkép (splash-bg.jpg) a build által készített fájl: a webOS
          indítóképével AZONOS kép. A url()-t szándékosan a szkript injektálja
-         (a Vite a HTML CSS-ében fel akarná oldani). Ha nincs kép, a logó
-         színátmenete marad. */
+         (a Vite a HTML CSS-ében fel akarná oldani). A statikus tartalék CSAK
+         az átlagszín: a korábbi zöld színátmenet akkor villant be, amikor a
+         beégetett kép dekódolása nem ért véget az első festésig (23:25:43). */
       html.iptv-booting body {
         /* A TAKARÓKÉP ALAPSZÍNE. A splash-screen.png mért átlagszíne
            (#6ccbd3, vízszintes-türkiz): korábban sötétkék (#0d1b2a) volt,
@@ -69,7 +70,7 @@
            „nagy gyors feketeség villanás”. Most a késleltetett keret is a
            takarókép színével egyezik, így nincs látható váltás. */
         background-color: #6ccbd3;
-        background-image: linear-gradient(135deg, #5fe3b6 0%, #4fd8e0 45%, #63bdf3 100%);
+        background-image: none;
         background-position: center center;
         background-size: cover;
         background-repeat: no-repeat;
@@ -125,7 +126,7 @@
            „nagy gyors feketeség villanás”. Most a késleltetett keret is a
            takarókép színével egyezik, így nincs látható váltás. */
         background-color: #6ccbd3;
-        background-image: linear-gradient(135deg, #5fe3b6 0%, #4fd8e0 45%, #63bdf3 100%);
+        background-image: none;
         background-position: center center;
         background-size: cover;
         background-repeat: no-repeat;
@@ -187,11 +188,42 @@
         try {
           var bgStyle = document.createElement('style');
           var splashData = '__IPTV_SPLASH_DATA_URI__';
-          var splashImage = (splashData && splashData.indexOf('data:image/') === 0)
-            ? 'url(' + splashData + ')'
-            : "url('splash-bg.jpg')";
-          var splashLayer =
-            splashImage + ",linear-gradient(135deg,#5fe3b6 0%,#4fd8e0 45%,#63bdf3 100%)";
+          var tinyData = '__IPTV_SPLASH_TINY_URI__';
+          var hasSplash = !!splashData && splashData.indexOf('data:image/') === 0;
+          var hasTiny = !!tinyData && tinyData.indexOf('data:image/') === 0;
+          var splashImage = hasSplash ? 'url(' + splashData + ')' : "url('splash-bg.jpg')";
+          /*
+           * A TELJES KÉP DEKÓDOLÁSA MÁR A HTML FELDOLGOZÁSAKOR ELINDUL.
+           * A CSS background-image dekódolása NEM tartja vissza az első
+           * festést: a 23:25:43-es naplóban a first-paint 444 ms volt (előtte
+           * 1029 ms), ezért a kép még nem volt kész, és a zöld tartalék
+           * látszott. Egy rejtett Image + decode() több száz ms előnyt ad.
+           */
+          if (hasSplash) {
+            try {
+              var preload = new Image();
+              preload.decoding = 'sync';
+              preload.src = splashData;
+              if (typeof preload.decode === 'function') {
+                var pending = preload.decode();
+                if (pending && typeof pending.then === 'function') {
+                  pending.then(function () {}, function () {});
+                }
+              }
+              // A referenciát szándékosan megtartjuk: a dekódolt bitmap így
+              // nem eviktálódik, amíg a takarókép látszik (REVEAL-ig).
+              window.__IPTV_SPLASH_PRELOAD__ = preload;
+            } catch (e) {}
+          }
+          /*
+           * NINCS TÖBB ZÖLD HÁTTÉR (2.5.133). A második réteg egy 48x27-es,
+           * azonnal dekódolható (~2 kB), beégetett kicsinyített mása a VALÓDI
+           * indítóképnek – nem egy zöld színátmenet. Az első festés tehát
+           * rögtön a HELYES képet mutatja (csak homályosan); amint a teljes
+           * JPEG megvan, az éles kép kerül fölé, egyetlen finom váltással.
+           */
+          var tinyImage = hasTiny ? 'url(' + tinyData + ')' : 'none';
+          var splashLayer = splashImage + ',' + tinyImage;
           bgStyle.textContent =
             "html.iptv-booting body{background-image:" + splashLayer + ";" +
             "background-position:center center,center center;background-size:cover,cover;" +
@@ -318,6 +350,29 @@
             bootMark(fallback
               ? 'ELŐFESTÉS – csak a REVEAL pillanatában pótolva'
               : 'ELŐFESTÉS – a főoldal a takarókép alatt kifestve');
+            /*
+             * A KÉT KÉPKOCKÁT ITT, EGYSZER MÉRJÜK MEG – nem a REVEAL-ben.
+             * A 23:25:43-es naplóban az előfestés után 167/183/217 ms-os
+             * kihagyások voltak, és a revealWhenPainted() még két újabb
+             * rAF-et várt: +639 ms (üres döntés) -> +933 ms (REVEAL).
+             * Ha ez a jelző igaz, a felület már ki van festve, és a
+             * megjelenítés AZONNAL megtörténhet.
+             */
+            window.__IPTV_PREPAINT_SETTLED__ = false;
+            try {
+              if (typeof window.requestAnimationFrame === 'function') {
+                window.requestAnimationFrame(function () {
+                  window.requestAnimationFrame(function () {
+                    window.__IPTV_PREPAINT_SETTLED__ = true;
+                    bootMark('ELŐFESTÉS KÉSZ – két képkocka a takarókép alatt');
+                  });
+                });
+              } else {
+                window.__IPTV_PREPAINT_SETTLED__ = true;
+              }
+            } catch (e) {
+              window.__IPTV_PREPAINT_SETTLED__ = true;
+            }
           } catch (e) {}
         };
         window.__IPTV_REVEAL__ = function (reason) {

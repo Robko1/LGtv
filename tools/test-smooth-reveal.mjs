@@ -150,8 +150,79 @@ test('a main.tsx a DOM-kész pillanatában előfest, nem csak a REVEAL-kor', () 
   assert.match(check.slice(0, 1600), /if \(chromeOk && !prepared\)[\s\S]{0,260}preparePaint\(\)/,
     'az előfestés nem a fejléc/mappasáv megjelenésekor indul');
   const revealFn = MAIN.slice(MAIN.indexOf('const revealWhenPainted = '));
-  assert.match(revealFn.slice(0, 700), /preparePaint\(\);[\s\S]{0,220}afterPaint/,
-    'az előfestésnek a két animációs kép ELŐTT kell lennie');
+  const revealBody = revealFn.slice(0, 1700);
+  assert.match(revealBody, /preparePaint\(\);/,
+    'az előfestés hiányzik a megjelenítési függvényből');
+  assert.ok(revealBody.indexOf('preparePaint();') < revealBody.indexOf('if (prepaintSettled())'),
+    'az előfestésnek a lefutott képkockák ellenőrzése ELŐTT kell lennie');
+  assert.match(revealBody, /if \(prepaintSettled\(\)\)[\s\S]{0,90}revealNow\(reason\);/,
+    'a már kifestett felületet nem jelenítjük meg azonnal (felesleges két rAF)');
+  assert.match(revealBody, /afterPaint/,
+    'a tartalék két képkockás megjelenítési út eltűnt');
+});
+
+test('az előfestés két képkockáját a HTML-híd méri, nem a REVEAL', () => {
+  const prep = PAGE.slice(PAGE.indexOf('window.__IPTV_PREPARE_REVEAL__'));
+  const body = prep.slice(0, prep.indexOf('window.__IPTV_REVEAL__'));
+  assert.match(body, /__IPTV_PREPAINT_SETTLED__ = false/,
+    'hiányzik az előfestés-kész jelző alaphelyzete');
+  assert.match(body, /requestAnimationFrame[\s\S]{0,300}requestAnimationFrame/,
+    'az előfestés nem két animációs képet vár');
+  assert.match(body, /__IPTV_PREPAINT_SETTLED__ = true/,
+    'a két képkocka után nem áll be a kész jelző');
+});
+
+/* ─────────────── 1/b. ZÖLD HÁTTÉR VILLANÁS (23:25:43) ──────────────────── */
+
+test('nincs több zöld tartalék színátmenet a takaróképen', () => {
+  assert.doesNotMatch(PAGE, /#5fe3b6|#4fd8e0/,
+    'a zöld színátmenet még mindig a takarókép tartaléka – ez villant be 444 ms-nél');
+  // A mért átlagszín marad: a webOS bgColor-jával egyezik.
+  assert.equal((PAGE.match(/background-color:\s*#6ccbd3/gi) || []).length >= 2, true,
+    'a takarókép/boot átlagszíne eltűnt');
+  assert.doesNotMatch(PAGE, /background-image:\s*linear-gradient\(135deg/,
+    'maradt színátmenetes tartalék hátkép');
+});
+
+test('a takarókép első festése azonnal dekódolható kicsinyített képet kap', () => {
+  assert.equal(PAGE.split('__IPTV_SPLASH_TINY_URI__').length - 1, 1,
+    'a kicsinyített kép jelölője nem pontosan egyszer szerepel');
+  assert.match(PAGE, /var tinyImage = hasTiny \? 'url\(' \+ tinyData \+ '\)' : 'none';/,
+    'hiányzik a kicsinyített kép CSS-rétege');
+  assert.match(PAGE, /var splashLayer = splashImage \+ ',' \+ tinyImage;/,
+    'a teljes kép és a kicsinyített kép nincs egymás mögé rétegezve');
+  assert.doesNotMatch(PAGE, /splashLayer =[\s\S]{0,120}linear-gradient/,
+    'a zöld színátmenet még mindig a CSS-rétegek között van');
+});
+
+test('a teljes indítókép dekódolása már a HTML fejlécében elindul', () => {
+  const head = PAGE.slice(0, PAGE.indexOf('</head>'));
+  assert.match(head, /var preload = new Image\(\);/,
+    'hiányzik a korai kép-dekódolás');
+  assert.match(head, /preload\.decode\(\)/,
+    'a dekódolás nem indul el az első festés előtt');
+  assert.match(head, /preload\.src = splashData;/,
+    'a rejtett Image nem a beégetett képet tölti');
+});
+
+test('a build feloldja a kicsinyített kép jelölőjét (PNG, nem JPEG)', () => {
+  const build = read('tools/build-webos.sh');
+  assert.match(build, /html\.replace\("__IPTV_SPLASH_TINY_URI__", tiny_uri, 1\)/,
+    'a build nem cseréli ki a kicsinyített kép jelölőjét');
+  assert.match(build, /tiny_uri = "data:image\/png;base64,"/,
+    'a kicsinyített kép nem PNG (a csomagban pontosan egy JPEG lehet)');
+  assert.match(build, /resize\(\(48, 27\)/,
+    'a kicsinyített kép nem 48x27 pixeles');
+  const built = path.join(ROOT, 'build/webos/index.html');
+  if (!fs.existsSync(built)) return;
+  const html = fs.readFileSync(built, 'utf8');
+  assert.ok(!html.includes('__IPTV_SPLASH_TINY_URI__'),
+    'a kicsinyített kép jelölője feloldatlan maradt a csomagban');
+  assert.ok(html.includes('data:image/png;base64,'),
+    'a kicsinyített kép nincs beégetve a csomagolt HTML-be');
+  // Progresszív JPEG részlegesen dekódolt, kockás köztes képet is festhet.
+  assert.match(build, /progressive=False/,
+    'a beégetett indítókép újra progresszív JPEG – részleges dekódolás villanhat');
 });
 
 /* ─────────────────── 2. gyorsítás: nincs dupla tár-próba ─────────────────── */

@@ -148,6 +148,11 @@ try {
     try { (window as any).__IPTV_PREPARE_REVEAL__?.(); } catch { /* nincs HTML-híd */ }
   };
 
+  /** A HTML-híd már két képkockán át festette a felületet a takarókép alatt. */
+  const prepaintSettled = (): boolean => {
+    try { return !!(window as any).__IPTV_PREPAINT_SETTLED__; } catch { return false; }
+  };
+
   const headerReady = () => {
     const root = document.getElementById("root");
     return !!root && root.childElementCount > 0 && !!document.querySelector("header");
@@ -301,11 +306,25 @@ try {
    * requestAnimationFrame-várakozást és látható „ugrálást” okozott.
    */
   const revealWhenPainted = (reason: string) => {
-    if (revealed || revealPending) return;
-    revealPending = true;
+    if (revealed) return;
     // Ha a korai előfestés valamiért kimaradt, itt még pótoljuk: a két
     // animációs kép alatt a felület már látható (de takart) legyen.
     preparePaint();
+    /*
+     * NINCS MÉG KÉT KÉPKOCKA VÁRAKOZÁS (2.5.133).
+     *
+     * A 23:25:43-es naplóban az üres döntés +639 ms-nál készült el, de a
+     * REVEAL csak +933 ms-nál történt: az előfestés közbeni 167/183/217 ms-os
+     * főszál-leállások miatt a revealWhenPainted() két ÚJABB rAF-je 294 ms-t
+     * várt. Pedig a felület már a takarókép alatt, korábban kifestődött.
+     * Ha a HTML-híd két képkockája lefutott, azonnal válthatunk.
+     */
+    if (prepaintSettled()) {
+      revealNow(reason);
+      return;
+    }
+    if (revealPending) return;
+    revealPending = true;
     afterPaint(() => {
       revealPending = false;
       revealNow(reason);
@@ -392,7 +411,7 @@ try {
       return;
     }
 
-    window.setTimeout(checkRendered, 60);
+    window.setTimeout(checkRendered, 40);
   };
 
   /*
@@ -409,7 +428,7 @@ try {
     observer.observe(rootElement, { childList: true, subtree: true });
   }
 
-  window.setTimeout(checkRendered, 60);
+  window.setTimeout(checkRendered, 40);
 } catch (e) {
   fail(e);
 }
