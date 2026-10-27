@@ -672,8 +672,13 @@ export function App() {
    */
   const videoFullscreenRef = useRef(false);
   const applyVideoFullscreen = useCallback((value: boolean) => {
+    // A lejátszó/ref állapota azonnal frissül, hogy a VISSZA gomb már
+    // a helyes módot lássa. A főoldal React-fája csak két festési képkocka
+    // után változik, így a lejátszó geometriája előbb megjelenhet.
     videoFullscreenRef.current = value;
-    setIsVideoFullscreen(value);
+    const apply = () => setIsVideoFullscreen(value);
+    const raf = (callback: FrameRequestCallback) => window.requestAnimationFrame(callback);
+    raf(() => raf(apply));
   }, []);
   const [liveAccent, setLiveAccent] = useState<'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white'>(() => {
     try {
