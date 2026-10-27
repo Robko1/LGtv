@@ -201,18 +201,34 @@ test('2.5.139: a betöltőképernyő a takarokep.jpg teljes háttere – nincs b
   assert.doesNotMatch(PAGE, /fonts\.googleapis\.com/, 'a külső betűtípus-kérés visszatért');
 });
 
-test('a betöltőképernyő a jobb felső sarokban a TV VALÓS rendszeridejét mutatja', () => {
+test('a két felső sarokban a saját logó van, óra nélkül', () => {
   const header = PAGE.slice(PAGE.indexOf('<header class="boot-head">'));
-  assert.ok(header.indexOf('id="boot-clock"') > 0, 'hiányzik a valós óra a fejlécből');
-  assert.ok(header.indexOf('id="boot-date"') > 0, 'hiányzik a magyar dátum');
-  assert.ok(header.indexOf('id="boot-clock"') < header.indexOf('</header>'),
-    'az óra nem a fejlécben (jobb felső sarok) van');
-  assert.match(PAGE, /\.boot-clockbox\s*\{[^}]*align-items:\s*flex-end/,
-    'az óra nincs jobbra igazítva');
-  // A valódi idő: new Date() + óra/perc/másodperc, másodpercenként.
-  assert.match(PAGE, /var now = new Date\(\);/);
-  assert.match(PAGE, /now\.getHours\(\)/);
-  assert.match(PAGE, /setInterval\(tickClock, 1000\)/);
+  const headerEnd = header.indexOf('</header>');
+  const inside = header.slice(0, headerEnd);
+  // Bal sarok: a márkajel; jobb sarok: ugyanaz a logó.
+  assert.ok(/<div class="hmark">[\s\S]*?icon-rt2\.png/.test(inside),
+    'a bal felső sarokban nincs logó');
+  assert.match(inside, /<div class="headmark-right"[\s\S]*?<svg[\s\S]*?<\/svg>/,
+    'a jobb felső sarokban nincs logó');
+  // A ketyegő óra és a dátum kikerült (a felhasználó kérésére).
+  assert.equal(inside.includes('boot-clock'), false, 'az óra visszakerült a fejlécbe');
+  assert.equal(inside.includes('boot-date'), false, 'a dátum visszakerült a fejlécbe');
+  assert.doesNotMatch(PAGE, /setInterval\(tickClock, 1000\)/,
+    'a másodpercenként futó óra visszakerült');
+});
+
+test('a betöltőképernyőn nincs folyamatos mozgás (nincs vászon, nincs uszó háttér)', () => {
+  /*
+   * 2.5.145: a 21–23. napló mindhárom indulásánál 2–3,9 mp-es képkocka-
+   * kihagyás volt. A folyamatosan mozgó rétegek (vászon-részecskék, uszó
+   * háttér, forgó tárcsa-osztások, filmszemcse) miatt a leállás LÁTHATÓ
+   * volt: „ugrált” a betöltőképernyő. A látvány marad, a mozgás nem.
+   */
+  assert.doesNotMatch(PAGE, /<canvas/i, 'a vászon-animáció visszakerült');
+  assert.doesNotMatch(PAGE, /id="boot-fx"/, 'a vászon-animáció visszakerült');
+  assert.doesNotMatch(PAGE, /animation:\s*boot-drift/, 'a háttér újra úszik');
+  assert.doesNotMatch(PAGE, /animation:\s*boot-spin/, 'a tárcsa újra forog');
+  assert.doesNotMatch(PAGE, /animation:\s*boot-grain/, 'a filmszemcse újra mozog');
 });
 
 test('a betöltési adatok KIZÁRÓLAG az alkalmazásból származnak (nincs szimuláció)', () => {
@@ -225,18 +241,18 @@ test('a betöltési adatok KIZÁRÓLAG az alkalmazásból származnak (nincs szi
   // A demó (Inditas.html) szimulált értékei és időzített újraindítása TILOS.
   assert.doesNotMatch(code, /Math\.random/, 'a képernyő kitalált értéket állít elő');
   /*
-   * Időzítő csak a valós rendszeridőre (óra) és a platform indítóképének
-   * levételére futhat – a betöltési állapotot (percent/phase) időzítő NEM
-   * írhatja, mert az szimulált befejezés lenne.
+   * Időzítő csak a platform indítóképének levételére futhat – a betöltési
+   * állapotot (percent/phase) időzítő NEM írhatja, mert az szimulált
+   * befejezés lenne. 2.5.145: a másodpercenként ketyegő óra kikerült, ezért
+   * a képernyőn egyetlen ismétlődő időzítő sem futhat.
    */
   const timers = code.match(/setTimeout\([^;]*?\)/g) || [];
   for (const call of timers) {
     assert.doesNotMatch(call, /percent|complete\(|state\./,
       `időzítő írja a betöltési állapotot: ${call.slice(0, 60)}`);
   }
-  assert.equal((code.match(/setInterval\(/g) || []).length, 1,
-    'csak az óra időzítője futhat a betöltőképernyőn');
-  assert.match(code, /setInterval\(tickClock, 1000\)/, 'az óra nem másodpercenként jár');
+  assert.equal((code.match(/setInterval\(/g) || []).length, 0,
+    'a betöltőképernyőn ismétlődő időzítő fut (óra/animáció)');
   assert.doesNotMatch(PAGE, /CHANNELS = 12480|PROGRAMS = 96420|simulating/,
     'a demó szimulált számlálói visszatértek');
   // Minden mutató a valós adatot várja, alapból „—” látszik.

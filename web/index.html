@@ -123,8 +123,7 @@
       #boot-screen .fallback {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0;
         width: 100%; height: 100%;
-        z-index: 0; transform: scale(1.06);
-        animation: boot-drift 30s ease-in-out infinite alternate;
+        z-index: 0;
       }
       #boot-bg {
         position: absolute; left: 0; top: 0;
@@ -136,13 +135,11 @@
         filter: brightness(.88) saturate(1.2) contrast(1.04) blur(.6px);
         -webkit-filter: brightness(.88) saturate(1.2) contrast(1.04) blur(.6px);
         transform: scale(1.08);
-        animation: boot-drift 30s ease-in-out infinite alternate;
-        will-change: transform;
+        /* 2.5.145: a háttér STATIKUS. A korábbi végtelen „úszás” minden
+           képkockán újrarajzolta a teljes 1,2 MB-os fotót – a TV-n ez volt a
+           legdrágább folyamatos munka a betöltőképernyő alatt. Ugyanaz a kép,
+           ugyanaz a kivágás, csak mozgás nélkül. */
         opacity: 1;
-      }
-      @keyframes boot-drift {
-        0% { transform: scale(1.08) translate3d(-1.2%, -0.8%, 0); }
-        100% { transform: scale(1.16) translate3d(1.4%, 1%, 0); }
       }
 
       /* ---------- optikai rétegek ---------- */
@@ -176,40 +173,6 @@
         pointer-events: none; opacity: .42;
         background: repeating-linear-gradient(180deg, rgba(0,0,0,.30) 0 1px, rgba(0,0,0,0) 1px 3px);
         mix-blend-mode: multiply;
-      }
-      #boot-screen .grain {
-        position: absolute; left: -6%; top: -6%; right: -6%; bottom: -6%;
-        z-index: 3; pointer-events: none; opacity: .16;
-        /* A korábbi -50%/-50% túlnyúlás a felület NÉGYSZERESÉT festette újra
-           másodpercenként négyszer. A 3%-os mozgatáshoz 6% túlnyúlás is elég,
-           így a drága zajréteg negyedakkora területen mozog. */
-        contain: paint;
-        background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
-        animation: boot-grain 1.1s steps(4) infinite;
-      }
-      @keyframes boot-grain {
-        0% { transform: translate3d(0,0,0); }
-        25% { transform: translate3d(-3%,2%,0); }
-        50% { transform: translate3d(2%,-3%,0); }
-        75% { transform: translate3d(-2%,-2%,0); }
-        100% { transform: translate3d(0,0,0); }
-      }
-      #boot-screen .sweep {
-        position: absolute; top: -40%; bottom: -40%; left: -60%; width: 70%; z-index: 4;
-        pointer-events: none;
-        background: linear-gradient(100deg, transparent 0%, rgba(170,255,236,.05) 34%, rgba(212,255,247,.20) 50%, rgba(170,255,236,.05) 66%, transparent 100%);
-        filter: blur(6px);
-        -webkit-filter: blur(6px);
-        animation: boot-sweep 7.5s cubic-bezier(.5,0,.5,1) infinite;
-      }
-      @keyframes boot-sweep {
-        0% { transform: translate3d(0,0,0); }
-        60%, 100% { transform: translate3d(330%,0,0); }
-      }
-      #boot-fx {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
-        width: 100%; height: 100%;
-        z-index: 5; pointer-events: none;
       }
       #boot-screen .bloom {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 6;
@@ -316,30 +279,14 @@
         0%, 100% { opacity: 1; transform: scale(1); }
         50% { opacity: .35; transform: scale(.72); }
       }
-      #boot-screen .boot-clockbox {
-        display: flex; flex-direction: column; align-items: flex-end;
+      #boot-screen .headmark-right {
+        display: flex; align-items: center;
+        margin-left: 20px;
       }
-      #boot-screen .clock {
-        display: flex; align-items: baseline;
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-variant-numeric: tabular-nums;
-        font-size: 21px;
-        font-size: clamp(17px,1.5vw,26px);
-        letter-spacing: .04em; color: #EAFFF9; line-height: 1;
-        text-shadow: 0 2px 12px rgba(4,20,26,.9);
-      }
-      #boot-screen .clock b { font-weight: 600; }
-      #boot-screen .clock i {
-        font-style: normal; font-size: .60em; color: #7FF0D2;
-        margin-left: .42em; font-weight: 600;
-        text-shadow: 0 0 12px rgba(126,240,210,.75);
-      }
-      #boot-screen .date {
-        margin-top: 6px;
-        font-size: 9px;
-        font-size: clamp(8px,.6vw,10px);
-        letter-spacing: .24em; text-transform: uppercase;
-        color: #8FB6B4; font-weight: 600; white-space: nowrap;
+      #boot-screen .headmark-right svg {
+        width: 34px; height: 34px; display: block;
+        filter: drop-shadow(0 3px 10px rgba(3,16,20,.55));
+        -webkit-filter: drop-shadow(0 3px 10px rgba(3,16,20,.55));
       }
       #boot-screen .boot-rule { margin-top: 17px; }
 
@@ -374,12 +321,11 @@
       #boot-screen .dial svg {
         position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible;
       }
-      #boot-screen .ticks {
-        animation: boot-spin 46s linear infinite;
-        -webkit-transform-origin: 50% 50%;
-        transform-origin: 50% 50%;
-      }
-      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      /*
+       * 2.5.145: a tárcsa 72 osztása NEM forog. A 46 mp-es végtelen
+       * forgatás minden képkockán újrarajzolta a SVG-t; a betöltőképernyő
+       * ugyanúgy néz ki, de a TV-nek nem kell folyamatosan dolgoznia.
+       */
       #boot-screen .ring-track { stroke: rgba(234,255,249,.13); }
       #boot-screen .ring-fill {
         stroke: url(#boot-gfill);
@@ -432,8 +378,8 @@
       #boot-screen .status.swap { animation: boot-swap .5s cubic-bezier(.2,.8,.3,1); }
       #boot-screen .tip.swap { animation: boot-swap .55s cubic-bezier(.2,.8,.3,1); }
       @keyframes boot-swap {
-        0% { opacity: 0; transform: translateY(14px); filter: blur(7px); }
-        100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+        0% { opacity: 0; transform: translateY(8px); }
+        100% { opacity: 1; transform: translateY(0); }
       }
       #boot-screen .subline {
         margin-top: 12px;
@@ -626,8 +572,6 @@
         #boot-screen .wordmark span { display: none; }
       }
       @media (max-width: 560px) {
-        #boot-screen .date { display: none; }
-        #boot-screen .clock { font-size: 17px; }
         #boot-screen .build { display: none; }
         #boot-screen .mark { width: 56px; height: 56px; }
         #boot-screen .footrow { padding-right: 70px; }
@@ -638,7 +582,6 @@
         #boot-screen .pct { font-size: 48px; }
         #boot-screen .status { font-size: 25px; }
         #boot-screen .meterhead { margin-bottom: 6px; }
-        #boot-screen .date { display: none; }
       }
       @media (prefers-reduced-motion: reduce) {
         #boot-screen * {
@@ -646,7 +589,6 @@
           animation-iteration-count: 1 !important;
           transition-duration: .15s !important;
         }
-        #boot-screen .grain, #boot-screen .sweep { display: none; }
       }
 
       /* ---- HIBAKÉPERNYŐ ---- */
@@ -770,10 +712,7 @@
           <div class="scrim"></div>
           <div class="vig"></div>
           <div class="grid"></div>
-          <div class="grain"></div>
           <div class="scan"></div>
-          <div class="sweep"></div>
-          <canvas id="boot-fx"></canvas>
           <div class="bloom" id="boot-bloom"></div>
 
           <div class="ui" id="boot-ui">
@@ -815,9 +754,36 @@
                 <div class="headmeta boot-headmeta">
                   <div class="chip"><span class="dot"></span> Élő adatfolyam</div>
                   <div class="chip last">LG webOS TV</div>
-                  <div class="clockbox boot-clockbox">
-                    <div class="clock" id="boot-clockbox"><b id="boot-clock">--:--</b><i id="boot-clock-sec">00</i></div>
-                    <div class="date" id="boot-date">&mdash;</div>
+                  <!--
+                    2.5.145: A JOBB FELSŐ SAROKBAN IS A SAJÁT LOGÓNK VAN.
+                    A korábbi óra/dátum kikerült (a felhasználó kérésére):
+                    semmi nem ketyeg a betöltés alatt, nincs másodpercenkénti
+                    újrarajzolás, és a két sarok egyforma márkajelet mutat.
+                  -->
+                  <div class="headmark-right" aria-hidden="true">
+                    <svg viewBox="0 0 64 64">
+                      <defs>
+                        <linearGradient id="boot-mg-r" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0" stop-color="#DCFCEC"/><stop offset=".5" stop-color="#8CE3C8"/><stop offset="1" stop-color="#4BBFB4"/>
+                        </linearGradient>
+                      </defs>
+                      <rect width="64" height="64" rx="14" fill="url(#boot-mg-r)"/>
+                      <g stroke="#FFFFFF" stroke-opacity=".55" stroke-width=".7" fill="none">
+                        <path d="M0 15 L20 7 L44 13 L64 5"/><path d="M0 53 L22 59 L46 51 L64 57"/>
+                        <path d="M9 0 L15 64"/><path d="M55 0 L49 64"/><path d="M0 34 L64 36"/>
+                      </g>
+                      <g transform="translate(32 28)">
+                        <path d="M-8 -13 L-15 -23" stroke="#334A54" stroke-width="2.4" stroke-linecap="round"/>
+                        <path d="M8 -13 L15 -23" stroke="#334A54" stroke-width="2.4" stroke-linecap="round"/>
+                        <circle cx="-16" cy="-24" r="3.4" fill="#334A54"/><circle cx="16" cy="-24" r="3.4" fill="#334A54"/>
+                        <rect x="-19" y="-15" width="38" height="31" rx="9" fill="#3A525D"/>
+                        <rect x="-15" y="-11" width="30" height="22" rx="5" fill="#EFFCF8"/>
+                        <path d="M-4 -6.5 L7 -0.5 L-4 5.5 Z" fill="#1E3239"/>
+                        <path d="M-12 19 L12 19" stroke="#1E3239" stroke-width="2.6" stroke-linecap="round"/>
+                      </g>
+                      <text x="32" y="60" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"
+                            font-size="15" font-weight="700" fill="#1E3239" letter-spacing=".5">TV</text>
+                    </svg>
                   </div>
                 </div>
               </div>
@@ -952,233 +918,6 @@
       </div>
     </div>
 
-    <script>
-      /*
-       * BETÖLTŐKÉPERNYŐ – VÁSZON-RÉSZECSKÉK (az Inditas.html 5. szakasza).
-       *
-       * A dizájn része: konstellációs vonalak, fénymolyok felfelé szállva,
-       * célkereszt a tárcsa mögött, és 90% felett a részecskék a lejátszás
-       * háromszögévé állnak össze. Ez KIZÁRÓLAG látvány: nem ír semmilyen
-       * betöltési adatot, nem dönt semmiről.
-       *
-       * Teljesítmény (TV): a fény-pöttyök egyetlen előre kirajzolt sprite-ból
-       * jönnek (drawImage), nem részecskénkénti színátmenetből; a hurok a
-       * megjelenítés után leáll (__IPTV_STOP_FX__), és rejtett fülön szünetel.
-       */
-      (function () {
-        var canvas = document.getElementById('boot-fx');
-        if (!canvas || !canvas.getContext) return;
-        var ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        var W = 0, H = 0, DPR = 1;
-        var parts = [], motes = [], pairs = [], forming = 0;
-        var running = false, frameHandle = null, last = 0;
-        var reduce = false;
-        try {
-          reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-        } catch (eReduce) { reduce = false; }
-
-        /* Egyetlen előre kirajzolt fény-sprite: ugyanaz a látvány, sokkal
-           kevesebb munkával, mint részecskénként új színátmenet. */
-        var glow = null;
-        function buildGlow() {
-          try {
-            var size = 64;
-            var c = document.createElement('canvas');
-            c.width = size; c.height = size;
-            var g = c.getContext('2d');
-            if (!g) { glow = null; return; }
-            var grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-            grad.addColorStop(0, 'rgba(234,255,249,1)');
-            grad.addColorStop(0.35, 'rgba(200,255,242,0.45)');
-            grad.addColorStop(1, 'rgba(126,240,210,0)');
-            g.fillStyle = grad;
-            g.fillRect(0, 0, size, size);
-            glow = c;
-          } catch (eGlow) { glow = null; }
-        }
-
-        function triPoints() {
-          var cx = W * 0.5, cy = H * 0.47, s = Math.min(W, H) * 0.42;
-          return [
-            { x: cx - s * 0.36, y: cy - s * 0.52 },
-            { x: cx - s * 0.36, y: cy + s * 0.52 },
-            { x: cx + s * 0.62, y: cy }
-          ];
-        }
-
-        function build() {
-          var count = W < 700 ? 40 : 68;
-          var tri = triPoints();
-          var cx = W * 0.5, cy = H * 0.47;
-          parts = [];
-          for (var i = 0; i < count; i++) {
-            /* Minden részecske a háromszög egy élére esik, enyhén beljebb húzva. */
-            var a = tri[0];
-            var b = Math.random() < 0.5 ? tri[1] : tri[2];
-            var u = Math.random();
-            var px = a.x + (b.x - a.x) * u;
-            var py = a.y + (b.y - a.y) * u;
-            var inward = Math.random() * 0.55;
-            parts.push({
-              x: Math.random() * W, y: Math.random() * H,
-              vx: (Math.random() - 0.5) * 0.16, vy: (Math.random() - 0.5) * 0.16,
-              r: 0.7 + Math.random() * 1.9,
-              a: 0.22 + Math.random() * 0.55,
-              tx: px + (cx - px) * inward * 0.10, ty: py + (cy - py) * inward * 0.10
-            });
-          }
-          motes = [];
-          var moteCount = W < 700 ? 14 : 26;
-          for (var j = 0; j < moteCount; j++) {
-            motes.push({
-              x: Math.random() * W, y: Math.random() * H,
-              v: 0.15 + Math.random() * 0.5,
-              r: 0.6 + Math.random() * 1.6,
-              a: 0.15 + Math.random() * 0.5
-            });
-          }
-        }
-
-        function resize() {
-          DPR = Math.min(2, window.devicePixelRatio || 1);
-          W = canvas.clientWidth || window.innerWidth;
-          H = canvas.clientHeight || window.innerHeight;
-          canvas.width = Math.max(1, Math.floor(W * DPR));
-          canvas.height = Math.max(1, Math.floor(H * DPR));
-          try { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); } catch (eSet) {}
-          build();
-        }
-
-        function frame(dt) {
-          if (!W || !H) return;
-          ctx.clearRect(0, 0, W, H);
-          var pct = typeof window.__IPTV_BOOT_PERCENT__ === 'number' ? window.__IPTV_BOOT_PERCENT__ : 0;
-          var want = window.__IPTV_BOOT_DONE__ ? 1 : (pct > 90 ? (pct - 90) / 10 : 0);
-          forming += (want - forming) * Math.min(1, dt * 1.6);
-
-          /* Konstellációs vonalak (a háromszög összeállása előtt). */
-          if (forming < 0.75) {
-            ctx.lineWidth = 1;
-            for (var i = 0; i < parts.length; i++) {
-              var p = parts[i];
-              for (var j = i + 1; j < parts.length; j++) {
-                var q = parts[j];
-                var dx = p.x - q.x, dy = p.y - q.y;
-                var d2 = dx * dx + dy * dy;
-                if (d2 < 17000) {
-                  var alpha = (1 - d2 / 17000) * 0.30 * (1 - forming);
-                  ctx.strokeStyle = 'rgba(126,240,210,' + alpha.toFixed(3) + ')';
-                  ctx.beginPath();
-                  ctx.moveTo(p.x, p.y);
-                  ctx.lineTo(q.x, q.y);
-                  ctx.stroke();
-                }
-              }
-            }
-          }
-
-          /* Részecskék. */
-          for (var k = 0; k < parts.length; k++) {
-            var pp = parts[k];
-            if (!reduce) { pp.x += pp.vx * dt * 60; pp.y += pp.vy * dt * 60; }
-            if (pp.x < -20) pp.x = W + 20;
-            if (pp.x > W + 20) pp.x = -20;
-            if (pp.y < -20) pp.y = H + 20;
-            if (pp.y > H + 20) pp.y = -20;
-            if (forming > 0.001) {
-              pp.x += (pp.tx - pp.x) * Math.min(0.12, dt * 2.2 * forming);
-              pp.y += (pp.ty - pp.y) * Math.min(0.12, dt * 2.2 * forming);
-            }
-            var rr = pp.r * (1 + forming * 0.5);
-            var size = rr * 10;
-            if (glow) {
-              ctx.globalAlpha = Math.min(1, pp.a * (0.6 + forming * 0.6));
-              ctx.drawImage(glow, pp.x - size / 2, pp.y - size / 2, size, size);
-              ctx.globalAlpha = 1;
-            }
-            ctx.fillStyle = 'rgba(234,255,249,' + Math.min(1, pp.a + forming * 0.25).toFixed(3) + ')';
-            ctx.beginPath();
-            ctx.arc(pp.x, pp.y, rr, 0, 6.2832);
-            ctx.fill();
-          }
-
-          /* Felfelé szálló fénybridék. */
-          if (!reduce) {
-            for (var m = 0; m < motes.length; m++) {
-              var mo = motes[m];
-              mo.y -= mo.v * dt * 60;
-              mo.x += Math.sin((mo.y + m * 40) / 90) * 0.22;
-              if (mo.y < -12) { mo.y = H + 12; mo.x = Math.random() * W; }
-              ctx.fillStyle = 'rgba(210,255,244,' + mo.a.toFixed(3) + ')';
-              ctx.beginPath();
-              ctx.arc(mo.x, mo.y, mo.r, 0, 6.2832);
-              ctx.fill();
-            }
-          }
-
-          /* Célkereszt a tárcsa mögött. */
-          var ccx = W * 0.5, ccy = H * 0.47;
-          ctx.strokeStyle = 'rgba(126,240,210,' + (0.10 + forming * 0.25).toFixed(3) + ')';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(ccx - 8, ccy); ctx.lineTo(ccx + 8, ccy);
-          ctx.moveTo(ccx, ccy - 8); ctx.lineTo(ccx, ccy + 8);
-          ctx.stroke();
-        }
-
-        /*
-         * A rajzolás legfeljebb ~30 képkocka/másodperc. A részecskék lassan
-         * úsznak, ezért ez szemre ugyanaz, viszont az indítás alatt (amikor a
-         * csatornalista feldolgozása fut) a felére csökkenti a vászon munkáját
-         * a TV-n. A CSS-rétegek (fénylegyező, szemcse, úszás) a GPU-n futnak.
-         */
-        function loop(now) {
-          if (!running) { frameHandle = null; return; }
-          var dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
-          if (last && dt < 0.030) {
-            frameHandle = window.requestAnimationFrame(loop);
-            return;
-          }
-          last = now;
-          try { frame(dt); } catch (eFrame) {}
-          frameHandle = window.requestAnimationFrame(loop);
-        }
-
-        function start() {
-          if (running) return;
-          running = true;
-          last = 0;
-          frameHandle = window.requestAnimationFrame(loop);
-        }
-
-        function stop() {
-          running = false;
-          if (frameHandle !== null) {
-            try { window.cancelAnimationFrame(frameHandle); } catch (eCancel) {}
-            frameHandle = null;
-          }
-          try { ctx.clearRect(0, 0, W, H); } catch (eClear) {}
-        }
-
-        window.__IPTV_STOP_FX__ = stop;
-        window.__IPTV_START_FX__ = start;
-
-        buildGlow();
-        resize();
-        start();
-
-        window.addEventListener('resize', function () {
-          if (!running) return;
-          resize();
-        });
-        document.addEventListener('visibilitychange', function () {
-          if (document.hidden) stop();
-          else if (!window.__IPTV_FX_STOPPED__) start();
-        });
-      })();
-    </script>
 
     <script>
       /*
@@ -1201,9 +940,6 @@
        */
       (function () {
         var RING_LEN = 2 * Math.PI * 122;
-        var MONTHS = ['január', 'február', 'március', 'április', 'május', 'június',
-          'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
-        var WEEKDAYS = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
         /*
          * A TIPPEK a betöltőképernyő SAJÁT, igaz állításai (a dizájn rotálja
          * őket a haladással). Nem tartalmaznak a lejátszóról szóló, nem
@@ -1381,14 +1117,6 @@
           if (typeof bootMark === 'function') bootMark('betöltőképernyő: 100% – a felület kész');
         }
 
-        function tickClock() {
-          var now = new Date();
-          setText('boot-clock', pad2(now.getHours()) + ':' + pad2(now.getMinutes()));
-          setText('boot-clock-sec', pad2(now.getSeconds()));
-          setText('boot-date', now.getFullYear() + '. ' + MONTHS[now.getMonth()] + ' ' +
-            now.getDate() + ' \u00b7 ' + WEEKDAYS[now.getDay()]);
-        }
-
         window.__IPTV_BOOT__ = {
           update: update,
           complete: complete,
@@ -1446,8 +1174,6 @@
 
         try {
           drawTicks();
-          tickClock();
-          setInterval(tickClock, 1000);
           render();
 
           /*
@@ -1596,7 +1322,6 @@
            */
           window.__IPTV_FX_STOPPED__ = true;
           try {
-            if (typeof window.__IPTV_STOP_FX__ === 'function') window.__IPTV_STOP_FX__();
           } catch (eFx) {}
           var fading = byId('tv-curtain');
           if (fading && fading.parentNode) fading.parentNode.removeChild(fading);

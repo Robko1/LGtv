@@ -67,7 +67,17 @@ const SERIES_META_KEY = 'content-series-meta';
  * elemmel ~86 adag, kötegelve mindössze ~8 tranzakció – a mentés másodpercek
  * alatt, még az import közben is befejeződik.
  */
-const CHUNK_SIZE = 1200;
+/*
+ * 2.5.145: 1200 → 500 sor adagonként.
+ *
+ * A TV-n az IndexedDB-ből való olvasás a FŐSZÁLON történik. A 21–23.
+ * naplóban egy-egy 1200 soros adag beolvasása ~1 mp-re állította meg a
+ * festést, ezért a visszatöltés alatt 17 külön „ugrás” látszott. Kisebb
+ * adagokkal ugyanaz az adat sokkal egyenletesebben, rövidebb szünetekkel
+ * érkezik – a mentés ritka (szolgáltatóváltás/frissítés), ezért az, hogy
+ * több kulcs keletkezik, nem számít.
+ */
+const CHUNK_SIZE = 500;
 const LIVE_CHUNK_PREFIX = 'content-live-chunk-';
 const LIVE_GENERATION_PREFIX = 'content-live-chunk-v1-';
 const VOD_CHUNK_PREFIX = 'content-vod-chunk-';

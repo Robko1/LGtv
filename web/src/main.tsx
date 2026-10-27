@@ -216,6 +216,22 @@ try {
    */
   const VIDEO_WAIT_MS = 1200;
   const LOGO_WAIT_MS = 600;
+  /**
+   * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE A TAKARÓKÉP ALATT (2.5.145).
+   *
+   * A 21–23. napló mindhárom indulásánál 2–3,9 mp-es képkocka-kihagyás volt
+   * PONT akkor, amikor a teljes (20 190 csatornás) lista betöltése a már
+   * látható felület alatt futott. A 2.5.140-ben ez a munka a takarókép
+   * alatt zajlott, ezért ott nem lehetett látni.
+   *
+   * Ezért a felfedés mostantól megvárja az élő lista visszatöltését – de
+   * LEGFELJEBB `LIVE_WAIT_MS`-ig a csatornalista megjelenésétől számítva.
+   * A tipikus idő ~1 mp (a napló 19-ben 752 ms volt), a korlát csak a
+   * biztonsági háló arra az esetre, ha a tároló elakad.
+   */
+  const LIVE_WAIT_MS = 6000;
+  const liveReady = (): boolean =>
+    (window as any).__IPTV_LIVE_READY__ === true || emptyBoot();
 
   const chromeReady = () => {
     const root = document.getElementById("root");
@@ -431,7 +447,16 @@ try {
       const waited = Date.now() - logoStartedAt.value;
       const logosOk = logosSettled() || waited > LOGO_WAIT_MS;
       const videoOk = videoSettled() || waited > VIDEO_WAIT_MS;
-      if (logosOk && videoOk) {
+      /*
+       * A takarókép addig marad, amíg a teljes élő lista be nem töltődött:
+       * így a felfedés pillanatában MINDEN kész, és semmi nem ugrik meg a
+       * már látható felületen. A korlát miatt a legrosszabb eset sem hosszú.
+       */
+      const liveOk = liveReady() || waited > LIVE_WAIT_MS;
+      if (logosOk && videoOk && liveOk) {
+        if (!liveReady()) {
+          logPhase('felfedés az élő lista visszatöltése előtt (időkorlát)');
+        }
         revealWhenPainted("kész főoldal");
         return;
       }
