@@ -73,7 +73,15 @@ test('NINCS külső hálózati betűtípus-kérés az induláskor', () => {
 
 test('a takarókép külön, HELYI fájl, amit a <head> azonnal preloadol', () => {
   assert.match(PAGE, /<link rel="preload" as="image" href="splash-bg\.jpg" fetchpriority="high">/);
-  assert.match(PAGE, /<img id="boot-bg" src="splash-bg\.jpg"[^>]*decoding="sync"/);
+  /*
+   * 2.5.151: NINCS `decoding="sync"`. A 35. naplóban az első festés 1853 ms
+   * volt, mert a szinkron dekódolás a 1,2 MB-os kép elkészültéig
+   * visszatartotta a képkockát – addig a világos platform-háttér látszott.
+   * A kép most dekódolás után úszik be (`.is-ready`).
+   */
+  assert.doesNotMatch(PAGE, /<img id="boot-bg"[^>]*decoding="sync"/,
+    'a szinkron képdekódolás ismét blokkolja az első festést');
+  assert.match(PAGE, /<img id="boot-bg" src="splash-bg\.jpg"/);
   assert.match(PAGE, /preload\.src = 'splash-bg\.jpg';/);
   assert.match(PAGE, /preload\.decode\(\)/);
   const source = path.join(ROOT, 'takarokep.jpg');
@@ -225,17 +233,26 @@ test('a webOS indítóképe és a HTML háttere UGYANABBÓL a takarokep.jpg-ből
 });
 
 test('a body/html háttere a REVEAL-nál NEM vált – nincs fekete kocka', () => {
-  assert.match(PAGE, /html\s*\{\s*background-color:\s*#7fb9bd;/);
-  assert.match(PAGE, /\.iptv-curtain\s*\{[^}]*background-color:\s*#7fb9bd;/);
+  /*
+   * 2.5.151: MINDEN alapszín sötét. A 35–39. napló használói észrevétele:
+   * a takarókép után – és csatornaváltásnál a főoldalon – VILÁGOS TÜRKIZ
+   * (teal) kocka villant be. Forrása a html/takarókép #7fb9bd alapszíne és a
+   * webOS ablak háttere (appinfo bgColor #84bebc) volt.
+   */
+  assert.match(PAGE, /html\s*\{\s*background-color:\s*#080d1a;/);
+  assert.match(PAGE, /\.iptv-curtain\s*\{[^}]*background-color:\s*#080d1a;/);
+  assert.doesNotMatch(PAGE, /background-color:\s*#7fb9bd/i,
+    'a világos türkiz alapszín visszatért (ez villan be a takarókép után)');
+  assert.doesNotMatch(PAGE, /#84bebc/i, 'a világos bgColor visszatért');
+  assert.equal(String(APPINFO.bgColor).toLowerCase(), '#080d1a',
+    'a webOS ablak háttere (bgColor) nem sötét – ez villan be a lap festése előtt');
   // 2.5.147: a kész felület felülete (body) MÁR az első festéstől sötétkék,
   // ezért a takarókép levételekor nincs színváltás – ez adta a fekete képet.
   assert.match(PAGE, /html\.iptv-booting body\s*\{\s*background-color:\s*#080d1a !important;/);
   assert.match(PAGE, /html\.iptv-revealed body\s*\{\s*background-color:\s*#080d1a !important;/);
   assert.doesNotMatch(PAGE, /document\.body\.style\.backgroundColor/,
     'a REVEAL nem írhatja át a body hátterét (ez volt a fekete villanás)');
-  assert.match(PAGE, /document\.documentElement\.style\.backgroundColor = '#7fb9bd';/);
-  // A platform bgColor a takarokép mért átlagszíne – nem fekete, nem fehér.
-  assert.equal(String(APPINFO.bgColor).toLowerCase(), '#84bebc');
+  assert.match(PAGE, /document\.documentElement\.style\.backgroundColor = '#080d1a';/);
   assert.doesNotMatch(PAGE, /background-color:\s*#6ccbd3/i,
     'a régi világos türkiz háttér visszatért');
 });
@@ -374,10 +391,12 @@ test('a 20 190 csatornás lista a felfedés UTÁN töltődik be, nem alatta', ()
   const app = read('web/src/App.tsx');
   assert.match(app, /addEventListener\('iptv-app-ready', startAfterReveal/,
     'a háttér-visszatöltés nem a felfedés után indul');
-  assert.match(app, /const startAfterReveal = \(\) => window\.setTimeout\(startRestore, 1200\)/,
+  assert.match(app, /const startAfterReveal = \(\) => \{ timers\.restoreTimer = window\.setTimeout\(startRestore, 400\); \}/,
     'a visszatöltés a felfedés pillanatára esik (nincs üresjárat)');
-  assert.match(app, /window\.setTimeout\(startRestore, 4000\)/,
+  assert.match(app, /timers\.restoreTimer = window\.setTimeout\(startRestore, 15000\)/,
     'nincs biztonsági indítás, ha a felfedés elmarad');
+  assert.doesNotMatch(app, /setTimeout\(startRestore, 4000\)/,
+    'a 4 mp-es tartalék megint a felfedés ELŐTT indítja a dekódolást (ez késlelteti a váltást)');
   assert.match(app, /\.finally\(\(\) => \{\s*markLiveReady\(\);\s*scheduleGuide\(\);/,
     'a műsorújság nem a lista visszatöltése UTÁN indul');
   const main = read('web/src/main.tsx');
@@ -392,6 +411,10 @@ test('a 20 190 csatornás lista a felfedés UTÁN töltődik be, nem alatta', ()
   const completeAt = body.indexOf('bootScreenComplete();');
   assert.ok(revealAt > 0 && completeAt > revealAt,
     'a betöltőképernyő lezárása megint a felfedés ELŐTT fut (1,4–2,4 mp késés)');
+  // 2.5.151: a sáv a váltás előtt 97 és 99%-ot is jelez – nem áll meg 94%-on.
+  const boot = read('web/src/services/bootScreen.ts');
+  assert.match(boot, /frames: \{ percent: 97/, 'a 97%-os képkocka-szakasz hiányzik');
+  assert.match(boot, /ready: \{ percent: 99/, 'a 99%-os váltás-szakasz hiányzik');
 });
 
 test('a visszatöltött lista nem írja vissza magát a tartós tárba', () => {

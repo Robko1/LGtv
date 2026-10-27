@@ -68,6 +68,13 @@ export const BOOT_PHASES = {
   live: { percent: 78, phase: 'Élő csatornák betöltve', step: '5/7 · élő csatornák' },
   shell: { percent: 88, phase: 'Főoldal kirajzolva', step: '6/7 · főoldal' },
   painted: { percent: 94, phase: 'Festés a takarókép alatt', step: '7/7 · festés' },
+  /*
+   * 2.5.151: a sáv nem állhat meg 94%-on a váltásig (a 35–39. naplóban akár
+   * 4 mp-ig 94% volt, miközben a néző a főoldalra várt). A két új szakasz
+   * VALÓS lépés: az előfestés két képkockája, illetve a váltás pillanata.
+   */
+  frames: { percent: 97, phase: 'Első képkocka kész', step: '7/7 · képkocka' },
+  ready: { percent: 99, phase: 'Váltás a főoldalra', step: '7/7 · váltás' },
   done: { percent: 100, phase: 'Kész', step: '7/7 · kész' },
 } as const;
 

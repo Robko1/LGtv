@@ -1,10 +1,21 @@
-export const WEB_VERSION = '2.5.150';
+export const WEB_VERSION = '2.5.151';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.151',
+    date: '2026-10-27',
+    changes: [
+      'NINCS TÖBBÉ VILÁGOS KÉK VILLANÁS: a 35–39. napló észrevétele szerint a takarókép után – és csatornaváltásnál a főoldalon – világos türkiz kocka villant be. Két forrása volt: a webOS ablak háttere (appinfo bgColor, világos türkiz) és a html/takarókép alapszíne. Mostantól MINDEN alapszín a kész felület sötétje (#080d1a): ha bármelyik réteg egy pillanatra hiányzik, sötétet lát, nem kék villanást',
+      'A BETÖLTŐ ANIMÁCIÓ AZONNAL INDUL: a háttérkép szinkron dekódolása (decoding="sync") kikerült – a 35. naplóban ez tartotta vissza az első festést 1853 ms-ig, és addig a világos háttér látszott. A sötét betöltőképernyő és a folyamatjelző azonnal megjelenik, a fotó 160 ms alatt úszik be',
+      'A TELJES LISTA A FELFEDÉS UTÁN TÖLTŐDIK BE: a 4 mp-es tartalék indítás kikerült, mert az a felfedés ELŐTT kezdte dekódolni a 20 190 csatornát, és éppen azzal késleltette a váltást, amire a felfedés várt (a 35. naplóban 6,2 mp). A dekódolás most a felfedés után 400 ms-mal, a kész felület fölött fut; a 15 mp-es háló csak vészhelyzetre maradt',
+      'A BETÖLTŐ SÁV NEM ÁLL MEG 94%-ON: két új, VALÓS szakasz van – 97% amikor a főoldal két képkockán át kifestődött a takarókép alatt, 99% a váltás pillanatában, 100% pedig ugyanabban a feladatban, amiben a takarókép lekerül',
+      'A TÁROLÓ-TAKARÍTÁS 8 mp helyett 12 mp múlva fut, hogy ne a felfedés körüli másodpercekre essen',
+    ],
+  },
   {
     version: '2.5.150',
     date: '2026-10-27',
