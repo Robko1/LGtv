@@ -449,6 +449,34 @@ interface VideoPlayerProps {
  * stílusírás (a geometriát a `.iptv-fs` CSS-osztály adja). A 16:9-es keretet
  * a `syncMainPageLayout` mérése egészíti ki egyszer, a DOM-ban.
  */
+/*
+ * HANGZÁR AZ INDULÁS ALATT (2.5.147).
+ *
+ * A webOS-on a <video> a SAJÁT hardveres síkján szól: hiába van fölötte a
+ * takarókép, a hang akkor is hallatszik. A 24. TV-napló pontosan ezt mutatta:
+ * az első csatorna 19:45:22,166-kor már lejátszott, a takarókép pedig csak
+ * 19:45:26,049-kor tűnt el – 3,3 másodpercig szólt a hang egy
+ * betöltőképernyő alatt.
+ *
+ * Ezért amíg a html `__IPTV_AUDIO_GATE__` jelzője igaz, a lejátszó NÉMÁN fut.
+ * A zár a REVEAL után nyílik (a kész főoldal első kirajzolt képkockája után):
+ * ekkor jön az `iptv-audio-open` esemény, és a hangerő visszaáll.
+ */
+function startupAudioGateClosed(): boolean {
+  try {
+    return (window as unknown as { __IPTV_AUDIO_GATE__?: boolean }).__IPTV_AUDIO_GATE__ === true;
+  } catch {
+    return false;
+  }
+}
+
+/** A néma állapot EGYETLEN helyen dől el: hangerő + indulási hangzár. */
+function applyMuteState(video: HTMLVideoElement, volume: number): void {
+  try {
+    video.muted = volume <= 0 || startupAudioGateClosed();
+  } catch { /* a médiaelem már lebomlott */ }
+}
+
 const PLAYER_HOME_STYLE: React.CSSProperties = {
   width: '100%',
   // A főoldali keret 16:9-es (ezt a `syncMainPageLayout` mérése is ebben az
@@ -571,7 +599,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = htmlVideoRef.current;
     if (!video) return;
     video.volume = Math.max(0, Math.min(1, volume));
-    video.muted = volume <= 0;
+    applyMuteState(video, volume);
+  }, [volume]);
+
+  /*
+   * A HANGZÁR KINYITÁSA (2.5.147). A HTML hídja a takarókép lekerülése után
+   * eseményt küld; ekkor a hangerő azonnal visszaáll a beállított értékre.
+   * Ugyanitt egy rövid késleltetett ellenőrzés is fut, mert a webOS
+   * médiamotorja néha később érvényesíti a `muted` jelzőt.
+   */
+  useEffect(() => {
+    const restore = () => {
+      const video = htmlVideoRef.current;
+      if (!video) return;
+      video.volume = Math.max(0, Math.min(1, volume));
+      applyMuteState(video, volume);
+    };
+    window.addEventListener('iptv-audio-open', restore);
+    let lateTimer: number | null = null;
+    if (!startupAudioGateClosed()) restore();
+    else {
+      lateTimer = window.setTimeout(restore, 400);
+    }
+    return () => {
+      window.removeEventListener('iptv-audio-open', restore);
+      if (lateTimer !== null) window.clearTimeout(lateTimer);
+    };
   }, [volume]);
 
   useEffect(() => {
@@ -3413,7 +3466,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (forceReload || hadMediaError) video.load();
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
-      video.muted = volume <= 0;
+      applyMuteState(video, volume);
       const playPromise = video.play();
       setIsPlaying(true);
       // ZAP-ŐR: ha az élő adás nem indul el időben (a HLS-próba csak "lóg",
@@ -4075,7 +4128,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
          attribútum-írás, a kilépéskor pedig az osztály eltávolítása magától
          visszaadja a főoldali 16:9-es keretet. A `fixed` osztály a webos.js
          TV-s szabályaihoz kell (a lejátszó OSD-jének elrejtése a főoldalon). */
-      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
+      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-[#0d2630]'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
       /* Állandó főoldali stílus: teljes képernyőn a CSS-osztály írja felül
          `!important`-tal, ezért a React itt SOHA nem ír stílust a váltáskor. */
       style={PLAYER_HOME_STYLE}
@@ -4087,7 +4140,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {!isVod && !firstFrameShown && (
         <div
           data-player-poster=""
-          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-[#0a1220] pointer-events-none"
+          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-[#0d2630] pointer-events-none"
         >
           {/* 2.5.135 – FOLYAMATOS INDULÁS.
               Üres IPK-n nincs csatorna: a logó-doboz és a „Kapcsolódás…”
@@ -4214,6 +4267,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               try {
                 (window as any).__IPTV_VIDEO_READY__ = true;
               } catch { /* nincs window */ }
+              /*
+               * AZ ELSŐ KIRAJZOLT KÉPKOCKA (2.5.147).
+               *
+               * A `playing` esemény csak azt jelenti, hogy a lejátszás
+               * elindult – a képkocka ilyenkor még a kompozitor előtt lehet.
+               * A takarókép levétele pont ebben a pillanatban villantott be
+               * fekete/festetlen videó-területet. A `requestVideoFrameCallback`
+               * viszont akkor hívódik meg, amikor a képkocka tényleg
+               * megjelent: ezt a jelzőt várja meg a felfedés (korlátozott
+               * ideig). Ha a motor nem támogatja, marad a `playing` jelzés.
+               */
+              try {
+                const gateVideo = event.currentTarget as HTMLVideoElement & {
+                  requestVideoFrameCallback?: (callback: () => void) => number;
+                };
+                if (typeof gateVideo.requestVideoFrameCallback === 'function'
+                    && (window as any).__IPTV_VIDEO_PAINTED__ !== true) {
+                  gateVideo.requestVideoFrameCallback(() => {
+                    try {
+                      (window as any).__IPTV_VIDEO_PAINTED__ = true;
+                      window.dispatchEvent(new CustomEvent('iptv-video-painted'));
+                    } catch { /* nincs window */ }
+                  });
+                }
+              } catch { /* régi motor */ }
               setFirstFrameShown((previous) => previous || true);
               setCurrentStreamHasFrame(true);
               if (!isVod) {
@@ -4526,7 +4604,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </span>
         </div>
       ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10 pointer-events-none">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0b1c24] z-10 pointer-events-none">
           <div className="relative w-12 h-12 flex items-center justify-center">
             <div className="w-12 h-12 rounded-full border-3 border-cyan-500/30 border-t-cyan-400 animate-spin" />
             <div className="absolute w-6 h-6 rounded-full bg-cyan-400/20 animate-ping" />

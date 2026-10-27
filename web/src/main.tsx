@@ -267,7 +267,21 @@ try {
     // Ha nincs lejátszó (pl. nincs szolgáltató), nincs mit várni.
     const hasPlayer = !!document.querySelector('video[data-iptv-player="true"]');
     if (!hasPlayer) return true;
-    return !!(window as any).__IPTV_VIDEO_READY__;
+    if ((window as any).__IPTV_VIDEO_READY__ !== true) return false;
+    /*
+     * 2.5.147 – A FELFEDÉS AZ ELSŐ KIRAJZOLT KÉPKOCKÁRA VÁR.
+     *
+     * A `playing` esemény a lejátszás indulását jelzi, a kép viszont még a
+     * kompozitor előtt lehet: a takarókép levételekor ez villantott be
+     * fekete/festetlen videó-területet („egy hatalmas fekete kép”). A
+     * `requestVideoFrameCallback` akkor jelez, amikor a képkocka tényleg
+     * megjelent. Ha a motor nem támogatja ezt a hívást, a `playing` elég.
+     */
+    if ((window as any).__IPTV_VIDEO_PAINTED__ === true) return true;
+    const player = document.querySelector('video[data-iptv-player="true"]') as
+      (HTMLVideoElement & { requestVideoFrameCallback?: unknown }) | null;
+    if (!player || typeof player.requestVideoFrameCallback !== 'function') return true;
+    return false;
   };
 
   /*
@@ -322,8 +336,20 @@ try {
       const frameStartedAt = nowMs();
       window.requestAnimationFrame(() => {
         const frameGap = nowMs() - frameStartedAt;
+        /*
+         * 2.5.147 – NE HALASSZUK A VÁLTÁST, HA MINDEN ADAT A HELYÉN VAN.
+         *
+         * A 24., 25. és 26. napló mindhárom indulásánál a teljes élő lista
+         * ~5 mp-nél már kész volt, a REVEAL mégis +9–11 mp-nél történt meg:
+         * a képváltás-őr a lista beszúrása utáni 2,7 mp-es késleltetett
+         * képkockát „folyamatban lévő akadásnak” látta, és kétszer is
+         * elhalasztotta a váltást. A kompozitor a kész képkockát mindig
+         * EGÉSZÉBEN teszi ki, ezért befejezett adatok mellett nincs mitől
+         * félni – a takarókép ilyenkor azonnal lemehet.
+         */
         if (frameGap > FRAME_GAP_LIMIT_MS
             && frameGapRetries < MAX_FRAME_GAP_RETRIES
+            && !liveReady()
             && Date.now() - startedAt <= 9000) {
           frameGapRetries += 1;
           revealPending = false;

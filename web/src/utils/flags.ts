@@ -41,10 +41,29 @@ const RULES: Array<{ test: RegExp; info: FlagInfo }> = [
   { test: /(koreai|korea|korean)/i, info: { flag: '🇰🇷', country: 'Korea', countryCode: 'KR' } },
 ];
 
+const INTERNATIONAL: FlagInfo = { flag: '📺', country: 'Nemzetközi', countryCode: 'INT' };
+
+/*
+ * EREDMÉNY-GYORSÍTÓTÁR (2.5.147).
+ *
+ * A 20 190 élő csatorna visszatöltésekor a `flagFor()` csatornánként végigfutott
+ * a 32 szabályon (több százezer reguláris kifejezés a TV-n). A bemenet viszont
+ * gyakorlatilag a KATEGÓRIA neve, amiből néhány száz van: elég egyszer
+ * kiértékelni, utána táblából jön az eredmény. A tábla mérete korlátos, hogy
+ * importtal érkező, tetszőleges nevek se növeljék a memóriát.
+ */
+const CACHE_LIMIT = 2000;
+const cache = new Map<string, FlagInfo>();
+
 export function flagFor(value: string): FlagInfo {
   const text = (value || '').trim();
+  const cached = cache.get(text);
+  if (cached) return cached;
+  let info = INTERNATIONAL;
   for (const rule of RULES) {
-    if (rule.test.test(text)) return rule.info;
+    if (rule.test.test(text)) { info = rule.info; break; }
   }
-  return { flag: '📺', country: 'Nemzetközi', countryCode: 'INT' };
+  if (cache.size >= CACHE_LIMIT) cache.clear();
+  cache.set(text, info);
+  return info;
 }

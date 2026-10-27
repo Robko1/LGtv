@@ -231,7 +231,10 @@ test('a takarókép réteg alapszíne a főoldali váz sötétkékje (nincs kere
      saját képernyőnkre váltás nem hoz új látványt. */
   assert.match(html, /html\s*\{\s*background-color:\s*#7fb9bd;/);
   assert.match(html, /\.iptv-curtain\s*\{[^}]*background-color:\s*#7fb9bd;/);
-  assert.match(html, /html\.iptv-booting body\s*\{\s*background-color:\s*#7fb9bd !important;/);
+  /* 2.5.147: a kész felület felülete (body) már az első festéstől sötétkék,
+     a html alapszíne pedig végig a takarókép átlagszíne – a REVEAL-nál
+     EGYETLEN háttérszín sem vált, ezért nincs fekete kocka. */
+  assert.match(html, /html\.iptv-booting body\s*\{\s*background-color:\s*#080d1a !important;/);
   assert.match(html, /html\.iptv-revealed body\s*\{\s*background-color:\s*#080d1a !important;/);
   assert.match(html, /<img id="boot-bg" src="splash-bg\.jpg"/,
     'a teljes képernyős takarókép hiányzik');

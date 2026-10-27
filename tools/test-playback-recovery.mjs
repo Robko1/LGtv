@@ -241,8 +241,16 @@ check(/name === 'AbortError'/.test(PLAYER),
   'a gyors forrásváltás AbortError-ja NEM számít lejátszási hibának');
 check(/switchInProgressRef\.current\) return;/.test(PLAYER),
   'a belső pause/play események nem írják át a lejátszási szándékot');
-check(/currentStreamHasFrame \? \(/.test(PLAYER) && /bg-black z-10/.test(PLAYER),
+/*
+ * 2.5.147: a teljes képernyős töltő réteg továbbra is csak a „még nincs
+ * képkocka” ágban jelenik meg, de már NEM tiszta fekete (a kész felület
+ * hátteréhez illő sötét türkiz), így a váltás pillanatában sem villanhat be
+ * fekete felület.
+ */
+check(/currentStreamHasFrame \? \(/.test(PLAYER) && /bg-\[#0b1c24\] z-10/.test(PLAYER),
   'van képkocka után a töltőjelző NEM takarja el a képet fekete réteggel');
+check(!/bg-black z-10/.test(PLAYER),
+  'a teljes képernyős töltő réteg újra tiszta fekete');
 check(/data-playback-status/.test(PLAYER)
   && /isFullscreen/.test(PLAYER)
   && /top-3 right-3/.test(PLAYER)
