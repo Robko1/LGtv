@@ -24,7 +24,7 @@ jelenik meg a főoldal:
 - a webOS saját indítóképe (`splashBackground`) **ugyanazt a kompozíciót**
   rajzolja: a `tools/make-splash.py` ugyanazokból a színmegállókból,
   fátylakból, rácsból és vignettából generálja 1920×1080-ban, 24 bites RGB-ben.
-  A fájl **76 kB** (korábban 607 kB), ezért a platform kép és a saját
+  A fájl **88 kB** (korábban 607 kB), ezért a platform kép és a saját
   képernyőnk közötti váltás továbbra sem látszik;
 - a platform kép **a tényleges első festésnél** kerül le (`paint` bejegyzés:
   `first-paint` / `first-contentful-paint`, 1500 ms-os biztonsági hálóval),
@@ -266,7 +266,7 @@ VERSION=2.5.167 bash tools/build-webos.sh
 A build az indítóképet **minden alkalommal újragenerálja**
 (`tools/make-splash.py`), ezért az IPK-ba nem kerülhet elavult kép. A kép a
 betöltőképernyő hátterének kompozíciója (színátmenet, három fátyol, 84 pixeles
-rács, vignetta), 1920×1080-ban, 24 bites RGB-ben – **76 kB**, dithering nélkül
+rács, vignetta), 1920×1080-ban, 24 bites RGB-ben – **88 kB**, dithering nélkül
 (a lágy átmenet nem sávosodik). A generátor ugyanazokat a színmegállókat
 használja, mint a `web/index.html` `.bootbg` rétege, ezért a platform kép és a
 saját betöltőképernyő nem válik el egymástól.

@@ -294,6 +294,18 @@ test('2.5.166: a platform indítókép UGYANAZ a kompozíció, mint a betöltők
     'a háttér ismét beágyazott fotó (ez volt a lassú indulás fő oka)');
 
   /*
+   * A két kép fényereje CSAK akkor egyezik, ha a CSS fényfoltjának
+   * átlátszósága pontosan a generátor első színmegállója. (2.5.167: ez az
+   * érték csúszott el, ezért a platform kép sötétebbnek látszott a saját
+   * képernyőnél – a váltás a TV-n színugrásként látszott.)
+   */
+  const cssGlow = (PAGE.match(/rgba\(20,150,138,\.(\d+)\)/) || [])[1];
+  const pyGlow = (MAKE_SPLASH.match(/glow_table = \[\(0\.0, 0\.(\d+)\)/) || [])[1];
+  assert.ok(cssGlow, 'a .bootbg fényfoltjának színe megváltozott');
+  assert.equal(cssGlow, pyGlow,
+    `a CSS fényfolt (0.${cssGlow}) és a generátor (0.${pyGlow}) eltér – a két indítókép fényereje nem egyezik`);
+
+  /*
    * A kép 1920×1080 (ezt írja elő a webOS) és 24 bites RGB: a palettás PNG
    * látható színlépcsőt adott a TV paneljén. A színátmenet tömöríthető, ezért
    * a fájl a régi 600 kB helyett néhány tíz kB – a régi 200 kB-os alsó korlát
