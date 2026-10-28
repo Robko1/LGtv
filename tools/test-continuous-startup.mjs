@@ -71,21 +71,23 @@ test('NINCS külső hálózati betűtípus-kérés az induláskor', () => {
     'a rendszer betűtípusát kell használni (nincs FOUT)');
 });
 
-test('a takarókép külön, HELYI fájl, amit a <head> azonnal preloadol', () => {
-  assert.match(PAGE, /<link rel="preload" as="image" href="splash-bg\.jpg" fetchpriority="high">/);
+test('2.5.158: a betöltőképernyőnek NINCS háttérképe – tiszta CSS színátmenet', () => {
   /*
-   * 2.5.151: NINCS `decoding="sync"`. A 35. naplóban az első festés 1853 ms
-   * volt, mert a szinkron dekódolás a 1,2 MB-os kép elkészültéig
-   * visszatartotta a képkockát – addig a világos platform-háttér látszott.
-   * A kép most dekódolás után úszik be (`.is-ready`).
+   * A 9. napló idején a háttér egy 161 kB-os JPEG volt, amit a <head>
+   * `preload.src` + `decode()` hívása előmelegített. Az 1 GB memóriás TV-n ez
+   * késleltette az első festést, és a kép – a napló tanúsága szerint –
+   * kétszer próbált meg beúszni. Mostantól a háttér CSS színátmenet:
+   * nincs képkérés, nincs dekódolás, nincs újrafestés.
    */
-  assert.doesNotMatch(PAGE, /<img id="boot-bg"[^>]*decoding="sync"/,
-    'a szinkron képdekódolás ismét blokkolja az első festést');
-  assert.match(PAGE, /<img id="boot-bg" src="splash-bg\.jpg"/);
-  assert.match(PAGE, /preload\.src = 'splash-bg\.jpg';/);
-  assert.match(PAGE, /preload\.decode\(\)/);
-  const source = path.join(ROOT, 'takarokep.jpg');
-  assert.ok(fs.existsSync(source), 'hiányzik a takarokep.jpg (az indítókép forrása)');
+  assert.doesNotMatch(PAGE, /preload", as="image"/, 'a háttérkép preload visszatért');
+  assert.doesNotMatch(PAGE, /<img id="boot-bg"/, 'a háttérkép <img> elem visszatért');
+  assert.doesNotMatch(PAGE, /splash-bg/, 'a háttér JPEG-fájlra hivatkozás visszatért');
+  assert.match(PAGE, /#boot-screen \.stage\s*\{[^}]*background-image:/s,
+    'a betöltőképernyő háttere nem CSS színátmenet');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'web/public/splash-bg.jpg')),
+    'a felesleges splash-bg.jpg még a repóban van');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'takarokep.jpg')),
+    'a már nem használt takarokep.jpg még a repóban van');
 });
 
 /* ─────────────── 2. A BETÖLTŐKÉPERNYŐ FELÉPÍTÉSE ─────────────── */
@@ -99,11 +101,10 @@ test('a teljes háttér a takarókép, felül a valós órával és a négy val�
     assert.ok(doc.getElementById('tv-curtain').contains(screen),
       'a betöltőképernyő nem a takaró rétegben van');
 
-    const bg = doc.getElementById('boot-bg');
-    assert.ok(bg, 'hiányzik a teljes képernyős háttérkép');
-    assert.equal(bg.getAttribute('src'), 'splash-bg.jpg');
-    assert.match(PAGE, /#boot-bg\s*\{[^}]*width:\s*100%[^}]*height:\s*100%[^}]*object-fit:\s*cover/s,
-      'a háttérkép nem tölti ki a teljes képernyőt');
+    assert.equal(doc.getElementById('boot-bg'), null,
+      'a betöltőképernyőnek nem szabad háttérképet tartalmaznia');
+    assert.match(PAGE, /#boot-screen \.stage\s*\{[^}]*background-image:/s,
+      'a betöltőképernyő háttere nem CSS színátmenet');
 
     /*
      * 2.5.145: A JOBB FELSŐ SAROKBAN A SAJÁT LOGÓNK VAN, ÓRA NINCS.
@@ -220,22 +221,25 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
 
 /* ─────────────── 3. A KÉT INDÍTÓKÉP UGYANAZ A KÉP ─────────────── */
 
-test('a webOS indítóképe és a HTML háttere UGYANABBÓL a takarokep.jpg-ből készül', () => {
-  assert.match(MAKE_SPLASH, /SOURCE = ROOT \/ "takarokep\.jpg"/,
-    'az indítókép forrása nem a takarokep.jpg');
-  assert.match(MAKE_SPLASH, /def build_background\(\)/);
+test('2.5.158: a platform indítókép GENERÁLT színátmenet, nem fotó', () => {
+  assert.equal(MAKE_SPLASH.includes('takarokep'), false,
+    'az indítókép ismét a törölt borítóképből készül');
+  assert.match(MAKE_SPLASH, /def build_splash\(\)/);
   assert.match(MAKE_SPLASH, /WIDTH, HEIGHT = 1920, 1080/);
-  assert.match(MAKE_SPLASH, /progressive=False/,
-    'a splash-bg.jpg nem baseline JPEG – kockás köztes képet festhet');
   assert.match(MAKE_SPLASH, /--out-dir/,
     'a build nem tudja a csomagba generálni a képet');
   assert.match(BUILD, /python3 "\$SCRIPT_DIR\/make-splash\.py" --out-dir "\$BUILD_DIR"/);
   assert.equal(APPINFO.splashBackground, 'splash-screen.png',
-    'a webOS által használt takarókép neve megváltozott');
-  // A platform indítókép a repóban is a takarokep.jpg-ből készült változat.
+    'a webOS által használt indítókép neve megváltozott');
+  /*
+   * A platform kép néhány kB: a betöltőképernyő CSS-hátterével azonos
+   * színátmenet. Ha újra 100 kB fölé nő, fotó került vissza – az 1 GB
+   * memóriás TV-n az a lassú indulás egyik oka volt.
+   */
   const splashPath = path.join(ROOT, 'webos/splash-screen.png');
-  assert.ok(fs.existsSync(splashPath) && fs.statSync(splashPath).size > 100_000,
-    'a webos/splash-screen.png nem a takaroképből készült');
+  assert.ok(fs.existsSync(splashPath), 'hiányzik a webos/splash-screen.png');
+  assert.ok(fs.statSync(splashPath).size < 120_000,
+    `a webos/splash-screen.png ${fs.statSync(splashPath).size} byte – fotós háttér került vissza`);
 });
 
 test('a body/html háttere a REVEAL-nál NEM vált – nincs fekete kocka', () => {
@@ -293,8 +297,8 @@ test('a build kiemeli a hatalmas JS-t és CSS-t, az index.html kicsi marad', () 
   assert.doesNotMatch(html, /<script[^>]*type="module"/);
   assert.ok(fs.existsSync(path.join(ROOT, 'build/webos/app.js')));
   assert.ok(fs.existsSync(path.join(ROOT, 'build/webos/app.css')));
-  assert.ok(fs.existsSync(path.join(ROOT, 'build/webos/splash-bg.jpg')),
-    'a betöltőképernyő háttere hiányzik a csomagból');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'build/webos/splash-bg.jpg')),
+    'felesleges háttér-JPEG került a csomagba (a háttér CSS színátmenet)');
   assert.ok(fs.existsSync(path.join(ROOT, 'build/webos/splash-screen.png')),
     'a webOS indítóképe hiányzik a csomagból');
   assert.match(html, /id="boot-screen"|id="boot-bg"/,

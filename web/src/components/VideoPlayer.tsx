@@ -11,6 +11,7 @@ import {
   registerLoggingLifecycleHooks,
   resolutionClassOf,
 } from '../services/appLog';
+import { tvDeviceText } from '../services/tvDevice';
 import { fsNow, fsPerf, fsPerfTimed } from '../services/fullscreenPerf';
 import {
   MediaProgressSample,
@@ -1090,6 +1091,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     waitingSince: number;
     sizesSeen: string[];
     lastSizeKey: string;
+    /** Az utolsó naplózott minta ideje (dupla sorok kiszűrése). */
+    lastSampleAt: number;
     videoCodec: string;
     audioCodec: string;
     codecSource: string;
@@ -1130,6 +1133,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     state.waitingSince = 0;
     state.sizesSeen = [];
     state.lastSizeKey = '';
+    state.lastSampleAt = 0;
     state.videoCodec = '';
     state.audioCodec = '';
     state.codecSource = '';
@@ -1228,7 +1232,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Szüneteltetett/befejezett lejátszásról nincs értelme mintát írni –
     // csak a képkocka-alapokat frissítjük, hogy a folytatáskor ne legyen
     // hamis sebességugrás a naplóban.
-    if (video.paused || video.ended) {
+    if (video.paused || video.ended || video.readyState < 2) {
       const framesNow = readPlaybackFrameStats(video);
       if (framesNow) state.lastFrames = { ...framesNow, at: now };
       state.lastRvfc = { count: state.rvfcCount, at: now };
@@ -1306,6 +1310,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         state.bitrateSource = 'hálózati mérés';
       }
     } catch { /* a bitráta nem mérhető ezen a motoron */ }
+
+    /*
+     * NINCS DUPLA SOR (2.5.158).
+     *
+     * A 9. naplóban ugyanaz a minta kétszer-háromszor egymás után került a
+     * naplóba (a `playing` esemény és a 4 mp-es időzítő ugyanabban a
+     * pillanatban futott). 1,2 mp-en belül legfeljebb egy minta készül: alatta
+     * nincs új információ, csak a napló hízik tőle.
+     */
+    if (now - state.lastSampleAt < 1200) return;
+    state.lastSampleAt = now;
 
     const rect = video.getBoundingClientRect();
     logPlaybackQuality({
@@ -1483,7 +1498,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return 'ismeretlen';
       })();
       logPlaybackQualityEvent(
-        `KÉPESSÉG; képernyő=${window.screen?.width || 0}x${window.screen?.height || 0} CSS px; DPR=${dpr} (fizikai panel≈${Math.round((window.screen?.width || 0) * dpr)}x${Math.round((window.screen?.height || 0) * dpr)}); ` +
+        `KÉPESSÉG; TV=${tvDeviceText()}; képernyő=${window.screen?.width || 0}x${window.screen?.height || 0} CSS px; DPR=${dpr} (fizikai panel≈${Math.round((window.screen?.width || 0) * dpr)}x${Math.round((window.screen?.height || 0) * dpr)}); ` +
         `ablak=${window.innerWidth}x${window.innerHeight}; színtér=${gamut}; panel HDR=${hdrPanelSupported() === true ? 'igen (dynamic-range: high)' : hdrPanelSupported() === false ? 'nem jelzett' : 'a motor nem árulja el'}; ` +
         `canPlayType: H264="${can('video/mp4; codecs="avc1.640033"')}", HEVC="${can('video/mp4; codecs="hvc1.2.4.L150.B0"')}", VP9="${can('video/webm; codecs="vp09.00.51.08"')}", AV1="${can('video/mp4; codecs="av01.0.31M.10"')}", HLS="${can('application/vnd.apple.mpegurl')}", TS="${can('video/mp2t')}".`
       );
@@ -1535,6 +1550,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       waitingSince: 0,
       sizesSeen: [],
       lastSizeKey: '',
+      lastSampleAt: 0,
       videoCodec: '',
       audioCodec: '',
       codecSource: '',

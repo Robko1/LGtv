@@ -319,8 +319,9 @@ async function main(): Promise<void> {
     `(háló=${safetyNet} ms, alkalmazás=${appLimit} ms)`
   );
   check(
-    'az első festés a takarokep.jpg teljes háttere (nincs képvillanás)',
-    htmlSource.includes('id="boot-bg"') && htmlSource.includes('src="splash-bg.jpg"')
+    'az első festés tiszta CSS színátmenet (nincs háttérkép, nincs képvillanás)',
+    !/id="boot-bg"|splash-bg/.test(htmlSource)
+      && /#boot-screen \.stage\s*\{[^}]*background-image:/s.test(htmlSource)
   );
   /*
    * A folyamatjelző SOHA nem kap véletlen vagy időzített értéket: a

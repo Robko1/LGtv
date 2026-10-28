@@ -148,29 +148,25 @@ test('a csomagolt HTML a külső app.js/app.css fájlokra hivatkozik', () => {
   assert.match(html, /IPTV-ES5-POLYFILLS/, 'a polyfill jelölő eltűnt');
   assert.doesNotMatch(html, /<script[^>]*type="module"/);
   assert.match(html, /id="boot-screen"/, 'a betöltőképernyő hiányzik a csomagból');
-  assert.match(html, /<img id="boot-bg" src="splash-bg\.jpg"/,
-    'a takarokép háttere hiányzik a csomagból');
+  assert.doesNotMatch(html, /splash-bg|boot-bg/,
+    'a csomagba háttérkép került – a háttér CSS színátmenet kell legyen');
 });
 
-test('a takarókép hátterét a <head> injektálja, nem a <body>', () => {
+test('2.5.158: nincs kép-előmelegítő szkript – a háttér CSS', () => {
   /*
-   * 2.5.112 HIBA: az injektáló szkript a <body>-ban volt. Lassú TV-n a
-   * böngésző már az injektálás ELŐTT kirajzolhatta a #tv-curtain réteget,
-   * így egy pillanatra csak a statikus CSS tartalék ZÖLD színátmenete
-   * látszott – ez volt a felhasználó „zöld háttér is bevillant” észrevétele.
-   * A <head>-ben a stílus garantáltan az első festés előtt bekerül.
+   * A korábbi `__IPTV_BOOT_PICTURE__` előmelegítő szkript a <head>-ben
+   * szinkron módon dekódolt egy 1920x1080-as JPEG-et. Ez az 1 GB memóriás
+   * TV-n mérhetően késleltette az első festést, ezért megszűnt.
    */
   const src = read('web/index.html');
-  const headEnd = src.indexOf('</head>');
-  const bodyStart = src.indexOf('<body');
-  assert.ok(headEnd > 0 && bodyStart > headEnd, 'a web/index.html <head>/<body> sorrendje váratlan');
-  const injector = src.indexOf("__IPTV_BOOT_PICTURE__");
-  assert.ok(injector > 0, 'nem található a korai kép-előmelegítő szkript');
-  assert.ok(injector < headEnd, 'az előmelegítés nem a <head>-ben van');
-  assert.match(src.slice(0, headEnd), /__IPTV_BOOT_PICTURE__ = 'splash-bg\.jpg'/,
-    'a korai előmelegítés nem a takarókép fájljára mutat');
-  assert.ok(!src.slice(bodyStart).includes("var preload = new Image()"),
-    'a <body>-ban is van kép-előmelegítő (duplikált)');
+  assert.equal(src.includes('__IPTV_BOOT_PICTURE__'), false,
+    'a kép-előmelegítő szkript visszatért');
+  assert.equal(src.includes('__IPTV_BOOT_PRELOAD__'), false,
+    'a kép-előmelegítő szkript visszatért');
+  assert.equal(src.includes('new Image()'), false,
+    'a <head>-ben ismét kép-előmelegítés fut');
+  assert.match(src, /<script src="webOSTV\.js"><\/script>/,
+    'a webOS Luna-híd (TV típus a naplóhoz) nem töltődik be');
 });
 
 test('a 9 mp-es indulási korlát a teljes revealNow() utat használja', () => {
@@ -278,8 +274,6 @@ test('a takarókép réteg alapszíne a főoldali váz sötétkékje (nincs kere
      EGYETLEN háttérszín sem vált, ezért nincs fekete kocka. */
   assert.match(html, /html\.iptv-booting body\s*\{\s*background-color:\s*#080d1a !important;/);
   assert.match(html, /html\.iptv-revealed body\s*\{\s*background-color:\s*#080d1a !important;/);
-  assert.match(html, /<img id="boot-bg" src="splash-bg\.jpg"/,
-    'a teljes képernyős takarókép hiányzik');
   assert.doesNotMatch(html, /background-color:\s*#6ccbd3/i,
     'a régi világos türkiz háttér visszatért');
   assert.doesNotMatch(html, /#iptv-skeleton|\.sk-player/,

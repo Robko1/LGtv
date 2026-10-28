@@ -204,21 +204,12 @@ test('az előfestés két képkockáját a HTML-híd méri, nem a REVEAL', () =>
 
 /* ─────────────── 1/b. ZÖLD HÁTTÉR VILLANÁS (23:25:43) ──────────────────── */
 
-test('2.5.139: a betöltőképernyő a takarokep.jpg teljes háttere – nincs beégetett kép', () => {
-  assert.match(PAGE, /<img id="boot-bg" src="splash-bg\.jpg"/,
-    'a teljes képernyős háttér nem a takaróképből készült helyi fájl');
-  /*
-   * 2.5.151: a `decoding="sync"` KIKERÜLT. A 35. naplóban az első festés
-   * 1853 ms volt, mert a szinkron dekódolás a kép elkészültéig visszatartotta
-   * a képkockát – addig a világos platform-háttér látszott. A fotó most a
-   * sötét betöltőképernyő fölött úszik be, az animáció azonnal indul.
-   */
-  assert.doesNotMatch(PAGE, /<img id="boot-bg"[^>]*decoding="sync"/,
-    'a szinkron képdekódolás ismét blokkolja az első festést');
-  assert.match(PAGE, /#boot-bg\.is-ready\s*\{\s*opacity:\s*1;\s\}/,
-    'a háttérkép beúszása hiányzik');
-  assert.match(PAGE, /#boot-bg\s*\{[^}]*object-fit:\s*cover/,
-    'a háttérkép nem tölti ki torzítás nélkül a teljes képernyőt');
+test('2.5.158: a betöltőképernyő háttere CSS színátmenet – nincs fotó, nincs beégetett kép', () => {
+  assert.doesNotMatch(PAGE, /<img id="boot-bg"/,
+    'a háttérkép <img> elem visszatért');
+  assert.doesNotMatch(PAGE, /splash-bg/, 'a háttér JPEG-fájlra hivatkozás visszatért');
+  assert.match(PAGE, /#boot-screen \.stage\s*\{[^}]*background-image:/s,
+    'a háttér nem CSS színátmenet');
   assert.equal((PAGE.match(/data:image\/jpeg;base64,/g) || []).length, 0,
     'a beégetett kép visszatért – újra 2,5 mp lenne a válaszidő');
   assert.doesNotMatch(PAGE, /iptv-skeleton|\.sk-player|\.sk-thumb|boot-logo/,
@@ -299,10 +290,11 @@ test('a build külön app.js/app.css fájlba emeli a nagy JS-t és CSS-t', () =>
   assert.match(build, /<script src="app\.js"/);
   assert.match(build, /href="app\.css"/);
   assert.match(build, /make-splash\.py" --out-dir "\$BUILD_DIR"/,
-    'a build nem a takarokep.jpg-ből készíti az indítóképet');
+    'a build nem generálja a platform indítóképét');
   const splash = read('tools/make-splash.py');
-  assert.match(splash, /SOURCE = ROOT \/ "takarokep\.jpg"/, 'az indítókép forrása nem a takarokep.jpg');
-  assert.match(splash, /progressive=False/, 'a splash-bg.jpg újra progresszív lenne');
+  assert.equal(splash.includes('takarokep'), false,
+    'az indítókép ismét a takarokep.jpg-ből készül (fotós háttér)');
+  assert.match(splash, /splash-screen\.png/, 'a generált platform indítókép neve megváltozott');
   const built = path.join(ROOT, 'build/webos/index.html');
   if (!fs.existsSync(built)) return;
   const html = fs.readFileSync(built, 'utf8');
