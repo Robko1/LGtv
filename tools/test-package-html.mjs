@@ -192,6 +192,17 @@ test('a 9 mp-es indulási korlát a teljes revealNow() utat használja', () => {
 });
 
 test('az app bgColor sötét – nem villan be világos kék a lap festése előtt', () => {
+  if (read('web/index.html').includes('TEMPORARY_NO_BOOT_ANIMATION')) {
+    const page = read('web/index.html');
+    const info = JSON.parse(read('webos/appinfo.json'));
+    assert.equal(info.splashBackground, 'splash-screen.png');
+    assert.match(page, /TEMPORARY_NO_BOOT_ANIMATION/);
+    assert.match(page, /root && root\.childElementCount > 0/,
+      'a platformkép levétele előtt meg kell várni a főoldal DOM-ját');
+    assert.match(page, /window\.setTimeout\(waitForMainPage, 100\)/);
+    assert.doesNotMatch(page, /window\.setTimeout\(releasePlatformSplash, 1500\)/);
+    return;
+  }
   /*
    * A webOS a bgColor-t festi az alkalmazás első kirajzolt képkockája ELŐTT,
    * és minden olyan pillanatban, amikor a lap éppen nem festett.
