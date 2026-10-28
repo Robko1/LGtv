@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.163';
+export const WEB_VERSION = '2.5.164';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.163',
+    version: '2.5.164',
     date: '2026-10-28',
     changes: [
       'A PLATFORM INDÍTÓKÉP MOSTANTÓL UGYANAZ A KÉP, MINT A BETÖLTŐKÉPERNYŐ HÁTTERE: a webOS splashBackground képe a web/index.html-be ágyazott saját IPTV-ikonból készül (cover, 1.08 nagyítás, brightness .88 / saturate 1.2 / contrast 1.04, három fátyol, 84 pixeles rács, vignetta), 24 bites RGB-ben. Eddig a platform kép egy generált színátmenet volt, a betöltőképernyő háttere pedig az ikon – a kettő között látszott a váltás, ez volt az „indításkor nincs takarókép, fekete–zöldes háttér váltakozik” észrevétel',
