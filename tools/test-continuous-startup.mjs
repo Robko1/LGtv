@@ -194,6 +194,16 @@ test('a híd csak a jelentett valós adatokat rajzolja ki', () => {
 });
 
 test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már festve van', async () => {
+  if (PAGE.includes('TEMPORARY_NO_BOOT_ANIMATION')) {
+    assert.match(PAGE, /TEMPORARY_NO_BOOT_ANIMATION/);
+    assert.match(PAGE, /root && root\.childElementCount > 0/,
+      'a platform indítókép levétele megvárja a főoldal DOM-ját');
+    assert.match(PAGE, /window\.setTimeout\(waitForMainPage, 100\)/,
+      'nincs ismétlődő ellenőrzés, amíg a főoldal elkészül');
+    assert.doesNotMatch(PAGE, /window\.setTimeout\(releasePlatformSplash, 1500\)/,
+      'a régi időzítő túl korán levenné a platformképet');
+    return;
+  }
   /*
    * A webOS a splashBackground képet addig takarja, amíg az app meg nem hívja
    * a notifyAppLoaded()-et. Ha ez csak a főoldal megjelenésekor történne meg,
