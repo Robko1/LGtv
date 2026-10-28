@@ -1966,37 +1966,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   //   3. a csatornalista a kiválasztott sorra állítja a sárga kijelölést.
   const wasFullscreenRef = useRef(false);
   useEffect(() => {
+    let focusFrame = 0;
+    let restoreFrame = 0;
     if (isFullscreen) {
       wasFullscreenRef.current = true;
-      /*
-       * Teljes képernyőn csak a nézéshez szükséges dolgok fussanak: a
-       * csatornalista erre az eseményre állítja le az EPG-óráját és a
-       * műsor-előtöltést. (A visszaindítás az `iptv-player-restored`
-       * eseményre történik, a lejátszó helyreállása UTÁN.)
-       */
       window.dispatchEvent(new CustomEvent('iptv-fullscreen-entered'));
-      window.requestAnimationFrame(() => {
+      focusFrame = window.requestAnimationFrame(() => {
         containerRef.current?.focus({ preventScroll: true } as any);
       });
     } else if (wasFullscreenRef.current) {
       wasFullscreenRef.current = false;
       try { (containerRef.current as HTMLElement | null)?.blur?.(); } catch { /* régi motor */ }
       setShowControlsOverlay(true);
-      // Egyetlen következő képkockás fókuszjelzés elég; nincs késleltetett ismétlés.
-      window.requestAnimationFrame(() => {
+      focusFrame = window.requestAnimationFrame(() => {
         window.dispatchEvent(new CustomEvent('iptv-focus-selected-channel'));
       });
-      /*
-       * A FŐOLDAL MUNKÁJA CSAK A LEJÁTSZÓ HELYREÁLLÁSA UTÁN INDULHAT ÚJRA.
-       *
-       * A geometria a commitban, a `.iptv-fs` osztály törlésével azonnal
-       * helyreáll, de a csatornalista EPG-letöltése és a főoldali OSD csak a
-       * kifestett képkocka után kaphat munkát – különben a visszatérés első
-       * képkockáján CPU-t és hálózatot venne el a kirajzolástól. Ezért két
-       * képkockát várunk (az első festés után), és csak akkor jelezünk.
-       */
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
+      // Az EPG továbbra is csak két renderelési lehetőség után indul újra.
+      // Újabb belépés/unmount esetén a régi visszatérés nem indíthatja el.
+      restoreFrame = window.requestAnimationFrame(() => {
+        restoreFrame = window.requestAnimationFrame(() => {
           const started = fsNow();
           window.dispatchEvent(new CustomEvent('iptv-player-restored'));
           if (isVerbosePlaybackLogging()) {
@@ -2006,6 +1994,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
       });
     }
+    return () => {
+      if (focusFrame) window.cancelAnimationFrame(focusFrame);
+      if (restoreFrame) window.cancelAnimationFrame(restoreFrame);
+    };
   }, [isFullscreen]);
   // A webOS TV kizárólag fekvő nézetet használ.
   const isLiveLandscapeFullscreen = isLive && isFullscreen;

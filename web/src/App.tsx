@@ -39,6 +39,8 @@ import { fsPerf, fsStep } from './services/fullscreenPerf';
 import { speedSelect } from './services/speedDiagnostics';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
+import { displayChannelPositions } from './utils/displayChannelOrder';
+import { createFullscreenSync } from './utils/fullscreenSync';
 import {
   checkProviderChanges,
   describeCatalogSummary,
@@ -673,14 +675,17 @@ export function App() {
    * háttérben következik – pontosan úgy, ahogy egy set-top boxnál.
    */
   const videoFullscreenRef = useRef(false);
+  const fullscreenSyncRef = useRef<ReturnType<typeof createFullscreenSync> | null>(null);
+  if (!fullscreenSyncRef.current) {
+    fullscreenSyncRef.current = createFullscreenSync(setIsVideoFullscreen, (callback) => window.requestAnimationFrame(callback));
+  }
   const applyVideoFullscreen = useCallback((value: boolean) => {
     // A lejátszó/ref állapota azonnal frissül, hogy a VISSZA gomb már
     // a helyes módot lássa. BELÉPÉSNÉL a főoldal React-fája csak két festési
     // képkocka után változik, így a lejátszó geometriája előbb megjelenhet;
     // KILÉPÉSNÉL viszont azonnal (lásd a lenti magyarázatot).
     videoFullscreenRef.current = value;
-    const apply = () => setIsVideoFullscreen(value);
-    const raf = (callback: FrameRequestCallback) => window.requestAnimationFrame(callback);
+
     /*
      * 2.5.168 – A KILÉPÉS NEM VÁRHAT KÉPKOCKÁKRA.
      *
@@ -696,13 +701,14 @@ export function App() {
      */
     if (!value) {
       fsStep('főoldal: visszatérés jelölve', 'azonnali frissítés – a főoldal és a lejátszó egy körben rajzolódik');
-      setIsVideoFullscreen(false);
+      fullscreenSyncRef.current?.set(false);
       return;
     }
     fsStep('főoldal: teljes képernyő jelölve',
       'az állapot két képkockával később frissül (a kép előbb kikerül)');
-    raf(() => raf(apply));
+    fullscreenSyncRef.current?.set(true);
   }, []);
+  useEffect(() => () => { fullscreenSyncRef.current?.invalidate(); }, []);
   const [liveAccent, setLiveAccent] = useState<'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white'>(() => {
     try {
       const saved = localStorage.getItem('iptv-live-accent');
@@ -1025,24 +1031,12 @@ export function App() {
 
 
   // A képernyőn megjelenő sorszám a jelenlegi szűrt lista pozíciója; az eredeti ch.num érintetlen.
-  const activeChannelDisplayNumber = useMemo(() => {
-    // FONTOS (a felület lassulásának fő oka): itt korábban
-    // `displayedChannelOrder.every(id => filteredChannels.some(...))` volt,
-    // ami négyzetszerű (O(n²)) futásidőt jelentett - 20 000 csatornás
-    // országlistánál ez több százmillió összehasonlítás, azaz másodperces
-    // fagyás minden lista- vagy kijelölésváltozásnál. Halmazos ellenőrzés: O(n).
-    let orderMatchesCurrentList = displayedChannelOrder.length === filteredChannels.length;
-    if (orderMatchesCurrentList) {
-      const visibleIds = new Set<string>();
-      for (const channel of filteredChannels) visibleIds.add(channel.id);
-      for (const id of displayedChannelOrder) {
-        if (!visibleIds.has(id)) { orderMatchesCurrentList = false; break; }
-      }
-    }
-    const order = orderMatchesCurrentList ? displayedChannelOrder : filteredChannels.map((channel) => channel.id);
-    const index = order.indexOf(activeChannelId);
-    return index >= 0 ? index + 1 : undefined;
-  }, [filteredChannels, activeChannelId, displayedChannelOrder]);
+  // A nagy lista egyezését/indexét nem számoljuk újra minden csatornaváltáskor.
+  const displayedChannelPositions = useMemo(
+    () => displayChannelPositions(filteredChannels, displayedChannelOrder),
+    [filteredChannels, displayedChannelOrder],
+  );
+  const activeChannelDisplayNumber = displayedChannelPositions.get(activeChannelId);
 
   // A ChannelList kezeli a látható csatornák EPG-jét a referencia mintájára.
   // Itt csak a gyorsítótárból frissítjük a csatornaállapotot; nincs második előtöltő sor.
@@ -3786,7 +3780,10 @@ export function App() {
           break;
         case 'f':
         case 'F':
-          if (!customStreamUrl) setIsVideoFullscreen((prev) => !prev);
+          if (!customStreamUrl) {
+            fullscreenSyncRef.current?.invalidate();
+            setIsVideoFullscreen((prev) => !prev);
+          }
           break;
         case 'm':
         case 'M':
@@ -3981,7 +3978,7 @@ export function App() {
           className={`flex-1 flex flex-col ${settings.mirrorLayout ? 'md:flex-row-reverse' : 'md:flex-row'} overflow-hidden min-h-0`}
         >
           {/* Video + Controls – mobilon felül, desktopon bal oldalt rugalmas */}
-          <div className="flex-1 flex flex-col overflow-hidden min-h-0 md:min-w-0">
+          <div data-reserve-live-player={!customStreamUrl ? "" : undefined} className="flex-1 flex flex-col overflow-hidden min-h-0 md:min-w-0">
           {/* Video Player */}
           <VideoPlayer
             liveAccent={liveAccent}
@@ -4025,7 +4022,7 @@ export function App() {
               } else {
                 storageService.saveHistory(historyRef.current);
               }
-              setIsVideoFullscreen(false);
+              applyVideoFullscreen(false);
               setCustomStreamUrl(undefined);
               setCustomStreamTitle(undefined);
               const returnView = vodReturnViewRef.current;
@@ -4119,7 +4116,7 @@ export function App() {
               Az OSD MOUNTOLVA MARAD teljes képernyő alatt is (csak rejtve):
               korábban minden váltáskor lebontódott és újraépült, ezért a
               visszatéréskor először az OSD „épült fel” a szem előtt. */}
-          {!customStreamUrl && <div data-live-osd="" style={{ display: isVideoFullscreen || !isOsdVisible ? 'none' : undefined }}><ChannelControls
+          {!customStreamUrl && <div data-live-osd="" data-view-hidden={isVideoFullscreen ? '' : undefined} aria-hidden={isVideoFullscreen || !isOsdVisible ? true : undefined} style={{ display: !isOsdVisible ? 'none' : undefined }}><ChannelControls
             className="main-live-osd"
             channel={activeChannel}
             displayNumber={activeChannelDisplayNumber}

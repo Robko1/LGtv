@@ -100,8 +100,8 @@ test('4. a lejátszó a helyreállás UTÁN jelez (két képkocka, eseménnyel)'
   assert.match(PLAYER, /window\.dispatchEvent\(new CustomEvent\('iptv-player-restored'\)\)/);
   assert.ok(restore.length > 0);
   // A jelzés a kifestett képkocka után: két egymásba ágyazott animációs kép.
-  assert.match(PLAYER, /requestAnimationFrame\(\(\) => \{\s*window\.requestAnimationFrame\(\(\) => \{[\s\S]{0,400}?iptv-player-restored/,
-    'a visszatérés jelzése csak a kifestés után mehet');
+  assert.match(PLAYER, /requestAnimationFrame\(\(\) => \{\s*restoreFrame = window\.requestAnimationFrame\(\(\) => \{[\s\S]{0,400}?iptv-player-restored/,
+    'a visszatérés jelzése csak két renderelési lehetőség után mehet');
   // Belépéskor a lista leállítja a munkáját.
   assert.match(PLAYER, /window\.dispatchEvent\(new CustomEvent\('iptv-fullscreen-entered'\)\)/);
 });
@@ -273,9 +273,9 @@ test('7. a váltás mérése az OK lenyomásától indul, mindkét irányban', (
     'a belépés állapotváltása nem látszik a naplóban');
   assert.match(APP, /fsStep\('főoldal: visszatérés jelölve'/,
     'a kilépés állapotváltása nem látszik a naplóban');
-  assert.match(APP, /if \(!value\) \{[\s\S]{0,300}?setIsVideoFullscreen\(false\);/,
+  assert.match(APP, /if \(!value\) \{[\s\S]{0,300}?fullscreenSyncRef\.current\?\.set\(false\);/,
     'a kilépés nem azonnali (a főoldal a két képkockás késleltetésre vár)');
-  assert.match(APP, /raf\(\(\) => raf\(apply\)\)/,
+  assert.match(APP, /fullscreenSyncRef\.current\?\.set\(true\)/,
     'a belépés két képkockás késleltetése elveszett');
 });
 
