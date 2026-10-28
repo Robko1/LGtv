@@ -58,7 +58,7 @@ small_img = Image.open(small_path).convert("RGBA")
 large_img = Image.open(large_path).convert("RGBA")
 # A webes felület a két ikont adat URL-ként használja; külön, soha nem
 # hivatkozott ikonkep.png fájlt nem generálunk a Vite public mappába.
-# A TV saját indítóképe a betöltőképernyő háttere (lásd tools/make-splash.py).
+# A TV saját indítóképe a feltöltött webos/splash-screen.png fájl.
 def icon_b64(img, px):
     thumb = img.resize((px, px), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
