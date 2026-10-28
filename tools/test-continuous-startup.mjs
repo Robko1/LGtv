@@ -337,10 +337,15 @@ test('a body/html háttere a REVEAL-nál NEM vált – nincs fekete kocka', () =
     'a régi világos türkiz háttér visszatért');
 });
 
-test('az üres lejátszó doboza nem fekete és NEM későn dekódolódó kép', () => {
+test('a lejátszó doboza FEKETE és NEM későn dekódolódó kép', () => {
   assert.doesNotMatch(PAGE, /\[data-player-poster\][^}]*background-image:\s*url\(data:image\/jpeg/,
     'a poszter újra későn dekódoló hátteret kapott (4674 ms-es LCP)');
-  assert.match(PAGE, /html\[data-iptv-boot="empty"\] \[data-player-poster\]\s*\{[^}]*linear-gradient/);
+  /*
+   * 2.5.165 – a felhasználó kérése: a csatornaváltás közötti háttér (főoldal
+   * és teljes képernyő) FEKETE, nem világoskék. Korábban itt türkiz
+   * színátmenet volt, ezért villant be világoskék a váltás alatt.
+   */
+  assert.match(PAGE, /html\[data-iptv-boot="empty"\] \[data-player-poster\]\s*\{[^}]*background:\s*#000/);
   assert.match(PAGE, /html\[data-iptv-boot="empty"\] \[data-player-poster\]::after/);
   assert.match(PLAYER, /\{channel && \(/,
     'a „Kapcsolódás…” felirat újra eltakarja az üres dobozt');

@@ -11,6 +11,7 @@ import {
   lastStoredContentReport,
   ImportedContent,
   inspectStoredCatalogs,
+  loadCatalogPreview,
   loadLive,
   loadSyncState,
   markCatalogChecked,
@@ -725,6 +726,18 @@ export function App() {
   }, [volume, handleVolumeChange]);
   const [customStreamUrl, setCustomStreamUrl] = useState<string | undefined>(undefined);
   const [customStreamTitle, setCustomStreamTitle] = useState<string | undefined>(undefined);
+  /*
+   * A VOD-ZÁR TÜKRE (2.5.165).
+   *
+   * A csatornaváltás tiltását nem elég állapotra kötni: a billentyű- és a
+   * webOS-esemény a soron kívül érkezik, ezért a `customStreamUrl` friss
+   * értékét ref-ben tartjuk. Ha ez kitöltött, film vagy sorozat megy, és
+   * sem csatornaváltás, sem főoldalra ugrás nem indulhat.
+   */
+  const customStreamUrlRef = useRef<string | undefined>(customStreamUrl);
+  useEffect(() => {
+    customStreamUrlRef.current = customStreamUrl;
+  }, [customStreamUrl]);
 
   /*
    * A TELJES KÉPERNYŐS ÉLŐ TV OSD.
@@ -1139,12 +1152,31 @@ export function App() {
   const bootProbeStartedRef = useRef(false);
   const restoreRunningRef = useRef(false);
 
+  /*
+   * A VISSZATÖLTÉS SORBA ÁLL, NEM VESZIK EL (2.5.165).
+   *
+   * A 20–21. napló: a Mozi nézet első megnyitásakor indított kérés
+   * (`ensureVodLoaded`) CSENDBEN elveszett, mert épp futott az élő lista
+   * visszatöltése (`restoreRunningRef`). A felhasználó ezért üres rácsot
+   * látott – és csak a kilépés-visszalépés után, egy MÁSODIK kérésre jelent
+   * meg minden („kilépek a főoldalra és visszalepek, akkor rendesen
+   * megjelenik”). Mostantól a futás alatt érkező kérés egy helyre
+   * bejegyzésre kerül, és a futás végén automatikusan lefut.
+   */
+  const runRestoreRef = useRef<((plan?: StoredCatalogPlan | null, scope?: 'all' | 'live' | 'vod') => Promise<void>) | null>(null);
+  const restoreQueuedRef = useRef<{ plan: StoredCatalogPlan; scope: 'all' | 'live' | 'vod' } | null>(null);
+
   const runRestore = useCallback(async (
     plan?: StoredCatalogPlan | null,
     scope: 'all' | 'live' | 'vod' = 'all',
   ): Promise<void> => {
     const target = plan || catalogPlanRef.current;
-    if (!target || restoreRunningRef.current) return;
+    if (!target) return;
+    if (restoreRunningRef.current) {
+      // Egy futó visszatöltés alatt érkezett kérés: a végén menjen le.
+      restoreQueuedRef.current = { plan: target, scope };
+      return;
+    }
     restoreRunningRef.current = true;
     appLog(`Mentett katalógus visszatöltése indul (tároló: ${target.provider.id}, szakasz: ${scope}).`);
     try {
@@ -1179,6 +1211,30 @@ export function App() {
           });
           appLog(`Teljes élő lista a felületen: ${full.channels.length} csatorna (tartós tár).`);
         },
+        /*
+         * RÉSZLEGES KISZOLGÁLÁS (2.5.165): az első adag (500 film / 500
+         * sorozat) dekódolása után AZONNAL a felületre kerül, hogy a rács ne
+         * legyen üres a teljes visszatöltés 30 másodperce alatt. A teljes
+         * lista utána `onVod`/`onSeries` útján írja felül.
+         */
+        onVodPartial: (partial) => {
+          if (providerRefreshActiveRef.current) return;
+          if (!partial.movies.length) return;
+          setMovies((current) => (current.length >= partial.movies.length ? current : partial.movies));
+          if (partial.categories.length) {
+            setVodCategories((current) => (sameCategories(current, partial.categories) ? current : partial.categories));
+          }
+          appLog(`Első filmadag a felületen: ${partial.movies.length} (a többi a háttérben töltődik).`);
+        },
+        onSeriesPartial: (partial) => {
+          if (providerRefreshActiveRef.current) return;
+          if (!partial.series.length) return;
+          setSeries((current) => (current.length >= partial.series.length ? current : partial.series));
+          if (partial.categories.length) {
+            setSeriesCategories((current) => (sameCategories(current, partial.categories) ? current : partial.categories));
+          }
+          appLog(`Első sorozatadag a felületen: ${partial.series.length} (a többi a háttérben töltődik).`);
+        },
         onVod: (vod) => {
           if (providerRefreshActiveRef.current) return;
           setMovies(vod.movies);
@@ -1194,8 +1250,14 @@ export function App() {
       }, { scope });
     } finally {
       restoreRunningRef.current = false;
+      const queued = restoreQueuedRef.current;
+      restoreQueuedRef.current = null;
+      if (queued) {
+        void runRestoreRef.current?.(queued.plan, queued.scope);
+      }
     }
   }, []);
+  runRestoreRef.current = runRestore;
 
   /**
    * A Mozi/Sorozat menü azonnal kérheti – CSAK a filmeket és sorozatokat.
@@ -1206,7 +1268,27 @@ export function App() {
    * másodpercben). A menü megnyitásakor viszont a néző erre számít, és a
    * lista adagokban, lélegzve töltődik be.
    */
-  const ensureVodLoaded = useCallback(() => { void runRestore(catalogPlanRef.current, 'vod'); }, [runRestore]);
+  const ensureVodLoaded = useCallback(() => {
+    const plan = catalogPlanRef.current;
+    if (!plan) return;
+    /*
+     * AZONNALI ELŐNÉZET A MENÜ MEGNYOMÁSAKOR (2.5.165).
+     *
+     * Ha a felületen még nincs egyetlen film/sorozat sem, az első adagból
+     * 20-20 tételt AZONNAL kirakunk (poszterrel együtt), hogy a rács ne
+     * legyen üres. A teljes visszatöltés utána, a háttérben fut – a kérés
+     * pedig sorba áll, ha épp más visszatöltés megy.
+     */
+    if (moviesRef.current.length === 0 || seriesRef.current.length === 0) {
+      void loadCatalogPreview(plan.provider, 20)
+        .then((preview) => {
+          if (preview.movies.length) setMovies((current) => (current.length ? current : preview.movies));
+          if (preview.series.length) setSeries((current) => (current.length ? current : preview.series));
+        })
+        .catch(() => { /* a teljes lista jön helyette */ });
+    }
+    void runRestore(plan, 'vod');
+  }, [runRestore]);
 
   /**
    * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE – A FELFEDÉS UTÁN (2.5.149).
@@ -1445,6 +1527,29 @@ export function App() {
         setLiveRecoveryNeeded(false);
         setBootProbeDone(true);
         /*
+         * INDULÓ ELŐNÉZET: ~20 FILM ÉS ~20 SOROZAT POSZTERREL (2.5.165).
+         *
+         * A felhasználó kérése: „induláskor elég 20 sorozat és mozi
+         * töltődjön be, a poszterek ne legyenek üresek”. A teljes 102 871
+         * film visszatöltése a Mozi nézet megnyitásakor 32–35 mp volt
+         * (20–21. napló), és ez alatt a rács ÜRES volt. Ez az előnézet a
+         * tartós tár ELSŐ adagját olvassa ki (500 film / 500 sorozat),
+         * abból 20-20-at tesz a felületre – a TV-n néhány száz ms. A
+         * poszterek a bejegyzésben tárolt kép-URL-ek, tehát nem üresek.
+         * A teljes lista ezt követően, háttérben írja felül.
+         */
+        void loadCatalogPreview(plan.provider, 20)
+          .then((preview) => {
+            if (cancelled) return;
+            if (preview.movies.length) {
+              setMovies((current) => (current.length ? current : preview.movies));
+            }
+            if (preview.series.length) {
+              setSeries((current) => (current.length ? current : preview.series));
+            }
+          })
+          .catch(() => { /* az előnézet kimaradhat, a teljes lista jön helyette */ });
+        /*
          * A TELJES LISTA A MEGJELENÉS UTÁN TÖLTŐDIK BE – NEM A TAKARÓKÉP ALATT.
          *
          * 2.5.143: a 19-es TV-naplóban a 20 190 csatornás lista visszatöltése
@@ -1532,11 +1637,26 @@ export function App() {
       lastSavedRef.current = { channels, movies, series };
       appLog(`Változások mentése (csatorna=${changedChannels}, film=${changedMovies}, sorozat=${changedSeries}; `
         + `${channels.length} csatorna, ${movies.length} film, ${series.length} sorozat).`);
+      /*
+       * RÉSZLEGES LISTA SOSEM ÍRJA FELÜL A TELJESET (2.5.165).
+       *
+       * Az induló előnézet 20 filmet/sorozatot tesz a felületre, a teljes
+       * lista pedig később, háttérben érkezik. Ha a néző közben kedvencet
+       * jelöl (ezért fut ez a mentés), a rövid előnézeti lista KIFELÉ is
+       * mentődne, és a tartós tárban lévő 102 871 film helyére 20 kerülne.
+       * Ezért csak akkor írunk film/sorozat listát, ha az eléri az ismert
+       * teljes darabszámot.
+       */
+      const moviesComplete = movies.length === 0 || movies.length >= totalCounts.vod;
+      const seriesComplete = series.length === 0 || series.length >= totalCounts.series;
+      if (!moviesComplete || !seriesComplete) {
+        appLog(`Részleges lista – a film/sorozat mentés kimarad (${movies.length}/${totalCounts.vod} film, ${series.length}/${totalCounts.series} sorozat).`);
+      }
       void (async () => {
         try {
           if (changedChannels) saveLiveContentSafely(content);
-          if (changedMovies) await saveVodContentSafely(content);
-          if (changedSeries) await saveSeriesContentSafely(content);
+          if (changedMovies && moviesComplete) await saveVodContentSafely(content);
+          if (changedSeries && seriesComplete) await saveSeriesContentSafely(content);
         } catch (error) {
           console.error('A tartalom mentése nem sikerült:', error);
           appLogError('Tartalom mentése', error);
@@ -1660,6 +1780,22 @@ export function App() {
     if (view !== 'live') {
       // A film/sorozat lista betöltése már a menü megnyomásakor elindul.
       window.setTimeout(ensureVodLoaded, 0);
+    } else {
+      /*
+       * A SÁRGA FÓKUSZ A KIVÁLASZTOTT CSATORNÁN MARAD (2.5.165).
+       *
+       * Visszatéréskor (Mozi/Sorozat → TV, vagy VISSZA gomb) a csatornalista
+       * a saját `iptv-focus-selected-channel` eseményére a kiválasztott sorra
+       * teszi a fókuszt ÉS a sárga kijelölést. Két próbálkozás: az első a
+       * nézetváltás utáni képkockára, a második arra az esetre, ha a lista
+       * épp újraépült (virtualizált ablak, adagbetöltés).
+       */
+      const restoreFocus = () => {
+        if (document.querySelector('[role="dialog"]')) return;
+        try { window.dispatchEvent(new CustomEvent('iptv-focus-selected-channel')); } catch { /* régi motor */ }
+      };
+      window.setTimeout(restoreFocus, 60);
+      window.setTimeout(restoreFocus, 260);
     }
   }, [ensureVodLoaded, activeView, capturePaneScroll]);
 
@@ -1708,6 +1844,15 @@ export function App() {
    * azonnal rendelkezésre áll az újraindításhoz is.
    */
   const handleSelectChannel = useCallback((channel: Channel) => {
+    /*
+     * FILM/SOROZAT LEJÁTSZÁS KÖZBEN TILOS A CSATORNAVÁLTÁS (2.5.165).
+     *
+     * A felhasználó kérése: „mozi/sorozat lejátszás közben tilos a
+     * csatornaváltás és a főoldalra ugrás”. Korábban a lista rejtve maradt,
+     * de a webOS CH+/CH− a csatornalistát célozta meg, és a váltás
+     * megszakította a filmet (a lejátszó `customStreamUrl`-je törlődött).
+     */
+    if (customStreamUrlRef.current) return;
     setNextEpisodeToPlay(null);
     setCustomStreamUrl(undefined);
     setCustomStreamTitle(undefined);
@@ -1725,6 +1870,8 @@ export function App() {
   // not the current category/search/render order. Stop at the ends instead of
   // wrapping from the last channel to the first (which could be unrelated).
   const handleNextChannel = useCallback(() => {
+    // Film/sorozat lejátszás közben nincs csatornaváltás (2.5.165).
+    if (customStreamUrlRef.current) return;
     if (settings.closeListOnZap) setIsCategoriesOpen(false);
     const list = filteredChannels;
     if (list.length === 0) return;
@@ -1740,6 +1887,8 @@ export function App() {
   }, [filteredChannels, activeChannelId, handleSelectChannel, settings.closeListOnZap]);
 
   const handlePrevChannel = useCallback(() => {
+    // Film/sorozat lejátszás közben nincs csatornaváltás (2.5.165).
+    if (customStreamUrlRef.current) return;
     if (settings.closeListOnZap) setIsCategoriesOpen(false);
     const list = filteredChannels;
     if (list.length === 0) return;
@@ -2072,7 +2221,7 @@ export function App() {
         // A provider mentése után automatikusan induljon a teljes listaimport.
         // 2.5.137: az első, felhasználó által kezdeményezett import NEM csendes:
         // megjelenik a betöltési diagnosztika ÉS a kérdéses ablak is.
-        window.setTimeout(() => { void handleRefreshProvider(newProvider, true); }, 250);
+        void handleRefreshProvider(newProvider, true);
       } else if (payload.type === 'm3u') {
         const newProvider = {
           id: 'qr_' + Date.now(),
@@ -2094,7 +2243,7 @@ export function App() {
         // M3U esetén is automatikusan induljon a beolvasás a mentés után.
         // 2.5.137: az első, felhasználó által kezdeményezett import NEM csendes:
         // megjelenik a betöltési diagnosztika ÉS a kérdéses ablak is.
-        window.setTimeout(() => { void handleRefreshProvider(newProvider, true); }, 250);
+        void handleRefreshProvider(newProvider, true);
       }
     } catch (e) {
       console.error('[QR] handle error', e);
@@ -2218,6 +2367,26 @@ export function App() {
     if (!provider) return;
     const id = provider.id;
     const refreshStartedAt = performance.now();
+    /*
+     * A DIAGNOSZTIKAI ABLAK AZONNAL KINYÍLIK (2.5.165).
+     *
+     * A felhasználó kérése: „amikor a csatornák töltése indul a
+     * szolgáltatótól – telefonos feltöltés vagy kézi adatbeadás után is –,
+     * a felugró ablak rögtön induljon el.” Korábban az ablak a 250 ms-os
+     * késleltetés és az olcsó változás-ellenőrzés UTÁN nyílt ki, ezért a
+     * néző előbb a régi felületet látta, majd hirtelen felugrott egy ablak.
+     * Most a legelső lépés az ablak kinyitása – a folyamatjelző 2 %-on áll,
+     * a valódi események pedig azonnal beleérkeznek.
+     */
+    if (manual && !silent) {
+      setDiagnosticOpen(true);
+      setDiagnosticEvents([]);
+      diagnosticEventsRef.current = [];
+      setDiagnosticError(null);
+      setDiagnosticStartedAt(refreshStartedAt);
+      setDiagnosticFinishedAt(null);
+      setDiagnosticProgress({ phase: 'Kapcsolódás a szolgáltatóhoz…', percent: 2 });
+    }
 
     /*
      * OLCSÓ VÁLTOZÁSELLENŐRZÉS – MINDEN MELLÉKHATÁS ELŐTT (2.5.141).
@@ -3462,6 +3631,8 @@ export function App() {
 
       switch (key) {
         case 'ArrowUp':
+          // FILM/SOROZAT LEJÁTSZÁS: nincs csatornaváltás (2.5.165).
+          if (customStreamUrl) { e.preventDefault(); break; }
           if (isInChannelList) break; // ChannelList kezeli – ne váltson csatornát
           // Mozi/Sorozat nézetben a nyilak a NÉZETBEN mozgatnak (webos.js):
           // itt nem szabad csatornát váltani, különben a háttérben másik
@@ -3472,6 +3643,7 @@ export function App() {
           handlePrevChannel();
           break;
         case 'ArrowDown':
+          if (customStreamUrl) { e.preventDefault(); break; }
           if (isInChannelList) break;
           if (activeView !== 'live') break;
           e.preventDefault();
@@ -3503,6 +3675,7 @@ export function App() {
           break;
         case 'PageUp':
           // LG távirányító CH+ gomb (keyCode 33)
+          if (customStreamUrl) { e.preventDefault(); break; }
           if (activeView !== 'live') break;
           e.preventDefault();
           if (isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) break;
@@ -3510,6 +3683,7 @@ export function App() {
           break;
         case 'PageDown':
           // LG távirányító CH- gomb (keyCode 34)
+          if (customStreamUrl) { e.preventDefault(); break; }
           if (activeView !== 'live') break;
           e.preventDefault();
           if (isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) break;
@@ -3594,14 +3768,19 @@ export function App() {
           break;
         case 'c':
         case 'C':
+          // Film/sorozat lejátszás közben csak a nyilak, OK, VISSZA és a
+          // lejátszó gombjai működnek – ablak sem nyílik (2.5.165).
+          if (customStreamUrl) break;
           setIsCategoriesOpen((prev) => !prev);
           break;
         case 's':
         case 'S':
+          if (customStreamUrl) break;
           setIsSettingsOpen((prev) => !prev);
           break;
         case 'q':
         case 'Q':
+          if (customStreamUrl) break;
           setIsQrProvisionOpen((prev) => !prev);
           break;
       }

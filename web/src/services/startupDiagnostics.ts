@@ -550,8 +550,25 @@ function screenState(): string {
   let videoText = 'nincs';
   if (video) {
     const rect = video.getBoundingClientRect();
+    /*
+     * 2.5.165 – NINCS KITALÁLT ADAT A NAPLÓBAN.
+     *
+     * Korábban a sor akkor is „(első képkocka megvan)”-t írt, amikor a
+     * mérés szerint a videó 0x0 méretű és `kész=0` volt (semmi nem
+     * dekódolódott). A jelzés (`__IPTV_VIDEO_READY__`) csak akkor kerül a
+     * naplóba, ha a videó TÉNYLEG dekódolt képkockát mutat
+     * (`readyState >= 2`). Ellenkező esetben a sor kimondja, hogy a jelzés
+     * és a mérés ELLENTMOND.
+     */
+    const readyFlag = Boolean(diagWindow().__IPTV_VIDEO_READY__);
+    const decoded = video.readyState >= 2;
+    const frameNote = readyFlag && decoded
+      ? ' (első képkocka megvan)'
+      : readyFlag && !decoded
+        ? ' (a kész-jelzés ellenére nincs dekódolt képkocka)'
+        : '';
     videoText = `${Math.round(rect.width)}x${Math.round(rect.height)} kész=${video.readyState}`
-      + ` ${video.paused ? 'áll' : 'játszik'}${diagWindow().__IPTV_VIDEO_READY__ ? ' (első képkocka megvan)' : ''}`;
+      + ` ${video.paused ? 'áll' : 'játszik'}${frameNote}`;
   }
   const osd = document.querySelector('[data-live-osd]') as HTMLElement | null;
   let osdText = 'nincs';

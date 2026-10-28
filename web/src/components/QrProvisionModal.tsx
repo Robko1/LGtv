@@ -97,12 +97,18 @@ export const QrProvisionModal: React.FC<QrProvisionModalProps> = ({ isOpen, onCl
         setStatus('received');
         if (pollRef.current) window.clearInterval(pollRef.current);
         if (countdownRef.current) window.clearInterval(countdownRef.current);
-        // Auto import 1.5s után
-        setTimeout(() => {
-          onProviderReceived(data);
-          clearProvision(tvId, channel, token);
-          onClose();
-        }, 1500);
+        /*
+         * AZ IMPORT AZONNAL INDUL (2.5.165).
+         *
+         * Korábban 1,5 mp-et vártunk: a telefonon már „kész” volt, a TV-n
+         * viszont semmi nem történt, majd hirtelen felugrott a
+         * diagnosztikai ablak. Most az adat azonnal átadódik, a QR-ablak
+         * bezárul, és a diagnosztika rögtön a betöltés elején megnyílik.
+         */
+        onProviderReceived(data);
+        setReceivedData(null);
+        clearProvision(tvId, channel, token);
+        onClose();
       }
     }, 3000);
     return () => {

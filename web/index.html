@@ -71,8 +71,10 @@
       /* ÜRES TELEPÍTÉS: a lejátszó doboza a kész felületen sem lehet fekete.
          A takarókép színeihez illeszkedő színátmenet + lejátszás jel, és
          NINCS későn dekódolódó háttérkép (az 4674 ms-os LCP oka az volt). */
+      /* 2.5.165: a lejátszó alapja FEKETE – a korábbi türkiz színátmenet
+         volt a „világoskék háttér” a csatornaváltás alatt. */
       html[data-iptv-boot="empty"] [data-player-poster] {
-        background: linear-gradient(135deg, #123a44 0%, #0d2630 55%, #17505c 100%) !important;
+        background: #000 !important;
         display: flex !important; align-items: center; justify-content: center;
       }
       html[data-iptv-boot="empty"] [data-player-poster]::after {
