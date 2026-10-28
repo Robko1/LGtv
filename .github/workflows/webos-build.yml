@@ -233,16 +233,16 @@ jobs:
           img = Image.open(splash)
           if img.size != (1920, 1080):
               raise SystemExit(f"HIBA: az indítókép mérete {img.size}, várt 1920x1080.")
-          # 2.5.162: az indítókép a betöltőképernyő FÁTYLAIT rajzolja ki
-          # (nincs fotó, NINCS ikon), 24 bites RGB – a palettás változat
-          # látható színlépcsőt adott, az volt a „nagyon rossz minőségű kép”.
-          # A 260 kB-os korlát a ditheringgel együtt is bőven alatta marad a
-          # fotó 1,1 MB-jának.
-          if splash.stat().st_size > 260 * 1024:
-              raise SystemExit("HIBA: az indítókép túl nagy – fotó vagy ikon került vissza.")
+          # 2.5.163: az indítókép UGYANAZ a kép, mint a betöltőképernyő
+          # háttere (a felhasználó saját IPTV-ikonja), 24 bites RGB – a
+          # palettás változat látható színlépcsőt adott a TV paneljén.
+          # A kép a web/index.html-be ágyazott ikonból készül, ezért a
+          # platform képéről a saját animációra váltás észrevehetetlen.
+          if splash.stat().st_size > 700 * 1024:
+              raise SystemExit("HIBA: az indítókép túl nagy – más kép került a csomagba.")
           if img.mode != "RGB":
               raise SystemExit(f"HIBA: az indítókép módja {img.mode}, várt RGB (nincs paletta).")
-          print(f"OK: indítókép (generált) {img.size}, {splash.stat().st_size} byte.")
+          print(f"OK: indítókép (a betöltőképernyő háttere) {img.size}, {splash.stat().st_size} byte.")
           PY
           bash -n tools/build-webos.sh
           node --check webos/webos.js

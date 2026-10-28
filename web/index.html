@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#080d1a" />
+    <!-- A platform sáv/felület színe a betöltőképernyő alapszíne, hogy a
+         legelső kockától ugyanaz a tónus látszódjon (nincs tónusváltás). -->
+    <meta name="theme-color" content="#04141a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -148,20 +150,9 @@
         transform: scale(1.08);
         animation: drift 30s ease-in-out infinite alternate;
       }
-      #boot-screen .stage {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
-        overflow: hidden; isolation: isolate;
-        background-color: #04141a;
-      }
-
-#boot-screen body{
-  font-family:"Segoe UI","SF Pro Display",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
-  color:#EAFFF9;
-  -webkit-font-smoothing:antialiased;
-  text-rendering:optimizeLegibility;
-  cursor:default;
-}
-#boot-screen .stage{position:fixed;left:0;top:0;right:0;bottom:0;overflow:hidden;isolation:isolate}
+/* A .stage a teljes képernyő sötét alapja: a platform indítókép és a saját
+   betöltőképernyő háttere ugyanebből a tónusból indul (#04141a). */
+#boot-screen .stage{position:fixed;left:0;top:0;right:0;bottom:0;overflow:hidden;isolation:isolate;background-color:#04141a}
 @keyframes drift{
   0%{transform:scale(1.08) translate3d(-1.2%,-0.8%,0)}
   100%{transform:scale(1.16) translate3d(1.4%,1%,0)}
@@ -1099,35 +1090,31 @@
           startFx();
 
           /*
-           * A PLATFORM INDÍTÓKÉPÉNEK LEVÉTELE – A LEGELSŐ SAJÁT KÉPKOCKÁNÁL.
-           * Két képkocka (rAF) után biztos, hogy a saját animációnk már ki van
-           * festve; a `first-contentful-paint` és a 350 ms-os biztonsági háló
-           * csak arra az esetre van, ha a motor nem ad képkocka-jelzést.
+           * A PLATFORM INDÍTÓKÉPÉNEK LEVÉTELE – CSAK TÉNYLEGES FESTÉS UTÁN.
+           *
+           * A 18. napló mérése: a platform kép +327 ms-nál lement, de az első
+           * festés csak 815 ms-nál (FCP 1081 ms) történt meg. A két képkocka
+           * (requestAnimationFrame) tehát NEM garancia arra, hogy a saját
+           * képernyőnk már látszik: a motor a képkocka-visszahívásokat a
+           * festés ELŐTT is kihívja. A platform kép levétele után ~490 ms-ig
+           * az ablak háttere (sötét) látszott – ez volt a felhasználó által
+           * látott „fekete–zöldes háttér váltakozás”.
+           *
+           * Ezért a levétel a TÉNYLEGES első festéshez van kötve:
+           * `PerformanceObserver('paint')` – a `first-paint` és a
+           * `first-contentful-paint` bejegyzés a festés UTÁN keletkezik.
+           * Ha a motor nem ad festés-jelzést (régi webOS), 1500 ms a háló;
+           * addig a platform kép látszik, ami UGYANAZ a háttér, tehát nincs
+           * üres vagy más színű kocka.
            */
-          var splashReleaseArmed = false;
-          function armReleaseFromFrame() {
-            if (splashReleaseArmed) return;
-            splashReleaseArmed = true;
-            try {
-              if (typeof window.requestAnimationFrame === 'function') {
-                window.requestAnimationFrame(function () {
-                  window.requestAnimationFrame(function () {
-                    releasePlatformSplash();
-                  });
-                });
-                return;
-              }
-            } catch (eRaf) {}
-            window.setTimeout(releasePlatformSplash, 32);
-          }
-          armReleaseFromFrame();
           try {
             if (typeof window.PerformanceObserver === 'function') {
               var paintObserver = new window.PerformanceObserver(function (list) {
                 try {
                   var entries = list.getEntries();
                   for (var pi = 0; pi < entries.length; pi++) {
-                    if (entries[pi].name === 'first-contentful-paint') {
+                    var name = entries[pi].name;
+                    if (name === 'first-paint' || name === 'first-contentful-paint') {
                       paintObserver.disconnect();
                       releasePlatformSplash();
                       return;
@@ -1138,8 +1125,8 @@
               paintObserver.observe({ type: 'paint', buffered: true });
             }
           } catch (ePaint) {}
-          /* Végső biztonsági háló: 350 ms után sem takarhat. */
-          window.setTimeout(releasePlatformSplash, 350);
+          /* Végső biztonsági háló: 1500 ms után sem takarhat. */
+          window.setTimeout(releasePlatformSplash, 1500);
         } catch (e) {}
 
         // ---------- Egy pillanat alatti megjelenés ----------

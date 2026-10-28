@@ -203,19 +203,26 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
   assert.match(PAGE, /first-contentful-paint/,
     'a levétel nem az első tartalmas képkockához van kötve (fotó → üres kocka)');
   /*
-   * 2.5.160: a levétel a LEGELSŐ saját képkockához van kötve (két rAF), és a
-   * biztonsági háló 350 ms. A régi 900/1500 ms-os várakozás alatt a néző még
-   * mindig a platform állóképét látta – a felhasználó kérése az, hogy az
-   * animáció AZONNAL, a TV saját képének levétele után induljon.
+   * 2.5.162: a levétel a TÉNYLEGES első festéshez van kötve.
+   *
+   * A 18. napló mérése szerint a platform kép +327 ms-nál lement, de az első
+   * festés csak 815 ms-nál (FCP 1081 ms) történt meg: a requestAnimationFrame
+   * visszahívásai a festés ELŐTT is lefutnak, ezért a két rAF nem garancia.
+   * A levétel után ~490 ms-ig az ablak sötét háttere látszott – ez volt a
+   * „fekete–zöldes háttér váltakozás”. Mostantól a `paint` bejegyzés
+   * (`first-paint` / `first-contentful-paint`) indítja a levételt, a háló
+   * pedig 1500 ms.
    */
-  assert.match(PAGE, /function armReleaseFromFrame\(\)/,
-    'a platform kép levétele nem a legelső saját képkockához van kötve');
-  assert.match(PAGE, /window\.requestAnimationFrame\(function \(\) \{\s*window\.requestAnimationFrame\(function \(\) \{\s*releasePlatformSplash\(\);/,
-    'a levétel nem két képkocka után történik (a saját kép még nem festett)');
-  assert.match(PAGE, /window\.setTimeout\(releasePlatformSplash, 350\)/,
-    'nincs (350 ms-os) biztonsági háló a platform kép levételére');
-  assert.doesNotMatch(PAGE, /setTimeout\(releasePlatformSplash, (900|1500)\)/,
-    'visszatért a régi 900/1500 ms-os várakozás – a platform állóképe túl sokáig látszik');
+  assert.doesNotMatch(PAGE, /function armReleaseFromFrame\(\)/,
+    'a platform kép levétele újra képkocka-visszahívásra vár (a festés előtt is lefuthat)');
+  assert.match(PAGE, /name === 'first-paint' \|\| name === 'first-contentful-paint'/,
+    'a levétel nem a tényleges első festéshez van kötve');
+  assert.match(PAGE, /paintObserver\.observe\(\{ type: 'paint', buffered: true \}\)/,
+    'a festés-figyelő nem indul el (a korai festés bejegyzése elveszne)');
+  assert.match(PAGE, /window\.setTimeout\(releasePlatformSplash, 1500\)/,
+    'nincs biztonsági háló a platform kép levételére');
+  assert.doesNotMatch(PAGE, /setTimeout\(releasePlatformSplash, (350|900)\)/,
+    'a régi, festés előtt elsülő időzítő visszatért – üres kocka a platform kép után');
   assert.match(PAGE, /window\.__IPTV_RELEASE_PLATFORM_SPLASH__/,
     'a REVEAL nem ugyanazt a (kétszer nem futó) kaput használja');
 
@@ -227,10 +234,10 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
       setTimeout(() => resolve(null), 500);
     });
     /*
-     * 2.5.153: a levétel az első tartalmas képkockához van kötve; ha a motor
-     * nem ad festés-jelzést (a jsdom nem ad), 900 ms-os biztonsági háló fut.
+     * 2.5.162: a levétel a tényleges első festéshez van kötve; ha a motor nem
+     * ad festés-jelzést (a jsdom nem ad), 1500 ms-os biztonsági háló fut.
      */
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1700));
     assert.equal(calls.length, 1,
       'a platform indítókép nem került le a saját képernyő kifestésekor');
     // A REVEAL nem hívhatja meg még egyszer.
@@ -243,7 +250,18 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
 
 /* ─────────────── 3. A KÉT INDÍTÓKÉP UGYANAZ A KÉP ─────────────── */
 
-test('2.5.158: a platform indítókép GENERÁLT színátmenet, nem fotó', () => {
+test('2.5.163: a platform indítókép UGYANAZ a kép, mint a betöltőképernyő háttere', () => {
+  /*
+   * A felhasználó észrevétele: „indításkor nincs takarókép, fekete–zöldes
+   * háttér váltakozik”. Az ok az volt, hogy a platform indítókép egy generált
+   * színátmenet volt, a saját betöltőképernyőnk háttere pedig a saját IPTV-
+   * ikon: a kettő között látszott a váltás.
+   *
+   * Mostantól a webOS indítóképe UGYANABBÓL a képből készül, ami a
+   * betöltőképernyő háttere – méghozzá a `web/index.html`-be ágyazott
+   * adat-URI-ból, ezért a kettő nem tud elválni egymástól. A váltás a
+   * platform képéről a saját animált képernyőnkre így észrevehetetlen.
+   */
   assert.equal(MAKE_SPLASH.includes('takarokep'), false,
     'az indítókép ismét a törölt borítóképből készül');
   assert.match(MAKE_SPLASH, /def build_splash\(\)/);
@@ -253,26 +271,38 @@ test('2.5.158: a platform indítókép GENERÁLT színátmenet, nem fotó', () =
   assert.match(BUILD, /python3 "\$SCRIPT_DIR\/make-splash\.py" --out-dir "\$BUILD_DIR"/);
   assert.equal(APPINFO.splashBackground, 'splash-screen.png',
     'a webOS által használt indítókép neve megváltozott');
+
+  // A forrás a HTML-be ágyazott ikon – nincs külön képfájl, nincs másolat.
+  assert.match(MAKE_SPLASH, /BOOT_PAGE = ROOT \/ "web" \/ "index\.html"/,
+    'a platform kép nem a betöltőképernyő HTML-jéből veszi az ikont');
+  assert.match(MAKE_SPLASH, /data:image\\\/jpeg;base64/,
+    'a generátor nem a HTML-be ágyazott ikont keresi');
+  assert.match(MAKE_SPLASH, /ICON_ZOOM = 1\.08/,
+    'a platform kép nem a .bootbg 1.08-as nagyításával készül');
+  assert.match(MAKE_SPLASH, /brightness\(\.88\)|enhance\(0\.88\)/,
+    'a platform kép nem a betöltőképernyő filtereivel készül');
+  assert.equal(MAKE_SPLASH.includes('largeIcon'), false,
+    'a launcher-ikon került vissza a képbe');
+
   /*
-   * A platform kép néhány kB: a betöltőképernyő CSS-hátterével azonos
-   * színátmenet. Ha újra 100 kB fölé nő, fotó került vissza – az 1 GB
-   * memóriás TV-n az a lassú indulás egyik oka volt.
-   */
-  /*
-   * 2.5.160: a kép 24 bites RGB (196 kB) – a palettás változat (141 kB)
-   * látható SZÍNLÉPCSŐT adott a nagy színátmeneten, az volt a „nagyon rossz
-   * minőségű kép”. A korlát ezért 260 kB, de fotó (1,1 MB) továbbra sem
-   * kerülhet vissza. A generátorban nem lehet beégetett ikon vagy nagyított
-   * kép: a platform kép csak színátmenet.
+   * A kép 1920×1080 (ezt írja elő a webOS) és 24 bites RGB: a palettás PNG
+   * látható színlépcsőt adott a TV paneljén. Mivel a háttér most a saját
+   * ikon (lágy, fotószerű kép), a fájl nagyobb, mint a régi színátmenet –
+   * de a TV helyben olvassa, ezért hálózati késés nincs. 700 kB fölött
+   * viszont már egy másik, nagyobb kép került a csomagba.
    */
   const splashPath = path.join(ROOT, 'webos/splash-screen.png');
   assert.ok(fs.existsSync(splashPath), 'hiányzik a webos/splash-screen.png');
-  assert.ok(fs.statSync(splashPath).size < 260_000,
-    `a webos/splash-screen.png ${fs.statSync(splashPath).size} byte – fotós háttér került vissza`);
-  assert.doesNotMatch(MAKE_SPLASH, /largeIcon|icon-rt2/,
-    'a platform indítókép ismét ikont rajzol (felnagyítva mosott, rossz minőségű)');
-  assert.match(MAKE_SPLASH, /ikon nélkül|NINCS BENNE IKON/,
-    'a generátor nem rögzíti, hogy a platform kép ikon nélkül készül');
+  const splashSize = fs.statSync(splashPath).size;
+  assert.ok(splashSize < 700_000,
+    `a webos/splash-screen.png ${splashSize} byte – nagyobb kép került a csomagba`);
+  assert.ok(splashSize > 200_000,
+    `a webos/splash-screen.png ${splashSize} byte – a saját ikon került ki a képből`);
+  const header = fs.readFileSync(splashPath).subarray(0, 26);
+  assert.equal(header.toString('ascii', 12, 16), 'IHDR');
+  assert.equal(header.readUInt32BE(16), 1920, 'az indítókép nem 1920 széles');
+  assert.equal(header.readUInt32BE(20), 1080, 'az indítókép nem 1080 magas');
+  assert.equal(header[25], 2, 'az indítókép nem 24 bites RGB (palettás lenne)');
 });
 
 test('a body/html háttere a REVEAL-nál NEM vált – nincs fekete kocka', () => {

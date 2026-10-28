@@ -2,7 +2,7 @@
 
 Ez a repó kizárólag LG webOS TV-hez készül. Az alkalmazás élő TV-csatornákat, filmeket, sorozatokat, EPG-t, kedvenceket és telefonos QR-beállítást kezel.
 
-## Indulás és betöltőképernyő (2.5.162)
+## Indulás és betöltőképernyő (2.5.163)
 
 A takarókép és az indítási animáció **ugyanaz**: a megtervezett indulóképernyő
 (`web/index.html`), amely a TV beolvasásának végétől a **100%-ig** folyamatosan
@@ -14,11 +14,13 @@ látszik, és csak utána jelenik meg a főoldal:
   filmszemcse, pásztázó sorok, fénylegyező, vászon-részecskék (legfeljebb 26),
   virágzás 100%-nál, műszerfal, 72 rovátkás tárcsa színátmenetes gyűrűvel,
   000–100 skála, TIPPEK, jobb alsó ikon és „INDÍTÁS” fátyol;
-- a webOS saját indítóképe (`splashBackground`) a betöltőképernyő **fátylait**
-  rajzolja ki ugyanazokból az értékekből, 24 bites RGB-ben, **ikon nélkül** –
-  egy 251 px-es ikon 1920×1080-ra nagyítva közel 1 MB lenne, és a platform képét
-  a TV a saját kódunk előtt dekódolja. A váltás így is észrevehetetlen: ugyanaz
-  a sötét türkiz köd, csak az animáció és a valós adatok jelennek meg rajta;
+- a webOS saját indítóképe (`splashBackground`) **ugyanaz a kép**, mint a
+  betöltőképernyő háttere: a `tools/make-splash.py` a `web/index.html`-be
+  ágyazott ikonból rajzolja ki 1920×1080-ban (cover, 1.08 nagyítás, a dizájn
+  filterei, három fátyol, rács, vignetta), 24 bites RGB-ben. Nincs külön
+  képfájl és nincs másolat, ezért a platform kép nem tud elavulni, a váltás
+  pedig észrevehetetlen – eddig itt egy generált színátmenet volt, és a két
+  kép között látszott a váltás („fekete–zöldes háttér váltakozás”);
 - a CSS-rétegek (`transform`/`opacity`) a TV kompozitorán mozognak, ezért a
   fő szál foglaltsága alatt sem állnak meg. Az animáció a **100%-ig** tart;
 - a fejlécben a **TV valós rendszerideje** és magyar dátuma jár (a felfedéskor
@@ -27,6 +29,11 @@ látszik, és csak utána jelenik meg a főoldal:
   **kizárólag a futó alkalmazás tényleges adataiból** származik – nincs
   szimulált érték és nincs időzített „befejezés”. Amíg egy adat nem érkezett
   meg, `—` látszik a helyén;
+- a platform kép **a tényleges első festésnél** kerül le (`paint` bejegyzés:
+  `first-paint` / `first-contentful-paint`, 1500 ms-os biztonsági hálóval),
+  nem egy képkocka-visszahívásnál: a visszahívás a festés előtt is lefuthat,
+  és a 18. naplóban a levétel (+327 ms) után még ~490 ms-ig üres ablakháttér
+  látszott;
 - a réteg **akkor tűnik el**, amikor a főoldal már ki van festve és
   használható. Üres telepítés (nincs csatorna) is kész állapot, és ha nincs
   lejátszandó stream, a program nem vár az első videókockára.
@@ -240,13 +247,16 @@ npm test
 (cd web && ./node_modules/.bin/tsc --noEmit)
 npm --prefix web run build
 npm run smoke
-VERSION=2.5.162 bash tools/build-webos.sh
+VERSION=2.5.163 bash tools/build-webos.sh
 ```
 
 A build az indítóképet **minden alkalommal újragenerálja**
-(`tools/make-splash.py`), ezért az IPK-ba nem kerülhet elavult kép. A kép nem
-fotó és nincs benne ikon: a betöltőképernyő fátylai 24 bites RGB-ben, finom
-ditheringgel (~200 kB, nincs színlépcső).
+(`tools/make-splash.py`), ezért az IPK-ba nem kerülhet elavult kép. A kép a
+betöltőképernyő háttere – a `web/index.html`-be ágyazott saját ikon a dizájn
+filtereivel, fátylaival, rácsával és vignettájával, 1920×1080-ban, 24 bites
+RGB-ben (finom dithering, nincs színlépcső, ~600 kB). A generátor forrása
+mindig a `web/index.html`, ezért a platform kép és a saját betöltőképernyő
+soha nem válik el egymástól.
 
 A build kimenete helyben `webos/IPTV-RT.ipk`, de az IPK a `.gitignore` szerint nem kerül a `main` forráságba. A kézi GitHub Actions build a sikeres csomagot a verziózott Release-be tölti fel.
 

@@ -1,10 +1,20 @@
-export const WEB_VERSION = '2.5.162';
+export const WEB_VERSION = '2.5.163';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.163',
+    date: '2026-10-28',
+    changes: [
+      'A PLATFORM INDÍTÓKÉP MOSTANTÓL UGYANAZ A KÉP, MINT A BETÖLTŐKÉPERNYŐ HÁTTERE: a webOS splashBackground képe a web/index.html-be ágyazott saját IPTV-ikonból készül (cover, 1.08 nagyítás, brightness .88 / saturate 1.2 / contrast 1.04, három fátyol, 84 pixeles rács, vignetta), 24 bites RGB-ben. Eddig a platform kép egy generált színátmenet volt, a betöltőképernyő háttere pedig az ikon – a kettő között látszott a váltás, ez volt az „indításkor nincs takarókép, fekete–zöldes háttér váltakozik” észrevétel',
+      'A PLATFORM KÉP A TÉNYLEGES ELSŐ FESTÉSNÉL KERÜL LE: a két képkockára kötött levétel helyett a paint-bejegyzés (first-paint / first-contentful-paint) indítja, 1500 ms-os biztonsági hálóval. A 18. napló szerint a képkockás levétel +327 ms-nál futott le, de az első festés csak 815 ms-nál (FCP 1081 ms) – addig sötét ablakháttér látszott',
+      'A BETÖLTŐKÉPERNYŐ CSS-E TISZTÁBB: kikerült a duplikált .stage szabály és a nem létező #boot-screen body szelektor; a teljes képernyős sötét alap (#04141a) egy helyen van',
+      'A GENERÁTOR EGYETLEN FORRÁSBÓL DOLGOZIK: a tools/make-splash.py a web/index.html-be ágyazott ikont olvassa (nincs külön képfájl, nincs másolat), ezért a platform kép nem tud elavulni a betöltőképernyőhöz képest',
+    ],
+  },
   {
     version: '2.5.162',
     date: '2026-10-28',

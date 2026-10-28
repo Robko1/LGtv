@@ -2,32 +2,28 @@
 """
 A TV platform indítóképe (webOS `splashBackground`) – folyamatos induláshoz.
 
-2.5.162 – NINCS BENNE IKON, ÉS PONTOSAN A BETÖLTŐKÉPERNYŐ FÁTYLAI.
+2.5.163 – A PLATFORM KÉP A BETÖLTŐKÉPERNYŐ ELSŐ KÉPKOCKÁJA.
 
-A felhasználói észrevétel: az IPK indításakor „egy kicsit ikon kép jelenik meg,
-az is nagyon rossz minőségű”. Az ok az volt, hogy ez a szkript a 130×130-as
-launcher-ikont felnagyítva (260×260) rajzolta a kép közepére, a színátmenetet
-pedig 128 színre csökkentett, palettás PNG-be tette – a TV-n ez mosott, sávos
-képet adott.
+A felhasználó kérése: a takarókép és az indítási animáció UGYANAZ a látvány
+legyen, és már az IPK indulásakor látszódjon. A `web/index.html`
+betöltőképernyőjének háttere a saját IPTV-ikon (faltól falig, sötétítve,
+telítve, 30 mp-es lassú úszással), fölötte fátylak, rács és vignetta.
 
-A 2.5.162-es betöltőképernyő háttere a felhasználó saját IPTV-ikonja (251×252
-px, a HTML-ben beágyazva). Ezt a platform `splashBackground` képébe NEM lehet
-beletenni: 1920×1080-ra felnagyítva közel 1 MB lenne, és a platform képét a TV
-a saját kódunk ELŐTT dekódolja – ez lassítaná az indulást (a korábbi 1,1 MB-os
-fotó pontosan ezt okozta).
-
-Ezért a platform kép a betöltőképernyő FÁTYLAIT rajzolja ki ugyanazokból az
-értékekből, amelyek a `#boot-screen` CSS-ében vannak:
-  • három fátyol (radial + két lineáris), fényfolt és vignetta;
-  • a háttér és a fátylak alapszíne a dizájn palettája (#04141a / #073b3e);
+Ez a szkript UGYANAZT rajzolja ki 1920×1080-ban:
+  • a hátteret a `web/index.html`-be ágyazott ikonból nagyítja (cover), a CSS
+    filtereivel (brightness .88, saturate 1.2, contrast 1.04) és a kép 1.08-as
+    nagyításával – így a platform kép és a saját animált képernyőnk első
+    képkockája gyakorlatilag ugyanaz;
+  • három fátyol (radial + két lineáris), 84 pixeles rács és vignetta,
+    ugyanazokból az értékekből, mint a `#boot-screen` CSS-ében;
   • valódi 24 bites RGB + finom dithering (nincs színlépcső/sávosodás a TV
     paneljén).
-A platform képéről a saját, MÁR ANIMÁLT betöltőképernyőnkre váltás így
-gyakorlatilag észrevehetetlen: ugyanaz a sötét türkiz köd, csak a saját
-animációnk és a valós adatok jelennek meg rajta.
 
-A build minden alkalommal újragenerálja (`--out-dir`), ezért az IPK-ba nem
-kerülhet elavult kép.
+Az ikon forrása MINDIG a `web/index.html` – nincs külön másolat, ezért a
+platform kép nem tud elavulni. A kép 1920×1080-ra nagyítva néhány száz kB;
+a TV helyben olvassa, hálózat nélkül.
+
+A build minden alkalommal újragenerálja (`--out-dir`).
 
 Használat:
     python3 tools/make-splash.py                 # webos/splash-screen.png frissítése
@@ -37,12 +33,24 @@ Használat:
 from __future__ import annotations
 
 import argparse
+import base64
+import io
+import re
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 WIDTH, HEIGHT = 1920, 1080
+BOOT_PAGE = ROOT / "web" / "index.html"
+ICON_ZOOM = 1.08        # a .bootbg scale(1.08)-a
+GRID_STEP = 84          # .grid 84 pixeles rácsa
+# Kis amplitúdójú dithering: a kép sötét, sima részein (a fátylak alatt) ez
+# tünteti el a 8 bites színlépcsőket, a PNG méretét mérhetően nem növeli.
+DITHER = 1.2
+# A kész kép utolsó lágyítása: a 251 px-es ikon felnagyítva pixelközel van, a
+# TV paneljén ez csillogást adna; 4 px Gauss eltünteti, a fátylakat nem.
+FINAL_BLUR = 2
 
 # ── A web/index.html #boot-screen rétegeinek pontos értékei ────────────────
 # 1) .stage: background-color #04141a + lineáris 160deg színátmenet + fényfolt
@@ -56,7 +64,36 @@ GLOW_EDGE = (6, 32, 38)         # rgba(6,32,38,.10)
 SCRIM1 = (4, 20, 26)            # radial-gradient(120% 85% at 50% 42%)
 SCRIM2 = (3, 17, 22)            # linear-gradient(180deg …)
 SCRIM3 = (6, 44, 46)            # linear-gradient(100deg …)
-VIG = (2, 12, 16)               # inset 0 0 190px rgba(2,12,16,.95)
+VIG = (2, 12, 16)               # inset 0 0 320px rgba(2,12,16,.95)
+GRID = (143, 182, 180)          # .grid vonalai (rgba(143,182,180,…))
+
+
+def load_boot_icon() -> Image.Image:
+    """A betöltőképernyő háttere: a web/index.html-be ágyazott ikon.
+
+    Nincs külön képfájl – a platform kép és a saját képernyőnk MINDIG ugyanabból
+    a képből készül, ezért nem tud elválni egymástól.
+    """
+    html = BOOT_PAGE.read_text(encoding="utf-8")
+    match = re.search(r'data:image\/jpeg;base64,([^"]+)"', html)
+    if not match:
+        raise SystemExit(
+            "HIBA: a web/index.html-ben nincs beágyazott ikon (data:image/jpeg)."
+        )
+    raw = base64.b64decode(match.group(1))
+    return Image.open(io.BytesIO(raw)).convert("RGB")
+
+
+def _cover(image: Image.Image, width: int, height: int, zoom: float) -> Image.Image:
+    """object-fit: cover + a .bootbg scale() nagyítása, középre igazítva."""
+    scale = max(width / image.width, height / image.height) * zoom
+    resized = image.resize(
+        (max(width, round(image.width * scale)), max(height, round(image.height * scale))),
+        Image.LANCZOS,
+    )
+    left = (resized.width - width) // 2
+    top = (resized.height - height) // 2
+    return resized.crop((left, top, left + width, top + height))
 
 
 def _mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
@@ -100,50 +137,39 @@ _BAYER = (
 
 
 def build_splash() -> Image.Image:
-    """A betöltőképernyő háttere pixelről pixelre, ikon nélkül."""
+    """A betöltőképernyő első képkockája pixelről pixelre, 1920×1080-ban."""
+    # ── 1) a háttér: a saját ikon, cover, 1.08 nagyítás, a CSS filtereivel ──
+    base = _cover(load_boot_icon(), WIDTH, HEIGHT, ICON_ZOOM)
+    base = base.filter(ImageFilter.GaussianBlur(2))       # a felnagyított kép lágy
+    base = ImageEnhance.Brightness(base).enhance(0.88)    # brightness(.88)
+    base = ImageEnhance.Color(base).enhance(1.20)         # saturate(1.2)
+    base = ImageEnhance.Contrast(base).enhance(1.04)      # contrast(1.04)
+    base_pixels = base.load()
+
     image = Image.new("RGB", (WIDTH, HEIGHT))
     pixels = image.load()
 
-    # lineáris 160 fok: a függőlegestől 20 fokkal jobbra dől
-    dx, dy = 0.342, 0.940
-    span = WIDTH * dx + HEIGHT * dy
-    glow_dx, glow_dy = 0.342, 0.940  # a 160 fokos színátmenet iránya
-
-    # .scrim 1 – radial-gradient(120% 85% at 50% 42%) – a % a SUGÁR!
+    # .scrim 1 – radial-gradient(120% 85% at 50% 42%) – a % a SUGÁRRA vonatkozik
     s1_cx, s1_cy = WIDTH * 0.5, HEIGHT * 0.42
     s1_rx, s1_ry = WIDTH * 1.20, HEIGHT * 0.85
     s1_table = [(0.0, 0.10), (0.46, 0.55), (1.0, 0.90)]
     # .scrim 2 – linear-gradient(180deg …)
     s2_table = [(0.0, 0.86), (0.26, 0.16), (0.62, 0.20), (1.0, 0.92)]
     # .scrim 3 – linear-gradient(100deg …)
-    s3_dx, s3_dy = 0.985, -0.174  # 100 fok: jobbra és enyhén felfelé
-    # A CSS a színátmenetet a doboz vetületi hosszára feszíti ki – így nincs
-    # „levágott” sáv a kép szélén (korábban látható él keletkezett).
+    s3_dx, s3_dy = 0.985, -0.174
     s3_span = abs(WIDTH * s3_dx) + abs(HEIGHT * s3_dy)
-    # .vig – inset 0 0 190px
-    vig_blur = 190.0
+    # .vig – inset 0 0 clamp(90px,18vw,320px) rgba(2,12,16,.95)
+    vig_blur = 320.0
+    # .grid – 84 pixeles rács, opacity .30, radiális maszkkal (28% → 100%)
+    g_cx, g_cy = WIDTH * 0.5, HEIGHT * 0.5
+    g_rx, g_ry = WIDTH * 1.20, HEIGHT * 0.90
 
     for y in range(HEIGHT):
         row_bayer = _BAYER[y & 7]
         for x in range(WIDTH):
-            # 1) alap színátmenet
-            t = (x * dx + y * dy) / span
-            if t < 0.46:
-                color = _mix(LINEAR_TOP, LINEAR_MID, t / 0.46)
-            else:
-                color = _mix(LINEAR_MID, LINEAR_BOTTOM, (t - 0.46) / 0.54)
+            color = base_pixels[x, y]
 
-            # 2) fényfolt: 120% 90% at 50% 38% – a százalék a SUGÁRRA vonatkozik
-            gx = (x - WIDTH * 0.5) / (WIDTH * 1.20)
-            gy = (y - HEIGHT * 0.38) / (HEIGHT * 0.90)
-            gr = (gx * gx + gy * gy) ** 0.5
-            if gr < 1.0:
-                if gr <= 0.52:
-                    color = _over(color, GLOW_CORE, 0.42 + (0.10 - 0.42) * (gr / 0.52))
-                else:
-                    color = _over(color, GLOW_EDGE, 0.10 * (1.0 - (gr - 0.52) / 0.48))
-
-            # 3) három fátyol
+            # ── 2) három fátyol, ugyanabban a sorrendben, mint a CSS-ben ──
             s1x = (x - s1_cx) / s1_rx
             s1y = (y - s1_cy) / s1_ry
             color = _over(color, SCRIM1, _stops((s1x * s1x + s1y * s1y) ** 0.5, s1_table))
@@ -151,20 +177,36 @@ def build_splash() -> Image.Image:
             s3t = (x * s3_dx + y * s3_dy + HEIGHT * abs(s3_dy)) / s3_span
             color = _over(color, SCRIM3, _stops(s3t, [(0.0, 0.62), (0.55, 0.0)]))
 
-            # 4) vignetta (a szélektől befelé halványuló sötétítés)
+            # ── 3) rács (a fátylak FÖLÖTT, ahogy a CSS z-indexe is) ──
+            grx = (x - g_cx) / g_rx
+            gry = (y - g_cy) / g_ry
+            gr = (grx * grx + gry * gry) ** 0.5
+            if gr > 0.28:
+                mask = min(1.0, (gr - 0.28) / 0.72)
+                alpha = 0.0
+                if x % GRID_STEP == 0:
+                    alpha = 0.16 * 0.30 * mask
+                elif y % GRID_STEP == 0:
+                    alpha = 0.10 * 0.30 * mask
+                if alpha > 0.0:
+                    color = _over(color, GRID, alpha)
+
+            # ── 4) vignetta (a szélektől befelé halványuló sötétítés) ──
             edge = min(x, y, WIDTH - 1 - x, HEIGHT - 1 - y)
             if edge < vig_blur:
                 fall = 1.0 - edge / vig_blur
-                color = _over(color, VIG, 0.72 * fall * fall)
+                color = _over(color, VIG, 0.62 * fall * fall)
 
-            # 5) dithering – a 8 bites kerekítés ne rajzoljon látható sávokat
-            d = (row_bayer[x & 7] / 64.0 - 0.5) * 1.6
+            # ── 5) dithering – a 8 bites kerekítés ne rajzoljon látható sávokat ──
+            d = (row_bayer[x & 7] / 64.0 - 0.5) * DITHER
             pixels[x, y] = (
                 min(255, max(0, int(round(color[0] + d)))),
                 min(255, max(0, int(round(color[1] + d)))),
                 min(255, max(0, int(round(color[2] + d)))),
             )
 
+    if FINAL_BLUR:
+        image = image.filter(ImageFilter.GaussianBlur(FINAL_BLUR))
     return image
 
 
@@ -175,7 +217,7 @@ def write_output(path: Path, image: Image.Image) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="TV platform indítókép (ikon nélkül, a betöltőképernyő fátylaival)")
+    parser = argparse.ArgumentParser(description="TV platform indítókép (a betöltőképernyő első képkockája)")
     parser.add_argument(
         "--out-dir",
         help="Ha meg van adva, ide írja a splash-screen.png fájlt (IPK-ba).",
@@ -189,7 +231,7 @@ def main() -> None:
     write_output(target, image)
     print(
         f"{target}: {target.stat().st_size // 1024} kB "
-        f"({WIDTH}x{HEIGHT}, NINCS BENNE IKON, a #boot-screen fátylai)"
+        f"({WIDTH}x{HEIGHT}, a betöltőképernyő első képkockája)"
     )
 
 

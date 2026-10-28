@@ -9,22 +9,22 @@ webos/appinfo.json       webOS manifest, id: hu.rt.iptv.webos
 webos/webos.js           ES5-kompatibilis Magic Remote/D-pad bridge
 webos/icon-rt2.png       launcher ikon
 webos/largeIcon-rt2.png  nagy launcher ikon
-webos/splash-screen.png  1920×1080 indítókép (a betöltőképernyő fátylai, ikon nélkül)
+webos/splash-screen.png  1920×1080 indítókép (a betöltőképernyő háttere)
 tools/build-webos.sh     web build + ES5 + IPK build
 webos/tools/build-ipk.py helyi fejlesztői IPK-csomagoló
 ```
 
 Az induló MP4 nincs a programban és nincs a `webos/assets/` mappában.
 
-Az indítókép **generált** (`tools/make-splash.py`): a 2.5.162-es betöltőképernyő
-fátylait rajzolja ki ugyanazokból az értékekből, **ikon nélkül** – a korábbi
-verzió a launcher-ikon felnagyított változatát rajzolta a közepére, és a TV-n ez
-mosott, rossz minőségű foltnak látszott. A kép 24 bites RGB (nem palettás), finom
-ditheringgel, ezért nincs színlépcső a nagy átmeneten. A betöltőképernyő saját
-ikonját (251×252 px) szándékosan NEM nagyítja fel 1920×1080-ra: az közel 1 MB
-lenne, és a platform képét a TV a saját kódunk előtt dekódolja (ez az 1 GB
-memóriás TV-n mérhető indulási késést okozott). A build minden alkalommal
-újragenerálja a képet (`python3 tools/make-splash.py --out-dir build/webos`).
+Az indítókép **generált** (`tools/make-splash.py`), és pontosan az, amit a
+betöltőképernyő az első képkockájában mutat: a `web/index.html`-be ágyazott
+saját IPTV-ikon faltól falig (cover, 1.08 nagyítás), a dizájn filtereivel
+(brightness .88, saturate 1.2, contrast 1.04), három fátyollal, 84 pixeles
+ráccsal és vignettával, 1920×1080-ban. A kép 24 bites RGB (nem palettás), finom
+ditheringgel, ezért nincs színlépcső a TV paneljén. Mivel a generátor a
+`web/index.html`-ből olvassa az ikont, nincs külön képfájl és nincs másolat:
+a platform kép nem tud elavulni. A build minden alkalommal újragenerálja a képet
+(`python3 tools/make-splash.py --out-dir build/webos`).
 
 ## Helyi build
 

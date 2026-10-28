@@ -216,19 +216,28 @@ test('az app bgColor sötét – nem villan be világos kék a lap festése elő
   );
   assert.equal(info.splashBackground, 'splash-screen.png');
   assert.ok(info.splashBackground, 'hiányzik a splashBackground');
-  // A platform indítóképét a saját betöltőképernyő festése után vesszük le.
+  // A platform indítóképét a saját betöltőképernyő TÉNYLEGES festése után vesszük le.
   /*
-   * 2.5.160: a platform indítóképét a LEGELSŐ saját képkockánál vesszük le
-   * (két képkocka, illetve first-contentful-paint, 350 ms-os hálóval), mert a
-   * platform képe és a saját betöltőképernyő háttere pixelre ugyanaz – így a
-   * csere észrevehetetlen, az animáció pedig azonnal indul.
+   * 2.5.163: a levétel a `paint` bejegyzéshez van kötve (first-paint /
+   * first-contentful-paint), 1500 ms-os biztonsági hálóval.
+   *
+   * A 18. napló mérése szerint a két képkockára kötött levétel +327 ms-nál
+   * futott le, de az első festés csak 815 ms-nál (FCP 1081 ms) történt meg:
+   * addig az ablak sötét háttere látszott a platform kép után – ez volt a
+   * „fekete–zöldes háttér váltakozás”. A képkocka-visszahívás ugyanis a
+   * festés ELŐTT is lefuthat, a paint-bejegyzés viszont a megtörtént festésről
+   * szól. Mivel a platform kép és a saját háttér ugyanaz a kép, a csere
+   * észrevehetetlen, és nincs üres kocka.
    */
   const page = read('web/index.html');
   assert.match(page, /first-contentful-paint/, 'a platform kép levétele nem a festéshez van kötve');
-  assert.match(page, /function armReleaseFromFrame\(\)/, 'nincs képkockára kötött levétel');
-  assert.match(page, /window\.setTimeout\(releasePlatformSplash, 350\);/, 'nincs 350 ms-os biztonsági háló');
-  assert.doesNotMatch(page, /setTimeout\(releasePlatformSplash, (900|1500)\)/,
-    'a régi 900/1500 ms-os várakozás visszatért');
+  assert.doesNotMatch(page, /function armReleaseFromFrame\(\)/,
+    'a levétel újra képkocka-visszahívásra vár (a festés előtt is lefuthat)');
+  assert.match(page, /paintObserver\.observe\(\{ type: 'paint', buffered: true \}\)/,
+    'a festés-figyelő nem indul el (a korai festés bejegyzése elveszne)');
+  assert.match(page, /window\.setTimeout\(releasePlatformSplash, 1500\);/, 'nincs 1500 ms-os biztonsági háló');
+  assert.doesNotMatch(page, /setTimeout\(releasePlatformSplash, (350|900)\)/,
+    'a festés előtt elsülő régi időzítő visszatért');
 });
 
 test('nincs világos türkiz szín a lapban vagy a webOS háttérben', () => {
