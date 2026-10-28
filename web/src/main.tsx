@@ -138,8 +138,10 @@ try {
    * az oka annak, hogy a takarókép idő előtt lement, és a félkész főoldal a
    * néző szeme előtt épült tovább („ugrált”).
    */
-  const reveal = (reason: string) => {
-    try { (window as any).__IPTV_REVEAL__?.(reason); } catch { /* nincs window */ }
+  const reveal = (_reason: string) => {
+    // A saját HTML-es indítóképernyő eltávolítva: csak a webOS natív splash
+    // lezárását jelezzük, ha a régi indulási állapotgép ide ér.
+    try { (window as any).webOSSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
   };
 
   /*
@@ -158,14 +160,12 @@ try {
    * méri, és a képkocka-őr is a tényleges festési költséget látja.
    */
   const preparePaint = () => {
-    try { (window as any).__IPTV_PREPARE_REVEAL__?.(); } catch { /* nincs HTML-híd */ }
-    bootScreenPhase('painted', 'A főoldal a betöltőképernyő alatt kifestve.');
+    // A főoldal nincs takaróréteg alatt; a régi előfestési híd nem szükséges.
+    bootScreenPhase('painted', 'A főoldal megjelenítése engedélyezve.');
   };
 
   /** A HTML-híd már két képkockán át festette a felületet a takarókép alatt. */
-  const prepaintSettled = (): boolean => {
-    try { return !!(window as any).__IPTV_PREPAINT_SETTLED__; } catch { return false; }
-  };
+  const prepaintSettled = (): boolean => true;
 
   /*
    * FONTOS: a fejlécet a #root-ON BELÜL keressük. A betöltőképernyőnek is van
