@@ -57,6 +57,7 @@ const harness = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { VideoPlayer } from './web/src/components/VideoPlayer.tsx';
+import { FullscreenLiveOsd } from './web/src/components/ChannelControls.tsx';
 import { INITIAL_SETTINGS } from './web/src/data/mockData.ts';
 import { startManualLogging, stopManualLogging, getAppLogText } from './web/src/services/appLog.ts';
 import { attachSpeedDiagnostics } from './web/src/services/speedDiagnostics.ts';
@@ -70,7 +71,7 @@ const spy = window.__MEDIA_SPY__;
 function Harness(props) {
   const [isPlaying, setIsPlaying] = useState(true);
   setHarnessPlaying = setIsPlaying;
-  return React.createElement(VideoPlayer, {
+  return React.createElement(React.Fragment, null, React.createElement(VideoPlayer, {
     ...props,
     isPlaying: isPlaying,
     setIsPlaying: (value) => {
@@ -83,7 +84,7 @@ function Harness(props) {
     settings: Object.assign({}, INITIAL_SETTINGS, props.settings || {}),
     playbackActive: props.playbackActive === undefined ? true : props.playbackActive,
     onEnded: () => { spy.onEnded += 1; },
-  });
+  }), props.keepFullscreenOsdMounted ? React.createElement(FullscreenLiveOsd, { channel: props.channel }) : null);
 }
 
 window.__IPTV_TEST__ = {
@@ -199,6 +200,14 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
 
 const { window } = dom;
 const doc = window.document;
+// A valós, célzott CSS-szabályt alkalmazzuk az igazi React-lejátszóra és
+// FullscreenLiveOsd-re; a teszt a késlekedő App-komponens OSD-jét szimulálja.
+const css = fs.readFileSync(path.resolve('web/src/index.css'), 'utf8');
+const fullscreenOsdRule = css.match(/body:not\(\.iptv-tv-fullscreen\)\s*\[data-fullscreen-osd\]\s*\{[^}]*\}/)?.[0];
+if (!fullscreenOsdRule) { check(false, 'hiányzik a fullscreen OSD védő CSS-szabály'); clearTimeout(killer); finish(); }
+const style = doc.createElement('style');
+style.textContent = fullscreenOsdRule;
+doc.head.appendChild(style);
 const tick = (ms = 60) => new Promise((resolve) => setTimeout(resolve, ms));
 const video = () => doc.querySelector('video[data-iptv-player="true"]');
 const fire = (element, type) => element.dispatchEvent(new window.Event(type, { bubbles: true }));
@@ -404,7 +413,7 @@ await tick(80);
  * nem futhat le az új teljes képernyő alatt. A rAF-et kézzel léptetjük. */
 let surfaceZap = 0;
 const liveHomeOsdVisibility = [];
-window.__IPTV_TEST__.mount({ channel: LIVE, onPrevChannel: () => surfaceZap++, onNextChannel: () => surfaceZap++, onOverlayVisibilityChange: (visible) => liveHomeOsdVisibility.push(visible) });
+window.__IPTV_TEST__.mount({ channel: LIVE, keepFullscreenOsdMounted: true, onPrevChannel: () => surfaceZap++, onNextChannel: () => surfaceZap++, onOverlayVisibilityChange: (visible) => liveHomeOsdVisibility.push(visible) });
 check(await waitFor(() => Boolean(video()), 5000, 'fullscreen teszt videó'), 'fullscreen teszthez élő videó létrejön');
 await tick(100);
 const surface = doc.querySelector('[data-tv-player]');
@@ -438,21 +447,26 @@ const enter = () => window.dispatchEvent(new window.CustomEvent('iptv-enter-full
 const exit = () => player().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
 enter();
 check(await waitFor(() => player()?.classList.contains('iptv-fs')), 'belépéskor fullscreen osztály');
+const fullscreenOsd = () => doc.querySelector('[data-fullscreen-osd]');
+check(!!fullscreenOsd() && window.getComputedStyle(fullscreenOsd()).display !== 'none', 'a valódi fullscreen OSD teljes képernyőn látható');
 await tick(40);
 check(doc.querySelector('[data-player-osd]')?.classList.contains('invisible'), 'az élő lejátszó saját overlaye teljes képernyőn rejtett');
 check(liveHomeOsdVisibility.length > 0 && liveHomeOsdVisibility.every(Boolean), 'élő teljes képernyőn a főoldali OSD nem kap display:none jelzést');
 exit();
 check(await waitFor(() => !player()?.classList.contains('iptv-fs')), 'kilépéskor a fullscreen osztály azonnal eltűnik');
+check(!!fullscreenOsd() && window.getComputedStyle(fullscreenOsd()).display === 'none', 'a még mountolt fullscreen OSD és árnyéka azonnal eltűnik');
 await tick(40);
 enter();
 check(await waitFor(() => player()?.classList.contains('iptv-fs')), 'gyors visszalépés után ismét fullscreen');
+check(!!fullscreenOsd() && window.getComputedStyle(fullscreenOsd()).display !== 'none', 'gyors új belépéskor a fullscreen OSD ismét látható');
 await tick(40);
 nextFrame(); nextFrame(); nextFrame();
 check(restores === 0 && focusList === 0, 'az elavult visszatérés nem indít EPG-t és nem viszi el a fókuszt');
 check(video() === originalVideo && video().getAttribute('src') === originalSrc && spy.play === playBeforeFullscreen,
   'váltás közben ugyanaz a videó és stream marad, új play nélkül');
-exit();
-check(await waitFor(() => !player()?.classList.contains('iptv-fs')), 'második kilépés is megtörtént');
+player().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+check(await waitFor(() => !player()?.classList.contains('iptv-fs')), 'Vissza gombbal a második kilépés is megtörtént');
+check(!!fullscreenOsd() && window.getComputedStyle(fullscreenOsd()).display === 'none', 'második kilépéskor sem szivárog át az OSD');
 await tick(40);
 nextFrame();
 check(restores === 0, 'az EPG nem indul újra az első rAF-nál');
