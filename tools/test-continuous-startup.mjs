@@ -34,7 +34,6 @@ const PLAYER = read('web/src/components/VideoPlayer.tsx');
 const IMPORT = read('web/src/services/providerImport.ts');
 const VERSION = read('web/src/appVersion.ts');
 const APPINFO = JSON.parse(read('webos/appinfo.json'));
-const MAKE_SPLASH = read('tools/make-splash.py');
 
 function bootPage() {
   const calls = [];
@@ -278,39 +277,16 @@ test('2.5.166: a platform indítókép UGYANAZ a kompozíció, mint a betöltők
   assert.equal(APPINFO.splashBackground, 'splash-screen.png',
     'a webOS által használt indítókép neve megváltozott');
 
-  // A két oldal UGYANAZOKKAL a színekkel dolgozik (a CSS és a generátor együtt).
-  for (const color of ['#073B3E', '#04161C', '#08111F']) {
-    assert.ok(PAGE.toUpperCase().includes(color), `a .bootbg színátmenetéből hiányzik: ${color}`);
-  }
-  assert.match(MAKE_SPLASH, /LINEAR_TOP = \(7, 59, 62\)/,
-    'a platform kép felső színe eltér a .bootbg-tól');
-  assert.match(MAKE_SPLASH, /GLOW_CORE = \(20, 150, 138\)/,
-    'a platform kép fényfoltja eltér a .bootbg-tól');
-  assert.match(MAKE_SPLASH, /GRID_STEP = 84/,
-    'a platform kép rácsa eltér a .bootbg 84 pixeles rácsvonalaitól');
-  // A háttér már NEM fotó: nincs beágyazott kép a .bootbg-n.
+  // Az IPK a felhasználó által feltöltött képet csomagolja, nem a zöld generátort.
+  assert.match(BUILD, /cp "\$WEBOS_DIR\/splash-screen\.png" "\$BUILD_DIR\/splash-screen\.png"/,
+    'a build nem a feltöltött képet másolja az IPK-ba');
+  assert.doesNotMatch(BUILD, /make-splash\.py" --out-dir/,
+    'a build felülírná a feltöltött képet a generált zöld háttérrel');
+  // A HTML-háttér nem kérhet külön, hálózatról betöltendő képet.
   const bootbg = PAGE.slice(PAGE.indexOf('#boot-screen .bootbg {'), PAGE.indexOf('#boot-screen .scrim{'));
   assert.doesNotMatch(bootbg, /background-image:\s*url\(/,
-    'a háttér ismét beágyazott fotó (ez volt a lassú indulás fő oka)');
+    'a HTML betöltőképernyő külön háttérképre hivatkozik');
 
-  /*
-   * A két kép fényereje CSAK akkor egyezik, ha a CSS fényfoltjának
-   * átlátszósága pontosan a generátor első színmegállója. (2.5.167: ez az
-   * érték csúszott el, ezért a platform kép sötétebbnek látszott a saját
-   * képernyőnél – a váltás a TV-n színugrásként látszott.)
-   */
-  const cssGlow = (PAGE.match(/rgba\(20,150,138,\.(\d+)\)/) || [])[1];
-  const pyGlow = (MAKE_SPLASH.match(/glow_table = \[\(0\.0, 0\.(\d+)\)/) || [])[1];
-  assert.ok(cssGlow, 'a .bootbg fényfoltjának színe megváltozott');
-  assert.equal(cssGlow, pyGlow,
-    `a CSS fényfolt (0.${cssGlow}) és a generátor (0.${pyGlow}) eltér – a két indítókép fényereje nem egyezik`);
-
-  /*
-   * A felhasználó által feltöltött splash-screen.png marad az indítókép.
-   * A workflow veszteséges palettázással tömöríti, majd RGB PNG-ként menti
-   * vissza, ezért a teszt a buildben optimalizált fájlt ellenőrzi. A 700 KiB-os
-   * korlát a workflow-val egyezik; nem követel meg nem garantálható 160 kB-ot.
-   */
   const splashPath = path.join(ROOT, 'webos/splash-screen.png');
   assert.ok(fs.existsSync(splashPath), 'hiányzik a webos/splash-screen.png');
   const splashSize = fs.statSync(splashPath).size;
