@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.165';
+export const WEB_VERSION = '2.5.166';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.165',
+    version: '2.5.166',
     date: '2026-10-28',
     changes: [
       'AZ ELSŐ BELÉPÉSKOR AZONNAL VAN MOZI/SOROZAT LISTA: a teljes 102 871 film visszatöltése 32–35 mp volt, és EZ ALATT A RÁCS ÜRES VOLT (20–21. napló). Mostantól a látható kérés nem vész el – ha épp más visszatöltés fut, sorba áll –, az első adag (500 film / 500 sorozat) dekódolása után a lista AZONNAL a felületre kerül, induláskor pedig 20-20 tétel előnézet jelenik meg a tároló első adagjából, poszterrel együtt (nincs üres poszterhely)',
