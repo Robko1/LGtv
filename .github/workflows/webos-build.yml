@@ -61,7 +61,7 @@ jobs:
           npm install --prefix web --no-audit --no-fund
           pip install Pillow --break-system-packages -q || pip install Pillow -q
           # A FELTÖLTÖTT splash-screen.png marad az egyetlen kezdőkép.
-          # A build előtt veszteségmentes méretcsökkentést végzünk: 1920x1080
+          # A build előtt vizuálisan kímélő méretcsökkentést végzünk: 1920x1080
           # marad, a színpaletta optimalizálása után RGB PNG-ként mentjük vissza.
           # Így a webOS splash és a tesztek ugyanazt a képet használják.
           python3 - <<'PY'
@@ -85,13 +85,14 @@ jobs:
               buffer = io.BytesIO()
               reduced.save(buffer, format="PNG", optimize=True, compress_level=9)
           data = buffer.getvalue()
-          if len(data) >= path.stat().st_size:
+          original_size = path.stat().st_size
+          if len(data) >= original_size:
               # Ha a kvantálás nem hozna javulást, az eredeti képet megtartjuk,
               # de a méretellenőrzés továbbra is megakadályozza a túl nagy buildet.
-              print(f"FIGYELEM: a PNG optimalizálása nem csökkentette a méretet ({path.stat().st_size} byte).")
+              print(f"FIGYELEM: a PNG optimalizálása nem csökkentette a méretet ({original_size} byte).")
           else:
               path.write_bytes(data)
-              print(f"OK: splash PNG optimalizálva: {path.stat().st_size} -> {len(data)} byte; 1920x1080 RGB.")
+              print(f"OK: splash PNG optimalizálva: {original_size} -> {len(data)} byte; 1920x1080 RGB.")
           if path.stat().st_size > 700 * 1024:
               raise SystemExit(f"HIBA: az optimalizált splash még mindig túl nagy: {path.stat().st_size} byte.")
           with Image.open(path) as check:
