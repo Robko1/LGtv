@@ -12,7 +12,7 @@ import {
   resolutionClassOf,
 } from '../services/appLog';
 import { tvDeviceText } from '../services/tvDevice';
-import { fsNow, fsPerf, fsPerfTimed } from '../services/fullscreenPerf';
+import { fsFinish, fsNow, fsPerfTimed, fsStart, fsStep } from '../services/fullscreenPerf';
 import {
   MediaProgressSample,
   StallDetector,
@@ -2033,7 +2033,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // teljes képernyős nézetet - a lejátszó dobozból indítás megszűnt.
   useEffect(() => {
     const enterFs = () => {
-      if (isLive) setIsFullscreen(true);
+      if (!isLive) return;
+      // 2.5.166: a mérés az OK-tól indul; ez a lépés a valódi késleltetést
+      // mutatja meg az OK és a lejátszó állapotváltása között.
+      fsStep('esemény a lejátszónál', 'a csatornalista OK-ja megérkezett');
+      setIsFullscreen(true);
+      fsStep('lejátszó állapota beállítva', 'setIsFullscreen(true) – React commit következik');
     };
     window.addEventListener('iptv-enter-fullscreen', enterFs);
     return () => window.removeEventListener('iptv-enter-fullscreen', enterFs);
@@ -2082,15 +2087,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!isVerbosePlaybackLogging()) return;
     if (isFullscreen) {
       const started = fsNow();
-      fsPerf('BE: commit kész', 'geometria CSS-osztályból; nincs JS stílusírás, nincs kényszerített újramérés');
+      fsStep('React commit kész', 'geometria CSS-osztályból; nincs JS stílusírás, nincs kényszerített újramérés');
       const frame = window.requestAnimationFrame(() => {
         fsPerfTimed('BE: első képkocka', started, 'a lejátszó már teljes képernyős');
+        // A teljes képernyős kép megvan: itt zárul a mérés.
+        fsFinish('a teljes képernyős kép a képernyőn');
       });
       return () => window.cancelAnimationFrame(frame);
     }
     const started = fsNow();
+    fsStep('React commit kész', 'a .iptv-fs osztály lekerült – főoldali 16:9-es keret');
     const frame = window.requestAnimationFrame(() => {
       fsPerfTimed('KI: geometria visszaállítva', started, 'főoldali 16:9-es keret');
+      // A főoldali kép megvan: itt zárul a kilépés mérése.
+      fsFinish('a főoldal ismét a képernyőn');
     });
     return () => window.cancelAnimationFrame(frame);
   }, [isFullscreen]);
@@ -2131,6 +2141,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const active = document.activeElement as HTMLElement | null;
         const ok = !!container && (active === container || !!container.contains(active));
         fsPerfTimed('BE: fókusz ellenőrizve', started, ok ? 'a lejátszón maradt' : 'a fókusz visszakerült a lejátszóra');
+        fsStep('fókusz ellenőrizve', ok ? 'a lejátszón maradt' : 'visszakerült a lejátszóra');
       }, 260));
     }
     return () => timers.forEach((timer) => window.clearTimeout(timer));
@@ -2182,6 +2193,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           window.dispatchEvent(new CustomEvent('iptv-player-restored'));
           if (isVerbosePlaybackLogging()) {
             fsPerfTimed('KI: OSD/EPG újraindult', started, 'a lejátszó már a főoldali helyén');
+            fsStep('OSD/EPG újraindult', 'a háttérmunka a helyreállás UTÁN kapott engedélyt');
           }
         });
       });
@@ -2304,7 +2316,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // Fekvő fullscreenben az OSD rejtve van; kilépéskor explicit visszaállítjuk,
         // hogy a főoldali ChannelControls azonnal újra megjelenjen.
         setShowControlsOverlay(true);
+        fsStart('KI', 'dupla kattintás a teljes képernyőn');
         setIsFullscreen(false);
+        fsStep('lejátszó állapota beállítva', 'setIsFullscreen(false) – React commit következik');
       }
       return;
     }
@@ -2392,7 +2406,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       } else if (key === 'Enter' && isLive && isFullscreen) {
         // TV: teljes képernyőben EGYETLEN OK gomb visszalép a főoldalra
         // (a Vissza gomb mellett). A dobozból indítás funkció megszűnt.
+        // 2.5.166: a kilépés mérése is innen, az OK lenyomásától indul.
+        fsStart('KI', 'OK a teljes képernyőn');
         setIsFullscreen(false);
+        fsStep('lejátszó állapota beállítva', 'setIsFullscreen(false) – React commit következik');
       } else {
         // Enter = OSD vagy dupla logika szerint
         handleSurfaceTap(e);
@@ -2418,7 +2435,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Film/sorozat teljes képernyőjén a Vissza egyből a megfelelő
       // könyvtárnézetbe tér vissza; ne álljon meg egy köztes ablakos állapotban.
       if (isVod) onCloseVod?.();
-      else if (isFullscreen) setIsFullscreen(false);
+      else if (isFullscreen) {
+        fsStart('KI', 'VISSZA a teljes képernyőn');
+        setIsFullscreen(false);
+        fsStep('lejátszó állapota beállítva', 'setIsFullscreen(false) – React commit következik');
+      }
     } else if (key === 'f' || key === 'F') {
       e.preventDefault();
       e.stopPropagation();

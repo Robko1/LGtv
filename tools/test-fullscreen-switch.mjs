@@ -230,3 +230,94 @@ export function reset(): void { lines.length = 0; }
   assert.match(mod.lines[0], /BE: képkocka: teszt; \d+\.\d ms/);
   mod.setEnabled(false);
 });
+
+/* ══════════ 7. AZ OK GOMBTÓL MÉRT TELJES VÁLTÁS (2.5.166) ══════════ */
+
+test('7. a váltás mérése az OK lenyomásától indul, mindkét irányban', () => {
+  /*
+   * A felhasználó kérése: az OK lenyomásától kell mérni a váltás teljes
+   * idejét, és naplózni kell a köztes műveleteket és a késleltetések okát.
+   */
+  assert.match(PERF, /export function fsStart\(direction: FsDirection, origin: string\)/,
+    'nincs menetindítás az OK lenyomásakor');
+  assert.match(PERF, /export function fsStep\(label: string, detail = ''\)/,
+    'nincsenek köztes lépések');
+  assert.match(PERF, /export function fsFinish\(outcome: string\)/,
+    'nincs lezárás teljes idővel');
+  assert.match(PERF, /KÉSZ – teljes idő/, 'a teljes idő nem kerül a naplóba');
+  assert.match(PERF, /leghosszabb késleltetés/, 'a lassító lépés nem derül ki a naplóból');
+  assert.match(PERF, /lépésköz \$\{gap\.toFixed\(1\)\} ms/, 'a lépésköz nincs a sorban');
+  // Az indulás a csatornalista OK-jánál van (mindkét útvonalon).
+  assert.equal((LIST.match(/fsStart\('BE'/g) || []).length, 2,
+    'a belépés mérése nem az OK lenyomásánál indul (sor + lista)');
+  assert.match(LIST, /fsStart\('BE', `csatornalista OK/);
+  // A kilépés mérése az OK/VISSZA/dupla kattintásnál indul.
+  for (const origin of ['OK a teljes képernyőn', 'VISSZA a teljes képernyőn',
+    'dupla kattintás a teljes képernyőn']) {
+    assert.ok(PLAYER.includes(`fsStart('KI', '${origin}')`),
+      `a kilépés mérése nem innen indul: ${origin}`);
+  }
+  // A menetet a KIFESTETT képkocka zárja le – mindkét irányban.
+  assert.equal((PLAYER.match(/fsFinish\(/g) || []).length, 2,
+    'a mérés nem a kifestett képkockánál zárul (mindkét irányban)');
+  assert.match(PLAYER, /fsFinish\('a teljes képernyős kép a képernyőn'\)/);
+  assert.match(PLAYER, /fsFinish\('a főoldal ismét a képernyőn'\)/);
+  // A főoldal két képkockás késleltetése külön lépésként látszik.
+  assert.match(APP, /fsStep\(value \? 'főoldal: teljes képernyő jelölve'/,
+    'a főoldal késleltetett állapotváltása nem látszik a naplóban');
+});
+
+test('7. a mérés VALÓDI futásban is teljes időt és lépésközt ír', async () => {
+  const esbuild = resolve(projectDir, 'web/node_modules/.bin/esbuild');
+  if (!existsSync(esbuild)) {
+    console.log('  (kihagyva: esbuild hiányzik – npm install --prefix web)');
+    return;
+  }
+  const outDir = resolve(projectDir, 'build/tests');
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(resolve(outDir, 'fs-perf-appLog-stub.ts'), `
+export const lines: string[] = [];
+let enabled = false;
+export function appLog(message: string): void { if (enabled) lines.push(String(message)); }
+export function isVerbosePlaybackLogging(): boolean { return enabled; }
+export function setEnabled(value: boolean): void { enabled = value; }
+export function reset(): void { lines.length = 0; }
+`);
+  writeFileSync(resolve(outDir, 'fullscreenPerf.entry.ts'),
+    readFileSync(resolve(projectDir, 'web/src/services/fullscreenPerf.ts'), 'utf8')
+      .replace(/from '\.\/appLog'/g, "from './fs-perf-appLog-stub'")
+    + `\nexport { setEnabled, reset, lines } from './fs-perf-appLog-stub';\n`);
+  const outFile = resolve(outDir, 'fullscreenPerf-trace.mjs');
+  const build = spawnSync(esbuild, [
+    resolve(outDir, 'fullscreenPerf.entry.ts'),
+    '--bundle', '--platform=node', '--format=esm', '--target=node20', '--log-level=warning',
+    `--outfile=${outFile}`,
+  ], { stdio: 'inherit' });
+  assert.equal(build.status, 0, 'a naplózó modul összeállítása sikerült');
+
+  const mod = await import(pathToFileURL(outFile).href);
+  mod.setEnabled(true);
+  mod.reset();
+  mod.resetFullscreenPerf();
+  mod.fsStart('BE', 'csatornalista OK');
+  mod.fsStep('esemény a lejátszónál', 'megérkezett');
+  mod.fsStep('React commit kész', 'osztály fel');
+  mod.fsFinish('a teljes képernyős kép a képernyőn');
+  assert.equal(mod.lines.length, 4, `a menet négy sora várható, kapott: ${mod.lines.length}`);
+  assert.match(mod.lines[0], /^TELJES KÉPERNYŐ BE: ▶ OK lenyomva: csatornalista OK/);
+  assert.match(mod.lines[1], /BE: esemény a lejátszónál: megérkezett; \+\d+\.\d ms az OK óta \(lépésköz \d+\.\d ms\)/);
+  assert.match(mod.lines[3], /BE: ✅ KÉSZ – teljes idő: .*; \d+\.\d ms az OK óta, 3 lépés, leghosszabb késleltetés: /);
+  // A kilépés külön menet: nem keveredik a belépéssel.
+  mod.reset();
+  mod.fsStart('KI', 'OK a teljes képernyőn');
+  mod.fsFinish('a főoldal ismét a képernyőn');
+  assert.match(mod.lines[0], /^TELJES KÉPERNYŐ KI: ▶ OK lenyomva: OK a teljes képernyőn/);
+  assert.match(mod.lines[1], /KI: ✅ KÉSZ – teljes idő/);
+  // Kikapcsolt naplózásnál a menet sem ír semmit.
+  mod.setEnabled(false);
+  mod.reset();
+  mod.fsStart('BE', 'kikapcsolva');
+  mod.fsStep('nem látszik');
+  mod.fsFinish('nem látszik');
+  assert.equal(mod.lines.length, 0, 'kikapcsolt naplózásnál a mérés sem ír');
+});

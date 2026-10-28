@@ -77,19 +77,22 @@ test('NINCS külső hálózati betűtípus-kérés az induláskor', () => {
     'a rendszer betűtípusát kell használni (nincs FOUT)');
 });
 
-test('2.5.162: a betöltőképernyő háttere a dizájn ikonja – nincs külön képkérés', () => {
+test('2.5.166: a háttér színátmenet – nincs képkérés és nincs fotó-felskálázás', () => {
   /*
-   * 2.5.158-kor a háttér tiszta CSS színátmenet volt, mert egy 161 kB-os
-   * JPEG késleltette az első festést. A felhasználó most a megtervezett
-   * fájlt kérte: a háttér a saját ikonja. A kép a HTML-ben van, 64 kB,
-   * 251×252 px – dekódolása az első festés előtt megtörténik, hálózat nélkül.
-   * Ezért továbbra is tilos: külön <img>, preload, külső fájl-hivatkozás.
+   * 2.5.162-ig a háttér egy 251 px-es, beágyazott ikon volt, faltól falig
+   * felnagyítva. A TV ezt minden képkockán újra raszterezte (filter +
+   * scale), és ez volt az indulás egyik legnagyobb tétele. 2.5.166 óta a
+   * háttér UGYANAZ a színátmenet, amit a platform indítókép is rajzol;
+   * az ikon csak a fejléc- és a sarokjelvényben maradt meg.
+   * Továbbra is tilos: külön <img>, preload, külső fájl-hivatkozás.
    */
   assert.doesNotMatch(PAGE, /preload", as="image"/, 'a háttérkép preload visszatért');
   assert.doesNotMatch(PAGE, /<img id="boot-bg"/, 'a háttérkép <img> elem visszatért');
   assert.doesNotMatch(PAGE, /splash-bg/, 'a háttér JPEG-fájlra hivatkozás visszatért');
-  assert.match(PAGE, /#boot-screen \.bootbg,[\s\S]{0,400}?background-image: url\("data:image\/jpeg;base64,/,
-    'a háttér nem a beágyazott ikon');
+  assert.match(PAGE, /#boot-screen \.hmark,\s*#boot-screen \.mark \{\s*background-image: url\("data:image\/jpeg;base64,/,
+    'a jelvények nem a beágyazott ikont használják');
+  assert.doesNotMatch(PAGE, /#boot-screen \.bootbg[\s\S]{0,80}filter: brightness/,
+    'a háttéren ismét képfilter fut (ez kérte a TV-től a folyamatos raszterezést)');
   assert.ok(!fs.existsSync(path.join(ROOT, 'web/public/splash-bg.jpg')),
     'a felesleges splash-bg.jpg még a repóban van');
   assert.ok(!fs.existsSync(path.join(ROOT, 'takarokep.jpg')),
@@ -98,7 +101,7 @@ test('2.5.162: a betöltőképernyő háttere a dizájn ikonja – nincs külön
 
 /* ─────────────── 2. A BETÖLTŐKÉPERNYŐ FELÉPÍTÉSE ─────────────── */
 
-test('a betöltőképernyő a dizájn szerkezete, a valós órával és a valós adatokkal', () => {
+test('2.5.166: a betöltőképernyő statikus szerkezete, a valós adatokkal', () => {
   const { window, dom } = bootPage();
   try {
     const doc = window.document;
@@ -107,28 +110,31 @@ test('a betöltőképernyő a dizájn szerkezete, a valós órával és a valós
     assert.ok(doc.getElementById('tv-curtain').contains(screen),
       'a betöltőképernyő nem a takaró rétegben van');
 
-    // A dizájn rétegei: háttér, fátyol, vignetta, rács, szemcse, pásztázás,
-    // fénylegyező, vászon, virágzás, műszerfal, jelvény és záró fátyol.
-    for (const selector of ['.bootbg', '.scrim', '.vig', '.grid', '.grain', '.scan',
-      '.sweep', '#fx', '#boot-bloom-el', '#boot-ui', '#boot-mark', '#boot-veil']) {
-      assert.ok(doc.querySelector(selector), `hiányzik a dizájn rétege: ${selector}`);
+    /*
+     * 2.5.166: CSAK a statikus rétegek maradtak – háttér, fátyol, vignetta,
+     * rács, műszerfal, jelvény. A mozgó szemcse, pásztázás, fénylegyező,
+     * vászon-részecske, virágzás és záró fátyol elment: ezek folyamatos
+     * festést kértek a TV-től az indulás közben.
+     */
+    for (const selector of ['.bootbg', '.scrim', '.vig', '.grid', '#boot-ui', '#boot-mark']) {
+      assert.ok(doc.querySelector(selector), `hiányzik a statikus réteg: ${selector}`);
+    }
+    for (const selector of ['.grain', '.scan', '.sweep', '#fx', '#boot-bloom-el', '#boot-veil']) {
+      assert.equal(doc.querySelector(selector), null,
+        `a mozgó/fény-réteg visszatért: ${selector}`);
     }
     assert.equal(doc.getElementById('boot-bg'), null,
       'a háttér nem külön <img> elem');
 
-    /*
-     * A fejléc a VALÓS rendszeridőt mutatja (a dizájn része). Ez nem kitalált
-     * adat, és a takarókép eltűnésekor leáll – nem ketyeg a főoldal alatt.
-     */
+    // A fejléc: márka + szójel + chipek – óra és dátum NÉLKÜL (2.5.166).
     const meta = doc.querySelector('.headmeta');
     assert.ok(doc.querySelector('.headrow') && meta, 'hiányzik a fejléc jobb oldali blokkja');
     assert.ok(doc.querySelector('.brand .hmark'), 'a bal felső sarokban nincs logó');
     assert.ok(doc.querySelector('.wordmark b'), 'hiányzik a szójel');
-    assert.ok(doc.getElementById('boot-clock'), 'hiányzik a valós óra');
-    assert.ok(doc.getElementById('boot-date'), 'hiányzik a magyar dátum');
-    assert.match(PAGE, /window\.setInterval\(tickClock, 1000\)/, 'az óra nem frissül');
-    assert.match(PAGE, /window\.__IPTV_BOOT_CLOCK_STOP__ = stopClock;/,
-      'az óra a felfedés után is ketyegne');
+    assert.equal(doc.getElementById('boot-clock'), null,
+      'a fejléc-óra visszatért (a felhasználó kifejezetten kérte az eltávolítását)');
+    assert.equal(doc.getElementById('boot-date'), null, 'a dátum visszatért a fejlécbe');
+    assert.doesNotMatch(PAGE, /setInterval\(/, 'ismét futó időzítő van az indítóképernyőn');
 
     // A négy kért, valós adat.
     for (const id of ['boot-pct', 'boot-channels', 'boot-speed', 'boot-eta']) {
@@ -250,17 +256,17 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
 
 /* ─────────────── 3. A KÉT INDÍTÓKÉP UGYANAZ A KÉP ─────────────── */
 
-test('2.5.163: a platform indítókép UGYANAZ a kép, mint a betöltőképernyő háttere', () => {
+test('2.5.166: a platform indítókép UGYANAZ a kompozíció, mint a betöltőképernyő háttere', () => {
   /*
-   * A felhasználó észrevétele: „indításkor nincs takarókép, fekete–zöldes
-   * háttér váltakozik”. Az ok az volt, hogy a platform indítókép egy generált
-   * színátmenet volt, a saját betöltőképernyőnk háttere pedig a saját IPTV-
-   * ikon: a kettő között látszott a váltás.
+   * A felhasználó észrevétele (2.5.162-ig): „indításkor nincs takarókép,
+   * fekete–zöldes háttér váltakozik”. Akkor a platform kép egy 1920×1080-ra
+   * felnagyított FOTÓ lett (600 kB), amit a TV minden képkockán újraraszterezett.
    *
-   * Mostantól a webOS indítóképe UGYANABBÓL a képből készül, ami a
-   * betöltőképernyő háttere – méghozzá a `web/index.html`-be ágyazott
-   * adat-URI-ból, ezért a kettő nem tud elválni egymástól. A váltás a
-   * platform képéről a saját animált képernyőnkre így észrevehetetlen.
+   * 2.5.166: a fotó helyett MINDKÉT oldal UGYANAZT a színátmenetes
+   * kompozíciót rajzolja (sötét teál alap + középső fényfolt + fátyol +
+   * 84 pixeles rács + vignetta). A platform kép és a `.bootbg` ugyanazokból
+   * a színmegállókból épül, ezért a váltás továbbra sem látszik – a fájl
+   * viszont néhány tíz kB, és nincs fotó-felskálázás a TV-n.
    */
   assert.equal(MAKE_SPLASH.includes('takarokep'), false,
     'az indítókép ismét a törölt borítóképből készül');
@@ -272,32 +278,34 @@ test('2.5.163: a platform indítókép UGYANAZ a kép, mint a betöltőképerny�
   assert.equal(APPINFO.splashBackground, 'splash-screen.png',
     'a webOS által használt indítókép neve megváltozott');
 
-  // A forrás a HTML-be ágyazott ikon – nincs külön képfájl, nincs másolat.
-  assert.match(MAKE_SPLASH, /BOOT_PAGE = ROOT \/ "web" \/ "index\.html"/,
-    'a platform kép nem a betöltőképernyő HTML-jéből veszi az ikont');
-  assert.match(MAKE_SPLASH, /data:image\\\/jpeg;base64/,
-    'a generátor nem a HTML-be ágyazott ikont keresi');
-  assert.match(MAKE_SPLASH, /ICON_ZOOM = 1\.08/,
-    'a platform kép nem a .bootbg 1.08-as nagyításával készül');
-  assert.match(MAKE_SPLASH, /brightness\(\.88\)|enhance\(0\.88\)/,
-    'a platform kép nem a betöltőképernyő filtereivel készül');
-  assert.equal(MAKE_SPLASH.includes('largeIcon'), false,
-    'a launcher-ikon került vissza a képbe');
+  // A két oldal UGYANAZOKKAL a színekkel dolgozik (a CSS és a generátor együtt).
+  for (const color of ['#073B3E', '#04161C', '#08111F']) {
+    assert.ok(PAGE.toUpperCase().includes(color), `a .bootbg színátmenetéből hiányzik: ${color}`);
+  }
+  assert.match(MAKE_SPLASH, /LINEAR_TOP = \(7, 59, 62\)/,
+    'a platform kép felső színe eltér a .bootbg-tól');
+  assert.match(MAKE_SPLASH, /GLOW_CORE = \(20, 150, 138\)/,
+    'a platform kép fényfoltja eltér a .bootbg-tól');
+  assert.match(MAKE_SPLASH, /GRID_STEP = 84/,
+    'a platform kép rácsa eltér a .bootbg 84 pixeles rácsvonalaitól');
+  // A háttér már NEM fotó: nincs beágyazott kép a .bootbg-n.
+  const bootbg = PAGE.slice(PAGE.indexOf('#boot-screen .bootbg {'), PAGE.indexOf('#boot-screen .scrim{'));
+  assert.doesNotMatch(bootbg, /background-image:\s*url\(/,
+    'a háttér ismét beágyazott fotó (ez volt a lassú indulás fő oka)');
 
   /*
    * A kép 1920×1080 (ezt írja elő a webOS) és 24 bites RGB: a palettás PNG
-   * látható színlépcsőt adott a TV paneljén. Mivel a háttér most a saját
-   * ikon (lágy, fotószerű kép), a fájl nagyobb, mint a régi színátmenet –
-   * de a TV helyben olvassa, ezért hálózati késés nincs. 700 kB fölött
-   * viszont már egy másik, nagyobb kép került a csomagba.
+   * látható színlépcsőt adott a TV paneljén. A színátmenet tömöríthető, ezért
+   * a fájl a régi 600 kB helyett néhány tíz kB – a régi 200 kB-os alsó korlát
+   * (ami a fotót védte) okafogyott.
    */
   const splashPath = path.join(ROOT, 'webos/splash-screen.png');
   assert.ok(fs.existsSync(splashPath), 'hiányzik a webos/splash-screen.png');
   const splashSize = fs.statSync(splashPath).size;
-  assert.ok(splashSize < 700_000,
-    `a webos/splash-screen.png ${splashSize} byte – nagyobb kép került a csomagba`);
-  assert.ok(splashSize > 200_000,
-    `a webos/splash-screen.png ${splashSize} byte – a saját ikon került ki a képből`);
+  assert.ok(splashSize < 160_000,
+    `a webos/splash-screen.png ${splashSize} byte – a nehéz kép került vissza a csomagba`);
+  assert.ok(splashSize > 10_000,
+    `a webos/splash-screen.png ${splashSize} byte – a kép nem a betöltőképernyő kompozíciója`);
   const header = fs.readFileSync(splashPath).subarray(0, 26);
   assert.equal(header.toString('ascii', 12, 16), 'IHDR');
   assert.equal(header.readUInt32BE(16), 1920, 'az indítókép nem 1920 széles');

@@ -2,41 +2,54 @@
 
 Ez a repó kizárólag LG webOS TV-hez készül. Az alkalmazás élő TV-csatornákat, filmeket, sorozatokat, EPG-t, kedvenceket és telefonos QR-beállítást kezel.
 
-## Indulás és betöltőképernyő (2.5.163)
+## Indulás és betöltőképernyő (2.5.167)
 
-A takarókép és az indítási animáció **ugyanaz**: a megtervezett indulóképernyő
-(`web/index.html`), amely a TV beolvasásának végétől a **100%-ig** folyamatosan
-látszik, és csak utána jelenik meg a főoldal:
+A takarókép és a saját betöltőképernyő **ugyanaz a látvány**: a `web/index.html`
+indítóképernyője a TV beolvasásának végétől a **100%-ig** látszik, és csak utána
+jelenik meg a főoldal:
 
-- a háttér a **saját IPTV-ikon** (251×252 px, a HTML-ben **egyszer** beágyazva,
-  így nincs külön képkérés), sötétítve, telítve és 30 mp-es lassú úszással;
-- fölötte a dizájn rétegei: háromrétegű fátyol, vignetta, 84 pixeles rács,
-  filmszemcse, pásztázó sorok, fénylegyező, vászon-részecskék (legfeljebb 26),
-  virágzás 100%-nál, műszerfal, 72 rovátkás tárcsa színátmenetes gyűrűvel,
-  000–100 skála, TIPPEK, jobb alsó ikon és „INDÍTÁS” fátyol;
-- a webOS saját indítóképe (`splashBackground`) **ugyanaz a kép**, mint a
-  betöltőképernyő háttere: a `tools/make-splash.py` a `web/index.html`-be
-  ágyazott ikonból rajzolja ki 1920×1080-ban (cover, 1.08 nagyítás, a dizájn
-  filterei, három fátyol, rács, vignetta), 24 bites RGB-ben. Nincs külön
-  képfájl és nincs másolat, ezért a platform kép nem tud elavulni, a váltás
-  pedig észrevehetetlen – eddig itt egy generált színátmenet volt, és a két
-  kép között látszott a váltás („fekete–zöldes háttér váltakozás”);
-- a CSS-rétegek (`transform`/`opacity`) a TV kompozitorán mozognak, ezért a
-  fő szál foglaltsága alatt sem állnak meg. Az animáció a **100%-ig** tart;
-- a fejlécben a **TV valós rendszerideje** és magyar dátuma jár (a felfedéskor
-  leáll);
-- a százalék, a csatornaszám, a mért sávszélesség és a hátralévő idő
-  **kizárólag a futó alkalmazás tényleges adataiból** származik – nincs
-  szimulált érték és nincs időzített „befejezés”. Amíg egy adat nem érkezett
-  meg, `—` látszik a helyén;
+- a képernyő **álló**: nincs vászon-részecske, forgó tárcsa, filmszemcse,
+  pásztázó sor, fénylegyező, virágzás, záró fátyol és fejléc-óra. A #32–#37
+  TV-naplók szerint pont ezek a folyamatos újrarajzolások vették el a
+  képkockákat az indulástól (2–3,7 mp-es képkocka-kihagyások);
+- **középen a valós százalék** (gyűrűvel), közvetlenül alatta a **töltősáv**,
+  majd a mért statisztikák. A százalék, a csatornaszám, a letöltött adat, a
+  sávszélesség és a hátralévő idő **kizárólag a futó alkalmazás tényleges
+  adataiból** származik – nincs szimulált érték, nincs időzített „befejezés”,
+  és amíg egy adat nem érkezett meg, `—` látszik a helyén;
+- a háttér **színátmenet** (sötét teál + középső fényfolt, fátyol, vignetta,
+  84 pixeles rács), nem 1920×1080-ra felnagyított fotó: nincs képfilter, nincs
+  `scale`, nincs minden képkockán ismételt raszterezés. Az IPTV-ikon a
+  fejléc- és a jobb alsó jelvényben maradt meg (egyszer beágyazva);
+- a webOS saját indítóképe (`splashBackground`) **ugyanazt a kompozíciót**
+  rajzolja: a `tools/make-splash.py` ugyanazokból a színmegállókból,
+  fátylakból, rácsból és vignettából generálja 1920×1080-ban, 24 bites RGB-ben.
+  A fájl **76 kB** (korábban 607 kB), ezért a platform kép és a saját
+  képernyőnk közötti váltás továbbra sem látszik;
 - a platform kép **a tényleges első festésnél** kerül le (`paint` bejegyzés:
   `first-paint` / `first-contentful-paint`, 1500 ms-os biztonsági hálóval),
-  nem egy képkocka-visszahívásnál: a visszahívás a festés előtt is lefuthat,
+  nem egy képkocka-visszahívásnál: a visszavágás a festés előtt is lefuthat,
   és a 18. naplóban a levétel (+327 ms) után még ~490 ms-ig üres ablakháttér
-  látszott;
+  látszott („fekete–zöldes háttér váltakozás”);
 - a réteg **akkor tűnik el**, amikor a főoldal már ki van festve és
   használható. Üres telepítés (nincs csatorna) is kész állapot, és ha nincs
   lejátszandó stream, a program nem vár az első videókockára.
+
+## EPG (műsorújság)
+
+A szolgáltató `get_short_epg` végpontja ezen a panelen minden kérésre üres
+választ ad (19 bájt: `{"epg_listings":[]}`), ezért a műsort a teljes
+műsorújságból (`xmltv.php`, ~62 MB) töltjük. A #32–#37 naplók szerint ezt
+eddig a **90 mp-es teljes időkorlát** és a **64 MB-os plafon** minden indulásnál
+megszakította (`AbortError`), így műsor soha nem jelent meg. Most:
+
+- csak akkor szakítjuk meg a letöltést, ha **60 mp-ig nem érkezik adat**
+  (8 perces biztonsági felső korláttal, 192 MB-os plafonnal);
+- megszakításkor is **megmarad a már beolvasott rész**, és a napló kimondja a
+  megszakítás okát, valamint a kihagyott (időablakon kívüli) műsorok számát;
+- a kész (vagy részleges) index a **tartós tárba** íródik, ezért a következő
+  induláskor azonnal betöltődik – a sárga csík már a főoldal megjelenésekor
+  ott van, a frissítés a háttérben fut.
 
 ## Lejátszás és távirányító
 
@@ -247,16 +260,16 @@ npm test
 (cd web && ./node_modules/.bin/tsc --noEmit)
 npm --prefix web run build
 npm run smoke
-VERSION=2.5.163 bash tools/build-webos.sh
+VERSION=2.5.167 bash tools/build-webos.sh
 ```
 
 A build az indítóképet **minden alkalommal újragenerálja**
 (`tools/make-splash.py`), ezért az IPK-ba nem kerülhet elavult kép. A kép a
-betöltőképernyő háttere – a `web/index.html`-be ágyazott saját ikon a dizájn
-filtereivel, fátylaival, rácsával és vignettájával, 1920×1080-ban, 24 bites
-RGB-ben (finom dithering, nincs színlépcső, ~600 kB). A generátor forrása
-mindig a `web/index.html`, ezért a platform kép és a saját betöltőképernyő
-soha nem válik el egymástól.
+betöltőképernyő hátterének kompozíciója (színátmenet, három fátyol, 84 pixeles
+rács, vignetta), 1920×1080-ban, 24 bites RGB-ben – **76 kB**, dithering nélkül
+(a lágy átmenet nem sávosodik). A generátor ugyanazokat a színmegállókat
+használja, mint a `web/index.html` `.bootbg` rétege, ezért a platform kép és a
+saját betöltőképernyő nem válik el egymástól.
 
 A build kimenete helyben `webos/IPTV-RT.ipk`, de az IPK a `.gitignore` szerint nem kerül a `main` forráságba. A kézi GitHub Actions build a sikeres csomagot a verziózott Release-be tölti fel.
 
