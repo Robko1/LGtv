@@ -180,13 +180,37 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
   list.push({ s: start, e: stop, t: title });
 }
 
+/** Monoton óra a szünetek időzítéséhez (a TV-n a `Date.now` is elég pontos). */
+function nowMs(): number {
+  try {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now();
+  } catch {
+    return Date.now();
+  }
+}
+
 /** Hány blokk feldolgozása után adjuk vissza a főszálat. */
 const YIELD_EVERY_BLOCKS = 40;
+/**
+ * Ennyi ms folyamatos munka után MINDENKÉPP visszaadjuk a főszálat (2.5.165).
+ *
+ * A 21. napló: a 62 MB-os műsorújság feldolgozása 41 mp volt, és ezalatt a
+ * csatornaváltás 100 ms-os újrapróbája 16 mp-et késett (a TV „lefagyott”
+ * váltás közben). A blokk-számláló önmagában nem elég: a hosszú sorok miatt
+ * 40 blokk is lehet 100+ ms. A 12 ms-os felső korlát képkockánként
+ * visszaadja a szálat, így a lejátszó és az időzítők futni tudnak.
+ */
+const YIELD_AFTER_MS = 12;
+/** A legutóbbi szünet óta feldolgozott idő. */
+let sliceStartedAt = 0;
 /** A legutóbbi szünet óta feldolgozott blokkok száma. */
 let blocksSinceYield = 0;
 
 /** A szövegdarab feldolgozása; csak a BEFEJEZETT blokkokat értelmezzük. */
 function feed(text: string): void {
+  if (!sliceStartedAt) sliceStartedAt = nowMs();
   buffer += text;
   // Memória-védelem: ha egyetlen blokk sem zárult le, ne nőjön korlátlanul.
   if (buffer.length > 8 * 1024 * 1024) buffer = buffer.slice(-1024 * 1024);
@@ -205,11 +229,18 @@ function feed(text: string): void {
 
   const blockRe = /<(programme|channel)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   let match = blockRe.exec(complete);
+  let consumed = 0;
   while (match) {
     consumeBlock(match[1].toLowerCase(), match[2] || '', match[3] || '');
+    consumed = match.index + match[0].length;
     blocksSinceYield += 1;
-    if (blocksSinceYield >= YIELD_EVERY_BLOCKS) {
+    const elapsed = nowMs() - sliceStartedAt;
+    if (blocksSinceYield >= YIELD_EVERY_BLOCKS || elapsed >= YIELD_AFTER_MS) {
       blocksSinceYield = 0;
+      // A feldolgozatlan maradékot VISSZATESSZÜK a pufferbe. Korábban ez a
+      // rész elveszett: a `complete` blokk már ki volt vágva a pufferből,
+      // így a szünet után a maradék műsorok egyszerűen eltűntek.
+      buffer = complete.slice(consumed) + buffer;
       // Rövid szünet a hívónak: a 62 MB-os fájl így nem egyetlen hosszú
       // feladat, hanem sok apró lépés (a felület közben fest).
       yieldRequested = true;
@@ -217,6 +248,10 @@ function feed(text: string): void {
     }
     match = blockRe.exec(complete);
   }
+  // A szelet végére ÉRTÜNK (nem kellett szünetet kérni): a következő
+  // hívás új mérési ablakot kap, különben azonnal szünetelne.
+  sliceStartedAt = 0;
+  blocksSinceYield = 0;
 }
 
 /**
@@ -234,6 +269,7 @@ async function feedWithBreath(text: string): Promise<void> {
     yieldRequested = false;
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     // A megmaradt, befogadott szöveget tovább dolgozzuk fel.
+    sliceStartedAt = nowMs();
     if (buffer.length) feed('');
   }
 }

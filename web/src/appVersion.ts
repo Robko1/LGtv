@@ -1,10 +1,25 @@
-export const WEB_VERSION = '2.5.164';
+export const WEB_VERSION = '2.5.165';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.165',
+    date: '2026-10-28',
+    changes: [
+      'AZ ELSŐ BELÉPÉSKOR AZONNAL VAN MOZI/SOROZAT LISTA: a teljes 102 871 film visszatöltése 32–35 mp volt, és EZ ALATT A RÁCS ÜRES VOLT (20–21. napló). Mostantól a látható kérés nem vész el – ha épp más visszatöltés fut, sorba áll –, az első adag (500 film / 500 sorozat) dekódolása után a lista AZONNAL a felületre kerül, induláskor pedig 20-20 tétel előnézet jelenik meg a tároló első adagjából, poszterrel együtt (nincs üres poszterhely)',
+      'A 3,3 MP-ES FŐSZÁL-FAGYÁS MEGSZŰNT: a film- és sorozatdekódolás minden 500-as adag után visszaadja a főszálat (korábban négy adagonként), az EPG-feldolgozás pedig 12 ms feldolgozás után is szünetet tart – nem csak 40 blokkonként. A naplóban a csatornaváltás 100 ms-os újrapróbája 16 mp-et késett, mert a műsorújság és a filmlista egyszerre foglalta a szálat',
+      'A CSATORNAVÁLTÁS NEM INDÍTJA ÚJRA A MÁR FUTÓ ADÁST: a teljes élő lista háttér-visszatöltése kicserélte a csatornaobjektumot, mire a lejátszó ugyanazt a csatornát újraindította („abort/emptied”, majd új CSATORNAVÁLTÁS START) – a [HU] EPIC DRAMA UHD váltása 23 069 ms lett. Mostantól a már játszó adás címét a lejátszó nyilvántartja, és a lista frissülése nem indít új betöltést (formátumváltásra továbbra is azonnal reagál)',
+      'FILM/SOROZAT LEJÁTSZÁS KÖZBEN TILOS A CSATORNAVÁLTÁS: a nyilak, a CH+/CH−, a számok és a gyorsbillentyűk (C/S/Q) sem váltanak csatornát és nem nyitnak ablakot – csak a nyilak (tekerés), az OK, a VISSZA és a lejátszó gombjai működnek',
+      'MOZI/SOROZAT → FŐOLDAL: a sárga fókusz a KIVÁLASZTOTT csatornán marad (a lista a saját `iptv-focus-selected-channel` eseményére a kiválasztott sorra áll, és odagördül)',
+      'A DIAGNOSZTIKAI ABLAK AZONNAL KINYÍLIK: a telefonos (QR) feltöltés és a kézi adatbeadás után a betöltés legelső lépése az ablak megnyitása – a korábbi 250 ms-os késleltetés és a QR-ablak 1,5 mp-es várakozása kikerült, így a néző rögtön látja a folyamatot',
+      'A CSATORNAVÁLTÁS ÉS A BETÖLTÉS HÁTTERE FEKETE: a lejátszó doboza, a csatorna-poszter és a „Gyors kapcsolódás...” felirat háttere #0d2630/#0b1c24 helyett fekete, az üres telepítés poszterének türkiz színátmenete is feketére váltott – nincs többé világoskék felvillanás váltás közben',
+      'NINCS HAMIS ADAT A NAPLÓBAN: a „KÉPERNYŐ” sor eddig akkor is „(első képkocka megvan)”-t írt, amikor a mérés szerint a videó 0x0 méretű és kész=0 volt. Mostantól a jelzés csak dekódolt képkocka (readyState ≥ 2) mellett jelenik meg, ellenkező esetben a sor kimondja az ellentmondást',
+      'AZ EPG NEM VESZÍT MŰSORT: a feldolgozás szünetekor a félkész blokk eddig eldobódott (a kivágott szövegrész nem került vissza a pufferbe); mostantól a maradék megőrződik, és a feldolgozás ott folytatódik',
+    ],
+  },
   {
     version: '2.5.164',
     date: '2026-10-28',

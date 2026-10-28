@@ -4047,6 +4047,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // A lejátszó LG webOS-en HTML5/HLS videót használ.
   const zapWatchdogRef = useRef<number | null>(null);
+  /*
+   * FUTÓ ADÁS VÉDELME (2.5.165).
+   *
+   * A 21. napló: a [HU] EPIC DRAMA UHD már JÁTSZOTT (2753 ms), majd 1,5 mp
+   * múlva a lejátszó `abort` + `emptied` eseményt adott, és ugyanaz a
+   * csatorna teljesen újraindult – összesen 23 069 ms lett a váltás. Az ok:
+   * a teljes élő lista háttér-visszatöltése kicserélte a csatornaobjektumot,
+   * amiből a lejátszó új stream-címet kapott. Egy MÁR FUTÓ adást nem szabad
+   * újraindítani csak azért, mert a lista frissült: a `lastPlayedRef` a
+   * tényleg elindult adást tartja nyilván, és a betöltő hatás ezt kihagyja.
+   */
+  const lastLoadRef = useRef<{ channelId?: string; url: string } | null>(null);
+  const lastPlayedRef = useRef<{ channelId?: string; url: string } | null>(null);
 
   const clearZapWatchdog = useCallback(() => {
     if (zapWatchdogRef.current !== null) {
@@ -4092,6 +4105,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setErrorMessage('');
     setNativeHandoff(false);
     activeMediaUrlRef.current = url;
+    lastLoadRef.current = { channelId: channelRef.current?.id, url };
     if (!url) {
       activeMediaUrlRef.current = '';
       endSwitch();
@@ -4470,6 +4484,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Ha nincs emlék, a korábbi alapértelmezés (MPEG-TS) marad. Hiba esetén
     // a másik formátum következik; a generációs őr védi az új csatornát
     // a régi betöltés későn érkező eseményeitől.
+    /*
+     * FUTÓ ADÁS: NINCS ÚJRAINDÍTÁS (2.5.165).
+     *
+     * Ha ugyanaz a csatorna már játszik, és a cím FORMÁTUMA sem változott,
+     * akkor a hatás (a lista háttér-frissítése miatt) nem indíthat új
+     * betöltést. A formátumváltás (TS ↔ HLS a beállításokból) viszont
+     * továbbra is azonnal érvényesül.
+     */
+    if (!isVod && playbackActive && channel?.id && lastPlayedRef.current
+        && lastPlayedRef.current.channelId === channel.id
+        && formatOfUrl(lastPlayedRef.current.url) === formatOfUrl(streamUrl)) {
+      const playing = htmlVideoRef.current;
+      // Csak akkor maradhat minden, ha a forrás TÉNYLEG a videóelemen van
+      // (a Mozi/Sorozat nézet eltávolítja a forrást – akkor újra kell tölteni).
+      if (playing && !playing.error && Boolean(playing.currentSrc || playing.src)) {
+        appLog(`Csatorna-lista frissült – a futó adás változatlanul megy tovább, nincs újraindítás (${channel.name || 'élő adás'}).`);
+        return undefined;
+      }
+    }
     const hlsUrl = streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
     const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
       ? streamUrl
@@ -4513,6 +4546,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       activeMediaUrlRef.current = '';
       playbackStartedRef.current = false;
+      // A nézet elhagyásakor a védett „futó adás” emléket eldobjuk: élő
+      // nézetbe visszatérve a forrás újra betöltődik.
+      lastPlayedRef.current = null;
       setIsLoading(false);
       setIsPlaying(false);
       return;
@@ -4870,19 +4906,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
          attribútum-írás, a kilépéskor pedig az osztály eltávolítása magától
          visszaadja a főoldali 16:9-es keretet. A `fixed` osztály a webos.js
          TV-s szabályaihoz kell (a lejátszó OSD-jének elrejtése a főoldalon). */
-      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-[#0d2630]'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
+      /* 2.5.165 – A CSATORNAVÁLTÁS KÖZÖTTI HÁTTÉR FEKETE (felhasználói kérés).
+         Korábban a lejátszó doboza világos türkiz (#0d2630) volt, ezért a
+         váltás alatt – amíg az új adás első képkockája meg nem jön – a
+         képernyő világoskéknek látszott. Most fekete, mint a videó maga. */
+      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
       /* Állandó főoldali stílus: teljes képernyőn a CSS-osztály írja felül
          `!important`-tal, ezért a React itt SOHA nem ír stílust a váltáskor. */
       style={PLAYER_HOME_STYLE}
     >
       {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
-      {/* Amíg az első képkocka meg nem érkezik, a doboz NEM fekete: a
-          csatorna nevét és logóját mutatja. Így a rendszerindítás végén nem
-          villan fel üres fekete TV-terület. */}
+      {/* Amíg az első képkocka meg nem érkezik, a csatorna nevét és logóját
+          mutatjuk – FEKETE alapon (2.5.165). A korábbi türkiz alap volt a
+          „világoskék csatornaváltási háttér”, amit a felhasználó kifogásolt. */}
       {!isVod && !firstFrameShown && (
         <div
           data-player-poster=""
-          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-[#0d2630] pointer-events-none"
+          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-black pointer-events-none"
         >
           {/* 2.5.135 – FOLYAMATOS INDULÁS.
               Üres IPK-n nincs csatorna: a logó-doboz és a „Kapcsolódás…”
@@ -4988,6 +5028,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onSuspend={(event) => logLiveMediaEvent('suspend', event.currentTarget)}
             onPlaying={(event) => {
               logLiveMediaEvent('playing', event.currentTarget);
+              // Ez az adás TÉNYLEG elindult: ez védi meg a későbbi
+              // lista-frissítéstől (lásd `lastPlayedRef`).
+              lastPlayedRef.current = lastLoadRef.current;
               if (!isActiveMediaEvent(event.currentTarget)) {
                 appLog('CSATORNAVÁLTÁS RÉGI MÉDIAESEMÉNY KIHAGYVA; ok=az előző src playing eseménye nem zárhatja le az új próbát.');
                 return;
@@ -5351,7 +5394,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </span>
         </div>
       ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0b1c24] z-10 pointer-events-none">
+        /* A „Gyors kapcsolódás...” felirat háttere is FEKETE (2.5.165). */
+        <div data-playback-loading="" className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10 pointer-events-none">
           <div className="relative w-12 h-12 flex items-center justify-center">
             <div className="w-12 h-12 rounded-full border-3 border-cyan-500/30 border-t-cyan-400 animate-spin" />
             <div className="absolute w-6 h-6 rounded-full bg-cyan-400/20 animate-ping" />

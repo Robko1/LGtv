@@ -2169,9 +2169,61 @@ export function loadVod(provider: ProviderRef): { movies: Movie[]; categories: C
   return { movies, categories };
 }
 
+/**
+ * AZ INDULÓ ELŐNÉZET: az első néhány film és sorozat, EGYETLEN adagból.
+ *
+ * A felhasználó kérése (2.5.165): „induláskor elég 20 sorozat és mozi
+ * töltődjön be, a poszterek ne legyenek üresek”. A teljes 102 871 film
+ * visszatöltése 30+ mp, ezért a Mozi/Sorozat nézet első megnyitásakor
+ * sokáig üres volt a rács. Ez a függvény CSAK az első adagot olvassa ki a
+ * tartós tárból (500 film / 500 sorozat), és abból ad vissza `limit` darabot
+ * – ez a TV-n néhány száz ms, mert nincs teljes bejárás és nincs kiegészítő
+ * metaadat-lekérés. A többi tétel a háttérben, adagonként érkezik utána.
+ */
+export async function loadCatalogPreview(
+  provider: ProviderRef,
+  limit = 20,
+): Promise<{ movies: Movie[]; series: Series[] }> {
+  const empty = { movies: [] as Movie[], series: [] as Series[] };
+  try {
+    const idb = await contentChunkStore();
+    if (!idb) return empty;
+    const [vod, ser] = await Promise.all([
+      readIdbChunks(idb, VOD_META_KEY),
+      readIdbChunks(idb, SERIES_META_KEY),
+    ]);
+    const movies: Movie[] = [];
+    const series: Series[] = [];
+    if (vod) {
+      const rows = await vod.readChunk(0);
+      movies.push(...decodeMovies(rows, provider, 0).slice(0, Math.max(0, limit)));
+    }
+    if (ser) {
+      const rows = await ser.readChunk(0);
+      series.push(...decodeSeries(rows, provider, 0).slice(0, Math.max(0, limit)));
+    }
+    if (movies.length || series.length) {
+      appLog(`Induló előnézet a tartós tárból: ${movies.length} film, ${series.length} sorozat (első adag).`);
+    }
+    return { movies, series };
+  } catch {
+    return empty;
+  }
+}
+
 export async function loadVodAsync(
   provider: ProviderRef,
-  onProgress?: (loaded: number, total: number) => void
+  onProgress?: (loaded: number, total: number) => void,
+  /*
+   * RÉSZLEGES KISZOLGÁLÁS (2.5.165).
+   *
+   * A 20–21. napló mérése: a Mozi/Sorozat nézet első megnyitásakor a teljes
+   * 102 871 film dekódolása 32–35 mp-ig tartott, és EZ ALATT A RÁCS ÜRES
+   * VOLT („nincs semmi film, kilépek és vissza – akkor megjelenik”). A
+   * felhasználó ugyanezt látta. Mostantól az ELSŐ adag (500 film) dekódolása
+   * után azonnal a felületre kerül, a többi pedig utána, adagonként.
+   */
+  onPartial?: (partial: { movies: Movie[]; categories: Category[] }) => void,
 ): Promise<{ movies: Movie[]; categories: Category[] }> {
   /*
    * EGYSZERI VISSZAFEJTÉS. A korábbi kód ugyanazt a 100 ezres listát az
@@ -2192,12 +2244,21 @@ export async function loadVodAsync(
       }
       const movies: Movie[] = [];
       let offset = 0;
+      let partialSent = false;
       for (let index = 0; index < chunked.meta.chunks; index++) {
         const rows = await chunked.readChunk(index);
         for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
         offset += rows.length;
         onProgress?.(offset, chunked.meta.chunks * CHUNK_SIZE);
-        if (index % 4 === 3) await yieldToStorage();
+        // Az ELSŐ adag után azonnal láthatóvá tesszük, amit már tudunk.
+        if (!partialSent && movies.length > 0) {
+          partialSent = true;
+          try { onPartial?.({ movies: movies.slice(), categories: decodeCategories(chunked.meta.cats, 'movie') }); } catch { /* a felület hibája nem állíthatja meg a betöltést */ }
+        }
+        // MINDEN adag után lélegzés (2.5.165): 500 film dekódolása a TV-n
+        // ~25–40 ms. Négy adagonként (100+ ms) a csatornaváltás időzítői
+        // (100 ms-os újrapróba, 2 mp-es zap-őr) láthatóan késtek.
+        await yieldToStorage();
       }
       if (movies.length > 0) {
         const categories = decodeCategories(chunked.meta.cats, 'movie');
@@ -2228,8 +2289,8 @@ export async function loadVodAsync(
     for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
     offset += rows.length;
     onProgress?.(offset, meta.chunks * CHUNK_SIZE);
-    // Négy adag után lélegzés: a felület közben kirajzolódik és válaszol.
-    if (index % 4 === 3) await yieldToStorage();
+    // Minden adag után lélegzés: a felület közben kirajzolódik és válaszol.
+    await yieldToStorage();
   }
   const categories = readChunkedCategories(VOD_META_KEY, 'movie');
   appLog(`Filmlista betöltve: ${movies.length} film, ${meta.chunks} adag`
@@ -2272,7 +2333,9 @@ export function loadSeries(provider: ProviderRef): { series: Series[]; categorie
 /** Sorozatok betöltése adagonként, a felületnek visszaadott vezérléssel. */
 export async function loadSeriesAsync(
   provider: ProviderRef,
-  onProgress?: (loaded: number, total: number) => void
+  onProgress?: (loaded: number, total: number) => void,
+  /* Részlegesítés, mint a filmeknél: az első adag azonnal a képernyőre kerül. */
+  onPartial?: (partial: { series: Series[]; categories: Category[] }) => void,
 ): Promise<{ series: Series[]; categories: Category[] }> {
   // Ugyanaz, mint a filmeknél: a teljes sorozatlista a tartós tárban van.
   const idb = await contentChunkStore();
@@ -2288,12 +2351,20 @@ export async function loadSeriesAsync(
       }
       const series: Series[] = [];
       let offset = 0;
+      let partialSent = false;
       for (let index = 0; index < chunked.meta.chunks; index++) {
         const rows = await chunked.readChunk(index);
         for (const item of decodeSeries(rows, provider, offset)) series.push(item);
         offset += rows.length;
         onProgress?.(offset, chunked.meta.chunks * CHUNK_SIZE);
-        if (index % 4 === 3) await yieldToStorage();
+        if (!partialSent && series.length > 0) {
+          partialSent = true;
+          try { onPartial?.({ series: series.slice(), categories: decodeCategories(chunked.meta.cats, 'series') }); } catch { /* nem állítja meg a betöltést */ }
+        }
+        // MINDEN adag után lélegzés (2.5.165): 500 film dekódolása a TV-n
+        // ~25–40 ms. Négy adagonként (100+ ms) a csatornaváltás időzítői
+        // (100 ms-os újrapróba, 2 mp-es zap-őr) láthatóan késtek.
+        await yieldToStorage();
       }
       if (series.length > 0) {
         const categories = decodeCategories(chunked.meta.cats, 'series');
@@ -2324,7 +2395,7 @@ export async function loadSeriesAsync(
     for (const item of decodeSeries(rows, provider, offset)) series.push(item);
     offset += rows.length;
     onProgress?.(offset, meta.chunks * CHUNK_SIZE);
-    if (index % 4 === 3) await yieldToStorage();
+    await yieldToStorage();
   }
   const categories = readChunkedCategories(SERIES_META_KEY, 'series');
   appLog(`Sorozatlista betöltve: ${series.length} sorozat, ${meta.chunks} adag`
@@ -2399,6 +2470,13 @@ export interface RestoreHandlers {
   onLive?: (full: LoadedLiveFull) => void;
   onVod?: (result: { movies: Movie[]; categories: Category[] }) => void;
   onSeries?: (result: { series: Series[]; categories: Category[] }) => void;
+  /**
+   * RÉSZLEGES KISZOLGÁLÁS (2.5.165): az első adag dekódolása után azonnal
+   * meghívjuk, hogy a rács ne legyen üres a 30 mp-es teljes visszatöltés
+   * alatt. A teljes lista utána `onVod`/`onSeries` útján érkezik.
+   */
+  onVodPartial?: (partial: { movies: Movie[]; categories: Category[] }) => void;
+  onSeriesPartial?: (partial: { series: Series[]; categories: Category[] }) => void;
   onStage?: (stage: string) => void;
 }
 
@@ -2529,7 +2607,11 @@ export function restoreStoredContent(
     }
     if (wantVod && !restoreDone.vod && plan.hasVod && !restoreCancelled) {
       handlers.onStage?.('filmlista a tartós tárból');
-      const vod = await loadVodAsync(provider);
+      const vod = await loadVodAsync(
+        provider,
+        undefined,
+        (partial) => handlers.onVodPartial?.(partial),
+      );
       if (vod.movies.length && !restoreCancelled) {
         handlers.onVod?.(vod);
         loaded += ` film=${vod.movies.length}`;
@@ -2538,13 +2620,23 @@ export function restoreStoredContent(
     }
     if (wantVod && !restoreDone.vod && plan.hasSeries && !restoreCancelled) {
       handlers.onStage?.('sorozatlista a tartós tárból');
-      const ser = await loadSeriesAsync(provider);
+      const ser = await loadSeriesAsync(
+        provider,
+        undefined,
+        (partial) => handlers.onSeriesPartial?.(partial),
+      );
       if (ser.series.length && !restoreCancelled) {
         handlers.onSeries?.(ser);
         loaded += ` sorozat=${ser.series.length}`;
       }
     }
-    if (wantVod) restoreDone.vod = true;
+    /*
+     * Csak AKKOR jelöljük késznek, ha tényleg lefutott. Korábban a
+     * megszakított (szolgáltatófrissítés közbeni) visszatöltés is késznek
+     * látszott, ezért a Mozi nézet későbbi megnyitása VÉGLEG kihagyta a
+     * filmeket – üres rács, újraindításig.
+     */
+    if (wantVod && !restoreCancelled) restoreDone.vod = true;
     if (!restoreCancelled) {
       appLog(`TARTÓS VISSZATÖLTÉS készen (${Date.now() - startedAt} ms, letöltés nélkül):${loaded || ' üres'}.`);
     }

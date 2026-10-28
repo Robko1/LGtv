@@ -547,13 +547,24 @@ test('7. a csatornák a filmek előtt, önállóan kerülnek a felületre', () =
   const STORE = read('web/src/services/contentStore.ts');
   const restoreStart = STORE.indexOf('export function restoreStoredContent(');
   const restoreLive = STORE.indexOf('const full = await loadLiveFull(provider);', restoreStart);
-  const restoreVod = STORE.indexOf('const vod = await loadVodAsync(provider);', restoreStart);
-  const restoreSeries = STORE.indexOf('const ser = await loadSeriesAsync(provider);', restoreStart);
+  const restoreVod = STORE.indexOf('const vod = await loadVodAsync(', restoreStart);
+  const restoreSeries = STORE.indexOf('const ser = await loadSeriesAsync(', restoreStart);
   assert.ok(restoreStart > 0 && restoreLive > restoreStart && restoreVod > restoreLive
     && restoreSeries > restoreVod, 'a tartós visszatöltés nem az élő → filmek → sorozatok sorrendben fut');
   assert.match(APP, /await restoreStoredContent\(target, \{/,
     'a felület nem egyetlen megosztott visszatöltést használ');
   assert.doesNotMatch(APP, /Promise\.all\(\[vodTask, seriesTask\]/);
+  /*
+   * 2.5.165: a Mozi/Sorozat rács NEM maradhat üres a teljes visszatöltés
+   * alatt. Az első adag dekódolása után a részleges lista a felületre kerül,
+   * induláskor pedig 20-20 tétel előnézettel jelenik meg.
+   */
+  assert.match(STORE, /onVodPartial\?: \(partial: \{ movies: Movie\[\]; categories: Category\[\] \}\) => void/,
+    'a filmek első adagja nem kerül a felületre (üres rács a visszatöltés alatt)');
+  assert.match(STORE, /export async function loadCatalogPreview\(/,
+    'nincs induló előnézet (20 film/sorozat poszterrel)');
+  assert.match(APP, /loadCatalogPreview\(plan\.provider, 20\)/,
+    'az induló előnézet nem fut le a tároló megnyitása után');
 });
 
 /*

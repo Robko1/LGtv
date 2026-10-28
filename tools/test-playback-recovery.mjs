@@ -242,15 +242,16 @@ check(/name === 'AbortError'/.test(PLAYER),
 check(/switchInProgressRef\.current\) return;/.test(PLAYER),
   'a belső pause/play események nem írják át a lejátszási szándékot');
 /*
- * 2.5.147: a teljes képernyős töltő réteg továbbra is csak a „még nincs
- * képkocka” ágban jelenik meg, de már NEM tiszta fekete (a kész felület
- * hátteréhez illő sötét türkiz), így a váltás pillanatában sem villanhat be
- * fekete felület.
+ * 2.5.165: a felhasználó kérése – a csatornaváltás közötti háttér és a
+ * betöltés felirat háttere FEKETE (korábban világoskék/türkiz volt). A réteg
+ * továbbra is csak a „még nincs képkocka” ágban jelenik meg, tehát a már
+ * futó adást nem takarja el.
  */
-check(/currentStreamHasFrame \? \(/.test(PLAYER) && /bg-\[#0b1c24\] z-10/.test(PLAYER),
-  'van képkocka után a töltőjelző NEM takarja el a képet fekete réteggel');
-check(!/bg-black z-10/.test(PLAYER),
-  'a teljes képernyős töltő réteg újra tiszta fekete');
+check(/currentStreamHasFrame \? \(/.test(PLAYER) && /data-playback-loading=""/.test(PLAYER)
+  && /bg-black z-10 pointer-events-none/.test(PLAYER),
+  'a töltő réteg csak képkocka előtt jelenik meg, és FEKETE (2.5.165)');
+check(!/bg-\[#0b1c24\]|bg-\[#0d2630\]/.test(PLAYER),
+  'a lejátszó dobozán nincs többé világoskék (türkiz) háttér');
 check(/data-playback-status/.test(PLAYER)
   && /isFullscreen/.test(PLAYER)
   && /top-3 right-3/.test(PLAYER)
