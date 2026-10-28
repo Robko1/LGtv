@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.158';
+export const WEB_VERSION = '2.5.159';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.158',
+    version: '2.5.159',
     date: '2026-10-28',
     changes: [
       'A 9. napló ELEMZÉSE ALAPJÁN JAVÍTOTT INDULÁS: a betöltőképernyő háttere eddig egy 1920x1080-as, 161 kB-os JPEG fotó volt, amelyet a <head> kézileg „melegített elő” (preload + decode). Az 1 GB memóriás TV-n ez visszatartotta az első festést, a kép pedig – a napló tanúsága szerint – kétszer próbált meg beúszni. Mostantól a háttér TISZTA CSS színátmenet: nincs képkérés, nincs dekódolás, nincs újrafestés, ezért a betöltőképernyő az első képkockától kész',
