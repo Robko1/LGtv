@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.169';
+export const WEB_VERSION = '2.5.170';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.169',
+    version: '2.5.170',
     date: '2026-10-28',
     changes: [
       'AZ EPG VÉGRE MEGJELENIK: a #38–#42 naplók szerint a panel `get_short_epg` végpontja MINDEN csatornára 19 bájt (`{"epg_listings":[]}`), a teljes XMLTV-ből pedig 203 140 feldolgozott blokk után csak 103 műsor maradt. Mostantól üres rövid EPG után a kód a `get_simple_data_table` végpontról tölti a látható csatornák műsorát (csatornánként, néhány kB), a napló pedig megmondja, melyik végpont ad adatot',
