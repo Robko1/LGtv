@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.160';
+export const WEB_VERSION = '2.5.161';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.160',
+    version: '2.5.161',
     date: '2026-10-28',
     changes: [
       'A ROSSZ MINŐSÉGŰ IKON ELTŰNT A PLATFORM INDÍTÓKÉPÉRŐL: a tools/make-splash.py eddig a 130x130-as launcher-ikont felnagyítva (260x260) rajzolta a kép közepére, a színátmenetet pedig 128 színű, palettás PNG-be tömörítette - a TV-n ez mosott, lépcsős képet adott. Mostantól a platform kép IKON NÉLKÜL, valódi 24 bites RGB-ben készül, finom ditheringgel, tehát nincs felnagyított elem és nincs színlépcső',
