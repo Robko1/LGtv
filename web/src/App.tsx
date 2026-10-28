@@ -674,18 +674,31 @@ export function App() {
   const videoFullscreenRef = useRef(false);
   const applyVideoFullscreen = useCallback((value: boolean) => {
     // A lejátszó/ref állapota azonnal frissül, hogy a VISSZA gomb már
-    // a helyes módot lássa. A főoldal React-fája csak két festési képkocka
-    // után változik, így a lejátszó geometriája előbb megjelenhet.
+    // a helyes módot lássa. BELÉPÉSNÉL a főoldal React-fája csak két festési
+    // képkocka után változik, így a lejátszó geometriája előbb megjelenhet;
+    // KILÉPÉSNÉL viszont azonnal (lásd a lenti magyarázatot).
     videoFullscreenRef.current = value;
     const apply = () => setIsVideoFullscreen(value);
     const raf = (callback: FrameRequestCallback) => window.requestAnimationFrame(callback);
     /*
-     * 2.5.166: a főoldal állapota SZÁNDÉKOSAN két képkockával később vált (a
-     * teljes képernyős kép előbb kerüljön ki). Ez a késleltetés viszont idő:
-     * a naplóban külön lépésként jelenik meg, hogy a váltás teljes idejéből
-     * látszódjon, mennyi esik erre.
+     * 2.5.168 – A KILÉPÉS NEM VÁRHAT KÉPKOCKÁKRA.
+     *
+     * A #38–#42 naplók mérése: belépés 13–26 ms, KILÉPÉS 158–215 ms, és a
+     * legnagyobb tétel a „főoldal: visszatérés jelölve” lépés (143–200 ms)
+     * volt – vagyis a két képkockás késleltetés. Belépésnél ez hasznos (a
+     * teljes képernyős képnek előbb ki kell kerülnie), kilépésnél viszont
+     * felesleges várakozás: a kép már a lejátszó commitjában visszakicsinyül,
+     * a főoldal (OSD, oldalsáv, fókusz) csak később jelenik meg.
+     *
+     * Ezért KIFELÉ azonnal, ugyanabban a React-körben frissül az állapot –
+     * így a főoldal és a lejátszó EGYETLEN újrarajzolással készül el.
      */
-    fsStep(value ? 'főoldal: teljes képernyő jelölve' : 'főoldal: visszatérés jelölve',
+    if (!value) {
+      fsStep('főoldal: visszatérés jelölve', 'azonnali frissítés – a főoldal és a lejátszó egy körben rajzolódik');
+      setIsVideoFullscreen(false);
+      return;
+    }
+    fsStep('főoldal: teljes képernyő jelölve',
       'az állapot két képkockával később frissül (a kép előbb kikerül)');
     raf(() => raf(apply));
   }, []);

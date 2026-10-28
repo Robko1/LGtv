@@ -357,6 +357,44 @@ export const xtreamService = {
     return Array.isArray(data?.epg_listings) ? data.epg_listings : [];
   },
 
+  /**
+   * 24 ÓRÁS MŰSORÚJSÁG EGY CSATORNÁRA (`get_simple_data_table`).
+   *
+   * MIÉRT KELL (2.5.168, #38–#42 naplók): a panel `get_short_epg` válasza
+   * MINDEN csatornára 19 bájt (`{"epg_listings":[]}`), a teljes XMLTV pedig
+   * 62 MB és 86 mp. A `get_simple_data_table` ugyanazt a `epg_listings`
+   * szerkezetet adja, de csatornánként, néhány kB-ban – ha a panel ezt
+   * kiszolgálja, a látható csatornák műsora másodpercek alatt megvan.
+   */
+  async simpleEpg(
+    serverUrl: string,
+    username: string,
+    password: string,
+    streamId: number | string
+  ): Promise<Array<{
+    id?: string | number;
+    title?: string;
+    description?: string;
+    start?: string;
+    end?: string;
+    start_timestamp?: number | string;
+    stop_timestamp?: number | string;
+    now_playing?: number;
+  }>> {
+    const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_simple_data_table&stream_id=${encodeURIComponent(String(streamId))}`;
+    const data = await httpGetJson<{ epg_listings?: Array<{
+      id?: string | number;
+      title?: string;
+      description?: string;
+      start?: string;
+      end?: string;
+      start_timestamp?: number | string;
+      stop_timestamp?: number | string;
+      now_playing?: number;
+    }> }>(url, { timeoutMs: 12000 });
+    return Array.isArray(data?.epg_listings) ? data.epg_listings : [];
+  },
+
   async seriesInfo(
     serverUrl: string,
     username: string,

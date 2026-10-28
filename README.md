@@ -38,18 +38,31 @@ jelenik meg a főoldal:
 ## EPG (műsorújság)
 
 A szolgáltató `get_short_epg` végpontja ezen a panelen minden kérésre üres
-választ ad (19 bájt: `{"epg_listings":[]}`), ezért a műsort a teljes
-műsorújságból (`xmltv.php`, ~62 MB) töltjük. A #32–#37 naplók szerint ezt
-eddig a **90 mp-es teljes időkorlát** és a **64 MB-os plafon** minden indulásnál
-megszakította (`AbortError`), így műsor soha nem jelent meg. Most:
+választ ad (19 bájt: `{"epg_listings":[]}`), ezért a műsor két másik úton jön:
 
-- csak akkor szakítjuk meg a letöltést, ha **60 mp-ig nem érkezik adat**
-  (8 perces biztonsági felső korláttal, 192 MB-os plafonnal);
-- megszakításkor is **megmarad a már beolvasott rész**, és a napló kimondja a
-  megszakítás okát, valamint a kihagyott (időablakon kívüli) műsorok számát;
-- a kész (vagy részleges) index a **tartós tárba** íródik, ezért a következő
-  induláskor azonnal betöltődik – a sárga csík már a főoldal megjelenésekor
-  ott van, a frissítés a háttérben fut.
+1. **`get_simple_data_table`** (2.5.169) – csatornánkénti, 24 órás lista
+   néhány kB-ban. Ez adja a látható csatornák műsorát (sárga csík, „most” /
+   „következő”, EPG-ablak). A napló egyszer kiírja, hogy melyik végpont ad
+   valódi adatot.
+2. **Teljes műsorújság (`xmltv.php`, ~62 MB)** – ha a kisterhelésű végpont sem
+   ad adatot. A tartós tárba írt index a következő indulásnál azonnal
+   betöltődik, a frissítés a háttérben fut.
+
+A letöltés korlátai és a hibák naplózása (2.5.169):
+
+- csak akkor szakítjuk meg, ha **60 mp-ig nem érkezik adat** (8 perces
+  biztonsági felső korláttal, 192 MB-os plafonnal);
+- megszakításkor is **megmarad a már beolvasott rész**, a napló pedig kiírja a
+  megszakítás okát;
+- a záró sor a **megtartott** műsorok számát és minden kiesési okot tartalmaz
+  (időablakon kívüli, érvénytelen időpont, cím nélküli, korlát miatt kihagyott);
+- a mentett példány **RÉSZLEGES** jelölést kap, ha a letöltés nem futott végig,
+  és a vékony (csatornánként 2 műsornál kevesebb) mentés nem számít frissnek –
+  így nem blokkolja órákra a frissítést;
+- a dátumokat tömör (`20261028181500 +0200`) és elválasztós
+  (`2026-10-28 18:15:00 +0000`) alakban is olvassa;
+- ha egy csatornánál betelt a bejegyzés-keret, a **lejárt**, majd a
+  **legtávolabbi jövőbeli** műsor esik ki – a mai műsor nem vész el.
 
 ## Lejátszás és távirányító
 
@@ -260,7 +273,7 @@ npm test
 (cd web && ./node_modules/.bin/tsc --noEmit)
 npm --prefix web run build
 npm run smoke
-VERSION=2.5.167 bash tools/build-webos.sh
+VERSION=2.5.169 bash tools/build-webos.sh
 ```
 
 A build az indítóképet **minden alkalommal újragenerálja**

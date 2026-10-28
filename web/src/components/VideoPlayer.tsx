@@ -2147,6 +2147,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [isFullscreen]);
 
+  /*
+   * A TELJES KÉPERNYŐ ÁLLAPOTA A FŐOLDALNAK – ELSŐKÉNT (2.5.168).
+   *
+   * A #38–#42 naplók: a KILÉPÉS 158–215 ms volt, miközben a lejátszó commitja
+   * 6–10 ms alatt kész volt. A különbség a két egymás utáni újrarajzolásé:
+   * előbb a lejátszó renderelte újra magát (OSD vissza), és csak az UTÁNA
+   * tudta meg a főoldal, hogy kiléptünk – így az OSD, az oldalsáv és a
+   * csatornalista külön körben rajzolódott. Ez az effekt ezért a többi
+   * teljes képernyős effekt ELŐTT fut: a két állapotváltozás egy React-körbe
+   * kerül, vagyis EGY újrarajzolás történik.
+   */
+  useEffect(() => {
+    onFullscreenChange?.(isFullscreen);
+    nativeApi()?.setFullscreen?.(isFullscreen);
+  }, [isFullscreen, onFullscreenChange]);
+
   // Teljes képernyőn a fókusz a lejátszóra kerül (így az OK/Vissza azonnal
   // kilép), kilépés után pedig a KIVÁLASZTOTT csatorna sora kapja a fókuszt.
   //
@@ -2261,13 +2277,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     onOverlayVisibilityChange?.(showControlsOverlay);
   }, [showControlsOverlay, onOverlayVisibilityChange]);
-
-  // A teljes képernyő állapotát a főoldal is megkapja (teljes képernyős OSD),
-  // a natív réteg pedig ilyenkor teljes képernyős (immersive) üzemmódba kerül.
-  useEffect(() => {
-    onFullscreenChange?.(isFullscreen);
-    nativeApi()?.setFullscreen?.(isFullscreen);
-  }, [isFullscreen, onFullscreenChange]);
 
   // Új érintés/kattintás logika a felhasználó kérése szerint
   const suppressNextClickRef = useRef(false);

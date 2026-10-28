@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.168';
+export const WEB_VERSION = '2.5.169';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.169',
+    date: '2026-10-28',
+    changes: [
+      'AZ EPG VÉGRE MEGJELENIK: a #38–#42 naplók szerint a panel `get_short_epg` végpontja MINDEN csatornára 19 bájt (`{"epg_listings":[]}`), a teljes XMLTV-ből pedig 203 140 feldolgozott blokk után csak 103 műsor maradt. Mostantól üres rövid EPG után a kód a `get_simple_data_table` végpontról tölti a látható csatornák műsorát (csatornánként, néhány kB), a napló pedig megmondja, melyik végpont ad adatot',
+      'A VÉKONY MŰSORÚJSÁG NEM BLOKKOLJA A FRISSÍTÉST: eddig egy 96 csatornás, 103 műsoros maradék „frissnek” számított 3 órán át, ezért a valódi letöltés el sem indult. A tartós mentés mostantól RÉSZLEGES jelölést kap, és csak a teljes, elég sűrű (csatornánként legalább 2 műsor) példány számít frissnek',
+      'AZ XMLTV DÁTUMOK: mindkét formátumot (tömör `20261028181500 +0200` és elválasztós `2026-10-28 18:15:00 +0000`) olvassa; a hibás időpontok száma és az első három nyers érték a naplóba kerül',
+      'A CSATORNA-KORLÁT A MAI MŰSORT TARTJA MEG: ha egy csatornánál betelt a 16 hely, a lejárt, majd a legtávolabbi jövőbeli műsor esik ki – nem a mai (ezért veszett el korábban a friss műsor)',
+      'A TELJES KÉPERNYŐS KILÉPÉS GYORS: a naplók szerint belépés 13–26 ms, kilépés 158–215 ms volt; a különbség a két képkockás késleltetés (143–200 ms) és a két egymás utáni újrarajzolás. Kilépéskor a főoldal állapota AZONNAL frissül, és a lejátszó értesítése a többi effekt ELŐTT fut, így a főoldal és a lejátszó egyetlen React-körben rajzolódik',
+      'A napló záró sora az EPG-nél a MEGTARTOTT műsorok számát és minden kiesési okot (időablakon kívüli, érvénytelen időpont, cím nélküli, korlát) kiír',
+    ],
+  },
   {
     version: '2.5.168',
     date: '2026-10-28',
