@@ -188,13 +188,13 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     <div className="flex-1 flex flex-col bg-[#070e1e] overflow-hidden select-none lg:select-auto" onKeyDown={(e) => { if (normalizeTvKey(e) === 'Escape' && isCategoryMenuOpen) { e.preventDefault(); e.stopPropagation(); setIsCategoryMenuOpen(false); } }}>
       {/* Top Bar */}
       <div className="p-3 md:p-4 lg:p-4 xl:p-5 bg-[#09152e] border-b border-cyan-950/60 flex flex-col gap-2.5 md:gap-3">
-        <div className="flex items-center justify-between gap-2">
+        <div className="relative flex items-center justify-end gap-2 min-h-[40px]">
           <button
             data-category-trigger=""
             onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'ArrowDown') { e.preventDefault(); if (!isCategoryMenuOpen) seriesGridRef.current?.querySelector<HTMLElement>('[data-poster-index="0"]')?.focus(); } else if (key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); document.querySelector<HTMLElement>('[data-tv-header-kind="series"]')?.focus(); } }}
             onClick={() => setIsCategoryMenuOpen((open) => !open)}
             aria-expanded={isCategoryMenuOpen}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0f2042] hover:bg-[#162d5a] text-cyan-300 border border-cyan-500/30 text-base font-bold active:scale-95 transition-all"
+            className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0f2042] hover:bg-[#162d5a] text-cyan-300 border border-cyan-500/30 text-base font-bold active:scale-95 transition-all"
           >
             <ChevronDown className="w-4 h-4" />
             <span>Kategóriák</span>
