@@ -1,25 +1,8 @@
-/**
- * Webes oldali napló a Beállítások → Hibakeresési napló laphoz.
- *
- * A napló a TV böngészőjének fontos lépéseit rögzíti (tartalom betöltése,
- * mentés, memória), és a localStorage-ba is kiírja, hogy alkalmazás-újraindítás
- * után is megmaradjon.
- *
- * A napló szigorúan korlátozott méretű: a legrégebbi sorok automatikusan
- * törlődnek, így hosszú használat után sem növeli a memóriát.
- *
- * TESZT IDŐSZAK: a `diagnosticsConfig.ts` kapcsolója bekapcsolva a naplózás az
- * IPK indításakor magától elindul, és a napló elküldéséig fut. A kapcsoló
- * kikapcsolásával a régi viselkedés (csak kézi indítás) áll vissza.
- */
+/** Kézzel indított, korlátozott méretű napló a SÁRGA gombos ablakhoz. */
 import { TEST_STARTUP_DIAGNOSTICS } from './diagnosticsConfig';
 import { tvDeviceText } from './tvDevice';
 
-// A kézi diagnosztikai napló és a Supabase-export felső határa 1 000 000 karakter.
-// A naplózás a TESZTELÉSI IDŐSZAKBAN az IPK indításakor magától elindul
-// (`diagnosticsConfig.ts` kapcsolója), és a kézi küldésig gyűlik. A kapcsoló
-// kikapcsolása után a régi viselkedés él: csak a SÁRGA ablak
-// „Naplózás indítása” gombjára kapcsol be.
+// A kézi napló és a meglévő Supabase-export felső határa 1 000 000 karakter.
 const MAX_CHARS = 1_000_000;
 const MAX_BUFFER_CHARS = MAX_CHARS - 512;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -175,9 +158,8 @@ export function dateTimeText(at: number = Date.now()): string {
 
 /** A napló minden abszolút időpontját az ír időzónában írjuk ki, explicit UTC-eltolással. */
 function dublinTimestamp(at: number = Date.now()): string {
-  // A TV órája egy órával késik; ezt kizárólag a napló időbélyegén korrigáljuk.
-  // A Date.now() értékét és az alkalmazás óráját nem módosítjuk.
-  const logAt = at + 60 * 60 * 1000;
+  // A TV rendszeróráját használjuk korrekció nélkül; a relatív idők monotón mérésből jönnek.
+  const logAt = at;
   const date = new Date(logAt);
   const parts = dublinFormatter().formatToParts(date);
   const part = (type: string) => parts.find((item) => item.type === type)?.value || '00';
@@ -202,8 +184,7 @@ function nowStamp(): string {
 
 /** Csak a dátummal ellátott, elmúlt 24 órán belüli sorokat tartjuk meg. */
 function trimExpired(): void {
-  // Az időbélyegek egy órával korrigáltak; a korhatárt is ehhez igazítjuk.
-  const now = Date.now() + 60 * 60 * 1000;
+  const now = Date.now();
   const cutoff = now - MAX_AGE_MS;
   const fresh: string[] = [];
   for (const line of lines) {
@@ -396,16 +377,14 @@ export function startManualLogging(): ManualLogSnapshot {
   appLog(`Eszköz: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'ismeretlen környezet'}`);
   appLog(`TV TÍPUS: ${tvDeviceText()}`);
   appLog('FIGYELŐ ELINDULT; kézi naplózás aktív; a lejátszás- és fagyásfigyelés mostantól rögzít.');
-  // Az indulási diagnosztika (BOOT-DIAG) itt kapcsolódik be, hogy a legelső
-  // rögzített soroktól kezdve teljes legyen a kép.
+  // A célzott figyelők a kézi indításhoz kapcsolódnak.
   runLifecycleHooks('start');
   return manualLogSnapshot();
 }
 
 /** Kézi naplózás leállítása; az elküldéshez a kész napló memóriában marad. */
 export function stopManualLogging(reason = 'kézi leállítás'): ManualLogSnapshot {
-  // Az indulási diagnosztika összegzése még a naplózás leállása ELŐTT íródik ki,
-  // különben a záró sorok elvesznének. A figyelők ilyenkor mindig leállnak.
+  // A lezáró sorok még a napló leállítása előtt készülnek.
   runLifecycleHooks('stop');
   if (loggingEnabled) {
     appLog(`=== NAPLÓZÁS LEÁLLÍTVA; napló=#${activeLogNumber ?? 'ismeretlen'}; ok=${reason} ===`);
@@ -583,6 +562,9 @@ export function appLog(message: string): void {
   // A normál tévézés közben nincs diagnosztikai naplózás, nincs localStorage-
   // írás és nincs extra szövegfeldolgozás. Ez a csatornaváltást is gyorsítja.
   if (!loggingEnabled) return;
+  // A mostani tesztben az indulási, import-, EPG-, felirat- és képminőségi
+  // részletek nem szükségesek. A lejátszás hibái/újrapróbái megmaradnak.
+  if (/^(?:BOOT-DIAG|SZOLGÁLTATÓ|EPG:|Felirat|CC |Élő felirat|KÉPMINŐSÉG|ERŐFORRÁS-DIAG|HANGDIAG|ÉLŐ MÉDIAESEMÉNY|ÉLŐ IDŐVONAL|STREAM ADATÉRKEZÉS|INDULÁS \[)/i.test(message)) return;
   const safe = redactLogUrls(String(message ?? '')).replace(/\s+/g, ' ');
   restore();
   measurementCounters.logLines += 1;
@@ -1183,12 +1165,12 @@ export function startRuntimeWatchdog(): void {
       const observer = new Observer((list) => {
         const entries = list.getEntries();
         for (const entry of entries) {
-          if (entry.duration < 1200) continue;
+          if (entry.duration < 50) continue;
           const now = Date.now();
-          if (now - lastLongTaskAt < 4000) continue;
+          if (now - lastLongTaskAt < 500) continue;
           lastLongTaskAt = now;
           measurementCounters.longTasks += 1;
-          appLogCritical(`HOSSZÚ FELADAT: ${Math.round(entry.duration)} ms (${entry.name || 'ismeretlen'}). ${uiStateSnapshot()}`);
+          appLog(`HOSSZÚ FELADAT: ${Math.round(entry.duration)} ms (${entry.name || 'ismeretlen'}); az ok a böngészőből nem azonosítható.`);
         }
       });
       observer.observe({ entryTypes: ['longtask'] });
@@ -1260,9 +1242,7 @@ export function installCrashHandlers(): void {
         appLogCritical(`HÁTTÉRBE KERÜLT (visibilitychange); ${uiStateSnapshot()}`);
       } else {
         appLog('ELŐTÉRBE KERÜLT (visibilitychange).');
-        // Tesztidőszak: ha a naplót nem küldték el, a rögzítés ugyanabban a
-        // munkamenetben folytatódik (a kilépésnél lezárt napló nem vész el).
-        resumeAutomaticTestLogging();
+        // Az előtérbe visszatérés nem indítja el a naplózást.
       }
     });
   } catch { /* nem elérhető */ }

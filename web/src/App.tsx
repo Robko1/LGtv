@@ -36,6 +36,7 @@ import {
   bootScreenTransfer,
 } from './services/bootScreen';
 import { fsPerf, fsStep } from './services/fullscreenPerf';
+import { speedSelect } from './services/speedDiagnostics';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import {
@@ -1874,6 +1875,7 @@ export function App() {
      * megszakította a filmet (a lejátszó `customStreamUrl`-je törlődött).
      */
     if (customStreamUrlRef.current) return;
+    speedSelect('élő', channel.name || 'csatorna');
     setNextEpisodeToPlay(null);
     setCustomStreamUrl(undefined);
     setCustomStreamTitle(undefined);
@@ -3226,6 +3228,7 @@ export function App() {
 
   // Play Movie in Main Video Player
   const handlePlayMovie = useCallback((movie: Movie) => {
+    speedSelect('VOD', movie.title);
     returnToFavoritesSettingsRef.current = false;
     lastResumeHistoryIdRef.current = null;
     vodReturnViewRef.current = 'movies';
@@ -3258,6 +3261,7 @@ export function App() {
 
   // Play Series Episode in Main Video Player
   const handlePlayEpisode = useCallback((ser: Series, episode: Episode) => {
+    speedSelect('VOD', `${ser.title} - ${episode.title}`);
     returnToFavoritesSettingsRef.current = false;
     lastResumeHistoryIdRef.current = null;
     vodReturnViewRef.current = 'series';
@@ -3474,6 +3478,7 @@ export function App() {
 
   // Resume History item
   const handlePlayHistoryItem = (item: WatchHistoryItem) => {
+    speedSelect('VOD', item.title);
     // Ez a függvény a Beállítások > Kedvencek > Folytatás listájából indul.
     // Kilépéskor kizárólag ehhez a felülethez térünk vissza, nem a Mozi/Sorozat nézethez.
     returnToFavoritesSettingsRef.current = true;

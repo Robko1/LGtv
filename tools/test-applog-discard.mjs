@@ -35,7 +35,7 @@ await esbuild.build({
   stdin: {
     contents: `export {
       appLog, discardSentAppLog, getAppLogText, manualLogSnapshot,
-      startManualLogging, stopManualLogging,
+      startManualLogging, stopManualLogging, startAutomaticTestLogging, resumeAutomaticTestLogging,
     } from './web/src/services/appLog.ts';`,
     resolveDir: ROOT,
     sourcefile: 'applog-discard-harness.ts',
@@ -91,6 +91,8 @@ const check = (ok, message, detail = '') => {
 };
 
 try {
+  check(app.startAutomaticTestLogging().enabled === false, 'az automatikus indítás ki van kapcsolva');
+  check(app.resumeAutomaticTestLogging().enabled === false, 'automatikus folytatás sincs');
   /* ============ 1. NAPLÓZÁS: memória + localStorage ===================== */
   const started = app.startManualLogging();
   check(started.enabled === true, 'a naplózás elindul');

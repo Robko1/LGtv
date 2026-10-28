@@ -59,6 +59,8 @@ import { createRoot } from 'react-dom/client';
 import { VideoPlayer } from './web/src/components/VideoPlayer.tsx';
 import { INITIAL_SETTINGS } from './web/src/data/mockData.ts';
 import { startManualLogging, stopManualLogging, getAppLogText } from './web/src/services/appLog.ts';
+import { attachSpeedDiagnostics } from './web/src/services/speedDiagnostics.ts';
+attachSpeedDiagnostics();
 
 let root = null;
 let currentProps = {};
@@ -369,67 +371,20 @@ check(spy.load === loadsBeforeAudio,
 window.__IPTV_TEST__.unmount();
 await tick(80);
 
-/* ── 10. KÉPMINŐSÉG-NAPLÓ: a mintavevő a valódi lejátszóban írja az adatokat ── */
-/*
- * A felhasználó kérése: a napló rögzítse a szolgáltatótól érkező kép TÉNYLEGES
- * felbontását, képkockasebességét, eldobott képkockáit és pufferezését. Ez a
- * blokk a valódi komponenst futtatja: a naplózást a SÁRGA ablakkal azonos
- * függvény indítja, a videó pedig 1920×1080-as Full HD adást jelez.
- *
- * A próba azt is ellenőrzi, hogy naplózás NÉLKÜL nem keletkezik minta
- * (normál tévézésnél a mintavevő nem terhelhet).
- */
+/* ── 10. Célzott sebességmérés: manuális indítás futó adás mellett ── */
 window.__IPTV_TEST__.mount({ channel: LIVE });
-check(await waitFor(() => Boolean(video()), 5000, 'képminőség-minta videó'), 'a képminőség-méréshez is létrejön a videóelem');
-const qualityVideo = video();
-Object.defineProperty(qualityVideo, 'videoWidth', { configurable: true, get() { return 1920; } });
-Object.defineProperty(qualityVideo, 'videoHeight', { configurable: true, get() { return 1080; } });
-fire(qualityVideo, 'loadedmetadata');
-fire(qualityVideo, 'playing');
-await tick(120);
-const textBeforeLogging = window.__IPTV_TEST__.logText();
+check(await waitFor(() => Boolean(video()), 5000, 'sebességmérés videó'), 'a sebességméréshez létrejön a videóelem');
+const testVideo = video();
+fire(testVideo, 'playing');
 window.__IPTV_TEST__.startLogging();
-fire(qualityVideo, 'playing');
-check(await waitFor(() => /KÉPMINŐSÉG;/.test(window.__IPTV_TEST__.logText()), 8000, 'KÉPMINŐSÉG sor'),
-  'a naplózás alatt KÉPMINŐSÉG sor készül a valódi mért adatokból');
-const qualityLog = window.__IPTV_TEST__.logText();
-check(/forrás=1920x1080 \(Full HD\)/.test(qualityLog),
-  'a napló a DEKÓDOLT felbontást írja, felbontási osztállyal (1920x1080 Full HD)');
-check(/mód=élő/.test(qualityLog) && /formátum=MPEG-TS \(\.ts\)/.test(qualityLog),
-  'a napló a lejátszás módját és a valódi streamformátumot is rögzíti');
-check(/képkocka=/.test(qualityLog) && /eldobott=/.test(qualityLog) && /puffer-előre=/.test(qualityLog),
-  'a naplóban ott a képkockasebesség, az eldobott képkockák és a pufferelés');
-check(/pufferelés=\d+ alk\./.test(qualityLog), 'a pufferelési események száma is a naplóba kerül');
-check(!/KÉPMINŐSÉG;/.test(textBeforeLogging),
-  'naplózás nélkül egyetlen KÉPMINŐSÉG sor sem keletkezik (nincs plusz terhelés)');
+fire(testVideo, 'waiting');
+await tick(50);
+fire(testVideo, 'playing');
+const speedLog = window.__IPTV_TEST__.logText();
+check(/már futó lejátszás megfigyelése/.test(speedLog), 'a kézi indítás megfigyeli a már futó adást');
+check(/média waiting/.test(speedLog) && /média playing.*várakozás=/.test(speedLog), 'a pufferelés kezdete és időtartama bekerül a naplóba');
+check(!/KÉPMINŐSÉG;/.test(speedLog), 'a felesleges képminőség-mintavétel nem fut');
 window.__IPTV_TEST__.stopLogging();
-await tick(80);
-check(/KÉPMINŐSÉG ÖSSZESÍTÉS;/.test(window.__IPTV_TEST__.logText()),
-  'leállításkor a stream képminőség-összesítése is bekerül a naplóba');
-
-window.__IPTV_TEST__.unmount();
-await tick(80);
-
-/* ── 11. KÉPMINŐSÉG: a Full HD alatti kép külön figyelmeztetést kap ────── */
-/*
- * A valós naplókban az „UHD” nevű csatornák is adtak 720x405-ös képet. Ez a
- * blokk azt ellenőrzi, hogy az ilyen eset NEM marad észrevétlen: a napló
- * kimondja, hogy a gyengébb kép a szolgáltatói stream tulajdonsága.
- */
-window.__IPTV_TEST__.mount({ channel: LIVE });
-check(await waitFor(() => Boolean(video()), 5000, 'SD adás videó'), 'az SD adás is elindul');
-const sdVideo = video();
-Object.defineProperty(sdVideo, 'videoWidth', { configurable: true, get() { return 720; } });
-Object.defineProperty(sdVideo, 'videoHeight', { configurable: true, get() { return 405; } });
-window.__IPTV_TEST__.startLogging();
-fire(sdVideo, 'loadedmetadata');
-fire(sdVideo, 'playing');
-check(await waitFor(() => /KÉPMINŐSÉG FIGYELMEZTETÉS;/.test(window.__IPTV_TEST__.logText()), 8000, 'gyenge kép figyelmeztetés'),
-  'a Full HD alatti kép külön KÉPMINŐSÉG FIGYELMEZTETÉS sort kap a naplóban');
-check(/720x405 \(SD\)/.test(window.__IPTV_TEST__.logText()),
-  'a figyelmeztetés a mért felbontást és annak osztályát is megmondja');
-window.__IPTV_TEST__.stopLogging();
-
 window.__IPTV_TEST__.unmount();
 try { fs.rmSync(outFile, { force: true }); } catch { /* nem kritikus */ }
 clearTimeout(killer);

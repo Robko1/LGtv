@@ -1,22 +1,22 @@
-# LGtv – main ág és kézi build
+# LGtv – main ág és kézi IPK-build
 
-A projekt repója: https://github.com/Robko1/LGtv  
-A változtatások közvetlenül a `main` ágra kerülnek. Ne inicializáld újra a repót, ne tölts fel másik projektből származó forrást, és ne használj force push-t.
+A repó: <https://github.com/Robko1/LGtv>. A kézi **IPK építés** GitHub Actions workflow a `main` ág forrását tölti le, nem egy tetszőleges fejlesztői ágat. A módosításokat ezért előbb ellenőrzés után a `main` ágba kell egyesíteni. Ne inicializáld újra a repót, ne cseréld le másik projektre, és ne használj force push-t a forráságra.
 
-## 1. Forrás és diagnosztika ellenőrzése
+## Kézi GitHub build
 
-GitHub → **Actions** → **LG webOS – kézi diagnosztika és web build** → **Run workflow**.
+1. Győződj meg róla, hogy a szükséges forrásváltozások már a `main` ágon vannak.
+2. GitHub → **Actions → IPK építés → Run workflow**.
+3. A workflow telepíti a függőségeket, futtatja a regressziós teszteket, majd – ha ezek sikeresek – a `web/src/appVersion.ts` aktuális patchverzióját eggyel növeli, hozzáigazítja a manifestet és a verzióemelést visszamenti a `main` ágra. Ezután építi és ellenőrzi az IPK-t. **Ezért egy későbbi csomagolási hiba esetén is előfordulhat, hogy a verzióemelés már a main ágra került.**
+4. A workflow a jóváhagyott `webos/splash-screen.png` fájlt a runneren 1920×1080-as, 699 KiB alatti palettás PNG-vé alakítja a build előtt. Nem állít elő helyette új színátmenetes indítóképet.
+5. Sikeres build és ellenőrzés után az **`IPTV-RT.ipk`** build artifactba és az aktuális `vX.Y.Z` GitHub Release-be kerül. A Release-verziót a tényleges futás határozza meg, nem egy régi, dokumentációba beégetett szám; az új Release-ben csak az aktuális IPK marad.
 
-Ez ellenőrzi a webes buildet, a LG webOS manifestet, a verzióegyezést, az IPK-csomagoló szintaxisát és azt, hogy a webes forrásban ne maradjon Android-specifikus híd.
+A forrás jelenlegi `WEB_VERSION` értéke és az elfogadott **2.5.176-os működési referencia** nem ugyanaz a fogalom. Az új build a patchverziót tovább emeli; a kész IPK manifestje és a Release a mérvadó. Helyi build és az indítókép ellenőrzésének ismert akadálya: [webos/README.md](webos/README.md).
 
-## 2. IPK készítése és közzététele
+## Minden kiadás után
 
-Ha a diagnosztika sikeres, GitHub → **Actions** → **IPTV – webOS TV IPK építése** → **Run workflow**.
+- Ellenőrizd, hogy a workflow valóban sikeres lett, és a Release-ben a megfelelő verziójú IPK található. A sikeres `npm test` nem pótolja a kihagyott teszteket vagy a valódi LG TV-s ellenőrzést.
+- TV-n vesd össze a natív takarókép → főoldal indulást, az élő/film/sorozat képmegjelenítést és az EPG-t a 2.5.176-os elfogadott referenciával; ezek nem módosíthatók rutinszerűen.
+- A tényleges IPK-verziót, készüléket és méréseket a [README-TESZTNAPLO.md](README-TESZTNAPLO.md) fájlban rögzítsd. Ne írj be kitalált vagy más verzióból átvett értéket.
+- Az alkalmazás ellenőrzi a legfrissebb GitHub Release-t, de a TV-n az IPK telepítéséhez webOS fejlesztői eszköz szükséges; nem állítunk csendes öntelepítést.
 
-A build a jelenlegi `Robko1/LGtv` repó forrásaiból készíti az `IPTV-RT-webOS-2.3.1.ipk` csomagot, majd a `v2.3.1` GitHub Release-be teszi. A Release-ben csak az aktuális IPK marad.
-
-## Fontos
-
-- Csak LG webOS TV-re készülő IPK van; Android APK-t ez a repó nem épít.
-- A GitHub-frissítés a legfrissebb Release-t ellenőrzi. Az IPK telepítéséhez webOS fejlesztői eszköz szükséges; az alkalmazás nem tudja magát csendben frissíteni.
-- Az IPK sikeres buildjét és a valódi LG TV-s lejátszást minden kiadásnál külön ellenőrizni kell.
+Az LG IPK-aláírás és a GitHub commit/tag **Verified** jelzése külön dolog: [RELEASE-SIGNING.md](RELEASE-SIGNING.md).

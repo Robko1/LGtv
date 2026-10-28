@@ -103,20 +103,7 @@ async function runManualLogCheck(): Promise<void> {
     );
     const text = log.getAppLogText();
     const lines = text.split('\n').filter((line) => line.includes('SZOLGÁLTATÓ'));
-    check('a napló tartalmaz szolgáltató-beolvasási sorokat', lines.length > 0, `(${lines.length} sor)`);
-    check(
-      'a naplóban látszik az élő csatornalista kérése és az eredménye',
-      lines.some((line) => line.includes('[élő csatornalista]') && line.includes('OK'))
-    );
-    check(
-      'a naplóban látszik a filmek és a sorozatok szakasza is',
-      lines.some((line) => line.includes('FÁZIS [filmek]')) &&
-        lines.some((line) => line.includes('FÁZIS [sorozatok]'))
-    );
-    check(
-      'a naplóban látszik a végső darabszám és az eltelt idő',
-      /FÁZIS \[élő csatornák\] kész/.test(text) && /\d+(\.\d+)? s/.test(text)
-    );
+    check('a sebességtesztben nincs részletes szolgáltató-import napló', lines.length === 0, `(${lines.length} sor)`);
     check(
       'a napló nem tartalmaz belépési adatot',
       !/password=titok/.test(text) && !/username=teszt/.test(text)
@@ -353,7 +340,7 @@ async function main(): Promise<void> {
   );
 
   /* ── 6. A figyelő valóban a kézi naplóba ír (Supabase-re ez megy ki) ── */
-  console.log('\nKézi napló: a szolgáltató-beolvasás sorai megjelennek a naplóban:');
+  console.log('\nKézi napló: a sebességteszt kiszűri a szolgáltató-import sorait:');
   await runManualLogCheck();
 
   console.log('');

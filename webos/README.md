@@ -1,75 +1,69 @@
 # IPTV R.T – LG webOS TV csomag
 
-A `webos/` mappa az LG TV manifestet, a távirányító webOS-hídját, az alkalmazás ikonjait és a generált platform-indítóképet tartalmazza. A React/Vite forrás a `web/` mappában van.
+A `webos/` mappa a manifestet, a távirányítóhídat, a jóváhagyott ikonokat és a natív indítóképet tartalmazza. A React/Vite alkalmazás a `web/` könyvtárban van.
+
+## Védett indítási referencia: 2.5.176
+
+A felhasználó által sikeresnek elfogadott működés a **natív webOS takarókép után közvetlenül megjelenő főoldal**. A `webos/appinfo.json` a `splashBackground: "splash-screen.png"` fájlt használja; a React `#root` nincs saját HTML-takaróval elrejtve. A `web/src/main.tsx` a gyökér első DOM-elemének megjelenése után hívja a `webOSSystem.notifyAppLoaded()`-et, ha van ilyen API. Nincs külön saját animáció, százalékos indítóképernyő vagy induló videó. A DOM-jelzés nem azonos a fizikai kijelző festési időpontjának mérésével.
+
+**Ne cseréld le a jóváhagyott képet vagy ezt a folyamatot régi, generált splashre/animációra.** A képmegjelenítés és EPG is védett referencia: [fő README](../README.md); verziózott mérések: [tesztnapló](../README-TESZTNAPLO.md).
 
 ## Fontos fájlok
 
 ```text
-webos/appinfo.json       webOS manifest, id: hu.rt.iptv.webos
-webos/webos.js           ES5-kompatibilis Magic Remote/D-pad bridge
+webos/appinfo.json       manifest; app ID: hu.rt.iptv.webos
+webos/webos.js           webOS távirányító- és felülethíd
 webos/icon-rt2.png       launcher ikon
 webos/largeIcon-rt2.png  nagy launcher ikon
-webos/splash-screen.png  1920×1080 indítókép (a betöltőképernyő háttere)
-tools/build-webos.sh     web build + ES5 + IPK build
+webos/splash-screen.png  felhasználó által feltöltött natív indítókép
+tools/build-webos.sh     web build, ES5-fordítás és IPK-építés
 webos/tools/build-ipk.py helyi fejlesztői IPK-csomagoló
 ```
 
-Az induló MP4 nincs a programban és nincs a `webos/assets/` mappában.
-
-Az indítókép **generált** (`tools/make-splash.py`), és pontosan az, amit a
-betöltőképernyő az első képkockájában mutat: a `web/index.html`-be ágyazott
-saját IPTV-ikon faltól falig (cover, 1.08 nagyítás), a dizájn filtereivel
-(brightness .88, saturate 1.2, contrast 1.04), három fátyollal, 84 pixeles
-ráccsal és vignettával, 1920×1080-ban. A kép 24 bites RGB (nem palettás), finom
-ditheringgel, ezért nincs színlépcső a TV paneljén. Mivel a generátor a
-`web/index.html`-ből olvassa az ikont, nincs külön képfájl és nincs másolat:
-a platform kép nem tud elavulni. A build minden alkalommal újragenerálja a képet
-(`python3 tools/make-splash.py --out-dir build/webos`).
-
 ## Helyi build
 
-A repó gyökeréből:
+A repó gyökeréből, Node.js 22 és Python 3 mellett:
 
 ```bash
 npm ci --no-audit --no-fund
 npm ci --prefix web --no-audit --no-fund
-pip install Pillow
-VERSION=2.5.160 bash tools/build-webos.sh
+# Pillow telepítése a saját Python-környezetbe:
+python3 -m pip install Pillow
+npm test
+bash tools/build-webos.sh
 ```
 
-Kimenet: `webos/IPTV-RT.ipk`. Ez lokális, fejlesztői/Developer Mode csomag; a fájl szándékosan nincs a `main` forráságban, csak a build és a GitHub Release használja.
+A script alapértelmezésben a `web/src/appVersion.ts` `WEB_VERSION` értékét használja a **csomagolt** manifesthez; `VERSION=x.y.z` környezeti változóval ez felülírható. Kimenet siker esetén: `webos/IPTV-RT.ipk`, amely Git által ignorált fejlesztői csomag.
 
-A csomag ellenőrzése:
+**Ismert helyi akadály:** a checkoutban lévő `splash-screen.png` 1659×948, RGB és kb. 1,4 MiB. A script 1920×1080, palettás (`P`), 699 KiB alatti PNG-t ellenőriz, így ezen a forráson megáll. A script nem generálja és nem alakítja át az indítóképet. A kézi GitHub **IPK építés** workflow a meglévő fájlt a runneren átméretezi és palettásra optimalizálja a csomagolás előtt; ez nem azonos a helyi script viselkedésével. Bármilyen jóváhagyott képi változtatást külön kell kezelni és TV-n ellenőrizni.
+
+Sikeres csomagolás után például:
 
 ```bash
 ar t webos/IPTV-RT.ipk
 ar p webos/IPTV-RT.ipk data.tar.gz | tar tz | head -n 30
+npm run smoke  # build/webos/index.html szükséges
 ```
 
 ## Telepítés saját LG TV-re
 
 1. Telepítsd az LG Content Store-ból a **Developer Mode** alkalmazást.
 2. Jelentkezz be LG Developer-fiókkal, kapcsold be a Developer Mode-ot és a Key Servert.
-3. PC-n használd a [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop) alkalmazást, vagy a webOS CLI-t.
-4. Add hozzá a TV IP-címét és a Developer Mode passphrase-ét.
-5. Válaszd ki az `IPTV-RT.ipk` fájlt az **Install App** műveletben.
+3. PC-n használd a [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop) alkalmazást vagy a webOS CLI-t, és add hozzá a TV-t a Developer Mode adataival.
+4. Telepítsd a sikeres buildből vagy Release-ből származó `IPTV-RT.ipk` fájlt.
 
-CLI-példa:
+CLI-példa a repó gyökeréből:
 
 ```bash
 npm install -g @webos-tools/cli
 ares-setup-device
 ares-novacom --device <tv> --getkey
-ares-install --device <tv> IPTV-RT.ipk
+ares-install --device <tv> webos/IPTV-RT.ipk
 ares-launch --device <tv> hu.rt.iptv.webos
 ```
 
-A Developer Mode-os telepítés lejárati idejét maga az LG Developer Mode alkalmazás kezeli.
+A Developer Mode lejáratát az LG alkalmazása kezeli. A helyi vagy CI build sikere önmagában nem igazolja a kép, EPG és indulás működését az adott televízión.
 
-## Aláírások – ne keverjük össze őket
+## Aláírás és kiadás
 
-- A GitHub commit/tag **Verified** jelzése GPG- vagy SSH-commit-aláírás. Ez nem írja alá az IPK-t.
-- Hivatalos LG/webOS production/distribution aláíráshoz LG-től kapott tanúsítvány és az LG kiadási folyamata kell. A privát `.p12`/kulcs nem kerülhet Gitbe, logba vagy IPK-ba.
-- A jelenlegi custom packager Developer Mode-os fejlesztői csomagot állít elő. Nem készítünk hamis tanúsítványt vagy hamis Verified jelzést.
-
-A GitHub Actions build a csomag tartalmát, verzióját, HTML-jét, ES5-kompatibilitását és SHA-256 értékét ellenőrzi, majd a Release-be tölti fel az IPK-t.
+A GitHub commit/tag **Verified** jelzése nem az IPK aláírása. A jelenlegi csomagoló Developer Mode-os fejlesztői IPK-t készít; hivatalos LG/webOS terjesztéshez az LG által előírt tanúsítvány és eljárás szükséges. A privát kulcs nem kerülhet Gitbe, naplóba vagy chatbe. Részletek: [RELEASE-SIGNING.md](../RELEASE-SIGNING.md). A kézi GitHub build verziót emel, csomagot ellenőriz és Release-t hoz létre: [README-PUSH.md](../README-PUSH.md).

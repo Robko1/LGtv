@@ -257,11 +257,11 @@ test('7. a váltás mérése az OK lenyomásától indul, mindkét irányban', (
     assert.ok(PLAYER.includes(`fsStart('KI', '${origin}')`),
       `a kilépés mérése nem innen indul: ${origin}`);
   }
-  // A menetet a KIFESTETT képkocka zárja le – mindkét irányban.
-  assert.equal((PLAYER.match(/fsFinish\(/g) || []).length, 2,
-    'a mérés nem a kifestett képkockánál zárul (mindkét irányban)');
-  assert.match(PLAYER, /fsFinish\('a teljes képernyős kép a képernyőn'\)/);
-  assert.match(PLAYER, /fsFinish\('a főoldal ismét a képernyőn'\)/);
+  // A második rAF a köztes festés utáni renderelési lehetőség, nem
+  // állíthatjuk, hogy a fizikai panel már biztosan megjelenítette a képet.
+  const timing = PLAYER.slice(PLAYER.indexOf('const fsModeRef'), PLAYER.indexOf('}, [isFullscreen]);', PLAYER.indexOf('const fsModeRef')));
+  assert.equal((timing.match(/requestAnimationFrame/g) || []).length, 2);
+  assert.match(timing, /fsFinish\('második rAF; a tényleges kijelző-festés nem igazolható'\)/);
   /*
    * 2.5.168: a főoldal állapotváltása külön lépésként látszik MINDKÉT
    * irányban – belépésnél késleltetve (a teljes képernyős kép előbb

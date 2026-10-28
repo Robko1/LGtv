@@ -196,6 +196,7 @@ check(!isUnexpectedLiveEnd({
 /* ── 5. A lejátszó TÉNYLEGESEN használja az új logikát ──────────────── */
 const PLAYER = fs.readFileSync(path.resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
 const APPLOG = fs.readFileSync(path.resolve('web/src/services/appLog.ts'), 'utf8');
+const SPEED = fs.readFileSync(path.resolve('web/src/services/speedDiagnostics.ts'), 'utf8');
 const APP = fs.readFileSync(path.resolve('web/src/App.tsx'), 'utf8');
 const CHANNEL_LIST = fs.readFileSync(path.resolve('web/src/components/ChannelList.tsx'), 'utf8');
 check(/new StallDetector\(isVod \? 7000 : bufferTiming\(\)\.stallDetectorMs\)/.test(PLAYER),
@@ -257,20 +258,16 @@ check(/data-playback-status/.test(PLAYER)
   && /top-3 right-3/.test(PLAYER)
   && /bottom-3 left-3/.test(PLAYER),
   'fullscreenben a kis pörgő jelző az óra alatt jobb felül, normál nézetben bal alul marad');
-check(/logLiveMediaEvent\('waiting'/.test(PLAYER)
-  && /logLiveMediaEvent\('stalled'/.test(PLAYER)
-  && /logLiveMediaEvent\('error'/.test(PLAYER)
-  && /requestRecoveryRef\.current\('pufferelés elakadt'\)/.test(PLAYER)
-  && /logLiveTimeline\(video\)/.test(PLAYER)
-  && /seekable=/.test(PLAYER)
-  && /buffered=/.test(PLAYER),
-  'a kézi élő napló a médiahibát, idővonalat, seeket és puffert is rögzíti');
+check(/'waiting'/.test(SPEED) && /'stalled'/.test(SPEED)
+  && /'error'/.test(SPEED) && /'seeking'/.test(SPEED)
+  && /puffer-előre=/.test(SPEED)
+  && /requestRecoveryRef\.current\('pufferelés elakadt'\)/.test(PLAYER),
+  'a kézi eseménynapló a médiahibát, seeket, várakozást és puffert is rögzíti');
 check(/isVerbosePlaybackLogging\(\)/.test(PLAYER) && /isVerbosePlaybackLogging\(\)/.test(APPLOG),
   'a részletes diagnosztika csak a hibakeresési ablakban fut');
-check(/runtimeDiagnosticCacheRef/.test(PLAYER)
-  && /now - cached\.at < 5000/.test(PLAYER)
-  && /erőforrás-pillanatkép=gyorsítótár/.test(PLAYER),
-  'a kézi erőforrás-mérés localStorage-bejárása legfeljebb ötmásodpercenként fut');
+check(!/runtimeDiagnosticState\(/.test(PLAYER)
+  && !/getBoundingClientRect\(\)/.test(PLAYER.slice(PLAYER.indexOf('const videoDiagnosticState'), PLAYER.indexOf('const isActiveMediaEvent'))),
+  'a célzott napló nem járja be az erőforrásokat és nem kényszerít layout-mérést');
 check(/const isRecoveryAttempt = Boolean/.test(PLAYER)
   && /ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START/.test(PLAYER)
   && /CSATORNAVÁLTÁS START/.test(PLAYER),
