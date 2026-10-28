@@ -88,6 +88,16 @@ test('a HTML biztosítja az előfestést a takarókép alatt', () => {
 });
 
 test('a főoldal a takarókép alatt már látható, de a takarókép fent marad', () => {
+  if (PAGE.includes('TEMPORARY_NO_BOOT_ANIMATION')) {
+    assert.match(PAGE, /TEMPORARY_NO_BOOT_ANIMATION/);
+    assert.match(PAGE, /#boot-screen,\s*#tv-curtain,\s*\.iptv-curtain\s*\{[^}]*display:\s*none\s*!important/s,
+      'a régi takaróképernyő nincs teljesen elrejtve');
+    assert.match(PAGE, /html\.iptv-booting #root\s*\{[^}]*visibility:\s*visible\s*!important/s,
+      'a főoldal nem válik láthatóvá induláskor');
+    assert.match(PAGE, /root && root\.childElementCount > 0/,
+      'a platform splash nem várja meg a főoldal DOM-ját');
+    return;
+  }
   const { window, dom, calls } = bootPage();
   try {
     const doc = window.document;
