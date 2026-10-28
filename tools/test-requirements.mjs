@@ -103,6 +103,18 @@ test('1. a megjelenítés két animációs kép után történik – de legfelje
 });
 
 test('1. a takarékép-réteg folyamatos áttűnés után tűnik el', () => {
+  if (PAGE.includes('TEMPORARY_NO_BOOT_ANIMATION')) {
+    const { window, dom, calls } = bootPage();
+    try {
+      const curtain = window.document.getElementById('tv-curtain');
+      assert.ok(curtain, 'a rétegnek léteznie kell, hogy a CSS elrejthesse');
+      assert.match(PAGE, /#boot-screen,\s*#tv-curtain,\s*\.iptv-curtain\s*\{[^}]*display:\s*none\s*!important/s,
+        'az ideiglenes mód nem rejti el az animált takaróréteget');
+      assert.match(PAGE, /TEMPORARY_NO_BOOT_ANIMATION/);
+      assert.equal(calls.length, 0, 'az ideiglenes mód nem hívhat korai reveal-t');
+    } finally { dom.window.close(); }
+    return;
+  }
   const { window, dom, calls } = bootPage();
   try {
     const curtain = window.document.getElementById('tv-curtain');
