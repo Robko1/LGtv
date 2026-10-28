@@ -32,8 +32,8 @@ A teljes XMLTV feldolgozása darabolt, az eredmény tartós tárban is tárolhat
 ## Aktuális forrás és verziók
 
 - Elfogadott működési referencia: **2.5.176**; a referencia forrása: `e994abb7a46763f9dce060209fd8cdd8a83996dc`.
-- Ebben a munkafában a `web/src/appVersion.ts` **2.5.178**-at jelez. A #71 napló ebből a TV-n kipróbált változatból származik; az azóta végzett kódmódosítások új IPK-ban még ellenőrzendők.
-- A `webos/appinfo.json` a forrásban jelenleg **2.5.178**. A helyi IPK-build alapértelmezésben a webes `WEB_VERSION` értékét írja a csomagolt manifestbe. A kézi GitHub Actions workflow tesztek után új patchverziót képez, és a forrásverziót a `main` ágon is frissíti. A root `package.json` és a `web/package.json` verziója nem az IPK verziójának forrása.
+- Ebben a munkafában a `web/src/appVersion.ts` **2.5.179**-et jelez. A #71 napló ebből a TV-n kipróbált változatból származik; az azóta végzett kódmódosítások új IPK-ban még ellenőrzendők.
+- A `webos/appinfo.json` a forrásban jelenleg **2.5.179**. A helyi IPK-build alapértelmezésben a webes `WEB_VERSION` értékét írja a csomagolt manifestbe. A kézi GitHub Actions workflow tesztek után új patchverziót képez, és a forrásverziót a `main` ágon is frissíti. A root `package.json` és a `web/package.json` verziója nem az IPK verziójának forrása.
 - A korábbi és jövőbeli **mért adatok, verziók és források** külön fájlban vannak: [README-TESZTNAPLO.md](README-TESZTNAPLO.md). A működési referencia nem egyenlő automatikusan egy mért sebességértékkel.
 
 ## TV-s vezérlés
