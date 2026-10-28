@@ -318,10 +318,19 @@ async function main(): Promise<void> {
     safetyNet > appLimit,
     `(háló=${safetyNet} ms, alkalmazás=${appLimit} ms)`
   );
+  /*
+   * 2.5.163: az első festés a MEGTERVEZETT képernyő – a saját ikon a HTML-be
+   * ágyazva, hogy ne legyen külön képkérés és ne legyen későn dekódoló fájl.
+   * A régi elvárás (a .stage CSS színátmenete) a 2.5.158-as állapotra
+   * vonatkozott; a felhasználó kérése az, hogy a takarókép a saját ikon
+   * legyen. A .stage továbbra is a betöltőképernyő alapszínét adja
+   * (#04141a), ezért a platform kép és a saját kép között nincs tónusváltás.
+   */
   check(
-    'az első festés tiszta CSS színátmenet (nincs háttérkép, nincs képvillanás)',
+    'az első festés a saját ikon beágyazva (nincs külön képkérés, nincs képvillanás)',
     !/id="boot-bg"|splash-bg/.test(htmlSource)
-      && /#boot-screen \.stage\s*\{[^}]*background-image:/s.test(htmlSource)
+      && /#boot-screen \.bootbg[\s\S]{0,400}?background-image: url\("data:image\/jpeg;base64,/.test(htmlSource)
+      && /#boot-screen \.stage\s*\{[^}]*background-color:\s*#04141a/s.test(htmlSource)
   );
   /*
    * A folyamatjelző SOHA nem kap véletlen vagy időzített értéket: a

@@ -257,9 +257,9 @@ jobs:
               raise SystemExit("WEB_VERSION nem található")
           if manifest.get("version") != match.group(1):
               raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
-          # A TV saját indítóképernyője a betöltőképernyő fátylait rajzolja
-          # ki (ugyanazokból az értékekből), a rendszer forgó fogaskereke
-          # pedig ne jelenjen meg a kép előtt.
+          # A TV saját indítóképernyője MAGA a betöltőképernyő háttere
+          # (ugyanaz a kép, ugyanazokból a forrásértékekből), a rendszer forgó
+          # fogaskereke pedig ne jelenjen meg a kép előtt.
           if manifest.get("splashBackground") != "splash-screen.png":
               raise SystemExit("HIBA: a webOS manifest nem a splash-screen.png indítóképet használja.")
           if manifest.get("spinnerOnLaunch") is not False:
@@ -274,7 +274,7 @@ jobs:
           mean = ImageStat.Stat(splash_img).mean
           if all(channel > 250 for channel in mean):
               raise SystemExit("HIBA: az indítókép tiszta fehér - ez fehér villanást okozna.")
-          print(f"LG webOS verziók egyeznek: {match.group(1)}; indítókép = a betöltőképernyő fátylai, spinner nélkül.")
+          print(f"LG webOS verziók egyeznek: {match.group(1)}; indítókép = a betöltőképernyő háttere, spinner nélkül.")
           PY
           echo "OK: webOS-frissítő, platformtisztaság, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
 
