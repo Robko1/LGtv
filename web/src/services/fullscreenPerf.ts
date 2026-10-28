@@ -10,11 +10,11 @@ import { appLog, isVerbosePlaybackLogging } from './appLog';
  * csak a szükséges eseményeket rögzíti:
  *
  *   BE: kérés feldolgozva   – a React commit megtörtént, a CSS-osztály fent van
- *   BE: első képkocka       – az első kifestett képkocka (a váltás valódi vége)
+ *   BE: második rAF          – becsült festés utáni renderelési lehetőség
  *   BE: fókusz rendben      – a fókusz a lejátszón maradt
  *   KI: geometria vissza    – a főoldali keret helyreállt (osztály le)
  *   KI: OSD/EPG újraindult  – a háttérmunka a lejátszó helyreállása UTÁN indult
- *   KI: első képkocka       – a főoldal első kifestett képkockája
+ *   KI: második rAF          – becsült festés utáni renderelési lehetőség
  *
  * ZAJCSÖKKENTÉS (memória):
  *   • kikapcsolt naplózásnál NULLA munka (nincs sztring-összefűzés, nincs időmérés),
@@ -136,6 +136,7 @@ let trace: FsTrace | null = null;
 /** A mérés indítása – az OK (vagy VISSZA) lenyomásának pillanatában. */
 export function fsStart(direction: FsDirection, origin: string): void {
   if (!isVerbosePlaybackLogging()) return;
+  if (trace) fsAbort('új képernyőváltás kezdődött');
   const now = fsNow();
   trace = {
     direction,

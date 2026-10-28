@@ -1,10 +1,18 @@
-export const WEB_VERSION = '2.5.176';
+export const WEB_VERSION = '2.5.177';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.177',
+    date: '2026-10-28',
+    changes: [
+      'Kizárólag kézzel indítható, célzott sebességnapló: távirányító, teljes képernyő, csatornaváltás és film/sorozat lejátszása.',
+      'A napló a betöltési és médiaesemények, várakozások és újrapróbák idejét rögzíti; az indulási és képminőségi háttérdiagnosztika nem fut.',
+    ],
+  },
   {
     version: '2.5.176',
     date: '2026-10-28',
