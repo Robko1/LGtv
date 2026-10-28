@@ -4,8 +4,8 @@
 # A webes felületet (web/ → build/web/index.html) beleteszi a webOS appba,
 # hozzáadja a webOS specifikus fájlokat (appinfo.json, icon, webos.js) és a
 # generált platform-indítóképet (splash-screen.png), majd Pythonnal .ipk-t
-# készít. Induló videó ÉS fotós betöltő-háttér nincs (2.5.158): a
-# betöltőképernyő háttere tiszta CSS színátmenet.
+# készít. Induló videó nincs; a platform indítókép (2.5.163) UGYANAZ a kép,
+# mint a betöltőképernyő háttere: a web/index.html-be ágyazott saját ikon.
 #
 # Használat:
 #   tools/build-webos.sh
