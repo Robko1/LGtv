@@ -73,8 +73,11 @@ jobs:
               raise SystemExit("HIBA: hiányzik a feltöltött webos/splash-screen.png.")
           with Image.open(path) as source:
               source.load()
+              # Automatikus méretezés a webOS által elvárt 1920x1080 méretre.
+              # A LANCZOS szűrő jó minőségű átméretezést ad; nincs kézi előkészítés.
               if source.size != (1920, 1080):
-                  raise SystemExit(f"HIBA: a splash mérete {source.size}, várt 1920x1080.")
+                  print(f"Automatikus splash-méretezés: {source.size} -> 1920x1080.")
+                  source = source.convert("RGB").resize((1920, 1080), Image.Resampling.LANCZOS)
               # Ditheringgel megőrizzük a kép vizuális részleteit, de csökkentjük
               # a PNG tömörítéséhez szükséges adatot. A kimenet továbbra is RGB.
               reduced = source.convert("RGB").quantize(
@@ -269,7 +272,7 @@ jobs:
           splash = Path("webos/splash-screen.png")
           img = Image.open(splash)
           if img.size != (1920, 1080):
-              raise SystemExit(f"HIBA: az indítókép mérete {img.size}, várt 1920x1080.")
+              raise SystemExit(f"HIBA: az automatikus átméretezés után is hibás az indítókép mérete: {img.size}.")
           # 2.5.163: az indítókép UGYANAZ a kép, mint a betöltőképernyő
           # háttere (a felhasználó saját IPTV-ikonja), 24 bites RGB – a
           # palettás változat látható színlépcsőt adott a TV paneljén.
@@ -307,7 +310,7 @@ jobs:
               raise SystemExit("HIBA: hiányzik a webos/splash-screen.png indítókép.")
           splash_img = Image.open(splash_png).convert("RGB")
           if splash_img.size != (1920, 1080):
-              raise SystemExit(f"HIBA: az indítókép mérete {splash_img.size}, várt 1920x1080.")
+              raise SystemExit(f"HIBA: az automatikus átméretezés után is hibás az indítókép mérete: {splash_img.size}.")
           mean = ImageStat.Stat(splash_img).mean
           if all(channel > 250 for channel in mean):
               raise SystemExit("HIBA: az indítókép tiszta fehér - ez fehér villanást okozna.")
