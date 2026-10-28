@@ -391,6 +391,20 @@
         margin-top: 14px; max-width: 80vw; font-size: 20px; line-height: 1.5;
         color: #f87171; white-space: pre-wrap; word-break: break-word;
       }
+    
+      /* TEMPORARY_NO_BOOT_ANIMATION:
+         Ideiglenes tesztmód: a webOS saját splash PNG-je után nincs külön
+         HTML betöltőképernyő, grafika, folyamatjelző vagy takaróréteg.
+         A React főoldal azonnal látható; az alkalmazás betöltése a háttérben
+         folytatódhat. A blokk eltávolításával visszaállítható a régi működés. */
+      #boot-screen,
+      #tv-curtain,
+      .iptv-curtain { display: none !important; }
+      html.iptv-booting #root,
+      html.iptv-prerender #root,
+      html.iptv-revealed #root { visibility: visible !important; }
+      html.iptv-booting body,
+      html.iptv-revealed body { background: #080d1a !important; }
     </style>
     <script>
       /*
