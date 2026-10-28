@@ -253,27 +253,11 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
   }
 });
 
-/* ─────────────── 3. A KÉT INDÍTÓKÉP UGYANAZ A KÉP ─────────────── */
+/* ─────────────── 3. A FELTÖLTÖTT KÉP KERÜL AZ IPK-BA ─────────────── */
 
-test('2.5.166: a platform indítókép UGYANAZ a kompozíció, mint a betöltőképernyő háttere', () => {
-  /*
-   * A felhasználó észrevétele (2.5.162-ig): „indításkor nincs takarókép,
-   * fekete–zöldes háttér váltakozik”. Akkor a platform kép egy 1920×1080-ra
-   * felnagyított FOTÓ lett (600 kB), amit a TV minden képkockán újraraszterezett.
-   *
-   * 2.5.166: a fotó helyett MINDKÉT oldal UGYANAZT a színátmenetes
-   * kompozíciót rajzolja (sötét teál alap + középső fényfolt + fátyol +
-   * 84 pixeles rács + vignetta). A platform kép és a `.bootbg` ugyanazokból
-   * a színmegállókból épül, ezért a váltás továbbra sem látszik – a fájl
-   * viszont néhány tíz kB, és nincs fotó-felskálázás a TV-n.
-   */
-  assert.equal(MAKE_SPLASH.includes('takarokep'), false,
-    'az indítókép ismét a törölt borítóképből készül');
-  assert.match(MAKE_SPLASH, /def build_splash\(\)/);
-  assert.match(MAKE_SPLASH, /WIDTH, HEIGHT = 1920, 1080/);
-  assert.match(MAKE_SPLASH, /--out-dir/,
-    'a build nem tudja a csomagba generálni a képet');
-  assert.match(BUILD, /python3 "\$SCRIPT_DIR\/make-splash\.py" --out-dir "\$BUILD_DIR"/);
+test('a webOS platform indítókép a felhasználó által feltöltött PNG', () => {
+  // Korábban a build a make-splash.py segítségével zöld színátmenettel
+  // felülírta a feltöltött képet. Most a forrás PNG-t kell bemásolnia.
   assert.equal(APPINFO.splashBackground, 'splash-screen.png',
     'a webOS által használt indítókép neve megváltozott');
 
