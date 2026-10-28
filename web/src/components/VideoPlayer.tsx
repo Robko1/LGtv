@@ -2049,8 +2049,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [canToggleOsd, showControlsOverlay, settings.osdHideDelay, vodTrackMenu, vodOsdActivity]);
 
   useEffect(() => {
-    onOverlayVisibilityChange?.(showControlsOverlay);
-  }, [showControlsOverlay, onOverlayVisibilityChange]);
+    // Élő teljes képernyőn a lejátszó SAJÁT overlaye rejtett, de ez nem a
+    // főoldali OSD láthatósága. Ha false-t küldenénk, az App display:none-nal
+    // kivenné az OSD-t a flexből, majd kilépés után később tenné vissza.
+    // A VOD saját OSD-jének állapotjelentése változatlan.
+    onOverlayVisibilityChange?.(isVod ? showControlsOverlay : true);
+  }, [isVod, showControlsOverlay, onOverlayVisibilityChange]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // A lejátszási hiba nem zárhatja csapdába a távirányítót:
