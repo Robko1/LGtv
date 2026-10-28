@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.157';
+export const WEB_VERSION = '2.5.158';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.158',
+    date: '2026-10-28',
+    changes: [
+      'A 9. napló ELEMZÉSE ALAPJÁN JAVÍTOTT INDULÁS: a betöltőképernyő háttere eddig egy 1920x1080-as, 161 kB-os JPEG fotó volt, amelyet a <head> kézileg „melegített elő” (preload + decode). Az 1 GB memóriás TV-n ez visszatartotta az első festést, a kép pedig – a napló tanúsága szerint – kétszer próbált meg beúszni. Mostantól a háttér TISZTA CSS színátmenet: nincs képkérés, nincs dekódolás, nincs újrafestés, ezért a betöltőképernyő az első képkockától kész',
+      'A PLATFORM INDÍTÓKÉPE 1,1 MB-ról 27 kB-ra csökkent: a tools/make-splash.py már nem fotót másol, hanem UGYANAZT a sötét színátmenetet rajzolja ki (a fő márka-jellel), amit a HTML betöltőképernyő CSS-ben fest. A platform képéről a saját képernyőnkre váltás így is láthatatlan, de a csomag kisebb és a kép azonnal dekódolható (a korábbi 8 MB-os kép helyett)',
+      'A TAKARÓKÉP ÉS A HÁTTÉR-JPEG TÖRLÉSE: a takarokep.jpg (161 kB forrás) és a web/public/splash-bg.jpg (161 kB másolat) kikerült a repóból, a build pedig már csak a generált platform-képet állítja elő. A tesztek, a GitHub Actions ellenőrzések és a README is az új, kép nélküli rendre figyelnek (a workflow hibának veszi, ha splash-bg.jpg kerül a csomagba)',
+      'A TV TÍPUSA ÁLLANDÓ ADAT A NAPLÓBAN: új web/src/services/tvDevice.ts gyűjti a modellnevet, a webOS verziót, az SDK-t, az alaplapot és az appId-t (webOS Luna-híd → webOSSystem → PalmSystem → UA), a web/index.html pedig betölti a platform webOSTV.js hídját, amiből a legpontosabb modellnév jön. Az adat bekerül a napló FEJLÉCÉBE, minden indulásba (TV TÍPUS sor) és a KÉPMINŐSÉG KÉPESSÉG sorba, és eltárolódik a TV-n, így a következő naplókban is megjelenik; ha a TV nem adja át, a napló „nem derül ki” értéket ír, nem talál ki adatot',
+      'KÉPMINŐSÉG-NAPLÓ TISZTÍTÁSA: a 9. naplóban ugyanaz a minta 2–3-szor egymás után bekerült (a „playing” esemény és a 4 mp-es időzítő egy pillanatra esett); mostantól 1,2 mp-en belül legfeljebb egy minta készül, és metaadat (readyState 2) előtt egyáltalán nem íródik sor – így nincs több „forrás=0x0” és „mérés indul” zaj',
+      'MÉLYTISZTÍTÁS: nyolc elavult, csak történeti állapotjelentés törölve (ASSET-AUDIT.md, BOOT-SCREEN-2026-10-27.md, CONTINUOUS-STARTUP-FIX-2026-10-27.md, GREEN-FLASH-FIX-2026-10-26.md, ONE-FRAME-STARTUP-FIX-2026-10-27.md, STARTUP-FIX-2026-10-26.md, STARTUP-FLASH-FIX-2026-10-26.md, STORAGE-FIX-2026-10-26.md) – a bennük leírt javítások a kódban és ebben a változáslistában élnek tovább; a README hivatkozásai és a forrásfa-leírás frissült (a betöltőképernyő háttere, a TV típus szolgáltatás)',
+    ],
+  },
   {
     version: '2.5.157',
     date: '2026-10-28',

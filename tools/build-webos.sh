@@ -3,8 +3,9 @@
 #
 # A webes felületet (web/ → build/web/index.html) beleteszi a webOS appba,
 # hozzáadja a webOS specifikus fájlokat (appinfo.json, icon, webos.js) és a
-# takarokep.jpg-ből készített indítóképet (splash-screen.png +
-# splash-bg.jpg), majd Pythonnal .ipk-t készít. Induló videó nincs (2.5.0).
+# generált platform-indítóképet (splash-screen.png), majd Pythonnal .ipk-t
+# készít. Induló videó ÉS fotós betöltő-háttér nincs (2.5.158): a
+# betöltőképernyő háttere tiszta CSS színátmenet.
 #
 # Használat:
 #   tools/build-webos.sh
@@ -57,9 +58,7 @@ small_img = Image.open(small_path).convert("RGBA")
 large_img = Image.open(large_path).convert("RGBA")
 # A webes felület a két ikont adat URL-ként használja; külön, soha nem
 # hivatkozott ikonkep.png fájlt nem generálunk a Vite public mappába.
-# A TV saját indítóképe a takarokep.jpg-ből készül (lásd tools/make-splash.py).
-if not (root / "takarokep.jpg").is_file():
-    raise SystemExit("HIBA: hiányzik a takarokep.jpg (az indítókép forrása).")
+# A TV saját indítóképe generált színátmenet (lásd tools/make-splash.py).
 def icon_b64(img, px):
     thumb = img.resize((px, px), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
@@ -118,14 +117,13 @@ mkdir -p "$BUILD_DIR"
 cp "$WEBOS_DIR/appinfo.json" "$BUILD_DIR/appinfo.json"
 cp "$WEBOS_DIR/icon-rt2.png" "$BUILD_DIR/icon-rt2.png"
 cp "$WEBOS_DIR/largeIcon-rt2.png" "$BUILD_DIR/largeIcon-rt2.png"
-# INDÍTÓKÉP – A takarokep.jpg AZ EGYETLEN FORRÁS.
-#   • splash-screen.png  → webOS splashBackground (a platform indítókép)
-#   • splash-bg.jpg      → a HTML betöltőképernyő teljes háttere
-# Mindkettő 1920x1080, ugyanabból a képből: a platform képéről a saját
-# képernyőnkre váltás nem hoz új látványt, nincs átméretezés és nincs
-# villanás. A build MINDEN alkalommal a forrásból generál, ezért az IPK-ba
-# nem kerülhet elavult kép.
-log "Indítókép készítése a takarokep.jpg-ből (splash-screen.png + splash-bg.jpg)"
+# INDÍTÓKÉP – GENERÁLT, FOTÓ NÉLKÜLI (2.5.158).
+#   • splash-screen.png → webOS splashBackground (a platform indítókép)
+# Ugyanaz a sötét színátmenet, mint a HTML betöltőképernyő CSS háttere,
+# ezért a platform képéről a saját képernyőnkre váltás nem hoz új látványt.
+# A build minden alkalommal újragenerálja, ezért nem kerülhet elavult kép
+# az IPK-ba.
+log "Indítókép készítése (splash-screen.png, fotó nélkül)"
 python3 "$SCRIPT_DIR/make-splash.py" --out-dir "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/assets"
 # A többi asset (logók, kicsi ikonok) bekerül; videó nem lehet köztük.
@@ -356,14 +354,13 @@ if "<link rel=\"preload\" as=\"script\" href=\"app.js\">" not in html:
     html = html.replace("</head>",
         '<link rel="preload" as="script" href="app.js">\n</head>', 1)
 
-# A takarókép NINCS többé beégetve. A webOS saját splashBackground képe
-# (splash-screen.png) és az app első festése ugyanaz az előre rajzolt váz;
-# a 16:9-es dobozban lévő logó pedig külön, 37 KB-os helyi fájl.
-splash_bg = build_dir / "splash-bg.jpg"
-if not splash_bg.is_file():
-    raise SystemExit("HIBA: hiányzik a splash-bg.jpg (a betöltőképernyő háttere).")
-if splash_bg.stat().st_size < 20_000:
-    raise SystemExit("HIBA: a splash-bg.jpg túl kicsi – nem a takarokep.jpg-ből készült.")
+# A betöltőképernyőnek NINCS háttérképe (2.5.158): a háttér CSS színátmenet,
+# ezért nincs letöltendő/dekódolandó fotó az első festés előtt.
+splash_png = build_dir / "splash-screen.png"
+if not splash_png.is_file():
+    raise SystemExit("HIBA: hiányzik a splash-screen.png (a platform indítókép).")
+if splash_png.stat().st_size > 400_000:
+    raise SystemExit("HIBA: a splash-screen.png túl nagy – nem a generált kép.")
 
 
 # Az egyetlen képre mutató hivatkozások relative URL-ek maradnak: a webOS

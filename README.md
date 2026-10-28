@@ -2,14 +2,15 @@
 
 Ez a repó kizárólag LG webOS TV-hez készül. Az alkalmazás élő TV-csatornákat, filmeket, sorozatokat, EPG-t, kedvenceket és telefonos QR-beállítást kezel.
 
-## Indulás és betöltőképernyő (2.5.139)
+## Indulás és betöltőképernyő (2.5.158)
 
-A TV indítása a saját `takarokep.jpg` borítóképpel kezdődik, és a kész főoldal
+A TV indítása saját betöltőképernyővel kezdődik, és a kész főoldal
 kirajzolódásáig egyetlen, folyamatos képernyő látszik:
 
-- a webOS saját indítóképe (`splashBackground`) és a HTML betöltőképernyő
-  háttere **ugyanabból a `takarokep.jpg`-ből** készül, ezért a platform képéről
-  a sajátunkra váltás nem hoz új látványt (nincs fekete kocka, nincs villanás);
+- a betöltőképernyő háttere **tiszta CSS színátmenet** (nincs háttérkép), a
+  webOS saját indítóképe (`splashBackground`) ugyanezt a színátmenetet
+  rajzolja ki, ezért a platform képéről a sajátunkra váltás nem hoz új látványt
+  (nincs fekete kocka, nincs villanás, nincs képprodukciós késés);
 - a jobb felső sarokban a **TV valós rendszerideje** jár;
 - a százalék, a csatornaszám, a mért sávszélesség és a hátralévő idő
   **kizárólag a futó alkalmazás tényleges adataiból** származik – nincs
@@ -18,8 +19,6 @@ kirajzolódásáig egyetlen, folyamatos képernyő látszik:
 - a réteg **akkor tűnik el**, amikor a főoldal már ki van festve és
   használható. Üres telepítés (nincs csatorna) is kész állapot, és ha nincs
   lejátszandó stream, a program nem vár az első videókockára.
-
-Részletek: [BOOT-SCREEN-2026-10-27.md](BOOT-SCREEN-2026-10-27.md).
 
 ## Lejátszás és távirányító
 
@@ -198,34 +197,44 @@ web/src/services/diagnosticShareService.ts
                              Supabase küldés/history, 503 újrapróba
 web/src/services/playbackRecovery.ts
                              élő/VOD helyreállítási döntési logika
+web/src/services/tvDevice.ts TV típus (modell, webOS verzió) a napló fejlécéhez
 web/src/services/embeddedSubtitleService.ts
                              MKV fejléc + TV sourceInfo (felirat ÉS képminőség-adat)
 web/src/services/liveSubtitleService.ts
                              PMT/HLS olvasás (felirat ÉS képminőség-adat)
-takarokep.jpg                az indítókép/betöltőképernyő EGYETLEN forrása
-tools/make-splash.py         takarokep.jpg → splash-screen.png + splash-bg.jpg
+tools/make-splash.py         a platform indítókép (splash-screen.png) generálása
 webos/                       LG manifest, webOS bridge, ikonok, indítókép
 supabase/                    Edge Function és SQL migráció
 tools/                       build- és futásidejű tesztek
 ```
 
-A programból eltávolított, nem használt fájlok: a régi induló MP4, a gyökérben megkettőzött ikonok, a nem hivatkozott `web/public/ikonkep.png`, a gyökérbeli `provision.html` (a működő oldal `web/public/provision.html`), a `web/src/utils/webos.ts` (soha nem importált segéd) és az `Inditas.html` dizájn-makett (a betöltőképernyő teljes egészében a `web/index.html`-ben él), valamint a forráságban tárolt előző IPK. Az aktuális IPK build- és GitHub Release-artefakt, nem forrásfájl. A pontos hivatkozási audit: [ASSET-AUDIT.md](ASSET-AUDIT.md).
+A programból és a repóból eltávolított, nem használt fájlok: a régi induló MP4,
+a gyökérben megkettőzött ikonok, a nem hivatkozott `web/public/ikonkep.png`, a
+gyökérbeli `provision.html` (a működő oldal `web/public/provision.html`), a
+`web/src/utils/webos.ts` (soha nem importált segéd), az `Inditas.html`
+dizájn-makett, a `takarokep.jpg` és a belőle készült `web/public/splash-bg.jpg`
+(a betöltőképernyőnek nincs többé háttérképe), valamint a nyolc korábbi,
+elavult állapotjelentés (`*-FIX-2026-*.md`, `BOOT-SCREEN-2026-10-27.md`,
+`ASSET-AUDIT.md` – a tartalmuk a `web/src/appVersion.ts` változáslistájában és a
+commit-üzenetekben maradt meg). Az aktuális IPK build- és GitHub
+Release-artefakt, nem forrásfájl.
 
 ## Build
 
 ```bash
 npm ci --no-audit --no-fund
 npm ci --prefix web --no-audit --no-fund
-pip install Pillow            # az indítókép generálásához (tools/make-splash.py)
+pip install Pillow            # a platform indítókép generálásához (tools/make-splash.py)
 npm test
 (cd web && ./node_modules/.bin/tsc --noEmit)
 npm --prefix web run build
 npm run smoke
-VERSION=2.5.139 bash tools/build-webos.sh
+VERSION=2.5.158 bash tools/build-webos.sh
 ```
 
-A build az indítóképet **minden alkalommal** a `takarokep.jpg`-ből generálja
-(`tools/make-splash.py`), ezért az IPK-ba nem kerülhet elavult kép.
+A build az indítóképet **minden alkalommal újragenerálja**
+(`tools/make-splash.py`), ezért az IPK-ba nem kerülhet elavult kép. A kép nem
+fotó, hanem a betöltőképernyő CSS-hátterével azonos sötét színátmenet (27 kB).
 
 A build kimenete helyben `webos/IPTV-RT.ipk`, de az IPK a `.gitignore` szerint nem kerül a `main` forráságba. A kézi GitHub Actions build a sikeres csomagot a verziózott Release-be tölti fel.
 
@@ -243,6 +252,8 @@ A normál Developer Mode-os TV-teszteléshez jelenleg nincs szükség production
 ```bash
 npm test
 node tools/test-playback-recovery.mjs
+node tools/test-quality-diagnostics.mjs
+node tools/test-tv-device.mjs
 node tools/test-player-runtime.mjs
 node tools/test-provider-load.mjs
 node tools/test-storage-quota.mjs

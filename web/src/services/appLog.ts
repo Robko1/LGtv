@@ -13,6 +13,7 @@
  * kikapcsolásával a régi viselkedés (csak kézi indítás) áll vissza.
  */
 import { TEST_STARTUP_DIAGNOSTICS } from './diagnosticsConfig';
+import { tvDeviceText } from './tvDevice';
 
 // A kézi diagnosztikai napló és a Supabase-export felső határa 1 000 000 karakter.
 // A naplózás a TESZTELÉSI IDŐSZAKBAN az IPK indításakor magától elindul
@@ -393,6 +394,7 @@ export function startManualLogging(): ManualLogSnapshot {
   appLog(`=== IPTV indul; verzió=${version}; kézi naplózás ===`);
   appLog(`INDULÁS [0 ms] kézi naplózás elindítva; napló=#${activeLogNumber}`);
   appLog(`Eszköz: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'ismeretlen környezet'}`);
+  appLog(`TV TÍPUS: ${tvDeviceText()}`);
   appLog('FIGYELŐ ELINDULT; kézi naplózás aktív; a lejátszás- és fagyásfigyelés mostantól rögzít.');
   // Az indulási diagnosztika (BOOT-DIAG) itt kapcsolódik be, hogy a legelső
   // rögzített soroktól kezdve teljes legyen a kép.
@@ -1037,7 +1039,12 @@ export function getAppLogText(): string {
   trimExpired();
   trim();
   const measure = measurementSnapshot();
-  const header = `--- WEBOS NAPLÓ #${activeLogNumber} (${lines.length} sor; teljes napló; max. 1 MB) | NAPLÓ KEZDETE: ${dateTimeText(activeLogStartedAt)} | MÉRÉS KEZDETE: ${clockText(measure.startedAt)} ---`;
+  /*
+   * A TV TÍPUSA ÁLLANDÓ ADAT (2.5.158): a fejléc minden naplóban megmondja,
+   * milyen készüléken készült a mérés – a későbbi összehasonlításokhoz
+   * nem kell a napló törzsét átfésülni. A részletes TV-sor a törzsben van.
+   */
+  const header = `--- WEBOS NAPLÓ #${activeLogNumber} (${lines.length} sor; teljes napló; max. 1 MB) | NAPLÓ KEZDETE: ${dateTimeText(activeLogStartedAt)} | MÉRÉS KEZDETE: ${clockText(measure.startedAt)} | TV: ${tvDeviceText()} ---`;
   return [header, ...lines].join('\n');
 }
 
@@ -1045,6 +1052,7 @@ export function getAppLogText(): string {
 export function logStartup(version: string = DEFAULT_APP_VERSION): void {
   appLog(`=== IPTV indul; verzió=${version}; felület=${location.href.split('/').pop() || ''} ===`);
   appLog(`Eszköz: ${navigator.userAgent}`);
+  appLog(`TV TÍPUS: ${tvDeviceText()}`);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
