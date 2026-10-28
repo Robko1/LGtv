@@ -28,7 +28,12 @@ test('fullscreen keeps the home OSD and player slot in place', { skip: !enabled 
         await page.setContent(fixture(player));
         const old = await page.locator('[data-tv-player]').evaluate(rect);
         const oldOsd = await page.locator('[data-live-osd]').evaluate(rect);
-        await page.setContent(fixture(`<div data-live-player-slot>${player}</div>`));
+        // Keep the fullscreen overlay mounted, simulating a delayed parent
+        // React commit while the player itself has already exited fullscreen.
+        const fullscreenOsd = `<div data-fullscreen-osd class="fixed inset-0 flex flex-col justify-between pointer-events-none text-white" style="z-index:2147483001"><div class="bg-gradient-to-b from-black/85 via-black/40 to-transparent">FULLSCREEN TITLE</div><div class="bg-gradient-to-t from-black/90 via-black/55 to-transparent">FULLSCREEN EPG</div></div>`;
+        await page.setContent(fixture(`<div data-live-player-slot>${player}</div>${fullscreenOsd}`));
+        const fullscreenOverlay = page.locator('[data-fullscreen-osd]');
+        assert.equal(await fullscreenOverlay.evaluate(el => getComputedStyle(el).display), 'none', 'stale fullscreen OSD is hidden on home');
         const slot = page.locator('[data-live-player-slot]');
         const video = page.locator('[data-tv-player]');
         const controls = page.locator('[data-live-osd]');
@@ -40,6 +45,7 @@ test('fullscreen keeps the home OSD and player slot in place', { skip: !enabled 
         compare(homeOsd, oldOsd, 'home OSD geometry changed');
         await video.evaluate(el => el.className = el.className.replace('flex-1 min-h-0 max-h-none', 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]'));
         await page.evaluate(() => { document.body.classList.add('iptv-tv-fullscreen'); document.querySelector('[data-live-osd]').setAttribute('data-view-hidden', ''); });
+        assert.notEqual(await fullscreenOverlay.evaluate(el => getComputedStyle(el).display), 'none', 'fullscreen OSD is visible in fullscreen');
         compare(await slot.evaluate(rect), before, 'slot moved in fullscreen');
         compare(await controls.evaluate(rect), homeOsd, 'OSD moved in fullscreen');
         if (osdVisible) {
@@ -48,6 +54,8 @@ test('fullscreen keeps the home OSD and player slot in place', { skip: !enabled 
         }
         await video.evaluate(el => el.className = el.className.replace('iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]', 'flex-1 min-h-0 max-h-none'));
         await page.evaluate(() => { document.body.classList.remove('iptv-tv-fullscreen'); document.querySelector('[data-live-osd]').removeAttribute('data-view-hidden'); });
+        assert.equal(await fullscreenOverlay.evaluate(el => getComputedStyle(el).display), 'none', 'mounted fullscreen OSD and gradients disappear immediately on exit');
+        assert.equal(await fullscreenOverlay.locator('div').first().evaluate(el => el.getClientRects().length), 0, 'fullscreen title and shadow are not painted');
         compare(await slot.evaluate(rect), before, 'slot moved after exit');
         compare(await video.evaluate(rect), old, 'player moved after exit');
         compare(await controls.evaluate(rect), homeOsd, 'OSD moved after exit');

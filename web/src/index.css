@@ -446,6 +446,15 @@ body.has-mouse [role="option"]:hover {
   aspect-ratio: 16 / 9;
 }
 
+/* A teljes képernyős élő OSD az App később frissülő állapotához tartozik,
+   de a lejátszó már előbb visszatérhet. A lejátszó useLayoutEffectje még
+   festés előtt leveszi ezt a body-osztályt: ekkor az OSD szövege ÉS árnyéka
+   azonnal eltűnik, akkor is, ha a React még nem bontotta le az OSD-t.
+   Kizárólag a fullscreen OSD-t érinti, a főoldali OSD és VOD változatlan. */
+body:not(.iptv-tv-fullscreen) [data-fullscreen-osd] {
+  display: none !important;
+}
+
 [data-tv-player].iptv-fs {
   position: fixed !important;
   left: 0 !important;

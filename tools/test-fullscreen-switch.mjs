@@ -120,6 +120,12 @@ test('4. a csatornalista a teljes képernyő alatt szüneteltet, és a jelzésre
     'teljes képernyőn az EPG-adat megmarad, csak a munka áll meg');
 });
 
+test('a teljes képernyős OSD a lejátszó commitjával együtt eltűnik', () => {
+  assert.match(CSS, /body:not\(\.iptv-tv-fullscreen\)\s*\[data-fullscreen-osd\]\s*\{\s*display:\s*none\s*!important;/);
+  assert.match(PLAYER, /useLayoutEffect\(\(\) => \{[\s\S]{0,180}?document\.body\.classList\.toggle\('iptv-tv-fullscreen', isFullscreen\)/);
+  assert.match(APP, /isVideoFullscreen && !customStreamUrl && isFullscreenLiveOsdVisible/);
+});
+
 test('az élő lejátszó helye és az OSD rétege nem változik fullscreen közben', () => {
   assert.match(APP, /<div data-live-player-slot="">\s*<VideoPlayer/);
   assert.match(CSS, /\[data-live-player-slot\]\s*\{[^}]*flex:\s*1 1 0%[^}]*aspect-ratio:\s*16\s*\/\s*9/s);
