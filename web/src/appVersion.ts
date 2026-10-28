@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.167';
+export const WEB_VERSION = '2.5.168';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.167',
+    version: '2.5.168',
     date: '2026-10-28',
     changes: [
       'AZ INDÍTÓKÉPERNYŐ MÁR NEM ANIMÁL: a #32–#37 naplók szerint a saját látvány vitte el a képkockákat az indulásból. Kikerült a vászon-részecske-hurok, a 72 rovátkás forgó tárcsa, a filmszemcse, a pásztázó sorok, a fénylegyező, a virágzás, a záró „INDÍTÁS” fátyol és a fejléc-óra (másodpercenkénti időzítő). A háttér álló színátmenet',
