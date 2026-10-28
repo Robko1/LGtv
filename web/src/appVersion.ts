@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.156';
+export const WEB_VERSION = '2.5.157';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,7 +6,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.156',
+    version: '2.5.157',
     date: '2026-10-28',
     changes: [
       'KÉPMINŐSÉG-DIAGNOSZTIKA A MEGLÉVŐ KÉZI NAPLÓBAN: a SÁRGA → Naplózás indítása alatt a lejátszó 4 másodpercenként KÉPMINŐSÉG sort ír ugyanabba a naplóba (web/src/services/appLog.ts). A sor a DEKÓDOLT kép tényleges felbontását (1920x1080 Full HD / 1280x720 HD / 3840x2160 UHD 4K), a megjelenítési dobozt fizikai képpontban (DPR-rel, a felskálázás mértékével), a mért képkockasebességet, az eldobott/sérült képkockákat, a pufferelést (hányszor, mennyi ideig), a puffer-előretartalékot, a bitrátát és annak forrását, a kép- és hangkodeket, valamint a HDR-adatokat tartalmazza – mindig megjelölve, ha egy adat nem mérhető',
