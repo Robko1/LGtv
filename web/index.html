@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#080d1a" />
+    <!-- A platform sáv/felület színe a betöltőképernyő alapszíne, hogy a
+         legelső kockától ugyanaz a tónus látszódjon (nincs tónusváltás). -->
+    <meta name="theme-color" content="#04141a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -105,622 +107,354 @@
       }
 
       /* ═══════════════════════════════════════════════════════════════════
-         BETÖLTŐKÉPERNYŐ – AZ „Inditas.html” EREDETI DIZÁJNJA, 1:1-BEN.
+         BETÖLTŐKÉPERNYŐ = A FELHASZNÁLÓ DIZÁJNJA (index.html, 2.5.162).
 
-         A felhasználói követelmény: a betöltőképernyő NE egy új, hasonló
-         változat legyen, hanem az eredeti Inditas.html teljes grafikája:
-         a takarókép faltól falig (sötétítve, telítve, 30 mp-es lassú
-         úszással), a háromrétegű fátyol, vignetta, 84 pixeles rácsháló,
-         filmszemcse, pásztázó sorok, fénylegyező (7,5 mp), vászon-részecskék
-         (konstelláció + fénymolyok + célkereszt), virágzás 100%-nál,
-         műszerfal-elrendezés (logó, szójel, chipek, valós óra, magyar dátum),
-         tárcsa 72 rovátkával (46 mp-es forgás) és színátmenetes gyűrűvel,
-         LÉPÉS/állapot/sor, három statisztika + hátralévő idő, szegmentált
-         sáv fénycsíkokkal és jelelővel, 000–100 skála, TIPP-sáv, build-sor,
-         jobb alsó sarokban a TV-ikon és az „INDÍTÁS” áttűnő fátyol.
+         A felhasználói követelmény: a takarókép és az indítási animáció
+         UGYANAZ a látvány legyen, éspedig a megtervezett fájl: faltól falig
+         a saját IPTV-ikon (sötétítve, telítve, 30 mp-es lassú úszással),
+         háromrétegű fátyol, vignetta, 84 pixeles rács, filmszemcse,
+         pásztázó sorok, fénylegyező, vászon-részecskék, virágzás 100%-nál,
+         műszerfal (logó, szójel, chipek, VALÓS óra és dátum), tárcsa 72
+         rovátkával és színátmenetes gyűrűvel, állapotsor, három statisztika,
+         hátralévő idő, szegmentált sáv, 000–100 skála, TIPP-sáv, build-sor,
+         jobb alsó ikon és „INDÍTÁS” fátyol.
 
-         A DIZÁJN VÁLTOZATLAN. Az ADATOK viszont a futó alkalmazásból jönnek
-         (window.__IPTV_BOOT__): százalék, csatornaszám, letöltött bájt,
-         sebesség, hátralévő idő, verzió. Amíg egy adat nem érkezett meg,
-         „—” áll a helyén. Nincs szimulált érték és nincs időzített
-         befejezés – a demó mozgatója (kitalált
-         állapotlista és automatikus újraindítás) NEM került át, csak a látvány.
+         A DIZÁJN VÁLTOZATLAN, az ADATOK a futó alkalmazásból jönnek
+         (window.__IPTV_BOOT__): százalék, szakasz, csatornaszám, letöltött
+         adat, sebesség, hátralévő idő, verzió. Amíg egy adat nem érkezett
+         meg, „—” áll a helyén. Nincs szimulált érték, nincs Math.random és
+         nincs automatikus újraindítás (a demó motorja NEM került át).
 
-         MINDEN szabály a #boot-screen alá van zárva: a főoldal Tailwind
-         osztályaira (grid, bar, chip, stat, fill, step, mark…) nem hat.
-         Régi webOS (Chromium 38) miatt: nincs CSS-változó, nincs `gap`,
-         nincs `inset`; a `clamp()` előtt mindig van sima érték.
+         Minden szabály a #boot-screen alá van zárva, ezért a főoldal
+         Tailwind osztályaira (grid, bar, chip, stat, fill, step, mark…)
+         nem hat. A régi webOS motorok (Chromium 38) miatt a CSS-változók
+         fel vannak oldva, az `inset` helyett left/top/right/bottom áll, és
+         minden `clamp()` előtt van egy sima érték.
          ═══════════════════════════════════════════════════════════════ */
       #boot-screen {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0;
         overflow: hidden;
         background-color: #04141A;
         color: #EAFFF9;
-        font-family: "Segoe UI", "SF Pro Display", -apple-system, "Helvetica Neue", Arial, sans-serif;
+        font-family: "Segoe UI", "SF Pro Display", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
         -webkit-font-smoothing: antialiased;
         text-rendering: optimizeLegibility;
         cursor: default;
       }
-      #boot-screen .stage {
+      #boot-screen .bootbg {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0;
-        overflow: hidden; isolation: isolate;
-        /*
-         * A BETÖLTŐKÉPERNYŐ HÁTTERE (2.5.158): tiszta CSS színátmenet a
-         * kész felület sötét tónusaiban. Egyszer festődik ki, nem függ
-         * hálózattól vagy képekódolástól – ezért az első képkocka
-         * azonnal megjelenik, és nincs „újra beúszó” háttér.
-         */
-        background-color: #04141a;
-        background-image:
-          radial-gradient(120% 90% at 50% 38%, rgba(31,120,116,.42) 0%, rgba(6,32,38,.10) 52%, rgba(4,20,26,0) 100%),
-          linear-gradient(160deg, #07262c 0%, #04161c 46%, #080d1a 100%);
+        z-index: 0;
+        /* A dizájn filtere – blur NÉLKÜL: a 251 px-es kép felnagyítása
+           önmagában is lágy, a blur pedig a TV-n külön raszterezést kért. */
+        filter: brightness(.88) saturate(1.2) contrast(1.04);
+        transform: scale(1.08);
+        animation: drift 30s ease-in-out infinite alternate;
       }
+/* A .stage a teljes képernyő sötét alapja: a platform indítókép és a saját
+   betöltőképernyő háttere ugyanebből a tónusból indul (#04141a). */
+#boot-screen .stage{position:fixed;left:0;top:0;right:0;bottom:0;overflow:hidden;isolation:isolate;background-color:#04141a}
+@keyframes drift{
+  0%{transform:scale(1.08) translate3d(-1.2%,-0.8%,0)}
+  100%{transform:scale(1.16) translate3d(1.4%,1%,0)}
+}
+#boot-screen .scrim{
+  position:absolute;left:0;top:0;right:0;bottom:0;z-index:2;
+  background:
+    radial-gradient(120% 85% at 50% 42%, rgba(4,20,26,.10) 0%, rgba(4,20,26,.55) 46%, rgba(4,20,26,.90) 100%),
+    linear-gradient(180deg, rgba(3,17,22,.86) 0%, rgba(3,17,22,.16) 26%, rgba(3,17,22,.20) 62%, rgba(3,17,22,.92) 100%),
+    linear-gradient(100deg, rgba(6,44,46,.62) 0%, rgba(4,20,26,0) 55%);
+}
+#boot-screen .vig{position:absolute;left:0;top:0;right:0;bottom:0;z-index:2;box-shadow:inset 0 0 clamp(90px,18vw,320px) rgba(2,12,16,.95)}
+#boot-screen .grid{
+  position:absolute;left:0;top:0;right:0;bottom:0;z-index:3;opacity:.30;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(143,182,180,.16) 0 1px, transparent 1px 84px),
+    repeating-linear-gradient(0deg, rgba(143,182,180,.10) 0 1px, transparent 1px 84px);
+  -webkit-mask-image:radial-gradient(120% 90% at 50% 50%, transparent 28%, #000 100%);
+  mask-image:radial-gradient(120% 90% at 50% 50%, transparent 28%, #000 100%);
+}
+#boot-screen .scan{
+  position:absolute;left:0;top:0;right:0;bottom:0;z-index:3;pointer-events:none;opacity:.42;
+  background:repeating-linear-gradient(180deg, rgba(0,0,0,.30) 0 1px, rgba(0,0,0,0) 1px 3px);
+}
+#boot-screen .grain{
+  position:absolute;left:-50%;top:-50%;right:-50%;bottom:-50%;z-index:3;pointer-events:none;opacity:.16;
+  background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+#boot-screen .sweep{
+  position:absolute;top:-40%;bottom:-40%;left:-60%;width:70%;z-index:4;pointer-events:none;
+  background:linear-gradient(100deg, transparent 0%, rgba(170,255,236,.05) 34%, rgba(212,255,247,.20) 50%, rgba(170,255,236,.05) 66%, transparent 100%);
+  filter:blur(6px);
+  animation:sweep 7.5s cubic-bezier(.5,0,.5,1) infinite;
+}
+@keyframes sweep{0%{transform:translate3d(0,0,0)}60%,100%{transform:translate3d(330%,0,0)}}
+#boot-screen #fx{position:absolute;left:0;top:0;right:0;bottom:0;z-index:5;pointer-events:none}
+#boot-screen .bloom{
+  position:absolute;left:0;top:0;right:0;bottom:0;z-index:6;pointer-events:none;opacity:0;
+  background:radial-gradient(50% 55% at 50% 44%, rgba(215,255,247,.92) 0%, rgba(126,240,210,.45) 32%, rgba(14,124,116,0) 70%);
+}
+#boot-screen .bloom.fire{animation:bloom 1.15s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes bloom{0%{opacity:0}16%{opacity:.95}100%{opacity:0}}
+#boot-screen .ui{
+  position:absolute;left:0;top:0;right:0;bottom:0;z-index:10;
+  display:flex;flex-direction:column;justify-content:space-between;
+  padding:20px 24px;padding:clamp(20px,3.4vh,54px) clamp(24px,4.2vw,86px);
+  transition:opacity .7s ease, transform .7s ease, filter .7s ease;
+}
+#boot-screen .ui.handoff{opacity:0;transform:scale(1.035);filter:blur(6px)}
+#boot-screen .rule{height:1px;background:linear-gradient(90deg, rgba(126,240,210,.55), rgba(143,182,180,.16) 45%, rgba(143,182,180,0));}
+#boot-screen .rule.btm{background:linear-gradient(90deg, rgba(143,182,180,0), rgba(143,182,180,.20) 55%, rgba(126,240,210,.5))}
+#boot-screen .micro{
+  font-size:9px;font-size:clamp(9px,.72vw,11px);letter-spacing:.34em;text-transform:uppercase;
+  color:#8FB6B4;font-weight:600;
+}
+#boot-screen .amber{color:#FFB23F}
+#boot-screen header{display:flex;flex-direction:column;gap:clamp(12px,1.6vh,20px)}
+#boot-screen .headrow{display:flex;align-items:center;justify-content:space-between;gap:20px}
+#boot-screen .brand{display:flex;align-items:center;gap:14px;min-width:0}
+#boot-screen .mark{
+  position:relative;overflow:hidden;
+  width:44px;width:clamp(44px,3.4vw,62px);height:44px;height:clamp(44px,3.4vw,62px);flex:none;border-radius:22%;
+  background:linear-gradient(150deg,#B9F7E1,#4FC7B4 45%,#0E7C74);
+  display:grid;align-items:center;justify-content:center;
+  box-shadow:0 0 0 1px rgba(234,255,249,.38), 0 0 22px rgba(126,240,210,.35), 0 10px 26px rgba(4,20,26,.6), inset 0 1px 0 rgba(255,255,255,.7);
+}
+#boot-screen .mark .markfb{width:100%;height:100%;display:block;transition:opacity .5s ease}
+#boot-screen .mark{cursor:pointer}
+#boot-screen .mark:hover{box-shadow:0 0 0 1px rgba(234,255,249,.6), 0 0 30px rgba(126,240,210,.6), 0 10px 26px rgba(4,20,26,.6)}
+#boot-screen .mark::after{
+  content:"+";position:absolute;right:-2px;bottom:-4px;
+  font:700 13px/1 "Segoe UI","SF Pro Display",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;color:#04141A;
+  background:#7FF0D2;width:15px;height:15px;border-radius:50%;
+  display:grid;align-items:center;justify-content:center;opacity:.55;transition:opacity .3s ease;
+}
+#boot-screen .mark:hover::after{opacity:1}
+@media (prefers-reduced-motion:reduce){
+#boot-screen .mark::after{opacity:.75}
+}
+#boot-screen #logo{
+  position:absolute;left:0;top:0;right:0;bottom:0;width:100%;height:100%;
+  object-fit:cover;object-position:center;
+}
+#boot-screen .mark.pulse{animation:markpulse 1.6s ease-out}
+@keyframes markpulse{
+  0%{box-shadow:0 0 0 0 rgba(126,240,210,.75), 0 0 0 1px rgba(234,255,249,.4)}
+  100%{box-shadow:0 0 0 22px rgba(126,240,210,0), 0 0 0 1px rgba(234,255,249,.4)}
+}
+#boot-screen .wordmark{display:flex;flex-direction:column;line-height:1;gap:6px;min-width:0}
+#boot-screen .wordmark b{
+  font-size:17px;font-size:clamp(17px,1.5vw,25px);font-weight:700;letter-spacing:.42em;
+  color:#EAFFF9;text-shadow:0 2px 14px rgba(4,20,26,.9);
+}
+#boot-screen .wordmark span{
+  font-size:8px;font-size:clamp(8px,.62vw,10px);letter-spacing:.40em;text-transform:uppercase;
+  color:#7FF0D2;opacity:.85;font-weight:600;
+}
+#boot-screen .headmeta{display:flex;align-items:center;gap:10px;gap:clamp(10px,1.4vw,22px);flex:none}
+#boot-screen .chip{
+  display:flex;align-items:center;gap:9px;
+  padding:8px 14px;border:1px solid rgba(143,182,180,.30);
+  background:linear-gradient(180deg, rgba(7,59,62,.55), rgba(4,20,26,.55));
+  font-size:9px;font-size:clamp(9px,.68vw,11px);letter-spacing:.22em;text-transform:uppercase;color:#CFEDE6;font-weight:600;
+}
+#boot-screen .dot{width:7px;height:7px;border-radius:50%;background:#FFB23F;box-shadow:0 0 10px #FFB23F;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+#boot-screen .clockbox{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+#boot-screen .clock{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-variant-numeric:tabular-nums;
+  font-size:17px;font-size:clamp(17px,1.5vw,26px);letter-spacing:.04em;color:#EAFFF9;
+  text-shadow:0 2px 12px rgba(4,20,26,.9);line-height:1;display:flex;align-items:baseline;
+}
+#boot-screen .clock b{font-weight:600}
+#boot-screen .clock i{
+  font-style:normal;font-size:.60em;color:#7FF0D2;margin-left:.42em;font-weight:600;
+  text-shadow:0 0 12px rgba(126,240,210,.75);
+}
+#boot-screen .date{
+  font-size:8px;font-size:clamp(8px,.6vw,10px);letter-spacing:.24em;text-transform:uppercase;
+  color:#8FB6B4;font-weight:600;white-space:nowrap;
+}
+#boot-screen main{
+  flex:1;display:grid;
+  grid-template-columns:minmax(0,1fr);
+  align-content:center;justify-items:stretch;
+  padding:6px 0;padding:clamp(6px,1.4vh,18px) 0;
+  gap:14px;gap:clamp(14px,2.2vh,30px);
+}
+#boot-screen .eyebrow,#boot-screen .dialrow,#boot-screen .meter{width:100%}
+#boot-screen .eyebrow{display:flex;align-items:center;gap:14px}
+#boot-screen .eyebrow .bar-lite{width:40px;width:clamp(40px,5vw,90px);height:1px;background:#7FF0D2;opacity:.7}
+#boot-screen .dialrow{display:flex;align-items:center;gap:22px;gap:clamp(22px,3.4vw,62px);flex-wrap:wrap}
+#boot-screen .dial{
+  position:relative;flex:none;
+  width:184px;width:clamp(184px,26vmin,300px);height:184px;height:clamp(184px,26vmin,300px);
+}
+#boot-screen .dial svg{position:absolute;left:0;top:0;right:0;bottom:0;width:100%;height:100%;overflow:visible}
+#boot-screen .ticks{animation:spin 46s linear infinite;transform-origin:50% 50%}
+@keyframes spin{to{transform:rotate(360deg)}}
+#boot-screen .ring-track{stroke:rgba(234,255,249,.13)}
+#boot-screen .ring-fill{
+  stroke:url(#gfill);stroke-linecap:round;
+  filter:drop-shadow(0 0 7px rgba(126,240,210,.85));
+  transition:stroke-dashoffset .18s linear;
+}
+#boot-screen .readout{
+  position:absolute;left:0;top:0;right:0;bottom:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px;
+}
+#boot-screen .pct{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-variant-numeric:tabular-nums;
+  font-size:44px;font-size:clamp(44px,7.4vmin,88px);font-weight:600;letter-spacing:-.05em;
+  line-height:.92;color:#EAFFF9;
+  text-shadow:0 0 34px rgba(126,240,210,.55), 0 4px 22px rgba(4,20,26,.9);
+}
+#boot-screen .pct sup{font-size:.34em;font-weight:500;letter-spacing:0;vertical-align:super;margin-left:.1em;color:#7FF0D2}
+#boot-screen .pct-lbl{font-size:8px;font-size:clamp(8px,.6vw,10px);letter-spacing:.40em;text-transform:uppercase;color:#8FB6B4;font-weight:600;margin-top:6px}
+#boot-screen .statusblock{min-width:0;flex:1}
+#boot-screen .step{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-size:10px;font-size:clamp(10px,.78vw,12px);letter-spacing:.24em;
+  color:#FFB23F;text-transform:uppercase;margin-bottom:10px;
+}
+#boot-screen #status{
+  font-size:21px;font-size:clamp(21px,2.5vw,40px);font-weight:300;letter-spacing:-.015em;
+  line-height:1.12;color:#EAFFF9;margin:0;
+  text-shadow:0 3px 24px rgba(4,20,26,.95);
+  min-height:1.15em;
+}
+#boot-screen #status.swap{animation:swap .5s cubic-bezier(.2,.8,.3,1)}
+@keyframes swap{
+  0%{opacity:0;transform:translateY(14px);filter:blur(7px)}
+  100%{opacity:1;transform:translateY(0);filter:blur(0)}
+}
+#boot-screen .subline{
+  margin-top:12px;font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-size:10px;font-size:clamp(10px,.78vw,12.5px);
+  letter-spacing:.16em;color:#A9CFC9;text-transform:uppercase;
+  display:flex;flex-wrap:wrap;gap:6px 16px;
+}
+#boot-screen .subline i{font-style:normal;color:rgba(143,182,180,.6)}
+#boot-screen .meter{
+  width:calc(100% + 2*min(24px,30px));width:calc(100% + 2*min(clamp(24px,4.2vw,86px),30px));
+  margin-left:calc(-1*min(24px,30px));margin-left:calc(-1*min(clamp(24px,4.2vw,86px),30px));
+}
+#boot-screen .meterhead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:10px}
+#boot-screen .stats{display:flex;gap:14px;gap:clamp(14px,2.6vw,44px);flex-wrap:wrap}
+#boot-screen .stat{display:flex;flex-direction:column;gap:5px}
+#boot-screen .stat b{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-variant-numeric:tabular-nums;font-weight:600;
+  font-size:13px;font-size:clamp(13px,1.15vw,19px);color:#EAFFF9;letter-spacing:.02em;
+}
+#boot-screen .stat span{font-size:8px;font-size:clamp(8px,.6vw,10px);letter-spacing:.28em;text-transform:uppercase;color:#8FB6B4;font-weight:600}
+#boot-screen .eta{text-align:right}
+#boot-screen .eta b{font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-variant-numeric:tabular-nums;font-size:13px;font-size:clamp(13px,1.15vw,19px);color:#7FF0D2;font-weight:600}
+#boot-screen .bar{
+  position:relative;height:12px;height:clamp(12px,1.35vh,18px);
+  border:1px solid rgba(126,240,210,.28);
+  background:linear-gradient(180deg, rgba(4,20,26,.72), rgba(7,59,62,.42));
+  overflow:hidden;
+}
+#boot-screen .fill{
+  position:absolute;left:0;top:0;bottom:0;width:0%;
+  background:linear-gradient(90deg,#0E7C74 0%,#33C3AC 42%,#7FF0D2 78%,#EAFFF9 100%);
+  box-shadow:0 0 22px rgba(126,240,210,.55);
+}
+#boot-screen .fill::after{
+  content:"";position:absolute;top:0;bottom:0;left:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);
+  width:34%;transform:translateX(-140%);
+  animation:shine 1.5s linear infinite;
+}
+@keyframes shine{0%{transform:translateX(-120%)}100%{transform:translateX(420%)}}
+#boot-screen .segs{
+  position:absolute;left:0;top:0;right:0;bottom:0;
+  background:repeating-linear-gradient(90deg, rgba(3,16,20,.92) 0 3px, rgba(0,0,0,0) 3px 13px);
+  mix-blend-mode:normal;
+}
+#boot-screen .headmark{
+  position:absolute;top:-4px;bottom:-4px;width:2px;left:0;
+  background:#EAFFF9;box-shadow:0 0 14px 3px rgba(126,240,210,.9);
+  transition:left .18s linear;
+}
+#boot-screen .scale{display:flex;justify-content:space-between;margin-top:9px}
+#boot-screen .scale span{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-size:8px;font-size:clamp(8px,.58vw,10px);letter-spacing:.2em;
+  color:rgba(143,182,180,.75);
+}
+#boot-screen footer{display:flex;flex-direction:column;gap:clamp(10px,1.5vh,18px)}
+#boot-screen .footrow{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
+#boot-screen .tip{display:flex;align-items:center;gap:14px;min-width:0}
+#boot-screen .tipkey{
+  flex:none;padding:5px 9px;border:1px solid rgba(126,240,210,.45);color:#7FF0D2;
+  font-size:8px;font-size:clamp(8px,.6vw,10px);letter-spacing:.24em;font-weight:700;
+}
+#boot-screen #tip{
+  font-size:11px;font-size:clamp(11px,.95vw,15px);color:#CFEDE6;letter-spacing:.01em;
+  text-shadow:0 2px 12px rgba(4,20,26,.9);
+}
+#boot-screen #tip.swap{animation:swap .55s cubic-bezier(.2,.8,.3,1)}
+#boot-screen .build{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-size:9px;font-size:clamp(9px,.66vw,11px);letter-spacing:.16em;
+  color:rgba(143,182,180,.8);text-align:right;text-transform:uppercase;white-space:nowrap;
+  display:flex;flex-direction:column;align-items:flex-end;gap:6px;
+}
+#boot-screen .veil{
+  position:absolute;left:0;top:0;right:0;bottom:0;z-index:20;display:grid;align-items:center;justify-content:center;
+  background:
+    radial-gradient(46% 52% at 50% 47%, rgba(126,240,210,.10) 0%, rgba(4,20,26,.34) 55%, rgba(4,20,26,.88) 100%),
+    linear-gradient(180deg, rgba(3,17,22,.55), rgba(3,17,22,.72));
+  opacity:0;pointer-events:none;transition:opacity .55s ease;
+}
+#boot-screen .veil.show{opacity:1}
+#boot-screen .veil .go{
+  display:flex;flex-direction:column;align-items:center;gap:18px;
+  transform:scale(.94);transition:transform .7s cubic-bezier(.2,.8,.3,1);
+}
+#boot-screen .veil.show .go{transform:scale(1)}
+#boot-screen .veil .go b{
+  font-size:26px;font-size:clamp(26px,4vw,64px);font-weight:200;letter-spacing:.34em;text-transform:uppercase;
+  color:#EAFFF9;text-shadow:0 0 40px rgba(126,240,210,.7);
+}
+#boot-screen .veil .go span{font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Courier New",monospace;font-size:10px;font-size:clamp(10px,.8vw,13px);letter-spacing:.34em;color:#7FF0D2}
+@media (max-width:860px), (max-height:560px){
+#boot-screen .dialrow{gap:20px}
+#boot-screen #status{font-size:clamp(19px,3.4vw,30px)}
+#boot-screen .stats .stat:nth-child(3){display:none}
+#boot-screen .wordmark span{display:none}
+}
+@media (max-width:560px){
+#boot-screen .headmeta .chip.hide-s{display:none}
+#boot-screen .headmeta{gap:10px}
+#boot-screen .date{display:none}
+#boot-screen .clock{font-size:17px}
+#boot-screen .build{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+#boot-screen *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.15s !important}
+#boot-screen .grain,#boot-screen .sweep{display:none}
+}
+#boot-screen .mark{position:absolute;right:24px;right:clamp(24px,4.2vw,86px);bottom:20px;bottom:clamp(20px,3.4vh,54px);z-index:12;
+  width:72px;width:clamp(72px,6vw,116px);height:72px;height:clamp(72px,6vw,116px);border-radius:22%;
+  box-shadow:0 0 0 1px rgba(234,255,249,.55),0 0 34px rgba(126,240,210,.5),0 14px 34px rgba(4,20,26,.65),inset 0 1px 0 rgba(255,255,255,.7)}
+#boot-screen .mark::after{display:none}
+#boot-screen .footrow{padding-right:calc(clamp(72px,6vw,116px) + 28px)}
+#boot-screen .hmark{position:relative;overflow:hidden;flex:none;width:48px;width:clamp(48px,3.8vw,70px);height:48px;height:clamp(48px,3.8vw,70px);border-radius:22%;
+  box-shadow:0 0 0 1px rgba(234,255,249,.5),0 0 24px rgba(126,240,210,.45),0 8px 22px rgba(4,20,26,.6)}
+#boot-screen .hmark img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;display:block}
 
-      /* ═══════════════════════════════════════════════════════════════
-         FOLYAMATOS INDULÁSI MOZGÁS (2.5.160)
-
-         Az elvárás: az LG saját indítóképe után AZONNAL induljon a saját
-         indítási animáció, és a 100%-ig folyamatosan látszódjon.
-
-         Ezért van egy JS-TŐL FÜGGETLEN réteg (aurora + horizon). A naplók
-         szerint a bundle kiértékelése 1,2–2,1 mp-re lefoglalja a fő szálat;
-         a CSS-animáció viszont a TV kompozitorán fut tovább, ha csak
-         `transform` és `opacity` változik (nem fest újra, nem kér fő szálat).
-         A réteg ezért akkor is mozog, amikor a JavaScript éppen foglalt –
-         a néző nem lát megállt képernyőt.
-         ═══════════════════════════════════════════════════════════════ */
-      #boot-screen .aurora {
-        position: absolute; left: -20%; top: -12%; width: 140%; height: 128%;
-        z-index: 3; pointer-events: none;
-        background:
-          radial-gradient(46% 40% at 42% 46%, rgba(126,240,210,.26) 0%, rgba(31,120,116,.13) 42%, rgba(4,20,26,0) 78%),
-          radial-gradient(38% 34% at 68% 62%, rgba(79,199,180,.20) 0%, rgba(4,20,26,0) 76%);
-        animation: boot-aurora 11s ease-in-out infinite alternate;
-        will-change: transform, opacity;
-        transform: translate3d(0,0,0) scale(1);
-      }
-      @keyframes boot-aurora {
-        0%   { transform: translate3d(-2.4%, 1.6%, 0) scale(1.04); opacity: .55; }
-        50%  { opacity: .92; }
-        100% { transform: translate3d(2.8%, -2.2%, 0) scale(1.12); opacity: .68; }
-      }
-      #boot-screen .horizon {
-        position: absolute; left: 12%; right: 12%; bottom: 7%;
-        height: 2px; z-index: 4; pointer-events: none;
-        background: linear-gradient(90deg, rgba(126,240,210,0), rgba(126,240,210,.72), rgba(126,240,210,0));
-        box-shadow: 0 0 18px 2px rgba(126,240,210,.32);
-        animation: boot-lift 5.2s linear infinite;
-        will-change: transform, opacity;
-        transform: translate3d(0,0,0);
-        opacity: 0;
-      }
-      @keyframes boot-lift {
-        0%   { transform: translate3d(0, 34px, 0) scaleX(.62); opacity: 0; }
-        12%  { opacity: .85; }
-        78%  { opacity: .55; }
-        100% { transform: translate3d(0, -150px, 0) scaleX(1); opacity: 0; }
-      }
       /*
-       * A MÁRKA FELIRATA IS LÉLEGZIK – ez a legelső festéstől látszik, mert
-       * nincs hozzá JavaScript. Csak az opacity változik (kompozitor).
-       */
-      #boot-screen .wordmark b {
-        animation: boot-glow 3.2s ease-in-out infinite;
-      }
-      @keyframes boot-glow {
-        0%, 100% { opacity: .86; }
-        50% { opacity: 1; }
-      }
-
-      /* ---------- optikai rétegek ---------- */
-      #boot-screen .scrim {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 2;
-        background:
-          radial-gradient(120% 85% at 50% 42%, rgba(4,20,26,.10) 0%, rgba(4,20,26,.55) 46%, rgba(4,20,26,.90) 100%),
-          linear-gradient(180deg, rgba(3,17,22,.86) 0%, rgba(3,17,22,.16) 26%, rgba(3,17,22,.20) 62%, rgba(3,17,22,.92) 100%),
-          linear-gradient(100deg, rgba(6,44,46,.62) 0%, rgba(4,20,26,0) 55%);
-      }
-      #boot-screen .vig {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 2;
-        box-shadow: inset 0 0 190px rgba(2,12,16,.95);
-        /* A 190 px-es belső árnyék a TV GPU-ján a teljes felületet
-           újrafestette minden képkockánál (KÉPKOCKA-KIHAGYÁS a naplóban).
-           Saját, izolált rétegben tartva a drága festés egyszer történik. */
-        contain: paint;
-        transform: translateZ(0);
-      }
-      #boot-screen .grid {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 3;
-        opacity: .30;
-        background-image:
-          repeating-linear-gradient(90deg, rgba(143,182,180,.16) 0 1px, transparent 1px 84px),
-          repeating-linear-gradient(0deg, rgba(143,182,180,.10) 0 1px, transparent 1px 84px);
-        -webkit-mask-image: radial-gradient(120% 90% at 50% 50%, transparent 28%, #000 100%);
-        mask-image: radial-gradient(120% 90% at 50% 50%, transparent 28%, #000 100%);
-      }
-      #boot-screen .scan {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 3;
-        pointer-events: none; opacity: .42;
-        /*
-         * 2.5.149: NINCS `mix-blend-mode`. A teljes képernyős keverési mód a TV
-         * GPU-ján minden képkockán újraolvasta a háttérréteget – emiatt nem
-         * tudott rendesen futni a betöltő animáció. A pásztázó sorok
-         * megjelenése ugyanaz, csak sima átlátszó sötét csíkokkal.
-         */
-        background: repeating-linear-gradient(180deg, rgba(2,10,14,.34) 0 1px, rgba(0,0,0,0) 1px 3px);
-      }
-      #boot-screen .bloom {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 6;
-        pointer-events: none; opacity: 0;
-        background: radial-gradient(50% 55% at 50% 44%, rgba(215,255,247,.92) 0%, rgba(126,240,210,.45) 32%, rgba(14,124,116,0) 70%);
-      }
-      #boot-screen .bloom.fire { animation: boot-bloom 1.15s cubic-bezier(.2,.7,.3,1) forwards; }
-      @keyframes boot-bloom {
-        0% { opacity: 0; }
-        16% { opacity: .95; }
-        100% { opacity: 0; }
-      }
-
-      /* ---------- UI váz (TV biztonsági sáv) ---------- */
-      #boot-screen .ui {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 10;
-        display: flex; flex-direction: column; justify-content: space-between;
-        padding: 24px 28px;
-        padding: clamp(20px,3.4vh,54px) clamp(24px,4.2vw,86px);
-        /*
-         * 2.5.149: a lezáró „elengedés” (6 px blur + nagyítás) KIKERÜLT.
-         * A 28–30. naplóban a takarókép levétele emiatt várt 1,4–2,4 mp-et:
-         * a TV GPU-ja a teljes műszerfalat bemásolta és elhomályosította
-         * pont abban a pillanatban, amikor a kész felületnek meg kellett
-         * volna jelennie. A felfedés egyetlen stílusváltás.
-         */
-      }
-
-      #boot-screen .rule {
-        height: 1px;
-        background: linear-gradient(90deg, rgba(126,240,210,.55), rgba(143,182,180,.16) 45%, rgba(143,182,180,0));
-      }
-      #boot-screen .rule.btm {
-        background: linear-gradient(90deg, rgba(143,182,180,0), rgba(143,182,180,.20) 55%, rgba(126,240,210,.5));
-      }
-      #boot-screen .micro {
-        font-size: 10px;
-        font-size: clamp(9px,.72vw,11px);
-        letter-spacing: .34em; text-transform: uppercase;
-        color: #8FB6B4; font-weight: 600;
-      }
-      #boot-screen .amber { color: #FFB23F; }
-
-      /* ---------- fejléc ---------- */
-      #boot-screen header.boot-head {
-        display: flex; flex-direction: column;
-        margin-bottom: 14px;
-        margin-bottom: clamp(12px,1.6vh,20px);
-      }
-      #boot-screen .headrow {
-        display: flex; align-items: center; justify-content: space-between;
-      }
-      #boot-screen .brand { display: flex; align-items: center; min-width: 0; }
-      #boot-screen .hmark {
-        position: relative; overflow: hidden; flex: none;
-        /* Folyamatos, olcsó életjel: csak az átlátszóság lüktet, azt is a
-           kompozitor végzi (will-change: opacity), nem a fő szál. */
-        animation: boot-breathe 3.6s ease-in-out infinite;
-        will-change: opacity;
-        width: 56px; height: 56px;
-        width: clamp(48px,3.8vw,70px); height: clamp(48px,3.8vw,70px);
-        border-radius: 22%;
-        background: linear-gradient(150deg, #B9F7E1, #4FC7B4 45%, #0E7C74);
-        box-shadow: 0 0 0 1px rgba(234,255,249,.5), 0 0 24px rgba(126,240,210,.45), 0 8px 22px rgba(4,20,26,.6), inset 0 1px 0 rgba(255,255,255,.7);
-        margin-right: 14px;
-        display: block;
-      }
-      #boot-screen .hmark svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
-      @keyframes boot-breathe {
-        0%, 100% { opacity: 1; }
-        50% { opacity: .78; }
-      }
-      /* A dizájn szerint a csempén a felhasználó IPTV-ikonja látszik; nálunk ez
-         az alkalmazás saját ikonja (a vektoros TV csak tartalék, ha a kép nem
-         jön be – fejlesztői környezetben ez a helyzet). */
-      #boot-screen .hmark img, #boot-screen .mark img {
-        position: absolute; left: 0; top: 0; width: 100%; height: 100%;
-        display: block; object-fit: cover; -o-object-fit: cover; z-index: 2;
-      }
-      #boot-screen .wordmark { display: flex; flex-direction: column; min-width: 0; }
-      #boot-screen .wordmark b {
-        font-size: 19px;
-        font-size: clamp(17px,1.5vw,25px);
-        font-weight: 700; letter-spacing: .42em; line-height: 1;
-        color: #EAFFF9; text-shadow: 0 2px 14px rgba(4,20,26,.9);
-      }
-      #boot-screen .wordmark span {
-        margin-top: 6px;
-        font-size: 9px;
-        font-size: clamp(8px,.62vw,10px);
-        letter-spacing: .40em; text-transform: uppercase; line-height: 1;
-        color: #7FF0D2; opacity: .85; font-weight: 600; white-space: nowrap;
-      }
-      #boot-screen .headmeta { display: flex; align-items: center; flex: none; }
-      #boot-screen .chip {
-        display: flex; align-items: center;
-        padding: 8px 14px;
-        margin-right: 14px;
-        border: 1px solid rgba(143,182,180,.30);
-        background: linear-gradient(180deg, rgba(7,59,62,.55), rgba(4,20,26,.55));
-        font-size: 10px;
-        font-size: clamp(9px,.68vw,11px);
-        letter-spacing: .22em; text-transform: uppercase; color: #CFEDE6; font-weight: 600;
-        white-space: nowrap;
-      }
-      #boot-screen .chip.last { margin-right: 20px; }
-      #boot-screen .dot {
-        width: 7px; height: 7px; border-radius: 50%;
-        background: #FFB23F; box-shadow: 0 0 10px #FFB23F;
-        margin-right: 9px;
-        animation: boot-pulse 1.6s ease-in-out infinite;
-      }
-      @keyframes boot-pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: .35; transform: scale(.72); }
-      }
-      #boot-screen .headmark-right {
-        display: flex; align-items: center;
-        margin-left: 20px;
-      }
-      #boot-screen .headmark-right svg {
-        width: 34px; height: 34px; display: block;
-        filter: drop-shadow(0 3px 10px rgba(3,16,20,.55));
-        -webkit-filter: drop-shadow(0 3px 10px rgba(3,16,20,.55));
-      }
-      #boot-screen .boot-rule { margin-top: 17px; }
-
-      /* ---------- fő rész: tárcsa + állapot ---------- */
-      #boot-screen main.boot-main {
-        flex: 1 1 auto; display: flex; flex-direction: column;
-        justify-content: center; align-items: stretch;
-        padding: 12px 0;
-        padding: clamp(6px,1.4vh,18px) 0;
-      }
-      #boot-screen .eyebrow, #boot-screen .dialrow, #boot-screen .meter { width: 100%; }
-      #boot-screen .eyebrow { display: flex; align-items: center; margin-bottom: 18px; }
-      #boot-screen .bar-lite {
-        width: 60px;
-        width: clamp(40px,5vw,90px);
-        height: 1px; background: #7FF0D2; opacity: .7;
-        margin-right: 14px; flex: none;
-      }
-
-      #boot-screen .dialrow {
-        display: flex; align-items: center; flex-wrap: wrap;
-        margin-bottom: 26px;
-        margin-bottom: clamp(14px,2.2vh,30px);
-      }
-      #boot-screen .dial {
-        position: relative; flex: none;
-        width: 250px; height: 250px;
-        width: clamp(184px,26vmin,300px); height: clamp(184px,26vmin,300px);
-        margin-right: 52px;
-        margin-right: clamp(22px,3.4vw,62px);
-      }
-      #boot-screen .dial svg {
-        position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible;
-      }
-      /*
-       * FOLYAMATOS MOZGÁS – VÉGIG AZ INDULÁS ALATT (2.5.147).
+       * A HÁTTÉR EGYETLEN HELYEN VAN TÁROLVA (2.5.162).
        *
-       * A 2.5.145-ben minden mozgást kivettünk, mert a vászon-részecskék és a
-       * filmszemcse a TV GPU-ján másodpercekre fagyasztotta a képet. A néző
-       * visszajelzése viszont egyértelmű volt: így „az animáció le sem fut”,
-       * a képernyő befagyottnak látszik.
-       *
-       * Ezért visszajön EGYETLEN, olcsó mozgás: egy vékony gyűrű, amely a
-       * saját, izolált rétegében forog. Csak `transform` animálódik, tehát a
-       * kompozitor (nem a fő szál) végzi – akkor is forog, amikor éppen a
-       * csatornalista dekódolása foglalja a fő szálat.
+       * A dizájn három helyen használja ugyanazt az ikont (faltól falig
+       * háttér, fejléc-jelvény, jobb alsó jelvény). Ha mindhárom helyre
+       * beágyaznánk a képet, az 3×64 kB lenne; ezért EGY adat-URI él a
+       * CSS-ben, és a három elem ugyanazt a háttérképet kapja.
        */
-      #boot-screen .dial-spin {
-        position: absolute;
-        left: 14px; top: 14px; right: 14px; bottom: 14px;
-        border-radius: 50%;
-        border: 3px solid rgba(126,240,210,.12);
-        border-top-color: #7FF0D2;
-        border-right-color: rgba(126,240,210,.55);
-        animation: boot-rot 1.9s linear infinite;
-        will-change: transform;
-        transform: translateZ(0);
-        pointer-events: none;
-      }
-      @keyframes boot-rot {
-        0% { transform: rotate(0deg) translateZ(0); }
-        100% { transform: rotate(360deg) translateZ(0); }
-      }
-      /*
-       * 2.5.145: a tárcsa 72 osztása NEM forog. A 46 mp-es végtelen
-       * forgatás minden képkockán újrarajzolta a SVG-t; a betöltőképernyő
-       * ugyanúgy néz ki, de a TV-nek nem kell folyamatosan dolgoznia.
-       */
-      #boot-screen .ring-track { stroke: rgba(234,255,249,.13); }
-      #boot-screen .ring-fill {
-        stroke: url(#boot-gfill);
-        stroke-linecap: round;
-        filter: drop-shadow(0 0 7px rgba(126,240,210,.85));
-        -webkit-filter: drop-shadow(0 0 7px rgba(126,240,210,.85));
-        transition: stroke-dashoffset .18s linear;
-      }
-      #boot-screen .readout {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-      }
-      #boot-screen .pct {
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-variant-numeric: tabular-nums;
-        font-size: 74px;
-        font-size: clamp(44px,7.4vmin,88px);
-        font-weight: 600; letter-spacing: -.05em; line-height: .92;
-        color: #EAFFF9;
-        text-shadow: 0 0 34px rgba(126,240,210,.55), 0 4px 22px rgba(4,20,26,.9);
-      }
-      #boot-screen .pct sup {
-        font-size: .34em; font-weight: 500; letter-spacing: 0;
-        vertical-align: super; margin-left: .1em; color: #7FF0D2;
-      }
-      #boot-screen .pct-lbl {
-        margin-top: 6px;
-        font-size: 9px;
-        font-size: clamp(8px,.6vw,10px);
-        letter-spacing: .40em; text-transform: uppercase;
-        color: #8FB6B4; font-weight: 600;
-      }
-
-      #boot-screen .statusblock { min-width: 0; flex: 1 1 auto; }
-      #boot-screen .step {
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-size: 11px;
-        font-size: clamp(10px,.78vw,12px);
-        letter-spacing: .24em; color: #FFB23F;
-        text-transform: uppercase; margin-bottom: 10px;
-      }
-      #boot-screen .status {
-        font-size: 32px;
-        font-size: clamp(21px,2.5vw,40px);
-        font-weight: 300; letter-spacing: -.015em; line-height: 1.12;
-        color: #EAFFF9; margin: 0; min-height: 1.15em;
-        text-shadow: 0 3px 24px rgba(4,20,26,.95);
-      }
-      #boot-screen .status.swap { animation: boot-swap .5s cubic-bezier(.2,.8,.3,1); }
-      #boot-screen .tip.swap { animation: boot-swap .55s cubic-bezier(.2,.8,.3,1); }
-      @keyframes boot-swap {
-        0% { opacity: 0; transform: translateY(8px); }
-        100% { opacity: 1; transform: translateY(0); }
-      }
-      #boot-screen .subline {
-        margin-top: 12px;
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-size: 11px;
-        font-size: clamp(10px,.78vw,12.5px);
-        letter-spacing: .16em; color: #A9CFC9; text-transform: uppercase;
-        display: flex; flex-wrap: wrap;
-      }
-      #boot-screen .subline span { margin-right: 16px; margin-top: 6px; }
-      #boot-screen .subline i { font-style: normal; color: rgba(143,182,180,.6); margin: 0 6px; }
-
-      /* ---------- teljes szélességű szegmentált sáv ---------- */
-      #boot-screen .meter {
-        /* A dizájnban a sáv 30 px-rel túllóg a szövegoszlopon (teljes szélesség). */
-        width: calc(100% + 60px);
-        margin-left: -30px;
-      }
-      #boot-screen .meterhead {
-        display: flex; align-items: flex-end; justify-content: space-between;
-        margin-bottom: 10px;
-      }
-      #boot-screen .stats { display: flex; flex-wrap: wrap; }
-      #boot-screen .stat { display: flex; flex-direction: column; margin-right: 44px; }
-      #boot-screen .stat b {
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-variant-numeric: tabular-nums; font-weight: 600;
-        font-size: 16px;
-        font-size: clamp(13px,1.15vw,19px);
-        color: #EAFFF9; letter-spacing: .02em; line-height: 1.1;
-      }
-      #boot-screen .stat span {
-        margin-top: 5px;
-        font-size: 9px;
-        font-size: clamp(8px,.6vw,10px);
-        letter-spacing: .28em; text-transform: uppercase;
-        color: #8FB6B4; font-weight: 600;
-      }
-      #boot-screen .eta { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
-      #boot-screen .eta b {
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-variant-numeric: tabular-nums;
-        font-size: 16px;
-        font-size: clamp(13px,1.15vw,19px);
-        color: #7FF0D2; font-weight: 600; line-height: 1.1;
-      }
-      #boot-screen .eta span {
-        margin-top: 5px;
-        font-size: 9px;
-        font-size: clamp(8px,.6vw,10px);
-        letter-spacing: .28em; text-transform: uppercase;
-        color: #8FB6B4; font-weight: 600;
-      }
-      #boot-screen .bar {
-        position: relative; height: 15px;
-        height: clamp(12px,1.35vh,18px);
-        border: 1px solid rgba(126,240,210,.28);
-        background: linear-gradient(180deg, rgba(4,20,26,.72), rgba(7,59,62,.42));
-        overflow: hidden;
-      }
-      #boot-screen .fill {
-        position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
-        background: linear-gradient(90deg, #0E7C74 0%, #33C3AC 42%, #7FF0D2 78%, #EAFFF9 100%);
-        box-shadow: 0 0 22px rgba(126,240,210,.55);
-      }
-      #boot-screen .fill::after {
-        content: ""; position: absolute; top: 0; bottom: 0; left: 0;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent);
-        width: 34%; transform: translateX(-140%);
-        animation: boot-shine 1.5s linear infinite;
-      }
-      @keyframes boot-shine {
-        0% { transform: translateX(-120%); }
-        100% { transform: translateX(420%); }
-      }
-      /*
-       * A SÁV MINDIG MOZOG (2.5.147). A valódi százalék néha másodpercekig
-       * egy helyen áll (a lista dekódolása közben), ilyenkor a sáv is állna.
-       * Ez a haladó fénycsík transformmal úszik át rajta – függetlenül attól,
-       * hogy éppen érkezett-e új adat. Csak transform: kompozitor-oldali.
-       */
-      #boot-screen .bar .flow {
-        position: absolute; top: 0; bottom: 0; left: 0; width: 22%;
-        background: linear-gradient(90deg, transparent, rgba(126,240,210,.42), transparent);
-        animation: boot-flow 2.6s linear infinite;
-        will-change: transform;
-        transform: translateX(-140%) translateZ(0);
-        pointer-events: none;
-      }
-      @keyframes boot-flow {
-        0% { transform: translateX(-140%) translateZ(0); }
-        100% { transform: translateX(560%) translateZ(0); }
-      }
-      #boot-screen .segs {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0;
-        background: repeating-linear-gradient(90deg, rgba(3,16,20,.92) 0 3px, rgba(0,0,0,0) 3px 13px);
-      }
-      #boot-screen .headmark {
-        position: absolute; top: -4px; bottom: -4px; width: 2px; left: 0;
-        background: #EAFFF9; box-shadow: 0 0 14px 3px rgba(126,240,210,.9);
-        transition: left .18s linear;
-      }
-      #boot-screen .scale { display: flex; justify-content: space-between; margin-top: 9px; }
-      #boot-screen .scale span {
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-size: 9px;
-        font-size: clamp(8px,.58vw,10px);
-        letter-spacing: .2em; color: rgba(143,182,180,.75);
-      }
-
-      /* ---------- lábléc ---------- */
-      #boot-screen footer.boot-foot {
-        display: flex; flex-direction: column;
-        margin-top: 14px;
-        margin-top: clamp(10px,1.5vh,18px);
-      }
-      #boot-screen .footrow {
-        display: flex; align-items: flex-end; justify-content: space-between;
-        margin-top: 14px;
-        /* Hely a jobb alsó sarok ikonjának (a dizájn szerint). */
-        padding-right: 132px;
-        padding-right: calc(clamp(72px,6vw,116px) + 28px);
-      }
-      #boot-screen .tip { display: flex; align-items: center; min-width: 0; }
-      #boot-screen .tipkey {
-        flex: none; padding: 5px 9px; margin-right: 14px;
-        border: 1px solid rgba(126,240,210,.45); color: #7FF0D2;
-        font-size: 9px;
-        font-size: clamp(8px,.6vw,10px);
-        letter-spacing: .24em; font-weight: 700;
-      }
-      #boot-screen #tip {
-        font-size: 13px;
-        font-size: clamp(11px,.95vw,15px);
-        color: #CFEDE6; letter-spacing: .01em;
-        text-shadow: 0 2px 12px rgba(4,20,26,.9);
-      }
-      #boot-screen .build {
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-size: 10px;
-        font-size: clamp(9px,.66vw,11px);
-        letter-spacing: .16em; color: rgba(143,182,180,.8);
-        text-align: right; text-transform: uppercase; white-space: nowrap;
-        display: flex; flex-direction: column; align-items: flex-end;
-      }
-      #boot-screen .build span { margin-top: 6px; }
-
-      /* ---------- jobb alsó sarok: a TV-ikon (a dizájn szerint) ---------- */
+      #boot-screen .bootbg,
+      #boot-screen .hmark,
       #boot-screen .mark {
-        position: absolute; z-index: 12;
-        right: 28px; bottom: 24px;
-        right: clamp(24px,4.2vw,86px); bottom: clamp(20px,3.4vh,54px);
-        width: 96px; height: 96px;
-        width: clamp(72px,6vw,116px); height: clamp(72px,6vw,116px);
-        border-radius: 22%;
-        overflow: hidden;
-        background: linear-gradient(150deg, #B9F7E1, #4FC7B4 45%, #0E7C74);
-        box-shadow: 0 0 0 1px rgba(234,255,249,.55), 0 0 34px rgba(126,240,210,.5), 0 14px 34px rgba(4,20,26,.65), inset 0 1px 0 rgba(255,255,255,.7);
-      }
-      #boot-screen .mark svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
-
-      /* ---------- áttűnő fátyol ---------- */
-      #boot-screen .veil {
-        position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 20;
-        display: flex; align-items: center; justify-content: center;
-        background:
-          radial-gradient(46% 52% at 50% 47%, rgba(126,240,210,.10) 0%, rgba(4,20,26,.34) 55%, rgba(4,20,26,.88) 100%),
-          linear-gradient(180deg, rgba(3,17,22,.55), rgba(3,17,22,.72));
-        opacity: 0; pointer-events: none;
-        transition: opacity .55s ease;
-      }
-      #boot-screen .veil.show { opacity: 1; }
-      #boot-screen .veil .go {
-        display: flex; flex-direction: column; align-items: center;
-        transform: scale(.94);
-        transition: transform .7s cubic-bezier(.2,.8,.3,1);
-      }
-      #boot-screen .veil.show .go { transform: scale(1); }
-      #boot-screen .veil .go b {
-        font-size: 40px;
-        font-size: clamp(26px,4vw,64px);
-        font-weight: 200; letter-spacing: .34em; text-transform: uppercase;
-        color: #EAFFF9; text-shadow: 0 0 40px rgba(126,240,210,.7);
-      }
-      #boot-screen .veil .go span {
-        margin-top: 18px;
-        font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-        font-size: 11px;
-        font-size: clamp(10px,.8vw,13px);
-        letter-spacing: .34em; color: #7FF0D2;
-      }
-
-      /* ---------- kisebb kijelzők (a dizájn saját töréspontjai) ---------- */
-      @media (max-width: 1100px), (max-height: 620px) {
-        #boot-screen .dialrow { margin-bottom: 20px; }
-        #boot-screen .dial { width: 200px; height: 200px; margin-right: 34px; }
-        #boot-screen .pct { font-size: 58px; }
-        #boot-screen .pct sup { font-size: 20px; }
-        #boot-screen .status { font-size: 30px; }
-        #boot-screen .chip { display: none; }
-        #boot-screen .stat { margin-right: 26px; }
-        #boot-screen .mark { width: 76px; height: 76px; }
-        #boot-screen .footrow { padding-right: 96px; }
-      }
-      @media (max-width: 860px), (max-height: 560px) {
-        #boot-screen .status { font-size: 24px; }
-        #boot-screen .stat.third { display: none; }
-        #boot-screen .wordmark span { display: none; }
-      }
-      @media (max-width: 560px) {
-        #boot-screen .build { display: none; }
-        #boot-screen .mark { width: 56px; height: 56px; }
-        #boot-screen .footrow { padding-right: 70px; }
-      }
-      @media (max-height: 620px) {
-        #boot-screen .ui { padding-top: 18px; padding-bottom: 18px; }
-        #boot-screen .dial { width: 168px; height: 168px; }
-        #boot-screen .pct { font-size: 48px; }
-        #boot-screen .status { font-size: 25px; }
-        #boot-screen .meterhead { margin-bottom: 6px; }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #boot-screen * {
-          animation-duration: .001ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: .15s !important;
-        }
+        background-image: url("data:image/jpeg;base64,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");
+        background-size: cover;
+        background-position: center center;
+        background-repeat: no-repeat;
       }
 
       /* ---- HIBAKÉPERNYŐ ---- */
@@ -786,135 +520,75 @@
     </script>
   </head>
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
-    <!--
-      BETÖLTŐKÉPERNYŐ – az „Inditas.html” EREDETI dizájnja (minden réteggel).
-
-      A látvány változatlan (háttér, fátyol, vignetta, rács, szemcse, pásztázás,
-      fénylegyező, vászon-részecskék, virágzás, műszerfal, tárcsa, sáv, TIPP,
-      jobb alsó ikon, áttűnő fátyol). Az ADATOKAT a futó alkalmazás jelenti a
-      window.__IPTV_BOOT__ hídon; a HTML önmagában NEM talál ki értéket és nem
-      fejeződik be magától.
-    -->
     <div id="tv-curtain" class="iptv-curtain" aria-hidden="true">
       <div id="boot-screen">
         <div class="stage">
 
+          <!--
+            A HÁTTÉR: a felhasználó saját IPTV-ikonja faltól falig (a képet a
+            CSS tartalmazza, egyszer). A réteg sötétítve, telítve, 30 mp-es
+            lassú úszással – pontosan a megtervezett fájl szerint.
+          -->
+          <div class="bootbg"></div>
+
+          <!-- optikai rétegek: fátyol, vignetta, rács, szemcse, pásztázás, fénylegyező -->
           <div class="scrim"></div>
           <div class="vig"></div>
-          <!--
-            FOLYAMATOS, JS NÉLKÜLI MOZGÁS (2.5.160).
-
-            A fátyol (scrim) és a vignetta FÖLÖTT van, mert azok 55–95%-ra
-            sötétítenek: alattuk a folyamatos fény nem látszana. Csak
-            `transform`/`opacity` animáció, tehát a TV kompozitora hajtja
-            végre – akkor is, amikor a JavaScript a bundle-lel foglalt.
-          -->
-          <div class="aurora"></div>
           <div class="grid"></div>
+          <div class="grain"></div>
           <div class="scan"></div>
-          <div class="horizon"></div>
-          <div class="bloom" id="boot-bloom"></div>
+          <div class="sweep"></div>
+          <canvas id="fx"></canvas>
+          <div class="bloom" id="boot-bloom-el"></div>
 
           <div class="ui" id="boot-ui">
 
-            <header class="boot-head">
+            <header>
               <div class="headrow">
                 <div class="brand">
-                  <div class="hmark">
-                    <svg viewBox="0 0 64 64" aria-hidden="true">
-                      <defs>
-                        <linearGradient id="boot-mg" x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0" stop-color="#DCFCEC"/><stop offset=".5" stop-color="#8CE3C8"/><stop offset="1" stop-color="#4BBFB4"/>
-                        </linearGradient>
-                      </defs>
-                      <rect width="64" height="64" rx="14" fill="url(#boot-mg)"/>
-                      <g stroke="#FFFFFF" stroke-opacity=".55" stroke-width=".7" fill="none">
-                        <path d="M0 15 L20 7 L44 13 L64 5"/><path d="M0 53 L22 59 L46 51 L64 57"/>
-                        <path d="M9 0 L15 64"/><path d="M55 0 L49 64"/><path d="M0 34 L64 36"/>
-                      </g>
-                      <g transform="translate(32 28)">
-                        <path d="M-8 -13 L-15 -23" stroke="#334A54" stroke-width="2.4" stroke-linecap="round"/>
-                        <path d="M8 -13 L15 -23" stroke="#334A54" stroke-width="2.4" stroke-linecap="round"/>
-                        <circle cx="-16" cy="-24" r="3.4" fill="#334A54"/><circle cx="16" cy="-24" r="3.4" fill="#334A54"/>
-                        <rect x="-19" y="-15" width="38" height="31" rx="9" fill="#3A525D"/>
-                        <rect x="-15" y="-11" width="30" height="22" rx="5" fill="#EFFCF8"/>
-                        <path d="M-4 -6.5 L7 -0.5 L-4 5.5 Z" fill="#1E3239"/>
-                        <path d="M-12 19 L12 19" stroke="#1E3239" stroke-width="2.6" stroke-linecap="round"/>
-                      </g>
-                      <text x="32" y="60" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"
-                            font-size="15" font-weight="700" fill="#1E3239" letter-spacing=".5">TV</text>
-                    </svg>
-                    <img src="icon-rt2.png" alt="" decoding="async" onerror="this.style.display='none'">
-                  </div>
+                  <div class="hmark"></div>
                   <div class="wordmark">
                     <b>TV</b>
-                    <span>Premium &middot; 4K HDR &middot; Magyar</span>
+                    <span>Premium · 4K HDR · Magyar</span>
                   </div>
                 </div>
-                <div class="headmeta boot-headmeta">
-                  <div class="chip"><span class="dot"></span> Élő adatfolyam</div>
-                  <div class="chip last">LG webOS TV</div>
-                  <!--
-                    2.5.145: A JOBB FELSŐ SAROKBAN IS A SAJÁT LOGÓNK VAN.
-                    A korábbi óra/dátum kikerült (a felhasználó kérésére):
-                    semmi nem ketyeg a betöltés alatt, nincs másodpercenkénti
-                    újrarajzolás, és a két sarok egyforma márkajelet mutat.
-                  -->
-                  <div class="headmark-right" aria-hidden="true">
-                    <svg viewBox="0 0 64 64">
-                      <defs>
-                        <linearGradient id="boot-mg-r" x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0" stop-color="#DCFCEC"/><stop offset=".5" stop-color="#8CE3C8"/><stop offset="1" stop-color="#4BBFB4"/>
-                        </linearGradient>
-                      </defs>
-                      <rect width="64" height="64" rx="14" fill="url(#boot-mg-r)"/>
-                      <g stroke="#FFFFFF" stroke-opacity=".55" stroke-width=".7" fill="none">
-                        <path d="M0 15 L20 7 L44 13 L64 5"/><path d="M0 53 L22 59 L46 51 L64 57"/>
-                        <path d="M9 0 L15 64"/><path d="M55 0 L49 64"/><path d="M0 34 L64 36"/>
-                      </g>
-                      <g transform="translate(32 28)">
-                        <path d="M-8 -13 L-15 -23" stroke="#334A54" stroke-width="2.4" stroke-linecap="round"/>
-                        <path d="M8 -13 L15 -23" stroke="#334A54" stroke-width="2.4" stroke-linecap="round"/>
-                        <circle cx="-16" cy="-24" r="3.4" fill="#334A54"/><circle cx="16" cy="-24" r="3.4" fill="#334A54"/>
-                        <rect x="-19" y="-15" width="38" height="31" rx="9" fill="#3A525D"/>
-                        <rect x="-15" y="-11" width="30" height="22" rx="5" fill="#EFFCF8"/>
-                        <path d="M-4 -6.5 L7 -0.5 L-4 5.5 Z" fill="#1E3239"/>
-                        <path d="M-12 19 L12 19" stroke="#1E3239" stroke-width="2.6" stroke-linecap="round"/>
-                      </g>
-                      <text x="32" y="60" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"
-                            font-size="15" font-weight="700" fill="#1E3239" letter-spacing=".5">TV</text>
-                    </svg>
+                <div class="headmeta">
+                  <div class="chip hide-s"><span class="dot"></span> Élő adatfolyam</div>
+                  <div class="chip">LG webOS TV</div>
+                  <!-- Működő óra: a TV valós rendszerideje + magyar dátum -->
+                  <div class="clockbox">
+                    <div class="clock" id="boot-clock"><b>--:--</b><i>00</i></div>
+                    <div class="date" id="boot-date">&mdash;</div>
                   </div>
                 </div>
               </div>
-              <div class="rule boot-rule"></div>
+              <div class="rule"></div>
             </header>
 
-            <main class="boot-main">
+            <main>
               <div class="eyebrow">
                 <span class="bar-lite"></span>
-                <span class="micro">Rendszerindítás &middot; Adatcsatorna szinkron</span>
+                <span class="micro">Rendszerindítás · Adatcsatorna szinkron</span>
               </div>
 
               <div class="dialrow">
                 <div class="dial">
                   <svg viewBox="0 0 300 300" aria-hidden="true">
                     <defs>
-                      <linearGradient id="boot-gfill" x1="0" y1="0" x2="1" y2="1">
+                      <linearGradient id="gfill" x1="0" y1="0" x2="1" y2="1">
                         <stop offset="0" stop-color="#0E7C74"/>
                         <stop offset=".5" stop-color="#7FF0D2"/>
                         <stop offset="1" stop-color="#EAFFF9"/>
                       </linearGradient>
                     </defs>
                     <g class="ticks" id="boot-ticks"></g>
-                    <circle class="ring-track" cx="150" cy="150" r="122" fill="none" stroke-width="2"></circle>
+                    <circle class="ring-track" cx="150" cy="150" r="122" fill="none" stroke-width="2"/>
                     <circle class="ring-fill" id="boot-ring" cx="150" cy="150" r="122" fill="none" stroke-width="7"
                             stroke-dasharray="766.5" stroke-dashoffset="766.5"
-                            transform="rotate(-90 150 150)"></circle>
+                            transform="rotate(-90 150 150)"/>
                     <circle cx="150" cy="150" r="140" fill="none" stroke="rgba(126,240,210,.30)"
-                            stroke-width="1" stroke-dasharray="2 10"></circle>
+                            stroke-width="1" stroke-dasharray="2 10"/>
                   </svg>
-                  <div class="dial-spin" aria-hidden="true"></div>
                   <div class="readout">
                     <div class="pct"><span id="boot-pct">0</span><sup>%</sup></div>
                     <div class="pct-lbl">Betöltés</div>
@@ -922,12 +596,9 @@
                 </div>
 
                 <div class="statusblock">
-                  <div class="step" id="boot-step">LÉPÉS 01 / 09</div>
-                  <h1 class="status" id="boot-status">A készülék indítása…</h1>
-                  <div class="subline">
-                    <span id="boot-detail">A betöltési adatok a TV-n futó alkalmazásból származnak.</span>
-                    <span>PROTOKOLL <i>&middot;</i> HLS / MPEG-DASH</span>
-                  </div>
+                  <div class="step" id="boot-step">LÉPÉS &mdash;</div>
+                  <h1 id="boot-status">A készülék indítása…</h1>
+                  <div class="subline" id="boot-detail"><span>&mdash;</span></div>
                 </div>
               </div>
 
@@ -936,17 +607,16 @@
                   <div class="stats">
                     <div class="stat"><b id="boot-channels">&mdash;</b><span>Csatorna</span></div>
                     <div class="stat"><b id="boot-bytes">&mdash;</b><span>Letöltve</span></div>
-                    <div class="stat third"><b id="boot-speed">&mdash;</b><span>Sávszélesség</span></div>
+                    <div class="stat"><b id="boot-speed">&mdash;</b><span>Sávszélesség</span></div>
                   </div>
-                  <div class="eta">
+                  <div class="eta" style="text-align:right">
                     <b id="boot-eta">&mdash;</b>
-                    <span>Hátralévő idő</span>
+                    <div class="stat"><span>Hátralévő idő</span></div>
                   </div>
                 </div>
 
                 <div class="bar">
                   <div class="fill" id="boot-fill"></div>
-                  <div class="flow" aria-hidden="true"></div>
                   <div class="segs"></div>
                   <div class="headmark" id="boot-head"></div>
                 </div>
@@ -956,63 +626,28 @@
               </div>
             </main>
 
-            <footer class="boot-foot">
+            <footer>
               <div class="rule btm"></div>
               <div class="footrow">
                 <div class="tip">
                   <span class="tipkey">TIPP</span>
-                  <span id="tip">A távirányító OK gombjával bármikor átléphetsz a menübe.</span>
+                  <span id="boot-tip">A betöltés alatt a TV valódi rendszerideje és a tényleges adatok látszanak.</span>
                 </div>
-                <div class="build" id="boot-build">
-                  <span id="boot-buildline">IPTV R.T &middot; LG webOS TV</span>
-                  <span class="amber" id="boot-buildstate">BETÖLTÉS</span>
+                <div class="build">
+                  <span id="boot-build">LG webOS TV</span>
                 </div>
               </div>
             </footer>
 
-            <!-- Jobb alsó sarok: a TV-ikon (a dizájn szerint) -->
-            <div class="mark" id="boot-mark">
-              <svg viewBox="0 0 64 64" aria-hidden="true">
-                <defs>
-                  <linearGradient id="boot-mg2" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0" stop-color="#DCFCEC"/><stop offset=".5" stop-color="#8CE3C8"/><stop offset="1" stop-color="#4BBFB4"/>
-                  </linearGradient>
-                  <radialGradient id="boot-mg3" cx=".5" cy=".5" r=".5">
-                    <stop offset="0" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
-                  </radialGradient>
-                </defs>
-                <rect width="64" height="64" rx="14" fill="url(#boot-mg2)"/>
-                <g stroke="#FFFFFF" stroke-opacity=".55" stroke-width=".7" fill="none">
-                  <path d="M0 15 L20 7 L44 13 L64 5"/><path d="M0 53 L22 59 L46 51 L64 57"/>
-                  <path d="M9 0 L15 64"/><path d="M55 0 L49 64"/><path d="M0 34 L64 36"/>
-                </g>
-                <g fill="#FFFFFF" fill-opacity=".85">
-                  <circle cx="20" cy="7" r="1.5"/><circle cx="44" cy="13" r="1.4"/>
-                  <circle cx="22" cy="59" r="1.5"/><circle cx="12" cy="30" r="1.2"/>
-                </g>
-                <g transform="translate(32 27)">
-                  <path d="M-8 -13 L-15 -23" stroke="#334A54" stroke-width="2.4" stroke-linecap="round"/>
-                  <path d="M8 -13 L15 -23" stroke="#334A54" stroke-width="2.4" stroke-linecap="round"/>
-                  <circle cx="-16" cy="-24" r="3.4" fill="#334A54"/><circle cx="16" cy="-24" r="3.4" fill="#334A54"/>
-                  <rect x="-19" y="-15" width="38" height="31" rx="9" fill="#3A525D"/>
-                  <rect x="-15" y="-11" width="30" height="22" rx="5" fill="#EFFCF8"/>
-                  <path d="M-4 -6.5 L7 -0.5 L-4 5.5 Z" fill="#1E3239"/>
-                  <path d="M-12 19 L12 19" stroke="#1E3239" stroke-width="2.6" stroke-linecap="round"/>
-                  <circle cx="-14" cy="13.5" r="4.6" fill="url(#boot-mg3)"/><circle cx="14" cy="13.5" r="4.6" fill="url(#boot-mg3)"/>
-                  <circle cx="-14" cy="13.5" r="1.9" fill="#FFFFFF"/><circle cx="14" cy="13.5" r="1.9" fill="#FFFFFF"/>
-                </g>
-                <text x="32" y="60" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"
-                      font-size="15" font-weight="700" fill="#1E3239" letter-spacing=".5">TV</text>
-              </svg>
-              <img src="largeIcon-rt2.png" alt="" decoding="async" onerror="this.style.display='none'">
-            </div>
+            <!-- jobb alsó sarok: a felhasználó IPTV-ikonja (a kép a CSS-ben van) -->
+            <div class="mark" id="boot-mark"></div>
 
           </div>
 
           <div class="veil" id="boot-veil">
             <div class="go">
               <b>Indítás</b>
-              <span id="boot-veilsub">MINDEN KÉSZ &middot; 100%</span>
+              <span id="veilsub">MINDEN KÉSZ &middot; 100%</span>
             </div>
           </div>
 
@@ -1020,10 +655,9 @@
       </div>
     </div>
 
-
     <script>
       /*
-       * BETÖLTŐKÉPERNYŐ-HÍD (ES5).
+       * BETÖLTŐKÉPERNYŐ-HÍD (ES5) – 2.5.162.
        *
        * A képernyő KIZÁRÓLAG azt rajzolja ki, amit az alkalmazás jelent:
        *   window.__IPTV_BOOT__.update({
@@ -1032,21 +666,46 @@
        *   });
        *   window.__IPTV_BOOT__.complete();
        *
-       * NINCS szimulált érték, NINCS Math.random, NINCS időzített
-       * automatikus befejezés és NINCS demó-újraindítás. Az egyetlen
-       * időzítő az óra (a TV valós rendszerideje), másodpercenként.
+       * NINCS szimulált érték, NINCS Math.random az ADATOKRA, NINCS időzített
+       * automatikus befejezés és NINCA demó-újraindítás. Az egyetlen időzítő
+       * az óra (a TV valós rendszerideje), másodpercenként.
        * Ha egy adat még nem érkezett meg, „—” látszik a helyén.
        *
-       * A DIZÁJN az Inditas.html eredeti felépítése: ugyanazok a rétegek,
-       * ugyanaz a tördelés, ugyanazok az animációk – csak a forrás más.
+       * A LÁTVÁNY a felhasználó megtervezett fájlja (index.html): háttér,
+       * fátyol, vignetta, rács, szemcse, pásztázás, fénylegyező, vászon-
+       * részecskék, virágzás 100%-nál, műszerfal, tárcsa, sáv, TIPP, jobb
+       * alsó ikon és „INDÍTÁS” fátyol. Csak a mozgató cserélt ki.
+       *
+       * ES5: nincs nyíl-függvény, nincs template literal, nincs let/const,
+       * nincs `catch {}` – a régi webOS motorok is futtatják.
        */
       (function () {
+        var started = Date.now();
+        var bootMarks = window.__IPTV_STARTUP_MARKS__ || (window.__IPTV_STARTUP_MARKS__ = []);
+        if (!window.__IPTV_BOOT_EPOCH__) window.__IPTV_BOOT_EPOCH__ = started;
+        function bootMark(label) {
+          try {
+            if (bootMarks.length >= 300) return;
+            bootMarks.push({ at: Date.now(), label: String(label) });
+          } catch (e) {}
+        }
+        window.__IPTV_BOOT_MARK__ = bootMark;
+        bootMark('BETÖLTŐKÉPERNYŐ elindult (saját dizájn + valós adatok)');
+
+        function byId(id) { return document.getElementById(id); }
+
+        function show(stage, label) {
+          window.__IPTV_STARTUP_STAGE__ = stage;
+          var el = byId('boot-step');
+          if (el) el.textContent = 'LÉPÉS ' + stage + ' / 07';
+          bootMark('fázis ' + stage + '/7 – ' + label);
+          try { console.log('STARTUP ' + stage + '/7 ' + label + ' @ ' + (Date.now() - started) + ' ms'); } catch (e) {}
+        }
+        window.__IPTV_STARTUP_STAGE_SET__ = show;
+
+        /* ───────────────────────── ÁLLAPOT ───────────────────────── */
         var RING_LEN = 2 * Math.PI * 122;
-        /*
-         * A TIPPEK a betöltőképernyő SAJÁT, igaz állításai (a dizájn rotálja
-         * őket a haladással). Nem tartalmaznak a lejátszóról szóló, nem
-         * ellenőrzött állítást, és nem kitalált mérési adatot.
-         */
+        var DASH = '\u2014';
         var TIPS = [
           'A betöltés alatt a TV valódi rendszerideje és a tényleges adatok láthatók.',
           'A százalék csak a tényleg befejezett lépések után nő – nincs kitalált érték.',
@@ -1063,25 +722,9 @@
           etaSeconds: null,
           version: ''
         };
-        var lastPhaseReported = '';
-        var lastStatusShown = '';
-        var lastTipShown = '';
-        var bootMark = window.__IPTV_BOOT_MARK__;
-        var DASH = '\u2014';
+        var lastTipShown = -1;
+        var finished = false;
 
-        function byId(id) { return document.getElementById(id); }
-        function setText(id, text) {
-          var el = byId(id);
-          if (el) el.textContent = text;
-        }
-        function restartAnimation(el, className) {
-          if (!el || !el.classList) return;
-          el.classList.remove(className);
-          /* Kényszerített újramérés: enélkül a böngésző összevonja az
-             osztálycserét, és nem fut le újra az animáció. */
-          var reflow = el.offsetWidth;
-          el.classList.add(className);
-        }
         function toNumber(value) {
           return (typeof value === 'number' && isFinite(value)) ? value : null;
         }
@@ -1110,7 +753,18 @@
           if (mb < 1024) return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + ' MB';
           return (mb / 1024).toFixed(2) + ' GB';
         }
+        function setText(id, text) {
+          var el = byId(id);
+          if (el) el.textContent = text;
+        }
+        function swapClass(el, className) {
+          if (!el || !el.classList) return;
+          el.classList.remove(className);
+          var reflow = el.offsetWidth; /* kényszerített újramérés az új animációhoz */
+          el.classList.add(className);
+        }
 
+        /* ─────────────────────── TÁRCSA ROVÁTKÁI ─────────────────────── */
         function drawTicks() {
           var group = byId('boot-ticks');
           if (!group) return;
@@ -1120,156 +774,123 @@
             var long = (i % 6 === 0);
             var r1 = long ? 104 : 110;
             var r2 = 116;
-            var x1 = 150 + Math.cos(angle) * r1;
-            var y1 = 150 + Math.sin(angle) * r1;
-            var x2 = 150 + Math.cos(angle) * r2;
-            var y2 = 150 + Math.sin(angle) * r2;
             var line = document.createElementNS(svgNs, 'line');
-            line.setAttribute('x1', x1.toFixed(1));
-            line.setAttribute('y1', y1.toFixed(1));
-            line.setAttribute('x2', x2.toFixed(1));
-            line.setAttribute('y2', y2.toFixed(1));
-            line.setAttribute('stroke', long ? 'rgba(126,240,210,0.85)' : 'rgba(143,182,180,0.42)');
-            line.setAttribute('stroke-width', long ? '2' : '1');
+            line.setAttribute('x1', (150 + Math.cos(angle) * r1).toFixed(1));
+            line.setAttribute('y1', (150 + Math.sin(angle) * r1).toFixed(1));
+            line.setAttribute('x2', (150 + Math.cos(angle) * r2).toFixed(1));
+            line.setAttribute('y2', (150 + Math.sin(angle) * r2).toFixed(1));
+            line.setAttribute('stroke', long ? 'rgba(234,255,249,.55)' : 'rgba(143,182,180,.34)');
+            line.setAttribute('stroke-width', long ? '1.6' : '1');
+            line.setAttribute('stroke-linecap', 'round');
             group.appendChild(line);
           }
         }
 
+        /* ───────────────────────── KIRAJZOLÁS ───────────────────────── */
         function render() {
-          var percent = Math.max(0, Math.min(100, state.percent));
-          setText('boot-pct', String(Math.floor(percent)));
+          var v = Math.min(100, Math.max(0, state.percent));
+          var whole = Math.floor(v + 0.0001);
+          setText('boot-pct', String(whole));
+
           var ring = byId('boot-ring');
-          if (ring) ring.setAttribute('stroke-dashoffset', (RING_LEN * (1 - percent / 100)).toFixed(2));
+          if (ring) ring.setAttribute('stroke-dashoffset', (RING_LEN * (1 - v / 100)).toFixed(2));
+
           var fill = byId('boot-fill');
-          if (fill) fill.style.width = percent.toFixed(2) + '%';
+          if (fill) fill.style.width = v.toFixed(2) + '%';
+
           var head = byId('boot-head');
           if (head) {
-            head.style.left = 'calc(' + percent.toFixed(2) + '% - 1px)';
-            head.style.opacity = percent >= 99.9 ? '0' : '1';
+            head.style.left = 'calc(' + v.toFixed(2) + '% - 1px)';
+            head.style.opacity = v >= 99.9 ? '0' : '1';
           }
-          if (state.phase) {
-            if (state.phase !== lastStatusShown) {
-              lastStatusShown = state.phase;
-              setText('boot-status', state.phase);
-              restartAnimation(byId('boot-status'), 'swap');
-            }
-          }
-          if (state.step) setText('boot-step', state.step);
-          if (state.detail) setText('boot-detail', state.detail);
+
+          /*
+           * A NÉGY VALÓS ADAT. Ami nem érkezett meg, ott „—” áll – soha nem
+           * 0, mert a 0 valódi mérésnek látszana.
+           */
           setText('boot-channels', state.channels === null ? DASH : groupThousands(state.channels));
           setText('boot-bytes', formatBytes(state.bytesTotal));
           setText('boot-speed', formatSpeed(state.bytesPerSecond));
           setText('boot-eta', formatEta(state.etaSeconds));
-          if (state.version) setText('boot-buildline', 'v' + state.version + ' \u00b7 LG webOS TV');
-          /* A TIPP a valós haladással vált (mint a dizájnban), nem időzítővel. */
-          var tip = TIPS[Math.floor(percent / 34) % TIPS.length];
-          if (tip !== lastTipShown) {
-            lastTipShown = tip;
-            setText('tip', tip);
-            restartAnimation(byId('tip'), 'swap');
-          }
-          /*
-           * A vászon-részecskék ezt a két VALÓS értéket olvassák: a százalékot
-           * és a kész jelzőt. Nem adatot írnak, csak a háromszög-összeállást
-           * vezérlik.
-           */
-          window.__IPTV_BOOT_PERCENT__ = percent;
-        }
 
-        function update(data) {
-          if (!data || typeof data !== 'object') return;
-          if (typeof data.phase === 'string' && data.phase) state.phase = data.phase;
-          if (typeof data.step === 'string') state.step = data.step;
-          if (typeof data.detail === 'string') {
-            state.detail = data.detail;
-          }
-          if (typeof data.version === 'string' && data.version) state.version = data.version;
-          if ('percent' in data) {
-            var percent = toNumber(data.percent);
-            state.percent = percent === null ? 0 : percent;
-          }
-          if ('channels' in data) state.channels = toNumber(data.channels);
-          if ('bytesTotal' in data) state.bytesTotal = toNumber(data.bytesTotal);
-          if ('bytesPerSecond' in data) state.bytesPerSecond = toNumber(data.bytesPerSecond);
-          if ('etaSeconds' in data) state.etaSeconds = toNumber(data.etaSeconds);
-          render();
-          /* Csak a VALÓDI szakaszváltás kerül a diagnosztikai jelzések közé. */
-          if (state.phase && state.phase !== lastPhaseReported && typeof bootMark === 'function') {
-            lastPhaseReported = state.phase;
-            bootMark('betöltés: ' + state.phase + ' (' + Math.floor(state.percent) + '%)');
-          }
-        }
-
-        /*
-         * A BEFEJEZÉS VISSZAHÍVÁSA (2.5.160).
-         *
-         * A felfedést (a takaróréteg eltüntetését) a main.tsx erre a jelre
-         * végzi – így a néző a sávot 100%-ig VÉGIG látja, és csak utána
-         * vált a főoldalra. Ha a visszahívás valamiért elmarad, a hívó fél
-         * saját időzítője vált (main.tsx: 400 ms).
-         */
-        var bootFinishReported = false;
-        function finishBootAnimation() {
-          if (bootFinishReported) return;
-          bootFinishReported = true;
-          try { window.__IPTV_BOOT_DONE_VISIBLE__ = true; } catch (eDone) {}
-          try {
-            if (typeof window.__IPTV_BOOT_DONE_CB__ === 'function') {
-              window.__IPTV_BOOT_DONE_CB__();
-            }
-          } catch (eCb) {}
-        }
-
-        function complete() {
-          window.__IPTV_BOOT_DONE__ = true;
-          setText('boot-buildstate', 'KÉSZ');
-          setText('boot-veilsub', 'MINDEN KÉSZ \u00b7 100%');
-          /*
-           * A SÁV NEM UGROK 100-RA (2.5.160): 240 ms alatt fut fel a valós
-           * értékről, hogy az indulási animáció a 100%-ig folyamatos legyen.
-           * Csak a százalék és a szöveg változik – nincs drága GPU-munka.
-           */
-          var fromPercent = Math.max(0, Math.min(99, state.percent));
-          var tweenStartedAt = Date.now();
-          var tweenDuration = fromPercent >= 98 ? 90 : 240;
-          function tweenStep() {
-            var t = (Date.now() - tweenStartedAt) / tweenDuration;
-            if (t < 1) {
-              var eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-              update({ percent: fromPercent + (100 - fromPercent) * eased, etaSeconds: 0 });
-              if (typeof window.requestAnimationFrame === 'function') {
-                window.requestAnimationFrame(tweenStep);
-              } else {
-                window.setTimeout(tweenStep, 16);
-              }
-              return;
-            }
-            update({ percent: 100, etaSeconds: 0 });
-            finishBootAnimation();
-          }
-          if (typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(tweenStep);
+          setText('boot-status', state.phase || 'A készülék indítása…');
+          setText('boot-detail', state.detail || DASH);
+          if (state.step) {
+            setText('boot-step', state.step);
           } else {
-            update({ percent: 100, etaSeconds: 0 });
-            finishBootAnimation();
+            setText('boot-step', 'LÉPÉS ' + (window.__IPTV_STARTUP_STAGE__ || 1) + ' / 07');
           }
-          /*
-           * NINCS BEFEJEZŐ EFFEKT (2.5.149).
-           *
-           * A 28–30. napló szerint a takarókép levétele a 100% jelzés után még
-           * 1,4–2,4 mp-et várt. Az ok a lezáró látvány volt: teljes képernyős
-           * virágzás-animáció, áttűnő fátyol és egy 6 px-es blur a teljes
-           * műszerfalra – mindezt a TV GPU-ja a legrosszabb pillanatban
-           * rajzolta újra, miközben a kész felület várt a megjelenésre.
-           * A felfedés mostantól egyetlen stílusváltás; a betöltőképernyő
-           * 100%-a csak az adat, amit a HTML-híd megkap.
-           */
-          if (typeof bootMark === 'function') bootMark('betöltőképernyő: 100% – a felület kész');
+          var version = state.version || window.IPTV_RT_WEB_VERSION || DASH;
+          setText('boot-build', 'LG webOS · v' + version);
+
+          var tipIndex = Math.min(TIPS.length - 1, Math.floor(v / 34));
+          if (tipIndex !== lastTipShown) {
+            lastTipShown = tipIndex;
+            setText('boot-tip', TIPS[tipIndex]);
+            swapClass(byId('boot-tip'), 'swap');
+          }
         }
 
+        /* ─────────────────────────── HÍD ─────────────────────────── */
         window.__IPTV_BOOT__ = {
-          update: update,
-          complete: complete,
+          update: function (report) {
+            if (!report) return;
+            if (typeof report.percent === 'number' && isFinite(report.percent)) {
+              /* 0–100 közé szorítás; a jelentett értéket vesszük át. */
+              state.percent = Math.min(100, Math.max(0, report.percent));
+            }
+            if (typeof report.phase === 'string') state.phase = report.phase;
+            if (typeof report.step === 'string') state.step = report.step;
+            if (typeof report.detail === 'string') state.detail = report.detail;
+            if (typeof report.version === 'string' && report.version) state.version = report.version;
+            if ('channels' in report) state.channels = toNumber(report.channels);
+            if ('bytesTotal' in report) state.bytesTotal = toNumber(report.bytesTotal);
+            if ('bytesPerSecond' in report) state.bytesPerSecond = toNumber(report.bytesPerSecond);
+            if ('etaSeconds' in report) state.etaSeconds = toNumber(report.etaSeconds);
+            render();
+          },
+          complete: function () {
+            if (finished) return;
+            finished = true;
+            state.percent = 100;
+            state.etaSeconds = 0;
+            render();
+            /* A dizájn záró mozdulata: virágzás + „INDÍTÁS” fátyol. */
+            swapClass(byId('boot-bloom-el'), 'fire');
+            var veil = byId('boot-veil');
+            if (veil && veil.classList) veil.classList.add('show');
+            bootMark('BETÖLTŐKÉPERNYŐ 100% – minden lépés kész');
+
+            /*
+             * A 100% KÉT KÉPKOCKÁIG LÁTSZIK, ÉS CSAK UTÁNA JÖN A FŐOLDAL
+             * (2.5.160 óta így van, most a dizájn záró mozdulatával).
+             *
+             * A main.tsx a `__IPTV_BOOT_DONE_CB__` visszahívásra fedi fel a
+             * kész felületet; a 240 ms alatt a néző látja a virágzást és az
+             * „INDÍTÁS” fátyolt. A visszahívás pontosan EGYSZER fut le.
+             */
+            window.setTimeout(function () {
+              try {
+                if (typeof window.__IPTV_BOOT_DONE_CB__ === 'function') {
+                  window.__IPTV_BOOT_DONE_CB__();
+                }
+              } catch (eDone) {
+                bootMark('a felfedés visszahívása hibára futott – a REVEAL maga zár');
+              }
+              /*
+               * VÉGSŐ HÁLÓ (2.5.162): a 14–18. naplóban a `KÉPERNYŐ` sorok
+               * +2542 és +3051 ms-nál is `takarókép=fent` értéket mutattak,
+               * pedig minden előfestés elkészült. Ha a visszahívási lánc
+               * bármelyik tagja elakad, ez a háló akkor is leveszi a
+               * takaróképet – a kész felület már ki van festve alatta.
+               */
+              window.setTimeout(function () {
+                if (!window.__IPTV_REVEALED__ && typeof window.__IPTV_REVEAL__ === 'function') {
+                  window.__IPTV_REVEAL__('biztonsági háló a 100% után');
+                }
+              }, 900);
+            }, 240);
+          },
           state: function () {
             return {
               percent: state.percent,
@@ -1285,19 +906,168 @@
           }
         };
 
+        /* ─────────────────── VALÓS ÓRA ÉS MAGYAR DÁTUM ─────────────────── */
+        var MONTHS = ['JANUÁR', 'FEBRUÁR', 'MÁRCIUS', 'ÁPRILIS', 'MÁJUS', 'JÚNIUS',
+          'JÚLIUS', 'AUGUSZTUS', 'SZEPTEMBER', 'OKTÓBER', 'NOVEMBER', 'DECEMBER'];
+        var DAYS = ['VASÁRNAP', 'HÉTFŐ', 'KEDD', 'SZERDA', 'CSÜTÖRTÖK', 'PÉNTEK', 'SZOMBAT'];
+        var clockTimer = null;
+        function tickClock() {
+          var now = new Date();
+          var clock = byId('boot-clock');
+          if (clock) {
+            var hh = clock.getElementsByTagName('b')[0];
+            var ss = clock.getElementsByTagName('i')[0];
+            if (hh) hh.textContent = pad2(now.getHours()) + ':' + pad2(now.getMinutes());
+            if (ss) ss.textContent = pad2(now.getSeconds());
+          }
+          var date = byId('boot-date');
+          if (date) {
+            date.textContent = now.getFullYear() + '. ' + MONTHS[now.getMonth()] + ' ' +
+              now.getDate() + '. · ' + DAYS[now.getDay()];
+          }
+        }
+        function startClock() {
+          tickClock();
+          if (clockTimer === null) clockTimer = window.setInterval(tickClock, 1000);
+        }
+        function stopClock() {
+          if (clockTimer !== null) {
+            window.clearInterval(clockTimer);
+            clockTimer = null;
+          }
+        }
+        window.__IPTV_BOOT_CLOCK_STOP__ = stopClock;
+
+        /* ───────────────── VÁSZON: CSILLAGKÉP + FÉNYMOLYOK ───────────────── */
+        var fxLoop = null;
+        function startFx() {
+          var canvas = byId('fx');
+          if (!canvas || !canvas.getContext) return;
+          var ctx;
+          try { ctx = canvas.getContext('2d'); } catch (e) { return; }
+          if (!ctx) return;
+
+          var reduce = false;
+          try {
+            reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+          } catch (eReduce) {}
+
+          var W = 0, H = 0;
+          var parts = [];
+          var motes = [];
+          var forming = 0;
+
+          function rnd(max) { return Math.random() * max; }
+
+          function build() {
+            parts = [];
+            var count = W < 700 ? 16 : 26;
+            for (var i = 0; i < count; i++) {
+              var px = rnd(W), py = rnd(H);
+              parts.push({
+                x: px, y: py,
+                vx: (rnd(1) - 0.5) * 0.16, vy: (rnd(1) - 0.5) * 0.16,
+                r: 0.7 + rnd(1.9),
+                a: 0.22 + rnd(0.55),
+                tx: px + (W * 0.5 - px) * 0.10, ty: py + (H * 0.47 - py) * 0.10
+              });
+            }
+            motes = [];
+            var m = W < 700 ? 10 : 18;
+            for (var j = 0; j < m; j++) {
+              motes.push({
+                x: rnd(W), y: rnd(H),
+                v: 0.15 + rnd(0.5), r: 0.6 + rnd(1.6), a: 0.15 + rnd(0.5)
+              });
+            }
+          }
+
+          function resize() {
+            W = canvas.clientWidth || window.innerWidth || 1920;
+            H = canvas.clientHeight || window.innerHeight || 1080;
+            canvas.width = W;
+            canvas.height = H;
+            build();
+          }
+
+          function frame(dt) {
+            ctx.clearRect(0, 0, W, H);
+            var want = finished ? 1 : (state.percent > 90 ? (state.percent - 90) / 10 : 0);
+            forming += (want - forming) * Math.min(1, dt * 1.6);
+
+            if (forming < 0.75) {
+              ctx.lineWidth = 1;
+              for (var i = 0; i < parts.length; i++) {
+                var p = parts[i];
+                for (var j = i + 1; j < parts.length; j++) {
+                  var q = parts[j], dx = p.x - q.x, dy = p.y - q.y, d2 = dx * dx + dy * dy;
+                  if (d2 < 17000) {
+                    var al = (1 - d2 / 17000) * 0.30 * (1 - forming);
+                    ctx.strokeStyle = 'rgba(126,240,210,' + al.toFixed(3) + ')';
+                    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+                  }
+                }
+              }
+            }
+
+            for (var k = 0; k < parts.length; k++) {
+              var pp = parts[k];
+              if (!reduce) { pp.x += pp.vx * dt * 60; pp.y += pp.vy * dt * 60; }
+              if (pp.x < -20) pp.x = W + 20;
+              if (pp.x > W + 20) pp.x = -20;
+              if (pp.y < -20) pp.y = H + 20;
+              if (pp.y > H + 20) pp.y = -20;
+              if (forming > 0.001) {
+                pp.x += (pp.tx - pp.x) * Math.min(0.12, dt * 2.2 * forming);
+                pp.y += (pp.ty - pp.y) * Math.min(0.12, dt * 2.2 * forming);
+              }
+              var rr = pp.r * (1 + forming * 0.5);
+              ctx.fillStyle = 'rgba(234,255,249,' + (pp.a + forming * 0.25).toFixed(3) + ')';
+              ctx.beginPath(); ctx.arc(pp.x, pp.y, rr, 0, 6.2832); ctx.fill();
+            }
+
+            if (!reduce) {
+              for (var mI = 0; mI < motes.length; mI++) {
+                var mo = motes[mI];
+                mo.y -= mo.v * dt * 60;
+                mo.x += Math.sin((mo.y + mI * 40) / 90) * 0.22;
+                if (mo.y < -12) { mo.y = H + 12; mo.x = rnd(W); }
+                ctx.fillStyle = 'rgba(210,255,244,' + mo.a.toFixed(3) + ')';
+                ctx.beginPath(); ctx.arc(mo.x, mo.y, mo.r, 0, 6.2832); ctx.fill();
+              }
+            }
+          }
+
+          resize();
+          try { window.addEventListener('resize', resize); } catch (eResize) {}
+
+          var last = 0;
+          function loop(now) {
+            if (window.__IPTV_FX_STOPPED__) { fxLoop = null; return; }
+            if (!last) last = now;
+            var dt = Math.min(0.05, (now - last) / 1000);
+            last = now;
+            try { frame(dt); } catch (eFrame) {}
+            fxLoop = window.requestAnimationFrame(loop);
+          }
+          try {
+            if (typeof window.requestAnimationFrame === 'function') {
+              fxLoop = window.requestAnimationFrame(loop);
+            } else {
+              frame(0.016);
+            }
+          } catch (eLoop) {}
+        }
+
+        /* ────────── A PLATFORM INDÍTÓKÉPÉNEK LEVÉTELE (2.5.160) ────────── */
         /*
-         * A WEBOS SAJÁT INDÍTÓKÉPÉNEK LEVÉTELE.
-         *
          * A platform a `splashBackground` képet addig takarja, amíg az app
          * meg nem hívja a `notifyAppLoaded()`-et. Ha ezt csak a főoldal
-         * megjelenésekor hívnánk meg (a régi viselkedés), a néző a teljes
-         * betöltés alatt CSAK a fotót látná – a valós óra és a betöltési
-         * adatok soha nem lennének láthatók.
+         * megjelenésekor hívnánk meg, a néző a teljes betöltés alatt CSAK a
+         * fotót látná – az animáció és a valós adatok soha nem jelennének meg.
          *
          * Ezért AKKOR vesszük le, amikor a SAJÁT betöltőképernyőnk már ki van
-         * festve: a háttér ugyanaz a kép, tehát nincs vizuális váltás, csak a
-         * valós adatok jelennek meg rajta. A takaró réteg (és benne a
-         * betöltőképernyő) ezután a kész főoldalig fent marad.
+         * festve: a háttér ugyanaz a kép, tehát nincs vizuális váltás.
          */
         var platformSplashReleased = false;
         function releasePlatformSplash() {
@@ -1308,58 +1078,43 @@
               window.webOSSystem.notifyAppLoaded();
             }
           } catch (eNotify) {}
-          try { if (typeof bootMark === 'function') bootMark('PLATFORM INDÍTÓKÉP LEVÉVE – a saját betöltőképernyő már festve van'); } catch (eMark) {}
+          try { bootMark('PLATFORM INDÍTÓKÉP LEVÉVE – a saját animáció már festve van'); } catch (eMark) {}
         }
         window.__IPTV_PLATFORM_SPLASH_OFF__ = function () { releasePlatformSplash(); };
         window.__IPTV_RELEASE_PLATFORM_SPLASH__ = function () { releasePlatformSplash(); };
 
         try {
           drawTicks();
+          startClock();
           render();
+          startFx();
 
           /*
-           * A PLATFORM INDÍTÓKÉPÉNEK LEVÉTELE – A LEGELSŐ SAJÁT KÉPKOCKÁNÁL
-           * (2.5.160).
+           * A PLATFORM INDÍTÓKÉPÉNEK LEVÉTELE – CSAK TÉNYLEGES FESTÉS UTÁN.
            *
-           * A felhasználói elvárás: „amikor az LG TV beolvasása végzett,
-           * azonnal induljon az indítási animáció”. Ezért nem várunk többé
-           * 900/1500 ms-os biztonsági időzítőkre, hanem a LEGKORÁBBAN
-           * lehetséges pillanatban levesszük a platform képét:
+           * A 18. napló mérése: a platform kép +327 ms-nál lement, de az első
+           * festés csak 815 ms-nál (FCP 1081 ms) történt meg. A két képkocka
+           * (requestAnimationFrame) tehát NEM garancia arra, hogy a saját
+           * képernyőnk már látszik: a motor a képkocka-visszahívásokat a
+           * festés ELŐTT is kihívja. A platform kép levétele után ~490 ms-ig
+           * az ablak háttere (sötét) látszott – ez volt a felhasználó által
+           * látott „fekete–zöldes háttér váltakozás”.
            *
-           *   • két képkocka (rAF) – ekkor biztos, hogy a saját
-           *     betöltőképernyőnk már ki van festve, tehát nem lesz üres
-           *     kocka. Mivel a platform `splashBackground` képe PONTOSAN
-           *     ugyanaz a háttér (a build ugyanazokból a színekből
-           *     generálja), a csere észrevehetetlen: a néző folyamatos
-           *     animációt lát, nem egy álló képet;
-           *   • `first-contentful-paint` – ha a motortól mégis ez jön előbb;
-           *   • 350 ms-os biztonsági háló – ha a képkocka-jelzés elmarad
-           *     (nagyon régi motor, foglalt fő szál).
+           * Ezért a levétel a TÉNYLEGES első festéshez van kötve:
+           * `PerformanceObserver('paint')` – a `first-paint` és a
+           * `first-contentful-paint` bejegyzés a festés UTÁN keletkezik.
+           * Ha a motor nem ad festés-jelzést (régi webOS), 1500 ms a háló;
+           * addig a platform kép látszik, ami UGYANAZ a háttér, tehát nincs
+           * üres vagy más színű kocka.
            */
-          var splashReleaseArmed = false;
-          function armReleaseFromFrame() {
-            if (splashReleaseArmed) return;
-            splashReleaseArmed = true;
-            try {
-              if (typeof window.requestAnimationFrame === 'function') {
-                window.requestAnimationFrame(function () {
-                  window.requestAnimationFrame(function () {
-                    releasePlatformSplash();
-                  });
-                });
-                return;
-              }
-            } catch (eRaf) {}
-            window.setTimeout(releasePlatformSplash, 32);
-          }
-          armReleaseFromFrame();
           try {
             if (typeof window.PerformanceObserver === 'function') {
               var paintObserver = new window.PerformanceObserver(function (list) {
                 try {
                   var entries = list.getEntries();
                   for (var pi = 0; pi < entries.length; pi++) {
-                    if (entries[pi].name === 'first-contentful-paint') {
+                    var name = entries[pi].name;
+                    if (name === 'first-paint' || name === 'first-contentful-paint') {
                       paintObserver.disconnect();
                       releasePlatformSplash();
                       return;
@@ -1370,58 +1125,9 @@
               paintObserver.observe({ type: 'paint', buffered: true });
             }
           } catch (ePaint) {}
-          /* Végső biztonsági háló: 350 ms után sem takarhat. */
-          window.setTimeout(releasePlatformSplash, 350);
+          /* Végső biztonsági háló: 1500 ms után sem takarhat. */
+          window.setTimeout(releasePlatformSplash, 1500);
         } catch (e) {}
-      })();
-    </script>
-
-    <div id="root"></div>
-    <div id="boot-error-screen">
-      <div id="boot-stage" class="boot-stage"></div>
-      <div id="boot-error" class="boot-error"></div>
-    </div>
-    <script>
-      (function () {
-        var started = Date.now();
-        window.__IPTV_STARTUP_STAGE__ = 1;
-        window.__IPTV_STARTUP_DIAG__ = true;
-
-        /*
-         * INDULÁSI JELZÉSEK – a TESZT IDŐSZAK diagnosztikájához.
-         *
-         * A naplózás az app bundle-je ELŐTT még nem létezik, ezért az itteni
-         * korai lépések (webOS szkript, 1/7…7/7 fázisok, takarókép levétele,
-         * erőforrás-hibák, JS-hibák) egy kis, legfeljebb 300 elemű pufferbe
-         * kerülnek. Amikor a bundle elindítja a naplózást, a diagnosztika
-         * ezeket időbélyeggel együtt átemeli a naplóba – így a napló a
-         * legelső pillanattól teljes.
-         */
-        var bootMarks = window.__IPTV_STARTUP_MARKS__ || (window.__IPTV_STARTUP_MARKS__ = []);
-        if (!window.__IPTV_BOOT_EPOCH__) window.__IPTV_BOOT_EPOCH__ = started;
-        function bootMark(label) {
-          try {
-            if (bootMarks.length >= 300) return;
-            bootMarks.push({ at: Date.now(), label: String(label) });
-          } catch (e) {}
-        }
-        window.__IPTV_BOOT_MARK__ = bootMark;
-        bootMark('HTML induló szkript elindult (takarókép + valós óra)');
-
-        function byId(id) { return document.getElementById(id); }
-
-        function show(stage, label) {
-          window.__IPTV_STARTUP_STAGE__ = stage;
-          var el = byId('boot-stage');
-          if (el) el.textContent = stage + '/7 ' + label;
-          bootMark('fázis ' + stage + '/7 – ' + label);
-          try { console.log('STARTUP ' + stage + '/7 ' + label + ' @ ' + (Date.now() - started) + ' ms'); } catch (e) {}
-        }
-        window.__IPTV_STARTUP_STAGE_SET__ = show;
-
-        // A betöltőképernyő háttere a CSS-ben van (tiszta színátmenet, kép
-        // nélkül). A <head> már beállította a html alapszínét, ezért az első
-        // festéskor nem üres/fehér kocka látszik.
 
         // ---------- Egy pillanat alatti megjelenés ----------
         // A #root addig rejtve van (a betöltőképernyő látszik), amíg a teljes
@@ -1510,13 +1216,12 @@
             if (revealFinishTimer !== null) window.clearTimeout(revealFinishTimer);
           } catch (e) {}
           /*
-           * A vászon-részecskék hurokja ITT áll le: az indítási látvány nem
-           * fogyaszthat CPU-t a kész felület alatt. A réteg eltávolítása után
-           * a CSS-animációk is megszűnnek (nincs elem, ami animáljon).
+           * A vászon-részecskék hurokja és az óra ITT áll le: az indítási
+           * látvány nem fogyaszthat CPU-t a kész felület alatt. A réteg
+           * eltávolítása után a CSS-animációk is megszűnnek.
            */
           window.__IPTV_FX_STOPPED__ = true;
-          try {
-          } catch (eFx) {}
+          try { stopClock(); } catch (eClock) {}
           var fading = byId('tv-curtain');
           if (fading && fading.parentNode) fading.parentNode.removeChild(fading);
           try {
@@ -1537,9 +1242,9 @@
             if (window.__IPTV_PREPARE_REVEAL__) window.__IPTV_PREPARE_REVEAL__(true);
             var h = document.documentElement;
             var curtain = byId('tv-curtain');
-            /* 1) A platform indítóképe AKKOR tűnik el, amikor a mi ugyanabból
-                  a képből készült betöltőképernyőnk már biztosan fent van –
-                  nincs üres köztes kocka. */
+            /* 1) A platform indítóképe AKKOR tűnik el, amikor a mi saját
+                  betöltőképernyőnk már biztosan fent van – nincs üres köztes
+                  kocka. */
             try {
               if (typeof window.__IPTV_RELEASE_PLATFORM_SPLASH__ === 'function') {
                 window.__IPTV_RELEASE_PLATFORM_SPLASH__();
@@ -1731,6 +1436,12 @@
         show(2, 'DOM kész');
       })();
     </script>
+
+    <div id="root"></div>
+    <div id="boot-error-screen">
+      <div id="boot-stage" class="boot-stage"></div>
+      <div id="boot-error" class="boot-error"></div>
+    </div>
     <!-- A webOS Luna-híd (webOS.deviceInfo: TV típus, webOS verzió).
          A fájlt a platform szolgáltatja, nem az IPK tartalmazza; ha egy
          készüléken nincs, a szkript csendben kimarad és a napló a

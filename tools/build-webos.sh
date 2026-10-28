@@ -58,7 +58,7 @@ small_img = Image.open(small_path).convert("RGBA")
 large_img = Image.open(large_path).convert("RGBA")
 # A webes felület a két ikont adat URL-ként használja; külön, soha nem
 # hivatkozott ikonkep.png fájlt nem generálunk a Vite public mappába.
-# A TV saját indítóképe generált színátmenet (lásd tools/make-splash.py).
+# A TV saját indítóképe a betöltőképernyő háttere (lásd tools/make-splash.py).
 def icon_b64(img, px):
     thumb = img.resize((px, px), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
@@ -123,7 +123,7 @@ cp "$WEBOS_DIR/largeIcon-rt2.png" "$BUILD_DIR/largeIcon-rt2.png"
 # ezért a platform képéről a saját képernyőnkre váltás nem hoz új látványt.
 # A build minden alkalommal újragenerálja, ezért nem kerülhet elavult kép
 # az IPK-ba.
-log "Indítókép készítése (splash-screen.png, fotó nélkül)"
+log "Indítókép készítése (splash-screen.png, a betöltőképernyő háttere)"
 python3 "$SCRIPT_DIR/make-splash.py" --out-dir "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/assets"
 # A többi asset (logók, kicsi ikonok) bekerül; videó nem lehet köztük.
@@ -379,8 +379,8 @@ if "<link rel=\"preload\" as=\"script\" href=\"app.js\">" not in html:
 splash_png = build_dir / "splash-screen.png"
 if not splash_png.is_file():
     raise SystemExit("HIBA: hiányzik a splash-screen.png (a platform indítókép).")
-if splash_png.stat().st_size > 400_000:
-    raise SystemExit("HIBA: a splash-screen.png túl nagy – nem a generált kép.")
+if splash_png.stat().st_size > 700_000:
+    raise SystemExit("HIBA: a splash-screen.png túl nagy – más kép került a csomagba.")
 
 
 # Az egyetlen képre mutató hivatkozások relative URL-ek maradnak: a webOS

@@ -1,10 +1,31 @@
-export const WEB_VERSION = '2.5.161';
+export const WEB_VERSION = '2.5.163';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.163',
+    date: '2026-10-28',
+    changes: [
+      'A PLATFORM INDÍTÓKÉP MOSTANTÓL UGYANAZ A KÉP, MINT A BETÖLTŐKÉPERNYŐ HÁTTERE: a webOS splashBackground képe a web/index.html-be ágyazott saját IPTV-ikonból készül (cover, 1.08 nagyítás, brightness .88 / saturate 1.2 / contrast 1.04, három fátyol, 84 pixeles rács, vignetta), 24 bites RGB-ben. Eddig a platform kép egy generált színátmenet volt, a betöltőképernyő háttere pedig az ikon – a kettő között látszott a váltás, ez volt az „indításkor nincs takarókép, fekete–zöldes háttér váltakozik” észrevétel',
+      'A PLATFORM KÉP A TÉNYLEGES ELSŐ FESTÉSNÉL KERÜL LE: a két képkockára kötött levétel helyett a paint-bejegyzés (first-paint / first-contentful-paint) indítja, 1500 ms-os biztonsági hálóval. A 18. napló szerint a képkockás levétel +327 ms-nál futott le, de az első festés csak 815 ms-nál (FCP 1081 ms) – addig sötét ablakháttér látszott',
+      'A BETÖLTŐKÉPERNYŐ CSS-E TISZTÁBB: kikerült a duplikált .stage szabály és a nem létező #boot-screen body szelektor; a teljes képernyős sötét alap (#04141a) egy helyen van',
+      'A GENERÁTOR EGYETLEN FORRÁSBÓL DOLGOZIK: a tools/make-splash.py a web/index.html-be ágyazott ikont olvassa (nincs külön képfájl, nincs másolat), ezért a platform kép nem tud elavulni a betöltőképernyőhöz képest',
+    ],
+  },
+  {
+    version: '2.5.162',
+    date: '2026-10-28',
+    changes: [
+      'A TAKARÓKÉP ÉS AZ INDÍTÁSI ANIMÁCIÓ MOSTANTÓL UGYANAZ: a felhasználó által megtervezett indulóképernyő került be a web/index.html-be – faltól falig a saját IPTV-ikon (sötétítve, telítve, 30 mp-es lassú úszással), háromrétegű fátyol, vignetta, 84 pixeles rács, filmszemcse, pásztázó sorok, fénylegyező, vászon-részecskék, virágzás 100%-nál, műszerfal a TV valós rendszeridejével és magyar dátumával, 72 rovátkás tárcsa színátmenetes gyűrűvel, 000–100 skála, TIPPEK, jobb alsó ikon és „INDÍTÁS” fátyol. A dizájn VÁLTOZATLAN, csak a kitalált demó-motor (szimulált állapotlista, 5,6 mp-es újraindulás) maradt ki: minden szám továbbra is a futó alkalmazásból jön',
+      'A TAKARÓKÉP SOHA NEM MARAD FENT: a 14–18. napló KÉPERNYŐ sorai +2542 és +3051 ms-nál is „takarókép=fent” értéket mutattak, pedig az előfestés és az első képkocka elkészült. Mostantól a betöltőképernyő complete() hívása 240 ms múlva kiadja a felfedés visszahívását, és ha az lánc bármelyik tagja elakad, 900 ms-nál egy végső háló magától leveszi a takaróképet – a kész felület már ki van festve alatta',
+      'EGYETLEN BEÉGETETT KÉP, 64 kB: a dizájn ikonja (251×252 px) egyszer szerepel a HTML-ben, a háttér és a két jelvény ugyanazt használja – nincs külön képkérés, nincs dekódolási késés. A platform indítókép (webos/splash-screen.png) továbbra is a betöltőképernyő fátylait rajzolja ki ugyanazokból az értékekből, ikon nélkül, 24 bites RGB-ben, ezért a platform képéről a saját animációra váltás észrevehetetlen',
+      'A BETÖLTŐKÉPERNYŐ A TV VALÓS IDEJÉT MUTATJA: a fejléc órája és magyar dátuma a készülék rendszerideje (nem kitalált adat), és a felfedés pillanatában leáll – a kész felület alatt nem ketyeg',
+      'A RÉGI BETÖLTŐKÉPERNYŐ EFFEKTJEI (aurora, horizon, külön fényvonal) kikerültek, mert a megtervezett dizájn saját rétegei váltották fel őket. A valós adatok, a „—” alapérték, az előfestés a takarókép alatt, az egyetlen képkockás váltás, a hangzár és a 12 mp-es indulási háló változatlanul megmaradt',
+    ],
+  },
   {
     version: '2.5.161',
     date: '2026-10-28',
