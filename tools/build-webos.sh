@@ -281,12 +281,9 @@ def externalize_styles(source: str) -> str:
 
     def take(match):
         inner = match.group(1)
-        # A BETÖLTŐKÉPERNYŐ CSS-E SOSEM KERÜLHET KI (2.5.160): ha külön
-        # app.css-be kerülne, a böngésző a fájl betöltéséig nem festene, és a
-        # platform indítóképe után FEKETE kocka jönne – éppen az a hiba, amit
-        # a felhasználó látott. Ezért a #boot-screen-t tartalmazó blokk mindig
-        # a HTML-ben marad, a mérettől függetlenül.
-        if len(inner) < 40000 or '#boot-screen' in inner:
+        # A nagy stíluslapot mérettől függően külső CSS-fájlba tesszük.
+        # Nincs külön HTML-es betöltőképernyő, amelyhez a CSS-t bent kellene tartani.
+        if len(inner) < 40000:
             return match.group(0)
         chunks.append(inner)
         if first_at[0] is None:
@@ -301,16 +298,15 @@ def externalize_styles(source: str) -> str:
     return result
 
 
-# ─────────────────────────── BETÖLTŐ (2.5.143) ───────────────────────────
+# ─────────────────────────── GYORS APP-INDÍTÁS ───────────────────────────
 # A 19-es TV-napló (16:27:15) mérése:
 #   • első festés 1308 ms, FCP 1629 ms – a HTML 173 KB, ez önmagában rendben;
 #   • „HOSSZÚ FELADAT: 2101 ms” és „KÉPKOCKA-KIHAGYÁS: 1667 / 3666 ms” – a
 #     betöltő animáció a bundle kiértékelése alatt megállt (az első 8 mp-ben
 #     összesen 2 képkocka ment ki).
 #
-# Ezért a nagy bundle-t egy pici ES5 betöltő indítja el, MIUTÁN a
-# betöltőképernyő már kifestődött (két képkocka): a felhasználó előbb látja a
-# saját animációt, a hosszú feladat pedig utána jön. Ráadásul a
+# A nagy bundle-t egy pici ES5 betöltő indítja el. A platform natív PNG-je
+# marad látható, amíg az alkalmazás HTML/React felülete elindul. Ráadásul a
 # core-js/regenerator/fetch polyfill (több száz KB) csak a RÉGI motorokon kell:
 # modern webOS-on (Chrome 68+) egyáltalán nem töltjük le és nem értékeljük ki.
 LOADER_JS = (
