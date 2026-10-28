@@ -386,6 +386,57 @@ check(/média waiting/.test(speedLog) && /média playing.*várakozás=/.test(spe
 check(!/KÉPMINŐSÉG;/.test(speedLog), 'a felesleges képminőség-mintavétel nem fut');
 window.__IPTV_TEST__.stopLogging();
 window.__IPTV_TEST__.unmount();
+await tick(80);
+
+/* Az igazi lejátszó gyors BE–KI–BE váltása: a régi EPG/fókusz callback
+ * nem futhat le az új teljes képernyő alatt. A rAF-et kézzel léptetjük. */
+window.__IPTV_TEST__.mount({ channel: LIVE });
+check(await waitFor(() => Boolean(video()), 5000, 'fullscreen teszt videó'), 'fullscreen teszthez élő videó létrejön');
+await tick(100);
+const savedRaf = window.requestAnimationFrame;
+const savedCancel = window.cancelAnimationFrame;
+let frameId = 0;
+const frames = new Map();
+window.requestAnimationFrame = (fn) => { frames.set(++frameId, fn); return frameId; };
+window.cancelAnimationFrame = (id) => frames.delete(id);
+const nextFrame = () => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(window.performance.now()); };
+let restores = 0;
+let focusList = 0;
+const onRestore = () => { restores++; };
+const onFocus = () => { focusList++; };
+window.addEventListener('iptv-player-restored', onRestore);
+window.addEventListener('iptv-focus-selected-channel', onFocus);
+const player = () => doc.querySelector('[data-tv-player]');
+const originalVideo = video();
+const originalSrc = originalVideo.getAttribute('src');
+const playBeforeFullscreen = spy.play;
+const enter = () => window.dispatchEvent(new window.CustomEvent('iptv-enter-fullscreen'));
+const exit = () => player().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+enter();
+check(await waitFor(() => player()?.classList.contains('iptv-fs')), 'belépéskor fullscreen osztály');
+await tick(40);
+exit();
+check(await waitFor(() => !player()?.classList.contains('iptv-fs')), 'kilépéskor a fullscreen osztály azonnal eltűnik');
+await tick(40);
+enter();
+check(await waitFor(() => player()?.classList.contains('iptv-fs')), 'gyors visszalépés után ismét fullscreen');
+await tick(40);
+nextFrame(); nextFrame(); nextFrame();
+check(restores === 0 && focusList === 0, 'az elavult visszatérés nem indít EPG-t és nem viszi el a fókuszt');
+check(video() === originalVideo && video().getAttribute('src') === originalSrc && spy.play === playBeforeFullscreen,
+  'váltás közben ugyanaz a videó és stream marad, új play nélkül');
+exit();
+check(await waitFor(() => !player()?.classList.contains('iptv-fs')), 'második kilépés is megtörtént');
+await tick(40);
+nextFrame();
+check(restores === 0, 'az EPG nem indul újra az első rAF-nál');
+nextFrame();
+check(restores === 1 && focusList === 1, 'a tényleges visszatérés után a fókusz és az EPG egyszer helyreáll');
+window.removeEventListener('iptv-player-restored', onRestore);
+window.removeEventListener('iptv-focus-selected-channel', onFocus);
+window.__IPTV_TEST__.unmount();
+window.requestAnimationFrame = savedRaf;
+window.cancelAnimationFrame = savedCancel;
 try { fs.rmSync(outFile, { force: true }); } catch { /* nem kritikus */ }
 clearTimeout(killer);
 try { window.close(); } catch { /* nem kritikus */ }

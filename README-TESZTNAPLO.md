@@ -62,6 +62,15 @@ Ezek az `e994abb7` commit `web/src/appVersion.ts` változáslistájának állít
 - 2026-10-28-án a helyi `npm test` és a TypeScript-ellenőrzés, valamint a Vite webes build sikeresen lefutott. A tesztfutás legalább egy ffmpeg-függő esetet, a hiányzó Android-hidat és a kész webOS buildet igénylő napló-runtime tesztet kihagyta; ez nem teljes TV-s igazolás. A célzott sebességnapló és a valódi React lejátszó jsdom-tesztje lefutott.
 - A helyi IPK-build az ellenőrzéskor a meglévő splash-kép méreténél megállt. A TV-n telepített 2.5.177-es IPK-ról és az új naplóról **nincs még mérési eredmény**. A kézi GitHub build patchverziót emelhet: a későbbi eredményt a tényleges csomagverzióhoz kell rögzíteni.
 
+### 2.5.178 – TV-napló #71, a jelen javítás előtti mérés
+
+Forrás: Supabase #71, `verzió=2.5.178`, `created_at=2026-10-28 21:30:23.527557+00`. A napló relatív idői, nem új javítás utáni eredmények:
+
+- Az első három teljes képernyőre váltás a második rAF-ig **298,5 / 266,0 / 338,9 ms**, az első három visszatérés **195,1 / 165,0 / 263,1 ms**. A React commit az érintett mintákban néhány–16 ms; a hosszú feladatok pontos oka a naplóból nem azonosítható. A második rAF renderelési lehetőség, nem a panel bizonyított festése.
+- A tíz sikeres csatornaváltási összesítés a forráspróbától `playing`-ig **1282–2948 ms**, átlaguk **1889 ms**; mindegyik egy próbával sikerült. Az első két célzott mintában a kiválasztástól `src`-ig kb. 45–50 ms, `playing`-ig kb. 1774 / 1946 ms; a `loadstart` és `loadedmetadata` között kb. 1421 / 1613 ms telt el. A hálózat, szolgáltató és TV-médiamotor részesedése nem választható szét a naplóból, és a `playing` nem bizonyítja a panelen megjelent képet. A két másodperces őr két lassabb sikeres mintában már látott metaadatot/puffert és türelmi időt adott; ebből nem következik téves fallback.
+- Az ezután készített, még TV-n nem mért javítás élő teljes képernyő alatt fenntartja a lejátszó és OSD helyét; kiszűri a gyors oda-vissza váltás elavult képkocka-callbackjeit; a csatorna-sorszám indexét lista/sorrend változáskor építi, nem minden csatornaváltásnál. Az indítókép, a videó `cover`/`fill` és a műsoradatok kezelése változatlan. A remélt TV-s gyorsulás, a pontos elrendezés és az EPG visszatérése új IPK-val, fizikai TV-n ellenőrizendő; az alkalmazás nem tud garantáltan gyorsítani a médiamotoron vagy a hálózaton.
+- Helyben a TypeScript-ellenőrzés, a Vite build és az `npm test` sikeres; a valódi React/jsdom lejátszó gyors BE–KI–BE váltása, a visszatérés/fókusz védelme és a sorszámindex is tesztelve. A jsdom nem ellenőrzi a TV valós flex-elrendezését, GPU-ját vagy festési sebességét. Az ffmpeg-függő eset, a hiányzó Android-híd és a kész webOS buildet igénylő naplóteszt kimaradt. IPK-t a helyi webes build nem készít.
+
 ## Következő TV-s teszt – rögzítési minta
 
 Új tesztnél másold ezt a blokkot, és csak ténylegesen ellenőrzött adatokat írj bele. A hiányzó érték: `nem ismert` vagy `nem mérhető`.
