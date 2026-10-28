@@ -306,16 +306,16 @@ test('2.5.166: a platform indítókép UGYANAZ a kompozíció, mint a betöltők
     `a CSS fényfolt (0.${cssGlow}) és a generátor (0.${pyGlow}) eltér – a két indítókép fényereje nem egyezik`);
 
   /*
-   * A kép 1920×1080 (ezt írja elő a webOS) és 24 bites RGB: a palettás PNG
-   * látható színlépcsőt adott a TV paneljén. A színátmenet tömöríthető, ezért
-   * a fájl a régi 600 kB helyett néhány tíz kB – a régi 200 kB-os alsó korlát
-   * (ami a fotót védte) okafogyott.
+   * A felhasználó által feltöltött splash-screen.png marad az indítókép.
+   * A workflow veszteséges palettázással tömöríti, majd RGB PNG-ként menti
+   * vissza, ezért a teszt a buildben optimalizált fájlt ellenőrzi. A 700 KiB-os
+   * korlát a workflow-val egyezik; nem követel meg nem garantálható 160 kB-ot.
    */
   const splashPath = path.join(ROOT, 'webos/splash-screen.png');
   assert.ok(fs.existsSync(splashPath), 'hiányzik a webos/splash-screen.png');
   const splashSize = fs.statSync(splashPath).size;
-  assert.ok(splashSize < 160_000,
-    `a webos/splash-screen.png ${splashSize} byte – a nehéz kép került vissza a csomagba`);
+  assert.ok(splashSize <= 700 * 1024,
+    `a webos/splash-screen.png ${splashSize} byte – meghaladja a workflow 700 KiB-os korlátját`);
   assert.ok(splashSize > 10_000,
     `a webos/splash-screen.png ${splashSize} byte – a kép nem a betöltőképernyő kompozíciója`);
   const header = fs.readFileSync(splashPath).subarray(0, 26);
