@@ -60,10 +60,10 @@ jobs:
           npm ci --no-audit --no-fund
           npm install --prefix web --no-audit --no-fund
           pip install Pillow --break-system-packages -q || pip install Pillow -q
-          # A FELTÖLTÖTT splash-screen.png marad az egyetlen kezdőkép.
-          # A build előtt vizuálisan kímélő méretcsökkentést végzünk: 1920x1080
-          # marad, a színpaletta optimalizálása után RGB PNG-ként mentjük vissza.
-          # Így a webOS splash és a tesztek ugyanazt a képet használják.
+          # A feltöltött splash-screen.png marad az egyetlen kezdőkép.
+          # Automatikus átméretezés 1920x1080-ra, majd adaptív palettás PNG-
+          # tömörítés. A cél szigorúan 699 KiB, nem 700 KiB; a legjobb olyan
+          # színmélységet választjuk, amely ezt a határt teljesíti.
           python3 - <<'PY'
           from pathlib import Path
           from PIL import Image
@@ -71,36 +71,39 @@ jobs:
           path = Path("webos/splash-screen.png")
           if not path.is_file() or path.stat().st_size == 0:
               raise SystemExit("HIBA: hiányzik a feltöltött webos/splash-screen.png.")
-          with Image.open(path) as source:
-              source.load()
-              # Automatikus méretezés a webOS által elvárt 1920x1080 méretre.
-              # A LANCZOS szűrő jó minőségű átméretezést ad; nincs kézi előkészítés.
-              if source.size != (1920, 1080):
-                  print(f"Automatikus splash-méretezés: {source.size} -> 1920x1080.")
-                  source = source.convert("RGB").resize((1920, 1080), Image.Resampling.LANCZOS)
-              # Ditheringgel megőrizzük a kép vizuális részleteit, de csökkentjük
-              # a PNG tömörítéséhez szükséges adatot. A kimenet továbbra is RGB.
-              reduced = source.convert("RGB").quantize(
-                  colors=256,
+          with Image.open(path) as original:
+              original.load()
+              source = original.convert("RGB")
+          if source.size != (1920, 1080):
+              print(f"Automatikus splash-méretezés: {source.size} -> 1920x1080.")
+              source = source.resize((1920, 1080), Image.Resampling.LANCZOS)
+          limit = 699 * 1024
+          best = None
+          # Először a jobb minőségű 256 színt próbáljuk, majd fokozatosan
+          # csökkentjük a színpalettát, amíg biztosan 699 KiB alá nem ér.
+          for colors in (256, 224, 192, 160, 128, 112, 96, 80, 64, 48, 32):
+              reduced = source.quantize(
+                  colors=colors,
                   method=Image.Quantize.MEDIANCUT,
                   dither=Image.Dither.FLOYDSTEINBERG,
-              ).convert("RGB")
+              )
               buffer = io.BytesIO()
               reduced.save(buffer, format="PNG", optimize=True, compress_level=9)
-          data = buffer.getvalue()
-          original_size = path.stat().st_size
-          if len(data) >= original_size:
-              # Ha a kvantálás nem hozna javulást, az eredeti képet megtartjuk,
-              # de a méretellenőrzés továbbra is megakadályozza a túl nagy buildet.
-              print(f"FIGYELEM: a PNG optimalizálása nem csökkentette a méretet ({original_size} byte).")
-          else:
-              path.write_bytes(data)
-              print(f"OK: splash PNG optimalizálva: {original_size} -> {len(data)} byte; 1920x1080 RGB.")
-          if path.stat().st_size > 700 * 1024:
-              raise SystemExit(f"HIBA: az optimalizált splash még mindig túl nagy: {path.stat().st_size} byte.")
+              data = buffer.getvalue()
+              print(f"Splash optimalizálás: {colors} szín -> {len(data)} byte.")
+              if len(data) < limit:
+                  best = data
+                  print(f"OK: cél teljesült: {len(data)} byte / {limit - 1} byte alatt.")
+                  break
+          if best is None:
+              raise SystemExit("HIBA: a splash PNG 32 színnel sem fér be 699 KiB alá.")
+          path.write_bytes(best)
           with Image.open(path) as check:
-              if check.size != (1920, 1080) or check.mode != "RGB":
+              if check.size != (1920, 1080) or check.mode != "P":
                   raise SystemExit(f"HIBA: hibás optimalizált splash: {check.size}, {check.mode}.")
+          if path.stat().st_size >= limit:
+              raise SystemExit(f"HIBA: a splash elérte vagy túllépte a 699 KiB-os határt: {path.stat().st_size} byte.")
+          print(f"VÉGEREDMÉNY: 1920x1080 palettás PNG, {path.stat().st_size} byte (699 KiB alatt).")
           PY
           # A jóváhagyott, átlátszó és lekerekített ikonokat használjuk;
           # a build ne generálja őket újra a régi gyökér ikonkep.png-ből.
@@ -273,15 +276,11 @@ jobs:
           img = Image.open(splash)
           if img.size != (1920, 1080):
               raise SystemExit(f"HIBA: az automatikus átméretezés után is hibás az indítókép mérete: {img.size}.")
-          # 2.5.163: az indítókép UGYANAZ a kép, mint a betöltőképernyő
-          # háttere (a felhasználó saját IPTV-ikonja), 24 bites RGB – a
-          # palettás változat látható színlépcsőt adott a TV paneljén.
-          # A kép a web/index.html-be ágyazott ikonból készül, ezért a
-          # platform képéről a saját animációra váltás észrevehetetlen.
-          if splash.stat().st_size > 700 * 1024:
-              raise SystemExit("HIBA: az indítókép túl nagy – más kép került a csomagba.")
-          if img.mode != "RGB":
-              raise SystemExit(f"HIBA: az indítókép módja {img.mode}, várt RGB (nincs paletta).")
+          # Az indítókép 1920x1080-as palettás PNG, szigorúan 699 KiB alatt.
+          if splash.stat().st_size >= 699 * 1024:
+              raise SystemExit("HIBA: az indítókép nem kisebb 699 KiB-nál.")
+          if img.mode != "P":
+              raise SystemExit(f"HIBA: az indítókép módja {img.mode}, várt palettás PNG (P).")
           print(f"OK: webOS natív indítókép {img.size}, {splash.stat().st_size} byte.")
           PY
           bash -n tools/build-webos.sh
@@ -308,9 +307,12 @@ jobs:
           splash_png = Path("webos/splash-screen.png")
           if not splash_png.is_file():
               raise SystemExit("HIBA: hiányzik a webos/splash-screen.png indítókép.")
-          splash_img = Image.open(splash_png).convert("RGB")
-          if splash_img.size != (1920, 1080):
-              raise SystemExit(f"HIBA: az automatikus átméretezés után is hibás az indítókép mérete: {splash_img.size}.")
+          splash_raw = Image.open(splash_png)
+          if splash_raw.size != (1920, 1080):
+              raise SystemExit(f"HIBA: az automatikus átméretezés után is hibás az indítókép mérete: {splash_raw.size}.")
+          if splash_png.stat().st_size >= 699 * 1024 or splash_raw.mode != "P":
+              raise SystemExit(f"HIBA: splash PNG követelmény sérült: {splash_png.stat().st_size} byte, {splash_raw.mode}.")
+          splash_img = splash_raw.convert("RGB")
           mean = ImageStat.Stat(splash_img).mean
           if all(channel > 250 for channel in mean):
               raise SystemExit("HIBA: az indítókép tiszta fehér - ez fehér villanást okozna.")
