@@ -383,34 +383,60 @@ try {
     } catch { /* a napló hibája nem akadály */ }
     try { (window as any).__IPTV_APP_READY__ = true; } catch { /* nincs window */ }
     /*
-     * A VÁLTÁS AZ ELSŐ HELYEN (2.5.149), a 100% UTÁNA (2.5.151).
+     * 100%-IG LÁTHATÓ BEFEJEZÉS, UTÁNA VÁLTÁS (2.5.160).
      *
-     * A felhasználói kérés: „ha 100%-nál ugorhat a főoldal”. A takarókép
-     * levétele EGYETLEN stílusváltás (nincs elhalványulás), ezért a felfedés
-     * azonnal megtörténik; a betöltőképernyő 100%-a – és az utána következő
-     * könyvelés – már nem látszik, mert a takarókép ebben a feladatban
-     * eltűnik. A 2.5.149-ben kivett virágzás/fátyol/blur továbbra sem tér
-     * vissza: nincs drága GPU-munka a váltás előtt.
+     * A felhasználói elvárás: az indítási animáció a 100%-ig folyamatosan
+     * látszódjon, és a 100%-nál induljon a főoldal. Ezért a takaróréteg
+     * eltüntetése NEM itt, hanem a betöltőképernyő saját visszahívására
+     * történik: a HTML `complete()` 240 ms alatt felfuttatja a sávot a valós
+     * értékről 100%-ra, és csak utána szól vissza.
+     *
+     * Két dolog garantálja, hogy ez soha ne akassza meg az indulást:
+     *   • a 240 ms-os animáció csak a százalékot és a szöveget írja (nincs
+     *     drága GPU-munka, szemben a régi virágzás-effekttel);
+     *   • 400 ms-os biztonsági időzítő: ha a visszahívás elmarad (régi motor,
+     *     foglalt fő szál), akkor is megtörténik a váltás.
      */
-    reveal(reason);
-    try { bootScreenComplete(); } catch { /* a HTML-réteg hibája nem akadály */ }
-    /*
-     * A jelzés a felfedés UTÁN megy ki – az App ebből indítja a teljes lista
-     * visszatöltését. `window.CustomEvent` (nem a globális), mert a régi
-     * webOS motorokon és a teszt-környezetben is ez a helyes példány.
-     */
+    let bootRevealDone = false;
+    const afterBootAnimation = () => {
+      /*
+       * CSAK EGYSZER: a visszahívás és a 400 ms-os biztonsági időzítő is ezt
+       * hívja, a felfedés és az `iptv-app-ready` jelzés viszont egyszer
+       * futhat le (különben a lista-visszatöltés kétszer indulna).
+       */
+      if (bootRevealDone) return;
+      bootRevealDone = true;
+      reveal(reason);
+      /*
+       * A jelzés a felfedés UTÁN megy ki – az App ebből indítja a teljes lista
+       * visszatöltését. `window.CustomEvent` (nem a globális), mert a régi
+       * webOS motorokon és a teszt-környezetben is ez a helyes példány.
+       */
+      try {
+        let signal: Event | null = null;
+        const custom = (window as any).CustomEvent;
+        if (typeof custom === 'function') {
+          signal = new custom('iptv-app-ready');
+        } else if (typeof document.createEvent === 'function') {
+          const legacy = document.createEvent('Event');
+          legacy.initEvent('iptv-app-ready', false, false);
+          signal = legacy;
+        }
+        if (signal) window.dispatchEvent(signal);
+      } catch { /* régi motor */ }
+    };
     try {
-      let signal: Event | null = null;
-      const custom = (window as any).CustomEvent;
-      if (typeof custom === 'function') {
-        signal = new custom('iptv-app-ready');
-      } else if (typeof document.createEvent === 'function') {
-        const legacy = document.createEvent('Event');
-        legacy.initEvent('iptv-app-ready', false, false);
-        signal = legacy;
-      }
-      if (signal) window.dispatchEvent(signal);
-    } catch { /* régi motor */ }
+      (window as any).__IPTV_BOOT_DONE_CB__ = afterBootAnimation;
+      bootScreenComplete();
+    } catch {
+      /* a HTML-réteg hibája nem akadályozhatja a megjelenítést */
+      afterBootAnimation();
+    }
+    /*
+     * BIZTONSÁGI HÁLÓ: az animáció legfeljebb 240 ms, a váltás 400 ms-nál
+     * mindenképp megtörténik – akkor is, ha a visszahívás elmarad.
+     */
+    window.setTimeout(afterBootAnimation, 400);
   };
 
   /*

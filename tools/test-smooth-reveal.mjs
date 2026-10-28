@@ -234,18 +234,38 @@ test('a két felső sarokban a saját logó van, óra nélkül', () => {
     'a másodpercenként futó óra visszakerült');
 });
 
-test('a betöltőképernyőn nincs folyamatos mozgás (nincs vászon, nincs uszó háttér)', () => {
+test('2.5.160: a folyamatos mozgás CSAK CSS – nincs vászon és nincs időzítő', () => {
   /*
-   * 2.5.145: a 21–23. napló mindhárom indulásánál 2–3,9 mp-es képkocka-
-   * kihagyás volt. A folyamatosan mozgó rétegek (vászon-részecskék, uszó
-   * háttér, forgó tárcsa-osztások, filmszemcse) miatt a leállás LÁTHATÓ
-   * volt: „ugrált” a betöltőképernyő. A látvány marad, a mozgás nem.
+   * 2.5.160 – a felhasználói elvárás MEGVÁLTOZOTT: „a takaró kép helyett rögtön
+   * az indítási animáció induljon, és folyamatosan tartson a 100%-ig”.
+   *
+   * A 21–23. naplóban azért nem volt mozgás, mert a vászon-részecskék és a
+   * JS-vezérelt rétegek a fő szál foglaltsága alatt megálltak. Ezért a
+   * folyamatos mozgás mostantól KIZÁRÓLAG CSS: `transform` és `opacity`
+   * animációk, amelyeket a TV kompozitora önállóan, a fő szál nélkül végez.
+   * Tilos a vászon, a JS-animáció és minden ismétlődő időzítő.
    */
-  assert.doesNotMatch(PAGE, /<canvas/i, 'a vászon-animáció visszakerült');
-  assert.doesNotMatch(PAGE, /id="boot-fx"/, 'a vászon-animáció visszakerült');
-  assert.doesNotMatch(PAGE, /animation:\s*boot-drift/, 'a háttér újra úszik');
-  assert.doesNotMatch(PAGE, /animation:\s*boot-spin/, 'a tárcsa újra forog');
+  assert.doesNotMatch(PAGE, /<canvas/i, 'a vászon-animáció visszakerült (fő szálon fut)');
+  assert.doesNotMatch(PAGE, /id="boot-fx"/, 'a vászon-réteg visszakerült');
+  assert.doesNotMatch(PAGE, /animation:\s*boot-spin/, 'a tárcsa JS nélkül nem vezérelhető forgása visszatért');
   assert.doesNotMatch(PAGE, /animation:\s*boot-grain/, 'a filmszemcse újra mozog');
+  // A folyamatos réteg: két, végtelen CSS-animáció, csak transform/opacity.
+  assert.match(PAGE, /<div class="aurora"><\/div>/, 'hiányzik a folyamatos háttérréteg');
+  assert.match(PAGE, /<div class="horizon"><\/div>/, 'hiányzik a folyamatos fényvonal');
+  assert.match(PAGE, /#boot-screen \.aurora \{[^}]*animation: boot-aurora 11s ease-in-out infinite alternate;/,
+    'a háttérréteg animációja nem végtelen (megáll a 100% előtt)');
+  assert.match(PAGE, /@keyframes boot-aurora \{[^}]*transform:[^}]*opacity:/,
+    'a háttér animációja nem csak transform/opacity (újrafestést kér a fő szálon)');
+  assert.match(PAGE, /#boot-screen \.horizon \{[^}]*animation: boot-lift 5\.2s linear infinite;/,
+    'a fényvonal animációja nem végtelen');
+  assert.match(PAGE, /@keyframes boot-lift \{[^}]*transform:[^}]*opacity:/,
+    'a fényvonal animációja nem csak transform/opacity');
+  assert.match(PAGE, /@keyframes boot-glow/, 'a márka felirat fénylése hiányzik');
+  /* A százalékot továbbra is KIZÁRÓLAG a valós adat írhatja: a betöltőképernyő
+     szkriptjében nincs véletlen és nincs szimulált érték. */
+  const bootScriptStart = PAGE.indexOf('BETÖLTŐKÉPERNYŐ-HÍD');
+  const bootScript = PAGE.slice(PAGE.indexOf('<script>', bootScriptStart), PAGE.indexOf('</script>', bootScriptStart));
+  assert.doesNotMatch(bootScript, /Math\.random/, 'a betöltőképernyő kitalált értéket állít elő');
 });
 
 test('a betöltési adatok KIZÁRÓLAG az alkalmazásból származnak (nincs szimuláció)', () => {
@@ -301,6 +321,37 @@ test('a build külön app.js/app.css fájlba emeli a nagy JS-t és CSS-t', () =>
   assert.ok(html.length < 200_000, `a csomagolt index.html ${html.length} byte`);
   assert.ok(!html.includes('__IPTV_SPLASH_TINY_URI__'));
   assert.ok(html.includes('data:image/png;base64,'), 'a favicon eltűnt');
+});
+
+test('2.5.160: a betöltőképernyő CSS-e nem kerül külső fájlba, a webos.js nem a fejben fut', () => {
+  /*
+   * Két konkrét indulási hiba elleni őr:
+   *
+   * 1. A build a 40 kB-nál nagyobb <style> blokkot app.css-be teszi. A
+   *    betöltőképernyő CSS-e mostantól pontosan ezért SOHA nem kerülhet oda:
+   *    külső stíluslapra a böngésző a fájl betöltéséig nem fest, tehát a
+   *    platform képének levétele után üres kocka jönne – pont az a hiba,
+   *    amit a felhasználó látott.
+   * 2. A webos.js (81 kB ES5) eddig a <head>-ben futott, ezért a
+   *    betöltőképernyő csak a kiértékelése UTÁN festődhetett ki. Most a
+   *    <body> végén van, a DOMContentLoaded előtt.
+   */
+  const build = read('tools/build-webos.sh');
+  assert.match(build, /if len\(inner\) < 40000 or '#boot-screen' in inner:/,
+    'a betöltőképernyő CSS-e kikerülhet külső app.css fájlba (üres kocka az induláskor)');
+  assert.match(build, /script_injection/,
+    'a webOS szkript injektálása nem külön (a <body> végére tehető) blokk');
+  assert.match(build, /html\.replace\("<\/body>", script_injection/,
+    'a webOS szkript nem a <body> végére kerül (a <head>-ben késlelteti az első festést)');
+  assert.doesNotMatch(build, /html\.replace\("<\/head>", injection/,
+    'a webOS szkript visszakerült a <head>-be');
+  const built = path.join(ROOT, 'build/webos/index.html');
+  if (!fs.existsSync(built)) return;
+  const html = fs.readFileSync(built, 'utf8');
+  const head = html.slice(0, html.indexOf('</head>'));
+  assert.ok(head.includes('#boot-screen'), 'a betöltőképernyő CSS-e nincs beégetve a <head>-be');
+  assert.ok(!head.includes('__webosTvFocusFix'),
+    'a webos.js a <head>-ben fut – az első festés rá vár');
 });
 
 test('üres induláskor a tároló-jelentés csak egyszer fut le', () => {

@@ -1,10 +1,22 @@
-export const WEB_VERSION = '2.5.159';
+export const WEB_VERSION = '2.5.160';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.160',
+    date: '2026-10-28',
+    changes: [
+      'A ROSSZ MINŐSÉGŰ IKON ELTŰNT A PLATFORM INDÍTÓKÉPÉRŐL: a tools/make-splash.py eddig a 130x130-as launcher-ikont felnagyítva (260x260) rajzolta a kép közepére, a színátmenetet pedig 128 színű, palettás PNG-be tömörítette - a TV-n ez mosott, lépcsős képet adott. Mostantól a platform kép IKON NÉLKÜL, valódi 24 bites RGB-ben készül, finom ditheringgel, tehát nincs felnagyított elem és nincs színlépcső',
+      'A PLATFORM KÉP PONTOSAN A SAJÁT BETÖLTŐKÉPERNYŐNK HÁTTERE: a generátor a web/index.html #boot-screen rétegeit (alap színátmenet, fényfolt, három fátyol, vignetta) rajzolja ki 1920x1080-ban, ugyanazokból az értékekből. A platform képe és a saját animált képernyő között nincs vizuális ugrás - a folyamatos indulás a TV saját képének levétele előtt már elkezdődik',
+      'AZ INDÍTÁSI ANIMÁCIÓ AKKOR IS MOZOG, AMIKOR A JAVASCRIPT FOGLALT: új, JavaScripttől független réteg (aurora + horizon) és a márka felirat fénylése csak transform/opacity tulajdonságot változtat, ezért a TV kompozitorán fut tovább - a naplókban mért 1,2-2,1 mp-es fő szál foglaltság alatt sem áll meg a kép',
+      'A SÁV A 100%-IG FUT, ÉS CSAK UTÁNA JÖN A FŐOLDAL: a betöltőképernyő complete() hívása eddig egyetlen lépésben 100%-ra ugrott, miközben a takaróréteg már el is tűnt. Mostantól a valós értékről 240 ms alatt fut fel 100%-ra, a felfedés pedig a HTML visszahívására (__IPTV_BOOT_DONE_CB__) történik - a néző végig látja az animációt, és a 100%-nál vált a főoldalra. 400 ms-os biztonsági időzítő garantálja, hogy a váltás soha ne maradjon el',
+      'GYORSABB ELSŐ FESTÉS: a platform indítóképét nem 900/1500 ms-os időzítők után vesszük le, hanem a legelső saját képkockánál (két képkocka, first-contentful-paint, illetve 350 ms-os háló) - így a valós adatok és az animáció azonnal látszanak. A webOS kezelő szkriptje (81 kB ES5) a <head>-ből a <body> végére került, ezért a betöltőképernyő kifestése nem vár a szkript kiértékelésére, a DOMContentLoaded előtt viszont továbbra is lefut',
+      'A BETÖLTŐKÉPERNYŐ CSS-E SOSEM KERÜL KÜLÖN FÁJLBA: a build csak akkor emel ki stílust app.css-be, ha az nem tartalmaz #boot-screen szabályt. Korábban a 40 kB-os határ közelében ez a háttér színét és az animációkat késleltetett külső fájlba tehette volna (üres kocka a platform kép levétele után)',
+    ],
+  },
   {
     version: '2.5.159',
     date: '2026-10-28',

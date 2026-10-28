@@ -17,11 +17,14 @@ webos/tools/build-ipk.py helyi fejlesztői IPK-csomagoló
 Az induló MP4 nincs a programban és nincs a `webos/assets/` mappában.
 
 Az indítókép **generált** (`tools/make-splash.py`): ugyanaz a sötét színátmenet,
-mint a HTML betöltőképernyő CSS háttere, a fő márka-jellel a közepén. Nincs
-fotó és nincs külön `splash-bg.jpg` – a betöltőképernyőnek nincs háttérképe,
-ezért nincs letöltés, dekódolás és átméretezés az első festés előtt (ez az
-1 GB memóriás TV-n mérhető indulási késést okozott). A build minden alkalommal
-újragenerálja a képet (`python3 tools/make-splash.py --out-dir build/webos`).
+mint a HTML betöltőképernyő CSS háttere, **ikon nélkül** – a korábbi verzió a
+launcher-ikon felnagyított változatát rajzolta a közepére, és a TV-n ez mosott,
+rossz minőségű foltnak látszott. A kép 24 bites RGB (nem palettás), finom
+ditheringgel, ezért nincs színlépcső a nagy színátmeneten. Nincs fotó és nincs
+külön `splash-bg.jpg` – a betöltőképernyőnek nincs háttérképe, ezért nincs
+letöltés, dekódolás és átméretezés az első festés előtt (ez az 1 GB memóriás
+TV-n mérhető indulási késést okozott). A build minden alkalommal újragenerálja
+a képet (`python3 tools/make-splash.py --out-dir build/webos`).
 
 ## Helyi build
 
@@ -31,7 +34,7 @@ A repó gyökeréből:
 npm ci --no-audit --no-fund
 npm ci --prefix web --no-audit --no-fund
 pip install Pillow
-VERSION=2.5.158 bash tools/build-webos.sh
+VERSION=2.5.160 bash tools/build-webos.sh
 ```
 
 Kimenet: `webos/IPTV-RT.ipk`. Ez lokális, fejlesztői/Developer Mode csomag; a fájl szándékosan nincs a `main` forráságban, csak a build és a GitHub Release használja.

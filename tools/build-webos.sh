@@ -180,16 +180,18 @@ appinfo["version"] = os.environ.get("VERSION", appinfo.get("version", "2.5.1"))
     json.dumps(appinfo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
 
-# webOS.js injektálása a <head>-be
+# webOS.js beolvasása (a stílus a <head>-be, a szkript a <body> végére kerül)
 webos_js = (webos_dir / "webos.js").read_text(encoding="utf-8")
 
-# Keresünk </head>-et és elé szúrjuk a webOS scriptet + stílust
-injection = f"""
+# A stílus a <head>-be kerül (az első festéshez kell), a webOS SZKRIPT viszont
+# a <body> VÉGÉRE (2.5.160). Előbb 81 kB ES5 JS-t kellett kiértékelni a
+# <head>-ben, MIELŐTT a betöltőképernyő egyáltalán kifestődhetett – ez a
+# platform indítókép utáni holtidő egyik fő oka volt. A szkript a DOM végén
+# fut le, még a DOMContentLoaded ELŐTT, és mindig az app.js (a két képkocka
+# után indított betöltő) ELŐTT, így a `window.WEBOS_*` jelzők ugyanúgy
+# megvannak, amikor az app elindul.
+style_injection = f"""
 <!-- LG webOS TV specifikus -->
-<script>
-// webOS TV detektálás és gyors betöltés
-{webos_js}
-</script>
 <style>
 /* webOS TV - fekvő teljes képernyő, kisebb lejátszó */
 body.webos-tv, body.lg-webos {{
@@ -212,10 +214,23 @@ body.webos-tv, body.lg-webos {{
 </style>
 """
 
+script_injection = f"""
+<!-- LG webOS TV specifikus (a <body> végén: nem késlelteti az első festést) -->
+<script>
+// webOS TV detektálás és gyors betöltés
+{webos_js}
+</script>
+"""
+
 if "</head>" in html:
-    html = html.replace("</head>", injection + "\n</head>")
+    html = html.replace("</head>", style_injection + "\n</head>")
 else:
-    html = injection + html
+    html = style_injection + html
+
+if "</body>" in html:
+    html = html.replace("</body>", script_injection + "\n</body>")
+else:
+    html = html + script_injection
 
 # webOS body osztályok hozzáadása a meglévő class attribútum megőrzésével.
 def add_webos_body_classes(match):
@@ -254,8 +269,13 @@ def externalize_styles(source: str) -> str:
 
     def take(match):
         inner = match.group(1)
-        if len(inner) < 40000:
-            return match.group(0)  # a kicsi boot CSS a HTML-ben marad
+        # A BETÖLTŐKÉPERNYŐ CSS-E SOSEM KERÜLHET KI (2.5.160): ha külön
+        # app.css-be kerülne, a böngésző a fájl betöltéséig nem festene, és a
+        # platform indítóképe után FEKETE kocka jönne – éppen az a hiba, amit
+        # a felhasználó látott. Ezért a #boot-screen-t tartalmazó blokk mindig
+        # a HTML-ben marad, a mérettől függetlenül.
+        if len(inner) < 40000 or '#boot-screen' in inner:
+            return match.group(0)
         chunks.append(inner)
         if first_at[0] is None:
             first_at[0] = match.start()

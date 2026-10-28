@@ -156,6 +156,62 @@
           linear-gradient(160deg, #07262c 0%, #04161c 46%, #080d1a 100%);
       }
 
+      /* ═══════════════════════════════════════════════════════════════
+         FOLYAMATOS INDULÁSI MOZGÁS (2.5.160)
+
+         Az elvárás: az LG saját indítóképe után AZONNAL induljon a saját
+         indítási animáció, és a 100%-ig folyamatosan látszódjon.
+
+         Ezért van egy JS-TŐL FÜGGETLEN réteg (aurora + horizon). A naplók
+         szerint a bundle kiértékelése 1,2–2,1 mp-re lefoglalja a fő szálat;
+         a CSS-animáció viszont a TV kompozitorán fut tovább, ha csak
+         `transform` és `opacity` változik (nem fest újra, nem kér fő szálat).
+         A réteg ezért akkor is mozog, amikor a JavaScript éppen foglalt –
+         a néző nem lát megállt képernyőt.
+         ═══════════════════════════════════════════════════════════════ */
+      #boot-screen .aurora {
+        position: absolute; left: -20%; top: -12%; width: 140%; height: 128%;
+        z-index: 3; pointer-events: none;
+        background:
+          radial-gradient(46% 40% at 42% 46%, rgba(126,240,210,.26) 0%, rgba(31,120,116,.13) 42%, rgba(4,20,26,0) 78%),
+          radial-gradient(38% 34% at 68% 62%, rgba(79,199,180,.20) 0%, rgba(4,20,26,0) 76%);
+        animation: boot-aurora 11s ease-in-out infinite alternate;
+        will-change: transform, opacity;
+        transform: translate3d(0,0,0) scale(1);
+      }
+      @keyframes boot-aurora {
+        0%   { transform: translate3d(-2.4%, 1.6%, 0) scale(1.04); opacity: .55; }
+        50%  { opacity: .92; }
+        100% { transform: translate3d(2.8%, -2.2%, 0) scale(1.12); opacity: .68; }
+      }
+      #boot-screen .horizon {
+        position: absolute; left: 12%; right: 12%; bottom: 7%;
+        height: 2px; z-index: 4; pointer-events: none;
+        background: linear-gradient(90deg, rgba(126,240,210,0), rgba(126,240,210,.72), rgba(126,240,210,0));
+        box-shadow: 0 0 18px 2px rgba(126,240,210,.32);
+        animation: boot-lift 5.2s linear infinite;
+        will-change: transform, opacity;
+        transform: translate3d(0,0,0);
+        opacity: 0;
+      }
+      @keyframes boot-lift {
+        0%   { transform: translate3d(0, 34px, 0) scaleX(.62); opacity: 0; }
+        12%  { opacity: .85; }
+        78%  { opacity: .55; }
+        100% { transform: translate3d(0, -150px, 0) scaleX(1); opacity: 0; }
+      }
+      /*
+       * A MÁRKA FELIRATA IS LÉLEGZIK – ez a legelső festéstől látszik, mert
+       * nincs hozzá JavaScript. Csak az opacity változik (kompozitor).
+       */
+      #boot-screen .wordmark b {
+        animation: boot-glow 3.2s ease-in-out infinite;
+      }
+      @keyframes boot-glow {
+        0%, 100% { opacity: .86; }
+        50% { opacity: 1; }
+      }
+
       /* ---------- optikai rétegek ---------- */
       #boot-screen .scrim {
         position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 2;
@@ -745,8 +801,18 @@
 
           <div class="scrim"></div>
           <div class="vig"></div>
+          <!--
+            FOLYAMATOS, JS NÉLKÜLI MOZGÁS (2.5.160).
+
+            A fátyol (scrim) és a vignetta FÖLÖTT van, mert azok 55–95%-ra
+            sötétítenek: alattuk a folyamatos fény nem látszana. Csak
+            `transform`/`opacity` animáció, tehát a TV kompozitora hajtja
+            végre – akkor is, amikor a JavaScript a bundle-lel foglalt.
+          -->
+          <div class="aurora"></div>
           <div class="grid"></div>
           <div class="scan"></div>
+          <div class="horizon"></div>
           <div class="bloom" id="boot-bloom"></div>
 
           <div class="ui" id="boot-ui">
@@ -1134,11 +1200,59 @@
           }
         }
 
+        /*
+         * A BEFEJEZÉS VISSZAHÍVÁSA (2.5.160).
+         *
+         * A felfedést (a takaróréteg eltüntetését) a main.tsx erre a jelre
+         * végzi – így a néző a sávot 100%-ig VÉGIG látja, és csak utána
+         * vált a főoldalra. Ha a visszahívás valamiért elmarad, a hívó fél
+         * saját időzítője vált (main.tsx: 400 ms).
+         */
+        var bootFinishReported = false;
+        function finishBootAnimation() {
+          if (bootFinishReported) return;
+          bootFinishReported = true;
+          try { window.__IPTV_BOOT_DONE_VISIBLE__ = true; } catch (eDone) {}
+          try {
+            if (typeof window.__IPTV_BOOT_DONE_CB__ === 'function') {
+              window.__IPTV_BOOT_DONE_CB__();
+            }
+          } catch (eCb) {}
+        }
+
         function complete() {
           window.__IPTV_BOOT_DONE__ = true;
           setText('boot-buildstate', 'KÉSZ');
           setText('boot-veilsub', 'MINDEN KÉSZ \u00b7 100%');
-          update({ percent: 100, etaSeconds: 0 });
+          /*
+           * A SÁV NEM UGROK 100-RA (2.5.160): 240 ms alatt fut fel a valós
+           * értékről, hogy az indulási animáció a 100%-ig folyamatos legyen.
+           * Csak a százalék és a szöveg változik – nincs drága GPU-munka.
+           */
+          var fromPercent = Math.max(0, Math.min(99, state.percent));
+          var tweenStartedAt = Date.now();
+          var tweenDuration = fromPercent >= 98 ? 90 : 240;
+          function tweenStep() {
+            var t = (Date.now() - tweenStartedAt) / tweenDuration;
+            if (t < 1) {
+              var eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+              update({ percent: fromPercent + (100 - fromPercent) * eased, etaSeconds: 0 });
+              if (typeof window.requestAnimationFrame === 'function') {
+                window.requestAnimationFrame(tweenStep);
+              } else {
+                window.setTimeout(tweenStep, 16);
+              }
+              return;
+            }
+            update({ percent: 100, etaSeconds: 0 });
+            finishBootAnimation();
+          }
+          if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(tweenStep);
+          } else {
+            update({ percent: 100, etaSeconds: 0 });
+            finishBootAnimation();
+          }
           /*
            * NINCS BEFEJEZŐ EFFEKT (2.5.149).
            *
@@ -1204,18 +1318,41 @@
           render();
 
           /*
-           * A PLATFORM INDÍTÓKÉPÉNEK LEVÉTELE – AZ ELSŐ TARTALMAS KÉPKOCKA UTÁN (2.5.153).
+           * A PLATFORM INDÍTÓKÉPÉNEK LEVÉTELE – A LEGELSŐ SAJÁT KÉPKOCKÁNÁL
+           * (2.5.160).
            *
-           * A 35. naplóban a platform képe +222 ms-nál lement, de az első
-           * festés csak 867 ms-nál történt meg: 645 ms-ig üres (akkori
-           * világos türkiz) felület látszott. A 41. naplóban ez már sötét volt,
-           * de a fotó helyett sötét képernyő villant.
+           * A felhasználói elvárás: „amikor az LG TV beolvasása végzett,
+           * azonnal induljon az indítási animáció”. Ezért nem várunk többé
+           * 900/1500 ms-os biztonsági időzítőkre, hanem a LEGKORÁBBAN
+           * lehetséges pillanatban levesszük a platform képét:
            *
-           * Ezért mostantól a `first-contentful-paint` bejegyzésre várunk
-           * (a saját betöltőképernyőnk tényleg megjelent), és csak utána
-           * vesszük le a platform képét: fotó → fotó, nincs üres kocka.
-           * A két időzítő csak biztonsági háló, ha a festés-jelzés elmarad.
+           *   • két képkocka (rAF) – ekkor biztos, hogy a saját
+           *     betöltőképernyőnk már ki van festve, tehát nem lesz üres
+           *     kocka. Mivel a platform `splashBackground` képe PONTOSAN
+           *     ugyanaz a háttér (a build ugyanazokból a színekből
+           *     generálja), a csere észrevehetetlen: a néző folyamatos
+           *     animációt lát, nem egy álló képet;
+           *   • `first-contentful-paint` – ha a motortól mégis ez jön előbb;
+           *   • 350 ms-os biztonsági háló – ha a képkocka-jelzés elmarad
+           *     (nagyon régi motor, foglalt fő szál).
            */
+          var splashReleaseArmed = false;
+          function armReleaseFromFrame() {
+            if (splashReleaseArmed) return;
+            splashReleaseArmed = true;
+            try {
+              if (typeof window.requestAnimationFrame === 'function') {
+                window.requestAnimationFrame(function () {
+                  window.requestAnimationFrame(function () {
+                    releasePlatformSplash();
+                  });
+                });
+                return;
+              }
+            } catch (eRaf) {}
+            window.setTimeout(releasePlatformSplash, 32);
+          }
+          armReleaseFromFrame();
           try {
             if (typeof window.PerformanceObserver === 'function') {
               var paintObserver = new window.PerformanceObserver(function (list) {
@@ -1233,10 +1370,8 @@
               paintObserver.observe({ type: 'paint', buffered: true });
             }
           } catch (ePaint) {}
-          /* Ha a festés-jelzés elmarad (nagyon régi motor), 900 ms után sem takarhat. */
-          window.setTimeout(releasePlatformSplash, 900);
-          /* Végső biztonsági háló: 1,5 mp után mindenképp. */
-          window.setTimeout(releasePlatformSplash, 1500);
+          /* Végső biztonsági háló: 350 ms után sem takarhat. */
+          window.setTimeout(releasePlatformSplash, 350);
         } catch (e) {}
       })();
     </script>

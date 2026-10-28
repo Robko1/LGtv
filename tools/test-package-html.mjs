@@ -209,13 +209,17 @@ test('az app bgColor sötét – nem villan be világos kék a lap festése elő
   assert.ok(info.splashBackground, 'hiányzik a splashBackground');
   // A platform indítóképét a saját betöltőképernyő festése után vesszük le.
   /*
-   * 2.5.153: a platform indítóképét az ELSŐ TARTALMAS KÉPKOCKA után vesszük le
-   * (fotó → fotó, nincs üres kocka), két biztonsági időzítővel.
+   * 2.5.160: a platform indítóképét a LEGELSŐ saját képkockánál vesszük le
+   * (két képkocka, illetve first-contentful-paint, 350 ms-os hálóval), mert a
+   * platform képe és a saját betöltőképernyő háttere pixelre ugyanaz – így a
+   * csere észrevehetetlen, az animáció pedig azonnal indul.
    */
   const page = read('web/index.html');
   assert.match(page, /first-contentful-paint/, 'a platform kép levétele nem a festéshez van kötve');
-  assert.match(page, /window\.setTimeout\(releasePlatformSplash, 900\);/, 'nincs korai biztonsági háló');
-  assert.match(page, /window\.setTimeout\(releasePlatformSplash, 1500\);/, 'nincs végső biztonsági háló');
+  assert.match(page, /function armReleaseFromFrame\(\)/, 'nincs képkockára kötött levétel');
+  assert.match(page, /window\.setTimeout\(releasePlatformSplash, 350\);/, 'nincs 350 ms-os biztonsági háló');
+  assert.doesNotMatch(page, /setTimeout\(releasePlatformSplash, (900|1500)\)/,
+    'a régi 900/1500 ms-os várakozás visszatért');
 });
 
 test('nincs világos türkiz szín a lapban vagy a webOS háttérben', () => {
