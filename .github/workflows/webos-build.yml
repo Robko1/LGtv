@@ -60,6 +60,44 @@ jobs:
           npm ci --no-audit --no-fund
           npm install --prefix web --no-audit --no-fund
           pip install Pillow --break-system-packages -q || pip install Pillow -q
+          # A FELTÖLTÖTT splash-screen.png marad az egyetlen kezdőkép.
+          # A build előtt veszteségmentes méretcsökkentést végzünk: 1920x1080
+          # marad, a színpaletta optimalizálása után RGB PNG-ként mentjük vissza.
+          # Így a webOS splash és a tesztek ugyanazt a képet használják.
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import io
+          path = Path("webos/splash-screen.png")
+          if not path.is_file() or path.stat().st_size == 0:
+              raise SystemExit("HIBA: hiányzik a feltöltött webos/splash-screen.png.")
+          with Image.open(path) as source:
+              source.load()
+              if source.size != (1920, 1080):
+                  raise SystemExit(f"HIBA: a splash mérete {source.size}, várt 1920x1080.")
+              # Ditheringgel megőrizzük a kép vizuális részleteit, de csökkentjük
+              # a PNG tömörítéséhez szükséges adatot. A kimenet továbbra is RGB.
+              reduced = source.convert("RGB").quantize(
+                  colors=256,
+                  method=Image.Quantize.MEDIANCUT,
+                  dither=Image.Dither.FLOYDSTEINBERG,
+              ).convert("RGB")
+              buffer = io.BytesIO()
+              reduced.save(buffer, format="PNG", optimize=True, compress_level=9)
+          data = buffer.getvalue()
+          if len(data) >= path.stat().st_size:
+              # Ha a kvantálás nem hozna javulást, az eredeti képet megtartjuk,
+              # de a méretellenőrzés továbbra is megakadályozza a túl nagy buildet.
+              print(f"FIGYELEM: a PNG optimalizálása nem csökkentette a méretet ({path.stat().st_size} byte).")
+          else:
+              path.write_bytes(data)
+              print(f"OK: splash PNG optimalizálva: {path.stat().st_size} -> {len(data)} byte; 1920x1080 RGB.")
+          if path.stat().st_size > 700 * 1024:
+              raise SystemExit(f"HIBA: az optimalizált splash még mindig túl nagy: {path.stat().st_size} byte.")
+          with Image.open(path) as check:
+              if check.size != (1920, 1080) or check.mode != "RGB":
+                  raise SystemExit(f"HIBA: hibás optimalizált splash: {check.size}, {check.mode}.")
+          PY
           # A jóváhagyott, átlátszó és lekerekített ikonokat használjuk;
           # a build ne generálja őket újra a régi gyökér ikonkep.png-ből.
           python3 - << 'PY'
