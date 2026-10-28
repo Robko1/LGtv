@@ -3950,8 +3950,9 @@ export function App() {
           className={`flex-1 flex flex-col ${settings.mirrorLayout ? 'md:flex-row-reverse' : 'md:flex-row'} overflow-hidden min-h-0`}
         >
           {/* Videó és vezérlők */}
-          <div data-reserve-live-player={!customStreamUrl ? "" : undefined} className="flex-1 flex flex-col overflow-hidden min-h-0 md:min-w-0">
-          {/* Video Player */}
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0 md:min-w-0">
+          {/* Az élő lejátszó helye teljes képernyőn is ugyanaz a flex-elem. */}
+          <div data-live-player-slot="">
           <VideoPlayer
             liveAccent={liveAccent}
             channel={activeChannel}
@@ -4073,6 +4074,7 @@ export function App() {
             onSubtitleTracksChange={setLiveSubtitleTracks}
             onRegisterSubtitleTrackSelector={registerMainPlayerSubtitleSelector}
           />
+          </div>
 
           {isVideoFullscreen && !customStreamUrl && isFullscreenLiveOsdVisible && (
             <FullscreenLiveOsd
@@ -4085,9 +4087,9 @@ export function App() {
           )}
 
           {/* TV-only channel controls: film/sorozat közben a VOD OSD az egyetlen lejátszóvezérlő.
-              Az OSD MOUNTOLVA MARAD teljes képernyő alatt is (csak rejtve):
-              korábban minden váltáskor lebontódott és újraépült, ezért a
-              visszatéréskor először az OSD „épült fel” a szem előtt. */}
+              Az OSD a teljes képernyős lejátszó ALATT is a helyén marad.
+              A data-view-hidden csak a fókuszból zárja ki; nincs visibility-
+              váltás, ami visszalépéskor újraépítené a látható réteget. */}
           {!customStreamUrl && <div data-live-osd="" data-view-hidden={isVideoFullscreen ? '' : undefined} aria-hidden={isVideoFullscreen || !isOsdVisible ? true : undefined} style={{ display: !isOsdVisible ? 'none' : undefined }}><ChannelControls
             className="main-live-osd"
             channel={activeChannel}

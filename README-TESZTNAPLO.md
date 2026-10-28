@@ -95,3 +95,9 @@ Eredmény: sikeres / probléma / nem tesztelt; bizonyíték:
 ```
 
 A tesztsorokat újabb verzió esetén hozzá kell adni, a régieket nem szabad az új eredménnyel felülírni. Az automatikus teszt eredményét és a felhasználó tényleges LG TV-s visszajelzését külön kell kezelni.
+
+### 72-es napló – főoldali OSD visszatérés
+
+A 2.5.179-es, #72 kézi naplóban az első három kilépésnél a lejátszó React-commitja az OK után 5,4–8,6 ms-nál szerepel; a második `requestAnimationFrame` 161,2–187,4 ms-nál, a főoldal állapotjelölésének effektje a napló időbélyegei szerint kb. 278–295 ms-nál jelent meg. Ezek külön események: nem mérik közvetlenül az OSD pozícióját vagy a TV paneljén látható festést, és a csúszás okát sem bizonyítják.
+
+Az élő lejátszónak most állandó flex-helye van: teljes képernyő alatt sem cserélődik ideiglenes pszeudoelemre, az OSD pedig a teljes képernyős lejátszó mögött marad. Az élő lejátszó belső overlayének elrejtése többé nem ad `display:none` jelzést a főoldali OSD-nek. A fókuszkizárás, a VOD saját OSD-kezelése, a két képkockával késleltetett EPG-munka és a videó képmódja változatlan. A valódi böngészős geometriateszt `tools/test-osd-layout-browser.mjs`: web build után a `PLAYWRIGHT_MODULE` és `BROWSER_EXECUTABLE` környezeti változókkal futtatható; ezek nélkül kihagyja magát. A TV saját videósíkját és paneljének festését ez nem igazolja, fizikai TV-s ellenőrzés szükséges.

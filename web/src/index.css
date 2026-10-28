@@ -432,21 +432,18 @@ body.has-mouse [role="option"]:hover {
  * stílusokat a teljes képernyő alatt már nem írja felül semmi.
  * Az `!important` a főoldali mérés inline stílusai ellen kell.
  */
-/* A fixed élő lejátszó kiesik a flex-elrendezésből. A helyét és a rejtett
-   OSD helyét megtartjuk, így kilépéskor a főoldalnak nem kell újra kiosztania
-   a területet. A normál 16:9-es videógeometria és az OSD kinézete változatlan. */
-body.iptv-tv-fullscreen [data-reserve-live-player]::before {
-  content: '';
+/* A lejátszó saját helye állandó flex-elem. Teljes képernyőn a fixed
+   lejátszó ezen kívülre kerül, de a helye NEM cserélődik pszeudoelemre:
+   az alatta lévő OSD geometriája a két állapotban ugyanabból adódik.
+   Az OSD-t a teljes képernyős kép takarja, külön elrejteni nem kell;
+   a fókuszt a data-view-hidden szűri. Az OSD saját elrejtése változatlan. */
+[data-live-player-slot] {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 0%;
   width: 100%;
-  height: auto;
   min-height: 0;
-  max-height: none;
   aspect-ratio: 16 / 9;
-}
-body.iptv-tv-fullscreen [data-reserve-live-player] [data-live-osd] {
-  visibility: hidden;
-  pointer-events: none;
 }
 
 [data-tv-player].iptv-fs {
