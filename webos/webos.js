@@ -1025,6 +1025,10 @@
     // kilép a mezőből (lezárja a virtuális billentyűzet utáni beragadást),
     // FEL/LE nyíl pedig kinavigál a mezőből a környező vezérlőkre.
     var activeNow = document.activeElement;
+    // A VOD hangerő-csúszka nem szövegmező: a saját React kezelője kapja
+    // a nyilakat és a VISSZA gombot, ne a virtuális billentyűzet navigációja.
+    if (activeNow && activeNow.hasAttribute && activeNow.hasAttribute('data-vod-volume-range') &&
+        (isArrowKey(key) || key === 'Escape' || key === 'Backspace' || kc === 461)) return;
     var inTextNow = activeNow && /^(INPUT|TEXTAREA)$/.test(activeNow.tagName);
     if (inTextNow && (kc === 461 || (key === 'Escape' && kc !== 8))) {
       e.preventDefault();

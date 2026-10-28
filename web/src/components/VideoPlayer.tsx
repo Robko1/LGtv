@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
-import { Rewind, FastForward } from 'lucide-react';
 import {
   appLog,
   appLogCritical,
@@ -1819,14 +1818,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setVodOsdActivity((value) => value + 1);
   }, []);
 
-  /**
-   * Az OSD viselkedése új specifikáció szerint:
-   * - Élő TV főoldal (nem fullscreen): dupla gyors kattintás -> álló teljes képernyő (16:9 keret)
-   * - Élő TV álló fullscreen: egy kattintás -> OSD fel és eltűnik beállítás szerint, dupla -> vissza főoldal
-   * - Élő TV fekvő fullscreen: egy kattintás semmi, dupla -> vissza főoldal
-   * - Mozi/sorozat álló: egy kattintás -> OSD fel és eltűnik beállítás szerint, semmi más
-   * - Mozi/sorozat fekvő: semmilyen kattintásra semmi funkció
-   */
+  // TV: élő adáson az OK/VISSZA vált képernyőt, VOD alatt az OK nyitja az OSD-t.
   const isLive = !isVod;
   // TV: a csatornalistáról érkező kérés (OK a már futó csatornán) indítja a
   // teljes képernyős nézetet - a lejátszó dobozból indítás megszűnt.
@@ -2001,8 +1993,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isFullscreen]);
   // A webOS TV kizárólag fekvő nézetet használ.
   const isLiveLandscapeFullscreen = isLive && isFullscreen;
-  const isVodLandscapeFullscreen = isVod && isFullscreen;
-  const landscapeLiveFullscreen = isLiveLandscapeFullscreen;
   const canToggleOsd = isVod && isFullscreen;
 
   useEffect(() => {
@@ -2062,96 +2052,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onOverlayVisibilityChange?.(showControlsOverlay);
   }, [showControlsOverlay, onOverlayVisibilityChange]);
 
-  // Új érintés/kattintás logika a felhasználó kérése szerint
-  const suppressNextClickRef = useRef(false);
-  const singleTapTimerRef = useRef<number | null>(null);
-  const lastTapTimeRef = useRef(0);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const mouseDragStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  const cancelPendingTap = () => {
-    if (singleTapTimerRef.current !== null) {
-      window.clearTimeout(singleTapTimerRef.current);
-      singleTapTimerRef.current = null;
-    }
-  };
-  useEffect(() => () => cancelPendingTap(), []);
-
-  // Egyszeri kattintás kezelése
-  const handleSingleTap = useCallback(() => {
-    // Film/sorozat: egy kattintás/OK előhozza az OSD-t mindkét tájolásban.
-    if (isVod && isFullscreen) {
-      setShowControlsOverlay(true);
-      return;
-    }
-    // Élő fekvő: egy kattintásra semmi
-    if (isLiveLandscapeFullscreen) return;
-    // Élő főoldal (nem fullscreen): egy kattintásra semmi
-  }, [isVod, isFullscreen, isLiveLandscapeFullscreen]);
-
-  // Dupla gyors kattintás kezelése. A teljes képernyős váltás lentebb,
-  // saját függvényben van (natív Fullscreen API nélkül) – refen keresztül
-  // érjük el, hogy a korai deklaráció ne okozzon függőségi újraépítést.
-  const toggleFullscreenRef = useRef<() => void>(() => {});
-  const handleDoubleTap = useCallback(() => {
-    // Film/sorozat: dupla kattintás sem zárja be a lejátszót.
-    if (isVod && isFullscreen) {
-      setShowControlsOverlay(true);
-      return;
-    }
-    // Élő: dupla kattintás vált a főoldal és az álló teljes képernyő között, fekvőben is vissza főoldalra
-    if (isLive) {
-      if (!isFullscreen) {
-        // Főoldalról dupla kattintás -> álló teljes képernyő (portrait 16:9 keret)
-        toggleFullscreenRef.current();
-      } else {
-        // Teljes képernyőből (álló vagy fekvő) dupla kattintás -> vissza főoldalra.
-        // Fekvő fullscreenben az OSD rejtve van; kilépéskor explicit visszaállítjuk,
-        // hogy a főoldali ChannelControls azonnal újra megjelenjen.
-        setShowControlsOverlay(true);
-        fsStart('KI', 'dupla kattintás a teljes képernyőn');
-        setIsFullscreen(false);
-        fsStep('lejátszó állapota beállítva', 'setIsFullscreen(false) – React commit következik');
-      }
-      return;
-    }
-  }, [isVod, isFullscreen, isLive]);
-
-  const handleSurfaceTap = (event?: React.MouseEvent | React.KeyboardEvent) => {
-    event?.stopPropagation();
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
-      return;
-    }
-    const now = Date.now();
-    const diff = now - lastTapTimeRef.current;
-    if (diff > 0 && diff < 300) {
-      // Dupla gyors kattintás
-      if (singleTapTimerRef.current !== null) {
-        window.clearTimeout(singleTapTimerRef.current);
-        singleTapTimerRef.current = null;
-      }
-      lastTapTimeRef.current = 0;
-      handleDoubleTap();
-      return;
-    }
-    lastTapTimeRef.current = now;
-    singleTapTimerRef.current = window.setTimeout(() => {
-      singleTapTimerRef.current = null;
-      lastTapTimeRef.current = 0;
-      handleSingleTap();
-    }, 300) as unknown as number;
-  };
-
-  // Egér mozgásra csak álló fullscreenben mutassuk az OSD-t (desktop), fekvőben semmi
-  const handleMouseMove = useCallback(() => {
-    if (isLiveLandscapeFullscreen || isVodLandscapeFullscreen) return;
-    if (canToggleOsd && !showControlsOverlay) {
-      // Csak álló fullscreenben egér mozgásra is jöjjön OSD
-      setShowControlsOverlay(true);
-    }
-  }, [isLiveLandscapeFullscreen, isVodLandscapeFullscreen, canToggleOsd, showControlsOverlay]);
-
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // A lejátszási hiba nem zárhatja csapdába a távirányítót:
     // a Vissza/OK és a csatornaváltó nyilak hibaüzenet mellett is működjenek.
@@ -2203,9 +2103,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         fsStart('KI', 'OK a teljes képernyőn');
         setIsFullscreen(false);
         fsStep('lejátszó állapota beállítva', 'setIsFullscreen(false) – React commit következik');
-      } else {
-        // Enter = OSD vagy dupla logika szerint
-        handleSurfaceTap(e);
       }
     } else if ((key === 'ArrowLeft' || key === 'ArrowRight') && !isFullscreen) {
       // A fókusz NE ragadjon be a lejátszó felületén: balra/jobbra nyíllal
@@ -2233,13 +2130,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setIsFullscreen(false);
         fsStep('lejátszó állapota beállítva', 'setIsFullscreen(false) – React commit következik');
       }
-    } else if (key === 'f' || key === 'F') {
-      e.preventDefault();
-      e.stopPropagation();
-      if (isLive) {
-        if (!isFullscreen) setIsFullscreen(true);
-        else setIsFullscreen(false);
-      }
     }
   }, [hasError, isLive, isVod, isFullscreen, onPrevChannel, onNextChannel, onCloseVod]);
   const [nativeHandoff, setNativeHandoff] = useState<boolean>(false);
@@ -2266,8 +2156,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [vodDuration, setVodDuration] = useState(0);
   /** A film pillanatnyi helyzete a felirat kirajzolásához (natív motornál is). */
   const vodSubtitleClockRef = useRef(0);
-  // Csúsztatás közben a 250 ms-os időzítő ne rángassa vissza a csúszkát.
-  const vodSeekDraggingRef = useRef(false);
   const lastReportedProgressRef = useRef(-1);
   const resumeAppliedForUrlRef = useRef('');
   const [vodAudioTracks, setVodAudioTracks] = useState<AudioTrack[]>(providedAudioTracks || []);
@@ -2359,13 +2247,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // PiP-ből visszatéréskor a böngésző helyreállíthatja a lejátszó felületét,
   // de a React teljesképernyő-állapota különben a PiP előtti értéken maradhat.
-  // Ez eltüntetheti a teljes képernyő gombot és a dupla koppintást is elronthatja.
+  // A React állapotát is a kilépett módhoz igazítjuk.
   useEffect(() => {
     const api = nativeApi();
     if (!api?.on) return;
     const handler = (event: { type?: string; mode?: string }) => {
       if (event?.type !== 'pip-mode' || event.mode !== 'exited') return;
-      cancelPendingTap();
       if (document.fullscreenElement) {
         const exitFullscreen = document.exitFullscreen?.();
         if (exitFullscreen) void exitFullscreen.catch(() => undefined);
@@ -2381,25 +2268,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
-  // A natív videóra koppintva a webes OSD jelenik meg/elrejtődik – ugyanaz a
-  // panel, mint a főoldalon (a natív lejátszó nem rajzol saját OSD-t).
-  useEffect(() => {
-    const api = nativeApi();
-    if (!api?.on) return;
-    const handler = (event: { type?: string }) => {
-      if (!event || event.type !== 'osd-toggle') return;
-      if (!canToggleOsd) return;
-      setShowControlsOverlay((visible) => !visible);
-    };
-    api.on(handler);
-    return () => {
-      try {
-        api.off?.(handler);
-      } catch {
-        /* leiratkozás nem támogatott */
-      }
-    };
-  }, [canToggleOsd]);
   const [activeVodSubtitleId, setActiveVodSubtitleId] = useState<string | number | null>(null);
   const activeTvSubtitleIdRef = useRef<string | number | null>(null);
   // HTML5/webOS élő TV-n kézi feliratválasztás után ne írja felül azt az automata nyelvválasztás.
@@ -2478,7 +2346,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [nativeHandoff]);
 
   // A natív videófelület a konténer méretét követi – javítva a fekete képernyő hibára
-  // amikor főoldalról dupla kattintással álló fullscreenbe váltunk, vagy forgatunk.
+  // teljes képernyős váltáskor.
   useEffect(() => {
     const api = nativeApi();
     if (!api?.setVideoBounds) return;
@@ -2582,7 +2450,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoSurfaceRef.current) observer?.observe(videoSurfaceRef.current);
     if (document.documentElement) observer?.observe(document.documentElement);
     window.addEventListener('resize', syncAfterLayout);
-    window.addEventListener('orientationchange', syncAfterLayout);
     window.visualViewport?.addEventListener('resize', syncAfterLayout);
     /*
      * GÖRGETÉS: csak az OLDAL görgetése mozdíthatja a lejátszót. A
@@ -2607,7 +2474,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       settleTimers.forEach((t) => window.clearTimeout(t));
       syncPending = false;
       window.removeEventListener('resize', syncAfterLayout);
-      window.removeEventListener('orientationchange', syncAfterLayout);
       window.visualViewport?.removeEventListener('resize', syncAfterLayout);
       window.removeEventListener('scroll', onPageScroll, true);
       document.removeEventListener('fullscreenchange', syncAfterLayout);
@@ -2671,7 +2537,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const video = htmlVideoRef.current;
       let position = api ? Math.max(0, Number(api.position?.() || 0) / 1000) : Math.max(0, Number(video?.currentTime || 0));
       const duration = api ? Math.max(0, Number(api.duration?.() || 0) / 1000) : Math.max(0, Number(video?.duration || 0));
-      if (!vodSeekDraggingRef.current) setVodCurrentTime(position);
+      setVodCurrentTime(position);
       setVodDuration(duration);
       if (initialPositionSeconds > 0 && duration > 0 && resumeAppliedForUrlRef.current !== streamUrl) {
         const target = Math.min(initialPositionSeconds, Math.max(0, duration - 1));
@@ -4426,17 +4292,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // végén és csatornánként sem). Csak akkor hívunk setSystemVolume-t, amikor
   // a felhasználó kézzel mozgatja a csúszkát – azt az App.tsx kezeli.
 
-  // A telefon fizikai hangerőgombjainak változását is visszatükrözzük az OSD csúszkájára.
-  useEffect(() => {
-    const api = nativeApi();
-    if (!api?.getSystemVolume) return;
-    const timer = window.setInterval(() => {
-      const next = Math.max(0, Math.min(1, Number(api.getSystemVolume?.() ?? volume)));
-      if (Math.abs(next - volume) > 0.015) onVolumeChange(next);
-    }, 350);
-    return () => window.clearInterval(timer);
-  }, [volume, onVolumeChange]);
-
   // Felirat méretének alkalmazása a natív lejátszón (mozi/sorozat beállítás összekötése)
   useEffect(() => {
     const api = nativeApi() as any;
@@ -4594,7 +4449,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       : null;
     if (parent) observer?.observe(parent);
     window.addEventListener('resize', scheduleLayout);
-    window.addEventListener('orientationchange', scheduleLayout);
     window.visualViewport?.addEventListener('resize', scheduleLayout);
     document.addEventListener('fullscreenchange', scheduleLayout);
     document.addEventListener('visibilitychange', scheduleLayout);
@@ -4602,107 +4456,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       observer?.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
       window.removeEventListener('resize', scheduleLayout);
-      window.removeEventListener('orientationchange', scheduleLayout);
       window.visualViewport?.removeEventListener('resize', scheduleLayout);
       document.removeEventListener('fullscreenchange', scheduleLayout);
       document.removeEventListener('visibilitychange', scheduleLayout);
     };
   }, [isFullscreen, isVod, streamUrl]);
-
-  /**
-   * Teljes képernyő: PURE CSS-ÁTFEDÉS, soha nem a böngésző Fullscreen API-ja.
-   *
-   * A referenciához (sharktie/lg-iptv) igazodva a teljes képernyő ugyanaz az
-   * oldal, ugyanaz a <video> elem és ugyanaz a stream: csak a `body`
-   * osztálya és a konténer mérete változik. Nincs új oldal, nincs új
-   * kapcsolat, nincs új dekóler – a váltás azonnali.
-   *
-   * A natív Fullscreen API webOS-on két okból rossz:
-   *   • az 5.40-es webOS-on félig tölti ki a képernyőt a videó, és a GUI
-   *     látható marad, miközben a teljes képernyőt JELENTI – vagyis
-   *     nem kimutatható és nem mérhető;
-   *   • a Chromium :fullscreen UA stíluslapja `transform: none !important`
-   *     kényszerít a teljes képernyős elemre, ami újraépíti a videó
-   *     kompozíciós rétegét és NULLÁZZA a hardveres dekódolót (a lejátszás
-   *     ~10 mp után "nem játszik" hibával leáll).
-   * A CSS-átfedés csak a pozíciót és a méretet változtatja, így a
-   * videóréteg sosem épül újra.
-   */
-  const toggleFullscreen = () => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    // Natív kép (a webOS hardveres lejátszója): a webes konténer lesz
-    // teljes képernyős, a natív videó téglalapja a videóelemhez igazodik.
-    // Az OSD ilyenkor is ugyanaz a kezelőfelület marad.
-    setIsFullscreen((previous) => !previous);
-    setShowControlsOverlay(true);
-  };
-  toggleFullscreenRef.current = toggleFullscreen;
-
-  // Csatornaváltás csak egyértelmű, határozott függőleges húzásra történik – érintés + egér húzás
-  const handleTouchStart = (e: React.TouchEvent) => {
-    suppressNextClickRef.current = false;
-    if (e.touches.length !== 1) {
-      touchStartRef.current = null;
-      return;
-    }
-    touchStartRef.current = {
-      x: e.touches[0].clientX,
-      y: e.touches[0].clientY,
-    };
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const start = touchStartRef.current;
-    touchStartRef.current = null;
-    if (!start || e.changedTouches.length === 0) return;
-
-    const endY = e.changedTouches[0].clientY;
-    const endX = e.changedTouches[0].clientX;
-    const diffY = start.y - endY;
-    const diffX = start.x - endX;
-    const absY = Math.abs(diffY);
-    const absX = Math.abs(diffX);
-
-    // Már a kisebb elmozdulás is húzásnak számít a kattintás/OSD elnyomásához,
-    // de csatornát csak legalább 85 px-es, egyértelműen függőleges húzás vált.
-    if (Math.hypot(diffX, diffY) > 12) {
-      suppressNextClickRef.current = true;
-    }
-    if (
-      !isVod &&
-      settings.swipeToZap &&
-      absY >= 85 &&
-      absY > absX * 1.35
-    ) {
-      if (diffY > 0) {
-        onNextChannel?.();
-      } else {
-        onPrevChannel?.();
-      }
-    }
-  };
-
-  // Egér húzás csatornaváltáshoz – laptop/desktop
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    mouseDragStartRef.current = { x: e.clientX, y: e.clientY };
-  };
-  const handleMouseUp = (e: React.MouseEvent) => {
-    const start = mouseDragStartRef.current;
-    mouseDragStartRef.current = null;
-    if (!start) return;
-    const diffY = start.y - e.clientY;
-    const diffX = start.x - e.clientX;
-    const absY = Math.abs(diffY);
-    const absX = Math.abs(diffX);
-    if (Math.hypot(diffX, diffY) > 12) suppressNextClickRef.current = true;
-    if (!isVod && settings.swipeToZap && absY >= 85 && absY > absX * 1.35) {
-      if (diffY > 0) onNextChannel?.();
-      else onPrevChannel?.();
-    }
-  };
 
   return (
     <div
@@ -4714,12 +4472,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       data-player-engine={playerEngine}
       tabIndex={isFullscreen ? 0 : -1}
       onKeyDown={handleKeyDown}
-      onMouseMove={handleMouseMove}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onClick={handleSurfaceTap}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
       /* A TELJES KÉPERNYŐ geometriája a `.iptv-fs` CSS-osztályból jön
          (web/src/index.css), nem inline stílusból: így a váltás egyetlen
          attribútum-írás, a kilépéskor pedig az osztály eltávolítása magától
@@ -5138,7 +4890,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               // újrarajzolni a teljes lejátszót).
               if (showControlsOverlay) {
                 setVodDuration(duration);
-                if (!vodSeekDraggingRef.current) setVodCurrentTime(position);
+                setVodCurrentTime(position);
               }
               if (Math.floor(position) !== lastReportedProgressRef.current) {
                 lastReportedProgressRef.current = Math.floor(position);
@@ -5189,11 +4941,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Stream Error Overlay with fallback launcher */}
       {hasError && (
         <div
-          onClick={(e) => {
-            e.stopPropagation();
-            // Hibás élő adásnál egy képernyőkoppintás is adjon kiutat a fullscreenből.
-            if (isLive && isFullscreen) setIsFullscreen(false);
-          }}
           className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 p-4 text-center"
         >
           <h4 className="text-white font-bold text-sm sm:text-base whitespace-pre-line">A csatornát nem lehet be tölteni !{"\n"}kapcsolj másik csatornára...{"\n"}ez a sz@r le fagyott 😂</h4>
@@ -5319,26 +5066,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             rootRef={vodOsdRef}
           />
 
-        ) : (
-          <>
-            {/* Fekvő teljes képernyős élő TV – érintésre semmi ne jelenjen meg, teljesen inaktív */}
-            {landscapeLiveFullscreen ? null : (
-              /* Normál nézet – alsó gyorsgombok (Kép gomb eltávolítva) */
-              <div className="flex items-center justify-between pointer-events-auto">
-                <div className="flex items-center gap-2">
-                  {!isVod && customStreamUrl && (
-                    <>
-                      <button onClick={(e) => { e.stopPropagation(); const api = nativeApi(); const pos = api?.position?.() || 0; api?.seekTo?.(Math.max(0, pos - settings.seekStep * 1000)); }} className="p-2 rounded-full bg-black/60 hover:bg-black/90 text-white backdrop-blur-md transition-all active:scale-95" title={'Vissza ' + settings.seekStep + ' mp'}><Rewind className="w-4 h-4" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); const api = nativeApi(); const pos = api?.position?.() || 0; const dur = api?.duration?.() || 0; api?.seekTo?.(dur > 0 ? Math.min(dur, pos + settings.seekStep * 1000) : pos + settings.seekStep * 1000); }} className="p-2 rounded-full bg-black/60 hover:bg-black/90 text-white backdrop-blur-md transition-all active:scale-95" title={'Előre ' + settings.seekStep + ' mp'}><FastForward className="w-4 h-4" /></button>
-                    </>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2" />
-              </div>
-            )}
-          </>
-        )}
+        ) : null}
       </div>
     </div>
   );

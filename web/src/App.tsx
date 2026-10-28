@@ -3491,7 +3491,7 @@ export function App() {
     storageService.saveHistory([]);
   };
 
-  // Global Keyboard Shortcuts – TV remote, laptop, tablet billentyűzet + egér
+  // TV-távirányító gombjai és az élő nézet számozott színválasztói
   // A hat színgyorsgomb kizárólag az Élő TV nézetben működik; nem módosít csatorna- vagy lejátszóállapotot.
   useEffect(() => {
     const onAccentKey = (event: KeyboardEvent) => {
@@ -3673,7 +3673,7 @@ export function App() {
         case 'ArrowLeft':
           e.preventDefault();
           if (customStreamUrl) {
-            // VOD: vissza tekerés laptop/TV-n
+            // VOD: visszatekerés a távirányítóval
             const video = document.querySelector<HTMLVideoElement>('video[data-iptv-player="true"]');
             if (video) video.currentTime = Math.max(0, video.currentTime - settings.seekStep);
           } else {
@@ -3777,34 +3777,6 @@ export function App() {
             e.preventDefault();
             handleViewChange('live');
           }
-          break;
-        case 'f':
-        case 'F':
-          if (!customStreamUrl) {
-            fullscreenSyncRef.current?.invalidate();
-            setIsVideoFullscreen((prev) => !prev);
-          }
-          break;
-        case 'm':
-        case 'M':
-          handleToggleMute();
-          break;
-        case 'c':
-        case 'C':
-          // Film/sorozat lejátszás közben csak a nyilak, OK, VISSZA és a
-          // lejátszó gombjai működnek – ablak sem nyílik (2.5.165).
-          if (customStreamUrl) break;
-          setIsCategoriesOpen((prev) => !prev);
-          break;
-        case 's':
-        case 'S':
-          if (customStreamUrl) break;
-          setIsSettingsOpen((prev) => !prev);
-          break;
-        case 'q':
-        case 'Q':
-          if (customStreamUrl) break;
-          setIsQrProvisionOpen((prev) => !prev);
           break;
       }
     };
@@ -3964,7 +3936,7 @@ export function App() {
         style={paneStyle(activeView === 'live')}
       >
 
-        {/* Live TV View – reszponzív: mobilon egymás alatt, tablet/laptop/TV-n egymás mellett */}
+        {/* Élő TV nézet – a TV rendelkezésre álló méretéhez igazítva. */}
         {/*
           TÜKRÖZÖTT ELRENDEZÉS (PIROS / Record gomb).
           Ilyenkor a sor iránya megfordul: a csatornalista (a kedvenc
@@ -3977,7 +3949,7 @@ export function App() {
           data-mirror={settings.mirrorLayout ? '1' : undefined}
           className={`flex-1 flex flex-col ${settings.mirrorLayout ? 'md:flex-row-reverse' : 'md:flex-row'} overflow-hidden min-h-0`}
         >
-          {/* Video + Controls – mobilon felül, desktopon bal oldalt rugalmas */}
+          {/* Videó és vezérlők */}
           <div data-reserve-live-player={!customStreamUrl ? "" : undefined} className="flex-1 flex flex-col overflow-hidden min-h-0 md:min-w-0">
           {/* Video Player */}
           <VideoPlayer

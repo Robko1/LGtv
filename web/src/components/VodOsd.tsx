@@ -22,7 +22,7 @@ import { normalizeTvKey } from '../utils/tvKeys';
  *
  * A sáv a távirányítóval is vezérelhető: a fókusz rákerül, majd BALRA/JOBBRA
  * a beállított tekerési lépéssel (5/10/15/30 mp) mozdítja a lejátszást – ez a
- * „húzás” érintéssel/egérrel is működik.
+ * a Magic Remote mutatójával is kiválasztható egy pozíció.
  */
 
 interface VodOsdProps {
@@ -158,13 +158,8 @@ export const VodOsd: React.FC<VodOsdProps> = ({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const seekRef = useRef<HTMLDivElement | null>(null);
   const volumeRef = useRef<HTMLDivElement | null>(null);
-  const volumeClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const volumeSliderRef = useRef<HTMLInputElement | null>(null);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [previewTime, setPreviewTime] = useState<number | null>(null);
-  useEffect(() => () => {
-    if (volumeClickTimer.current) clearTimeout(volumeClickTimer.current);
-  }, []);
 
   useEffect(() => {
     if (!showVolumeSlider) return;
@@ -180,31 +175,9 @@ export const VodOsd: React.FC<VodOsdProps> = ({
   const hasAudioChoice = audioTracks.length > 1;
   const hasSubtitleChoice = subtitleTracks.length > 0;
   const hasDuration = Number.isFinite(duration) && duration > 0;
-  const shownTime = previewTime !== null ? previewTime : currentTime;
+  const shownTime = currentTime;
   const progress = hasDuration ? Math.min(1, Math.max(0, shownTime / duration)) : 0;
   const isMuted = volume <= 0;
-
-  // ── Gombok: hangerő (egy kattintás némít, dupla kattintás csúszkát nyit) ──
-  const handleVolumeClick = () => {
-    if (showVolumeSlider) {
-      if (volumeClickTimer.current) {
-        clearTimeout(volumeClickTimer.current);
-        volumeClickTimer.current = null;
-      }
-      setShowVolumeSlider(false);
-      return;
-    }
-    if (volumeClickTimer.current) {
-      clearTimeout(volumeClickTimer.current);
-      volumeClickTimer.current = null;
-      setShowVolumeSlider(true);
-      return;
-    }
-    volumeClickTimer.current = setTimeout(() => {
-      volumeClickTimer.current = null;
-      onToggleMute();
-    }, 260);
-  };
 
   // ── Távirányítós fókusz: balra/jobbra a soron belül, fel/le a sorok között ──
   const focusables = () => Array.from(
@@ -301,21 +274,13 @@ export const VodOsd: React.FC<VodOsdProps> = ({
     }
   };
 
-  // ── Idővonal: kattintás / húzás ──────────────────────────────────────────
+  // A Magic Remote egyetlen mutató-kijelöléssel pozícióra ugorhat.
   const seekFromPointer = (clientX: number) => {
     const track = seekRef.current;
     if (!track || !hasDuration) return;
     const rect = track.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / Math.max(1, rect.width)));
-    const target = ratio * duration;
-    setPreviewTime(target);
-    return target;
-  };
-
-  const commitSeek = (clientX: number) => {
-    const target = seekFromPointer(clientX);
-    if (typeof target === 'number') onSeekTo(target);
-    setPreviewTime(null);
+    onSeekTo(ratio * duration);
   };
 
   /**
@@ -444,26 +409,11 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             aria-valuemax={Math.round(duration) || 0}
             aria-valuenow={Math.round(shownTime)}
             aria-valuetext={`${formatTime(shownTime)} / ${formatTime(duration)}`}
-            onPointerDown={(event) => {
+            onClick={(event) => {
               event.stopPropagation();
-              if (!hasDuration) return;
-              (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
-              setDragging(true);
               onActivity?.();
               seekFromPointer(event.clientX);
             }}
-            onPointerMove={(event) => {
-              if (!dragging) return;
-              event.stopPropagation();
-              seekFromPointer(event.clientX);
-            }}
-            onPointerUp={(event) => {
-              if (!dragging) return;
-              event.stopPropagation();
-              setDragging(false);
-              commitSeek(event.clientX);
-            }}
-            onPointerCancel={() => { setDragging(false); setPreviewTime(null); }}
             onKeyDown={(event) => {
               // A nyilakat a szülő kezeli (sebességváltás a sávon), itt csak
               // a fókusz megtartásáról gondoskodunk.
@@ -471,15 +421,13 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             }}
             className="group relative flex-1 h-[0.75rem] flex items-center cursor-pointer focus:outline-none"
           >
-            <div className={`relative w-full rounded-full bg-white/25 transition-all ${dragging ? 'h-[0.5rem]' : 'h-[0.3125rem]'}`}>
+            <div className="relative w-full rounded-full bg-white/25 transition-all h-[0.3125rem]">
               <div
                 className="absolute left-0 top-0 bottom-0 rounded-full bg-blue-500"
                 style={{ width: `${progress * 100}%` }}
               />
               <div
-                className={`absolute top-1/2 w-4 h-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_6px_rgba(0,0,0,0.6)] transition-transform ${
-                  dragging ? 'scale-100' : 'scale-0 group-hover:scale-100 group-focus:scale-100'
-                }`}
+                className="absolute top-1/2 w-4 h-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_6px_rgba(0,0,0,0.6)] transition-transform scale-0 group-hover:scale-100 group-focus:scale-100"
                 style={{ left: `${progress * 100}%` }}
               />
             </div>
@@ -579,31 +527,66 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             )}
           </button>
 
-          {/* HANGERŐ – egy kattintás némít, dupla kattintás csúszkát nyit */}
-          <div ref={volumeRef} className="relative">
+          {/* HANGERŐ: külön, távirányítóval is elérhető némító és csúszka. */}
+          <div ref={volumeRef} className="relative flex items-center gap-1">
             <button
               type="button"
               data-vod-focus=""
               data-vod-osd-volume=""
-              onClick={() => { onActivity?.(); handleVolumeClick(); }}
+              onClick={() => { onActivity?.(); onToggleMute(); }}
               className={`${ROUND_BUTTON_BASE} ${isMuted ? ROUND_BUTTON_RED : ROUND_BUTTON_IDLE} w-[2.85rem] h-[2.85rem] md:w-[3.25rem] md:h-[3.25rem]`}
-              title={isMuted ? 'Némítás ki; dupla kattintás: hangerőcsúszka' : 'Némítás; dupla kattintás: hangerőcsúszka'}
+              title={isMuted ? 'Némítás ki' : 'Némítás'}
               aria-label={isMuted ? 'Hang bekapcsolása' : 'Hang némítása'}
             >
               {isMuted ? <VolumeX className="w-[22px] h-[22px]" /> : <Volume2 className="w-[22px] h-[22px]" />}
             </button>
+            <button
+              type="button"
+              data-vod-focus=""
+              data-vod-osd-volume-slider=""
+              onClick={() => {
+                onActivity?.();
+                if (showVolumeSlider) setShowVolumeSlider(false);
+                else {
+                  setShowVolumeSlider(true);
+                  window.requestAnimationFrame(() => volumeSliderRef.current?.focus({ preventScroll: true }));
+                }
+              }}
+              className={`${ROUND_BUTTON_BASE} ${ROUND_BUTTON_IDLE} w-[2.85rem] h-[2.85rem] md:w-[3.25rem] md:h-[3.25rem]`}
+              aria-label="Hangerő beállítása"
+              aria-expanded={showVolumeSlider}
+              title="Hangerő beállítása"
+            ><Plus className="w-4 h-4" /></button>
             {showVolumeSlider && (
               <div
                 className="absolute bottom-[3.4rem] left-1/2 -translate-x-1/2 z-[120] min-w-[70px] rounded-2xl border border-blue-500/50 bg-[#081226]/95 px-4 py-3 shadow-2xl"
                 onClick={(event) => event.stopPropagation()}
               >
                 <input
+                  ref={volumeSliderRef}
+                  data-vod-volume-range=""
+                  data-vod-focus=""
                   type="range"
                   min="0"
                   max="1"
                   step="0.01"
                   value={volume}
                   onChange={(event) => onVolumeChange(Number(event.target.value))}
+                  onKeyDown={(event) => {
+                    const key = normalizeTvKey(event);
+                    if (key === 'ArrowLeft' || key === 'ArrowDown' || key === 'ArrowRight' || key === 'ArrowUp') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onActivity?.();
+                      const delta = key === 'ArrowLeft' || key === 'ArrowDown' ? -0.05 : 0.05;
+                      onVolumeChange(Math.max(0, Math.min(1, volume + delta)));
+                    } else if (key === 'Escape' || key === 'Backspace') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setShowVolumeSlider(false);
+                      osdRef.current?.querySelector<HTMLElement>('[data-vod-osd-volume-slider]')?.focus({ preventScroll: true });
+                    }
+                  }}
                   className="h-24 w-2 cursor-pointer accent-blue-400"
                   style={{ writingMode: 'vertical-lr', direction: 'rtl' } as React.CSSProperties}
                   aria-label="Hangerő"

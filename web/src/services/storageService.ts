@@ -54,6 +54,8 @@ export const storageService = {
     try {
       const data = localStorage.getItem(SETTINGS_KEY);
       const settings = data ? { ...INITIAL_SETTINGS, ...JSON.parse(data) } : { ...INITIAL_SETTINGS };
+      // Régi, érintőképernyős csatornaváltás beállítása már nem használatos.
+      delete settings.swipeToZap;
       // A korábbi verzió alapértelmezése a kikapcsolt felirat volt.
       // Egyszer átállítjuk Magyarra; a később kézzel kiválasztott beállítást megtartjuk.
       if (!localStorage.getItem(SUBTITLE_DEFAULT_MIGRATION_KEY)) {
