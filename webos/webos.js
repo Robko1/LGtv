@@ -1507,6 +1507,18 @@
           if (firstItem) firstItem.focus({preventScroll:true});
           return;
         }
+        // Sorozatok fejlécéről BALRA a TV gombra kell visszalépni.
+        // A térbeli keresés ezt néha kihagyta a nézetek közti fókuszváltásnál.
+        if (inHeader && key === 'ArrowLeft'
+            && focusedNow.getAttribute('data-tv-header-kind') === 'series') {
+          var liveHeader = document.querySelector('header [data-tv-header-kind="live"]');
+          if (liveHeader && !isHiddenEl(liveHeader)) {
+            e.preventDefault();
+            e.stopPropagation();
+            focusAndReveal(liveHeader);
+            return;
+          }
+        }
         if (spatialPick(focusedNow, key, safeItems)) {
           e.preventDefault();
           e.stopPropagation();
