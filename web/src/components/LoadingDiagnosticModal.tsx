@@ -20,13 +20,6 @@ interface LoadingDiagnosticModalProps {
   retryInSeconds?: number | null;
 }
 
-/** Megőrizzük az exportot, mert más diagnosztikai modulok is használhatják. */
-const clipboardLog: string[] = [];
-export function reportClipboardLog(what: string): void {
-  clipboardLog.push(`${new Date().toLocaleTimeString()} ${what}`);
-  if (clipboardLog.length > 20) clipboardLog.shift();
-}
-
 const formatMs = (value: number) => value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
 const formatBytes = (value: number) => value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(2)} MB`;
 

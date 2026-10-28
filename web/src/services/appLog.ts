@@ -84,12 +84,18 @@ const lifecycleHooks: LoggingLifecycleHooks[] = [];
 /**
  * Csatlakozás a naplózás életciklusához. Ha a naplózás már fut, az `onStart`
  * azonnal lefut, így az indulási diagnosztika nem marad le a napló kezdetéről.
+ * A visszatérő függvény leiratkozik – a gyakran fel/leszerelődő lejátszó
+ * (képminőség-mintavevő) ezzel nem hagy hátra halott figyelőt.
  */
-export function registerLoggingLifecycleHooks(hooks: LoggingLifecycleHooks): void {
+export function registerLoggingLifecycleHooks(hooks: LoggingLifecycleHooks): () => void {
   lifecycleHooks.push(hooks);
   if (loggingEnabled) {
     try { hooks.onStart?.(); } catch { /* a figyelő hibája nem állíthatja meg a naplót */ }
   }
+  return () => {
+    const index = lifecycleHooks.indexOf(hooks);
+    if (index >= 0) lifecycleHooks.splice(index, 1);
+  };
 }
 
 function runLifecycleHooks(phase: 'start' | 'stop'): void {
@@ -744,6 +750,193 @@ export function memorySnapshot(): string {
 /** Rövid, ember által olvasható memória-sor a naplóhoz. */
 export function logMemory(label: string): void {
   appLog(`MEMÓRIA [${label}] ${memorySnapshot()}`);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KÉPMINŐSÉG-DIAGNOSZTIKA (élő TV + film/sorozat)
+ *
+ * CÉLJA: a „nem a legszebb Full HD / 4K kép jön vissza" jelzéseket ne
+ * találgatásból, hanem a TV-n mért TÉNYLEGES adatokból lehessen
+ * megítélni. A lejátszó (VideoPlayer) kézi naplózás alatt néhány
+ * másodpercenként mintát vesz a dekódolt képről, és ezekkel a sorokkal
+ * írja a naplóba:
+ *
+ *   KÉPMINŐSÉG; mód=élő; cím=[HU] M1 UHD; formátum=MPEG-TS (.ts);
+ *   forrás=1920x1080 (Full HD); doboz=1920x1080 CSS px (≈3840x2160
+ *   fizikai, DPR 2); skálázás=2.00x fel; képkocka=25.0/s;
+ *   eldobott=3 (0.1%); sérült=0; puffer-előre=3.4 s; pufferelés=1 alk.,
+ *   320 ms; bitráta=8.4 Mbps (HLS lista); kodek=H.264 (PMT);
+ *   hangkodek=AAC; HDR=stream: nem jelzett, panel: HDR-képes
+ *
+ * A mérés NEM talál ki adatot: amit a TV/streamszerver nem ad meg
+ * (bitráta TS-nél, HDR-metaadat sok streamnél), ott „nem mérhető /
+ * nem jelzett” szerepel – így a naplóból az is látszik, mi az, amit a
+ * szolgáltató egyáltalán nem küld el.
+ *
+ * Ezek a sorok is csak bekapcsolt kézi naplózás alatt készülnek
+ * (ugyanaz a kapu, mint minden naplósornál), normál tévézésnél a
+ * mintavevő sem fut.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** A dekódolt kép felbontási osztálya emberi névvel. */
+export function resolutionClassOf(width: number, height: number): string {
+  const w = Number(width) || 0;
+  const h = Number(height) || 0;
+  if (!w || !h) return 'ismeretlen';
+  if (w >= 3840 || h >= 2160) return 'UHD 4K';
+  if (w >= 2560 || h >= 1440) return 'QHD';
+  if (w >= 1920 || h >= 1080) return 'Full HD';
+  if (w >= 1280 || h >= 720) return 'HD';
+  if (w >= 1024 || h >= 576) return 'SD+';
+  return 'SD';
+}
+
+function formatBitrate(kbps: number | null | undefined): string {
+  const value = Number(kbps);
+  if (!Number.isFinite(value) || value <= 0) return 'nem mérhető';
+  if (value >= 1000) return `${(value / 1000).toFixed(1)} Mbps`;
+  return `${Math.round(value)} kbps`;
+}
+
+export interface PlaybackQualitySample {
+  /** 'élő' vagy 'VOD'. */
+  mode: string;
+  /** A csatorna neve vagy a film/sorozat címe. */
+  title: string;
+  /** Pl. 'MPEG-TS (.ts)', 'HLS (.m3u8)', 'Matroska (.mkv)', 'MP4 (.mp4)'. */
+  format: string;
+  /** A dekódolt kép tényleges mérete (videoWidth × videoHeight). */
+  width: number;
+  height: number;
+  /** A videóelem dobozának mérete CSS pixelben (amit a felület kirajzol). */
+  boxWidth?: number;
+  boxHeight?: number;
+  devicePixelRatio?: number;
+  /** Mért képkockasebesség (képkocka/mp), ha már van elég adat. */
+  fps?: number | null;
+  /** Az utolsó mérési ablakban eldobott képkockák száma és aránya. */
+  droppedFrames?: number | null;
+  droppedPercent?: number | null;
+  corruptedFrames?: number | null;
+  /** A lejátszási pont előtt betöltött tartalék másodpercben. */
+  bufferedAheadSeconds?: number | null;
+  /** A stream indulása óta mért pufferelési események és összidejük. */
+  bufferingEvents?: number;
+  bufferingMs?: number;
+  /** Becsült/mért bitráta kbit/s-ban és a forrása. */
+  bitrateKbps?: number | null;
+  bitrateSource?: string;
+  /** Pl. 'H.264/AVC', 'H.265/HEVC' – üres, ha sehonnan nem derül ki. */
+  videoCodec?: string;
+  audioCodec?: string;
+  codecSource?: string;
+  /** 'PQ', 'HLG', 'nem jelzett' vagy üres. */
+  hdrStream?: string;
+  /** A panel HDR-jelzése a böngésző szerint (dynamic-range). */
+  hdrPanel?: boolean | null;
+  readyState?: number;
+  networkState?: number;
+}
+
+/** Egyetlen képminőség-minta egyetlen naplósorban, összehasonlítható alakban. */
+export function logPlaybackQuality(sample: PlaybackQualitySample): void {
+  const parts: string[] = [`mód=${sample.mode}`, `cím=${sample.title || 'ismeretlen'}`, `formátum=${sample.format || 'ismeretlen'}`];
+  parts.push(`forrás=${Math.round(sample.width)}x${Math.round(sample.height)} (${resolutionClassOf(sample.width, sample.height)})`);
+  const dpr = Number(sample.devicePixelRatio) || 1;
+  if (sample.boxWidth && sample.boxHeight) {
+    const physicalW = Math.round(sample.boxWidth * dpr);
+    const physicalH = Math.round(sample.boxHeight * dpr);
+    parts.push(`doboz=${Math.round(sample.boxWidth)}x${Math.round(sample.boxHeight)} CSS px (≈${physicalW}x${physicalH} fizikai, DPR ${dpr})`);
+    if (sample.width > 0) {
+      const scale = physicalW / sample.width;
+      if (scale >= 0.97 && scale <= 1.03) parts.push('skálázás=1:1');
+      else parts.push(`skálázás=${scale.toFixed(2)}x ${scale > 1 ? 'fel' : 'le'}`);
+    }
+  }
+  parts.push(
+    sample.fps === null || sample.fps === undefined || !Number.isFinite(Number(sample.fps))
+      ? 'képkocka=mérés indul'
+      : `képkocka=${Number(sample.fps).toFixed(1)}/s`,
+  );
+  if (sample.droppedFrames !== null && sample.droppedFrames !== undefined && Number.isFinite(Number(sample.droppedFrames))) {
+    const percent = sample.droppedPercent === null || sample.droppedPercent === undefined || !Number.isFinite(Number(sample.droppedPercent))
+      ? ''
+      : ` (${Number(sample.droppedPercent).toFixed(1)}%)`;
+    parts.push(`eldobott=${Math.round(Number(sample.droppedFrames))}${percent}`);
+  } else {
+    parts.push('eldobott=nem mérhető');
+  }
+  if (sample.corruptedFrames !== null && sample.corruptedFrames !== undefined && Number.isFinite(Number(sample.corruptedFrames))) {
+    parts.push(`sérült=${Math.round(Number(sample.corruptedFrames))}`);
+  }
+  parts.push(
+    sample.bufferedAheadSeconds === null || sample.bufferedAheadSeconds === undefined || !Number.isFinite(Number(sample.bufferedAheadSeconds))
+      ? 'puffer-előre=n/a'
+      : `puffer-előre=${Number(sample.bufferedAheadSeconds).toFixed(1)} s`,
+  );
+  parts.push(`pufferelés=${Math.max(0, Math.round(Number(sample.bufferingEvents) || 0))} alk., ${Math.max(0, Math.round(Number(sample.bufferingMs) || 0))} ms összesen`);
+  const bitrate = formatBitrate(sample.bitrateKbps);
+  parts.push(bitrate === 'nem mérhető' ? 'bitráta=nem mérhető' : `bitráta=${bitrate}${sample.bitrateSource ? ` (${sample.bitrateSource})` : ''}`);
+  if (sample.videoCodec) parts.push(`kodek=${sample.videoCodec}${sample.codecSource ? ` (${sample.codecSource})` : ''}`);
+  else parts.push('kodek=nem derül ki');
+  if (sample.audioCodec) parts.push(`hangkodek=${sample.audioCodec}`);
+  const hdrStream = sample.hdrStream ? String(sample.hdrStream) : 'nem jelzett';
+  const hdrPanel = sample.hdrPanel === true ? 'HDR-képes' : sample.hdrPanel === false ? 'SDR jelzés' : 'ismeretlen';
+  parts.push(`HDR=stream: ${hdrStream}, panel: ${hdrPanel}`);
+  if (sample.readyState !== undefined) parts.push(`ready=${sample.readyState}`);
+  if (sample.networkState !== undefined) parts.push(`network=${sample.networkState}`);
+  appLog(`KÉPMINŐSÉG; ${parts.join('; ')}`);
+}
+
+export interface PlaybackQualitySummary {
+  mode: string;
+  title: string;
+  format: string;
+  /** A mért időszak hossza másodpercben. */
+  seconds: number;
+  /** Az ebben a streamben látott felbontások, pl. '1920x1080' vagy '1280x720 → 1920x1080'. */
+  resolutionsSeen: string;
+  avgFps?: number | null;
+  framesTotal?: number | null;
+  droppedFrames?: number | null;
+  droppedPercent?: number | null;
+  bufferingEvents?: number;
+  bufferingMs?: number;
+  bitrateKbps?: number | null;
+  bitrateSource?: string;
+  videoCodec?: string;
+  codecSource?: string;
+  hdrStream?: string;
+}
+
+/** Egy stream (csatorna vagy film) képminőségének záró összesítése váltáskor/leállításkor. */
+export function logPlaybackQualitySummary(summary: PlaybackQualitySummary): void {
+  const parts: string[] = [`mód=${summary.mode}`, `cím=${summary.title || 'ismeretlen'}`, `formátum=${summary.format || 'ismeretlen'}`];
+  parts.push(`időtartam=${Math.max(0, Math.round(summary.seconds))} s`);
+  parts.push(`felbontások=${summary.resolutionsSeen || 'ismeretlen'}`);
+  if (summary.avgFps !== null && summary.avgFps !== undefined && Number.isFinite(Number(summary.avgFps))) {
+    parts.push(`átlag képkocka=${Number(summary.avgFps).toFixed(1)}/s`);
+  }
+  if (summary.framesTotal !== null && summary.framesTotal !== undefined && Number.isFinite(Number(summary.framesTotal))) {
+    parts.push(`képkockák=${Math.round(Number(summary.framesTotal))}`);
+  }
+  if (summary.droppedFrames !== null && summary.droppedFrames !== undefined && Number.isFinite(Number(summary.droppedFrames))) {
+    const percent = summary.droppedPercent === null || summary.droppedPercent === undefined || !Number.isFinite(Number(summary.droppedPercent))
+      ? ''
+      : ` (${Number(summary.droppedPercent).toFixed(1)}%)`;
+    parts.push(`eldobott összesen=${Math.round(Number(summary.droppedFrames))}${percent}`);
+  }
+  parts.push(`pufferelés=${Math.max(0, Math.round(Number(summary.bufferingEvents) || 0))} alk., ${Math.max(0, Math.round(Number(summary.bufferingMs) || 0))} ms összesen`);
+  const bitrate = formatBitrate(summary.bitrateKbps);
+  if (bitrate !== 'nem mérhető') parts.push(`bitráta=${bitrate}${summary.bitrateSource ? ` (${summary.bitrateSource})` : ''}`);
+  if (summary.videoCodec) parts.push(`kodek=${summary.videoCodec}${summary.codecSource ? ` (${summary.codecSource})` : ''}`);
+  if (summary.hdrStream) parts.push(`HDR=${summary.hdrStream}`);
+  appLog(`KÉPMINŐSÉG ÖSSZESÍTÉS; ${parts.join('; ')}`);
+}
+
+/** Egysoros képminőség-esemény (fejléc-próbák, HLS-variánsok, panel-képesség, felbontásváltás). */
+export function logPlaybackQualityEvent(message: string): void {
+  appLog(`KÉPMINŐSÉG ${message}`);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

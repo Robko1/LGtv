@@ -97,7 +97,3 @@ export function fsPerfTimed(event: string, startedAt: number, detail = ''): void
   fsPerf(event, `${detail ? `${detail}; ` : ''}${elapsed.toFixed(1)} ms`);
 }
 
-/** Hány sor íródott ki eddig a teljes képernyős naplóba (tesztekhez). */
-export function fullscreenPerfLineCount(): number {
-  return lineCount;
-}

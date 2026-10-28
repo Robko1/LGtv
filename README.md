@@ -83,6 +83,53 @@ kezdő és záró sort kap eltelt idővel, így látszik, melyik szakasz viszi e
 
 A napló legfeljebb 1 MB, sorszámozott és kezdési idővel ellátott. A küldés automatikusan leállítja a naplózást; kilépéskor szintén leáll. A Supabase-en legfeljebb az öt legfrissebb teljes napló marad.
 
+### Képmínőség-napló (KÉPMINŐSÉG sorok)
+
+A cél, hogy a legjobb, legélesebb kép beállítását **mért adatokra** lehessen
+alapozni. A naplózás indítása után a lejátszó – ugyanabba a kézi naplóba –
+4 másodpercenként egy `KÉPMINŐSÉG` sort ír, streamenként pedig egy záró
+`KÉPMINŐSÉG ÖSSZESÍTÉS` sort. A naplózás nélkül a mérés nem fut.
+
+```text
+KÉPMINŐSÉG; mód=élő; cím=[HU] M1 UHD; formátum=MPEG-TS (.ts);
+forrás=1920x1080 (Full HD); doboz=1920x1080 CSS px (≈3840x2160 fizikai, DPR 2);
+skálázás=1.00x; képkocka=25.0/s; eldobott=3 (0.1%); sérült=0;
+puffer-előre=3.4 s; pufferelés=1 alk., 320 ms;
+bitráta=8.4 Mbps (HLS lista (deklarált)); kodek=H.264/AVC (PMT); hangkodek=AAC;
+HDR=stream: nem jelzett, panel: HDR-képes; ready=4; network=2
+```
+
+| Mező | Mit jelent |
+| --- | --- |
+| `forrás=` | a **dekódolt kép tényleges mérete** – ez a néző által látott részletgazdagság alapja |
+| `doboz=` | a videó megjelenítési felülete CSS pixelben, valamint a **fizikai** képpontszám (`DPR`-rel) és a `skálázás=` ebből számolt mértéke |
+| `képkocka=` | mért képkockasebesség (a `getVideoPlaybackQuality` / `requestVideoFrameCallback` számlálóiból) |
+| `eldobott=` / `sérült=` | a mérési ablakban eldobott és sérült képkockák száma és aránya |
+| `pufferelés=` / `puffer-előre=` | hányszor és mennyi ideig kellett pufferelni, illetve mennyi tartalék van a lejátszási pont előtt |
+| `bitráta=` | a **forrása is** szerepel: `HLS lista (deklarált)`, `MKV fejléc`, `TV sourceInfo`, `fájlméret/hossz átlag` vagy `hálózati mérés`; ha a TS nem ad adatot, `nem mérhető` |
+| `kodek=` / `hangkodek=` | HLS `CODECS`, MPEG-TS `PMT` streamtípus vagy MKV `CodecID` alapján (pl. H.264/AVC, H.265/HEVC, AAC, AC-3, E-AC-3) |
+| `HDR=` | a stream jelzése (PQ/HDR10, HLG – HLS `VIDEO-RANGE`, MKV színmetaadat, TV `sourceInfo`) és a panel jelzése (`dynamic-range: high`) |
+
+Emellett a fejléc-próbák külön sorban mondják meg, **mit kínál a szolgáltató**:
+HLS-nél a master lista összes variánsát (`KÉPMINŐSÉG FEJLÉC (HLS master)`),
+MPEG-TS élő adásnál a PMT kodekjeit (`KÉPMINŐSÉG FEJLÉC (PMT)`), MKV filmnél a
+fejléc képsávját (`KÉPMINŐSÉG FEJLÉC (MKV)`), valamint a TV médiaszolgáltatásának
+adatait (`KÉPMINŐSÉG TV (sourceInfo)`). A mintavétel kezdetén egy `KÉPMINŐSÉG
+KÉPESSÉG` sor rögzíti a panel felbontását, DPR-jét, színterét és a támogatott
+kodekeket (H.264/HEVC/VP9/AV1, HLS, TS).
+
+Ha a dekódolt kép Full HD alatti, vagy kisebb, mint a szolgáltató által kínált
+legjobb szint, a napló `KÉPMINŐSÉG FIGYELMEZTETÉS` sort ír. Ez azért fontos,
+mert a valós naplók tanúsága szerint több „UHD” nevű csatorna is csak
+720×405-ös (SD) képet ad – ilyenkor a kép élességét **nem a lejátszó**
+beállítása korlátozza, hanem a szolgáltatói stream (másik csatorna- vagy
+UHD-változat kell).
+
+Ez a két naplóhely ugyanaz, mint eddig: a sorokat a `web/src/services/appLog.ts`
+(`logPlaybackQuality`, `logPlaybackQualitySummary`, `logPlaybackQualityEvent`)
+írja, a mérést a `web/src/components/VideoPlayer.tsx` képminőség-mintavevője
+végzi.
+
 Ha a küldés ismét átmeneti HTTP 503-at kap, az alkalmazás két rövid, automatikus újrapróbát végez. A szerver ugyanazt a sorszám/kezdési idő párt idempotensen kezeli, ezért egy elveszett válasz nem készít dupla rekordot.
 
 ### Hol keletkezik a napló, és hová kell beírni egy új sort
@@ -151,6 +198,10 @@ web/src/services/diagnosticShareService.ts
                              Supabase küldés/history, 503 újrapróba
 web/src/services/playbackRecovery.ts
                              élő/VOD helyreállítási döntési logika
+web/src/services/embeddedSubtitleService.ts
+                             MKV fejléc + TV sourceInfo (felirat ÉS képminőség-adat)
+web/src/services/liveSubtitleService.ts
+                             PMT/HLS olvasás (felirat ÉS képminőség-adat)
 takarokep.jpg                az indítókép/betöltőképernyő EGYETLEN forrása
 tools/make-splash.py         takarokep.jpg → splash-screen.png + splash-bg.jpg
 webos/                       LG manifest, webOS bridge, ikonok, indítókép
@@ -158,7 +209,7 @@ supabase/                    Edge Function és SQL migráció
 tools/                       build- és futásidejű tesztek
 ```
 
-A programból eltávolított, nem használt régi gyökérfájlok: a régi induló MP4, a gyökérben megkettőzött ikonok, a nem hivatkozott `web/public/ikonkep.png`, a régi gyökérbeli `provision.html`, valamint a forráságban tárolt előző IPK. Az aktuális IPK build- és GitHub Release-artefakt, nem forrásfájl. A pontos hivatkozási audit: [ASSET-AUDIT.md](ASSET-AUDIT.md).
+A programból eltávolított, nem használt fájlok: a régi induló MP4, a gyökérben megkettőzött ikonok, a nem hivatkozott `web/public/ikonkep.png`, a gyökérbeli `provision.html` (a működő oldal `web/public/provision.html`), a `web/src/utils/webos.ts` (soha nem importált segéd) és az `Inditas.html` dizájn-makett (a betöltőképernyő teljes egészében a `web/index.html`-ben él), valamint a forráságban tárolt előző IPK. Az aktuális IPK build- és GitHub Release-artefakt, nem forrásfájl. A pontos hivatkozási audit: [ASSET-AUDIT.md](ASSET-AUDIT.md).
 
 ## Build
 

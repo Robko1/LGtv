@@ -1,10 +1,25 @@
-export const WEB_VERSION = '2.5.155';
+export const WEB_VERSION = '2.5.156';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.156',
+    date: '2026-10-28',
+    changes: [
+      'KÉPMINŐSÉG-DIAGNOSZTIKA A MEGLÉVŐ KÉZI NAPLÓBAN: a SÁRGA → Naplózás indítása alatt a lejátszó 4 másodpercenként KÉPMINŐSÉG sort ír ugyanabba a naplóba (web/src/services/appLog.ts). A sor a DEKÓDOLT kép tényleges felbontását (1920x1080 Full HD / 1280x720 HD / 3840x2160 UHD 4K), a megjelenítési dobozt fizikai képpontban (DPR-rel, a felskálázás mértékével), a mért képkockasebességet, az eldobott/sérült képkockákat, a pufferelést (hányszor, mennyi ideig), a puffer-előretartalékot, a bitrátát és annak forrását, a kép- és hangkodeket, valamint a HDR-adatokat tartalmazza – mindig megjelölve, ha egy adat nem mérhető',
+      'A SZOLGÁLTATÓ ÁLTAL KÍNÁLT MINŐSÉG IS A NAPLÓBA KERÜL: HLS-nél a master lista variánsai (felbontás, bitráta, CODECS, FRAME-RATE, VIDEO-RANGE), MPEG-TS élő adásnál a PMT kép/hang streamtípusai (H.264/HEVC, AAC/AC-3/E-AC-3), MKV filmnél a fejléc képsávja (deklarált felbontás, kodek, PQ/HLG színmetaadat, fájlméret) és a TV médiaszolgáltatásának sourceInfo adatai. Ehhez a felirat-felderítés fejléc-olvasóit használjuk, streamenként egyszer, csak naplózás alatt',
+      'GYENGE KÉP FIGYELMEZTETÉS: ha a dekódolt kép Full HD alatti, vagy kisebb, mint amit a szolgáltató kínál, a napló KÉPMINŐSÉG FIGYELMEZTETÉS sort ír – így a 720x405-ös „UHD” csatornák esete sem marad rejtve, és látszik, hogy a gyengébb kép a szolgáltatói stream tulajdonsága',
+      'STREAMENKÉNTI ÖSSZESÍTÉS: csatorna- vagy filmváltáskor (és a naplózás leállításakor) KÉPMINŐSÉG ÖSSZESÍTÉS sor zárja a szakaszt: időtartam, látott felbontások sorrendje, átlagos képkockaszám, eldobott képkockák aránya, pufferelések, kodek, bitráta',
+      'KÉPMINŐSÉG-JAVÍTÁS: teljes képernyőn a kép már nem nyúlik és nem vág (contain) – a filmek korábbi `fill` módja torzította a 2.39:1-es képet, az élő `cover` pedig nem-16:9 forrásnál nagyított és levágott. 16:9 forrásnál a kép változatlan; a főoldali kis előnézet továbbra is kitölt (cover)',
+      'NINCS HAMIS FELBONTÁS-ADAT: a csatornalistában minden csatorna „1920×1080” felbontást mutatott, holott ezt senki nem mérte (a szolgáltató nem is adja meg). Ez a fix, kitalált mező törölve – a valós felbontást mostantól a napló méri',
+      'HÁLÓZATI HIBAKÓD BEKÖTVE: a főoldal magyarázata (`explainNetError`) eddig mindig üres volt, mert a böngésző hibakódját (pl. net::ERR_NAME_NOT_RESOLVED) senki nem mentette el – most a hálózati réteg eltárolja, így a hibaüzenet megmondja, hogy a cím nem oldható fel, vagy a szerver nem válaszol',
+      'HOLT KÓD TÖRLÉSE: fel nem használt `utils/webos.ts`, a gyökérben megkettőzött régi `provision.html`, a dizájn-makett `Inditas.html` (a betöltőképernyő teljes egészében a web/index.html-ben él), valamint nem hívott exportok (pushProvider/validateXtream/validateM3u, describeCatalogDiff, countCountriesInCategories, setNetErrorHint helyett bekötés, reportClipboardLog, fullscreenPerfLineCount, resetIdbStoreForTests, nowWithClockOffset)',
+      'ÚJ TESZTEK: tools/test-quality-diagnostics.mjs (PMT kodekek, HLS szintek, MKV képsáv, sourceInfo alakok) és a VideoPlayer futásidejű próbája most a KÉPMINŐSÉG sorokat, a gyenge kép figyelmeztetését és azt is ellenőrzi, hogy naplózás nélkül egyetlen minta sem készül',
+    ],
+  },
   {
     version: '2.5.155',
     date: '2026-10-27',

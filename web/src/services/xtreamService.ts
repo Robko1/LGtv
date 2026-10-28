@@ -445,7 +445,6 @@ export const xtreamService = {
           country: country,
           countryCode: countryCode,
           flag: flag,
-          resolution: '1920×1080',
           format: 'ts',
           isFavorite: false,
           orderIndex: channels.length,

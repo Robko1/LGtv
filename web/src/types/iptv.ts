@@ -50,7 +50,6 @@ export interface Channel {
   country: string;
   countryCode: string;
   flag: string;
-  resolution: string;
   format: 'ts' | 'm3u8' | 'mp4';
   epgNow?: {
     time: string;

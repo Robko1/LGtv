@@ -35,11 +35,29 @@ export interface EmbeddedSubtitle {
   isDefault: boolean;
 }
 
+/** A Matroska fejlécben deklarált képsáv adatai (képminőség-naplóhoz). */
+export interface MatroskaVideoInfo {
+  /** Emberi kodeknév, pl. 'H.265/HEVC'. */
+  codec: string;
+  /** A nyers Matroska CodecID, pl. 'V_MPEGH/ISO/HEVC'. */
+  codecId: string;
+  width: number;
+  height: number;
+  /** 'PQ (HDR10)' / 'HLG' / 'BT.2020 szín' / '' (nincs színmetaadat a fejlécben). */
+  hdr: string;
+}
+
 export interface MatroskaProbeResult {
   subtitles: EmbeddedSubtitle[];
   /** Képalapú (PGS/VobSub) sávok száma – ezeket az LG feliratkezelője nem rajzolja ki. */
   skippedBitmap: number;
   totalSubtitleTracks: number;
+  /** A fejlécben deklarált képsáv (az első), ha kiolvasható. */
+  video: MatroskaVideoInfo | null;
+  /** A hangsávok kodekjeinek emberi nevei. */
+  audioCodecs: string[];
+  /** A teljes fájlméret bájtban, ha a válaszfejlécből kiderült (átlagbitrátához). */
+  fileBytes?: number | null;
 }
 
 /* ───────────────────────── Matroska (EBML) fejléc olvasása ───────────────────────── */
@@ -57,10 +75,52 @@ const EBML_ID = {
   NAME: 0x536e,
   FLAG_DEFAULT: 0x88,
   FLAG_FORCED: 0x55aa,
+  /* Képsáv (Video) és színmetaadat – a képminőség-napló kodek/felbontás/HDR adatai. */
+  VIDEO: 0xe0,
+  PIXEL_WIDTH: 0xb0,
+  PIXEL_HEIGHT: 0xba,
+  COLOUR: 0x55b0,
+  COLOUR_TRANSFER: 0x55ba,
+  COLOUR_PRIMARIES: 0x55bb,
 } as const;
 
-/** Matroska sávtípus: 17 = felirat. */
+/** Matroska sávtípusok: 1 = kép, 2 = hang, 17 = felirat. */
+const MATROSKA_TRACK_TYPE_VIDEO = 1;
+const MATROSKA_TRACK_TYPE_AUDIO = 2;
 const MATROSKA_TRACK_TYPE_SUBTITLE = 17;
+
+/** A Matroska CodecID emberi neve a naplóhoz. */
+export function matroskaCodecLabel(codecId: string): string {
+  const id = String(codecId || '').trim().toUpperCase();
+  if (!id) return '';
+  if (id.indexOf('V_MPEGH') === 0 || id.indexOf('HEVC') >= 0) return 'H.265/HEVC';
+  if (id.indexOf('V_MPEG4/ISO/AVC') === 0) return 'H.264/AVC';
+  if (id === 'V_AV1') return 'AV1';
+  if (id === 'V_VP9') return 'VP9';
+  if (id === 'V_VP8') return 'VP8';
+  if (id === 'V_MPEG2') return 'MPEG-2 Video';
+  if (id === 'V_MPEG1') return 'MPEG-1 Video';
+  if (id.indexOf('V_QUICKTIME') === 0) return 'QuickTime Video';
+  if (id === 'A_AAC') return 'AAC';
+  if (id === 'A_AC3') return 'AC-3';
+  if (id === 'A_EAC3') return 'E-AC-3';
+  if (id === 'A_DTS') return 'DTS';
+  if (id === 'A_TRUEHD') return 'TrueHD';
+  if (id === 'A_FLAC') return 'FLAC';
+  if (id === 'A_OPUS') return 'Opus';
+  if (id === 'A_VORBIS') return 'Vorbis';
+  if (id === 'A_MPEG/L3' || id === 'A_MPEG/L2' || id === 'A_MPEG/L1') return 'MPEG Audio';
+  if (id.indexOf('A_PCM') === 0) return 'PCM';
+  return id;
+}
+
+/** A Matroska Colour elem átviteli függvényéből a HDR fajta (16 = PQ, 18 = HLG). */
+export function matroskaHdrLabel(transfer: number, primaries: number): string {
+  if (transfer === 16) return 'PQ (HDR10)';
+  if (transfer === 18) return 'HLG';
+  if (primaries === 9) return 'BT.2020 szín (átvitel nincs jelölve)';
+  return '';
+}
 
 interface Vint {
   value: number;
@@ -171,10 +231,10 @@ export function parseMatroskaTracks(bytes: Uint8Array): MatroskaProbeResult | nu
       if (childId === EBML_ID.CLUSTER) return false; // a fejléc véget ért
       if (childId !== EBML_ID.TRACKS) return true;
 
-      const rawTracks: Array<{ type: number; codec: string; lang: string; langIetf: string; name: string; isDefault: boolean; forced: boolean }> = [];
+      const rawTracks: Array<{ type: number; codec: string; lang: string; langIetf: string; name: string; isDefault: boolean; forced: boolean; width: number; height: number; transfer: number; primaries: number }> = [];
       walkElements(bytes, childStart, childEnd, (entryId, entryStart, entryEnd) => {
         if (entryId !== EBML_ID.TRACK_ENTRY) return true;
-        const track = { type: -1, codec: '', lang: '', langIetf: '', name: '', isDefault: true, forced: false };
+        const track = { type: -1, codec: '', lang: '', langIetf: '', name: '', isDefault: true, forced: false, width: 0, height: 0, transfer: 0, primaries: 0 };
         walkElements(bytes, entryStart, entryEnd, (fieldId, fieldStart, fieldEnd) => {
           if (fieldId === EBML_ID.TRACK_TYPE) track.type = readUint(bytes, fieldStart, fieldEnd);
           else if (fieldId === EBML_ID.CODEC_ID) track.codec = readUtf8(bytes, fieldStart, fieldEnd);
@@ -183,6 +243,21 @@ export function parseMatroskaTracks(bytes: Uint8Array): MatroskaProbeResult | nu
           else if (fieldId === EBML_ID.NAME) track.name = readUtf8(bytes, fieldStart, fieldEnd);
           else if (fieldId === EBML_ID.FLAG_DEFAULT) track.isDefault = readUint(bytes, fieldStart, fieldEnd) === 1;
           else if (fieldId === EBML_ID.FLAG_FORCED) track.forced = readUint(bytes, fieldStart, fieldEnd) === 1;
+          else if (fieldId === EBML_ID.VIDEO) {
+            // A fejlécben deklarált képméret + színmetaadat (képminőség-napló).
+            walkElements(bytes, fieldStart, fieldEnd, (videoId, videoStart, videoEnd) => {
+              if (videoId === EBML_ID.PIXEL_WIDTH) track.width = readUint(bytes, videoStart, videoEnd);
+              else if (videoId === EBML_ID.PIXEL_HEIGHT) track.height = readUint(bytes, videoStart, videoEnd);
+              else if (videoId === EBML_ID.COLOUR) {
+                walkElements(bytes, videoStart, videoEnd, (colourId, colourStart, colourEnd) => {
+                  if (colourId === EBML_ID.COLOUR_TRANSFER) track.transfer = readUint(bytes, colourStart, colourEnd);
+                  else if (colourId === EBML_ID.COLOUR_PRIMARIES) track.primaries = readUint(bytes, colourStart, colourEnd);
+                  return true;
+                });
+              }
+              return true;
+            });
+          }
           return true;
         });
         rawTracks.push(track);
@@ -206,7 +281,29 @@ export function parseMatroskaTracks(bytes: Uint8Array): MatroskaProbeResult | nu
           isDefault: track.isDefault,
         });
       });
-      result = { subtitles, skippedBitmap, totalSubtitleTracks: subtitleTracks.length };
+      const videoTrack = rawTracks.find((track) => track.type === MATROSKA_TRACK_TYPE_VIDEO) || null;
+      const audioCodecs: string[] = [];
+      rawTracks
+        .filter((track) => track.type === MATROSKA_TRACK_TYPE_AUDIO)
+        .forEach((track) => {
+          const label = matroskaCodecLabel(track.codec);
+          if (label && !audioCodecs.includes(label)) audioCodecs.push(label);
+        });
+      result = {
+        subtitles,
+        skippedBitmap,
+        totalSubtitleTracks: subtitleTracks.length,
+        video: videoTrack
+          ? {
+              codec: matroskaCodecLabel(videoTrack.codec),
+              codecId: videoTrack.codec,
+              width: videoTrack.width,
+              height: videoTrack.height,
+              hdr: matroskaHdrLabel(videoTrack.transfer, videoTrack.primaries),
+            }
+          : null,
+        audioCodecs,
+      };
       return false;
     });
     return false;
@@ -248,6 +345,18 @@ function fetchFileHead(url: string): Promise<MatroskaProbeResult | null> {
       resolve(value);
     };
 
+    const fileBytesFromHeaders = (): number | null => {
+      try {
+        const range = String(xhr.getResponseHeader('Content-Range') || '');
+        const rangeMatch = range.match(/\/(\d+)\s*$/);
+        if (rangeMatch) return Number(rangeMatch[1]) || null;
+        const length = Number(xhr.getResponseHeader('Content-Length'));
+        return Number.isFinite(length) && length > 0 ? length : null;
+      } catch {
+        return null;
+      }
+    };
+
     const tryParse = (text: string, finalAttempt: boolean): boolean => {
       const length = Math.min(text.length, PROBE_MAX_BYTES);
       if (length >= 4) {
@@ -259,6 +368,7 @@ function fetchFileHead(url: string): Promise<MatroskaProbeResult | null> {
       for (let i = 0; i < length; i += 1) bytes[i] = text.charCodeAt(i) & 0xff;
       const parsed = parseMatroskaTracks(bytes);
       if (parsed) {
+        parsed.fileBytes = fileBytesFromHeaders();
         finish(parsed);
         return true;
       }
@@ -329,6 +439,32 @@ export async function probeEmbeddedSubtitles(streamUrl: string): Promise<Embedde
     appLog('Beágyazott felirat (CC): a fájl fejlécében nincs feliratsáv.');
   }
   return result.subtitles;
+}
+
+export interface MatroskaQualityInfo {
+  video: MatroskaVideoInfo | null;
+  audioCodecs: string[];
+  fileBytes: number | null;
+}
+
+/**
+ * A film fejlécének KÉPadatai a képminőség-naplóhoz (kodek, deklarált
+ * felbontás, HDR-színmetaadat, fájlméret). Ugyanazt a gyorsítótárazott
+ * fejléc-próbát használja, mint a felirat-felderítés, ezért általában
+ * nem nyit második kapcsolatot; saját naplósort nem ír.
+ */
+export async function probeMatroskaVideoInfo(streamUrl: string): Promise<MatroskaQualityInfo | null> {
+  const url = String(streamUrl || '');
+  if (!url || !shouldProbeMatroska(url)) return null;
+  const cached = probeCache.get(url);
+  const result = cached || (await fetchFileHead(url));
+  if (!result) return null;
+  if (!cached) probeCache.set(url, result);
+  return {
+    video: result.video,
+    audioCodecs: result.audioCodecs,
+    fileBytes: result.fileBytes ?? null,
+  };
 }
 
 /* ───────────────────────── webOS médiaszolgáltatás (Luna) ───────────────────────── */
@@ -606,4 +742,168 @@ export function subscribeSourceInfoSubtitles(
   })();
 
   return cancel;
+}
+
+/* ─────────────── Képminőség-diagnosztika: a TV sourceInfo képadatai ─────────────── */
+
+export interface SourceInfoQuality {
+  videoCodec: string;
+  audioCodec: string;
+  width: number;
+  height: number;
+  /** Képkockasebesség, ha a TV jelzi (pl. 25, 50, 59.94). */
+  frameRate: number | null;
+  /** Bitráta kbit/s-ban, ha a TV jelzi. */
+  bitrateKbps: number | null;
+  /** Pl. 'PQ', 'HLG', 'Dolby Vision' – üres, ha a TV nem jelzi. */
+  hdr: string;
+}
+
+const SOURCEINFO_CODEC_HINT = /h\.?264|avc|h\.?265|hevc|vp9|vp8|av1|mpeg|aac|ac-?3|dts|opus|vorbis|flac|pcm/i;
+
+function sourceInfoNumber(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = Number(record[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+function sourceInfoText(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = String(record[key] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+/**
+ * A médiaszolgáltatás `sourceInfo` válaszából a képadatokat keresi ki.
+ *
+ * A webOS a feliratsávok mellett sok modellen a képsáv adatait is elküldi
+ * (videoTrackInfo: codec, width, height, frameRate, bitRate), de a mezők
+ * neve és jelenléte verziófüggő – ezért védekezően, több névalakot
+ * próbálva olvasunk. `null` = a válaszban nincs használható képadat.
+ */
+export function extractSourceInfoQuality(payload: unknown, depth = 0): SourceInfoQuality | null {
+  if (depth > 6 || payload === null || payload === undefined || typeof payload !== 'object') return null;
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const found = extractSourceInfoQuality(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  const record = payload as Record<string, unknown>;
+
+  const fromTrack = (entry: Record<string, unknown>): SourceInfoQuality | null => {
+    const width = sourceInfoNumber(entry, ['width', 'videoWidth', 'horizontalSize']);
+    const height = sourceInfoNumber(entry, ['height', 'videoHeight', 'verticalSize']);
+    const codecText = sourceInfoText(entry, ['codec', 'videoCodec', 'type']);
+    if (!width && !height && !SOURCEINFO_CODEC_HINT.test(codecText)) return null;
+    const rawBitrate = sourceInfoNumber(entry, ['bitRate', 'bitrate', 'bit_rate', 'bandwidth']);
+    // A TV bit/s-ban szokta adni; a gyanúsan kicsi értéket kbit/s-nak vesszük.
+    const bitrateKbps = rawBitrate === null ? null : rawBitrate > 50000 ? Math.round(rawBitrate / 1000) : Math.round(rawBitrate);
+    const hdr = sourceInfoText(entry, ['hdr', 'hdrType', 'dynamicRange', 'videoRange', 'dolbyVision']);
+    return {
+      videoCodec: codecText,
+      audioCodec: '',
+      width: width || 0,
+      height: height || 0,
+      frameRate: sourceInfoNumber(entry, ['frameRate', 'framerate', 'frame_rate', 'fps']),
+      bitrateKbps,
+      hdr,
+    };
+  };
+
+  for (const key of ['videoTrackInfo', 'videoTracks']) {
+    const list = record[key];
+    if (Array.isArray(list)) {
+      for (const entry of list) {
+        if (entry && typeof entry === 'object') {
+          const quality = fromTrack(entry as Record<string, unknown>);
+          if (quality) return quality;
+        }
+      }
+    }
+  }
+  const self = fromTrack(record);
+  if (self) return self;
+
+  for (const value of Object.values(record)) {
+    const found = extractSourceInfoQuality(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Egyszeri sourceInfo-lekérdezés a képminőség-naplóhoz. Csak kézi
+ * naplózás alatt hívjuk, streamenként egyszer; ha a TV időn belül nem
+ * küld képadatot, `null` – a lejátszást nem érinti.
+ */
+export function probeSourceInfoQuality(
+  video: HTMLVideoElement | null,
+  timeoutMs = 8000,
+): Promise<SourceInfoQuality | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let bridge: PalmBridgeLike | null = null;
+    let mediaIdSeen: string | null = null;
+
+    const finish = (value: SourceInfoQuality | null) => {
+      if (settled) return;
+      settled = true;
+      if (mediaIdSeen) void callWebosMedia('unsubscribe', { mediaId: mediaIdSeen }, 1500);
+      try { bridge?.cancel?.(); } catch { /* régebbi motor */ }
+      if (bridge) {
+        const index = liveBridges.indexOf(bridge);
+        if (index >= 0) liveBridges.splice(index, 1);
+        bridge = null;
+      }
+      resolve(value);
+    };
+    const timer = window.setTimeout(() => finish(null), timeoutMs);
+
+    void (async () => {
+      const mediaId = await waitForMediaId(video, 5000);
+      if (settled || !mediaId) {
+        window.clearTimeout(timer);
+        finish(null);
+        return;
+      }
+      mediaIdSeen = mediaId;
+      const handle = (payload: unknown) => {
+        if (settled) return;
+        const quality = extractSourceInfoQuality(payload);
+        if (quality) {
+          window.clearTimeout(timer);
+          finish(quality);
+        }
+      };
+      try {
+        const win = window as unknown as {
+          webOS?: { service?: { request?: (uri: string, options: Record<string, unknown>) => { cancel?: () => void } | void } };
+          PalmServiceBridge?: new () => PalmBridgeLike;
+        };
+        if (win.webOS?.service?.request) {
+          win.webOS.service.request('luna://com.webos.media', {
+            method: 'subscribe',
+            parameters: { mediaId, subscribe: true },
+            onSuccess: handle,
+            onFailure: () => { /* a TV nem ad adatot: a próba csendben leáll */ },
+          });
+        } else if (typeof win.PalmServiceBridge === 'function') {
+          bridge = new win.PalmServiceBridge();
+          liveBridges.push(bridge);
+          bridge.onservicecallback = (message: string) => {
+            try { handle(JSON.parse(message)); } catch { /* olvashatatlan esemény */ }
+          };
+          bridge.call('luna://com.webos.media/subscribe', JSON.stringify({ mediaId, subscribe: true }));
+        }
+      } catch {
+        /* a diagnosztikai próba nem ronthatja el a lejátszást */
+      }
+    })();
+  });
 }

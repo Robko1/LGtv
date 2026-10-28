@@ -395,7 +395,6 @@ function decodeChannels(rows: Row[], provider: ProviderRef): Channel[] {
       country: info.country,
       countryCode: String(row[7] || info.countryCode),
       flag: String(row[6] || info.flag),
-      resolution: '1920×1080',
       format: 'ts',
       isFavorite: false,
       orderIndex: i,

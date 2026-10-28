@@ -618,12 +618,28 @@ interface SectionBuffer {
   wanted: number;
 }
 
+/** Egy PMT-beli elemi stream (kép/hang/felirat) nyers típusa és leírói. */
+export interface TsElementaryStream {
+  pid: number;
+  /** A PMT stream_type bájtja (0x1B = H.264, 0x24 = HEVC, 0x0F = AAC…). */
+  streamType: number;
+  /** Az ES leírók címkéi (pl. 0x6A = AC-3, 0x7A = E-AC-3). */
+  descriptorTags: number[];
+}
+
+export interface TsProgramInfo {
+  subtitles: LiveSubtitleTrack[];
+  streams: TsElementaryStream[];
+}
+
 /**
- * Az MPEG-TS részletből a PMT felirat-leíróinak (DVB 0x59, teletext 0x56)
- * kiolvasása. `null` = a PAT/PMT még nem érkezett meg ennyi adatból;
- * üres tömb = a PMT megvan, de nincs feliratsáv a műsorban.
+ * Az MPEG-TS részletből a PMT teljes kiolvasása: felirat-leírók (DVB 0x59,
+ * teletext 0x56) ÉS az elemi streamek típusai (a képminőség-diagnosztika
+ * kodekadata innen jön: a PMT pontosan megmondja, H.264 vagy HEVC képet
+ * küld-e a szolgáltató). `null` = a PAT/PMT még nem érkezett meg ennyi
+ * adatból.
  */
-export function parseTsSubtitleTracks(bytes: Uint8Array): LiveSubtitleTrack[] | null {
+export function parseTsProgram(bytes: Uint8Array): TsProgramInfo | null {
   const packetSize = detectTsPacketSize(bytes);
   if (!packetSize) return null;
   const headerOffset = packetSize === 192 ? 4 : 0;
@@ -631,6 +647,7 @@ export function parseTsSubtitleTracks(bytes: Uint8Array): LiveSubtitleTrack[] | 
   let pmtPid: number | null = null;
   const sections = new Map<number, SectionBuffer>();
   const tracks: LiveSubtitleTrack[] = [];
+  const streams: TsElementaryStream[] = [];
   const seen = new Set<string>();
   let pmtParsed = false;
 
@@ -666,16 +683,19 @@ export function parseTsSubtitleTracks(bytes: Uint8Array): LiveSubtitleTrack[] | 
     let pos = 12 + programInfoLength;
     const end = section.length - 4; // CRC
     while (pos + 5 <= end) {
+      const streamType = section[pos];
       const elementaryPid = ((section[pos + 1] & 0x1f) << 8) | section[pos + 2];
       const esInfoLength = ((section[pos + 3] & 0x0f) << 8) | section[pos + 4];
       const descStart = pos + 5;
       const descEnd = Math.min(end, descStart + esInfoLength);
+      const descriptorTags: number[] = [];
       let d = descStart;
       while (d + 2 <= descEnd) {
         const tag = section[d];
         const len = section[d + 1];
         const body = d + 2;
         if (body + len > descEnd) break;
+        descriptorTags.push(tag);
         if (tag === 0x59) {
           // DVB subtitling descriptor: 8 bájtos bejegyzések (nyelv + típus + oldalak).
           for (let e = 0; e + 8 <= len; e += 8) {
@@ -692,6 +712,7 @@ export function parseTsSubtitleTracks(bytes: Uint8Array): LiveSubtitleTrack[] | 
         }
         d = body + len;
       }
+      streams.push({ pid: elementaryPid, streamType, descriptorTags });
       pos = descStart + esInfoLength;
     }
     pmtParsed = true;
@@ -735,7 +756,68 @@ export function parseTsSubtitleTracks(bytes: Uint8Array): LiveSubtitleTrack[] | 
     feedPacket(pid, bytes.subarray(payloadStart, payloadEnd), payloadUnitStart);
   }
 
-  return pmtParsed ? tracks : null;
+  return pmtParsed ? { subtitles: tracks, streams } : null;
+}
+
+/**
+ * Az MPEG-TS részletből a PMT felirat-leíróinak (DVB 0x59, teletext 0x56)
+ * kiolvasása. `null` = a PAT/PMT még nem érkezett meg ennyi adatból;
+ * üres tömb = a PMT megvan, de nincs feliratsáv a műsorban.
+ */
+export function parseTsSubtitleTracks(bytes: Uint8Array): LiveSubtitleTrack[] | null {
+  const program = parseTsProgram(bytes);
+  return program ? program.subtitles : null;
+}
+
+/* ───────────────── Képminőség: PMT kodektípusok emberi neve ───────────────── */
+
+const TS_VIDEO_CODECS: Record<number, string> = {
+  0x01: 'MPEG-1 Video',
+  0x02: 'MPEG-2 Video',
+  0x10: 'MPEG-4 Video',
+  0x1b: 'H.264/AVC',
+  0x24: 'H.265/HEVC',
+  0x42: 'AVS Video',
+  0xea: 'VC-1',
+};
+
+const TS_AUDIO_CODECS: Record<number, string> = {
+  0x03: 'MPEG-1 Audio',
+  0x04: 'MPEG-2 Audio',
+  0x0f: 'AAC',
+  0x11: 'AAC (LATM)',
+  0x1c: 'MPEG-4 Audio',
+  0x81: 'AC-3',
+  0x87: 'E-AC-3',
+};
+
+/** A PMT kép-streamtípusainak nevei a naplóhoz (üres = nincs felismert képsáv). */
+export function tsVideoCodecLabel(streams: TsElementaryStream[]): string {
+  for (const stream of streams) {
+    const label = TS_VIDEO_CODECS[stream.streamType];
+    if (label) return label;
+  }
+  return '';
+}
+
+/**
+ * A PMT hang-streamtípusainak nevei. A 0x06 „privát" típust a leírók
+ * pontosítják (0x6A AC-3, 0x7A E-AC-3, 0x7B DTS, 0x7C AAC) – ez a DVB
+ * adások szokásos jelölése.
+ */
+export function tsAudioCodecLabels(streams: TsElementaryStream[]): string[] {
+  const labels: string[] = [];
+  for (const stream of streams) {
+    let label = TS_AUDIO_CODECS[stream.streamType] || '';
+    if (!label && stream.streamType === 0x06) {
+      if (stream.descriptorTags.includes(0x7a)) label = 'E-AC-3';
+      else if (stream.descriptorTags.includes(0x6a)) label = 'AC-3';
+      else if (stream.descriptorTags.includes(0x7b)) label = 'DTS';
+      else if (stream.descriptorTags.includes(0x7c)) label = 'AAC';
+    }
+    if (label && !labels.includes(label)) labels.push(label);
+  }
+  return labels;
 }
 
 /* ───────────────────────── HLS lejátszási lista olvasása ───────────────────────── */
@@ -904,4 +986,213 @@ export async function probeLiveSubtitles(streamUrl: string): Promise<LiveSubtitl
     appLog(`Élő felirat (CC): a stream fejlécében nincs feliratsáv [${outcome.source}].`);
   }
   return outcome.tracks;
+}
+
+/* ─────────────── Képminőség-diagnosztika: élő stream kodekjei ─────────────── */
+
+type ProgramOutcome =
+  | { kind: 'program'; program: TsProgramInfo }
+  | { kind: 'segment'; url: string }
+  | { kind: 'none' };
+
+/**
+ * Ugyanaz a kíméletes fejléc-lekérés, mint a felirat-próbánál, de a PMT
+ * teljes programtábláját adja vissza (kép/hang streamtípusokkal).
+ * Csak a stream elejét olvassa, és a PMT megérkezésekor azonnal bont.
+ */
+function fetchLiveProgram(url: string): Promise<ProgramOutcome> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let thresholdIndex = 0;
+    const xhr = new XMLHttpRequest();
+
+    const finish = (value: ProgramOutcome) => {
+      if (settled) return;
+      settled = true;
+      try { xhr.abort(); } catch { /* már lezárult */ }
+      resolve(value);
+    };
+
+    const tryParse = (text: string, finalAttempt: boolean): boolean => {
+      if (!text) return false;
+      if (text.trimStart().startsWith('#EXTM3U') || (text.length < 16 && text.startsWith('#'))) {
+        if (text.length < 256 && !finalAttempt) return false;
+        const segmentUrl = firstTsSegmentUrl(text, url);
+        if (segmentUrl) {
+          finish({ kind: 'segment', url: segmentUrl });
+          return true;
+        }
+        if (finalAttempt) finish({ kind: 'none' });
+        return finalAttempt;
+      }
+      const length = Math.min(text.length, PROBE_MAX_BYTES);
+      const bytes = new Uint8Array(length);
+      for (let i = 0; i < length; i += 1) bytes[i] = text.charCodeAt(i) & 0xff;
+      const program = parseTsProgram(bytes);
+      if (program) {
+        finish({ kind: 'program', program });
+        return true;
+      }
+      if (finalAttempt) finish({ kind: 'none' });
+      return false;
+    };
+
+    try {
+      xhr.open('GET', url, true);
+      xhr.overrideMimeType('text/plain; charset=x-user-defined');
+      xhr.timeout = 12000;
+      xhr.onprogress = () => {
+        if (settled) return;
+        const text = xhr.responseText || '';
+        if (text.trimStart().startsWith('#EXTM3U') && tryParse(text, false)) return;
+        while (thresholdIndex < PROBE_THRESHOLDS.length && text.length >= PROBE_THRESHOLDS[thresholdIndex]) {
+          thresholdIndex += 1;
+          if (tryParse(text, thresholdIndex >= PROBE_THRESHOLDS.length)) return;
+        }
+      };
+      xhr.onload = () => {
+        if (settled) return;
+        if (xhr.status !== 200 && xhr.status !== 206 && xhr.status !== 0) {
+          finish({ kind: 'none' });
+          return;
+        }
+        tryParse(xhr.responseText || '', true);
+        finish({ kind: 'none' });
+      };
+      xhr.onerror = () => finish({ kind: 'none' });
+      xhr.ontimeout = () => finish({ kind: 'none' });
+      xhr.send();
+    } catch {
+      resolve({ kind: 'none' });
+    }
+  });
+}
+
+export interface LiveStreamCodecs {
+  /** Pl. 'H.264/AVC', 'H.265/HEVC' – üres, ha a PMT-ből nem derül ki. */
+  video: string;
+  /** A hangsávok kodekjei, pl. ['AAC', 'AC-3']. */
+  audio: string[];
+  /** Az összes elemi stream típusának rövid listája a naplóhoz (pl. '0x1B,0x0F,0x06'). */
+  streamTypes: string;
+}
+
+const codecProbeCache = new Map<string, LiveStreamCodecs | null>();
+
+/**
+ * Az élő stream kép/hang kodekjének kiolvasása a PMT-ből (képminőség-naplóhoz).
+ *
+ * FONTOS: ezt csak kézi naplózás alatt hívjuk (a lejátszó mintavevője),
+ * streamenként egyszer, gyorsítótárazva – normál tévézésnél nem nyitunk
+ * plusz kapcsolatot a szolgáltató felé. Hiba esetén `null`.
+ */
+export async function probeLiveStreamCodecs(streamUrl: string): Promise<LiveStreamCodecs | null> {
+  const url = String(streamUrl || '');
+  if (!url) return null;
+  if (codecProbeCache.has(url)) return codecProbeCache.get(url) ?? null;
+
+  let outcome = await fetchLiveProgram(url);
+  if (outcome.kind === 'segment') outcome = await fetchLiveProgram(outcome.url);
+  const result: LiveStreamCodecs | null = outcome.kind === 'program'
+    ? {
+        video: tsVideoCodecLabel(outcome.program.streams),
+        audio: tsAudioCodecLabels(outcome.program.streams),
+        streamTypes: outcome.program.streams
+          .map((stream) => `0x${stream.streamType.toString(16).toUpperCase().padStart(2, '0')}`)
+          .join(','),
+      }
+    : null;
+  if (codecProbeCache.size > 100) codecProbeCache.clear();
+  codecProbeCache.set(url, result);
+  return result;
+}
+
+/* ─────────────── Képminőség-diagnosztika: HLS lejátszási lista ─────────────── */
+
+export interface HlsVariantInfo {
+  /** A lista által deklarált sávszélesség (bit/s), ha szerepel. */
+  bandwidth: number | null;
+  averageBandwidth: number | null;
+  /** Pl. '1920x1080'. */
+  resolution: string;
+  /** Pl. 'avc1.640028,mp4a.40.2' – ebből derül ki a kodek és a profil. */
+  codecs: string;
+  frameRate: string;
+  /** 'PQ' / 'HLG' / 'SDR', ha a lista jelzi. */
+  videoRange: string;
+}
+
+export interface HlsPlaylistInfo {
+  /** A master lista variánsai (media listánál üres). */
+  variants: HlsVariantInfo[];
+  /** Media lista szegmenseinek száma (master listánál 0). */
+  segmentCount: number;
+  /** #EXT-X-TARGETDURATION értéke, ha van. */
+  targetDuration: number | null;
+}
+
+/** A HLS lista szövegéből a szolgáltató által KÍNÁLT minőségi szintek kiolvasása. */
+export function parseHlsPlaylistInfo(text: string): HlsPlaylistInfo | null {
+  const source = String(text || '');
+  if (!source.trimStart().startsWith('#EXTM3U')) return null;
+  const variants: HlsVariantInfo[] = [];
+  let segmentCount = 0;
+  let targetDuration: number | null = null;
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.startsWith('#EXT-X-STREAM-INF:')) {
+      const attrs = parseHlsAttributes(line);
+      const bandwidth = Number(attrs.BANDWIDTH);
+      const average = Number(attrs['AVERAGE-BANDWIDTH']);
+      variants.push({
+        bandwidth: Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : null,
+        averageBandwidth: Number.isFinite(average) && average > 0 ? average : null,
+        resolution: String(attrs.RESOLUTION || ''),
+        codecs: String(attrs.CODECS || ''),
+        frameRate: String(attrs['FRAME-RATE'] || ''),
+        videoRange: String(attrs['VIDEO-RANGE'] || ''),
+      });
+    } else if (line.startsWith('#EXTINF:')) {
+      segmentCount += 1;
+    } else if (line.startsWith('#EXT-X-TARGETDURATION:')) {
+      const value = Number(line.slice('#EXT-X-TARGETDURATION:'.length));
+      if (Number.isFinite(value) && value > 0) targetDuration = value;
+    }
+  }
+  return { variants, segmentCount, targetDuration };
+}
+
+/**
+ * A HLS lista egyetlen lekérése a képminőség-naplóhoz. Ugyanaz a cím,
+ * amit a lejátszó is kér; csak kézi naplózás alatt hívjuk, streamenként
+ * egyszer. Hiba esetén `null` – a lejátszást nem érinti.
+ */
+export function probeHlsPlaylist(streamUrl: string): Promise<HlsPlaylistInfo | null> {
+  const url = String(streamUrl || '');
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    const xhr = new XMLHttpRequest();
+    const finish = (value: HlsPlaylistInfo | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    try {
+      xhr.open('GET', url, true);
+      xhr.timeout = 8000;
+      xhr.onload = () => {
+        if (xhr.status !== 200 && xhr.status !== 206 && xhr.status !== 0) {
+          finish(null);
+          return;
+        }
+        finish(parseHlsPlaylistInfo(xhr.responseText || ''));
+      };
+      xhr.onerror = () => finish(null);
+      xhr.ontimeout = () => finish(null);
+      xhr.send();
+    } catch {
+      finish(null);
+    }
+  });
 }
