@@ -118,6 +118,19 @@ try {
       </RootErrorBoundary>
     </StrictMode>
   );
+
+  // A natív webOS PNG-t az első tényleges React DOM-elemek megjelenésekor
+  // engedjük el. Nincs saját splash, animáció, progressz-képernyő vagy reveal.
+  const releaseNativeSplash = () => {
+    const mountedRoot = document.getElementById("root");
+    if (mountedRoot && mountedRoot.childElementCount > 0) {
+      try { (window as any).webOSSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
+      return;
+    }
+    window.setTimeout(releaseNativeSplash, 16);
+  };
+  window.setTimeout(releaseNativeSplash, 0);
+
   stage(5, "React mount elindítva");
   bootScreenPhase('react', 'A React felület felépítése elindult.');
 
@@ -131,7 +144,7 @@ try {
    * "darabos" felépülés (fejléc, majd üres lista, majd sorok, majd EPG) -
    * a webOS töltőképe után EGYBEN jelenik meg a kész felület.
    *
-   * A megjelenítést az index.html __IPTV_REVEAL__ függvénye végzi (12 mp-es
+   * A régi megjelenítési híd eltávolítva; a natív webOS indítókép
    * biztonsági hálóval, hogy semmi ne maradjon rejtve). A háló szándékosan a
    * lenti 9 mp-es saját korlát FELETT van: így normál esetben mindig az
    * alkalmazás dönt a megjelenésről, nem egy korábban elsülő időzítő – ez volt
@@ -153,7 +166,7 @@ try {
    * a teljes 4K-s felületet CSAK a takarókép levétele UTÁN festette ki,
    * ezért a néző egy üres képkockát látott („egy nagy felvillanás”).
    *
-   * A HTML-híd `__IPTV_PREPARE_REVEAL__()` láthatóvá teszi a #root-ot, de az
+   * A régi HTML-híd `__IPTV_PREPARE_REVEAL__()` már nincs használatban; a
    * átlátszatlan #tv-curtain továbbra is eltakarja. Így a drága festés még a
    * takarókép ALATT, láthatatlanul megtörténik, és a REVEAL már csak egyetlen
    * kompozitor-váltás. Az afterPaint két képkockája ekkor már a VALÓDI fát
