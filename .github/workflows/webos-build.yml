@@ -130,14 +130,12 @@ jobs:
           print("OK: a jóváhagyott kis és nagy ikon használatra előkészítve.")
           PY
 
-      - name: 5b. A hét követelmény tesztjei
+      - name: 5b. Alkalmazás-regressziós tesztek
         shell: bash
         run: |
           set -euo pipefail
-          # Minden javítás tesztelve: indítókép/villanás, képkitöltés,
-          # navigáció (a csatornalista doboza soha nem jelölhető ki),
-          # teljes képernyős OSD, CSS-átfedéses teljes képernyő,
-          # újrarajzolás-szám, és a szolgáltatói betöltés sorrendje.
+          # Csak az alkalmazás működéséhez tartozó regressziós tesztek futnak.
+          # Nincs külön HTML indítóképernyő vagy animációs reveal-teszt.
           npm test
 
       - name: 5c. Verzió automatikus emelése és mentése (csak sikeres tesztek után)
@@ -426,7 +424,9 @@ jobs:
               raise SystemExit("HIBA: a régi diagnosztikai indítóképernyő maradt a csomagban.")
           if 'class="boot-title"' in html or "webos-splash" in html:
               raise SystemExit("HIBA: a régi nagy TV feliratos indítóképernyő maradt a csomagban.")
-          # 2.5.0: nincs induló videó/splash overlay a programban.
+          # A webOS saját PNG-je után nincs külön HTML-es indítóképernyő.
+          if 'id="tv-curtain"' in html or 'id="boot-screen"' in html or "__IPTV_REVEAL__" in html:
+            raise SystemExit("HIBA: régi egyedi indítóképernyő/reveal kód maradt a csomagolt HTML-ben.")
           if 'id="boot-splash"' in html or "assets/intro.mp4" in html or "intro-boot.js" in html:
               raise SystemExit("HIBA: induló videó maradt a csomagolt HTML-ben (2.5.0-tól nincs videó).")
           if 'id="boot-error-screen"' not in html:
@@ -439,9 +439,7 @@ jobs:
           ipk_files = Path("/tmp/ipk-files.txt").read_text()
           if "/splash-bg.jpg" in ipk_files:
               raise SystemExit("HIBA: felesleges splash-bg.jpg került a csomagba.")
-          # A HTML kicsi maradt, a JS/CSS és az indítókép KÜLÖN fájl. Ha ezek
-          # hiányoznak, a TV-n nem indul el az alkalmazás vagy nem jelenik meg
-          # a betöltőképernyő (üres/fekete kép).
+          # A HTML kicsi maradt, a JS/CSS és a platform indítókép KÜLÖN fájl.
           for needed in ("/app.js", "/app.css", "/splash-screen.png"):
               if needed not in ipk_files:
                   raise SystemExit(f"HIBA: hiányzik a {needed} fájl az IPK-ból – a HTML nem tudja betölteni.")
@@ -455,7 +453,7 @@ jobs:
               raise SystemExit("HIBA: module script maradt a csomagban - a Chrome<61 TV-motorokon (webOS 3.x/4.0) az app el sem indulna!")
           if "IPTV-ES5-APP" not in html or "IPTV-ES5-POLYFILLS" not in html:
               raise SystemExit("HIBA: az ES5-re fordított app vagy a polyfill blokk hiányzik a csomagolt HTML-ből.")
-          print(f"OK: HTML {len(html)} byte, indítókép generált, nincs induló videó, verzió {packaged.get('version')}.")
+          print(f"OK: HTML {len(html)} byte, nincs saját animált indítóképernyő, verzió {packaged.get('version')}.")
           PY
           echo "OK: IPK tartalma rendben"
 
