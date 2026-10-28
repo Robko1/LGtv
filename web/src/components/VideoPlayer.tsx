@@ -1,7 +1,16 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
 import { Rewind, FastForward } from 'lucide-react';
-import { appLog, appLogCritical, isVerbosePlaybackLogging } from '../services/appLog';
+import {
+  appLog,
+  appLogCritical,
+  isVerbosePlaybackLogging,
+  logPlaybackQuality,
+  logPlaybackQualityEvent,
+  logPlaybackQualitySummary,
+  registerLoggingLifecycleHooks,
+  resolutionClassOf,
+} from '../services/appLog';
 import { fsNow, fsPerf, fsPerfTimed } from '../services/fullscreenPerf';
 import {
   MediaProgressSample,
@@ -32,12 +41,16 @@ import {
   selectEmbeddedSubtitle,
   disableEmbeddedSubtitle,
   subscribeSourceInfoSubtitles,
+  probeMatroskaVideoInfo,
+  probeSourceInfoQuality,
 } from '../services/embeddedSubtitleService';
 import {
   selectLiveSubtitle,
   disableLiveSubtitle,
   subscribeLiveSubtitleTracks,
   probeLiveSubtitles,
+  probeLiveStreamCodecs,
+  probeHlsPlaylist,
   canonicalLiveLang,
   LiveSubtitleRequest,
 } from '../services/liveSubtitleService';
@@ -218,6 +231,106 @@ function readHtmlAudioTracks(video: HTMLVideoElement | null): AudioTrack[] {
     });
   } catch {
     return [];
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * KÉPMINŐSÉG-DIAGNOSZTIKA – segédek a mintavevőhöz (lásd lejjebb).
+ *
+ * Minden adat a futó videóelemből és a stream saját fejlécéből jön; amit
+ * a TV nem tesz mérhetővé, azt nem találjuk ki (a naplóban „nem
+ * mérhető" szerepel).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+interface PlaybackFrameStats {
+  total: number;
+  dropped: number;
+  corrupted: number;
+}
+
+/** Dekódolt/eldobott képkocka-számlálók kiolvasása (webOS Chrome / webkit alakok). */
+function readPlaybackFrameStats(video: HTMLVideoElement | null): PlaybackFrameStats | null {
+  if (!video) return null;
+  const qualityVideo = video as HTMLVideoElement & {
+    getVideoPlaybackQuality?: () => { totalVideoFrames?: number; droppedVideoFrames?: number; corruptedVideoFrames?: number };
+    webkitDecodedFrameCount?: number;
+    webkitDroppedFrameCount?: number;
+  };
+  try {
+    if (typeof qualityVideo.getVideoPlaybackQuality === 'function') {
+      const stats = qualityVideo.getVideoPlaybackQuality();
+      if (stats && Number.isFinite(Number(stats.totalVideoFrames))) {
+        return {
+          total: Number(stats.totalVideoFrames) || 0,
+          dropped: Number(stats.droppedVideoFrames) || 0,
+          corrupted: Number(stats.corruptedVideoFrames) || 0,
+        };
+      }
+    }
+    if (typeof qualityVideo.webkitDecodedFrameCount === 'number') {
+      return {
+        total: Number(qualityVideo.webkitDecodedFrameCount) || 0,
+        dropped: Number(qualityVideo.webkitDroppedFrameCount) || 0,
+        corrupted: 0,
+      };
+    }
+  } catch { /* a motor nem ad képkocka-statisztikát */ }
+  return null;
+}
+
+/** A stream konténer/formátum neve a cím kiterjesztéséből. */
+function qualityFormatLabel(url: string): string {
+  const clean = String(url || '').split(/[?#]/)[0].toLowerCase();
+  if (/\.m3u8$/.test(clean)) return 'HLS (.m3u8)';
+  if (/\.ts$/.test(clean)) return 'MPEG-TS (.ts)';
+  if (/\.mkv$/.test(clean)) return 'Matroska (.mkv)';
+  if (/\.webm$/.test(clean)) return 'WebM (.webm)';
+  if (/\.mp4$/.test(clean) || /\.m4v$/.test(clean)) return 'MP4 (.mp4)';
+  if (/\.mov$/.test(clean)) return 'QuickTime (.mov)';
+  if (/\.avi$/.test(clean)) return 'AVI (.avi)';
+  if (/\.mpd$/.test(clean)) return 'DASH (.mpd)';
+  return 'ismeretlen formátum';
+}
+
+/** A HLS variáns RESOLUTION attribútumából szám (pl. '1920x1080' → 1920 × 1080). */
+function hlsVariantSize(variant: { resolution: string }): { width: number; height: number } | null {
+  const match = String(variant?.resolution || '').match(/^(\d{2,5})\s*[x×]\s*(\d{2,5})$/i);
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+/** A HLS CODECS attribútumából emberi kodeknév ('avc1…' → H.264/AVC). */
+function hlsCodecLabels(codecs: string): { video: string; audio: string } {
+  let video = '';
+  let audio = '';
+  for (const raw of String(codecs || '').split(',')) {
+    const token = raw.trim().toLowerCase();
+    if (!token) continue;
+    if (token.startsWith('avc1') || token.startsWith('avc3')) video = video || 'H.264/AVC';
+    else if (token.startsWith('hvc1') || token.startsWith('hev1') || token.startsWith('dvh1') || token.startsWith('dvhe')) video = video || 'H.265/HEVC';
+    else if (token.startsWith('vp09')) video = video || 'VP9';
+    else if (token.startsWith('vp08')) video = video || 'VP8';
+    else if (token.startsWith('av01')) video = video || 'AV1';
+    else if (token.startsWith('mp4a')) audio = audio || 'AAC';
+    else if (token.startsWith('ac-3')) audio = audio || 'AC-3';
+    else if (token.startsWith('ec-3')) audio = audio || 'E-AC-3';
+    else if (token.startsWith('mp3')) audio = audio || 'MP3';
+  }
+  return { video, audio };
+}
+
+/** A panel HDR-jelzése a böngésző médialekérdezése szerint (`null` = a motor nem ismeri). */
+function hdrPanelSupported(): boolean | null {
+  try {
+    if (typeof window.matchMedia !== 'function') return null;
+    const dynamic = window.matchMedia('(dynamic-range: high)');
+    if (dynamic.matches) return true;
+    if (window.matchMedia('(dynamic-range: standard)').matches) return false;
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -939,6 +1052,614 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
   };
 
+  /* ══════════════════════════════════════════════════════════════════════
+   * KÉPMINŐSÉG-MINTAVEVŐ – a kézi hibakeresési napló része.
+   *
+   * Amíg a részletes naplózás fut (SÁRGA gomb → Naplózás indítása – ugyanaz
+   * a kapu, mint az ÉLŐ MÉDIAESEMÉNY / IDŐVONAL soroknál), a mintavevő
+   * 4 másodpercenként KÉPMINŐSÉG sort ír ugyanabba a kézi naplóba
+   * (appLog.ts): a DEKÓDOLT tényleges felbontást, a megjelenítési dobozt
+   * fizikai képpontban (így a felskálázás mértéke is látszik), a mért
+   * képkockasebességet, az eldobott képkockákat, a puffert és a
+   * pufferelések számát/idejét. Streamenként egyszer a fejlécből is
+   * kiolvassa, mit KÍNÁL a szolgáltató: HLS-nél a master lista
+   * variánsait, MPEG-TS-nél a PMT kodektípusait, MKV filmnél a fejléc
+   * képsávját, plusz a TV médiaszolgáltatásának (sourceInfo) adatait.
+   *
+   * Naplózás nélkül semmi nem fut: az 1 mp-es őr csak egy logikai
+   * kapcsolót olvas (ugyanaz a minta, mint a fagyásfigyelő indítása).
+   * Normál tévézésnél a mintavevő nincs elindítva, a csatornaváltást
+   * és a dekódolást semmivel nem terheli.
+   * ══════════════════════════════════════════════════════════════════════ */
+  type QualityFrameBase = PlaybackFrameStats & { at: number };
+  type QualitySamplerState = {
+    timer: number | null;
+    probeTimer: number | null;
+    streamStartedAt: number;
+    url: string;
+    probedUrl: string;
+    summaryLogged: boolean;
+    lastFrames: QualityFrameBase | null;
+    streamFrames: QualityFrameBase | null;
+    rvfcId: number;
+    rvfcCount: number;
+    lastRvfc: { count: number; at: number } | null;
+    streamRvfc: { count: number; at: number } | null;
+    waitingCount: number;
+    bufferingMs: number;
+    waitingSince: number;
+    sizesSeen: string[];
+    lastSizeKey: string;
+    videoCodec: string;
+    audioCodec: string;
+    codecSource: string;
+    hdrStream: string;
+    bitrateKbps: number | null;
+    bitrateSource: string;
+    /** A szolgáltató által kínált LEGJOBB felbontás (HLS master / fejléc), ha ismert. */
+    bestOffered: { width: number; height: number; source: string } | null;
+    /** Már figyelmeztettünk-e, hogy a mért kép a kínáltnál gyengébb. */
+    lowQualityWarned: boolean;
+    resourceCursor: number;
+    detach: () => void;
+  };
+  const qualityRef = useRef<QualitySamplerState | null>(null);
+
+  const qualityTitle = (): string => (
+    isVodRef.current
+      ? String(customTitleRef.current || 'film/sorozat').slice(0, 100)
+      : String(channelRef.current?.name || 'élő adás').slice(0, 100)
+  );
+
+  const qualityCurrentUrl = (video: HTMLVideoElement): string => (
+    pendingStreamUrlRef.current || activeMediaUrlRef.current || video.currentSrc || video.src || ''
+  );
+
+  const resetQualityStream = (state: QualitySamplerState, url: string, video: HTMLVideoElement): void => {
+    const now = Date.now();
+    const frames = readPlaybackFrameStats(video);
+    state.streamStartedAt = now;
+    state.url = url;
+    state.summaryLogged = false;
+    state.lastFrames = frames ? { ...frames, at: now } : null;
+    state.streamFrames = state.lastFrames;
+    state.lastRvfc = { count: state.rvfcCount, at: now };
+    state.streamRvfc = state.lastRvfc;
+    state.waitingCount = 0;
+    state.bufferingMs = 0;
+    state.waitingSince = 0;
+    state.sizesSeen = [];
+    state.lastSizeKey = '';
+    state.videoCodec = '';
+    state.audioCodec = '';
+    state.codecSource = '';
+    state.hdrStream = '';
+    state.bitrateKbps = null;
+    state.bitrateSource = '';
+    state.bestOffered = null;
+    state.lowQualityWarned = false;
+    try { state.resourceCursor = performance.now(); } catch { state.resourceCursor = 0; }
+  };
+
+  /** A stream záró összesítése – csatorna/filmváltáskor és a naplózás leállításakor is lefut. */
+  const summarizeQualityStream = (video: HTMLVideoElement | null): void => {
+    const state = qualityRef.current;
+    if (!state || !state.url || state.streamStartedAt <= 0 || state.summaryLogged) return;
+    state.summaryLogged = true;
+    const now = Date.now();
+    const seconds = (now - state.streamStartedAt) / 1000;
+    let avgFps: number | null = null;
+    let framesTotal: number | null = null;
+    let dropped: number | null = null;
+    let droppedPercent: number | null = null;
+    const frames = video ? readPlaybackFrameStats(video) : null;
+    if (frames && state.streamFrames && seconds >= 1) {
+      const totalDelta = frames.total - state.streamFrames.total;
+      const droppedDelta = frames.dropped - state.streamFrames.dropped;
+      if (totalDelta > 0) {
+        avgFps = totalDelta / seconds;
+        framesTotal = totalDelta;
+        dropped = droppedDelta;
+        droppedPercent = (droppedDelta / Math.max(1, totalDelta + Math.max(0, droppedDelta))) * 100;
+      }
+    } else if (state.streamRvfc && seconds >= 1 && state.rvfcCount > state.streamRvfc.count) {
+      framesTotal = state.rvfcCount - state.streamRvfc.count;
+      avgFps = framesTotal / seconds;
+    }
+    const bufferingMs = state.bufferingMs + (state.waitingSince ? now - state.waitingSince : 0);
+    logPlaybackQualitySummary({
+      mode: isVodRef.current ? 'VOD' : 'élő',
+      title: qualityTitle(),
+      format: qualityFormatLabel(state.url),
+      seconds,
+      resolutionsSeen: state.sizesSeen.length
+        ? state.sizesSeen.map((size) => {
+            const [w, h] = size.split('x').map(Number);
+            return `${size} (${resolutionClassOf(w || 0, h || 0)})`;
+          }).join(' → ')
+        : 'nem indult el kép',
+      avgFps,
+      framesTotal,
+      droppedFrames: dropped,
+      droppedPercent,
+      bufferingEvents: state.waitingCount,
+      bufferingMs,
+      bitrateKbps: state.bitrateKbps,
+      bitrateSource: state.bitrateSource,
+      videoCodec: state.videoCodec,
+      codecSource: state.codecSource,
+      hdrStream: state.hdrStream,
+    });
+  };
+
+  /** A hálózati átvitel mérése a Resource Timing bejegyzésekből, ha a TV ad méretet. */
+  const measureNetworkBitrateKbps = (cursorBefore: number, windowSeconds: number): number | null => {
+    try {
+      if (typeof performance.getEntriesByType !== 'function' || windowSeconds <= 0) return null;
+      const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+      let bytes = 0;
+      for (const entry of entries) {
+        if (!entry || entry.startTime <= cursorBefore) continue;
+        const name = String(entry.name || '');
+        const initiator = String(entry.initiatorType || '');
+        const isMedia = initiator === 'video' || /\.(ts|m4s|mp4|mkv|webm|aac|mp3|m3u8)([?#]|$)/i.test(name);
+        if (!isMedia) continue;
+        bytes += Number(entry.transferSize) || Number(entry.encodedBodySize) || 0;
+      }
+      return bytes > 0 ? (bytes * 8) / windowSeconds / 1000 : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const sampleQuality = useCallback((): void => {
+    const state = qualityRef.current;
+    const video = htmlVideoRef.current;
+    if (!state || !video) return;
+    const now = Date.now();
+    const url = qualityCurrentUrl(video);
+    if (url && state.url && url !== state.url) {
+      summarizeQualityStream(video);
+      resetQualityStream(state, url, video);
+    } else if (url && !state.url) {
+      resetQualityStream(state, url, video);
+    }
+    if (!state.url) return;
+    // Szüneteltetett/befejezett lejátszásról nincs értelme mintát írni –
+    // csak a képkocka-alapokat frissítjük, hogy a folytatáskor ne legyen
+    // hamis sebességugrás a naplóban.
+    if (video.paused || video.ended) {
+      const framesNow = readPlaybackFrameStats(video);
+      if (framesNow) state.lastFrames = { ...framesNow, at: now };
+      state.lastRvfc = { count: state.rvfcCount, at: now };
+      try { state.resourceCursor = performance.now(); } catch { /* régi motor */ }
+      return;
+    }
+
+    const width = Number(video.videoWidth || 0);
+    const height = Number(video.videoHeight || 0);
+    if (width > 0 && height > 0) {
+      const key = `${width}x${height}`;
+      if (key !== state.lastSizeKey) {
+        state.lastSizeKey = key;
+        if (!state.sizesSeen.includes(key)) state.sizesSeen.push(key);
+      }
+      /*
+       * GYENGE KÉP JELZÉSE (streamenként egyszer).
+       *
+       * A napló célja, hogy a képminőség-beállítást NE találgatásra lehessen
+       * alapozni. Ha a dekódolt kép kisebb, mint amit a szolgáltató kínál
+       * (HLS master variáns / MKV fejléc / TV sourceInfo), vagy ha Full HD
+       * alatti, azt külön sor mondja meg – így egyértelmű, hogy a gyengébb
+       * kép a szolgáltatói stream tulajdonsága, nem a lejátszóé.
+       */
+      if (!state.lowQualityWarned) {
+        const measuredArea = width * height;
+        const offered = state.bestOffered;
+        const smallerThanOffered = Boolean(offered && measuredArea > 0 && measuredArea < (offered.width * offered.height) * 0.81);
+        const belowFullHd = width < 1920 && height < 1080;
+        if (smallerThanOffered || belowFullHd) {
+          state.lowQualityWarned = true;
+          logPlaybackQualityEvent(
+            `FIGYELMEZTETÉS; cím=${qualityTitle()}; a dekódolt kép=${width}x${height} (${resolutionClassOf(width, height)}); ` +
+            (offered
+              ? `a szolgáltató által kínált legjobb szint=${offered.width}x${offered.height} (${resolutionClassOf(offered.width, offered.height)}) [${offered.source}]; `
+              : 'a szolgáltató nem jelzi a kínált felbontást; ') +
+            (smallerThanOffered
+              ? 'a most játszott változat gyengébb a kínáltnál – ha a csatorna/Sorozat listában van külön UHD/HD változat, azt kell választani; a lejátszó a vett streamet nem tudja feljavítani.'
+              : 'a csatorna Full HD alatti (SD) képet ad; ez a szolgáltatói stream tulajdonsága, nem a lejátszó beállítása.')
+          );
+        }
+      }
+    }
+
+    let fps: number | null = null;
+    let droppedWindow: number | null = null;
+    let droppedPercent: number | null = null;
+    let corruptedWindow: number | null = null;
+    const frames = readPlaybackFrameStats(video);
+    if (frames && state.lastFrames) {
+      const dtSeconds = (now - state.lastFrames.at) / 1000;
+      const totalDelta = frames.total - state.lastFrames.total;
+      const droppedDelta = frames.dropped - state.lastFrames.dropped;
+      if (dtSeconds >= 1 && totalDelta >= 0 && droppedDelta >= 0) {
+        fps = totalDelta / dtSeconds;
+        droppedWindow = droppedDelta;
+        corruptedWindow = Math.max(0, frames.corrupted - state.lastFrames.corrupted);
+        droppedPercent = (droppedDelta / Math.max(1, totalDelta + droppedDelta)) * 100;
+      }
+    }
+    if (frames) state.lastFrames = { ...frames, at: now };
+    if (fps === null && state.lastRvfc) {
+      const dtSeconds = (now - state.lastRvfc.at) / 1000;
+      const countDelta = state.rvfcCount - state.lastRvfc.count;
+      if (dtSeconds >= 1 && countDelta > 0) fps = countDelta / dtSeconds;
+      state.lastRvfc = { count: state.rvfcCount, at: now };
+    }
+
+    try {
+      const cursorBefore = state.resourceCursor;
+      state.resourceCursor = performance.now();
+      const measured = measureNetworkBitrateKbps(cursorBefore, Math.max(0.1, (state.resourceCursor - cursorBefore) / 1000));
+      if (measured !== null) {
+        state.bitrateKbps = measured;
+        state.bitrateSource = 'hálózati mérés';
+      }
+    } catch { /* a bitráta nem mérhető ezen a motoron */ }
+
+    const rect = video.getBoundingClientRect();
+    logPlaybackQuality({
+      mode: isVodRef.current ? 'VOD' : 'élő',
+      title: qualityTitle(),
+      format: qualityFormatLabel(state.url),
+      width,
+      height,
+      boxWidth: Math.round(rect.width),
+      boxHeight: Math.round(rect.height),
+      devicePixelRatio: Number(window.devicePixelRatio) || 1,
+      fps,
+      droppedFrames: droppedWindow,
+      droppedPercent,
+      corruptedFrames: corruptedWindow,
+      bufferedAheadSeconds: bufferedAheadSeconds(video),
+      bufferingEvents: state.waitingCount,
+      bufferingMs: state.bufferingMs + (state.waitingSince ? now - state.waitingSince : 0),
+      bitrateKbps: state.bitrateKbps,
+      bitrateSource: state.bitrateSource,
+      videoCodec: state.videoCodec,
+      audioCodec: state.audioCodec,
+      codecSource: state.codecSource,
+      hdrStream: state.hdrStream || 'nem jelzett',
+      hdrPanel: hdrPanelSupported(),
+      readyState: video.readyState,
+      networkState: video.networkState,
+    });
+  }, []);
+
+  const sampleQualityRef = useRef(sampleQuality);
+  sampleQualityRef.current = sampleQuality;
+
+  /**
+   * Streamenként egyszeri fejléc-próbák: mit KÍNÁL a szolgáltató.
+   * Csak a mintavevő futása alatt (kézi naplózás), a lejátszás elindulása
+   * után – ugyanaz a kíméletes minta, mint a felirat-fejlécpróbáknál.
+   */
+  const runQualityProbes = useCallback(async (url: string): Promise<void> => {
+    const state = qualityRef.current;
+    const video = htmlVideoRef.current;
+    if (!state || !video || state.url !== url) return;
+    const title = qualityTitle();
+    try {
+      if (isVodRef.current) {
+        const matroska = await probeMatroskaVideoInfo(url);
+        if (!qualityRef.current || qualityRef.current.url !== url) return;
+        if (matroska && (matroska.video || matroska.audioCodecs.length)) {
+          if (matroska.video?.codec && !state.videoCodec) {
+            state.videoCodec = matroska.video.codec;
+            state.codecSource = 'MKV fejléc';
+          }
+          if (matroska.audioCodecs.length && !state.audioCodec) {
+            state.audioCodec = matroska.audioCodecs.join('/');
+          }
+          if (matroska.video?.hdr && !state.hdrStream) state.hdrStream = matroska.video.hdr;
+          if (matroska.video && matroska.video.width > 0 && matroska.video.height > 0) {
+            state.bestOffered = { width: matroska.video.width, height: matroska.video.height, source: 'MKV fejléc' };
+          }
+          const duration = Number(video.duration || 0);
+          if (matroska.fileBytes && duration > 0 && state.bitrateKbps === null) {
+            state.bitrateKbps = (matroska.fileBytes * 8) / duration / 1000;
+            state.bitrateSource = 'fájlméret/hossz átlag';
+          }
+          logPlaybackQualityEvent(
+            `FEJLÉC (MKV); cím=${title}; deklarált=${matroska.video ? `${matroska.video.width}x${matroska.video.height} (${resolutionClassOf(matroska.video.width, matroska.video.height)})` : 'nincs képsáv-adat'}; ` +
+            `kodek=${matroska.video ? `${matroska.video.codec} [${matroska.video.codecId}]` : 'ismeretlen'}; hang=${matroska.audioCodecs.join('/') || 'ismeretlen'}; ` +
+            `HDR-szín=${matroska.video?.hdr || 'nincs jelölve'}; fájlméret=${matroska.fileBytes ? `${(matroska.fileBytes / 1048576).toFixed(0)} MB` : 'nem derül ki'}`
+          );
+        }
+      } else if (formatOfUrl(url) === 'hls') {
+        const playlist = await probeHlsPlaylist(url);
+        if (!qualityRef.current || qualityRef.current.url !== url) return;
+        if (!playlist) {
+          logPlaybackQualityEvent(`FEJLÉC (HLS); csatorna=${title}; a lejátszási lista nem olvasható ki külön.`);
+        } else if (playlist.variants.length > 0) {
+          const variantText = playlist.variants
+            .slice(0, 6)
+            .map((variant) => {
+              const codecs = hlsCodecLabels(variant.codecs);
+              return `${variant.resolution || '?'} ${variant.bandwidth ? `${(variant.bandwidth / 1000000).toFixed(1)} Mbps` : '? Mbps'} ${codecs.video || variant.codecs || ''}${variant.frameRate ? ` ${variant.frameRate} fps` : ''}${variant.videoRange ? ` ${variant.videoRange}` : ''}`;
+            })
+            .join(' | ');
+          logPlaybackQualityEvent(`FEJLÉC (HLS master); csatorna=${title}; kínált szintek=[${variantText}]${playlist.variants.length > 6 ? ` (+${playlist.variants.length - 6} további)` : ''}.`);
+          const bestVariant = playlist.variants.reduce<(typeof playlist.variants)[number] | null>((best, variant) => {
+            const size = hlsVariantSize(variant);
+            const bestSize = best ? hlsVariantSize(best) : null;
+            if (!size) return best;
+            if (!bestSize) return variant;
+            return size.width * size.height > bestSize.width * bestSize.height ? variant : best;
+          }, null);
+          const bestSize = bestVariant ? hlsVariantSize(bestVariant) : null;
+          if (bestSize) state.bestOffered = { ...bestSize, source: 'HLS master lista' };
+          const currentKey = `${Number(video.videoWidth || 0)}x${Number(video.videoHeight || 0)}`;
+          const matching = playlist.variants.find((variant) => variant.resolution === currentKey)
+            || playlist.variants.reduce<(typeof playlist.variants)[number] | null>(
+              (best, variant) => ((variant.bandwidth || 0) > (best?.bandwidth || 0) ? variant : best),
+              null,
+            );
+          if (matching) {
+            const codecs = hlsCodecLabels(matching.codecs);
+            if (codecs.video && !state.videoCodec) {
+              state.videoCodec = codecs.video;
+              state.codecSource = 'HLS lista';
+            }
+            if (codecs.audio && !state.audioCodec) state.audioCodec = codecs.audio;
+            if (matching.bandwidth && state.bitrateKbps === null) {
+              state.bitrateKbps = matching.bandwidth / 1000;
+              state.bitrateSource = 'HLS lista (deklarált)';
+            }
+            if (matching.videoRange && !state.hdrStream) state.hdrStream = matching.videoRange;
+          }
+        } else {
+          logPlaybackQualityEvent(
+            `FEJLÉC (HLS media lista); csatorna=${title}; egy minőségi szint (nincs master variánslista); szegmensek=${playlist.segmentCount}; céltartam=${playlist.targetDuration ?? 'n/a'} s.`
+          );
+        }
+      } else {
+        const codecs = await probeLiveStreamCodecs(url);
+        if (!qualityRef.current || qualityRef.current.url !== url) return;
+        if (codecs && (codecs.video || codecs.audio.length)) {
+          if (codecs.video && !state.videoCodec) {
+            state.videoCodec = codecs.video;
+            state.codecSource = 'PMT';
+          }
+          if (codecs.audio.length && !state.audioCodec) state.audioCodec = codecs.audio.join('/');
+          logPlaybackQualityEvent(
+            `FEJLÉC (PMT); csatorna=${title}; képsáv=${codecs.video || 'ismeretlen típus'}; hangsávok=${codecs.audio.join('/') || 'ismeretlen'}; streamtípusok=[${codecs.streamTypes}].`
+          );
+        } else {
+          logPlaybackQualityEvent(`FEJLÉC (PMT); csatorna=${title}; a stream elejéből nem olvasható ki a kodek.`);
+        }
+      }
+
+      const sourceInfo = await probeSourceInfoQuality(htmlVideoRef.current);
+      if (!qualityRef.current || qualityRef.current.url !== url) return;
+      if (sourceInfo) {
+        if (sourceInfo.videoCodec && !state.videoCodec) {
+          state.videoCodec = sourceInfo.videoCodec;
+          state.codecSource = 'TV sourceInfo';
+        }
+        if (sourceInfo.audioCodec && !state.audioCodec) state.audioCodec = sourceInfo.audioCodec;
+        if (sourceInfo.bitrateKbps && state.bitrateKbps === null) {
+          state.bitrateKbps = sourceInfo.bitrateKbps;
+          state.bitrateSource = 'TV sourceInfo';
+        }
+        if (sourceInfo.hdr && !state.hdrStream) state.hdrStream = sourceInfo.hdr;
+        if (sourceInfo.width > 0 && sourceInfo.height > 0 && !state.bestOffered) {
+          state.bestOffered = { width: sourceInfo.width, height: sourceInfo.height, source: 'TV sourceInfo' };
+        }
+        logPlaybackQualityEvent(
+          `TV (sourceInfo); cím=${title}; képsáv=${sourceInfo.videoCodec || 'nincs adat'} ` +
+          `${sourceInfo.width}x${sourceInfo.height}${sourceInfo.frameRate ? ` @${sourceInfo.frameRate}` : ''}; ` +
+          `bitráta=${sourceInfo.bitrateKbps ? `${(sourceInfo.bitrateKbps / 1000).toFixed(1)} Mbps` : 'nincs adat'}; HDR=${sourceInfo.hdr || 'nincs adat'}.`
+        );
+      }
+    } catch {
+      /* a fejléc-diagnosztika hibája sosem érintheti a lejátszást */
+    }
+  }, []);
+
+  /** A panel és a böngészőmotor képességeinek egyszeri sora mintavétel-kezdetenként. */
+  const logQualityCapability = useCallback((): void => {
+    try {
+      const probeVideo = document.createElement('video');
+      const can = (type: string): string => {
+        try { return probeVideo.canPlayType(type) || 'nem'; } catch { return 'ismeretlen'; }
+      };
+      const dpr = Number(window.devicePixelRatio) || 1;
+      const gamut = (() => {
+        try {
+          if (window.matchMedia('(color-gamut: p3)').matches) return 'P3';
+          if (window.matchMedia('(color-gamut: srgb)').matches) return 'sRGB';
+        } catch { /* régi motor */ }
+        return 'ismeretlen';
+      })();
+      logPlaybackQualityEvent(
+        `KÉPESSÉG; képernyő=${window.screen?.width || 0}x${window.screen?.height || 0} CSS px; DPR=${dpr} (fizikai panel≈${Math.round((window.screen?.width || 0) * dpr)}x${Math.round((window.screen?.height || 0) * dpr)}); ` +
+        `ablak=${window.innerWidth}x${window.innerHeight}; színtér=${gamut}; panel HDR=${hdrPanelSupported() === true ? 'igen (dynamic-range: high)' : hdrPanelSupported() === false ? 'nem jelzett' : 'a motor nem árulja el'}; ` +
+        `canPlayType: H264="${can('video/mp4; codecs="avc1.640033"')}", HEVC="${can('video/mp4; codecs="hvc1.2.4.L150.B0"')}", VP9="${can('video/webm; codecs="vp09.00.51.08"')}", AV1="${can('video/mp4; codecs="av01.0.31M.10"')}", HLS="${can('application/vnd.apple.mpegurl')}", TS="${can('video/mp2t')}".`
+      );
+      const capabilities = (navigator as Navigator & {
+        mediaCapabilities?: { decodingInfo?: (config: unknown) => Promise<{ supported?: boolean; smooth?: boolean; powerEfficient?: boolean }> };
+      }).mediaCapabilities;
+      if (capabilities?.decodingInfo) {
+        const configs: Array<[string, unknown]> = [
+          ['H.264 1080p', { type: 'file', video: { contentType: 'video/mp4; codecs="avc1.640033"', width: 1920, height: 1080, bitrate: 8000000, framerate: 50 } }],
+          ['HEVC 2160p Main10', { type: 'file', video: { contentType: 'video/mp4; codecs="hvc1.2.4.L150.B0"', width: 3840, height: 2160, bitrate: 20000000, framerate: 60 } }],
+          ['VP9 2160p', { type: 'file', video: { contentType: 'video/webm; codecs="vp09.02.51.10.01.09.16.09.01"', width: 3840, height: 2160, bitrate: 20000000, framerate: 60 } }],
+          ['AV1 2160p', { type: 'file', video: { contentType: 'video/mp4; codecs="av01.0.31M.10"', width: 3840, height: 2160, bitrate: 16000000, framerate: 60 } }],
+        ];
+        void Promise.all(configs.map(async ([label, config]) => {
+          try {
+            const info = await capabilities.decodingInfo!(config);
+            return `${label}=${info.supported ? 'támogatott' : 'NEM támogatott'} (sima=${info.smooth ? 'igen' : 'nem'}, energiatakarékos=${info.powerEfficient ? 'igen' : 'nem'})`;
+          } catch {
+            return `${label}=nem kérdezhető le`;
+          }
+        })).then((lines) => {
+          logPlaybackQualityEvent(`KÉPESSÉG (mediaCapabilities); ${lines.join('; ')}.`);
+        });
+      }
+    } catch {
+      /* a képesség-sor sem hibázhat a lejátszás fölött */
+    }
+  }, []);
+
+  const startQualitySampler = useCallback((): void => {
+    if (qualityRef.current) return;
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    const state: QualitySamplerState = {
+      timer: null,
+      probeTimer: null,
+      streamStartedAt: 0,
+      url: '',
+      probedUrl: '',
+      summaryLogged: false,
+      lastFrames: null,
+      streamFrames: null,
+      rvfcId: 0,
+      rvfcCount: 0,
+      lastRvfc: null,
+      streamRvfc: null,
+      waitingCount: 0,
+      bufferingMs: 0,
+      waitingSince: 0,
+      sizesSeen: [],
+      lastSizeKey: '',
+      videoCodec: '',
+      audioCodec: '',
+      codecSource: '',
+      hdrStream: '',
+      bitrateKbps: null,
+      bitrateSource: '',
+      bestOffered: null,
+      lowQualityWarned: false,
+      resourceCursor: 0,
+      detach: () => undefined,
+    };
+    qualityRef.current = state;
+    resetQualityStream(state, qualityCurrentUrl(video), video);
+
+    const scheduleProbes = () => {
+      const url = state.url || qualityCurrentUrl(video);
+      if (!url || state.probedUrl === url) return;
+      state.probedUrl = url;
+      if (state.probeTimer !== null) window.clearTimeout(state.probeTimer);
+      state.probeTimer = window.setTimeout(() => {
+        state.probeTimer = null;
+        void runQualityProbes(url);
+      }, 1200);
+    };
+    const onWaitingLike = () => {
+      if (!state.waitingSince) {
+        state.waitingSince = Date.now();
+        state.waitingCount += 1;
+      }
+    };
+    const onPlaying = () => {
+      if (state.waitingSince) {
+        state.bufferingMs += Date.now() - state.waitingSince;
+        state.waitingSince = 0;
+      }
+      scheduleProbes();
+      sampleQualityRef.current();
+    };
+    const onResize = () => {
+      const next = `${Number(video.videoWidth || 0)}x${Number(video.videoHeight || 0)}`;
+      if (state.lastSizeKey && next !== state.lastSizeKey && !next.startsWith('0x')) {
+        logPlaybackQualityEvent(`FELBONTÁS VÁLTOZOTT; cím=${qualityTitle()}; ${state.lastSizeKey} → ${next}.`);
+      }
+      sampleQualityRef.current();
+    };
+    try {
+      video.addEventListener('waiting', onWaitingLike);
+      video.addEventListener('stalled', onWaitingLike);
+      video.addEventListener('playing', onPlaying);
+      video.addEventListener('resize', onResize);
+    } catch { /* régi motor */ }
+
+    // Képkockasebesség tartalék-mérés, ha a motor nem ad számlálót:
+    // a requestVideoFrameCallback minden kirajzolt képkockánál hívódik.
+    if (!readPlaybackFrameStats(video)) {
+      const rvfcVideo = video as HTMLVideoElement & {
+        requestVideoFrameCallback?: (callback: () => void) => number;
+        cancelVideoFrameCallback?: (id: number) => void;
+      };
+      if (typeof rvfcVideo.requestVideoFrameCallback === 'function') {
+        const loop = () => {
+          if (qualityRef.current !== state) return;
+          state.rvfcCount += 1;
+          try { state.rvfcId = rvfcVideo.requestVideoFrameCallback!(loop); } catch { /* már nem él */ }
+        };
+        try { state.rvfcId = rvfcVideo.requestVideoFrameCallback(loop); } catch { state.rvfcId = 0; }
+      }
+    }
+
+    state.detach = () => {
+      try {
+        video.removeEventListener('waiting', onWaitingLike);
+        video.removeEventListener('stalled', onWaitingLike);
+        video.removeEventListener('playing', onPlaying);
+        video.removeEventListener('resize', onResize);
+      } catch { /* régi motor */ }
+      const rvfcVideo = video as HTMLVideoElement & { cancelVideoFrameCallback?: (id: number) => void };
+      try { if (state.rvfcId) rvfcVideo.cancelVideoFrameCallback?.(state.rvfcId); } catch { /* régi motor */ }
+      state.rvfcId = 0;
+    };
+
+    logQualityCapability();
+    state.timer = window.setInterval(() => sampleQualityRef.current(), 4000);
+    if (!video.paused && video.readyState >= 2) {
+      scheduleProbes();
+      sampleQualityRef.current();
+    }
+  }, [logQualityCapability, runQualityProbes]);
+
+  const stopQualitySampler = useCallback((): void => {
+    const state = qualityRef.current;
+    if (!state) return;
+    // Ha a naplózás még él (pl. nézetváltás szerel le minket), a záró
+    // összesítés most még bekerül; leállított naplónál a kapu elnyeli.
+    summarizeQualityStream(htmlVideoRef.current);
+    qualityRef.current = null;
+    if (state.timer !== null) window.clearInterval(state.timer);
+    if (state.probeTimer !== null) window.clearTimeout(state.probeTimer);
+    state.detach();
+  }, []);
+
+  /*
+   * A mintavevő életciklusa: az 1 mp-es őr csak a naplózási kapcsolót
+   * olvassa, és indítja/leállítja a mintavételt – így a SÁRGA gombbal
+   * lejátszás közben elindított naplóba is rögtön érkezik KÉPMINŐSÉG
+   * minta. A záró összesítést a naplózás életciklus-hookja írja ki,
+   * még a naplózás tényleges leállása ELŐTT, különben a sor a már
+   * lezárt napló miatt elveszne.
+   */
+  useEffect(() => {
+    const unregister = registerLoggingLifecycleHooks({
+      onStop: () => summarizeQualityStream(htmlVideoRef.current),
+    });
+    const guard = window.setInterval(() => {
+      if (isVerbosePlaybackLogging()) startQualitySampler();
+      else stopQualitySampler();
+    }, 1000);
+    if (isVerbosePlaybackLogging()) startQualitySampler();
+    return () => {
+      window.clearInterval(guard);
+      unregister();
+      stopQualitySampler();
+    };
+  }, [startQualitySampler, stopQualitySampler]);
+
   // Hibaképernyőn a sárga kijelölés automatikusan az Újrapróbálás gombra
   // ugrik - eddig távirányítóval nem lehetett elérni (a gomb hiányzott).
   const retryButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -964,6 +1685,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /** Az éppen kiválasztott csatorna (a hibakezeléshez, dependency nélkül). */
   const channelRef = useRef<typeof channel>(channel);
   channelRef.current = channel;
+  /** A játszott film/sorozat címe a képminőség-naplóhoz (ref, hogy a mintavevő mindig frisset lásson). */
+  const customTitleRef = useRef(customTitle);
+  customTitleRef.current = customTitle;
   /** Natív módban hányszor próbáltuk újraindítani ugyanazt a címet. */
   const nativeRetryCountRef = useRef(0);
   const bufferTiming = () => bufferProfileTiming(bufferModeRef.current);
@@ -4174,10 +4898,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={htmlVideoRef}
             data-iptv-player="true"
             className="block h-full w-full bg-black"
-            // Élő TV: a kép KITÖLTI a területet (nincs üres sáv) és megtartja
-            // a stream saját arányát (nincs torzítás) – a `cover` vágja
-            // le a kilógó részt. A VOD viselkedését változatlanul hagyjuk.
-            style={{ objectFit: isVod ? (isFullscreen ? 'fill' : 'contain') : 'cover', imageRendering: 'auto', filter: 'none', backfaceVisibility: 'hidden' }}
+            // KÉPMINŐSÉG (2.5.156): teljes képernyőn `contain` – se nyújtás, se vágás.
+            // Korábban a VOD `fill` módban a 16:9-es területre NYÚJTOTTA a
+            // 2.39:1-es filmeket (torz, „megnyúlt" kép), az élő `cover` pedig
+            // nem-16:9 forrásnál belezoomolt és levágta a széleket – mindkettő
+            // rontja a ténylegesen látható élességet. 16:9 forrásnál a contain
+            // és a cover azonos, így a megszokott kép nem változik.
+            // A főoldali kis előnézet-dobozban az élő kép továbbra is `cover`
+            // (ott a kitöltés a cél, a dobozt a geometria-effekt is így írja).
+            style={{ objectFit: isVod || isFullscreen ? 'contain' : 'cover', imageRendering: 'auto', filter: 'none', backfaceVisibility: 'hidden' }}
             playsInline
             preload="auto"
             onLoadStart={(event) => logLiveMediaEvent('loadstart', event.currentTarget)}

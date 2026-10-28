@@ -478,6 +478,15 @@ async function fetchOnce(url: string, timeoutMs: number): Promise<string> {
     return text;
   } catch (error) {
     const rawMessage = error instanceof Error ? error.message : String(error);
+    /*
+     * A böngésző pontos hibakódjának (pl. `net::ERR_NAME_NOT_RESOLVED`)
+     * eltárolása. Ezt a főoldal a hibaüzenet mellett jeleníti meg
+     * (`explainNetError(lastNetErrorHint())`), hogy a néző tudja: a cím
+     * nem oldható fel, vagy a szolgáltató szervere nem válaszol. Korábban
+     * ezt a kódot SENKI nem mentette el, ezért a magyarázat mindig üres
+     * maradt – félbehagyott hibakeresés volt.
+     */
+    setNetErrorHint(rawMessage);
     // A saját időzítőnk állította le: ezt a napló és a megszakító is
     // időtúllépésként kezeli (érthető üzenet, nem „user aborted”).
     const message = timedOut ? `időtúllépés (timeout ${timeoutMs} ms)` : rawMessage;

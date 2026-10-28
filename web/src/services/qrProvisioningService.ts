@@ -94,25 +94,3 @@ export async function clearProvision(tvId: string, _channel?: ProvisionChannel |
     localStorage.removeItem('qr_expires');
   } catch {}
 }
-export async function pushProvider(tvId: string, payload: QrProviderPayload, _channel?: ProvisionChannel | null, token?: string): Promise<boolean> {
-  try {
-    const t = token || new URL(window.location.href).searchParams.get('token') || '';
-    const code = new URL(window.location.href).searchParams.get('code') || payload.code;
-    await request({ action: 'submit', sessionId: tvId, token: t, code, payload });
-    return true;
-  } catch (e) {
-    console.error('[QR] Supabase push hiba', e);
-    return false;
-  }
-}
-export function validateXtream(host: string, username: string, password: string): string | null {
-  if (!host.trim()) return 'Host kötelező';
-  if (!username.trim()) return 'Felhasználónév kötelező';
-  if (!password.trim()) return 'Jelszó kötelező';
-  return null;
-}
-export function validateM3u(url: string): string | null {
-  if (!url.trim()) return 'M3U URL kötelező';
-  if (!url.startsWith('http://') && !url.startsWith('https://')) return 'http:// vagy https:// kell';
-  return null;
-}

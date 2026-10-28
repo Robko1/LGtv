@@ -141,13 +141,20 @@ test('1. a lejátszó jelzi az első képkockát, és addig nem fekete a TV-ter�
 
 /* ───────────────────────── 2. A kép méretezése ───────────────────── */
 
-test('2. az élő kép kitölti a területet és megtartja az arányát (cover, nem contain)', () => {
-  assert.match(PLAYER, /objectFit: isVod \? \(isFullscreen \? 'fill' : 'contain'\) : 'cover'/);
-  // A főoldali (nem teljes képernyős) kényszerített újramérés is cover.
+test('2. teljes képernyőn nincs nyújtás és nincs vágó nagyítás (contain), a főoldali előnézet cover', () => {
+  /*
+   * KÉPMINŐSÉG (2.5.156): a teljes képernyős kép soha nem torzul és nem
+   * nagyít bele a forrásba:
+   *   • a VOD korábbi `fill` módja NYÚJTOTTA a 16:9 dobozra a 2.39:1 filmeket,
+   *   • az élő `cover` nem-16:9 forrásnál levágta a kép széleit (nagyítás).
+   * 16:9 forrásnál a contain ugyanazt a képet adja, mint eddig, tehát a
+   * megszokott nézet nem változik – csak a torz/vágott eset szűnt meg.
+   */
+  assert.match(PLAYER, /objectFit: isVod \|\| isFullscreen \? 'contain' : 'cover'/);
+  // A régi, nyújtó `fill` mód nem térhet vissza a VOD-hoz.
+  assert.doesNotMatch(PLAYER, /objectFit: isVod \? \(isFullscreen \? 'fill'/);
+  // A főoldali (nem teljes képernyős) 16:9 előnézet-doboz továbbra is kitölt.
   assert.match(PLAYER, /objectFit: 'cover'/);
-  // A `contain` üres sávot hagyna: ÉLŐ képnél nem lehet (a VOD maradhat).
-  const liveStyle = PLAYER.match(/objectFit: isVod \?[^\n]*\n/)[0];
-  assert.match(liveStyle, /: 'cover'(?:,| \}\})/);
 });
 
 test('2. a kép nem `transform`-mel méreteződik (az újraépítené a dekódolót)', () => {

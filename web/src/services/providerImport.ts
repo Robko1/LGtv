@@ -644,27 +644,6 @@ async function enrichFirstVodMetadata(
  * (utils/flags.ts). Ezért tudjuk már a kicsi kategóriaválaszból eldönteni,
  * melyik kategóriát kell egyáltalán letölteni.
  */
-/**
- * Hány KÜLÖNBÖZŐ ország (az „Nemzetközi” gyűjtőn kívül) olvasható ki az élő
- * kategórianevekből.
- *
- * Ez dönti el, hogy a szolgáltató ország szerint szervezi-e a kategóriákat.
- * Az 5-ös TV-napló (2.5.113) esete: 340 kategória, de csak 1 magyar nevű –
- * vagyis a nevek nem országok (pl. „Sport”, „News”), így a kategóriánkénti
- * szűrés megbízhatatlan, és inkább a teljes listát kell letölteni.
- */
-export function countCountriesInCategories(categories: XtreamCategory[]): number {
-  const safe = Array.isArray(categories) ? categories : [];
-  const codes = new Set<string>();
-  for (const category of safe) {
-    if (!category) continue;
-    const code = flagFor(String(category.category_name || '')).countryCode;
-    if (code && code !== 'INT') codes.add(code);
-  }
-  return codes.size;
-}
-
-
 export function pickCategoryIdsByCountry(
   categories: XtreamCategory[],
   countryCode: string
@@ -1907,17 +1886,6 @@ export function diffCatalogs<T>(
   let removed = 0;
   for (const key of before.keys()) if (!seen.has(key)) removed += 1;
   return { added, removed, changed };
-}
-
-/** „+12 / −3 csatorna, 1 módosult” – üres, ha nincs változás. */
-export function describeCatalogDiff(diff: CatalogDiff, label: string): string {
-  if (diff.added === 0 && diff.removed === 0 && diff.changed === 0) return '';
-  const parts: string[] = [];
-  if (diff.added > 0) parts.push(`+${diff.added}`);
-  if (diff.removed > 0) parts.push(`−${diff.removed}`);
-  const head = parts.length ? `${parts.join(' / ')} ${label}` : '';
-  const tail = diff.changed > 0 ? `${diff.changed} módosult` : '';
-  return [head, tail].filter(Boolean).join(', ');
 }
 
 /* ----------------------------------------------------------------- M3U */

@@ -37,3 +37,14 @@ A fenti auditban nem maradt olyan fájl, amelynek törlését bizonytalan hivatk
 | `tools/make-splash-skeleton.py` | Törölve: a régi előre rajzolt főoldali váz generátora (a felhasználó kérésére a váz megszűnt). |
 | `tools/boot-logo.jpg` | Törölve: a váz kis logója; az új betöltőképernyőn nincs külön logó-fájl. |
 | `web/public/splash-bg.jpg` | Új, generált fájl a HTML háttérhez (baseline JPEG, q86). |
+
+## 2.5.156 – képminőség és holt kód
+
+| Fájl / jel | Állapot | Ellenőrzött ok |
+|---|---|---|
+| `Inditas.html` | **Törölve** | Betöltőképernyő-dizájn makett. A tényleges betöltőképernyő HTML+CSS teljes egészében a `web/index.html`-ben van; a build, a futás és a tesztek nem olvassák (csak megjegyzések hivatkoznak rá). |
+| `provision.html` (gyökér) | **Törölve** | Elavult másolat: a build a `build/web/provision.html`-t másolja, ami a `web/public/provision.html`-ból készül; a gyökérfájl csak egy záró megjegyzésben tért el. |
+| `web/src/utils/webos.ts` | **Törölve** | Egyetlen fájl sem importálta (a webOS-detektálást a `main.tsx` és a `webos/webos.js` végzi). |
+| Nem hívott exportok | **Törölve** | `pushProvider`, `validateXtream`, `validateM3u` (qrProvisioningService), `describeCatalogDiff`, `countCountriesInCategories` (providerImport), `reportClipboardLog` (LoadingDiagnosticModal), `fullscreenPerfLineCount`, `resetIdbStoreForTests`, `nowWithClockOffset` – forrás-, teszt- és futásidejű hivatkozás nélkül. |
+| `setNetErrorHint` | **Bekötve** (nem törölve) | Félbehagyott hibakeresés volt: a főoldal `explainNetError(lastNetErrorHint())` magyarázata mindig üres maradt, mert a bökkenő hibakódját senki nem mentette el. Most a `net.ts` hibaága eltárolja. |
+| `resolution: '1920×1080'` | **Törölve** | Kitalált, sosem mért mező: minden Xtream- és M3U-csatorna Full HD-nak látszott. A valós felbontást a KÉPMINŐSÉG napló méri. |

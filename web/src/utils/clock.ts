@@ -13,11 +13,6 @@ export function normalizeClockOffset(value: unknown): number {
   return Math.max(CLOCK_OFFSET_MIN, Math.min(CLOCK_OFFSET_MAX, Math.round(numeric)));
 }
 
-/** A TV rendszerének helyi ideje; a régi eltolásparamétert szándékosan figyelmen kívül hagyjuk. */
-export function nowWithClockOffset(_offsetHours: number): Date {
-  return new Date();
-}
-
 /** Óra:perc (24 órás), a TV rendszerének helyi időzónájában. */
 export function formatClockTime(_offsetHours: number): string {
   const now = new Date();
