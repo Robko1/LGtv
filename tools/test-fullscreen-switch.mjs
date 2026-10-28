@@ -262,9 +262,21 @@ test('7. a váltás mérése az OK lenyomásától indul, mindkét irányban', (
     'a mérés nem a kifestett képkockánál zárul (mindkét irányban)');
   assert.match(PLAYER, /fsFinish\('a teljes képernyős kép a képernyőn'\)/);
   assert.match(PLAYER, /fsFinish\('a főoldal ismét a képernyőn'\)/);
-  // A főoldal két képkockás késleltetése külön lépésként látszik.
-  assert.match(APP, /fsStep\(value \? 'főoldal: teljes képernyő jelölve'/,
-    'a főoldal késleltetett állapotváltása nem látszik a naplóban');
+  /*
+   * 2.5.168: a főoldal állapotváltása külön lépésként látszik MINDKÉT
+   * irányban – belépésnél késleltetve (a teljes képernyős kép előbb
+   * kikerüljön), kilépésnél AZONNAL. A #38–#42 naplók mérése szerint a
+   * kilépés 158–215 ms volt, aminek 143–200 ms-a épp ez a két képkockás
+   * várakozás volt.
+   */
+  assert.match(APP, /fsStep\('főoldal: teljes képernyő jelölve'/,
+    'a belépés állapotváltása nem látszik a naplóban');
+  assert.match(APP, /fsStep\('főoldal: visszatérés jelölve'/,
+    'a kilépés állapotváltása nem látszik a naplóban');
+  assert.match(APP, /if \(!value\) \{[\s\S]{0,300}?setIsVideoFullscreen\(false\);/,
+    'a kilépés nem azonnali (a főoldal a két képkockás késleltetésre vár)');
+  assert.match(APP, /raf\(\(\) => raf\(apply\)\)/,
+    'a belépés két képkockás késleltetése elveszett');
 });
 
 test('7. a mérés VALÓDI futásban is teljes időt és lépésközt ír', async () => {

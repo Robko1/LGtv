@@ -97,24 +97,54 @@ let lastBytes = 0;
 let lastProgrammes = 0;
 /** Az időablakon kívül eső (lejárt vagy túl késői) műsorok száma – diagnózishoz. */
 let lastSkipped = 0;
+/**
+ * RÉSZLETES SZÁMLÁLÓK (2.5.168).
+ *
+ * A #38 napló ezt írta: „203140 feldolgozott műsor, 202234 időablakon kívüli”,
+ * majd a tartós tárba MINDÖSSZE 103 műsor került. A két szám közti különbség
+ * okát a napló nem árulta el – pont ezért nem lehetett megmondani, miért nem
+ * jelenik meg a sárga csík. Mostantól minden kiesési ok külön számolódik, és
+ * a záró sorban ott van.
+ */
+let statInvalidDate = 0;
+let statNoTitle = 0;
+let statCap = 0;
+let statKept = 0;
 
 /* ─────────────────────────── XMLTV segédfüggvények ─────────────────────── */
 
-/** `20261027181500 +0200` → unix másodperc (az eltolást is figyelembe véve). */
+/**
+ * XMLTV idő → unix másodperc (az eltolást is figyelembe véve).
+ *
+ * KÉT FORMÁTUM (2.5.168): az XMLTV szabvány a tömör alakot írja elő
+ * (`20261028181500 +0200`), de a panelek egy része elválasztós/ISO alakot ad
+ * (`2026-10-28 18:15:00 +02:00`). A #38 naplóban 203 140 feldolgozott
+ * műsorból 202 234 „időablakon kívüli” volt, és a tartós tárba mindössze 103
+ * került – vagyis a dátumok nagy része valószínűleg nem is értelmeződött.
+ * Ezért mostantól MINDKÉT alakot olvassuk, és a hibás időpontok száma (az
+ * első három nyers értékével) a naplóba kerül.
+ */
+const XMLTV_COMPACT = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?\s*(?:([+-])(\d{2}):?(\d{2}))?/;
+const XMLTV_DASHED = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?\s*(?:([+-])(\d{2}):?(\d{2})|Z)?/;
+
 function parseXmltvDate(value: string | null | undefined): number {
   if (!value) return 0;
-  const match = /(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?\s*([+-]\d{4})?/.exec(value);
+  const text = String(value).trim();
+  const match = XMLTV_DASHED.exec(text) || XMLTV_COMPACT.exec(text);
   if (!match) return 0;
-  const [, year, month, day, hour, minute, second, offset] = match;
-  const utc = Date.UTC(
-    Number(year), Number(month) - 1, Number(day),
-    Number(hour), Number(minute), second ? Number(second) : 0,
-  );
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = match[6] ? Number(match[6]) : 0;
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return 0;
   let offsetMinutes = 0;
-  if (offset) {
-    const sign = offset[0] === '-' ? -1 : 1;
-    offsetMinutes = sign * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(3, 5)));
+  if (match[7]) {
+    const sign = match[7] === '-' ? -1 : 1;
+    offsetMinutes = sign * (Number(match[8]) * 60 + Number(match[9]));
   }
+  const utc = Date.UTC(year, month - 1, day, hour, minute, second);
   const seconds = Math.floor((utc - offsetMinutes * 60_000) / 1000);
   return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
 }
@@ -180,7 +210,19 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
   lastProgrammes += 1;
   const start = parseXmltvDate(info.start);
   const stop = parseXmltvDate(info.stop);
-  if (!start || !stop || stop <= start) return;
+  if (!start || !stop || stop <= start) {
+    statInvalidDate += 1;
+    // Az ELSŐ három hibás időpont nyers alakja is a naplóba kerül: ebből
+    // derül ki, ha a panel más dátumformátumot használ (a napló nem tartalmaz
+    // belépési adatot, csak a dátum-attribútumot).
+    if (statInvalidDate <= 3) {
+      appLog(
+        `EPG: érvénytelen időpont a műsorújságban – kezdés=„${String(info.start || '').slice(0, 32)}”, `
+        + `vég=„${String(info.stop || '').slice(0, 32)}” (ezt a műsort kihagyjuk).`
+      );
+    }
+    return;
+  }
   // Csak a mostani és a következő órák: ennyi kell a felületnek. A nagy
   // paneloknál a fájl ELSŐ fele gyakran napokkal korábbi műsor – ezért volt
   // a naplóban „20 MB, eddig 0 csatorna”: nem hiba, csak kihagyjuk.
@@ -190,15 +232,54 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
   }
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body);
   const title = titleMatch ? decodeEntities(titleMatch[1]) : '';
-  if (!title) return;
+  if (!title) {
+    statNoTitle += 1;
+    return;
+  }
 
   let list = index.get(channel);
   if (!list) {
-    if (index.size >= MAX_CHANNELS) return;
+    if (index.size >= MAX_CHANNELS) {
+      statCap += 1;
+      return;
+    }
     list = [];
     index.set(channel, list);
   }
-  if (list.length >= MAX_ENTRIES_PER_CHANNEL) return;
+  /*
+   * MEGTELT CSATORNA: a LEGKORÁBBAN VÉGZŐDŐ bejegyzést dobjuk el, ha az új
+   * később ér véget. Korábban itt `return` volt: ha a fájl egy csatornánál a
+   * régi műsorokkal kezdett, a 16 hely betelt a lejártakkal, a mai műsorok
+   * pedig elvesztek – ezért volt a naplóban „203140 feldolgozott műsor”, és
+   * mégis alig száz megtartott.
+   */
+  if (list.length >= MAX_ENTRIES_PER_CHANNEL) {
+    const nowSecNow = Math.floor(Date.now() / 1000);
+    // 1) A már lejárt műsor helyére mindig befér az új (az a nézőnek haszontalan).
+    let expired = -1;
+    for (let i = 0; i < list.length; i += 1) {
+      if (list[i].e <= nowSecNow && (expired < 0 || list[i].e < list[expired].e)) expired = i;
+    }
+    if (expired >= 0) {
+      list.splice(expired, 1);
+    } else {
+      /*
+       * 2) Csupa jövőbeli műsor: a LEGTÁVOLABBIT dobjuk el, ha az új közelebb
+       * van a mostani időhöz. Ez a lényeg: a fájl sorrendje nem garantált, és
+       * a #38–#42 naplókban pont ez veszett el – a korlát a holnapi (vagy
+       * jövő heti) műsorokkal telt meg, a MAI pedig kimaradt.
+       */
+      let farthest = 0;
+      for (let i = 1; i < list.length; i += 1) {
+        if (list[i].s > list[farthest].s) farthest = i;
+      }
+      if (list[farthest].s <= start) {
+        statCap += 1;
+        return;
+      }
+      list.splice(farthest, 1);
+    }
+  }
   list.push({ s: start, e: stop, t: title });
 }
 
@@ -303,11 +384,16 @@ function finishParsing(): void {
    * különbség a folyamatos és a „megfagyó” felület között).
    */
   const nowSec = Math.floor(Date.now() / 1000) - KEEP_BEFORE_SEC;
+  statKept = 0;
   index.forEach((list, channel) => {
     list.sort((a, b) => a.s - b.s);
     const kept = list.filter((entry) => entry.e > nowSec).slice(0, KEEP_ENTRIES_PER_CHANNEL);
-    if (kept.length) index.set(channel, kept);
-    else index.delete(channel);
+    if (kept.length) {
+      index.set(channel, kept);
+      statKept += kept.length;
+    } else {
+      index.delete(channel);
+    }
   });
   buffer = '';
 }
@@ -444,7 +530,21 @@ interface PersistedGuideMeta {
   programmes: number;
   bytes: number;
   chunks: number;
+  /**
+   * Végigfutott-e a letöltés (nem szakadt meg). A #38–#42 naplók tanulsága:
+   * egy RÉSZLEGES mentés is „frissnek” számított, és 3 órán át megakadályozta
+   * a valódi letöltést – így a néző minden indulásnál ugyanazt a néhány
+   * tucat műsort látta (vagy semmit).
+   */
+  complete?: boolean;
 }
+
+/**
+ * Ennyi műsor kell csatornánként ahhoz, hogy a mentett példány használhatónak
+ * számítson. Enélkül (pl. 96 csatorna / 103 műsor) a mentés csak a felület
+ * azonnali feltöltésére jó, a frissítés VISZONT elindul.
+ */
+const USABLE_PROGRAMMES_PER_CHANNEL = 2;
 
 function guideChunkKey(providerId: string, index: number): string {
   return `${GUIDE_IDB_PREFIX}${providerId}-${index}`;
@@ -468,7 +568,7 @@ function serializeGuide(): string[] {
   return rows;
 }
 
-async function persistGuide(providerId: string): Promise<void> {
+async function persistGuide(providerId: string, complete: boolean): Promise<void> {
   try {
     const store = await openIdbStore();
     if (!store) return;
@@ -491,10 +591,15 @@ async function persistGuide(providerId: string): Promise<void> {
       programmes,
       bytes: lastBytes,
       chunks,
+      complete,
     };
     // A fejléc MINDIG utolsóként íródik: félkész mentést soha nem olvasunk be.
     await store.put(guideMetaKey(providerId), JSON.stringify(meta));
-    appLog(`EPG: a műsorújság elmentve a tartós tárba (${meta.channels} csatorna, ${chunks} adag).`);
+    appLog(
+      `EPG: a műsorújság elmentve a tartós tárba (${meta.channels} csatorna, `
+      + `${meta.programmes} műsor, ${chunks} adag${complete ? '' : ', RÉSZLEGES'}); a következő `
+      + `${complete ? 'indulás ebből indul' : 'indulás ezt ismét frissíti'}.`
+    );
   } catch {
     // A mentés hibája nem akadály: a következő indulás egyszerűen letölti.
   }
@@ -502,7 +607,7 @@ async function persistGuide(providerId: string): Promise<void> {
 
 async function restorePersistedGuide(
   providerId: string,
-): Promise<{ savedAt: number; channels: number; programmes: number; bytes: number } | null> {
+): Promise<{ savedAt: number; channels: number; programmes: number; bytes: number; complete: boolean } | null> {
   try {
     const store = await openIdbStore();
     if (!store) return null;
@@ -525,7 +630,13 @@ async function restorePersistedGuide(
     if (!restored) return null;
     // A visszatöltött index is átesik a tisztításon (lejárt műsorok kidobása).
     finishParsing();
-    return { savedAt: meta.savedAt, channels: index.size, programmes: meta.programmes, bytes: meta.bytes };
+    return {
+      savedAt: meta.savedAt,
+      channels: index.size,
+      programmes: meta.programmes,
+      bytes: meta.bytes,
+      complete: meta.complete === true,
+    };
   } catch {
     return null;
   }
@@ -563,7 +674,16 @@ export async function ensureGuide(provider: {
   if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) {
     return;
   }
-  const fresh = loadedProviderId === provider.id && index.size > 0 && Date.now() - loadedAt < GUIDE_TTL_MS;
+  /*
+   * „FRISS” CSAK A HASZNÁLHATÓ MŰSORÚJSÁG.
+   *
+   * A puszta `index.size > 0` feltétel miatt egy 96 csatornás, 103 műsoros
+   * maradék 3 órán át frissnek számított (#38–#42 naplók): a valódi letöltés
+   * el sem indult, a sárga csík pedig üres maradt.
+   */
+  const usable = statKept >= index.size * USABLE_PROGRAMMES_PER_CHANNEL;
+  const fresh = loadedProviderId === provider.id && index.size > 0 && usable
+    && Date.now() - loadedAt < GUIDE_TTL_MS;
   if (fresh) return;
   if (loading) return loading;
   if (breakerOpen()) {
@@ -579,6 +699,10 @@ export async function ensureGuide(provider: {
   lastSkipped = 0;
   lastBytes = 0;
   lastError = '';
+  statInvalidDate = 0;
+  statNoTitle = 0;
+  statCap = 0;
+  statKept = 0;
   const nowSec = Math.floor(Date.now() / 1000);
   windowStart = nowSec - KEEP_BEFORE_SEC;
   windowEnd = nowSec + KEEP_AFTER_SEC;
@@ -600,13 +724,25 @@ export async function ensureGuide(provider: {
     loadedProviderId = provider.id;
     lastProgrammes = restored.programmes;
     lastBytes = restored.bytes;
+    statKept = statKept || restored.programmes;
     appLog(
       `EPG: a műsorújság a tartós tárból betöltve – ${restored.channels} csatorna, `
-      + `${restored.programmes} műsor (mentve: ${new Date(restored.savedAt).toLocaleTimeString('hu-HU')}).`
+      + `${restored.programmes} műsor (mentve: ${new Date(restored.savedAt).toLocaleTimeString('hu-HU')}` +
+      `${restored.complete ? '' : ', RÉSZLEGES'}).`
     );
-    // Ha a mentett példány még érvényes, nincs értelme 4 percig tölteni.
-    if (Date.now() - restored.savedAt < GUIDE_TTL_MS) return;
-    appLog('EPG: a mentett műsorújság lejárt – a háttérben frissítjük.');
+    /*
+     * CSAK a TELJES és ELÉG SŰRŰ mentés számít frissnek. A részleges mentés
+     * azonnal megjelenik a felületen (ezért jó, hogy van), de a frissítés
+     * elindul – különben a hiányos műsorújság órákig „érvényes” maradna.
+     */
+    const thick = restored.channels > 0
+      && restored.programmes >= restored.channels * USABLE_PROGRAMMES_PER_CHANNEL;
+    if (restored.complete && thick && Date.now() - restored.savedAt < GUIDE_TTL_MS) return;
+    appLog(
+      'EPG: a mentett műsorújság '
+      + `${!restored.complete ? 'részleges' : (!thick ? 'túl kevés műsort tartalmaz' : 'lejárt')} `
+      + '– a háttérben frissítjük, a már látható műsorok addig is megmaradnak.'
+    );
   }
 
   appLog('EPG: a teljes műsorújság (XMLTV) letöltése indul – a rövid EPG végpont ezen a panelen üres választ ad.');
@@ -619,10 +755,12 @@ export async function ensureGuide(provider: {
       const partial = abortReason ? ` (részleges: ${abortReason})` : '';
       appLog(
         `EPG: műsorújság betöltve ${((Date.now() - startedAt) / 1000).toFixed(1)} mp alatt – `
-        + `${channels} csatorna, ${lastProgrammes} feldolgozott műsor, `
-        + `${lastSkipped} időablakon kívüli műsor, ${(lastBytes / 1024).toFixed(0)} KB${partial}.`
+        + `${channels} csatorna, ${statKept} megtartott műsor `
+        + `(a ${lastProgrammes} feldolgozott blokkból ${lastSkipped} időablakon kívüli, `
+        + `${statInvalidDate} érvénytelen időpont, ${statNoTitle} cím nélküli, `
+        + `${statCap} korlát miatt kihagyott), ${(lastBytes / 1024).toFixed(0)} KB${partial}.`
       );
-      if (channels > 0) void persistGuide(provider.id);
+      if (channels > 0) void persistGuide(provider.id, !abortReason);
       if (channels === 0) {
         appLog('EPG: a szolgáltató műsorújságja üres – a felület a rövid EPG-t használja tartalékként.');
       }
@@ -642,8 +780,9 @@ export async function ensureGuide(provider: {
         );
       }
       appLogError(`EPG műsorújság${aborted ? ' (megszakítva)' : ''}`, error);
-      // Ami összejött, az maradjon használható a következő indulásig is.
-      if (index.size > 0) void persistGuide(provider.id);
+      // Ami összejött, az maradjon használható a következő indulásig is –
+      // de RÉSZLEGES jelöléssel, hogy a következő indulás frissítsen.
+      if (index.size > 0) void persistGuide(provider.id, false);
     })
     .finally(() => {
       loading = null;
@@ -761,7 +900,7 @@ export function guideStatus(): {
     providerId: loadedProviderId,
     error: lastError,
     bytes: lastBytes,
-    programmes: lastProgrammes,
+    programmes: statKept || lastProgrammes,
     skipped: lastSkipped,
   };
 }

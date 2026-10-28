@@ -10,6 +10,7 @@
  */
 
 import { ProviderRef } from './contentStore';
+import { appLog } from './appLog';
 import { xtreamService } from './xtreamService';
 
 export interface EpgEntry {
@@ -47,6 +48,9 @@ const cache = new Map<string, { at: number; entries: EpgEntry[] }>();
 // Az App és a csatornalista ugyanazt a műsort is kérheti induláskor.
 // Egy csatornához egyszerre csak egy hálózati EPG-kérés fusson.
 const inFlight = new Map<string, Promise<EpgEntry[]>>();
+/** Egyszeri naplózás arról, melyik EPG-végpont ad valódi adatot ezen a panelen. */
+let simpleEpgWorksLogged = false;
+let simpleEpgBrokenLogged = false;
 
 function trimCache(): void {
   while (cache.size > CACHE_MAX_ENTRIES) {
@@ -89,6 +93,9 @@ export function streamIdFor(channel: { streamId?: number; streamUrl?: string }):
 
 export function clearEpgCache(): void {
   cache.clear();
+  // Szolgáltatóváltásnál a végpont-diagnózis is újraíródhat a naplóba.
+  simpleEpgWorksLogged = false;
+  simpleEpgBrokenLogged = false;
 }
 
 /** A már letöltött EPG-adatot lejárattól függetlenül is kiolvassuk,
@@ -118,13 +125,49 @@ export async function loadShortEpg(
   if (pending) return pending;
 
   const request = (async (): Promise<EpgEntry[]> => {
-    const items = await xtreamService.shortEpg(
+    let items = await xtreamService.shortEpg(
       provider.serverUrl!,
       provider.username!,
       provider.password!,
       streamId,
       limit
     );
+    /*
+     * ÜRES `get_short_epg` – MÁSODIK VÉGPONT (2.5.168).
+     *
+     * A #38–#42 naplók bizonyítják, hogy ezen a panelen a `get_short_epg`
+     * MINDEN csatornára 19 bájt: `{"epg_listings":[]}`. Emiatt a sárga csík
+     * soha nem tudott megjelenni. A `get_simple_data_table` ugyanazt az
+     * `epg_listings` szerkezetet adja, de csatornánként és teljes napra –
+     * ha ezt a panel kiszolgálja, másodpercek alatt van műsor.
+     *
+     * A napló EGYSZER írja le, melyik végpont adja az adatot (nem kérésenként).
+     */
+    if (!items.length) {
+      try {
+        items = await xtreamService.simpleEpg(
+          provider.serverUrl!,
+          provider.username!,
+          provider.password!,
+          streamId
+        );
+        if (items.length && !simpleEpgWorksLogged) {
+          simpleEpgWorksLogged = true;
+          appLog(
+            `EPG: a rövid EPG végpont üres, a get_simple_data_table végpont adja a műsort `
+            + `(első csatorna: ${items.length} műsor) – ezt használjuk a látható csatornákra.`
+          );
+        }
+      } catch (error) {
+        if (!simpleEpgBrokenLogged) {
+          simpleEpgBrokenLogged = true;
+          appLog(
+            `EPG: a get_simple_data_table végpont sem ad adatot – `
+            + `${error instanceof Error ? error.message : String(error)}; marad a teljes műsorújság (XMLTV).`
+          );
+        }
+      }
+    }
 
     const entries: EpgEntry[] = items.map((item, index) => ({
       id: String(item.id ?? index),
