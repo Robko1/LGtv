@@ -839,9 +839,14 @@
                   for (var pi = 0; pi < entries.length; pi++) {
                     var name = entries[pi].name;
                     if (name === 'first-paint' || name === 'first-contentful-paint') {
-                      paintObserver.disconnect();
-                      releasePlatformSplash();
-                      return;
+                      var root = byId('root');
+                      /* A platformképet csak akkor vesszük le, ha a React főoldal
+                         ténylegesen létrehozott legalább egy DOM-elemet. */
+                      if (root && root.childElementCount > 0) {
+                        paintObserver.disconnect();
+                        releasePlatformSplash();
+                        return;
+                      }
                     }
                   }
                 } catch (eObs) {}
@@ -850,7 +855,14 @@
             }
           } catch (ePaint) {}
           /* Végső biztonsági háló: 1500 ms után sem takarhat. */
-          window.setTimeout(releasePlatformSplash, 1500);
+          (function waitForMainPage() {
+            var root = byId('root');
+            if (root && root.childElementCount > 0) {
+              releasePlatformSplash();
+            } else {
+              window.setTimeout(waitForMainPage, 100);
+            }
+          })();
         } catch (e) {}
 
         // ---------- Egy pillanat alatti megjelenés ----------
