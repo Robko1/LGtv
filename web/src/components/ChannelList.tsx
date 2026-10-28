@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Category, Channel, FavoriteFolder } from '../types/iptv';
 import { ArrowUp, ArrowDown, Trash2, Star } from 'lucide-react';
 import { ChannelLogo } from './ChannelLogo';
@@ -740,6 +741,9 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     });
   };
 
+  // Egy régi, ritka virtualizációs tartalék ne ránthassa vissza a fókuszt
+  // egy későbbi gombnyomás vagy navigáció után.
+  const navigationGeneration = useRef(0);
   const handleListKeyDown = (e: React.KeyboardEvent) => {
     /*
      * REJTETT LISTA: ne nyelje el a gombokat.
@@ -754,6 +758,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     if (!isActive || (host && (host.closest('[data-view-hidden]') || host.style.visibility === 'hidden'))) return;
     // LG webOS: régi kulcsnév ('Up'/'Down') vagy csak keyCode is érkezhet.
     const key = normalizeTvKey(e);
+    const generation = ++navigationGeneration.current;
     // KÉK teletextgomb: megnyitott kedvenc mappában a kijelölt csatornát
     // közvetlenül mozgatási módba teszi. A fő csatornalista működése változatlan.
     if (key === 'ColorF3Blue' && selectedFavoriteFolderId) {
@@ -845,30 +850,48 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     const moveHighlight = (target: number) => {
       const next = visibleChannels[target];
       if (!next) return;
-      setHighlightedId(next.id);
       const list = channelScrollRef.current;
+      let scrolled = false;
       if (list) {
         const rowTop = LIST_PADDING + target * rowPitch;
         const rowBottom = rowTop + rowHeight;
-        if (rowTop < list.scrollTop) list.scrollTop = Math.max(0, rowTop - LIST_PADDING);
-        else if (rowBottom > list.scrollTop + list.clientHeight) list.scrollTop = rowBottom - list.clientHeight + LIST_PADDING;
-        // Az ablakot azonnal szinkronizáljuk, így a cél-sor már a következő
-        // rajzoláskor a DOM-ban van; nem várunk a scroll eseményre.
-        computeWindow();
+        if (rowTop < list.scrollTop) {
+          list.scrollTop = Math.max(0, rowTop - LIST_PADDING);
+          scrolled = true;
+        } else if (rowBottom > list.scrollTop + list.clientHeight) {
+          list.scrollTop = rowBottom - list.clientHeight + LIST_PADDING;
+          scrolled = true;
+        }
       }
-      const focusRenderedTarget = (attempt: number) => {
-        // A virtualizált ablak React-rerenderje egy rAF-tal később is
-        // érkezhet. Ilyenkor újrapróbáljuk ugyanazt a valódi sort, ahelyett
-        // hogy a fókusz a háttérbe esne és a következő LE határátmenetnek
-        // látná a listát.
-        if (focusChannelRow(next.id) || attempt >= 2) return;
-        requestAnimationFrame(() => focusRenderedTarget(attempt + 1));
-      };
-      requestAnimationFrame(() => {
-        // A fókusz a SORRA kerül, nem a lista dobozára: a doboz soha nem
-        // lehet kijelölve (lásd a fókuszmodell leírását fent).
-        focusRenderedTarget(0);
+
+      // A szomszédos sor az overscan miatt rendszerint már a DOM-ban van.
+      // Azonnal kapjon fókuszt: a következő gyors nyomás már erről a sorról
+      // lép, nem egy rAF-ra váró régi fókuszból. Az OK továbbra is csak a
+      // ténylegesen fókuszált csatornát választja ki.
+      if (focusChannelRow(next.id)) {
+        setHighlightedId(next.id);
+        if (scrolled) computeWindow();
+        return;
+      }
+
+      // Ritka esetben (pl. még nem kirajzolt virtualizált ablak) a cél nem
+      // létezik. Csak ekkor szinkronizáljuk a Reactet, hogy a következő
+      // gombnyomás se vesszen el egy még nem fókuszálható sor miatt.
+      flushSync(() => {
+        computeWindow();
+        setHighlightedId(next.id);
       });
+      if (focusChannelRow(next.id)) return;
+      const focusRenderedTarget = (attempt: number) => {
+        if (navigationGeneration.current !== generation) return;
+        const active = document.activeElement;
+        // A felhasználót másik zónából vagy nyitott ablakból ne rángassuk vissza.
+        if (!list || !document.documentElement.contains(list) || (active && active !== document.body && active !== activeElement)
+          || document.querySelector('[role="dialog"]')) return;
+        if (focusChannelRow(next.id) || attempt >= 2) return;
+        window.requestAnimationFrame(() => focusRenderedTarget(attempt + 1));
+      };
+      window.requestAnimationFrame(() => focusRenderedTarget(0));
     };
     if (key === 'ArrowUp' && hasRealCurrentRow && currentIndex === 0) {
       // A lista tetejéről felfelé: a mappasávra lépünk (onnan tovább a fejléc).
