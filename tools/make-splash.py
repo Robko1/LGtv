@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-A TV platform indítóképe (webOS `splashBackground`) – 2.5.166.
+A TV platform indítóképe (webOS `splashBackground`) – 2.5.167.
 
 A felhasználói követelmény: az indítóképernyő legyen GYORS és NYUGODT, a
-hangsúly a középen lévő százalékon és a töltősávon. Ezért a 2.5.166-os kép
+hangsúly a középen lévő százalékon és a töltősávon. Ezért a 2.5.167-es kép
 már NEM egy 1920×1080-ra felnagyított fotó (az a PNG-ben ~600 kB volt,
 és a TV-nek minden képkockán újra kellett rasztereznie), hanem UGYANAZ a
 színátmenetes kompozíció, amit a saját betöltőképernyőnk `.bootbg` rétege
@@ -91,7 +91,7 @@ def build_splash() -> Image.Image:
     # .bootbg – radial-gradient(58% 62% at 50% 44%) + lineáris 180deg
     g_cx, g_cy = WIDTH * 0.50, HEIGHT * 0.44
     g_rx, g_ry = WIDTH * 0.58, HEIGHT * 0.62
-    glow_table = [(0.0, 0.30), (0.42, 0.16), (0.72, 0.0)]
+    glow_table = [(0.0, 0.42), (0.42, 0.20), (0.72, 0.0)]
 
     # .scrim – radial-gradient(120% 85% at 50% 42%)
     s1_cx, s1_cy = WIDTH * 0.5, HEIGHT * 0.42
