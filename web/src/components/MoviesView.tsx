@@ -182,7 +182,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
       <div className="p-3 md:p-4 lg:p-4 xl:p-5 bg-[#09152e] border-b border-cyan-950/60 flex flex-col gap-2.5">
         <div className="relative flex items-center justify-end gap-2 min-h-[40px]">
           <button
-            data-category-trigger=""
+            data-category-trigger="movies"
             onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'ArrowDown') { e.preventDefault(); if (!isCategoryMenuOpen) movieGridRef.current?.querySelector<HTMLElement>('[data-poster-index="0"]')?.focus(); } else if (key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); document.querySelector<HTMLElement>('[data-tv-header-kind="movies"]')?.focus(); } }}
             onClick={() => setIsCategoryMenuOpen((open) => !open)}
             aria-expanded={isCategoryMenuOpen}
