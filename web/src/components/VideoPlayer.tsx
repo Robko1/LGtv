@@ -577,13 +577,10 @@ interface VideoPlayerProps {
  * ekkor jön az `iptv-audio-open` esemény, és a hangerő visszaáll.
  */
 function startupAudioGateClosed(): boolean {
-  try {
-    return (window as unknown as { __IPTV_AUDIO_GATE__?: boolean }).__IPTV_AUDIO_GATE__ === true;
-  } catch {
-    return false;
-  }
+  // Nincs egyedi HTML-es indítóképernyő; a régi audio-gate nem némíthatja
+  // el a lejátszást, mert a hozzá tartozó reveal esemény már nem létezik.
+  return false;
 }
-
 /** A néma állapot EGYETLEN helyen dől el: hangerő + indulási hangzár. */
 function applyMuteState(video: HTMLVideoElement, volume: number): void {
   try {
