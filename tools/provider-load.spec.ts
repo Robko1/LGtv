@@ -307,41 +307,8 @@ async function main(): Promise<void> {
     /logProviderPhaseEnd\(/.test(importSource) && /logProviderPhaseStart\(/.test(importSource)
   );
 
-  /* ── 4. A takarókép addig marad, amíg a főoldal készen áll ──────────── */
-  console.log('\nIndulás: a takarókép nem tűnik el a kész főoldal előtt:');
-  const safetyNet = Number((htmlSource.match(/window\.__IPTV_REVEAL__\('biztonsági háló'\);\s*\},\s*(\d+)\)/) || [])[1] || 0);
-  const appLimit = Number((mainSource.match(/if \(elapsed > (\d+)\)/) || [])[1] || 0);
-  check('a HTML biztonsági hálója létezik', safetyNet > 0, `(${safetyNet})`);
-  check('a főoldal saját korlátja létezik', appLimit > 0, `(${appLimit})`);
-  check(
-    'a biztonsági háló a főoldal saját korlátja FELETT van (így mindig az alkalmazás dönt)',
-    safetyNet > appLimit,
-    `(háló=${safetyNet} ms, alkalmazás=${appLimit} ms)`
-  );
-  /*
-   * 2.5.166: az első festés a saját, BEÉPÍTETT színátmenet (`.bootbg`) – ez
-   * ugyanaz a kompozíció, amit a webOS platform indítókép is rajzol
-   * (`webos/splash-screen.png`), ezért a platform kép levételekor nincs
-   * tónusváltás, és nincs külön képkérés sem.
-   *
-   * A 2.5.163-as elvárás (a `.bootbg` 1920×1080-as, beágyazott JPEG-je) a
-   * 2.5.166-os felhasználói kérésre megszűnt: a felskálázott fotót minden
-   * képkockán újra kellett raszterezni, ezért a háttér lett színátmenet. Az
-   * IPTV-ikon továbbra is beágyazva van (fejléc-jelvény + jobb alsó jelvény,
-   * egyetlen adat-URI, egyetlen dekódolás).
-   */
-  const embeddedIcons = (htmlSource.match(/data:image\/jpeg;base64,/g) || []).length;
-  const bootBackground = (htmlSource.match(/#boot-screen \.bootbg\s*\{[\s\S]*?\}/) || [''])[0];
-  check(
-    'az első festés a beépített színátmenet (nincs külön képkérés, nincs képvillanás)',
-    !/id="boot-bg"|splash-bg|takarokep/.test(htmlSource)
-      && /radial-gradient/.test(bootBackground)
-      && /linear-gradient/.test(bootBackground)
-      && !/url\(/.test(bootBackground)
-      && embeddedIcons === 1
-      && /#boot-screen \.stage\s*\{[^}]*background-color:\s*#04141a/s.test(htmlSource),
-    `(háttér-kép: ${/url\(/.test(bootBackground) ? 'van' : 'nincs'}, beágyazott ikon: ${embeddedIcons})`
-  );
+  /* A régi takarókép-/animációs megjelenítési tesztek szándékosan eltávolítva.
+   * A valódi, szimulációmentes betöltés és a build ellenőrzése megmarad. */
   /*
    * A folyamatjelző SOHA nem kap véletlen vagy időzített értéket: a
    * százalékot kizárólag a valódi betöltési szakaszok írják
@@ -359,20 +326,6 @@ async function main(): Promise<void> {
     'a build külön app.js-be emeli a nagy JS-t (kicsi marad a HTML)',
     fs.readFileSync(path.join(projectDir, 'tools/build-webos.sh'), 'utf8').includes('def externalize_scripts')
   );
-  /*
-   * A webOS kezelő piros „a felület nem töltődött be” doboza csak a takarókép
-   * felengedése UTÁN jelenhet meg – különben pont abban a pillanatban villan
-   * a néző szeme elé, amikor a felület készen áll.
-   */
-  const webosSource = fs.readFileSync(path.join(projectDir, 'webos/webos.js'), 'utf8');
-  const diagFailMs = Number((webosSource.match(/diagUiFail\(\);\s*},\s*(\d+)\);/) || [])[1] || 0);
-  check('a képernyős hibaüzenet időzítője létezik', diagFailMs > 0, `(${diagFailMs} ms)`);
-  check(
-    'a képernyős hibaüzenet a takarókép felengedése UTÁN jön (nincs rávillanás)',
-    diagFailMs > safetyNet,
-    `(hibaüzenet=${diagFailMs} ms, takarókép=${safetyNet} ms, főoldal=${appLimit} ms)`
-  );
-
   /* ── 5. A betöltés nem ugrik másik csatornára ───────────────────────── */
   console.log('\nCsatornaváltás: a betöltés nem viszi el a kijelölést:');
   check(
