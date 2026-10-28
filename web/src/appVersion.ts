@@ -1,10 +1,24 @@
-export const WEB_VERSION = '2.5.166';
+export const WEB_VERSION = '2.5.167';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
 try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION = WEB_VERSION; } catch { /* SSR/teszt környezetben nincs window */ }
 
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.167',
+    date: '2026-10-28',
+    changes: [
+      'AZ INDÍTÓKÉPERNYŐ MÁR NEM ANIMÁL: a #32–#37 naplók szerint a saját látvány vitte el a képkockákat az indulásból. Kikerült a vászon-részecske-hurok, a 72 rovátkás forgó tárcsa, a filmszemcse, a pásztázó sorok, a fénylegyező, a virágzás, a záró „INDÍTÁS” fátyol és a fejléc-óra (másodpercenkénti időzítő). A háttér álló színátmenet',
+      'A HANGSÚLY A KÖZÉPEN: a valós százalék (gyűrűvel) középre került, közvetlenül alatta a töltősáv, majd a mért statisztikák – az elrendezés elemei változatlanok, csak a folyamatos mozgás tűnt el',
+      'A HÁTTÉR FOTÓ HELETT SZÍNÁTMENET: a 1920×1080-ra felnagyított ikon (filterrel, scale-lel, minden képkockán újraraszterezve) helyett ugyanaz a színátmenetes kompozíció, amit a platform indítókép is rajzol. Az IPTV-ikon a fejléc- és a sarokjelvényben maradt meg',
+      'A PLATFORM INDÍTÓKÉP 607 kB HELYETT 76 kB: a tools/make-splash.py ugyanazt a színátmenetet, fátylat, 84 pixeles rácsot és vignettát rajzolja ki 1920×1080-ban, 24 bites RGB-ben – a két kép továbbra is egyforma, a váltás észrevehetetlen',
+      'AZ EPG VÉGRE BETÖLTŐDIK: a 62 MB-os műsorújságot eddig a 90 mp-es teljes időkorlát és a 64 MB-os plafon szakította meg minden indulásnál (AbortError). Mostantól csak akkor szakítjuk meg, ha 60 mp-ig nem jön adat (8 perces biztonsági felső korláttal, 192 MB-os plafonnal), a megszakítás OKA a naplóba kerül, és a MÁR beolvasott rész megmarad',
+      'AZ EPG TARTÓS GYORSÍTÓTÁRBA KERÜL: a kész (vagy részleges) műsorújság a tartós tárba íródik, ezért a következő induláskor AZONNAL betöltődik – a sárga csík már a főoldal megjelenésekor ott van, a frissítés a háttérben fut',
+      'A TELJES KÉPERNYŐ VÁLTÁSA AZ OK GOMBTÓL MÉRHETŐ: minden váltásnál a napló megmutatja az OK óta eltelt teljes időt, a köztes lépéseket (esemény, állapot, commit, első képkocka, fókusz, OSD/EPG), a lépésközöket és a leghosszabb késleltetést – ebből derül ki, mi lassítja a váltást',
+      'A naplóban a megszakadt EPG-letöltés oka és a kihagyott (időablakon kívüli) műsorok száma is látszik – nem kell találgatni, miért kevés a csatorna a fájl első felében',
+    ],
+  },
   {
     version: '2.5.166',
     date: '2026-10-28',

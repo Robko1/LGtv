@@ -35,7 +35,7 @@ import {
   bootScreenProviderProgress,
   bootScreenTransfer,
 } from './services/bootScreen';
-import { fsPerf } from './services/fullscreenPerf';
+import { fsPerf, fsStep } from './services/fullscreenPerf';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import {
@@ -679,6 +679,14 @@ export function App() {
     videoFullscreenRef.current = value;
     const apply = () => setIsVideoFullscreen(value);
     const raf = (callback: FrameRequestCallback) => window.requestAnimationFrame(callback);
+    /*
+     * 2.5.166: a főoldal állapota SZÁNDÉKOSAN két képkockával később vált (a
+     * teljes képernyős kép előbb kerüljön ki). Ez a késleltetés viszont idő:
+     * a naplóban külön lépésként jelenik meg, hogy a váltás teljes idejéből
+     * látszódjon, mennyi esik erre.
+     */
+    fsStep(value ? 'főoldal: teljes képernyő jelölve' : 'főoldal: visszatérés jelölve',
+      'az állapot két képkockával később frissül (a kép előbb kikerül)');
     raf(() => raf(apply));
   }, []);
   const [liveAccent, setLiveAccent] = useState<'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white'>(() => {

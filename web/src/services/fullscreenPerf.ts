@@ -97,3 +97,106 @@ export function fsPerfTimed(event: string, startedAt: number, detail = ''): void
   fsPerf(event, `${detail ? `${detail}; ` : ''}${elapsed.toFixed(1)} ms`);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   TELJES MÉRÉS AZ OK-GOMBTÓL (2.5.166)
+
+   A felhasználó kérése: a főoldal ⇄ teljes képernyő váltást AZ OK gomb
+   megnyomásától kell mérni, mindkét irányban, és naplózni kell, milyen
+   műveletek történnek közben, hol keletkezik késleltetés.
+
+   A #32–#37 naplókban csak ennyi állt: „BE: első képkocka 5,8 ms” és
+   „fókusz ellenőrizve 567,5 ms” – ezek RÉSZMÉRÉSEK voltak egy már elindult
+   állapotváltásról, a felhasználó által érzékelt időről semmit nem mondtak.
+
+   Ezért itt egy MÉRÉSI MENET (tranzakció) fut:
+
+     fsStart('BE', 'csatornalista OK')   ← az OK lenyomásának pillanata
+     fsStep('esemény a lejátszónál')     ← minden köztes lépés, lépésközzel
+     fsFinish('első képkocka')           ← a váltás VÉGE, teljes idővel
+
+   Minden sor tartalmazza az OK óta eltelt teljes időt ÉS az előző lépés óta
+   eltelt időt, továbbá a menet végén a leghosszabb lépésközt – ebből derül
+   ki, melyik művelet lassítja a váltást.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+type FsDirection = 'BE' | 'KI';
+
+interface FsTrace {
+  direction: FsDirection;
+  origin: string;
+  startedAt: number;
+  lastAt: number;
+  steps: number;
+  slowestLabel: string;
+  slowestGap: number;
+}
+
+let trace: FsTrace | null = null;
+
+/** A mérés indítása – az OK (vagy VISSZA) lenyomásának pillanatában. */
+export function fsStart(direction: FsDirection, origin: string): void {
+  if (!isVerbosePlaybackLogging()) return;
+  const now = fsNow();
+  trace = {
+    direction,
+    origin,
+    startedAt: now,
+    lastAt: now,
+    steps: 0,
+    slowestLabel: 'indítás',
+    slowestGap: 0,
+  };
+  fsPerf(`${direction}: ▶ OK lenyomva`, `${origin}; innen mérünk`);
+}
+
+/**
+ * Egy köztes lépés naplózása a meneten belül (az OK óta eltelt idővel).
+ * Ha nincs menet (pl. a naplózás közben kapcsolták be), egyszerű esemény.
+ */
+export function fsStep(label: string, detail = ''): void {
+  if (!isVerbosePlaybackLogging()) return;
+  if (!trace) {
+    fsPerf(label, detail);
+    return;
+  }
+  const now = fsNow();
+  const gap = Math.max(0, now - trace.lastAt);
+  const total = Math.max(0, now - trace.startedAt);
+  trace.lastAt = now;
+  trace.steps += 1;
+  if (gap > trace.slowestGap) {
+    trace.slowestGap = gap;
+    trace.slowestLabel = label;
+  }
+  fsPerf(
+    `${trace.direction}: ${label}`,
+    `${detail ? `${detail}; ` : ''}+${total.toFixed(1)} ms az OK óta (lépésköz ${gap.toFixed(1)} ms)`,
+  );
+}
+
+/** A menet lezárása: teljes idő, lépésszám és a leghosszabb lépésköz. */
+export function fsFinish(outcome: string): void {
+  if (!isVerbosePlaybackLogging() || !trace) return;
+  const now = fsNow();
+  const total = Math.max(0, now - trace.startedAt);
+  const gaps = Math.max(0, now - trace.lastAt);
+  if (gaps > trace.slowestGap) {
+    trace.slowestGap = gaps;
+    trace.slowestLabel = 'utolsó lépés óta';
+  }
+  const { direction, origin, steps, slowestLabel, slowestGap } = trace;
+  trace = null;
+  fsPerf(
+    `${direction}: ✅ KÉSZ – teljes idő`,
+    `${outcome}; ${total.toFixed(1)} ms az OK óta, ${steps + 1} lépés, `
+    + `leghosszabb késleltetés: ${slowestLabel} ${slowestGap.toFixed(1)} ms (${origin})`,
+  );
+}
+
+/** Félbehagyott menet eldobása (pl. a felhasználó más nézetre lépett). */
+export function fsAbort(reason: string): void {
+  if (!trace) return;
+  const { direction } = trace;
+  trace = null;
+  fsPerf(`${direction}: ⏹ megszakítva`, reason);
+}

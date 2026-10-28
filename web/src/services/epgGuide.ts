@@ -33,6 +33,7 @@ import { appLog, appLogError } from './appLog';
 import type { ProviderRef } from './contentStore';
 import { breakerOpen, breakerRemainingMs } from './net';
 import { EpgNowNext, getCachedShortEpg, nowNextFromEpg, streamIdFor } from './epgService';
+import { openIdbStore } from './idbStore';
 import { xtreamService } from './xtreamService';
 
 interface GuideEntry {
@@ -53,10 +54,24 @@ interface GuideEntry {
  * így a gyorsítótár a 3 óra alatt sem ürül ki.
  */
 const GUIDE_TTL_MS = 3 * 60 * 60 * 1000;
-/** Egy kérés felső korlátja (nagy panelnél is belefér). */
-const REQUEST_TIMEOUT_MS = 90_000;
-/** Ennél nagyobb fájlt nem olvasunk tovább (memória-védelem). */
-const MAX_BYTES = 64 * 1024 * 1024;
+/**
+ * A LETÖLTÉS KORLÁTAI (2.5.166).
+ *
+ * A #32–#37 naplók: a 62 MB-os műsorújság a TV-n ~250 kB/s-mal jön, vagyis
+ * ~4 perc. A régi 90 mp-es TELJES időkorlát és a 64 MB-os plafon ezért
+ * MINDEN ALKALOMMAL megszakította a letöltést (`AbortError:
+ * BodyStreamBuffer was aborted`) – az EPG soha nem tudott betöltődni.
+ *
+ * Helyette:
+ *   • IDLE_TIMEOUT_MS – csak akkor szakítjuk meg, ha NEM JÖN adat (a hálózat
+ *     megakadt); a lassú, de folyamatos olvasást nem büntetjük,
+ *   • MAX_DOWNLOAD_MS – biztonsági felső korlát, utána a MÁR beolvasott rész
+ *     használható marad (részleges index),
+ *   • MAX_BYTES – memória-védelem; efelett szintén a részleges index marad.
+ */
+const IDLE_TIMEOUT_MS = 60_000;
+const MAX_DOWNLOAD_MS = 8 * 60_000;
+const MAX_BYTES = 192 * 1024 * 1024;
 /** Ennyivel korábbi műsort még megtartunk (az éppen futó miatt). */
 const KEEP_BEFORE_SEC = 2 * 3600;
 /** Ennyivel későbbi műsort tartunk meg (a „következő” miatt). */
@@ -80,6 +95,8 @@ let loading: Promise<void> | null = null;
 let lastError = '';
 let lastBytes = 0;
 let lastProgrammes = 0;
+/** Az időablakon kívül eső (lejárt vagy túl késői) műsorok száma – diagnózishoz. */
+let lastSkipped = 0;
 
 /* ─────────────────────────── XMLTV segédfüggvények ─────────────────────── */
 
@@ -164,8 +181,13 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
   const start = parseXmltvDate(info.start);
   const stop = parseXmltvDate(info.stop);
   if (!start || !stop || stop <= start) return;
-  // Csak a mostani és a következő órák: ennyi kell a felületnek.
-  if (stop < windowStart || start > windowEnd) return;
+  // Csak a mostani és a következő órák: ennyi kell a felületnek. A nagy
+  // paneloknál a fájl ELSŐ fele gyakran napokkal korábbi műsor – ezért volt
+  // a naplóban „20 MB, eddig 0 csatorna”: nem hiba, csak kihagyjuk.
+  if (stop < windowStart || start > windowEnd) {
+    lastSkipped += 1;
+    return;
+  }
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body);
   const title = titleMatch ? decodeEntities(titleMatch[1]) : '';
   if (!title) return;
@@ -299,10 +321,33 @@ function guideUrl(provider: { serverUrl?: string; username?: string; password?: 
   return `${base}/xmltv.php?username=${user}&password=${pass}`;
 }
 
+/** A megszakítás oka (a naplóban ez a VALÓDI magyarázat). */
+let abortReason = '';
+
 async function download(provider: { serverUrl?: string; username?: string; password?: string }): Promise<void> {
   const url = guideUrl(provider);
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
+  abortReason = '';
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  /*
+   * ŐRKUTYA: a teljes időkorlát helyett az ADATHIÁNYT figyeljük. A #36 napló
+   * bizonyítja, hogy a teljes fájl 81 mp alatt letölthető – a 90 mp-es fix
+   * korlát ennek a határán volt, a 62 MB-os fájlnál pedig mindig lejárt.
+   */
+  const armIdle = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      abortReason = `időtúllépés – ${Math.round(IDLE_TIMEOUT_MS / 1000)} mp-ig nem érkezett adat`;
+      controller?.abort();
+    }, IDLE_TIMEOUT_MS);
+  };
+  const deadline = controller
+    ? setTimeout(() => {
+      abortReason = `a letöltés elérte a ${Math.round(MAX_DOWNLOAD_MS / 60000)} perces felső korlátot`;
+      controller.abort();
+    }, MAX_DOWNLOAD_MS)
+    : null;
+  armIdle();
   try {
     const response = await fetch(url, {
       method: 'GET',
@@ -319,6 +364,7 @@ async function download(provider: { serverUrl?: string; username?: string; passw
       // Régi motor: nincs stream, egyben olvassuk (ez már csak tartalék út).
       const text = await response.text();
       lastBytes = text.length;
+      armIdle();
       await feedWithBreath(text);
       finishParsing();
       return;
@@ -332,10 +378,12 @@ async function download(provider: { serverUrl?: string; username?: string; passw
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
+      armIdle();
       bytes += value.byteLength;
       if (bytes > MAX_BYTES) {
         try { await reader.cancel(); } catch { /* már lezárult */ }
-        appLog(`EPG: a műsorújság ${Math.round(MAX_BYTES / 1048576)} MB-nál nagyobb – a további részt nem olvassuk.`);
+        abortReason = `a műsorújság nagyobb, mint ${Math.round(MAX_BYTES / 1048576)} MB`;
+        appLog(`EPG: ${abortReason} – a további részt nem olvassuk, a MÁR beolvasott rész használható.`);
         break;
       }
       await feedWithBreath(decoder.decode(value, { stream: true }));
@@ -344,17 +392,155 @@ async function download(provider: { serverUrl?: string; username?: string; passw
         lastYield = Date.now();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
-      // Haladásjelzés a naplóba (10 MB-onként): a TV-n ebből látszik, hogy
-      // a letöltés él és halad – nem kell a 30 mp-es végére várni.
+      // Haladásjelzés a naplóba (10 MB-onként): a TV-n ebből látszik, hogy a
+      // letöltés él és halad – és hogy a kihagyott (ablakon kívüli) műsorok
+      // miatt miért kevés a csatorna a fájl első felében.
       if (bytes - lastLoggedBytes >= 10 * 1024 * 1024) {
         lastLoggedBytes = bytes;
-        appLog(`EPG: műsorújság olvasása – ${(bytes / 1048576).toFixed(0)} MB, eddig ${index.size} csatorna.`);
+        appLog(
+          `EPG: műsorújság olvasása – ${(bytes / 1048576).toFixed(0)} MB, `
+          + `${index.size} csatorna, ${lastProgrammes} műsor a keresett időablakban.`
+        );
       }
     }
     lastBytes = bytes;
-    finishParsing();
   } finally {
-    if (timer) clearTimeout(timer);
+    if (idleTimer) clearTimeout(idleTimer);
+    if (deadline) clearTimeout(deadline);
+    /*
+     * MEGSZAKÍTÁSNÁL IS MENTJÜK, AMI ÖSSZEJÖTT. Korábban az `AbortError`
+     * után az index üresen maradt (a finishParsing le sem futott), ezért a
+     * néző semmit nem látott. A részleges index a következő letöltésig is
+     * használható, és a sárga csík azon csatornákra megjelenik, amelyekre
+     * már van adat.
+     */
+    if (index.size > 0) finishParsing();
+  }
+}
+
+/* ──────────────────── TARTÓS GYORSÍTÓTÁR (IndexedDB) ──────────────────── */
+
+/**
+ * A kész műsorújság mentése és visszatöltése.
+ *
+ * MIÉRT KELL (2.5.166, #32–#37 naplók): a 62 MB-os XMLTV letöltése a TV-n
+ * ~4 perc, és a régi kód minden indulásnál elölről kezdte. Így ha a néző
+ * közben kilépett vagy a letöltés megszakadt, az EPG SOHA nem jelent meg.
+ *
+ * A mentett alak tömör: csatornánként legfeljebb 14 műsor [kezdés, vég, cím].
+ * 233 csatornánál ez néhány tíz kB, a teljes (40 ezer csatornás) indexnél is
+ * néhány MB – belefér a tartós tárba, és gyorsan visszatölthető.
+ */
+const GUIDE_IDB_PREFIX = 'epg-guide-v1-';
+/** Ennél nagyobb mentést nem írunk ki (a tár ne teljen meg feleslegesen). */
+const GUIDE_IDB_MAX_CHARS = 6 * 1024 * 1024;
+/** Ha `clearGuide()` volt, a következő letöltés ne a régi mentésből induljon. */
+let skipRestore = false;
+
+interface PersistedGuideMeta {
+  providerId: string;
+  savedAt: number;
+  channels: number;
+  programmes: number;
+  bytes: number;
+  chunks: number;
+}
+
+function guideChunkKey(providerId: string, index: number): string {
+  return `${GUIDE_IDB_PREFIX}${providerId}-${index}`;
+}
+
+function guideMetaKey(providerId: string): string {
+  return `${GUIDE_IDB_PREFIX}${providerId}-meta`;
+}
+
+/** A memóriabeli index tömör, JSON-ba írható alakja. */
+function serializeGuide(): string[] {
+  const rows: string[] = [];
+  let chars = 0;
+  index.forEach((list, channel) => {
+    if (!list.length) return;
+    const row = JSON.stringify([channel, list.map((entry) => [entry.s, entry.e, entry.t])]);
+    chars += row.length;
+    if (chars > GUIDE_IDB_MAX_CHARS) return;
+    rows.push(row);
+  });
+  return rows;
+}
+
+async function persistGuide(providerId: string): Promise<void> {
+  try {
+    const store = await openIdbStore();
+    if (!store) return;
+    const rows = serializeGuide();
+    if (!rows.length) return;
+    const chunkSize = 200;
+    let chunks = 0;
+    let programmes = 0;
+    for (let offset = 0; offset < rows.length; offset += chunkSize) {
+      const part = rows.slice(offset, offset + chunkSize);
+      const ok = await store.put(guideChunkKey(providerId, chunks), part.join('\n'));
+      if (!ok) return;
+      chunks += 1;
+    }
+    index.forEach((list) => { programmes += list.length; });
+    const meta: PersistedGuideMeta = {
+      providerId,
+      savedAt: Date.now(),
+      channels: index.size,
+      programmes,
+      bytes: lastBytes,
+      chunks,
+    };
+    // A fejléc MINDIG utolsóként íródik: félkész mentést soha nem olvasunk be.
+    await store.put(guideMetaKey(providerId), JSON.stringify(meta));
+    appLog(`EPG: a műsorújság elmentve a tartós tárba (${meta.channels} csatorna, ${chunks} adag).`);
+  } catch {
+    // A mentés hibája nem akadály: a következő indulás egyszerűen letölti.
+  }
+}
+
+async function restorePersistedGuide(
+  providerId: string,
+): Promise<{ savedAt: number; channels: number; programmes: number; bytes: number } | null> {
+  try {
+    const store = await openIdbStore();
+    if (!store) return null;
+    const rawMeta = await store.get(guideMetaKey(providerId));
+    if (!rawMeta) return null;
+    const meta = JSON.parse(rawMeta) as PersistedGuideMeta;
+    if (!meta || meta.providerId !== providerId || !meta.chunks) return null;
+    let restored = 0;
+    for (let chunk = 0; chunk < meta.chunks; chunk++) {
+      const raw = await store.get(guideChunkKey(providerId, chunk));
+      if (!raw) return null;
+      for (const line of raw.split('\n')) {
+        if (!line) continue;
+        const [channel, entries] = JSON.parse(line) as [string, Array<[number, number, string]>];
+        if (!channel || !Array.isArray(entries) || !entries.length) continue;
+        index.set(channel, entries.map(([start, end, title]) => ({ s: start, e: end, t: title })));
+        restored += 1;
+      }
+    }
+    if (!restored) return null;
+    // A visszatöltött index is átesik a tisztításon (lejárt műsorok kidobása).
+    finishParsing();
+    return { savedAt: meta.savedAt, channels: index.size, programmes: meta.programmes, bytes: meta.bytes };
+  } catch {
+    return null;
+  }
+}
+
+async function clearPersistedGuide(): Promise<void> {
+  try {
+    const store = await openIdbStore();
+    if (!store) return;
+    const keys = await store.keys();
+    for (const key of keys) {
+      if (key.startsWith(GUIDE_IDB_PREFIX)) await store.remove(key);
+    }
+  } catch {
+    // A törlés hibája nem akadály: a következő mentés felülírja.
   }
 }
 
@@ -367,7 +553,7 @@ async function download(provider: { serverUrl?: string; username?: string; passw
  * indítja. Hibánál csendben visszatér (a naplóban ott a valódi ok), és a
  * rövid EPG marad tartaléknak.
  */
-export function ensureGuide(provider: {
+export async function ensureGuide(provider: {
   id: string;
   type?: string;
   serverUrl?: string;
@@ -375,14 +561,14 @@ export function ensureGuide(provider: {
   password?: string;
 } | null): Promise<void> {
   if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) {
-    return Promise.resolve();
+    return;
   }
   const fresh = loadedProviderId === provider.id && index.size > 0 && Date.now() - loadedAt < GUIDE_TTL_MS;
-  if (fresh) return Promise.resolve();
+  if (fresh) return;
   if (loading) return loading;
   if (breakerOpen()) {
     appLog(`EPG: a megszakító nyitva van (${Math.ceil(breakerRemainingMs() / 1000)} mp) – a műsorújság később töltődik be.`);
-    return Promise.resolve();
+    return;
   }
 
   const startedAt = Date.now();
@@ -390,11 +576,39 @@ export function ensureGuide(provider: {
   nameToId.clear();
   buffer = '';
   lastProgrammes = 0;
+  lastSkipped = 0;
   lastBytes = 0;
   lastError = '';
   const nowSec = Math.floor(Date.now() / 1000);
   windowStart = nowSec - KEEP_BEFORE_SEC;
   windowEnd = nowSec + KEEP_AFTER_SEC;
+
+  /*
+   * TARTÓS GYORSÍTÓTÁR (2.5.166) – EZ A LEGFONTOSABB JAVÍTÁS AZ EPG-RE.
+   *
+   * A #32–#37 naplók: a 62 MB-os műsorújság letöltése ~4 perc, és a TV-n ez
+   * minden indulásnál újra kezdődött – ha közben bármi megszakította, a néző
+   * SOHA nem látott műsort. Most a kész (vagy részben kész) index a tartós
+   * tárba kerül, és a következő induláskor AZONNAL onnan töltődik be: a
+   * sárga csík már a főoldal megjelenésekor ott van, a frissítés pedig a
+   * háttérben, észrevétlenül fut.
+   */
+  const restored = skipRestore ? false : await restorePersistedGuide(provider.id);
+  skipRestore = false;
+  if (restored) {
+    loadedAt = restored.savedAt;
+    loadedProviderId = provider.id;
+    lastProgrammes = restored.programmes;
+    lastBytes = restored.bytes;
+    appLog(
+      `EPG: a műsorújság a tartós tárból betöltve – ${restored.channels} csatorna, `
+      + `${restored.programmes} műsor (mentve: ${new Date(restored.savedAt).toLocaleTimeString('hu-HU')}).`
+    );
+    // Ha a mentett példány még érvényes, nincs értelme 4 percig tölteni.
+    if (Date.now() - restored.savedAt < GUIDE_TTL_MS) return;
+    appLog('EPG: a mentett műsorújság lejárt – a háttérben frissítjük.');
+  }
+
   appLog('EPG: a teljes műsorújság (XMLTV) letöltése indul – a rövid EPG végpont ezen a panelen üres választ ad.');
 
   loading = download(provider)
@@ -402,11 +616,13 @@ export function ensureGuide(provider: {
       loadedAt = Date.now();
       loadedProviderId = provider.id;
       const channels = index.size;
+      const partial = abortReason ? ` (részleges: ${abortReason})` : '';
       appLog(
         `EPG: műsorújság betöltve ${((Date.now() - startedAt) / 1000).toFixed(1)} mp alatt – `
         + `${channels} csatorna, ${lastProgrammes} feldolgozott műsor, `
-        + `${(lastBytes / 1024).toFixed(0)} KB.`
+        + `${lastSkipped} időablakon kívüli műsor, ${(lastBytes / 1024).toFixed(0)} KB${partial}.`
       );
+      if (channels > 0) void persistGuide(provider.id);
       if (channels === 0) {
         appLog('EPG: a szolgáltató műsorújságja üres – a felület a rövid EPG-t használja tartalékként.');
       }
@@ -414,7 +630,20 @@ export function ensureGuide(provider: {
     .catch((error) => {
       lastError = error instanceof Error ? error.message : String(error);
       const aborted = /abort/i.test(lastError);
-      appLogError(`EPG műsorújság${aborted ? ' (időtúllépés)' : ''}`, error);
+      /*
+       * A MEGSZAKÍTÁS OKA IS A NAPLÓBA KERÜL. A #32 és #37 naplóban csak
+       * ennyi állt: „AbortError: BodyStreamBuffer was aborted” – ebből nem
+       * derült ki, hogy a 90 mp-es korlát vagy a 64 MB-os plafon szakított-e.
+       */
+      if (aborted) {
+        appLog(
+          `EPG: a műsorújság letöltése megszakadt – ${abortReason || 'a böngésző szakította meg'}; `
+          + `a már beolvasott rész: ${index.size} csatorna, ${lastBytes ? (lastBytes / 1048576).toFixed(1) + ' MB' : 'nincs adat'}.`
+        );
+      }
+      appLogError(`EPG műsorújság${aborted ? ' (megszakítva)' : ''}`, error);
+      // Ami összejött, az maradjon használható a következő indulásig is.
+      if (index.size > 0) void persistGuide(provider.id);
     })
     .finally(() => {
       loading = null;
@@ -517,11 +746,32 @@ export function guideUpcoming(
 }
 
 /** Van-e egyáltalán betöltött műsorújság (a naplózáshoz és a tesztekhez). */
-export function guideStatus(): { channels: number; loadedAt: number; providerId: string; error: string; bytes: number } {
-  return { channels: index.size, loadedAt, providerId: loadedProviderId, error: lastError, bytes: lastBytes };
+export function guideStatus(): {
+  channels: number;
+  loadedAt: number;
+  providerId: string;
+  error: string;
+  bytes: number;
+  programmes: number;
+  skipped: number;
+} {
+  return {
+    channels: index.size,
+    loadedAt,
+    providerId: loadedProviderId,
+    error: lastError,
+    bytes: lastBytes,
+    programmes: lastProgrammes,
+    skipped: lastSkipped,
+  };
 }
 
-/** Szolgáltatóváltáskor / frissítéskor a régi műsorújság eldobása. */
+/**
+ * Szolgáltatóváltáskor / frissítéskor a régi műsorújság eldobása.
+ *
+ * A tartós mentést is töröljük (különben a régi szolgáltató műsora jelenne meg
+ * az újnál), és a következő letöltés nem a mentésből indul.
+ */
 export function clearGuide(): void {
   index.clear();
   nameToId.clear();
@@ -529,5 +779,8 @@ export function clearGuide(): void {
   loadedAt = 0;
   loadedProviderId = '';
   lastProgrammes = 0;
+  lastSkipped = 0;
   lastBytes = 0;
+  skipRestore = true;
+  void clearPersistedGuide();
 }

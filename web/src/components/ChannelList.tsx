@@ -6,6 +6,7 @@ import { ProviderRef } from '../services/contentStore';
 import { EpgNowNext, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from '../services/epgService';
 import { channelNowNext } from '../services/epgGuide';
 import { appLog, appLogError } from '../services/appLog';
+import { fsStart } from '../services/fullscreenPerf';
 import { normalizeTvKey, isTvArrowKey } from '../utils/tvKeys';
 
 interface ChannelListProps {
@@ -899,6 +900,8 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         // A teljes képernyő csak a MÁSODIK OK-ra vált - így a néző a főoldalon
         // tud maradni, és csak ha akar, lép be a teljes képernyős nézetbe.
         if (current.id === selectedChannelId) {
+          // A mérés az OK lenyomásától indul (2.5.166).
+          fsStart('BE', `csatornalista OK – ${current.name}`);
           window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
         } else {
           setHighlightedId(current.id);
@@ -1208,6 +1211,8 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         // Első OK: indítás a főoldali lejátszóban. A teljes
                         // képernyő csak a már futó csatornán, második OK-ra jön.
                         if (ch.id === selectedChannelId) {
+                          // A mérés az OK lenyomásától indul (2.5.166).
+                          fsStart('BE', `csatornalista OK – ${ch.name}`);
                           window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
                         } else {
                           onSelectChannel(ch);

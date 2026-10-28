@@ -22,8 +22,14 @@
  */
 
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { channelNowNext, clearGuide, ensureGuide, guideNowNext, guideStatus, guideUpcoming }
   from '../web/src/services/epgGuide';
+
+// A próba a build/tests mappából fut, ezért két szintet kell feljebb lépni.
+const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 let failures = 0;
 const check = (condition: boolean, label: string, detail = '') => {
@@ -83,6 +89,22 @@ function startServer(): Promise<void> {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
       if (url.pathname.endsWith('/xmltv.php')) {
         guideRequests += 1;
+        /*
+         * 2.5.166: MEGSZAKÍTOTT letöltés. A TV-naplókban (#32, #37) ez volt a
+         * valóság: a fájl fele megérkezett, majd `AbortError`. Ilyenkor a MÁR
+         * beolvasott csatornák nem veszhetnek el.
+         */
+        if (url.searchParams.get('username') === 'partial') {
+          res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' });
+          // A válasz a két csatornát és az ELSŐ három műsort tartalmazza,
+          // utána elszakad a kapcsolat (mint a TV-n a megszakadt letöltés).
+          let cut = GUIDE.indexOf('<programme');
+          for (let step = 0; step < 2; step += 1) cut = GUIDE.indexOf('<programme', cut + 1);
+          const half = Buffer.from(GUIDE.slice(0, GUIDE.indexOf('</programme>', cut) + '</programme>'.length), 'utf8');
+          res.write(half);
+          setTimeout(() => { res.destroy(); }, 20);
+          return;
+        }
         if (failNext) {
           failNext = false;
           res.writeHead(500, { 'content-type': 'text/plain' });
@@ -175,6 +197,37 @@ await ensureGuide(provider);
 const failed = guideStatus();
 check(failed.channels === 0, 'hibás letöltésnél nem lesz félkész műsorújság');
 check(/HTTP 500/.test(failed.error), 'a hiba VALÓDI oka a naplóba kerül', failed.error);
+
+/* ─────────── 2.5.166: a letöltés nem halhat meg a korláton ─────────── */
+
+const SOURCE = readFileSync(resolve(projectDir, 'web/src/services/epgGuide.ts'), 'utf8');
+check(!/REQUEST_TIMEOUT_MS/.test(SOURCE),
+  'nincs 90 mp-es TELJES időkorlát (ez szakította meg a 62 MB-os fájlt)');
+check(/IDLE_TIMEOUT_MS = 60_000/.test(SOURCE),
+  'van adathiány-figyelő (csak akkor szakít, ha nem jön adat)');
+check(/MAX_DOWNLOAD_MS = 8 \* 60_000/.test(SOURCE),
+  'van biztonsági felső korlát, de az nem a normál letöltést vágja el');
+check(/MAX_BYTES = 192 \* 1024 \* 1024/.test(SOURCE),
+  'a méretkorlát a 62 MB-os fájl fölé került');
+check(/if \(index\.size > 0\) finishParsing\(\);/.test(SOURCE),
+  'megszakítás után a részleges index nem mentődik');
+check(/GUIDE_IDB_PREFIX/.test(SOURCE) && /restorePersistedGuide/.test(SOURCE),
+  'nincs tartós gyorsítótár (minden indulásnál újra 4 percet töltene)');
+check(/skipRestore = true/.test(SOURCE),
+  'a clearGuide után a régi mentés jelenne meg');
+check(/abortReason/.test(SOURCE) && /megszakadt/.test(SOURCE),
+  'a megszakítás OKA nem kerül a naplóba');
+
+// Részleges letöltés: a kapcsolat elszakad, a már beolvasott csatorna marad.
+clearGuide();
+const partialProvider = { ...provider, username: 'partial' };
+await ensureGuide(partialProvider);
+const partialStatus = guideStatus();
+check(partialStatus.channels >= 1,
+  'megszakított letöltésnél a már beolvasott csatornák megmaradnak',
+  `kapott: ${partialStatus.channels}`);
+check(!!guideNowNext({ epgChannelId: 'hbo.hu' })?.now,
+  'a részleges műsorújságból is van most futó műsor (sárga csík)');
 
 server.close();
 if (failures > 0) {
