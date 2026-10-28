@@ -107,3 +107,9 @@ Az élő lejátszónak most állandó flex-helye van: teljes képernyő alatt se
 A 2.5.181-es #74 napló első három élő visszalépésénél a lejátszó commitja az OK után 3,6–6,5 ms, a főoldal állapotjelölésének effektje az időbélyegek alapján kb. 265–353 ms után szerepel. A felhasználó gyors visszatérést, de a teljes képernyős OSD és fekete árnyék pillanatnyi átvillanását jelezte. A napló a tényleges panel-festést vagy a villanást nem méri.
 
 A teljes képernyős élő OSD most csak a lejátszó `iptv-tv-fullscreen` body-jelölése mellett látható; a jelölést a lejátszó kilépéskor festés előtt eltávolítja. Így a még le nem bontott OSD szövege és árnyéka sem jelenhet meg a főoldal fölött. A főoldal és EPG helyreállítása, a videókép, a távirányító és az időzítők változatlanok. A valódi lejátszóval és még mountolt fullscreen OSD-vel futó teszt az átmeneti állapotot és a gyors újra belépést is ellenőrzi; fizikai LG TV-s ellenőrzés továbbra is szükséges.
+
+### Főoldali csatornalista – gyors fel/le fókusz
+
+A már kirajzolt szomszédos csatorna azonnal kap fókuszt, nem vár külön animációs képkockára. Ha a virtualizált cél még nincs a DOM-ban, a lista csak akkor szinkronizálja az ablakát; az elavult fókuszpróbák nem írhatnak felül későbbi navigációt. Az egy gombnyomás = egy sor szabály, a határátmenetek és az OK-val történő csatornaváltás változatlan.
+
+A `tools/test-channel-navigation-runtime.mjs` a tényleges React-listát és webOS capture-kezelőt együtt próbálja gyors, várakozás nélküli fel/le eseményekkel, az ablakosítás határain, a mappasávon és a kedvenccsillagnál. A `tools/test-channel-navigation-browser.mjs` külön futtatható Chromiumban a `PLAYWRIGHT_MODULE` és `BROWSER_EXECUTABLE` megadásával, előzetes web build után. Ezek nem mérik a tényleges LG TV vagy a fizikai távirányító késését; a készüléken újratesztelés szükséges.
