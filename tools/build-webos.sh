@@ -117,14 +117,26 @@ mkdir -p "$BUILD_DIR"
 cp "$WEBOS_DIR/appinfo.json" "$BUILD_DIR/appinfo.json"
 cp "$WEBOS_DIR/icon-rt2.png" "$BUILD_DIR/icon-rt2.png"
 cp "$WEBOS_DIR/largeIcon-rt2.png" "$BUILD_DIR/largeIcon-rt2.png"
-# INDÍTÓKÉP – GENERÁLT, FOTÓ NÉLKÜLI (2.5.158).
-#   • splash-screen.png → webOS splashBackground (a platform indítókép)
-# Ugyanaz a sötét színátmenet, mint a HTML betöltőképernyő CSS háttere,
-# ezért a platform képéről a saját képernyőnkre váltás nem hoz új látványt.
-# A build minden alkalommal újragenerálja, ezért nem kerülhet elavult kép
-# az IPK-ba.
-log "Indítókép készítése (splash-screen.png, a betöltőképernyő háttere)"
-python3 "$SCRIPT_DIR/make-splash.py" --out-dir "$BUILD_DIR"
+# INDÍTÓKÉP – mindig a felhasználó által feltöltött képet csomagoljuk.
+# Ne generáljunk helyette zöld színátmenetet: az IPK-ba ennek a fájlnak
+# kell bekerülnie, amelyet az appinfo.json splashBackground mezője használ.
+test -s "$WEBOS_DIR/splash-screen.png" || {
+  echo "HIBA: hiányzik a feltöltött webos/splash-screen.png." >&2
+  exit 1
+}
+python3 - <<'PY'
+from pathlib import Path
+from PIL import Image
+path = Path("webos/splash-screen.png")
+with Image.open(path) as image:
+    image.load()
+    if image.size != (1920, 1080):
+        raise SystemExit(f"HIBA: a feltöltött indítókép mérete {image.size}, várt 1920x1080.")
+    if image.mode != "RGB":
+        raise SystemExit(f"HIBA: a feltöltött indítókép módja {image.mode}, várt RGB.")
+PY
+cp "$WEBOS_DIR/splash-screen.png" "$BUILD_DIR/splash-screen.png"
+log "A feltöltött splash-screen.png bemásolva az IPK-ba"
 mkdir -p "$BUILD_DIR/assets"
 # A többi asset (logók, kicsi ikonok) bekerül; videó nem lehet köztük.
 for asset in "$WEBOS_DIR/assets/"*; do
