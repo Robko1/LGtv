@@ -18,7 +18,7 @@
   ],
   "handlesRelaunch": false,
   "closeOnRotation": false,
-  "supportTouchMode": "virtual",
+  "supportTouchMode": "none",
   "transparent": false,
   "uiRevision": 2,
   "requiredMemory": 100,

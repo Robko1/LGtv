@@ -133,7 +133,6 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
             <input
               id="favorite-folder-name"
               ref={folderNameInputRef}
-              onTouchEnd={() => folderNameInputRef.current?.focus()}
               onClick={() => folderNameInputRef.current?.focus()}
               type="text"
               value={newFolderName}

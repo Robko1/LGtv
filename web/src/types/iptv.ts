@@ -207,7 +207,6 @@ export interface AppSettings {
   clockOffsetHours: number;
   autoPlayLastChannel: boolean;
   closeListOnZap: boolean;
-  swipeToZap: boolean;
   alwaysShowBlueClock: boolean;
   osdHideDelay: number; // 6, 8, 10, 12 másodperc (0 = soha ne tűnjön el)
   /**

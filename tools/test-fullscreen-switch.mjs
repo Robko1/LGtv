@@ -248,12 +248,11 @@ test('7. a váltás mérése az OK lenyomásától indul, mindkét irányban', (
   assert.match(PERF, /leghosszabb késleltetés/, 'a lassító lépés nem derül ki a naplóból');
   assert.match(PERF, /lépésköz \$\{gap\.toFixed\(1\)\} ms/, 'a lépésköz nincs a sorban');
   // Az indulás a csatornalista OK-jánál van (mindkét útvonalon).
-  assert.equal((LIST.match(/fsStart\('BE'/g) || []).length, 2,
+  assert.equal((LIST.match(/fsStart\('BE'/g) || []).length, 3,
     'a belépés mérése nem az OK lenyomásánál indul (sor + lista)');
   assert.match(LIST, /fsStart\('BE', `csatornalista OK/);
-  // A kilépés mérése az OK/VISSZA/dupla kattintásnál indul.
-  for (const origin of ['OK a teljes képernyőn', 'VISSZA a teljes képernyőn',
-    'dupla kattintás a teljes képernyőn']) {
+  // A kilépés mérése a TV OK/VISSZA gombjánál indul.
+  for (const origin of ['OK a teljes képernyőn', 'VISSZA a teljes képernyőn']) {
     assert.ok(PLAYER.includes(`fsStart('KI', '${origin}')`),
       `a kilépés mérése nem innen indul: ${origin}`);
   }

@@ -91,7 +91,6 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   const [favoritePickChannelId, setFavoritePickChannelId] = useState<string | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const suppressNextClick = useRef(false);
-  const lastReorderTapAt = useRef(0);
   const [epgClock, setEpgClock] = useState(() => Date.now());
   const [localEpg, setLocalEpg] = useState<Record<string, EpgNowNext>>({});
   /*
@@ -976,27 +975,6 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [visibleChannels.length, selectedChannelId]);
 
-  // TV: ha egér mozog, mutassuk a kurzort, ha D-pad, fókusz gyűrű
-  useEffect(() => {
-    const onMouseMove = () => {
-      try { document.body.classList.add('has-mouse'); } catch {}
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      // FONTOS: régi webOS-en az e.key üres is lehet – a normalizáló keyCode-ból
-      // is felismeri a gombot, és nem dob hibát üres kulcsnévnél.
-      const key = normalizeTvKey(e);
-      if (isTvArrowKey(key) || key === 'Enter') {
-        try { document.body.classList.remove('has-mouse'); } catch {}
-      }
-    };
-    window.addEventListener('mousemove', onMouseMove, { once: false });
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, []);
-
   return (
     <div data-live-sidebar="" className="flex-1 min-h-0 h-full flex flex-col bg-[#070e1e] overflow-hidden md:bg-[#070e1e] lg:bg-[#070e1e] xl:bg-[#070e1e] 2xl:bg-[#070e1e]">
       {/* Az „Összes” után közvetlenül a létrehozott kedvenc mappák jelennek meg; nincs csatornakategória vagy külön mappanyitó. */}
@@ -1101,7 +1079,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         onScroll={(event) => saveChannelScrollPosition(event.currentTarget)}
         className="flex-1 min-h-0 overflow-y-auto focus:outline-none md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"
         role="listbox"
-        aria-label="Csatornalista – nyilakkal navigálható, Enterrel választható, egérrel kattintható"
+        aria-label="Csatornalista – távirányítóval vagy Magic Remote mutatóval választható"
       >
         {visibleChannels.length === 0 ? (
           /* data-boot-empty: jelzi az üres nézetet a webos.js fókusz-próbájának
@@ -1165,38 +1143,32 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                     onPointerDown={(event) => {
                       // Csak a csatornasoron tartott 1 másodperces nyomás jelöli ki
                       // rendezésre; a soron lévő gombokra indított nyomás nem.
-                      if ((event.target as HTMLElement).closest('button') || sortMode !== 'saved') return;
+                      if (event.pointerType === 'touch' || (event.target as HTMLElement).closest('button') || sortMode !== 'saved') return;
                       clearLongPressTimer();
                       suppressNextClick.current = false;
                       longPressTimer.current = window.setTimeout(() => {
                         setMovingChannelId(ch.id);
                         suppressNextClick.current = true;
-                        lastReorderTapAt.current = 0;
                       }, 1000);
                     }}
                     onPointerUp={clearLongPressTimer}
                     onPointerCancel={clearLongPressTimer}
-                    onMouseEnter={() => {
-                      // Laptop/desktop hover előnézet – nem választ, csak fókusz vizuál
-                    }}
                     onClick={() => {
                       if (suppressNextClick.current) {
                         suppressNextClick.current = false;
                         return;
                       }
                       if (movingChannelId) {
-                        if (movingChannelId !== ch.id) return;
-                        const now = Date.now();
-                        if (now - lastReorderTapAt.current <= 350) {
-                          setMovingChannelId(null);
-                          lastReorderTapAt.current = 0;
-                        } else {
-                          lastReorderTapAt.current = now;
-                        }
+                        if (movingChannelId === ch.id) setMovingChannelId(null);
                         return;
                       }
                       setHighlightedId(ch.id);
-                      onSelectChannel(ch);
+                      if (ch.id === selectedChannelId) {
+                        fsStart('BE', 'csatornalista Magic Remote');
+                        window.dispatchEvent(new CustomEvent('iptv-enter-fullscreen'));
+                      } else {
+                        onSelectChannel(ch);
+                      }
                     }}
                     onKeyDown={(e) => {
                       const key = normalizeTvKey(e);
@@ -1230,7 +1202,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         }
                       }
                     }}
-                    className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none touch-pan-y focus:outline-none ${
+                    className={`group h-full flex items-center justify-between px-2 rounded-2xl cursor-pointer transition-all duration-150 select-none focus:outline-none ${
                       movingChannelId === ch.id
                         ? 'bg-emerald-700/90 border-2 border-emerald-300 shadow-lg shadow-emerald-950/60 ring-2 ring-emerald-400/60 scale-[1.01]'
                         : isHighlighted && !isSelected

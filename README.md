@@ -32,9 +32,17 @@ A teljes XMLTV feldolgozása darabolt, az eredmény tartós tárban is tárolhat
 ## Aktuális forrás és verziók
 
 - Elfogadott működési referencia: **2.5.176**; a referencia forrása: `e994abb7a46763f9dce060209fd8cdd8a83996dc`.
-- Ebben a munkafában a `web/src/appVersion.ts` **2.5.177**-et jelez: ez a korábban kért, célzott manuális sebességnapló változata. Ez nem jelenti azt, hogy már TV-n vagy kész IPK-ban igazolták.
-- A `webos/appinfo.json` a forrásban jelenleg **2.5.176**. A helyi IPK-build alapértelmezésben a webes `WEB_VERSION` értékét írja a csomagolt manifestbe. A kézi GitHub Actions workflow tesztek után új patchverziót képez, és a forrásverziót a `main` ágon is frissíti. A root `package.json` és a `web/package.json` verziója nem az IPK verziójának forrása.
+- Ebben a munkafában a `web/src/appVersion.ts` **2.5.179**-et jelez. A #71 napló ebből a TV-n kipróbált változatból származik; az azóta végzett kódmódosítások új IPK-ban még ellenőrzendők.
+- A `webos/appinfo.json` a forrásban jelenleg **2.5.179**. A helyi IPK-build alapértelmezésben a webes `WEB_VERSION` értékét írja a csomagolt manifestbe. A kézi GitHub Actions workflow tesztek után új patchverziót képez, és a forrásverziót a `main` ágon is frissíti. A root `package.json` és a `web/package.json` verziója nem az IPK verziójának forrása.
 - A korábbi és jövőbeli **mért adatok, verziók és források** külön fájlban vannak: [README-TESZTNAPLO.md](README-TESZTNAPLO.md). A működési referencia nem egyenlő automatikusan egy mért sebességértékkel.
+
+## TV-s vezérlés
+
+Az alkalmazás TV-távirányítóra készül. Élő TV-n a kiválasztott csatorna **OK** gombbal vagy a Magic Remote mutatójával indítható; a már játszott csatornán az OK teljes képernyőre vált, a VISSZA vagy OK visszatér. A lejátszó felületén nincs dupla kattintásos, érintéses vagy húzással végzett csatornaváltás. A film OSD-je TV-gombokkal működik: a némítás és a külön hangerő-beállító gomb azonnal reagál, a tekerés az idővonal nyilaival érhető el. A Magic Remote mutatójának gombaktiválása és az idővonalon történő pozícióválasztás megmaradt.
+
+A webOS manifestben a `supportTouchMode: none` kikapcsolja az alkalmazás közvetlen érintéskezelését; a telefonos **QR-beállítás ettől különálló, megtartott funkció**. A TV-k eltérő felbontásához tartozó reszponzív szabályok és a távirányító fókuszkezelése megmaradnak. A régi, futás közben nem használt részletes verziótörténet a Gitben, a `d995ebb` commit `web/src/appVersion.ts` fájljában visszakereshető; a build által használt aktuális verzióbejegyzés megmaradt.
+
+A tisztítás és a TV-specifikus tesztek nem bizonyítanak gyorsulást vagy valós készülékes kompatibilitást. A következő IPK-t fizikai TV-n kell ellenőrizni: távirányító és Magic Remote, hangerő/tekerés, élő/videó teljes képernyő, QR-beállítás, kép és EPG.
 
 ## Kézi hibakeresési és sebességnapló
 

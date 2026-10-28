@@ -71,7 +71,7 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
       onCopy={(event) => event.preventDefault()}
       onCut={(event) => event.preventDefault()}
       onContextMenu={(event) => event.preventDefault()}
-      style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
     >
       <div
         role="dialog"

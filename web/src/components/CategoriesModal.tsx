@@ -198,7 +198,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-xs animate-fadeIn select-none lg:select-auto" role="dialog" aria-modal="true" aria-label="Kategóriák" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      {/* Drawer Container – reszponzív: telefon max-md, tablet lg, laptop xl, TV 2xl */}
+      {/* Kategóriapanel a TV ablakméretéhez igazítva. */}
       <div ref={modalRef} tabIndex={-1} onKeyDown={handleModalKeyDown} className="w-full max-w-md md:max-w-lg lg:max-w-xl xl:max-w-3xl 2xl:max-w-4xl h-full bg-[#081226] border-l border-cyan-900/40 flex flex-col shadow-2xl animate-slideLeft focus:outline-none">
         {/* Header */}
         <div className="p-4 bg-[#0a1630] border-b border-cyan-950 flex items-center justify-between">

@@ -390,9 +390,20 @@ await tick(80);
 
 /* Az igazi lejátszó gyors BE–KI–BE váltása: a régi EPG/fókusz callback
  * nem futhat le az új teljes képernyő alatt. A rAF-et kézzel léptetjük. */
-window.__IPTV_TEST__.mount({ channel: LIVE });
+let surfaceZap = 0;
+window.__IPTV_TEST__.mount({ channel: LIVE, onPrevChannel: () => surfaceZap++, onNextChannel: () => surfaceZap++ });
 check(await waitFor(() => Boolean(video()), 5000, 'fullscreen teszt videó'), 'fullscreen teszthez élő videó létrejön');
 await tick(100);
+const surface = doc.querySelector('[data-tv-player]');
+surface.dispatchEvent(new window.MouseEvent('mousedown', {bubbles:true, clientY:200}));
+surface.dispatchEvent(new window.MouseEvent('mouseup', {bubbles:true, clientY:20}));
+surface.dispatchEvent(new window.MouseEvent('click', {bubbles:true}));
+surface.dispatchEvent(new window.MouseEvent('click', {bubbles:true}));
+surface.dispatchEvent(new window.Event('touchstart', {bubbles:true}));
+surface.dispatchEvent(new window.Event('touchend', {bubbles:true}));
+await tick(350);
+check(surfaceZap === 0 && !surface.classList.contains('iptv-fs'),
+  'a videófelület érintése, dupla kattintása és húzása nem vált módot vagy csatornát');
 const savedRaf = window.requestAnimationFrame;
 const savedCancel = window.cancelAnimationFrame;
 let frameId = 0;

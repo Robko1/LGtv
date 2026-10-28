@@ -1,13 +1,10 @@
 @import "tailwindcss";
 
-/* A képernyő érintése vagy hosszan nyomása ne jelöljön ki és ne másoljon
-   véletlenül felületi/diagnosztikai szöveget. A beviteli mezőkben a szöveg
-   kijelölése és a beillesztés továbbra is működik. */
+/* A TV felületi szövege ne legyen véletlenül kijelölhető; a beviteli mezők igen. */
 @layer base {
   *, *::before, *::after {
     -webkit-user-select: none;
     user-select: none;
-    -webkit-touch-callout: none;
   }
 
   input, textarea, [contenteditable="true"] {
@@ -16,7 +13,7 @@
   }
 }
 
-/* Közös reszponzív alap: telefon, tablet, TV és asztali böngésző. */
+/* TV képernyőméretekhez igazodó alap. */
 html,
 body,
 #root {
@@ -84,7 +81,7 @@ textarea {
   min-height: 0;
 }
 
-/* A párbeszédablakok dinamikus viewportot használnak mobil böngészőkön is. */
+/* A párbeszédablakok a rendelkezésre álló magassághoz igazodnak. */
 [class*="max-h-[90vh]"],
 [class*="max-h-[92vh]"] {
   max-height: min(92dvh, 900px);
@@ -118,7 +115,7 @@ textarea {
   }
 }
 
-/* Tablet, laptop, desktop, TV – reszponzív skálázás */
+/* A TV-k különböző viewportméreteire alkalmazott skálázás. */
 @media (min-width: 768px) {
   #root {
     font-size: 15px;
@@ -208,7 +205,7 @@ button:focus-visible,
   }
 }
 
-/* Laptop/desktop egér hover támogatás – ChannelControls, ChannelList */
+/* Magic Remote mutatójának vizuális visszajelzése. */
 @media (hover: hover) and (pointer: fine) {
   .hover\:bg-\[\#112347\]:hover {
     background-color: #112347;
