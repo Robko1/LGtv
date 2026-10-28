@@ -204,84 +204,105 @@ test('az előfestés két képkockáját a HTML-híd méri, nem a REVEAL', () =>
 
 /* ─────────────── 1/b. ZÖLD HÁTTÉR VILLANÁS (23:25:43) ──────────────────── */
 
-test('2.5.158: a betöltőképernyő háttere CSS színátmenet – nincs fotó, nincs beégetett kép', () => {
+test('2.5.162: a betöltőképernyő háttere a felhasználó saját ikonja, EGYSZER beágyazva', () => {
+  /*
+   * A felhasználó döntése: a takarókép és az indítási animáció UGYANAZ a
+   * látvány, éspedig a megtervezett `index.html` – faltól falig a saját
+   * IPTV-ikon, sötétítve és 30 mp-es lassú úszással.
+   *
+   * A kép a HTML-ben van (nincs külön kérés, nincs dekódolási késés), de
+   * CSAK EGYSZER: a háttér és a két jelvény ugyanazt az adat-URI-t használja.
+   */
   assert.doesNotMatch(PAGE, /<img id="boot-bg"/,
-    'a háttérkép <img> elem visszatért');
-  assert.doesNotMatch(PAGE, /splash-bg/, 'a háttér JPEG-fájlra hivatkozás visszatért');
-  assert.match(PAGE, /#boot-screen \.stage\s*\{[^}]*background-image:/s,
-    'a háttér nem CSS színátmenet');
-  assert.equal((PAGE.match(/data:image\/jpeg;base64,/g) || []).length, 0,
-    'a beégetett kép visszatért – újra 2,5 mp lenne a válaszidő');
+    'a háttérkép külön <img> elemként tért vissza');
+  assert.doesNotMatch(PAGE, /splash-bg/, 'a régi háttér-JPEG fájlra hivatkozás visszatért');
+  assert.doesNotMatch(PAGE, /preload", as="image"/, 'a háttérképet előre kérjük (késői festés)');
+  assert.equal((PAGE.match(/data:image\/jpeg;base64,/g) || []).length, 1,
+    'a dizájn ikonja nem pontosan egyszer van beágyazva');
+  assert.match(PAGE, /#boot-screen \.bootbg,[\s\S]{0,400}?background-image: url\("data:image\/jpeg;base64,/,
+    'a háttér nem a dizájn ikonja');
+  assert.match(PAGE, /#boot-screen \.bootbg \{[^}]*animation: drift 30s ease-in-out infinite alternate;/,
+    'a háttér nem úszik lassan (a dizájn mozgása hiányzik)');
   assert.doesNotMatch(PAGE, /iptv-skeleton|\.sk-player|\.sk-thumb|boot-logo/,
     'a régi előre rajzolt főoldali váz visszatért');
   assert.doesNotMatch(PAGE, /splashLayer/, 'a két CSS háttérréteg visszatért');
   assert.doesNotMatch(PAGE, /fonts\.googleapis\.com/, 'a külső betűtípus-kérés visszatért');
 });
 
-test('a két felső sarokban a saját logó van, óra nélkül', () => {
-  const header = PAGE.slice(PAGE.indexOf('<header class="boot-head">'));
-  const headerEnd = header.indexOf('</header>');
-  const inside = header.slice(0, headerEnd);
-  // Bal sarok: a márkajel; jobb sarok: ugyanaz a logó.
-  assert.ok(/<div class="hmark">[\s\S]*?icon-rt2\.png/.test(inside),
-    'a bal felső sarokban nincs logó');
-  assert.match(inside, /<div class="headmark-right"[\s\S]*?<svg[\s\S]*?<\/svg>/,
-    'a jobb felső sarokban nincs logó');
-  // A ketyegő óra és a dátum kikerült (a felhasználó kérésére).
-  assert.equal(inside.includes('boot-clock'), false, 'az óra visszakerült a fejlécbe');
-  assert.equal(inside.includes('boot-date'), false, 'a dátum visszakerült a fejlécbe');
-  assert.doesNotMatch(PAGE, /setInterval\(tickClock, 1000\)/,
-    'a másodpercenként futó óra visszakerült');
+test('a fejlécben a saját logó és a VALÓS óra van – a dizájn szerint', () => {
+  /*
+   * A megtervezett fájl fejléce: balra a márkajel + szójel, jobbra az
+   * állapot-chipek és a TV VALÓDI rendszerideje/dátuma. Ez nem kitalált adat:
+   * a `Date` a készülék órája, és a takarókép eltűnésekor leáll.
+   */
+  const header = PAGE.slice(PAGE.indexOf('<header>'));
+  const inside = header.slice(0, header.indexOf('</header>'));
+  assert.match(inside, /<div class="hmark"><\/div>/, 'a bal felső sarokban nincs logó');
+  assert.match(inside, /<div class="wordmark">[\s\S]*?<b>TV<\/b>/, 'hiányzik a szójel');
+  assert.match(inside, /id="boot-clock"/, 'hiányzik a valós óra');
+  assert.match(inside, /id="boot-date"/, 'hiányzik a magyar dátum');
+  assert.match(PAGE, /function tickClock\(\)/, 'az óra nem a valós rendszeridőt mutatja');
+  assert.match(PAGE, /window\.setInterval\(tickClock, 1000\)/, 'az óra nem másodpercenként frissül');
+  assert.match(PAGE, /window\.__IPTV_BOOT_CLOCK_STOP__ = stopClock;/,
+    'az óra a felfedés után is ketyegne');
+  assert.match(PAGE, /try \{ stopClock\(\); \} catch \(eClock\) \{\}/,
+    'a felfedés nem állítja le az órát');
 });
 
-test('2.5.160: a folyamatos mozgás CSAK CSS – nincs vászon és nincs időzítő', () => {
+test('2.5.162: a mozgás a dizájn rétegei – a demó motorja nélkül', () => {
   /*
-   * 2.5.160 – a felhasználói elvárás MEGVÁLTOZOTT: „a takaró kép helyett rögtön
-   * az indítási animáció induljon, és folyamatosan tartson a 100%-ig”.
-   *
-   * A 21–23. naplóban azért nem volt mozgás, mert a vászon-részecskék és a
-   * JS-vezérelt rétegek a fő szál foglaltsága alatt megálltak. Ezért a
-   * folyamatos mozgás mostantól KIZÁRÓLAG CSS: `transform` és `opacity`
-   * animációk, amelyeket a TV kompozitora önállóan, a fő szál nélkül végez.
-   * Tilos a vászon, a JS-animáció és minden ismétlődő időzítő.
+   * A megtervezett fájl folyamatos mozgása: CSS-rétegek (úszó háttér, forgó
+   * tárcsa, pásztázás, fénylegyező) ÉS egy KÖNNYŰ vászon (csillagkép +
+   * fénymolyok). A vászon szándékosan kicsi: legfeljebb 26 részecske, és a
+   * felfedés pillanatában leáll (`__IPTV_FX_STOPPED__`), hogy a kész felület
+   * alatt ne fogyasszon CPU-t.
    */
-  assert.doesNotMatch(PAGE, /<canvas/i, 'a vászon-animáció visszakerült (fő szálon fut)');
-  assert.doesNotMatch(PAGE, /id="boot-fx"/, 'a vászon-réteg visszakerült');
-  assert.doesNotMatch(PAGE, /animation:\s*boot-spin/, 'a tárcsa JS nélkül nem vezérelhető forgása visszatért');
-  assert.doesNotMatch(PAGE, /animation:\s*boot-grain/, 'a filmszemcse újra mozog');
-  // A folyamatos réteg: két, végtelen CSS-animáció, csak transform/opacity.
-  assert.match(PAGE, /<div class="aurora"><\/div>/, 'hiányzik a folyamatos háttérréteg');
-  assert.match(PAGE, /<div class="horizon"><\/div>/, 'hiányzik a folyamatos fényvonal');
-  assert.match(PAGE, /#boot-screen \.aurora \{[^}]*animation: boot-aurora 11s ease-in-out infinite alternate;/,
-    'a háttérréteg animációja nem végtelen (megáll a 100% előtt)');
-  assert.match(PAGE, /@keyframes boot-aurora \{[^}]*transform:[^}]*opacity:/,
-    'a háttér animációja nem csak transform/opacity (újrafestést kér a fő szálon)');
-  assert.match(PAGE, /#boot-screen \.horizon \{[^}]*animation: boot-lift 5\.2s linear infinite;/,
-    'a fényvonal animációja nem végtelen');
-  assert.match(PAGE, /@keyframes boot-lift \{[^}]*transform:[^}]*opacity:/,
-    'a fényvonal animációja nem csak transform/opacity');
-  assert.match(PAGE, /@keyframes boot-glow/, 'a márka felirat fénylése hiányzik');
-  /* A százalékot továbbra is KIZÁRÓLAG a valós adat írhatja: a betöltőképernyő
-     szkriptjében nincs véletlen és nincs szimulált érték. */
-  const bootScriptStart = PAGE.indexOf('BETÖLTŐKÉPERNYŐ-HÍD');
-  const bootScript = PAGE.slice(PAGE.indexOf('<script>', bootScriptStart), PAGE.indexOf('</script>', bootScriptStart));
-  assert.doesNotMatch(bootScript, /Math\.random/, 'a betöltőképernyő kitalált értéket állít elő');
+  assert.match(PAGE, /<canvas id="fx"><\/canvas>/, 'hiányzik a dizájn vászon-rétege');
+  assert.match(PAGE, /var count = W < 700 \? 16 : 26;/, 'a vászon részecskeszáma megnőtt');
+  assert.match(PAGE, /if \(window\.__IPTV_FX_STOPPED__\) \{ fxLoop = null; return; \}/,
+    'a vászon hurokja a felfedés után is fut');
+  // A folyamatos CSS-rétegek a dizájnból.
+  assert.match(PAGE, /#boot-screen \.ticks\{animation:\s*spin 46s linear infinite;/,
+    'a tárcsa rovátkái nem forognak');
+  assert.match(PAGE, /#boot-screen \.bootbg \{[^}]*animation: drift 30s ease-in-out infinite alternate;/,
+    'a háttér nem úszik');
+  assert.match(PAGE, /@keyframes bloom\{/, 'hiányzik a 100%-os virágzás');
+  assert.match(PAGE, /#boot-screen \.veil\.show\{opacity:1\}/, 'hiányzik a záró fátyol');
+  /*
+   * A százalékot továbbra is KIZÁRÓLAG a valós adat írhatja: a híd
+   * `update()` függvényében nincs véletlen és nincs szimulált érték.
+   */
+  const bridgeStart = PAGE.indexOf('window.__IPTV_BOOT__ = {');
+  const bridge = PAGE.slice(bridgeStart, PAGE.indexOf('state: function ()', bridgeStart));
+  assert.doesNotMatch(bridge, /Math\.random/, 'a betöltőképernyő kitalált értéket állít elő');
+  /*
+   * A `complete()` egyetlen időzítője a 100% két képkockányi láthatósága: a
+   * felfedés visszahívása (240 ms) és a végső háló (900 ms). Egyik sem ír
+   * százalékot vagy szöveget – azt kizárólag a valós `update()` teheti.
+   */
+  for (const call of (bridge.match(/setTimeout\([^;]*?\)/g) || [])) {
+    assert.doesNotMatch(call, /percent|render\(|state\./, `időzítő írja az állapotot: ${call.slice(0, 60)}`);
+  }
+  assert.doesNotMatch(PAGE, /CHANNELS = 12480|PROGRAMS = 96420|simulating|function restart\(\)/,
+    'a demó szimulált számlálói és újraindítása visszatértek');
 });
 
 test('a betöltési adatok KIZÁRÓLAG az alkalmazásból származnak (nincs szimuláció)', () => {
   const start = PAGE.indexOf('BETÖLTŐKÉPERNYŐ-HÍD');
   assert.ok(start > 0, 'nem található a betöltőképernyő-híd');
   const scriptStart = PAGE.lastIndexOf('<script>', start);
-  const script = PAGE.slice(scriptStart, PAGE.indexOf('</script>', PAGE.indexOf('window.__IPTV_BOOT__ = {')));
+  const script = PAGE.slice(scriptStart, PAGE.indexOf('state: function ()', PAGE.indexOf('window.__IPTV_BOOT__ = {')));
   // A megjegyzések kiszűrése: a tiltó listát a MAGATARTÁSRA, nem kommentre nézzük.
   const code = script.replace(/\/\*[\s\S]*?\*\//g, '');
-  // A demó (Inditas.html) szimulált értékei és időzített újraindítása TILOS.
-  assert.doesNotMatch(code, /Math\.random/, 'a képernyő kitalált értéket állít elő');
+  // A demó (a megtervezett fájl) szimulált értékei és időzített újraindítása TILOS.
+  assert.doesNotMatch(code, /Math\.random/, 'a híd kitalált értéket állít elő');
+  assert.doesNotMatch(PAGE, /CHANNELS = 12480|PROGRAMS = 96420|simulating|function restart\(\)/,
+    'a demó szimulált számlálói visszatértek');
   /*
-   * Időzítő csak a platform indítóképének levételére futhat – a betöltési
-   * állapotot (percent/phase) időzítő NEM írhatja, mert az szimulált
-   * befejezés lenne. 2.5.145: a másodpercenként ketyegő óra kikerült, ezért
-   * a képernyőn egyetlen ismétlődő időzítő sem futhat.
+   * Időzítő csak a platform indítóképének levételére és az ÓRÁRA futhat – a
+   * betöltési állapotot (percent/phase) időzítő NEM írhatja, mert az
+   * szimulált befejezés lenne. A valós óra az egyetlen ismétlődő időzítő, és
+   * a felfedéskor leáll.
    */
   const timers = code.match(/setTimeout\([^;]*?\)/g) || [];
   for (const call of timers) {
@@ -289,12 +310,10 @@ test('a betöltési adatok KIZÁRÓLAG az alkalmazásból származnak (nincs szi
       `időzítő írja a betöltési állapotot: ${call.slice(0, 60)}`);
   }
   assert.equal((code.match(/setInterval\(/g) || []).length, 0,
-    'a betöltőképernyőn ismétlődő időzítő fut (óra/animáció)');
-  assert.doesNotMatch(PAGE, /CHANNELS = 12480|PROGRAMS = 96420|simulating/,
-    'a demó szimulált számlálói visszatértek');
+    'a hídon belül ismétlődő időzítő fut (animáció)');
   // Minden mutató a valós adatot várja, alapból „—” látszik.
-  assert.match(script, /function update\(data\)/);
-  assert.match(script, /'percent' in data/);
+  assert.match(script, /update: function \(report\)/);
+  assert.match(script, /typeof report\.percent === 'number'/);
   assert.match(script, /setText\('boot-channels', state\.channels === null \? DASH : groupThousands\(state\.channels\)\)/);
   assert.match(script, /setText\('boot-speed', formatSpeed\(state\.bytesPerSecond\)\)/);
   assert.match(script, /setText\('boot-eta', formatEta\(state\.etaSeconds\)\)/);

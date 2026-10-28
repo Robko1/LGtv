@@ -2,7 +2,7 @@
 """
 A TV platform indítóképe (webOS `splashBackground`) – folyamatos induláshoz.
 
-2.5.160 – NINCS BENNE IKON, ÉS PONTOSAN A BETÖLTŐKÉPERNYŐ HÁTTERE.
+2.5.162 – NINCS BENNE IKON, ÉS PONTOSAN A BETÖLTŐKÉPERNYŐ FÁTYLAI.
 
 A felhasználói észrevétel: az IPK indításakor „egy kicsit ikon kép jelenik meg,
 az is nagyon rossz minőségű”. Az ok az volt, hogy ez a szkript a 130×130-as
@@ -10,15 +10,21 @@ launcher-ikont felnagyítva (260×260) rajzolta a kép közepére, a színátmen
 pedig 128 színre csökkentett, palettás PNG-be tette – a TV-n ez mosott, sávos
 képet adott.
 
-Mostantól a platform kép:
-  • NEM tartalmaz ikont és semmilyen felnagyított elemet (nincs mit
-    elmosódottan látni);
-  • a `web/index.html` `#boot-screen` rétegeinek ÖSSZEFÉSÜLT látványát rajzolja
-    ki: az alap színátmenet, a fényfolt, a három fátyol (scrim) és a vignetta –
-    így a platform képéről a saját, MÁR ANIMÁLT betöltőképernyőnkre váltás
-    gyakorlatilag észrevehetetlen, a néző folyamatos indulást lát;
+A 2.5.162-es betöltőképernyő háttere a felhasználó saját IPTV-ikonja (251×252
+px, a HTML-ben beágyazva). Ezt a platform `splashBackground` képébe NEM lehet
+beletenni: 1920×1080-ra felnagyítva közel 1 MB lenne, és a platform képét a TV
+a saját kódunk ELŐTT dekódolja – ez lassítaná az indulást (a korábbi 1,1 MB-os
+fotó pontosan ezt okozta).
+
+Ezért a platform kép a betöltőképernyő FÁTYLAIT rajzolja ki ugyanazokból az
+értékekből, amelyek a `#boot-screen` CSS-ében vannak:
+  • három fátyol (radial + két lineáris), fényfolt és vignetta;
+  • a háttér és a fátylak alapszíne a dizájn palettája (#04141a / #073b3e);
   • valódi 24 bites RGB + finom dithering (nincs színlépcső/sávosodás a TV
     paneljén).
+A platform képéről a saját, MÁR ANIMÁLT betöltőképernyőnkre váltás így
+gyakorlatilag észrevehetetlen: ugyanaz a sötét türkiz köd, csak a saját
+animációnk és a valós adatok jelennek meg rajta.
 
 A build minden alkalommal újragenerálja (`--out-dir`), ezért az IPK-ba nem
 kerülhet elavult kép.
@@ -41,10 +47,10 @@ WIDTH, HEIGHT = 1920, 1080
 # ── A web/index.html #boot-screen rétegeinek pontos értékei ────────────────
 # 1) .stage: background-color #04141a + lineáris 160deg színátmenet + fényfolt
 STAGE_BG = (4, 20, 26)          # #04141a
-LINEAR_TOP = (7, 38, 44)        # #07262c
+LINEAR_TOP = (7, 59, 62)        # #073b3e (a dizájn --deep színe)
 LINEAR_MID = (4, 22, 28)        # #04161c
 LINEAR_BOTTOM = (8, 13, 26)     # #080d1a
-GLOW_CORE = (31, 120, 116)      # #1f7874  (rgba(31,120,116,.42))
+GLOW_CORE = (14, 124, 116)      # #0e7c74 (a dizájn --teal színe)
 GLOW_EDGE = (6, 32, 38)         # rgba(6,32,38,.10)
 # 2) .scrim rétegei
 SCRIM1 = (4, 20, 26)            # radial-gradient(120% 85% at 50% 42%)
@@ -169,7 +175,7 @@ def write_output(path: Path, image: Image.Image) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="TV platform indítókép (ikon nélküli színátmenet)")
+    parser = argparse.ArgumentParser(description="TV platform indítókép (ikon nélkül, a betöltőképernyő fátylaival)")
     parser.add_argument(
         "--out-dir",
         help="Ha meg van adva, ide írja a splash-screen.png fájlt (IPK-ba).",
@@ -183,7 +189,7 @@ def main() -> None:
     write_output(target, image)
     print(
         f"{target}: {target.stat().st_size // 1024} kB "
-        f"({WIDTH}x{HEIGHT}, ikon nélkül, a #boot-screen összefésült háttere)"
+        f"({WIDTH}x{HEIGHT}, NINCS BENNE IKON, a #boot-screen fátylai)"
     )
 
 

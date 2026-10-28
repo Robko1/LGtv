@@ -119,23 +119,27 @@ test('a CI IPK-ellenőrzése a valódi script-hivatkozást keresi, nem szövegr�
   );
 });
 
-test('2.5.139: NINCS beégetett indulókép – a HTML kicsi marad', () => {
+test('2.5.162: a dizájn ikonja LEGFELJEBB egyszer van beégetve – a HTML kicsi marad', () => {
   /*
-   * A beégetett 265 KB-os JPEG + 46 KB-os PNG volt a 2493 ms-es válaszidő
-   * egyik oka. Most a takarókép külön, HELYI `splash-bg.jpg`, a betöltőképernyő
-   * pedig tiszta HTML/CSS. A `str.replace` régi duplázási hibája így eleve
-   * nem fordulhat elő.
+   * A 2.5.139-es mérés szerint a beégetett 265 KB-os JPEG + 46 KB-os PNG volt
+   * a 2493 ms-es válaszidő egyik oka. A felhasználó által megtervezett
+   * betöltőképernyő egyetlen képe a saját IPTV-ikon (64 kB, 251×252 px), és az
+   * a HTML-ben is CSAK EGYSZER szerepel: a háttér és a két jelvény ugyanazt az
+   * adat-URI-t használja. A `str.replace` régi duplázási hibája így eleve nem
+   * fordulhat elő.
    */
   const page = read('web/index.html');
   assert.ok(!page.includes('__IPTV_SPLASH_DATA_URI__'));
   assert.ok(!page.includes('__IPTV_SPLASH_TINY_URI__'));
-  assert.equal((page.match(/data:image\/jpeg;base64,/g) || []).length, 0);
+  assert.equal((page.match(/data:image\/jpeg;base64,/g) || []).length, 1,
+    'a dizájn ikonja nem pontosan egyszer van beágyazva');
   assert.match(read('tools/build-webos.sh'), /def externalize_scripts/);
   const built = path.join(ROOT, 'build/webos/index.html');
   if (!fs.existsSync(built)) return;
   const html = fs.readFileSync(built, 'utf8');
   assert.ok(html.length < 200_000, `a csomagolt HTML ${html.length} byte – túl lassú`);
-  assert.equal((html.match(/data:image\/jpeg;base64,/g) || []).length, 0);
+  assert.equal((html.match(/data:image\/jpeg;base64,/g) || []).length, 1,
+    'a csomagban sem lehet egynél több beégetett kép');
 });
 
 test('a csomagolt HTML a külső app.js/app.css fájlokra hivatkozik', () => {
@@ -198,12 +202,17 @@ test('az app bgColor sötét – nem villan be világos kék a lap festése elő
    * világos türkiz látszott – a felhasználó „villogó kék” észrevétele.
    * Mostantól a bgColor a kész felület sötétje: ha a lap egy pillanatra nem
    * fest, a néző sötétet lát, nem világos kék villanást.
+   *
+   * 2.5.162: a bgColor a BETÖLTŐKÉPERNYŐ alapszíne (#04141a). A felhasználó
+   * jelezte, hogy az indulásnál „fekete–zöldes háttér váltakozik”: a sötétkék
+   * ablak → türkiz platform kép → türkiz betöltőképernyő sorrend adta a
+   * váltakozást. Ugyanazzal a tónussal a legelső kockától folyamatos a kép.
    */
   const info = JSON.parse(read('webos/appinfo.json'));
   assert.equal(
     String(info.bgColor).toLowerCase(),
-    '#080d1a',
-    'a bgColor nem sötét – világos kocka villanhat a lap első festése előtt'
+    '#04141a',
+    'a bgColor nem a betöltőképernyő alapszíne – világos kocka villanhat a lap első festése előtt'
   );
   assert.equal(info.splashBackground, 'splash-screen.png');
   assert.ok(info.splashBackground, 'hiányzik a splashBackground');
