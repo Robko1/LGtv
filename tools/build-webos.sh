@@ -132,8 +132,10 @@ with Image.open(path) as image:
     image.load()
     if image.size != (1920, 1080):
         raise SystemExit(f"HIBA: a feltöltött indítókép mérete {image.size}, várt 1920x1080.")
-    if image.mode != "RGB":
-        raise SystemExit(f"HIBA: a feltöltött indítókép módja {image.mode}, várt RGB.")
+    if image.mode != "P":
+        raise SystemExit(f"HIBA: a feltöltött indítókép módja {image.mode}, várt palettás PNG (P).")
+    if path.stat().st_size >= 699 * 1024:
+        raise SystemExit(f"HIBA: az indítókép {path.stat().st_size} byte, a megengedett maximum 699 KiB alatt van.")
 PY
 cp "$WEBOS_DIR/splash-screen.png" "$BUILD_DIR/splash-screen.png"
 log "A feltöltött splash-screen.png bemásolva az IPK-ba"
@@ -387,8 +389,8 @@ if "<link rel=\"preload\" as=\"script\" href=\"app.js\">" not in html:
 splash_png = build_dir / "splash-screen.png"
 if not splash_png.is_file():
     raise SystemExit("HIBA: hiányzik a splash-screen.png (a platform indítókép).")
-if splash_png.stat().st_size > 700_000:
-    raise SystemExit("HIBA: a splash-screen.png túl nagy – más kép került a csomagba.")
+if splash_png.stat().st_size >= 699 * 1024:
+    raise SystemExit("HIBA: a splash-screen.png nem kisebb 699 KiB-nál – más vagy nem optimalizált kép került a csomagba.")
 
 
 # Az egyetlen képre mutató hivatkozások relative URL-ek maradnak: a webOS
