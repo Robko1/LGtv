@@ -327,12 +327,10 @@ test('a build külön app.js/app.css fájlba emeli a nagy JS-t és CSS-t', () =>
   assert.match(build, /def externalize_scripts/);
   assert.match(build, /<script src="app\.js"/);
   assert.match(build, /href="app\.css"/);
-  assert.match(build, /make-splash\.py" --out-dir "\$BUILD_DIR"/,
-    'a build nem generálja a platform indítóképét');
-  const splash = read('tools/make-splash.py');
-  assert.equal(splash.includes('takarokep'), false,
-    'az indítókép ismét a takarokep.jpg-ből készül (fotós háttér)');
-  assert.match(splash, /splash-screen\.png/, 'a generált platform indítókép neve megváltozott');
+  assert.match(build, /cp "\$WEBOS_DIR\/splash-screen\.png" "\$BUILD_DIR\/splash-screen\.png"/,
+    'a feltöltött indítókép nem kerül bemásolásra az IPK-ba');
+  assert.doesNotMatch(build, /make-splash\.py" --out-dir "\$BUILD_DIR"/,
+    'a régi zöld színátmenet-generátor felülírná a feltöltött képet');
   const built = path.join(ROOT, 'build/webos/index.html');
   if (!fs.existsSync(built)) return;
   const html = fs.readFileSync(built, 'utf8');
