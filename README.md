@@ -2,15 +2,20 @@
 
 Ez a repó kizárólag LG webOS TV-hez készül. Az alkalmazás élő TV-csatornákat, filmeket, sorozatokat, EPG-t, kedvenceket és telefonos QR-beállítást kezel.
 
-## Indulás és betöltőképernyő (2.5.158)
+## Indulás és betöltőképernyő (2.5.160)
 
 A TV indítása saját betöltőképernyővel kezdődik, és a kész főoldal
 kirajzolódásáig egyetlen, folyamatos képernyő látszik:
 
 - a betöltőképernyő háttere **tiszta CSS színátmenet** (nincs háttérkép), a
   webOS saját indítóképe (`splashBackground`) ugyanezt a színátmenetet
-  rajzolja ki, ezért a platform képéről a sajátunkra váltás nem hoz új látványt
-  (nincs fekete kocka, nincs villanás, nincs képprodukciós késés);
+  rajzolja ki 24 bites RGB-ben, **ikon nélkül**, ezért a platform képéről a
+  sajátunkra váltás nem hoz új látványt (nincs fekete kocka, nincs villanás,
+  nincs elmosott ikon, nincs színlépcső);
+- a mozgás **JavaScript nélkül, CSS-ből** jön (aurora, fényvonal, fénylő
+  márkanév): csak `transform`/`opacity`, ezért a TV kompozitora akkor is
+  folyamatosan mozgatja, amikor a fő szál a bundle-t értékeli ki. Az animáció
+  a **100%-ig** tart, és csak utána jelenik meg a főoldal;
 - a jobb felső sarokban a **TV valós rendszerideje** jár;
 - a százalék, a csatornaszám, a mért sávszélesség és a hátralévő idő
   **kizárólag a futó alkalmazás tényleges adataiból** származik – nincs
@@ -229,12 +234,13 @@ npm test
 (cd web && ./node_modules/.bin/tsc --noEmit)
 npm --prefix web run build
 npm run smoke
-VERSION=2.5.158 bash tools/build-webos.sh
+VERSION=2.5.160 bash tools/build-webos.sh
 ```
 
 A build az indítóképet **minden alkalommal újragenerálja**
 (`tools/make-splash.py`), ezért az IPK-ba nem kerülhet elavult kép. A kép nem
-fotó, hanem a betöltőképernyő CSS-hátterével azonos sötét színátmenet (27 kB).
+fotó és nincs benne ikon: a betöltőképernyő CSS-hátterével azonos sötét
+színátmenet 24 bites RGB-ben, finom ditheringgel (196 kB, nincs színlépcső).
 
 A build kimenete helyben `webos/IPTV-RT.ipk`, de az IPK a `.gitignore` szerint nem kerül a `main` forráságba. A kézi GitHub Actions build a sikeres csomagot a verziózott Release-be tölti fel.
 

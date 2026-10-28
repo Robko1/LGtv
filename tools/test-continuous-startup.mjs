@@ -192,8 +192,20 @@ test('a platform indítókép akkor kerül le, amikor a SAJÁT képernyő már f
   assert.ok(releaseAt < revealAt, 'a levétel csak a REVEAL-nél történne meg');
   assert.match(PAGE, /first-contentful-paint/,
     'a levétel nem az első tartalmas képkockához van kötve (fotó → üres kocka)');
-  assert.match(PAGE, /window\.setTimeout\(releasePlatformSplash, 900\)/,
-    'nincs biztonsági háló a platform kép levételére');
+  /*
+   * 2.5.160: a levétel a LEGELSŐ saját képkockához van kötve (két rAF), és a
+   * biztonsági háló 350 ms. A régi 900/1500 ms-os várakozás alatt a néző még
+   * mindig a platform állóképét látta – a felhasználó kérése az, hogy az
+   * animáció AZONNAL, a TV saját képének levétele után induljon.
+   */
+  assert.match(PAGE, /function armReleaseFromFrame\(\)/,
+    'a platform kép levétele nem a legelső saját képkockához van kötve');
+  assert.match(PAGE, /window\.requestAnimationFrame\(function \(\) \{\s*window\.requestAnimationFrame\(function \(\) \{\s*releasePlatformSplash\(\);/,
+    'a levétel nem két képkocka után történik (a saját kép még nem festett)');
+  assert.match(PAGE, /window\.setTimeout\(releasePlatformSplash, 350\)/,
+    'nincs (350 ms-os) biztonsági háló a platform kép levételére');
+  assert.doesNotMatch(PAGE, /setTimeout\(releasePlatformSplash, (900|1500)\)/,
+    'visszatért a régi 900/1500 ms-os várakozás – a platform állóképe túl sokáig látszik');
   assert.match(PAGE, /window\.__IPTV_RELEASE_PLATFORM_SPLASH__/,
     'a REVEAL nem ugyanazt a (kétszer nem futó) kaput használja');
 
@@ -236,10 +248,21 @@ test('2.5.158: a platform indítókép GENERÁLT színátmenet, nem fotó', () =
    * színátmenet. Ha újra 100 kB fölé nő, fotó került vissza – az 1 GB
    * memóriás TV-n az a lassú indulás egyik oka volt.
    */
+  /*
+   * 2.5.160: a kép 24 bites RGB (196 kB) – a palettás változat (141 kB)
+   * látható SZÍNLÉPCSŐT adott a nagy színátmeneten, az volt a „nagyon rossz
+   * minőségű kép”. A korlát ezért 260 kB, de fotó (1,1 MB) továbbra sem
+   * kerülhet vissza. A generátorban nem lehet beégetett ikon vagy nagyított
+   * kép: a platform kép csak színátmenet.
+   */
   const splashPath = path.join(ROOT, 'webos/splash-screen.png');
   assert.ok(fs.existsSync(splashPath), 'hiányzik a webos/splash-screen.png');
-  assert.ok(fs.statSync(splashPath).size < 120_000,
+  assert.ok(fs.statSync(splashPath).size < 260_000,
     `a webos/splash-screen.png ${fs.statSync(splashPath).size} byte – fotós háttér került vissza`);
+  assert.doesNotMatch(MAKE_SPLASH, /largeIcon|icon-rt2/,
+    'a platform indítókép ismét ikont rajzol (felnagyítva mosott, rossz minőségű)');
+  assert.match(MAKE_SPLASH, /ikon nélkül|NINCS BENNE IKON/,
+    'a generátor nem rögzíti, hogy a platform kép ikon nélkül készül');
 });
 
 test('a body/html háttere a REVEAL-nál NEM vált – nincs fekete kocka', () => {
@@ -414,13 +437,33 @@ test('a 20 190 csatornás lista a felfedés UTÁN töltődik be, nem alatta', ()
     'a felfedés ismét a teljes listára vár');
   assert.match(main, /if \(logosOk && videoOk\) \{/,
     'a felfedés feltétele nem a látható felület');
-  // A felfedés ELŐBB fut, mint a betöltőképernyő lezárása (az utóbbi drága).
+  /*
+   * 2.5.160: MEGFORDULT A SORREND – ÉS EZ A HELYES.
+   *
+   * A felhasználói elvárás: az indítási animáció a 100%-ig folyamatosan
+   * látszódjon, és csak a 100%-nál jelenjen meg a főoldal. Ezért a
+   * `bootScreenComplete()` (ami a HTML-ben 240 ms alatt felfuttatja a sávot
+   * 100%-ra) fut ELŐBB, a felfedés (`reveal`) pedig a HTML visszahívására
+   * történik. A régi „a takarókép lezárása drága, ezért előbb fedjünk fel”
+   * indoklás okafogyott: a befejezés csak százalékot és szöveget ír.
+   */
   const revealFn = main.slice(main.indexOf('const revealNow = (reason: string) => {'));
-  const body = revealFn.slice(0, 2600);
-  const revealAt = body.indexOf('reveal(reason);');
+  const body = revealFn.slice(0, 6000);
+  const callbackAt = body.indexOf('__IPTV_BOOT_DONE_CB__ = afterBootAnimation');
   const completeAt = body.indexOf('bootScreenComplete();');
-  assert.ok(revealAt > 0 && completeAt > revealAt,
-    'a betöltőképernyő lezárása megint a felfedés ELŐTT fut (1,4–2,4 mp késés)');
+  assert.ok(callbackAt > 0 && completeAt > callbackAt,
+    'a felfedés nincs a betöltőképernyő befejezésének visszahívására kötve');
+  assert.match(body, /const afterBootAnimation = \(\) => \{[\s\S]{0,900}?reveal\(reason\);/,
+    'a felfedés nem a befejezés (100%) után történik');
+  const before = main.slice(main.indexOf('const revealNow = (reason: string) => {'), main.indexOf('const afterBootAnimation'));
+  assert.doesNotMatch(before, /^\s*reveal\(reason\);/m,
+    'a betöltőképernyő 100%-a előtt is van felfedés (nem látszana a 100%)');
+  assert.match(body, /\.__IPTV_BOOT_DONE_CB__ = afterBootAnimation/,
+    'a felfedés nincs a betöltőképernyő befejezésének visszahívásához kötve');
+  assert.match(body, /window\.setTimeout\(afterBootAnimation, 400\)/,
+    'nincs biztonsági háló, ha a visszahívás elmarad');
+  assert.match(body, /if \(bootRevealDone\) return;/,
+    'a felfedés kétszer futhat le (a visszahívás és a 400 ms-os háló is hívja)');
   // 2.5.151: a sáv a váltás előtt 97 és 99%-ot is jelez – nem áll meg 94%-on.
   const boot = read('web/src/services/bootScreen.ts');
   assert.match(boot, /frames: \{ percent: 97/, 'a 97%-os képkocka-szakasz hiányzik');

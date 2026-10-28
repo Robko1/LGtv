@@ -214,7 +214,20 @@ async function bootRevealHarness({
     start: (version) => boot.push(['start', version]),
     phase: (name, detail) => boot.push(['phase', name, detail]),
     detail: (text) => boot.push(['detail', text]),
-    complete: () => boot.push(['complete']),
+    /*
+     * 2.5.160: a betöltőképernyő 100%-a LÁTSZIK, és csak utána jön a felfedés:
+     * a HTML-oldali complete() a visszahívásra értesít. A híd itt ugyanazt a
+     * sorrendet utánozza (rövid, 60 ms-os késleltetéssel – a valódi animáció
+     * 240 ms, a tesztek 200 ms-os lépéseihez igazítva).
+     */
+    complete: () => {
+      boot.push(['complete']);
+      setTimeout(() => {
+        try {
+          if (typeof window.__IPTV_BOOT_DONE_CB__ === 'function') window.__IPTV_BOOT_DONE_CB__();
+        } catch { /* a teszt-híd hibája nem akadály */ }
+      }, 60);
+    },
   };
   const context = {
     document: doc,

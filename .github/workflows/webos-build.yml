@@ -233,11 +233,14 @@ jobs:
           img = Image.open(splash)
           if img.size != (1920, 1080):
               raise SystemExit(f"HIBA: az indítókép mérete {img.size}, várt 1920x1080.")
-          # 2.5.158: az indítókép GENERÁLT színátmenet (nincs fotó), ezért
-          # néhány kB. Ha újra 100 kB fölé nő, valaki képet tett bele – az
-          # 1 GB memóriás TV-n az a lassú indulás egyik oka volt.
-          if splash.stat().st_size > 120 * 1024:
-              raise SystemExit("HIBA: az indítókép túl nagy – fotós háttér került vissza.")
+          # 2.5.160: az indítókép GENERÁLT színátmenet (nincs fotó, NINCS
+          # ikon), 24 bites RGB – a palettás változat látható színlépcsőt
+          # adott, az volt a „nagyon rossz minőségű kép”. A 260 kB-os korlát
+          # a ditheringgel együtt is bőven alatta marad a fotó 1,1 MB-jának.
+          if splash.stat().st_size > 260 * 1024:
+              raise SystemExit("HIBA: az indítókép túl nagy – fotó vagy ikon került vissza.")
+          if img.mode != "RGB":
+              raise SystemExit(f"HIBA: az indítókép módja {img.mode}, várt RGB (nincs paletta).")
           print(f"OK: indítókép (generált) {img.size}, {splash.stat().st_size} byte.")
           PY
           bash -n tools/build-webos.sh
