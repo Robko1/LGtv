@@ -65,7 +65,8 @@ import {
   rememberedFormatFor,
 } from '../services/liveFormatMemory';
 
-const DIRECT_LIVE_ZAP_TEST = (window as Window & { __IPTV_DIRECT_LIVE_ZAP_TEST__?: boolean }).__IPTV_DIRECT_LIVE_ZAP_TEST__ !== false;
+// A kísérleti közvetlen váltás kikapcsolva: az eredeti TS/HLS fallback és automatikus recovery marad aktív.
+const DIRECT_LIVE_ZAP_TEST = false;
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
