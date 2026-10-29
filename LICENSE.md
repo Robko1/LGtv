@@ -108,3 +108,7 @@ Inquiries regarding this license, permissions, or cooperation may be sent to the
 
 **© Robko1 – LGtv. All rights reserved.**  
 **© Robko1 – LGtv. Minden jog fenntartva.**
+
+---
+
+![LGtv saját logója](webos/icon-rt2.png)
