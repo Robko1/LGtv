@@ -241,7 +241,29 @@ jobs:
             git commit -m "chore: bump webOS IPK version to v$NEXT"
             echo "SIGNED_COMMIT=0" >> "$GITHUB_ENV"
           fi
-          git push origin HEAD:main
+          # A build közben a main ágra érkező más commitokat is meg kell tartani.
+          # A saját verziócommitot mindig a legfrissebb main tetejére rebase-eljük.
+          # Push-elutasítás esetén újra fetch + rebase következik; force push tilos.
+          PUSHED=0
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if ! git rebase origin/main; then
+              echo "HIBA: a verziófájlokban közben érkezett módosítással ütközés történt." >&2
+              echo "A távoli main változásait nem írjuk felül; a build biztonságosan leáll." >&2
+              git rebase --abort || true
+              exit 1
+            fi
+            if git push origin HEAD:main; then
+              PUSHED=1
+              break
+            fi
+            echo "A main időközben ismét frissült; újrapróbálás ($attempt/5)."
+            sleep 2
+          done
+          if [[ "$PUSHED" != "1" ]]; then
+            echo "HIBA: öt próbálkozás után sem sikerült biztonságosan frissíteni a main ágat." >&2
+            exit 1
+          fi
           echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: 6. Kézi diagnosztika – forrás, webOS frissítő és csomagoló
