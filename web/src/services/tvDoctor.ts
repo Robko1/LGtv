@@ -12,7 +12,7 @@ import {
   bufferProfileTiming,
   mediaProgressed,
 } from './playbackRecovery';
-import { appLog } from './appLog';
+import { appLog, isVerbosePlaybackLogging } from './appLog';
 
 /**
  * TV Doktor – intelligens, önfejlesztő diagnosztikai és lejátszás-optimalizáló rendszer.
@@ -35,9 +35,14 @@ import { appLog } from './appLog';
  */
 
 export const TV_DOCTOR_STORAGE_KEY = 'iptv_rt_tv_doctor_v1';
+export const TV_DOCTOR_SYNC_STORAGE_KEY = 'iptv_rt_tv_doctor_sync_v1';
+export const TV_DOCTOR_DIAG_LOGGING_KEY = 'iptv_rt_tv_doctor_diag_log_v1';
 
 /** Korlátok a TV erőforrásainak és a localStorage kvótának a védelmére. */
 export const MAX_LEARNED_CHANNELS = 450;
+export const MAX_SAFE_DOCTOR_STORAGE_BYTES = 256 * 1024;
+export const WEBOS_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024;
+export const DOCTOR_SLOW_OP_THRESHOLD_MS = 25;
 export const MAX_DOCTOR_REPAIR_STEPS = 5;
 export const MAX_INTERVENTIONS_PER_MINUTE = 6;
 export const DOCTOR_VERIFY_STABLE_MS = 2400;
@@ -276,13 +281,168 @@ interface DoctorStoreData {
   idIndex: Record<string, string>;
 }
 
+export interface TvDoctorMemoryStats {
+  learnedChannelCount: number;
+  maxLearnedChannels: number;
+  doctorStoreBytes: number;
+  cloudQueueBytes: number;
+  inMemoryLogBytes: number;
+  doctorTotalBytes: number;
+  maxSafeDoctorBytes: number;
+  doctorBudgetPercent: number;
+  tvStorageUsedBytes: number;
+  tvStorageQuotaBytes: number;
+  tvStoragePercent: number;
+  jsHeapUsedMB: number | null;
+  jsHeapLimitMB: number | null;
+  memoryHealth: 'optimal' | 'moderate' | 'high';
+  memoryHealthLabel: string;
+  lastStorageError: { location: string; message: string; at: number } | null;
+}
+
+export interface TvDoctorOperationHealth {
+  decisionsCount: number;
+  maxDecisionMs: number;
+  slowOpsCount: number;
+  lastSlowOp: { op: string; elapsedMs: number; at: number; channelName?: string } | null;
+  freezeChecksCount: number;
+  confirmedFreezesCount: number;
+  repairsAttemptedCount: number;
+  repairsVerifiedCount: number;
+  lastStorageError: { location: string; message: string; at: number } | null;
+}
+
 const MAX_RECENT_LOGS = 60;
 const recentDoctorLogs: DoctorLogEntry[] = [];
 const diagnosticPlugins: DoctorDiagnosticPlugin[] = [];
 const repairPlugins: DoctorRepairPlugin[] = [];
 const interventionTimestampsByChannel = new Map<string, number[]>();
+const statusListeners: Array<() => void> = [];
 
 let memoryCache: DoctorStoreData | null = null;
+let diagLoggingCache: boolean | null = null;
+
+const opHealth: TvDoctorOperationHealth = {
+  decisionsCount: 0,
+  maxDecisionMs: 0,
+  slowOpsCount: 0,
+  lastSlowOp: null,
+  freezeChecksCount: 0,
+  confirmedFreezesCount: 0,
+  repairsAttemptedCount: 0,
+  repairsVerifiedCount: 0,
+  lastStorageError: null,
+};
+
+function nowPerfMs(): number {
+  try {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return performance.now();
+    }
+  } catch {
+    /* ignore */
+  }
+  return Date.now();
+}
+
+export function subscribeTvDoctorUpdates(listener: () => void): () => void {
+  statusListeners.push(listener);
+  return () => {
+    const idx = statusListeners.indexOf(listener);
+    if (idx >= 0) statusListeners.splice(idx, 1);
+  };
+}
+
+export function notifyTvDoctorListeners(): void {
+  for (let i = 0; i < statusListeners.length; i += 1) {
+    try {
+      statusListeners[i]?.();
+    } catch {
+      /* ignore listener errors */
+    }
+  }
+}
+
+export function isTvDoctorDiagLoggingEnabled(storage?: Storage | null): boolean {
+  if (!storage && diagLoggingCache !== null) return diagLoggingCache;
+  try {
+    const target = storage !== undefined ? storage : (typeof localStorage !== 'undefined' ? localStorage : null);
+    const raw = target?.getItem(TV_DOCTOR_DIAG_LOGGING_KEY);
+    const enabled = raw !== '0' && raw !== 'false';
+    if (!storage) diagLoggingCache = enabled;
+    return enabled;
+  } catch {
+    return true;
+  }
+}
+
+export function setTvDoctorDiagLoggingEnabled(enabled: boolean, storage?: Storage | null): void {
+  if (!storage) diagLoggingCache = enabled;
+  try {
+    const target = storage !== undefined ? storage : (typeof localStorage !== 'undefined' ? localStorage : null);
+    target?.setItem(TV_DOCTOR_DIAG_LOGGING_KEY, enabled ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+  if (isVerbosePlaybackLogging()) {
+    appLog(`TV DOKTOR NAPLÓZÁSI BEÁLLÍTÁS: ${enabled ? 'BEKAPCSOLVA (működés és elakadás rögzítése aktív)' : 'KIKAPCSOLVA'}`);
+  }
+  notifyTvDoctorListeners();
+}
+
+export function recordDoctorOpTiming(op: string, elapsedMs: number, channelName?: string): void {
+  const rounded = Math.max(0, Math.round(elapsedMs * 10) / 10);
+  if (rounded > opHealth.maxDecisionMs) opHealth.maxDecisionMs = rounded;
+  if (rounded >= DOCTOR_SLOW_OP_THRESHOLD_MS) {
+    opHealth.slowOpsCount += 1;
+    opHealth.lastSlowOp = {
+      op,
+      elapsedMs: rounded,
+      at: Date.now(),
+      channelName,
+    };
+    if (isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR ELAKADÁS / LASSULÁS: művelet=${op}; idő=${rounded} ms${channelName ? `; csatorna=${channelName}` : ''}`,
+      );
+    }
+  }
+}
+
+export function getTvDoctorOperationHealth(): TvDoctorOperationHealth {
+  return {
+    decisionsCount: opHealth.decisionsCount,
+    maxDecisionMs: opHealth.maxDecisionMs,
+    slowOpsCount: opHealth.slowOpsCount,
+    lastSlowOp: opHealth.lastSlowOp ? { ...opHealth.lastSlowOp } : null,
+    freezeChecksCount: opHealth.freezeChecksCount,
+    confirmedFreezesCount: opHealth.confirmedFreezesCount,
+    repairsAttemptedCount: opHealth.repairsAttemptedCount,
+    repairsVerifiedCount: opHealth.repairsVerifiedCount,
+    lastStorageError: opHealth.lastStorageError ? { ...opHealth.lastStorageError } : null,
+  };
+}
+
+export function resetTvDoctorOperationCounters(): void {
+  opHealth.decisionsCount = 0;
+  opHealth.maxDecisionMs = 0;
+  opHealth.slowOpsCount = 0;
+  opHealth.lastSlowOp = null;
+  opHealth.freezeChecksCount = 0;
+  opHealth.confirmedFreezesCount = 0;
+  opHealth.repairsAttemptedCount = 0;
+  opHealth.repairsVerifiedCount = 0;
+}
+
+export function formatDoctorBytes(bytes: number): string {
+  const safe = Math.max(0, Math.round(Number(bytes) || 0));
+  if (safe === 0) return '0 B';
+  if (safe < 1024) return `${safe} B`;
+  const kb = safe / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(2)} MB`;
+}
 type CloudEventHook = (payload: {
   eventType:
     | 'measurement'
@@ -505,15 +665,27 @@ function pruneStore(store: DoctorStoreData): void {
 }
 
 function writeStore(store: DoctorStoreData, storage?: Storage | null): void {
+  const startedAt = nowPerfMs();
   pruneStore(store);
   if (!storage) memoryCache = store;
   const target = getStorage(storage);
   if (!target) return;
   try {
     target.setItem(TV_DOCTOR_STORAGE_KEY, JSON.stringify(store));
-  } catch {
+    opHealth.lastStorageError = null;
+  } catch (err) {
     // Ha a tárhely megtelt, lefaragjuk a legrégebbi elemek felét, de SOHA nem nyúlunk
     // sem a csatornalistához, sem a felhasználói beállításokhoz!
+    opHealth.lastStorageError = {
+      location: 'TV helyi tárhely (localStorage)',
+      message: 'A TV tárhelykvótája betelt – a TV Doktor automatikusan ritkította a legrégebbi tanult profilokat.',
+      at: Date.now(),
+    };
+    if (isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR TÁRHELY HIBA [hely=localStorage]: kvótakorlát elérve (${String(err).slice(0, 80)}); automatikus ritkítás fut`,
+      );
+    }
     try {
       const keys = Object.keys(store.byKey).sort(
         (a, b) => (store.byKey[b]?.updatedAt || 0) - (store.byKey[a]?.updatedAt || 0),
@@ -526,6 +698,9 @@ function writeStore(store: DoctorStoreData, storage?: Storage | null): void {
     } catch {
       /* memóriában tovább működik */
     }
+  } finally {
+    recordDoctorOpTiming('writeStore', nowPerfMs() - startedAt);
+    notifyTvDoctorListeners();
   }
 }
 
@@ -533,12 +708,117 @@ export function clearTvDoctorMemory(storage?: Storage | null): void {
   memoryCache = createEmptyStore();
   interventionTimestampsByChannel.clear();
   recentDoctorLogs.length = 0;
+  opHealth.lastStorageError = null;
+  resetTvDoctorOperationCounters();
   const target = getStorage(storage);
   try {
     target?.removeItem(TV_DOCTOR_STORAGE_KEY);
   } catch {
     /* ignore */
   }
+  if (isTvDoctorDiagLoggingEnabled()) {
+    appLog('TV DOKTOR MEMÓRIA: a helyi tanuló memória és eseménylista 0 állapotra törölve.');
+  }
+  notifyTvDoctorListeners();
+}
+
+export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemoryStats {
+  const store = readStore(storage);
+  const learnedChannelCount = Object.keys(store.byKey).length;
+  const target = getStorage(storage);
+
+  let doctorStoreBytes = 0;
+  let cloudQueueBytes = 0;
+  let tvStorageUsedBytes = 0;
+
+  if (target) {
+    try {
+      const rawDoctor = target.getItem(TV_DOCTOR_STORAGE_KEY);
+      if (rawDoctor) {
+        doctorStoreBytes = (TV_DOCTOR_STORAGE_KEY.length + rawDoctor.length) * 2;
+      } else if (learnedChannelCount > 0) {
+        doctorStoreBytes = JSON.stringify(store).length * 2;
+      }
+      const rawSync = target.getItem(TV_DOCTOR_SYNC_STORAGE_KEY);
+      if (rawSync) {
+        cloudQueueBytes = (TV_DOCTOR_SYNC_STORAGE_KEY.length + rawSync.length) * 2;
+      }
+      const len = Number((target as Storage).length) || 0;
+      for (let i = 0; i < len; i += 1) {
+        const key = typeof target.key === 'function' ? target.key(i) : null;
+        if (!key) continue;
+        const val = target.getItem(key) || '';
+        tvStorageUsedBytes += (key.length + val.length) * 2;
+      }
+    } catch {
+      /* Egyedi/mock Storage esetén sem dobhat hibát. */
+    }
+  } else if (learnedChannelCount > 0) {
+    doctorStoreBytes = JSON.stringify(store).length * 2;
+  }
+
+  let inMemoryLogBytes = 0;
+  for (let i = 0; i < recentDoctorLogs.length; i += 1) {
+    const entry = recentDoctorLogs[i];
+    inMemoryLogBytes += ((entry.channelName?.length || 0) + (entry.message?.length || 0) + 24) * 2;
+  }
+
+  const doctorTotalBytes = doctorStoreBytes + cloudQueueBytes + inMemoryLogBytes;
+  if (tvStorageUsedBytes < doctorStoreBytes + cloudQueueBytes) {
+    tvStorageUsedBytes = doctorStoreBytes + cloudQueueBytes;
+  }
+
+  const doctorBudgetPercent = Math.min(
+    100,
+    Math.round((doctorTotalBytes / MAX_SAFE_DOCTOR_STORAGE_BYTES) * 1000) / 10,
+  );
+  const tvStoragePercent = Math.min(
+    100,
+    Math.round((tvStorageUsedBytes / WEBOS_LOCAL_STORAGE_QUOTA_BYTES) * 1000) / 10,
+  );
+
+  let jsHeapUsedMB: number | null = null;
+  let jsHeapLimitMB: number | null = null;
+  try {
+    const perfMem = typeof performance !== 'undefined' ? (performance as any).memory : null;
+    if (perfMem && typeof perfMem.usedJSHeapSize === 'number' && perfMem.usedJSHeapSize > 0) {
+      jsHeapUsedMB = Math.round((perfMem.usedJSHeapSize / (1024 * 1024)) * 10) / 10;
+    }
+    if (perfMem && typeof perfMem.jsHeapSizeLimit === 'number' && perfMem.jsHeapSizeLimit > 0) {
+      jsHeapLimitMB = Math.round(perfMem.jsHeapSizeLimit / (1024 * 1024));
+    }
+  } catch {
+    /* Nem minden webOS motor publikálja a performance.memory mezőt. */
+  }
+
+  let memoryHealth: TvDoctorMemoryStats['memoryHealth'] = 'optimal';
+  let memoryHealthLabel = 'Optimális – nem terheli és nem lassítja a TV-t';
+  if (opHealth.lastStorageError || doctorBudgetPercent >= 85 || tvStoragePercent >= 85) {
+    memoryHealth = 'high';
+    memoryHealthLabel = 'Magas telítettség – javasolt a Memória: 0 gomb megnyomása';
+  } else if (doctorBudgetPercent >= 55 || tvStoragePercent >= 65) {
+    memoryHealth = 'moderate';
+    memoryHealthLabel = 'Mérsékelt foglaltság – normál, biztonságos működés';
+  }
+
+  return {
+    learnedChannelCount,
+    maxLearnedChannels: MAX_LEARNED_CHANNELS,
+    doctorStoreBytes,
+    cloudQueueBytes,
+    inMemoryLogBytes,
+    doctorTotalBytes,
+    maxSafeDoctorBytes: MAX_SAFE_DOCTOR_STORAGE_BYTES,
+    doctorBudgetPercent,
+    tvStorageUsedBytes,
+    tvStorageQuotaBytes: WEBOS_LOCAL_STORAGE_QUOTA_BYTES,
+    tvStoragePercent,
+    jsHeapUsedMB,
+    jsHeapLimitMB,
+    memoryHealth,
+    memoryHealthLabel,
+    lastStorageError: opHealth.lastStorageError ? { ...opHealth.lastStorageError } : null,
+  };
 }
 
 export function getTvDoctorSummary(storage?: Storage | null): {
@@ -590,7 +870,10 @@ function logDoctor(
   if (recentDoctorLogs.length > MAX_RECENT_LOGS) {
     recentDoctorLogs.splice(0, recentDoctorLogs.length - MAX_RECENT_LOGS);
   }
-  appLog(`TV DOKTOR [${channelName}] ${message}`);
+  if (isTvDoctorDiagLoggingEnabled()) {
+    appLog(`TV DOKTOR [${channelName}] ${message}`);
+  }
+  notifyTvDoctorListeners();
 }
 
 /** Sebesség- és megbízhatósági pontszám alapján kiválasztja a legjobb formátumot. */
@@ -676,6 +959,7 @@ export function selectChannelLaunchPlan(
   settings: Pick<AppSettings, 'streamFormat' | 'bufferMode' | 'tvDoctorEnabled'>,
   storage?: Storage | null,
 ): ChannelLaunchPlan {
+  const startedAt = nowPerfMs();
   const configuredFormat: LiveFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
   const sourceFormat = formatOfUrl(streamUrl);
   const tsCandidate = urlWithFormat(streamUrl, 'ts');
@@ -703,10 +987,12 @@ export function selectChannelLaunchPlan(
     };
   }
 
+  opHealth.decisionsCount += 1;
+
   try {
     const record = getChannelDoctorRecord(channel, storage);
     if (!record) {
-      return {
+      const plan: ChannelLaunchPlan = {
         enabled: true,
         hasLearnedProfile: false,
         channelKey,
@@ -717,6 +1003,14 @@ export function selectChannelLaunchPlan(
         expectedStartupMs: null,
         reason: legacyFormat ? `korábbi formátummemória (${legacyFormat})` : 'első mérés ezen a csatornán',
       };
+      const elapsed = nowPerfMs() - startedAt;
+      recordDoctorOpTiming('selectChannelLaunchPlan', elapsed, channel.name);
+      if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+        appLog(
+          `TV DOKTOR DÖNTÉS [${channel.name || channelKey}]: mód=${plan.primaryFormat.toUpperCase()}; puffer=${plan.bufferProfileId}; ok=${plan.reason}; számítás=${Math.round(elapsed * 10) / 10}ms`,
+        );
+      }
+      return plan;
     }
 
     const chosenFormat: LiveFormat = supportsDualFormat
@@ -739,7 +1033,7 @@ export function selectChannelLaunchPlan(
 
     const expectedStartupMs = chosenFormat === 'hls' ? record.hlsAvgStartupMs : record.tsAvgStartupMs;
 
-    return {
+    const plan: ChannelLaunchPlan = {
       enabled: true,
       hasLearnedProfile: true,
       channelKey,
@@ -750,7 +1044,20 @@ export function selectChannelLaunchPlan(
       expectedStartupMs,
       reason: `tanult profil (${chosenFormat.toUpperCase()}, puffer=${chosenBufferProfile}${expectedStartupMs ? `, ~${expectedStartupMs}ms` : ''})`,
     };
-  } catch {
+    const elapsed = nowPerfMs() - startedAt;
+    recordDoctorOpTiming('selectChannelLaunchPlan', elapsed, channel.name);
+    if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR DÖNTÉS [${channel.name || channelKey}]: mód=${plan.primaryFormat.toUpperCase()}; puffer=${plan.bufferProfileId} (${plan.bufferTiming.minBufferAheadSeconds}mp); ok=${plan.reason}; számítás=${Math.round(elapsed * 10) / 10}ms`,
+      );
+    }
+    return plan;
+  } catch (err) {
+    if (isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR HIBA [hely=selectChannelLaunchPlan; csatorna=${channel.name || channelKey}]: biztonsági visszaállás (${String(err).slice(0, 80)})`,
+      );
+    }
     // Biztonsági visszaállás az eredeti mechanizmusra bármilyen belső hiba esetén.
     return {
       enabled: false,
@@ -846,7 +1153,10 @@ export function recordDoctorChannelSuccess(params: {
     }
 
     rec.bestStartupMs = rec.bestStartupMs === null ? safeMs : Math.min(rec.bestStartupMs, safeMs);
-    if (wasRepair) rec.repairsOk += 1;
+    if (wasRepair) {
+      rec.repairsOk += 1;
+      opHealth.repairsVerifiedCount += 1;
+    }
 
     const prevBuf = rec.bufferStats[bufferProfile] || { ok: 0, fail: 0, stalls: 0, avgStartupMs: null };
     const nextBuf: BufferProfileStats = {
@@ -881,6 +1191,10 @@ export function recordDoctorChannelSuccess(params: {
         'verified',
         channel,
         `JAVÍTÁS ELLENŐRIZVE ÉS MENTVE: mód=${format.toUpperCase()} puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp) indulás=${safeMs}ms`,
+      );
+    } else if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR MÉRÉS [${rec.channelName}]: sikeres indulás=${safeMs}ms; mód=${format.toUpperCase()}; ajánlott=${rec.bestFormat.toUpperCase()}/${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp)`,
       );
     }
 
@@ -1065,6 +1379,7 @@ export interface FreezeCheckDecision {
 
 export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecision {
   const { prevSnapshot, currentSnapshot, streamState, consecutiveStallTicks, minBufferAheadSeconds } = input;
+  opHealth.freezeChecksCount += 1;
 
   // 1. Ha az idővonal (currentTime) vagy a dekódolt képkockaszám nőtt, a műsor rendben megy.
   if (prevSnapshot && mediaProgressed(prevSnapshot, currentSnapshot)) {
@@ -1082,6 +1397,9 @@ export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecisio
     !streamState.waitingOrStalled &&
     streamState.networkState !== 3
   ) {
+    if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+      appLog('TV DOKTOR FAGYÁSVIZSGÁLAT: aktív hangcsatorna (0x0 videó, egészséges puffer) – nincs hamis beavatkozás');
+    }
     return { intervene: false, reason: 'aktív hangalapú adatfolyam (0x0 videó), nincs hamis beavatkozás' };
   }
 
@@ -1097,6 +1415,11 @@ export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecisio
     streamState.networkState !== 3 &&
     healthyBuffer
   ) {
+    if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR FAGYÁSVIZSGÁLAT: állókép-védelem (tartalék=${streamState.bufferedAheadSeconds.toFixed(1)}mp, readyState=4) – megerősítésre vár`,
+      );
+    }
     return {
       intervene: false,
       reason: 'állókép-védelem: egészséges puffer és readyState=4, megerősítésre vár',
@@ -1105,9 +1428,15 @@ export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecisio
 
   // 4. Ha a puffer kiürült, waiting/stalled állapot áll fenn, vagy a megerősítő ciklus után is
   // teljesen mozdulatlan mind az idővonal, mind a dekódolt képkocka (pl. M2 UHD dekóder-fagyás):
+  opHealth.confirmedFreezesCount += 1;
   const detail = streamState.waitingOrStalled || streamState.bufferedAheadSeconds < 0.3
     ? 'adatfolyam-megakadás (kiürült puffer)'
     : 'dekóder-/képkocka-fagyás megerősítve';
+  if (isTvDoctorDiagLoggingEnabled()) {
+    appLog(
+      `TV DOKTOR ELAKADÁS ÉSZLELVE: ${detail}; tartalék=${streamState.bufferedAheadSeconds.toFixed(1)}mp; ciklus=${consecutiveStallTicks}; rs=${streamState.readyState}; ns=${streamState.networkState}`,
+    );
+  }
   return { intervene: true, reason: detail };
 }
 
@@ -1240,6 +1569,7 @@ export function planDoctorRepairStep(params: {
   }
 
   markIntervention(channelKey);
+  opHealth.repairsAttemptedCount += 1;
 
   // Regisztrált bővítmények (pluginek) megkérdezése prioritási sorrendben:
   const sortedPlugins = [...repairPlugins].sort((a, b) => b.priority - a.priority);

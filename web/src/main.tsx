@@ -10,6 +10,7 @@ import {
   measurementSnapshot, resetMeasurements, uiStateSnapshot,
 } from "./services/appLog";
 import { attachSpeedDiagnostics } from "./services/speedDiagnostics";
+import { attachTvDoctorDiagnostics } from "./services/tvDoctorCloud";
 import {
   bootScreenComplete,
   bootScreenDetail,
@@ -20,6 +21,7 @@ import { WEB_VERSION } from "./appVersion";
 
 /* A célzott figyelők csak a kézi naplózás alatt kapcsolódnak be. */
 attachSpeedDiagnostics();
+attachTvDoctorDiagnostics();
 installCrashHandlers();
 logStartup(WEB_VERSION);
 logPhase('bundle betöltve (main.tsx)');

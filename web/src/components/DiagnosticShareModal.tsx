@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bug, Circle, Clock3, History, Loader2, Send } from 'lucide-react';
+import { Bug, Circle, Clock3, History, Loader2, Send, Stethoscope } from 'lucide-react';
 import {
   dateTimeText,
   discardSentAppLog,
@@ -16,6 +16,15 @@ import {
   sendDiagnosticLog,
   type DiagnosticLogRecord,
 } from '../services/diagnosticShareService';
+import {
+  formatDoctorBytes,
+  getTvDoctorMemoryStats,
+  getTvDoctorOperationHealth,
+  isTvDoctorDiagLoggingEnabled,
+  setTvDoctorDiagLoggingEnabled,
+  subscribeTvDoctorUpdates,
+} from '../services/tvDoctor';
+import { getTvDoctorCloudStatus } from '../services/tvDoctorCloud';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 import { normalizeTvKey } from '../utils/tvKeys';
 
@@ -45,7 +54,18 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [sentRecord, setSentRecord] = useState<DiagnosticLogRecord | null>(null);
+  const [doctorDiagEnabled, setDoctorDiagEnabled] = useState<boolean>(() => isTvDoctorDiagLoggingEnabled());
+  const [, setDoctorRefreshTick] = useState(0);
   const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, onClose);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    setDoctorDiagEnabled(isTvDoctorDiagLoggingEnabled());
+    return subscribeTvDoctorUpdates(() => {
+      setDoctorDiagEnabled(isTvDoctorDiagLoggingEnabled());
+      setDoctorRefreshTick((n) => n + 1);
+    });
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -143,6 +163,12 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     }
   };
 
+  const toggleDoctorDiag = () => {
+    const nextVal = !doctorDiagEnabled;
+    setTvDoctorDiagLoggingEnabled(nextVal);
+    setDoctorDiagEnabled(nextVal);
+  };
+
   const onModalKeyDown = (event: React.KeyboardEvent) => {
     const key = normalizeTvKey(event);
     if (key === 'Enter' || key === ' ') {
@@ -154,10 +180,30 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
         return;
       }
     }
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+      const active = document.activeElement as HTMLElement | null;
+      const toggleBtn = modalRef.current?.querySelector<HTMLElement>('[data-diagnostic-toggle]');
+      const sendBtn = modalRef.current?.querySelector<HTMLElement>('[data-diagnostic-send]');
+      if (active === toggleBtn && key === 'ArrowRight' && sendBtn && !sendBtn.hasAttribute('disabled')) {
+        event.preventDefault();
+        event.stopPropagation();
+        sendBtn.focus({ preventScroll: true } as any);
+        return;
+      }
+      if (active === sendBtn && key === 'ArrowLeft' && toggleBtn && !toggleBtn.hasAttribute('disabled')) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleBtn.focus({ preventScroll: true } as any);
+        return;
+      }
+    }
     handleKeyDown(event);
   };
 
   if (!isOpen) return null;
+  const doctorMem = getTvDoctorMemoryStats();
+  const doctorOp = getTvDoctorOperationHealth();
+  const doctorCloud = getTvDoctorCloudStatus();
   const statusColor = snapshot.enabled ? 'text-emerald-300' : 'text-rose-300';
   const statusBg = snapshot.enabled ? 'border-emerald-400/60 bg-emerald-500/10' : 'border-rose-400/60 bg-rose-500/10';
   const elapsedSeconds = Math.floor(snapshot.elapsedMs / 1000);
@@ -242,6 +288,83 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
                 ))}
               </div>
             ) : <p className="text-base text-slate-500">Még nincs elküldött napló.</p>}
+          </div>
+
+          {/* TV Doktor naplózási kiegészítés: a meglévő naplóba ír, és ugyanazzal a Küldés gombbal megy fel */}
+          <div
+            data-diagnostic-tv-doctor-box=""
+            className="rounded-xl border border-cyan-500/40 bg-[#08152d] p-3.5"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <span
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                    doctorDiagEnabled
+                      ? 'border-cyan-400/50 bg-cyan-400/15 text-cyan-300'
+                      : 'border-slate-600/60 bg-slate-800/60 text-slate-400'
+                  }`}
+                >
+                  <Stethoscope className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-black tracking-wide text-white">
+                      TV Doktor működés- és elakadás-naplózás
+                    </span>
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[11px] font-black uppercase ${
+                        doctorDiagEnabled
+                          ? 'border border-emerald-400/50 bg-emerald-500/20 text-emerald-200'
+                          : 'border border-slate-600 bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {doctorDiagEnabled ? ' Naplóba kerül ' : ' Kikapcsolva '}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-snug text-slate-300">
+                    Rögzíti a TV Doktor döntéseit, az elakadásokat/lassulásokat, a TV memóriáját és a Supabase kapcsolati hibákat, majd a meglévő hibakeresési naplóval együtt elküldi.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px] font-semibold text-cyan-300/90">
+                    <span>Memória: {formatDoctorBytes(doctorMem.doctorTotalBytes)}</span>
+                    <span>•</span>
+                    <span>
+                      Supabase: {doctorCloud.connected ? 'Kapcsolódva' : (doctorCloud.lastErrorLocation ? `Hiba (${doctorCloud.lastErrorLocation})` : 'Helyi mód')}
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Elakadás/lassulás: {doctorOp.slowOpsCount + doctorOp.confirmedFreezesCount} db
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                data-diagnostic-tv-doctor-toggle=""
+                type="button"
+                role="switch"
+                aria-checked={doctorDiagEnabled}
+                aria-label="TV Doktor naplózás be- és kikapcsolása a kézi hibakeresési naplóban"
+                onClick={toggleDoctorDiag}
+                className={`flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl border-2 px-3.5 py-2 text-xs font-black transition-all focus:outline-none focus:ring-4 focus:ring-amber-400 ${
+                  doctorDiagEnabled
+                    ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
+                    : 'border-slate-600 bg-slate-800/80 text-slate-300'
+                }`}
+              >
+                <span>{doctorDiagEnabled ? 'TV Doktor napló: BE' : 'TV Doktor napló: KI'}</span>
+                <span
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full p-0.5 transition-colors ${
+                    doctorDiagEnabled ? 'bg-cyan-400' : 'bg-slate-600'
+                  }`}
+                >
+                  <span
+                    className={`h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                      doctorDiagEnabled ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </span>
+              </button>
+            </div>
           </div>
 
           {notice && <p role="status" className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-3 text-center text-sm font-bold text-emerald-200">{notice}</p>}
