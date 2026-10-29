@@ -65,7 +65,7 @@ import {
   rememberedFormatFor,
 } from '../services/liveFormatMemory';
 
-const ANDROID_STYLE_LIVE_ZAP_TEST = true;
+const ANDROID_STYLE_LIVE_ZAP_TEST = (window as Window & { __IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__?: boolean }).__IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__ !== false;
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
