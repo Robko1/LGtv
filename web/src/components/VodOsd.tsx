@@ -311,7 +311,7 @@ export const VodOsd: React.FC<VodOsdProps> = ({
       />
 
       {/* ── FELSŐ SÁV: vissza + a film CÍME (az OSD része) ───────────────── */}
-      <div className="relative pointer-events-auto flex items-center gap-[1.125rem] px-[1.5rem] pt-[1.25rem] md:px-[2.25rem] md:pt-[1.75rem]">
+      <div className="relative pointer-events-auto flex items-center gap-[1.125rem] pl-[1.5rem] pr-[15.5rem] pt-[1.25rem] md:pl-[2.25rem] md:pr-[16.5rem] md:pt-[1.75rem]">
         <button
           type="button"
           data-vod-focus=""

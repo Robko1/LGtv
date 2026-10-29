@@ -27,18 +27,29 @@ import {
   vodRecoveryDelayMs,
 } from '../services/playbackRecovery';
 import {
+  DOCTOR_BUFFER_CONFIGS,
   DOCTOR_VERIFY_STABLE_MS,
   DoctorBufferProfileId,
   DoctorStreamStateSnapshot,
   DoctorTriggerReason,
+  VodDoctorTarget,
   collectDoctorDiagnostics,
   evaluateSmartFreeze,
+  isChannelHandledByDoctor,
+  isVodHandledByDoctor,
   normalizeChannelDoctorKey,
+  normalizeVodDoctorKey,
   planDoctorRepairStep,
+  planVodDoctorRepairStep,
   recordDoctorChannelFailure,
   recordDoctorChannelSuccess,
+  recordDoctorVodFailure,
+  recordDoctorVodSuccess,
   selectChannelLaunchPlan,
+  selectVodLaunchPlan,
+  subscribeTvDoctorUpdates,
 } from '../services/tvDoctor';
+import { TvDoctorActiveStatus, TvDoctorFullscreenHud } from './TvDoctorIcon';
 import { ChannelLogo } from './ChannelLogo';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { VodOsd } from './VodOsd';
@@ -481,7 +492,7 @@ const HtmlVodSubtitleOverlay: React.FC<{
   );
 };
 
-const BlueClock: React.FC<{ className?: string; offsetHours?: number; accent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white' }> = ({ className, offsetHours = 0, accent = 'yellow' }) => {
+const BlueClock: React.FC<{ className?: string; offsetHours?: number; accent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white'; inDoctorHud?: boolean }> = ({ className, offsetHours = 0, accent = 'yellow', inDoctorHud = false }) => {
   const accentTextClass: Record<NonNullable<typeof accent>, string> = {
     yellow: 'text-amber-300',
     red: 'text-red-400',
@@ -511,6 +522,7 @@ const BlueClock: React.FC<{ className?: string; offsetHours?: number; accent?: '
   return (
     <div
       data-blue-clock
+      data-in-doctor-hud={inDoctorHud ? '' : undefined}
       className={className}
       aria-label={`Pontos idő: ${time}`}
     >
@@ -1516,10 +1528,73 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   bufferModeRef.current = settings.bufferMode;
   const tvDoctorEnabledRef = useRef(settings.tvDoctorEnabled !== false);
   tvDoctorEnabledRef.current = settings.tvDoctorEnabled !== false;
+  const subtitleSourceRef = useRef(subtitleSource);
+  subtitleSourceRef.current = subtitleSource;
+  const customStreamUrlLocalRef = useRef(customStreamUrl);
+  customStreamUrlLocalRef.current = customStreamUrl;
+  const [doctorStatus, setDoctorStatus] = useState<TvDoctorActiveStatus | null>(null);
+  const doctorStatusHideTimerRef = useRef<number | null>(null);
+  const [doctorStoreRevision, setDoctorStoreRevision] = useState<number>(0);
+
+  useEffect(() => {
+    return subscribeTvDoctorUpdates(() => {
+      setDoctorStoreRevision((rev) => rev + 1);
+    });
+  }, []);
+
+  const clearDoctorStatusTimer = useCallback(() => {
+    if (doctorStatusHideTimerRef.current !== null) {
+      window.clearTimeout(doctorStatusHideTimerRef.current);
+      doctorStatusHideTimerRef.current = null;
+    }
+  }, []);
+
+  const showDoctorStatus = useCallback((next: TvDoctorActiveStatus | null, autoHideMs?: number) => {
+    clearDoctorStatusTimer();
+    if (!tvDoctorEnabledRef.current || !next) {
+      setDoctorStatus(null);
+      return;
+    }
+    setDoctorStatus((prev) => (
+      prev && prev.phase === next.phase && prev.title === next.title && prev.detail === next.detail
+        ? prev
+        : next
+    ));
+    if (typeof autoHideMs === 'number' && autoHideMs > 0) {
+      doctorStatusHideTimerRef.current = window.setTimeout(() => {
+        doctorStatusHideTimerRef.current = null;
+        setDoctorStatus(null);
+      }, autoHideMs);
+    }
+  }, [clearDoctorStatusTimer]);
+
+  const scheduleClearDoctorStatus = useCallback((delayMs = 600) => {
+    clearDoctorStatusTimer();
+    doctorStatusHideTimerRef.current = window.setTimeout(() => {
+      doctorStatusHideTimerRef.current = null;
+      setDoctorStatus(null);
+    }, Math.max(0, delayMs));
+  }, [clearDoctorStatusTimer]);
+
+  useEffect(() => () => {
+    clearDoctorStatusTimer();
+  }, [clearDoctorStatusTimer]);
+
+  useEffect(() => {
+    if (settings.tvDoctorEnabled === false) {
+      clearDoctorStatusTimer();
+      setDoctorStatus(null);
+    }
+  }, [settings.tvDoctorEnabled, clearDoctorStatusTimer]);
+
   const doctorSessionRef = useRef<{
     channelKey: string;
+    hasLearnedProfile: boolean;
     activeBufferProfile: DoctorBufferProfileId;
     activeBufferTiming: BufferProfileTiming | null;
+    vodStartupWatchdogMs: number;
+    vodLoadStartedAt: number;
+    vodStartupRecorded: boolean;
     repairStep: number;
     repairInFlight: boolean;
     waitingOrStalledFlag: boolean;
@@ -1528,8 +1603,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     fallbackUrlOverride: string | null;
   }>({
     channelKey: '',
+    hasLearnedProfile: false,
     activeBufferProfile: settings.bufferMode || 'balanced',
     activeBufferTiming: null,
+    vodStartupWatchdogMs: 8500,
+    vodLoadStartedAt: 0,
+    vodStartupRecorded: false,
     repairStep: 0,
     repairInFlight: false,
     waitingOrStalledFlag: false,
@@ -1550,10 +1629,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /** A játszott film/sorozat címe a képminőség-naplóhoz (ref, hogy a mintavevő mindig frisset lásson). */
   const customTitleRef = useRef(customTitle);
   customTitleRef.current = customTitle;
+  const buildVodDoctorTarget = useCallback((overrideUrl?: string): VodDoctorTarget => {
+    const srcInfo = subtitleSourceRef.current;
+    const targetUrl = overrideUrl || customStreamUrlLocalRef.current || '';
+    const isSeriesKind = Boolean(srcInfo?.episodeId) || /\/series\//i.test(targetUrl);
+    return {
+      id: srcInfo?.episodeId
+        ? `ep:${srcInfo.episodeId}`
+        : srcInfo?.vodId
+          ? `vod:${srcInfo.vodId}`
+          : undefined,
+      title: customTitleRef.current || undefined,
+      streamUrl: targetUrl || undefined,
+      mediaKind: isSeriesKind ? 'series' : 'movie',
+    };
+  }, []);
   /** Natív módban hányszor próbáltuk újraindítani ugyanazt a címet. */
   const nativeRetryCountRef = useRef(0);
   const bufferTiming = (): BufferProfileTiming => {
-    if (!isVodRef.current && tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming) {
+    if (tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming) {
       return doctorSessionRef.current.activeBufferTiming;
     }
     return bufferProfileTiming(bufferModeRef.current);
@@ -1600,20 +1694,87 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     errorDetail?: string | null,
     stallMs?: number,
   ): void => {
-    if (isVodRef.current || !tvDoctorEnabledRef.current) return;
+    if (!tvDoctorEnabledRef.current) return;
     try {
-      const targetChannel = channelRef.current;
-      if (!targetChannel) return;
       const docState = doctorSessionRef.current;
       if (docState.verifyTimer !== null) {
         window.clearTimeout(docState.verifyTimer);
         docState.verifyTimer = null;
       }
+      const streamSnapshot = readDoctorStreamState(video);
+
+      const statusTitleForTrigger = (vodMode: boolean): string => {
+        if (trigger === 'startup_timeout') return vodMode ? 'Lassú VOD-betöltés' : 'Lassú csatornaindulás';
+        if (trigger === 'buffer_stall') return 'Pufferelési probléma';
+        if (trigger === 'playback_stall') return 'Akadás javítása';
+        if (trigger === 'unexpected_end' || trigger === 'unexpected_pause') return 'Megszakadt adatfolyam';
+        return 'Adatfolyam-hiba kezelése';
+      };
+
+      if (isVodRef.current) {
+        const vodTarget = buildVodDoctorTarget();
+        const vodUrl = customStreamUrlLocalRef.current || activeMediaUrlRef.current || pendingStreamUrlRef.current || '';
+        if (!vodUrl && !vodTarget.title) return;
+        const loadElapsedMs = docState.vodLoadStartedAt > 0 ? Math.max(0, Date.now() - docState.vodLoadStartedAt) : 0;
+        const pseudoChannel: Channel = {
+          id: vodTarget.id || normalizeVodDoctorKey(vodTarget),
+          name: vodTarget.title || 'Film / Sorozat',
+          streamUrl: vodUrl,
+          categoryId: 'vod',
+          isFavorite: false,
+          countryCode: vodTarget.mediaKind === 'series' ? 'SER' : 'VOD',
+        };
+        collectDoctorDiagnostics({
+          channel: pseudoChannel,
+          trigger,
+          format: /\.m3u8(?=([?#]|$))/i.test(vodUrl) ? 'hls' : 'ts',
+          bufferProfile: docState.activeBufferProfile,
+          loadElapsedMs,
+          errorCode,
+          errorDetail,
+          streamState: streamSnapshot,
+        });
+        recordDoctorVodFailure({
+          target: vodTarget,
+          bufferProfile: docState.activeBufferProfile,
+          trigger,
+          errorCode,
+          errorDetail,
+          stallMs,
+        });
+        const resumePos = Math.max(
+          0,
+          Number(vodPositionKnownRef.current ? vodLastPositionRef.current : initialPositionSeconds) || 0,
+        );
+        docState.repairStep += 1;
+        const proposal = planVodDoctorRepairStep({
+          target: vodTarget,
+          trigger,
+          step: docState.repairStep,
+          currentBufferProfile: docState.activeBufferProfile,
+          streamUrl: vodUrl,
+          resumePositionSeconds: resumePos,
+        });
+        docState.activeBufferProfile = proposal.nextBufferProfile;
+        docState.activeBufferTiming = proposal.nextBufferTiming;
+        docState.repairInFlight = !proposal.exhausted;
+        docState.fallbackUrlOverride = null;
+        showDoctorStatus({
+          phase: trigger === 'media_error' || trigger === 'play_rejected' ? 'error' : 'repair',
+          title: statusTitleForTrigger(true),
+          detail: proposal.exhausted
+            ? 'Kímélő újrapróbálkozás a mentett pozíciótól…'
+            : `Újrapróbálkozás (${proposal.description})…`,
+        });
+        return;
+      }
+
+      const targetChannel = channelRef.current;
+      if (!targetChannel) return;
       const activeUrl = activeMediaUrlRef.current || pendingStreamUrlRef.current || targetChannel.streamUrl || '';
       const currentFmt = formatOfUrl(activeUrl) || 'ts';
       const diag = channelSwitchDiagnosticRef.current;
       const loadElapsedMs = diag ? Math.max(0, Date.now() - diag.attemptStartedAt) : 0;
-      const streamSnapshot = readDoctorStreamState(video);
 
       collectDoctorDiagnostics({
         channel: targetChannel,
@@ -1658,6 +1819,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       docState.activeBufferTiming = proposal.nextBufferTiming;
       docState.repairInFlight = !proposal.exhausted;
       docState.fallbackUrlOverride = proposal.useFallbackUrl ? proposal.nextUrl : null;
+      showDoctorStatus({
+        phase: trigger === 'media_error' || trigger === 'play_rejected' ? 'error' : 'repair',
+        title: statusTitleForTrigger(false),
+        detail: proposal.exhausted
+          ? 'Kímélő újracsatlakozás folyamatban…'
+          : `${proposal.description}…`,
+      });
     } catch {
       /* Belső hiba esetén csendben visszaáll a meglévő lejátszási mechanizmusra. */
     }
@@ -1706,6 +1874,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setIsLoading(false);
         setIsRecovering(true);
         const retryDelayMs = Math.min(100, Math.max(30, bufferTiming().retryMs));
+        showDoctorStatus({
+          phase: 'retry',
+          title: 'Újrapróbálkozás',
+          detail: 'Elsődleges adás gyors újracsatlakoztatása…',
+        });
         appLog(`ELSŐ FORMÁTUM GYORS ÚJRAPRÓBÁJA; csatorna=${channelName}; formátum=${formatOfUrl(currentUrl)?.toUpperCase() || 'ismeretlen'}; várakozás=${retryDelayMs} ms.`);
         autoRetryTimerRef.current = window.setTimeout(() => {
           autoRetryTimerRef.current = null;
@@ -1720,6 +1893,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setHasError(false);
         setIsLoading(false);
         setIsRecovering(true);
+        showDoctorStatus({
+          phase: 'retry',
+          title: 'Újrapróbálkozás',
+          detail: 'Kontrollált adás-helyreállítás…',
+        });
         requestRecoveryRef.current('indítási próba sikertelen – kontrollált újrapróba');
         return;
       }
@@ -1736,6 +1914,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // legutolsó képkocka és a hang is megmarad (csak egy kis jelző megy ki).
         setIsLoading(false);
         setIsRecovering(true);
+        showDoctorStatus({
+          phase: 'retry',
+          title: 'Formátumváltás és újrapróba',
+          detail: `${nextFormat === 'hls' ? 'HLS (.m3u8)' : 'MPEG-TS (.ts)'} tartalék indítása…`,
+        });
         if (nextIndex === 1) {
           appLog(`FORMÁTUM-VISSZAESÉS; csatorna=${channelName}; ${nextFormat === 'hls' ? 'HLS (.m3u8)' : 'MPEG-TS (.ts)'} próba következik.`);
         }
@@ -1770,6 +1953,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setHasError(false);
       liveRecoveryOnlyRef.current = true;
       sequence.index = 0;
+      showDoctorStatus({
+        phase: 'retry',
+        title: 'Szolgáltatói hiba kezelése',
+        detail: 'Fokozatos újracsatlakozás a csatornára…',
+      });
       requestRecoveryRef.current('mindkét formátum sikertelen');
       return;
     }
@@ -1781,11 +1969,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setHasError(false);
     setIsLoading(false);
     setIsRecovering(true);
+    showDoctorStatus({
+      phase: 'retry',
+      title: 'VOD újrapróbálkozás',
+      detail: 'Film / sorozat újracsatlakoztatása a mentett pozíciótól…',
+    });
     autoRetryTimerRef.current = window.setTimeout(() => {
       autoRetryTimerRef.current = null;
       vodRecoveryRef.current('VOD újrapróba');
     }, bufferTiming().retryMs);
-  }, []);
+  }, [showDoctorStatus]);
   const clearAutoRetry = useCallback((_resetCount = true) => {
     if (autoRetryTimerRef.current !== null) {
       window.clearTimeout(autoRetryTimerRef.current);
@@ -1804,13 +1997,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Többször érkező waiting/stalled esemény ne tolja ki folyton a határidőt.
     if (bufferWatchdogRef.current !== null) return;
     const video = htmlVideoRef.current;
-    // Csak már elindult élő adás elakadását figyeljük. Az indulási időkorlátot
-    // külön a zap-őr kezeli, a VOD lejátszásához nem nyúlunk.
-    if (!video || isVodRef.current || !playbackStartedRef.current || video.paused) return;
+    // Már elindult élő adás ÉS (aktív TV Doktor mellett) film/sorozat
+    // beragadt pufferelését is felügyeljük; VOD esetén türelmesebb ablakkal.
+    if (!video || !playbackStartedRef.current || video.paused) return;
+    if (isVodRef.current && !tvDoctorEnabledRef.current) return;
     const generation = streamLoadGenerationRef.current;
     const startedAt = Date.now();
     const startSample = readMediaProgress(video, startedAt);
     let confirmationUsed = false;
+    const effectiveWatchdogMs = (): number => {
+      const base = bufferTiming().bufferWatchdogMs;
+      return isVodRef.current ? Math.max(5500, base + 1500) : base;
+    };
     // A módváltás nem indítja újra a forrást. A következő ellenőrzés ezért
     // mindig újraolvassa a profilt, és nem engedi, hogy egy régi, rövidebb
     // időzítő mégis a frissen kiválasztott Stabil/Kiegyensúlyozott mód előtt
@@ -1825,9 +2023,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           !playbackStartedRef.current
         ) return;
         const timing = bufferTiming();
+        const limitMs = effectiveWatchdogMs();
         const elapsed = Date.now() - startedAt;
-        if (elapsed < timing.bufferWatchdogMs) {
-          scheduleCheck(timing.bufferWatchdogMs - elapsed);
+        if (elapsed < limitMs) {
+          scheduleCheck(limitMs - elapsed);
           return;
         }
         const currentSample = readMediaProgress(video, Date.now());
@@ -1838,6 +2037,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const advanced = mediaProgressed(startSample, currentSample);
         if (advanced) return;
         const ahead = bufferedAheadSeconds(video);
+        const mediaLabel = isVodRef.current
+          ? (customTitleRef.current || 'VOD')
+          : (channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás');
         // Ha még van valódi, a lejátszási ponthoz viszonyított tartalék, egy
         // rövid megerősítő ablakot adunk a dekódernek. A korábbi 1,2/2,0 mp-es
         // profilidőzítők a #12-ben túl korán indítottak forráscserét egy
@@ -1846,7 +2048,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           confirmationUsed = true;
           const confirmMs = Math.max(750, Math.min(1500, timing.retryMs));
           appLog(
-            `PUFFERELÉSI ŐR HALASZTVA; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
+            `PUFFERELÉSI ŐR HALASZTVA; csatorna=${mediaLabel}; ` +
             `puffer-előre=${ahead.toFixed(2)} s; minimum=${timing.minBufferAheadSeconds.toFixed(1)} s; ` +
             `megerősítés=${confirmMs} ms.`
           );
@@ -1854,8 +2056,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           return;
         }
         appLog(
-          `PUFFERELÉSI WATCHDOG; csatorna=${channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás'}; ` +
-          `eltelt=${elapsed} ms; időkorlát=${timing.bufferWatchdogMs} ms; haladt=${advanced}; ` +
+          `PUFFERELÉSI WATCHDOG; csatorna=${mediaLabel}; ` +
+          `eltelt=${elapsed} ms; időkorlát=${limitMs} ms; haladt=${advanced}; ` +
           `puffer-előre=${ahead === null ? 'n/a' : ahead.toFixed(2)} s; ${videoDiagnosticState(video, 'buffer-watchdog')}`
         );
         notifyTvDoctorIncident('buffer_stall', video, 'BUFFER_STALL', 'pufferelés elakadt', elapsed);
@@ -1864,7 +2066,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         requestRecoveryRef.current('pufferelés elakadt');
       }, Math.max(0, delayMs));
     };
-    scheduleCheck(bufferTiming().bufferWatchdogMs);
+    scheduleCheck(effectiveWatchdogMs());
   }, [scheduleAutoRetry]);
 
   /*
@@ -1921,7 +2123,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (!detector.observe(sample, now)) return;
       detector.reset();
       if (!hasAnySignal) return;
-      if (!isVod && tvDoctorEnabledRef.current) {
+      if (tvDoctorEnabledRef.current) {
         doctorSessionRef.current.consecutiveStallTicks += 1;
         const freezeDecision = evaluateSmartFreeze({
           prevSnapshot,
@@ -1940,7 +2142,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           video,
           'PLAYBACK_STALL',
           freezeDecision.reason,
-          bufferTiming().stallDetectorMs,
+          isVod ? 7000 : bufferTiming().stallDetectorMs,
         );
       }
       appLog(
@@ -4101,6 +4303,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (isVerbosePlaybackLogging()) {
           appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
         }
+      } else {
+        doctorSessionRef.current.vodLoadStartedAt = Date.now();
       }
       /*
        * HIBAÁLLAPOT TÖRLÉSE.
@@ -4149,6 +4353,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         );
       }
       setIsPlaying(true);
+      if (!customStreamUrl) {
+        const isRecAttempt = Boolean(
+          !isVodRef.current && (forceReload || liveRecoveryOnlyRef.current || liveRetrySequenceRef.current.index > 0)
+        );
+        if (!isRecAttempt && !doctorSessionRef.current.repairInFlight) {
+          const docState = doctorSessionRef.current;
+          const fmtLabel = formatOfUrl(url)?.toUpperCase() || 'MPEG-TS';
+          const chTitle = String(channel?.name || 'Csatorna').slice(0, 34);
+          showDoctorStatus({
+            phase: 'loading',
+            title: 'Csatorna betöltése',
+            detail: docState.hasLearnedProfile
+              ? `Mentett profil (${DOCTOR_BUFFER_CONFIGS[docState.activeBufferProfile].label}, ${fmtLabel})…`
+              : `${chTitle} vizsgálata és indítása…`,
+          });
+        }
+      } else if (!doctorSessionRef.current.repairInFlight) {
+        const docState = doctorSessionRef.current;
+        const vodTarget = buildVodDoctorTarget(url);
+        const vodKindLabel = vodTarget.mediaKind === 'series' ? 'Sorozat betöltése' : 'Film betöltése';
+        showDoctorStatus({
+          phase: 'loading',
+          title: vodKindLabel,
+          detail: docState.hasLearnedProfile
+            ? `Mentett stabil profil (${DOCTOR_BUFFER_CONFIGS[docState.activeBufferProfile].label})…`
+            : 'Adatfolyam vizsgálata és indítása…',
+        });
+      }
       // ZAP-ŐR: ha az élő adás nem indul el időben (a HLS-próba csak "lóg",
       // se hiba, se kép), nem várunk a végtelenségig pörgő töltésre -
       // automatikusan a következő formátumra (MPEG-TS) váltunk.
@@ -4183,6 +4415,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             scheduleAutoRetry();
           }
         }, attemptTimeoutMs);
+      } else if (tvDoctorEnabledRef.current) {
+        // VOD INDULÁSI ŐR: ha a film vagy sorozat HTTP-kapcsolata némán
+        // beragad induláskor, a TV Doktor türelmes ablak után (≥ 8,5 mp)
+        // automatikusan újracsatlakoztatja ugyanazt a fájlt.
+        const vodStartupLimitMs = Math.max(8500, doctorSessionRef.current.vodStartupWatchdogMs || 8500);
+        zapWatchdogRef.current = window.setTimeout(() => {
+          zapWatchdogRef.current = null;
+          if (isCurrentLoad() && !playbackStartedRef.current && isVodRef.current) {
+            let hasVodData = video.readyState >= 2;
+            try { hasVodData = hasVodData || video.buffered.length > 0; } catch { /* régi motor */ }
+            if (hasVodData) {
+              const vodGraceMs = 3500;
+              appLog(`VOD indulási őr: már érkezik metaadat/puffer, türelmi idő indul (${vodGraceMs} ms).`);
+              zapWatchdogRef.current = window.setTimeout(() => {
+                zapWatchdogRef.current = null;
+                if (isCurrentLoad() && !playbackStartedRef.current && isVodRef.current) {
+                  appLog('VOD indulási őr: a türelmi idő után sem indult el a VOD lejátszás, visszaállítás indul.');
+                  notifyTvDoctorIncident('startup_timeout', video, 'VOD_STARTUP_TIMEOUT', 'VOD türelmi idő lejárt');
+                  vodRecoveryRef.current('VOD indulási időtúllépés');
+                }
+              }, vodGraceMs);
+              return;
+            }
+            appLog('VOD indulási őr: nem indult el a film/sorozat időben, automatikus újracsatlakozás.');
+            notifyTvDoctorIncident('startup_timeout', video, 'VOD_STARTUP_TIMEOUT', 'VOD indulási időtúllépés');
+            vodRecoveryRef.current('VOD indulási időtúllépés');
+          }
+        }, vodStartupLimitMs);
       }
       if (playPromise && typeof playPromise.catch === 'function') {
         void playPromise.catch((error: unknown) => {
@@ -4205,6 +4465,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             // nem végleges hibaképernyő, és nem formátum-átírás.
             setHasError(false);
             setIsLoading(false);
+            notifyTvDoctorIncident('play_rejected', video, name || 'VOD_PLAY_REJECTED', error instanceof Error ? error.message : String(error));
             vodRecoveryRef.current('play() ígéret hiba');
             return;
           }
@@ -4230,6 +4491,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         logChannelSwitchSummary('SIKERTELEN', `szinkron indítási hiba: ${detail}`);
       } else {
         appLogCritical(`VOD/LEJÁTSZÓ INDÍTÁSI HIBA; ${detail}`);
+        notifyTvDoctorIncident('play_rejected', video, 'VOD_SYNC_START_ERROR', detail);
         vodRecoveryRef.current('szinkron indítási hiba');
         return;
       }
@@ -4237,7 +4499,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setHasError(true);
       setErrorMessage(error instanceof Error ? error.message : 'A webOS videó indítása sikertelen.');
     }
-  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying, volume, customStreamUrl, scheduleAutoRetry, beginSwitch, endSwitch]);
+  }, [clearZapWatchdog, clearBufferWatchdog, handOverToNative, setIsPlaying, volume, customStreamUrl, scheduleAutoRetry, beginSwitch, endSwitch, buildVodDoctorTarget, showDoctorStatus]);
 
   retryStreamRef.current = () => {
     // A TS → HLS formátumváltásnál a webOS régi hibás médiaállapota nem
@@ -4304,6 +4566,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // engedjük a videó fölé, csak egy kis „újracsatlakozás” jelzőt mutatunk.
     setIsLoading(false);
     setIsRecovering(true);
+    showDoctorStatus({
+      phase: 'retry',
+      title: 'Újracsatlakozás',
+      detail: nextUrl === recoveryPrimaryUrl
+        ? `Adás frissítése (${attempt + 1}. próba)…`
+        : 'Tartalék formátummal újraindítás…',
+    });
     appLog(
       `ÉLŐ ÚJRACSATLAKOZÁS; csatorna=${channelRef.current?.name || 'élő adás'}; próba=${attempt + 1}; ` +
       `várakozás=${delayMs} ms; cím=${nextUrl === recoveryPrimaryUrl ? 'aktuális/elsődleges' : 'tartalék formátum'}; ok=${reason}.`
@@ -4346,6 +4615,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setHasError(false);
     setIsLoading(false);
     setIsRecovering(true);
+    const resumeMin = Math.floor(position / 60);
+    const resumeSec = String(Math.floor(position % 60)).padStart(2, '0');
+    showDoctorStatus({
+      phase: 'retry',
+      title: 'VOD visszaállítás',
+      detail: position > 1
+        ? `Folytatás ${resumeMin}:${resumeSec} pozíciótól (${attempt + 1}. próba)…`
+        : `Adatfolyam újracsatlakoztatása (${attempt + 1}. próba)…`,
+    });
     appLog(
       `VOD VISSZAÁLLÍTÁS; cím=${String(customTitle || 'film').slice(0, 80)}; próba=${attempt + 1}; ` +
       `várakozás=${delayMs} ms; folytatás=${Math.round(position)} mp; ok=${reason}.`
@@ -4474,8 +4752,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       : null;
     if (!isVod) {
       doctorSessionRef.current.channelKey = doctorPlan?.channelKey || normalizeChannelDoctorKey(channel);
+      doctorSessionRef.current.hasLearnedProfile = Boolean(doctorPlan?.hasLearnedProfile);
       doctorSessionRef.current.activeBufferProfile = doctorPlan?.bufferProfileId || settings.bufferMode || 'balanced';
       doctorSessionRef.current.activeBufferTiming = doctorPlan?.hasLearnedProfile ? doctorPlan.bufferTiming : null;
+      doctorSessionRef.current.vodStartupRecorded = false;
+      doctorSessionRef.current.repairStep = 0;
+      doctorSessionRef.current.repairInFlight = false;
+      doctorSessionRef.current.waitingOrStalledFlag = false;
+      doctorSessionRef.current.consecutiveStallTicks = 0;
+      doctorSessionRef.current.fallbackUrlOverride = null;
+    } else {
+      const vodTarget = buildVodDoctorTarget(streamUrl);
+      const vodPlan = tvDoctorEnabledRef.current
+        ? selectVodLaunchPlan(vodTarget, settings)
+        : null;
+      doctorSessionRef.current.channelKey = vodPlan?.vodKey || normalizeVodDoctorKey(vodTarget);
+      doctorSessionRef.current.hasLearnedProfile = Boolean(vodPlan?.hasLearnedProfile);
+      doctorSessionRef.current.activeBufferProfile = vodPlan?.bufferProfileId || settings.bufferMode || 'balanced';
+      doctorSessionRef.current.activeBufferTiming = vodPlan?.hasLearnedProfile ? vodPlan.bufferTiming : null;
+      doctorSessionRef.current.vodStartupWatchdogMs = vodPlan?.startupWatchdogMs || 8500;
+      doctorSessionRef.current.vodLoadStartedAt = Date.now();
+      doctorSessionRef.current.vodStartupRecorded = false;
       doctorSessionRef.current.repairStep = 0;
       doctorSessionRef.current.repairInFlight = false;
       doctorSessionRef.current.waitingOrStalledFlag = false;
@@ -5003,6 +5300,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     }
                     if (docState.repairInFlight) {
                       const verifiedProfile = docState.activeBufferProfile;
+                      showDoctorStatus({
+                        phase: 'verifying',
+                        title: 'Javítás ellenőrzése',
+                        detail: 'Stabil adás visszaigazolása…',
+                      });
                       docState.verifyTimer = window.setTimeout(() => {
                         docState.verifyTimer = null;
                         if (
@@ -5023,6 +5325,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         });
                         docState.repairInFlight = false;
                         docState.repairStep = 0;
+                        scheduleClearDoctorStatus(350);
                       }, DOCTOR_VERIFY_STABLE_MS);
                     } else {
                       recordDoctorChannelSuccess({
@@ -5032,8 +5335,77 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         startupMs: measuredStartupMs,
                         wasRepair: false,
                       });
+                      scheduleClearDoctorStatus(650);
                     }
                   }
+                } else if (tvDoctorEnabledRef.current && channelRef.current) {
+                  const target = channelRef.current;
+                  const docState = doctorSessionRef.current;
+                  docState.waitingOrStalledFlag = false;
+                  docState.consecutiveStallTicks = 0;
+                  recordDoctorChannelSuccess({
+                    channel: target,
+                    format: 'ts',
+                    bufferProfile: docState.activeBufferProfile,
+                    startupMs: 250,
+                    wasRepair: false,
+                  });
+                  scheduleClearDoctorStatus(650);
+                }
+              } else if (isVod && tvDoctorEnabledRef.current) {
+                const docState = doctorSessionRef.current;
+                docState.waitingOrStalledFlag = false;
+                docState.consecutiveStallTicks = 0;
+                const vodTarget = buildVodDoctorTarget(customStreamUrl);
+                const measuredVodStartupMs = docState.vodLoadStartedAt > 0
+                  ? Math.max(25, Date.now() - docState.vodLoadStartedAt)
+                  : 300;
+                const verifyGen = streamLoadGenerationRef.current;
+                const verifyVideo = event.currentTarget;
+                if (docState.verifyTimer !== null) {
+                  window.clearTimeout(docState.verifyTimer);
+                  docState.verifyTimer = null;
+                }
+                if (docState.repairInFlight) {
+                  const verifiedProfile = docState.activeBufferProfile;
+                  showDoctorStatus({
+                    phase: 'verifying',
+                    title: 'VOD javítás ellenőrzése',
+                    detail: 'Folyamatos lejátszás visszaigazolása…',
+                  });
+                  docState.verifyTimer = window.setTimeout(() => {
+                    docState.verifyTimer = null;
+                    if (
+                      verifyGen !== streamLoadGenerationRef.current ||
+                      verifyVideo !== htmlVideoRef.current ||
+                      verifyVideo.paused ||
+                      verifyVideo.ended ||
+                      Boolean(verifyVideo.error)
+                    ) {
+                      return;
+                    }
+                    docState.vodStartupRecorded = true;
+                    recordDoctorVodSuccess({
+                      target: vodTarget,
+                      bufferProfile: verifiedProfile,
+                      startupMs: measuredVodStartupMs,
+                      wasRepair: true,
+                    });
+                    docState.repairInFlight = false;
+                    docState.repairStep = 0;
+                    scheduleClearDoctorStatus(350);
+                  }, DOCTOR_VERIFY_STABLE_MS);
+                } else if (!docState.vodStartupRecorded) {
+                  docState.vodStartupRecorded = true;
+                  recordDoctorVodSuccess({
+                    target: vodTarget,
+                    bufferProfile: docState.activeBufferProfile,
+                    startupMs: measuredVodStartupMs,
+                    wasRepair: false,
+                  });
+                  scheduleClearDoctorStatus(650);
+                } else {
+                  scheduleClearDoctorStatus(450);
                 }
               }
               clearZapWatchdog();
@@ -5065,11 +5437,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
             }}
             onWaiting={(event) => {
-
               if (!isActiveMediaEvent(event.currentTarget)) return;
-              if (!isVod) doctorSessionRef.current.waitingOrStalledFlag = true;
+              doctorSessionRef.current.waitingOrStalledFlag = true;
               if (playbackStartedRef.current) {
                 setIsLoading(true);
+                showDoctorStatus({
+                  phase: 'buffering',
+                  title: 'Pufferelési probléma',
+                  detail: isVod
+                    ? 'Film / sorozat pufferének feltöltése…'
+                    : 'Élő adás pufferének stabilizálása…',
+                });
                 armBufferWatchdog();
               }
               if (!isVod && isVerbosePlaybackLogging()) {
@@ -5081,11 +5459,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
             }}
             onStalled={(event) => {
-
               if (!isActiveMediaEvent(event.currentTarget)) return;
-              if (!isVod) doctorSessionRef.current.waitingOrStalledFlag = true;
+              doctorSessionRef.current.waitingOrStalledFlag = true;
               if (playbackStartedRef.current) {
                 setIsLoading(true);
+                showDoctorStatus({
+                  phase: 'buffering',
+                  title: 'Pufferelési probléma',
+                  detail: isVod
+                    ? 'Adatfolyam várakozik, hálózati felügyelet…'
+                    : 'Akadozó jel felügyelete…',
+                });
                 armBufferWatchdog();
               }
               if (!isVod && isVerbosePlaybackLogging()) {
@@ -5096,7 +5480,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
             }}
             onError={(event) => {
-
               const video = event.currentTarget;
               if (!isActiveMediaEvent(video)) {
                 appLog('CSATORNAVÁLTÁS RÉGI MÉDIAESEMÉNY KIHAGYVA; ok=az előző src error eseménye nem írhatja át az új próbát.');
@@ -5110,10 +5493,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
               setIsLoading(false);
               setErrorMessage('A TV nem tudta lejátszani az adatfolyamot. HLS/codec vagy stream URL hiba lehet.');
+              const mediaErrCode = video.error ? `MEDIA_ERR_${video.error.code}` : 'MEDIA_ERR_UNKNOWN';
+              const mediaErrMsg = video.error?.message || 'médiaelem hiba';
               if (isVod) {
                 // Film/sorozat: NEM végleges hibaképernyő. Ugyanaz a cím,
                 // ugyanarról a pozícióról, automatikusan.
                 setHasError(false);
+                notifyTvDoctorIncident('media_error', video, mediaErrCode, mediaErrMsg);
                 vodRecoveryRef.current('videó elem hiba');
                 return;
               }
@@ -5123,8 +5509,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 setHasError(true);
                 return;
               }
-              const mediaErrCode = video.error ? `MEDIA_ERR_${video.error.code}` : 'MEDIA_ERR_UNKNOWN';
-              const mediaErrMsg = video.error?.message || 'médiaelem hiba';
               notifyTvDoctorIncident('media_error', video, mediaErrCode, mediaErrMsg);
               if (playbackStartedRef.current) {
                 // Már volt kép: először az eredeti címet próbáljuk újra,
@@ -5197,6 +5581,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 // Ne ugorjunk a következő részre – álljunk vissza a pozícióra.
                 if (isPrematureVodEnd(position, duration)) {
                   appLog(`VOD KORAI VÉG; pozíció=${Math.round(position)} mp; hossz=${Math.round(duration)} mp; ok=a kapcsolat megszakadt, visszaállítás.`);
+                  notifyTvDoctorIncident('unexpected_end', video, 'VOD_PREMATURE_END', `korai ended ${Math.round(position)}/${Math.round(duration)}s`);
                   vodRecoveryRef.current('korai ended esemény');
                   return;
                 }
@@ -5269,7 +5654,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {(isLoading || isRecovering) && (currentStreamHasFrame ? (
         <div
           data-playback-status=""
-          className={`absolute flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 pointer-events-none ${
+          className={`${isFullscreen && settings.tvDoctorEnabled !== false ? 'hidden ' : ''}absolute flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 pointer-events-none ${
             isFullscreen
               ? (settings.alwaysShowBlueClock ? 'top-[4.75rem] right-3 bottom-auto left-auto z-[80]' : 'top-3 right-3 bottom-auto left-auto z-[80]')
               : 'bottom-3 left-3 z-30'
@@ -5346,16 +5731,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {/* A teljes képernyős kék óra minden lejátszási módban kizárólag a Rendszer > Kék óra kapcsolóval vezérelhető. */}
-      {settings.alwaysShowBlueClock && isFullscreen && (
-        <BlueClock
-          // A teljes képernyős óra is ugyanazt a 1–6 távirányítós színt követi,
-          // nem marad mindig kék a fejléc színváltása után.
-          accent={liveAccent}
-          offsetHours={settings.clockOffsetHours}
-          className="absolute top-3 right-3 z-40 box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider shadow-none pointer-events-none"
-        />
-      )}
+      {/* Teljes képernyős jobb felső sáv: 3D TV Doktor ikon az óra előtt (azonos méretben), kék óra és aktív állapotablak. */}
+      {isFullscreen && (() => {
+        const tvDoctorEnabled = settings.tvDoctorEnabled !== false;
+        const isCurrentContentHandled =
+          doctorStoreRevision >= 0 &&
+          tvDoctorEnabled &&
+          (isVod
+            ? isVodHandledByDoctor(buildVodDoctorTarget(customStreamUrl))
+            : isChannelHandledByDoctor(channel));
+        return (
+          <TvDoctorFullscreenHud
+            isFullscreen={isFullscreen}
+            doctorEnabled={tvDoctorEnabled}
+            handled={isCurrentContentHandled}
+            status={doctorStatus}
+            showClock={Boolean(settings.alwaysShowBlueClock)}
+            clockNode={
+              <BlueClock
+                inDoctorHud
+                // A teljes képernyős óra is ugyanazt a 1–6 távirányítós színt követi,
+                // nem marad mindig kék a fejléc színváltása után.
+                accent={liveAccent}
+                offsetHours={settings.clockOffsetHours}
+                className="box-border flex h-14 w-40 items-center justify-center rounded-full border border-transparent bg-black/65 p-0 font-mono text-5xl font-black tracking-wider shadow-none pointer-events-none"
+              />
+            }
+          />
+        );
+      })()}
 
       {/* VOD CC: a muxolt felirat is az OSD-hez kötött saját rétegen jelenik meg. */}
       {isVod && vodSubtitleCues.length === 0 && !providerSubtitleActiveRef.current && (

@@ -4159,6 +4159,7 @@ export function App() {
                 onDisplayOrderChange={handleDisplayOrderChange}
                 onAssignToFolder={handleAssignChannelToFolder}
                 onSelectFavoriteFolder={handleSelectFavoriteFolder}
+                tvDoctorEnabled={settings.tvDoctorEnabled !== false}
                 /*
                  * A lista `isActive` jelzője NEM követi a teljes képernyőt:
                  * így a váltás nem indít teljes újrarenderelést (és nem

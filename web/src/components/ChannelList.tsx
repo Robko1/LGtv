@@ -3,11 +3,13 @@ import { flushSync } from 'react-dom';
 import { Category, Channel, FavoriteFolder } from '../types/iptv';
 import { ArrowUp, ArrowDown, Trash2, Star } from 'lucide-react';
 import { ChannelLogo } from './ChannelLogo';
+import { TvDoctorIcon } from './TvDoctorIcon';
 import { ProviderRef } from '../services/contentStore';
 import { EpgNowNext, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from '../services/epgService';
 import { channelNowNext } from '../services/epgGuide';
 import { appLog, appLogError } from '../services/appLog';
 import { fsStart } from '../services/fullscreenPerf';
+import { isChannelHandledByDoctor, subscribeTvDoctorUpdates } from '../services/tvDoctor';
 import { normalizeTvKey, isTvArrowKey } from '../utils/tvKeys';
 
 interface ChannelListProps {
@@ -30,6 +32,8 @@ interface ChannelListProps {
   onDisplayOrderChange?: (orderedChannelIds: string[]) => void;
   /** SÁRGA gomb: a kijelölt csatorna hozzáadása egy kedvenc mappához. */
   onAssignToFolder?: (channelId: string, folderId: string) => void;
+  /** A TV Doktor engedélyezett-e a Rendszer menüben (alapértelmezetten igen). */
+  tvDoctorEnabled?: boolean;
   /** Rejtett nézetben az EPG-óra nem frissít, hogy ne legyen háttér-renderelés. */
   isActive?: boolean;
 }
@@ -72,6 +76,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   onSelectFavoriteFolder,
   onDisplayOrderChange,
   onAssignToFolder,
+  tvDoctorEnabled = true,
   isActive = true,
 }) => {
   // Sorszám szerinti rendezés és a Vissza gomb csak megnyitott kedvenc mappában működik.
@@ -113,6 +118,19 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   const shortEpgUnavailableRef = useRef(false);
   const shortEpgProviderRef = useRef('');
   const [epgRetryTick, setEpgRetryTick] = useState(0);
+  const [doctorRevision, setDoctorRevision] = useState(0);
+  const doctorPausedRef = useRef(false);
+  const pendingDoctorRefreshRef = useRef(false);
+
+  useEffect(() => {
+    return subscribeTvDoctorUpdates(() => {
+      if (doctorPausedRef.current) {
+        pendingDoctorRefreshRef.current = true;
+        return;
+      }
+      setDoctorRevision((rev) => rev + 1);
+    });
+  }, []);
 
   /*
    * TELJES KÉPERNYŐ ALATT AZ EPG-MUNKA SZÜNETEL, ÉS CSAK A LEJÁTSZÓ
@@ -137,6 +155,14 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     };
   }, []);
   const epgActive = isActive && !epgPaused;
+  doctorPausedRef.current = epgPaused;
+
+  useEffect(() => {
+    if (!epgPaused && pendingDoctorRefreshRef.current) {
+      pendingDoctorRefreshRef.current = false;
+      setDoctorRevision((rev) => rev + 1);
+    }
+  }, [epgPaused]);
 
   // A lista sárga EPG-sávja az OSD-vel azonos ütemben frissül.
   // Az időbélyegek alapján számoljuk újra a kitöltést, nem a csatornaváltáshoz kötjük.
@@ -1322,57 +1348,99 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                     </div>
 
                     {/* Jobb oldali műveletek. A rendező nyilak csak a zöldre kijelölt csatornán jelennek meg. */}
-                    <div className="flex items-center gap-1 shrink-0 ml-1">
+                    <div className="flex items-center h-full gap-1 shrink-0 ml-1">
                       {/*
-                        KEDVENC-CSILLAG (mint az OSD-ben): sárga = valamelyik
-                        kedvenc mappában benne van, szürke = nincs hozzáadva.
-                        Kattintásra ugyanazt teszi, mint az OSD csillaga.
-                        A távirányítós kijelölést nem zavarja (tabIndex -1).
+                        KEDVENC-CSILLAG + TV DOKTOR ÁLLAPOTJELZŐ OSZLOP:
+                        - A sárga kedvenc csillag kissé feljebb helyezkedik el.
+                        - Közvetlenül alatta, minden csatornasorban pontosan
+                          ugyanazon a rögzített helyen ül a TV Doktor sávja.
+                        - A 3D zöld TV Doktor ikon kizárólag azoknál a
+                          csatornáknál jelenik meg, amelyeket a TV Doktor már
+                          ténylegesen kezelt, megvizsgált vagy megjegyzett.
+                        - Kizárólag állapotjelző: nem kijelölhető, nem
+                          megnyomható, és nincs mellette magyarázó szöveg.
                       */}
-                      {movingChannelId !== ch.id && (
-                        <button
-                          type="button"
-                          tabIndex={0}
-                          data-favorite-star={ch.id}
-                          /*
-                            A csillag KÜLÖN kijelölhető (a felhasználó kérése):
-                            a sor jobb szélén a távirányítóval is rá lehet lépni
-                            (jobbra a sorból), és az OK-ra ELŐBB a kedvenc
-                            mappaválasztó ugrik fel – csak utána kerül a
-                            csatorna a mappába.
-                          */
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setMovingChannelId(null);
-                            setFavoritePickChannelId(ch.id);
-                          }}
-                          onKeyDown={(e) => {
-                            const key = normalizeTvKey(e);
-                            if (key === 'Enter' || key === ' ') {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setMovingChannelId(null);
-                              setFavoritePickChannelId(ch.id);
-                            } else if (key === 'ArrowLeft') {
-                              // Balra vissza a csatornasorra.
-                              e.preventDefault();
-                              e.stopPropagation();
-                              focusChannelRow(ch.id);
-                            }
-                          }}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-xl border transition-all active:scale-90 ${
-                            ch.isFavorite
-                              ? 'bg-amber-400/20 text-amber-300 border-amber-400/50'
-                              : 'bg-[#0f1d3a] text-slate-500 border-slate-700/60 hover:text-amber-400'
-                          }`}
-                          title={ch.isFavorite ? 'Eltávolítás a kedvencekből' : 'Hozzáadás a kedvencekhez'}
-                          aria-label={ch.isFavorite ? `${ch.name} eltávolítása a kedvencekből` : `${ch.name} hozzáadása a kedvencekhez`}
-                          aria-pressed={ch.isFavorite}
-                        >
-                          <Star className={`w-4 h-4 ${ch.isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
-                        </button>
-                      )}
+                      {movingChannelId !== ch.id && (() => {
+                        const compactRow = rowHeight < 56;
+                        const isHandledByDoctor =
+                          doctorRevision >= 0 && tvDoctorEnabled && isChannelHandledByDoctor(ch);
+                        return (
+                          <div
+                            data-channel-right-stack={ch.id}
+                            className={`shrink-0 h-full flex flex-col items-center justify-between ${
+                              bigRows ? 'py-1 w-9' : compactRow ? 'py-0.5 w-7' : 'py-0.5 w-8'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              tabIndex={0}
+                              data-favorite-star={ch.id}
+                              style={{ minHeight: 0, minWidth: 0 }}
+                              /*
+                                A csillag KÜLÖN kijelölhető (a felhasználó kérése):
+                                a sor jobb szélén a távirányítóval is rá lehet lépni
+                                (jobbra a sorból), és az OK-ra ELŐBB a kedvenc
+                                mappaválasztó ugrik fel – csak utána kerül a
+                                csatorna a mappába.
+                              */
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMovingChannelId(null);
+                                setFavoritePickChannelId(ch.id);
+                              }}
+                              onKeyDown={(e) => {
+                                const key = normalizeTvKey(e);
+                                if (key === 'Enter' || key === ' ') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setMovingChannelId(null);
+                                  setFavoritePickChannelId(ch.id);
+                                } else if (key === 'ArrowLeft') {
+                                  // Balra vissza a csatornasorra.
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  focusChannelRow(ch.id);
+                                }
+                              }}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              className={`shrink-0 flex items-center justify-center ${
+                                bigRows ? 'w-8 h-8 rounded-xl' : compactRow ? 'w-6 h-5 rounded-md' : 'w-7 h-7 rounded-lg'
+                              } border transition-all active:scale-90 ${
+                                ch.isFavorite
+                                  ? 'bg-amber-400/20 text-amber-300 border-amber-400/50'
+                                  : 'bg-[#0f1d3a] text-amber-400/80 border-slate-700/60 hover:text-amber-300'
+                              }`}
+                              title={ch.isFavorite ? 'Eltávolítás a kedvencekből' : 'Hozzáadás a kedvencekhez'}
+                              aria-label={ch.isFavorite ? `${ch.name} eltávolítása a kedvencekből` : `${ch.name} hozzáadása a kedvencekhez`}
+                              aria-pressed={ch.isFavorite}
+                            >
+                              <Star className={`${bigRows ? 'w-4 h-4' : 'w-3.5 h-3.5'} ${ch.isFavorite ? 'fill-amber-400 text-amber-400' : 'text-amber-400/80'}`} />
+                            </button>
+
+                            <div
+                              data-tv-doctor-slot={ch.id}
+                              aria-hidden="true"
+                              className={`shrink-0 flex items-center justify-center pointer-events-none select-none ${
+                                bigRows ? 'w-8 h-7' : compactRow ? 'w-6 h-4' : 'w-7 h-6'
+                              }`}
+                            >
+                              {isHandledByDoctor && (
+                                <span
+                                  data-tv-doctor-row-icon={ch.id}
+                                  data-doctor-color="green"
+                                  aria-hidden="true"
+                                  className="inline-flex items-center justify-center w-full h-full pointer-events-none select-none"
+                                >
+                                  <TvDoctorIcon
+                                    handled={true}
+                                    className={bigRows ? 'w-7 h-7' : compactRow ? 'w-4 h-4' : 'w-6 h-6'}
+                                  />
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       {movingChannelId === ch.id && onMoveChannel ? (
                         <>
                           <button
