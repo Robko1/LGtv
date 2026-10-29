@@ -147,7 +147,7 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
   pretendToBeVisual: true,
   virtualConsole: vc,
   beforeParse(window) {
-    window.__IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__ = false; // a régi recovery/fallback regressziós tesztjeihez
+    window.__IPTV_DIRECT_LIVE_ZAP_TEST__ = false; // a régi recovery/fallback regressziós tesztjeihez
     const spy = { play: 0, pause: 0, load: 0, setIsPlaying: [], onEnded: 0 };
     window.__MEDIA_SPY__ = spy;
     const proto = window.HTMLMediaElement.prototype;
