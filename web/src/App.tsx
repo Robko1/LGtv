@@ -3698,7 +3698,7 @@ export function App() {
           }
           break;
         case 'PageUp':
-          // LG távirányító CH+ gomb (keyCode 33)
+          // LG távirányító CH+ gomb (keyCode 33): mindig csatornát vált, a lista fókuszától függetlenül.
           if (customStreamUrl) { e.preventDefault(); break; }
           if (activeView !== 'live') break;
           e.preventDefault();
@@ -3706,7 +3706,7 @@ export function App() {
           handlePrevChannel();
           break;
         case 'PageDown':
-          // LG távirányító CH- gomb (keyCode 34)
+          // LG távirányító CH- gomb (keyCode 34): mindig csatornát vált, a lista fókuszától függetlenül.
           if (customStreamUrl) { e.preventDefault(); break; }
           if (activeView !== 'live') break;
           e.preventDefault();
