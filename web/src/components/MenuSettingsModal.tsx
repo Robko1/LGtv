@@ -1,8 +1,10 @@
 import { ChannelLogo } from './ChannelLogo';
 import { APP_ICON_DATA_URL } from '../generatedIcon';
+import { TvDoctorIcon } from './TvDoctorIcon';
+import { SupabasePairingModal } from './SupabasePairingModal';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AppSettings, Channel, FavoriteFolder, ProviderAccount, BufferMode, SubtitleSize, WatchHistoryItem } from '../types/iptv';
+import { AppSettings, Channel, FavoriteFolder, ProviderAccount, SubtitleSize, WatchHistoryItem } from '../types/iptv';
 import {
   SlidersHorizontal,
   Tv,
@@ -16,10 +18,8 @@ import {
   Edit3,
   Smartphone,
   Star,
-  Waves,
   PanelsTopLeft,
   Clock,
-  Stethoscope,
   RotateCcw,
   ChevronDown,
   ChevronUp,
@@ -28,6 +28,9 @@ import {
   Database,
   Wifi,
   WifiOff,
+  KeyRound,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { dateTimeText } from '../services/appLog';
@@ -41,6 +44,7 @@ import {
 import {
   checkTvDoctorConnection,
   getTvDoctorCloudStatus,
+  getTvDoctorPairingInfo,
   resetTvDoctorAllToZero,
 } from '../services/tvDoctorCloud';
 import { normalizeTvKey } from '../utils/tvKeys';
@@ -123,6 +127,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const [pendingClearCache, setPendingClearCache] = useState(false);
   const [showTvDoctorDetails, setShowTvDoctorDetails] = useState(false);
   const [doctorResetFeedback, setDoctorResetFeedback] = useState(false);
+  const [isSupabasePairingOpen, setIsSupabasePairingOpen] = useState(false);
+  const pairingBoxRef = useRef<HTMLDivElement | null>(null);
   const [, setDoctorUiTick] = useState(0);
 
   useEffect(() => {
@@ -402,16 +408,29 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         e.preventDefault();
         e.stopPropagation();
         if (key === 'Enter' && active === box) {
-          if (box.hasAttribute('data-tv-doctor-box')) {
-            toggleTvDoctorDetails();
+          if (controls.length === 1) {
+            controls[0].click();
             return;
           }
-          controls[0]?.focus({ preventScroll: true } as any);
-          controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          const boxDef = box.querySelector<HTMLElement>('[data-tv-box-default]');
+          const enterTarget = boxDef && controls.includes(boxDef) ? boxDef : controls[0];
+          enterTarget?.focus({ preventScroll: true } as any);
+          enterTarget?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
           return;
         }
         if (key === 'ArrowUp' || key === 'ArrowDown') {
           if (box.hasAttribute('data-tv-doctor-box') && active !== box) {
+            const index = controls.indexOf(active as HTMLElement);
+            if (index >= 0) {
+              const next = index + (key === 'ArrowDown' ? 1 : -1);
+              if (next >= 0 && next < controls.length) {
+                controls[next]?.focus({ preventScroll: true } as any);
+                controls[next]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+              } else {
+                box.focus({ preventScroll: true } as any);
+              }
+              return;
+            }
             box.focus({ preventScroll: true } as any);
           }
           return;
@@ -1168,50 +1187,559 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             </div>
           )}
 
-          {/* ================= TAB 4: RENDSZER (Exact match to Screenshots 1 & 2) ================= */}
+          {/* ================= TAB 4: RENDSZER ================= */}
           {activeTab === 'system' && (
             <div className="space-y-5 animate-fadeIn">
-              
-              {/* SECTION: LEJÁTSZÓ */}
-              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
-                <h3 className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Lejátszó</span>
-                </h3>
 
-                {/* Pufferelés */}
-                <div data-tv-default="" data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
-                  <label className="flex items-center gap-2 text-xs font-bold text-white">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Waves className="h-4 w-4 text-cyan-300" /></span>
-                    <span>Pufferelés</span>
-                  </label>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    Gyors indítás = villámgyors csatornaváltás. Stabil = gyenge netnél kevesebb akadás.
-                  </p>
-                  <div className="grid grid-cols-3 gap-1.5 pt-1">
-                    {(['fast', 'balanced', 'stable'] as BufferMode[]).map((bm) => (
-                      <button
-                        key={bm}
-                        type="button"
-                        data-buffer-mode={bm}
-                        aria-pressed={settings.bufferMode === bm}
-                        onClick={() => onUpdateSettings({ bufferMode: bm })}
-                        className={`py-2 rounded-xl text-[11px] font-black transition-all ${
-                          settings.bufferMode === bm
-                            ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
-                            : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
-                        }`}
+              {/* 1. SECTION: TV DOKTOR (legelső a Rendszer felsorolásban) */}
+              {(() => {
+                const tvDoctorEnabled = settings.tvDoctorEnabled !== false;
+                const doctorSummary = getTvDoctorSummary();
+                const doctorMem = getTvDoctorMemoryStats();
+                const doctorOp = getTvDoctorOperationHealth();
+                const doctorCloud = getTvDoctorCloudStatus();
+                const pairingInfo = getTvDoctorPairingInfo();
+
+                const hasCloudError = Boolean(doctorCloud.lastErrorSummary) && doctorCloud.connectionState !== 'unpaired';
+                const hasStorageError = Boolean(doctorMem.lastStorageError);
+                const hasAnyIssue = tvDoctorEnabled && (hasCloudError || hasStorageError || doctorMem.memoryHealth === 'high');
+
+                let overallBadgeText = 'Kikapcsolva';
+                let overallBadgeClass = 'bg-slate-800 text-slate-300 border-slate-600/60';
+                if (tvDoctorEnabled) {
+                  if (hasStorageError || doctorCloud.connectionState === 'error') {
+                    overallBadgeText = 'Hiba észlelve';
+                    overallBadgeClass = 'bg-rose-500/20 text-rose-200 border-rose-400/60';
+                  } else if (doctorCloud.connectionState === 'offline') {
+                    overallBadgeText = 'Offline gyorsítótár';
+                    overallBadgeClass = 'bg-amber-500/20 text-amber-200 border-amber-400/60';
+                  } else {
+                    overallBadgeText = 'Minden rendben';
+                    overallBadgeClass = 'bg-emerald-500/20 text-emerald-200 border-emerald-400/55';
+                  }
+                }
+
+                const supabaseShortLabel = !tvDoctorEnabled && !doctorCloud.connected
+                  ? 'Kikapcsolva'
+                  : !pairingInfo.paired
+                    ? 'Nincs párosítva'
+                    : doctorCloud.checking || doctorCloud.syncing
+                      ? 'Ellenőrzés…'
+                      : doctorCloud.connected
+                        ? `Kapcsolódva${doctorCloud.latencyMs !== null ? ` (${doctorCloud.latencyMs} ms)` : ''}`
+                        : doctorCloud.connectionState === 'offline'
+                          ? 'Offline (helyi mód)'
+                          : doctorCloud.connectionState === 'error'
+                            ? 'Kapcsolati hiba!'
+                            : 'Párosítva';
+
+                const formatLogClock = (ts: number): string => {
+                  const full = dateTimeText(ts);
+                  const idx = full.indexOf(' ');
+                  return idx >= 0 ? full.slice(idx + 1) : full;
+                };
+
+                const lastSyncText = doctorCloud.lastSyncAt
+                  ? (() => {
+                      const parsed = Date.parse(doctorCloud.lastSyncAt);
+                      return Number.isFinite(parsed) ? dateTimeText(parsed) : doctorCloud.lastSyncAt;
+                    })()
+                  : 'Még nem történt szinkron';
+
+                return (
+                  <div
+                    data-tv-doctor-section=""
+                    className="p-4 rounded-2xl bg-[#0a1630] border border-cyan-900/50 space-y-3.5 shadow-md"
+                  >
+                    <h3 className="text-base font-black text-amber-400 flex items-center gap-2.5 uppercase tracking-wider">
+                      <TvDoctorIcon handled={true} className="h-7 w-7 shrink-0" />
+                      <span>TV Doktor</span>
+                    </h3>
+
+                    {/* Fő TV Doktor doboz */}
+                    <div
+                      data-tv-default=""
+                      data-tv-box=""
+                      data-tv-doctor-box=""
+                      tabIndex={0}
+                      aria-expanded={showTvDoctorDetails}
+                      className="p-4 rounded-xl bg-[#0e1d3b]/95 border-2 border-cyan-500/65 shadow-sm space-y-3.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    >
+                      {/* Felső sor: zöld 3D TV Doktor ikon + cím + Minden rendben jelvény + max 2 soros leírás | jobb felső sarokban a Be/Ki kapcsoló */}
+                      <div data-tv-doctor-header="" className="flex items-start justify-between gap-4">
+                        <div className="flex min-w-0 flex-1 items-start gap-3.5">
+                          <span data-tv-doctor-menu-icon="" className="shrink-0">
+                            <TvDoctorIcon
+                              handled={tvDoctorEnabled}
+                              disabled={!tvDoctorEnabled}
+                              className="h-14 w-14 mt-0.5"
+                            />
+                          </span>
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <span className="text-base sm:text-lg font-black text-white leading-tight">
+                                Intelligens hibajavítás
+                              </span>
+                              <span
+                                data-tv-doctor-status-badge=""
+                                className={`inline-flex items-center rounded-lg border px-2.5 py-0.5 text-xs sm:text-sm font-black uppercase tracking-wide ${overallBadgeClass}`}
+                              >
+                                {overallBadgeText}
+                              </span>
+                            </div>
+
+                            <p
+                              data-tv-doctor-short-desc=""
+                              className="line-clamp-2 text-sm sm:text-base text-slate-200 font-medium leading-snug"
+                            >
+                              Automatikus adás- és filmfelügyelet, pufferoptimalizálás és öngyógyító hibajavítás.
+                            </p>
+
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 pt-0.5 text-sm font-bold text-cyan-200">
+                              <span>Supabase: {supabaseShortLabel}</span>
+                              <span>•</span>
+                              <span>Memória: {formatDoctorBytes(doctorMem.doctorTotalBytes)}</span>
+                              <span>•</span>
+                              <span>Tanult: {doctorMem.learnedChannelCount}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div data-tv-doctor-controls="" className="shrink-0 pt-0.5">
+                          <button
+                            type="button"
+                            role="switch"
+                            data-tv-doctor-toggle=""
+                            aria-checked={tvDoctorEnabled}
+                            aria-label="TV Doktor be- és kikapcsolása"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onUpdateSettings({ tvDoctorEnabled: !tvDoctorEnabled });
+                            }}
+                            className={`w-14 h-7 rounded-full transition-colors relative shrink-0 p-0.5 focus:outline-none focus:ring-2 focus:ring-amber-400 ${
+                              tvDoctorEnabled ? 'bg-cyan-400' : 'bg-slate-700'
+                            }`}
+                          >
+                            <div
+                              className={`w-6 h-6 rounded-full bg-slate-950 shadow-md transition-transform ${
+                                tvDoctorEnabled ? 'translate-x-7' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Alsó vezérlősáv ugyanabban a dobozban: bal oldalon távirányítóval fókuszálható és lenyitható Állapot/Napló gomb, jobb sarkában a piros Memória: 0 gomb */}
+                      <div
+                        data-tv-doctor-footer=""
+                        className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-cyan-500/25"
                       >
-                        {bm === 'fast' ? 'Gyors' : (bm === 'balanced' ? 'Kiegyensúlyozott' : 'Stabil')}
+                        <button
+                          type="button"
+                          data-tv-box-default=""
+                          data-tv-doctor-expand=""
+                          aria-expanded={showTvDoctorDetails}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleTvDoctorDetails();
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl border-2 border-amber-400/55 bg-amber-400/12 hover:bg-amber-400/20 px-3.5 py-2 text-sm sm:text-base font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        >
+                          {showTvDoctorDetails ? (
+                            <>
+                              <ChevronUp className="h-5 w-5 shrink-0" />
+                              <span>Állapot és napló bezárása</span>
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="h-5 w-5 shrink-0" />
+                              <span>Állapot, Supabase, memória és napló lenyitása</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          data-tv-doctor-reset=""
+                          aria-label="TV Doktor memória nullázása 0 állapotra"
+                          title="Tanult csatornák, napló és szinkron-várólista visszaállítása 0 állapotra"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleResetTvDoctorMemory();
+                          }}
+                          className={`ml-auto inline-flex items-center gap-1.5 rounded-xl border-2 px-3.5 py-2 text-sm sm:text-base font-black transition-all active:scale-95 focus:outline-none focus:ring-2 focus:ring-amber-400 ${
+                            doctorResetFeedback
+                              ? 'border-emerald-400/70 bg-emerald-500/25 text-emerald-100'
+                              : 'border-rose-500/70 bg-rose-950/75 text-rose-100 hover:bg-rose-900/80'
+                          }`}
+                        >
+                          <RotateCcw className="h-4 w-4 shrink-0" />
+                          <span>{doctorResetFeedback ? '0-ra állítva' : 'Memória: 0'}</span>
+                        </button>
+                      </div>
+
+                      {/* Lenyíló részletes információs és napló ablak – megnövelt, TV-ről jól olvasható betűmérettel */}
+                      {showTvDoctorDetails && (
+                        <div
+                          data-tv-doctor-details=""
+                          className="border-t border-cyan-800/60 pt-3.5 space-y-3"
+                        >
+                          {/* 1. Általános működési állapot + Supabase kapcsolat */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div
+                              data-tv-doctor-health=""
+                              className="rounded-xl border border-cyan-800/50 bg-[#081329] p-3.5 space-y-2"
+                            >
+                              <div className="flex items-center gap-2 text-base font-black text-white">
+                                <CheckCircle2
+                                  className={`h-5 w-5 shrink-0 ${
+                                    !tvDoctorEnabled
+                                      ? 'text-slate-400'
+                                      : hasAnyIssue
+                                        ? 'text-amber-300'
+                                        : 'text-emerald-400'
+                                  }`}
+                                />
+                                <span>Működési állapot</span>
+                              </div>
+                              <p className="text-sm sm:text-base text-slate-100 font-bold leading-snug">
+                                {!tvDoctorEnabled
+                                  ? 'Kikapcsolva – az alap lejátszó üzemel.'
+                                  : hasAnyIssue
+                                    ? 'Működik, de figyelmeztetés van (lásd alább).'
+                                    : 'Jól működik minden – nincs hiba vagy elakadás.'}
+                              </p>
+                              <div className="text-sm text-slate-300 space-y-1">
+                                <div>
+                                  Tanult profilok:{' '}
+                                  <strong className="text-white">
+                                    {doctorMem.learnedChannelCount} / {doctorMem.maxLearnedChannels}
+                                  </strong>
+                                </div>
+                                <div>
+                                  Sikeres javítások:{' '}
+                                  <strong className="text-white">{doctorSummary.totalVerifiedRepairs} db</strong>
+                                </div>
+                                <div>
+                                  Sebesség:{' '}
+                                  <strong className="text-white">
+                                    {doctorOp.lastSlowOp
+                                      ? `Lassulás volt (${doctorOp.lastSlowOp.elapsedMs} ms)`
+                                      : 'Villámgyors, akadásmentes'}
+                                  </strong>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              data-tv-doctor-supabase=""
+                              className="rounded-xl border border-cyan-800/50 bg-[#081329] p-3.5 space-y-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 text-base font-black text-white">
+                                  {doctorCloud.connected ? (
+                                    <Wifi className="h-5 w-5 shrink-0 text-emerald-400" />
+                                  ) : (
+                                    <WifiOff className="h-5 w-5 shrink-0 text-amber-300" />
+                                  )}
+                                  <span>Supabase kapcsolat</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  data-tv-doctor-check-cloud=""
+                                  disabled={doctorCloud.checking || doctorCloud.syncing}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void checkTvDoctorConnection();
+                                  }}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/50 bg-cyan-500/15 px-3 py-1 text-sm font-black text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                >
+                                  <RefreshCw
+                                    className={`h-4 w-4 ${doctorCloud.checking || doctorCloud.syncing ? 'animate-spin' : ''}`}
+                                  />
+                                  <span>Teszt</span>
+                                </button>
+                              </div>
+                              <p
+                                className={`text-sm sm:text-base font-black leading-snug ${
+                                  doctorCloud.connected
+                                    ? 'text-emerald-300'
+                                    : !pairingInfo.paired
+                                      ? 'text-amber-300'
+                                      : doctorCloud.checking || doctorCloud.syncing
+                                        ? 'text-cyan-300'
+                                        : doctorCloud.connectionState === 'error'
+                                          ? 'text-rose-300'
+                                          : 'text-amber-300'
+                                }`}
+                              >
+                                {!pairingInfo.paired
+                                  ? 'Nincs párosítva (csak helyi memória aktív)'
+                                  : doctorCloud.checking || doctorCloud.syncing
+                                    ? 'Kapcsolat ellenőrzése folyamatban…'
+                                    : doctorCloud.connected
+                                      ? `Létrejött ✓${doctorCloud.latencyMs !== null ? ` (${doctorCloud.latencyMs} ms)` : ''}`
+                                      : doctorCloud.connectionState === 'offline'
+                                        ? 'Nem jött létre – a TV offline'
+                                        : doctorCloud.connectionState === 'error'
+                                          ? 'Nem jött létre – kapcsolati hiba'
+                                          : 'Párosítva – ellenőrzésre kész'}
+                              </p>
+                              <div className="text-sm text-slate-300 space-y-1">
+                                <div>
+                                  Eszköz:{' '}
+                                  <strong className="font-mono text-white">{pairingInfo.deviceId}</strong>
+                                </div>
+                                <div>
+                                  Központi profilok:{' '}
+                                  <strong className="text-white">{doctorCloud.cloudProfileCount} db</strong> • Várólista:{' '}
+                                  <strong className="text-white">{doctorCloud.pendingCount} elem</strong>
+                                </div>
+                                <div className="truncate" title={lastSyncText}>
+                                  Utolsó szinkron: <strong className="text-white">{lastSyncText}</strong>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 2. Hibajelzés vagy Minden rendben sáv */}
+                          {(hasCloudError || hasStorageError) ? (
+                            <div
+                              data-tv-doctor-error-box=""
+                              role="alert"
+                              className="rounded-xl border border-rose-500/60 bg-rose-950/50 p-3.5 space-y-1.5"
+                            >
+                              <div className="flex items-center gap-2 text-base font-black text-rose-200">
+                                <AlertTriangle className="h-5 w-5 shrink-0 text-rose-400" />
+                                <span>Hiba részletei a javításhoz</span>
+                              </div>
+                              {hasCloudError && (
+                                <div className="text-sm text-slate-100 leading-snug space-y-1">
+                                  <div>
+                                    <span className="text-rose-300 font-bold">Hol a hiba:</span>{' '}
+                                    <strong>{doctorCloud.lastErrorLocation || 'Supabase kapcsolat'}</strong>
+                                    {doctorCloud.lastErrorCode ? ` (${doctorCloud.lastErrorCode})` : ''}
+                                  </div>
+                                  <div>
+                                    <span className="text-rose-300 font-bold">Mi a hiba:</span>{' '}
+                                    <span>{doctorCloud.lastErrorSummary}</span>
+                                  </div>
+                                </div>
+                              )}
+                              {hasStorageError && doctorMem.lastStorageError && (
+                                <div className="text-sm text-slate-100 leading-snug space-y-1">
+                                  <div>
+                                    <span className="text-rose-300 font-bold">Hol a hiba:</span>{' '}
+                                    <strong>{doctorMem.lastStorageError.location}</strong>
+                                  </div>
+                                  <div>
+                                    <span className="text-rose-300 font-bold">Mi a hiba:</span>{' '}
+                                    <span>{doctorMem.lastStorageError.message}</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div
+                              data-tv-doctor-ok-banner=""
+                              className="rounded-xl border border-emerald-500/40 bg-emerald-950/35 px-3.5 py-2.5 text-sm sm:text-base font-bold text-emerald-200"
+                            >
+                              {doctorCloud.connected
+                                ? '✓ Minden rendben: a védett Supabase kapcsolat aktív, nincs hálózati vagy memóriahiba.'
+                                : '✓ Helyi TV Doktor hibátlanul üzemel, nincs tárolási vagy lejátszási hiba.'}
+                            </div>
+                          )}
+
+                          {/* 3. Memória mérete és TV memóriahasználat */}
+                          <div
+                            data-tv-doctor-memory=""
+                            className="rounded-xl border border-cyan-800/50 bg-[#081329] p-3.5 space-y-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="flex items-center gap-2 text-base font-black text-white">
+                                <Database className="h-5 w-5 shrink-0 text-cyan-300" />
+                                <span>Memória és TV memóriahasználat</span>
+                              </span>
+                              <span
+                                className={`text-sm font-black ${
+                                  doctorMem.memoryHealth === 'high'
+                                    ? 'text-rose-300'
+                                    : doctorMem.memoryHealth === 'moderate'
+                                      ? 'text-amber-300'
+                                      : 'text-emerald-300'
+                                }`}
+                              >
+                                {doctorMem.doctorBudgetPercent}% keret
+                              </span>
+                            </div>
+
+                            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  doctorMem.memoryHealth === 'high'
+                                    ? 'bg-rose-400'
+                                    : doctorMem.memoryHealth === 'moderate'
+                                      ? 'bg-amber-400'
+                                      : 'bg-cyan-400'
+                                }`}
+                                style={{ width: `${Math.max(doctorMem.doctorTotalBytes > 0 ? 2 : 0, Math.min(100, doctorMem.doctorBudgetPercent))}%` }}
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-sm text-slate-200">
+                              <div>
+                                TV Doktor memória:{' '}
+                                <strong className="text-white">
+                                  {formatDoctorBytes(doctorMem.doctorTotalBytes)} / {formatDoctorBytes(doctorMem.maxSafeDoctorBytes)}
+                                </strong>
+                              </div>
+                              <div>
+                                TV tárhely összesen:{' '}
+                                <strong className="text-white">
+                                  {formatDoctorBytes(doctorMem.tvStorageUsedBytes)} / ~5.0 MB ({doctorMem.tvStoragePercent}%)
+                                </strong>
+                              </div>
+                              <div>
+                                Bontás:{' '}
+                                <span className="text-slate-300">
+                                  profilok {formatDoctorBytes(doctorMem.doctorStoreBytes)}, várólista {formatDoctorBytes(doctorMem.cloudQueueBytes)}
+                                </span>
+                              </div>
+                              <div>
+                                TV munkamemória (RAM):{' '}
+                                <strong className="text-white">
+                                  {doctorMem.jsHeapUsedMB !== null
+                                    ? `${doctorMem.jsHeapUsedMB} MB${doctorMem.jsHeapLimitMB ? ` / ${doctorMem.jsHeapLimitMB} MB` : ''}`
+                                    : 'webOS automatikus'}
+                                </strong>
+                              </div>
+                            </div>
+                            <p className="text-sm font-medium text-slate-300">{doctorMem.memoryHealthLabel}</p>
+                          </div>
+
+                          {/* 4. Elkülönített lenyíló TV Doktor eseménynapló */}
+                          <div
+                            data-tv-doctor-log-list=""
+                            className="rounded-xl border border-cyan-800/50 bg-slate-950/70 p-3.5 space-y-2"
+                          >
+                            <div className="flex items-center justify-between text-sm font-black uppercase tracking-wider text-cyan-300">
+                              <span>Legutóbbi TV Doktor napló</span>
+                              <span className="text-slate-300 font-mono">{doctorSummary.recentLogs.length} sor</span>
+                            </div>
+                            {doctorSummary.recentLogs.length === 0 ? (
+                              <p className="text-sm text-slate-300 font-medium">
+                                Nincs rögzített hiba vagy javítási esemény (0 bejegyzés).
+                              </p>
+                            ) : (
+                              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                                {doctorSummary.recentLogs
+                                  .slice(-6)
+                                  .reverse()
+                                  .map((entry, idx) => (
+                                    <div
+                                      key={`${entry.at}-${idx}`}
+                                      className="rounded-lg border border-slate-800 bg-[#071124] px-3 py-2 text-sm leading-snug text-slate-100"
+                                    >
+                                      <span className="font-mono text-slate-300">{formatLogClock(entry.at)}</span>{' '}
+                                      <strong
+                                        className={
+                                          entry.level === 'verified'
+                                            ? 'text-emerald-300'
+                                            : entry.level === 'warn'
+                                              ? 'text-amber-300'
+                                              : 'text-cyan-300'
+                                        }
+                                      >
+                                        [{entry.channelName}]
+                                      </strong>{' '}
+                                      <span>{entry.message}</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Különálló Supabase-párosítás menüpont a TV Doktor alatt */}
+                    <div
+                      ref={pairingBoxRef}
+                      data-tv-box=""
+                      data-tv-doctor-pairing-box=""
+                      tabIndex={0}
+                      className="p-4 rounded-xl bg-[#0e1d3b]/95 border-2 border-cyan-500/65 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    >
+                      <button
+                        type="button"
+                        data-tv-doctor-pairing-menu=""
+                        onClick={() => setIsSupabasePairingOpen(true)}
+                        className="w-full flex flex-wrap items-center justify-between gap-3 text-left focus:outline-none rounded-lg"
+                      >
+                        <div className="flex min-w-0 items-center gap-3.5">
+                          <span
+                            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 ${
+                              pairingInfo.paired
+                                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-300'
+                                : 'border-amber-400/55 bg-amber-500/15 text-amber-300'
+                            }`}
+                          >
+                            {pairingInfo.paired ? (
+                              <ShieldCheck className="h-6 w-6" />
+                            ) : (
+                              <KeyRound className="h-6 w-6" />
+                            )}
+                          </span>
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <span className="text-base sm:text-lg font-black text-white">
+                                Supabase-párosítás
+                              </span>
+                              <span
+                                data-tv-doctor-pairing-badge=""
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-0.5 text-xs sm:text-sm font-black uppercase tracking-wide ${
+                                  pairingInfo.paired
+                                    ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
+                                    : 'border-amber-400/55 bg-amber-500/20 text-amber-200'
+                                }`}
+                              >
+                                {pairingInfo.paired ? (
+                                  <>
+                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                    <span>Párosítva</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ShieldAlert className="h-3.5 w-3.5" />
+                                    <span>Nincs párosítva</span>
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                            <span className="block text-sm text-slate-200 font-medium leading-snug">
+                              {pairingInfo.paired
+                                ? `Eszköz azonosítója: ${pairingInfo.deviceId} • Védett Supabase szinkron aktív`
+                                : `Egyszeri 6 jegyű számkód megadása ehhez a TV-hez (${pairingInfo.deviceId})`}
+                            </span>
+                          </div>
+                        </div>
+
+                        <span className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-400/60 bg-cyan-500/20 px-4 py-2 text-sm sm:text-base font-black text-cyan-100 shrink-0">
+                          <KeyRound className="h-4 w-4" />
+                          <span>Megnyitás</span>
+                        </span>
                       </button>
-                    ))}
+                    </div>
                   </div>
+                );
+              })()}
 
-                </div>
-
-                {/* Két ismétlődő információs doboz eltávolítva: a működés automatikus,
-                    ezért a Rendszer fülön csak a valóban állítható opciók maradnak. */}
-
+              {/* 2. OSD ÉS ÓRA BEÁLLÍTÁSOK (a sárga Lejátszó felirat és a Pufferelés doboz vizuálisan eltávolítva) */}
+              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
                 {/* OSD automatikus elrejtése */}
                 <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <label className="flex items-center gap-2 text-xs font-bold text-white">
@@ -1239,13 +1767,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/*
-                  A tükrözés-sor a Rendszer fülről ELTÁVOLÍTVA (a felhasználó
-                  kérése: vizuálisan ne legyen ott). A funkció változatlanul
-                  működik: a PIROS (Record) gomb kapcsolja, és a beállítás
-                  továbbra is a tárolóban marad.
-                */}
-
                 {/* Toggle: Kék óra mindig látszódjon */}
                 <div data-tv-box="" tabIndex={0} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
                   <div className="flex min-w-0 items-start gap-2.5 pr-3">
@@ -1265,456 +1786,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <div className={`w-5 h-5 rounded-full bg-slate-950 shadow-md transition-transform ${settings.alwaysShowBlueClock ? 'translate-x-6' : 'translate-x-0'}`} />
                   </button>
                 </div>
-
               </div>
-
-              {/* SECTION: TV DOKTOR */}
-              {(() => {
-                const tvDoctorEnabled = settings.tvDoctorEnabled !== false;
-                const doctorSummary = getTvDoctorSummary();
-                const doctorMem = getTvDoctorMemoryStats();
-                const doctorOp = getTvDoctorOperationHealth();
-                const doctorCloud = getTvDoctorCloudStatus();
-
-                const hasCloudError = Boolean(doctorCloud.lastErrorSummary);
-                const hasStorageError = Boolean(doctorMem.lastStorageError);
-                const hasAnyIssue = tvDoctorEnabled && (hasCloudError || hasStorageError || doctorMem.memoryHealth === 'high');
-
-                let overallBadgeText = 'Kikapcsolva';
-                let overallBadgeClass = 'bg-slate-800 text-slate-400 border-slate-600/50';
-                if (tvDoctorEnabled) {
-                  if (hasStorageError || doctorCloud.connectionState === 'error') {
-                    overallBadgeText = 'Hiba észlelve';
-                    overallBadgeClass = 'bg-rose-500/20 text-rose-200 border-rose-400/50';
-                  } else if (doctorCloud.connectionState === 'offline') {
-                    overallBadgeText = 'Offline gyorsítótár';
-                    overallBadgeClass = 'bg-amber-500/20 text-amber-200 border-amber-400/50';
-                  } else {
-                    overallBadgeText = 'Minden rendben';
-                    overallBadgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40';
-                  }
-                }
-
-                const supabaseShortLabel = !tvDoctorEnabled && !doctorCloud.connected
-                  ? 'Kikapcsolva'
-                  : doctorCloud.checking || doctorCloud.syncing
-                    ? 'Ellenőrzés…'
-                    : doctorCloud.connected
-                      ? `Kapcsolódva${doctorCloud.latencyMs !== null ? ` (${doctorCloud.latencyMs} ms)` : ''}`
-                      : doctorCloud.connectionState === 'offline'
-                        ? 'Offline (helyi mód)'
-                        : doctorCloud.connectionState === 'error'
-                          ? 'Kapcsolati hiba!'
-                          : 'Kattints az ellenőrzéshez';
-
-                const formatLogClock = (ts: number): string => {
-                  const full = dateTimeText(ts);
-                  const idx = full.indexOf(' ');
-                  return idx >= 0 ? full.slice(idx + 1) : full;
-                };
-
-                const lastSyncText = doctorCloud.lastSyncAt
-                  ? (() => {
-                      const parsed = Date.parse(doctorCloud.lastSyncAt);
-                      return Number.isFinite(parsed) ? dateTimeText(parsed) : doctorCloud.lastSyncAt;
-                    })()
-                  : 'Még nem történt szinkron';
-
-                return (
-                  <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3 shadow-md">
-                    <h3 className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
-                      <Stethoscope className="w-3.5 h-3.5" />
-                      <span>TV Doktor</span>
-                    </h3>
-
-                    <div
-                      data-tv-box=""
-                      data-tv-doctor-box=""
-                      tabIndex={0}
-                      aria-expanded={showTvDoctorDetails}
-                      onClick={toggleTvDoctorDetails}
-                      className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-3 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400"
-                    >
-                      {/* Felső fejlécsáv: bal oldalon az állapot és a lenyitás jelzője, jobb oldalon EGYMÁS MELLETT a Memória 0-ra állítás és a Be/Ki kapcsoló */}
-                      <div data-tv-doctor-header="" className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-start gap-2.5 pr-1">
-                          <span
-                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors ${
-                              tvDoctorEnabled
-                                ? hasAnyIssue
-                                  ? 'border-amber-400/50 bg-amber-400/15 text-amber-300'
-                                  : 'border-cyan-400/40 bg-cyan-400/15 text-cyan-300'
-                                : 'border-slate-600/50 bg-slate-800/60 text-slate-400'
-                            }`}
-                          >
-                            <Stethoscope className="h-4 w-4" />
-                          </span>
-                          <div className="min-w-0 space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-xs font-bold text-white">
-                                Intelligens hibajavítás és csatorna-optimalizálás
-                              </span>
-                              <span
-                                data-tv-doctor-status-badge=""
-                                className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${overallBadgeClass}`}
-                              >
-                                {overallBadgeText}
-                              </span>
-                            </div>
-                            <span className="block text-[11px] text-slate-400 leading-snug">
-                              Villámgyors csatornaváltás, automatikus pufferoptimalizálás, okos fagyásfigyelés és hibrid Supabase tanulás.
-                            </span>
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5 text-[10px] font-semibold text-cyan-300/90">
-                              <span>Supabase: {supabaseShortLabel}</span>
-                              <span>•</span>
-                              <span>Memória: {formatDoctorBytes(doctorMem.doctorTotalBytes)}</span>
-                              <span>•</span>
-                              <span>Csatornák: {doctorMem.learnedChannelCount}</span>
-                            </div>
-                            <div className="inline-flex items-center gap-1 pt-0.5 text-[10px] font-bold text-amber-300">
-                              {showTvDoctorDetails ? (
-                                <>
-                                  <ChevronUp className="h-3.5 w-3.5 shrink-0" />
-                                  <span>Állapot és napló bezárása</span>
-                                </>
-                              ) : (
-                                <>
-                                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                                  <span>Állapot, Supabase, memória és napló lenyitása</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Jobb oldali vezérlőcsoport: Memória 0-ra állítása közvetlenül a Ki/Be kapcsoló mellett */}
-                        <div
-                          data-tv-doctor-controls=""
-                          className="flex shrink-0 items-center gap-2 pt-0.5"
-                        >
-                          <button
-                            type="button"
-                            data-tv-doctor-reset=""
-                            aria-label="TV Doktor memória nullázása 0 állapotra"
-                            title="Tanult csatornák, napló és szinkron-várólista visszaállítása 0 állapotra"
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleResetTvDoctorMemory();
-                            }}
-                            className={`flex h-7 items-center gap-1 rounded-lg border px-2 text-[10px] font-black transition-all active:scale-95 focus:outline-none focus:ring-2 focus:ring-amber-400 ${
-                              doctorResetFeedback
-                                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
-                                : 'border-rose-500/45 bg-rose-950/50 text-rose-200 hover:bg-rose-900/60'
-                            }`}
-                          >
-                            <RotateCcw className="h-3 w-3 shrink-0" />
-                            <span>{doctorResetFeedback ? '0-ra állítva' : 'Memória: 0'}</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            role="switch"
-                            data-tv-doctor-toggle=""
-                            aria-checked={tvDoctorEnabled}
-                            aria-label="TV Doktor be- és kikapcsolása"
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onUpdateSettings({ tvDoctorEnabled: !tvDoctorEnabled });
-                            }}
-                            className={`w-12 h-6 rounded-full transition-colors relative shrink-0 p-0.5 focus:outline-none focus:ring-2 focus:ring-amber-400 ${
-                              tvDoctorEnabled ? 'bg-cyan-400' : 'bg-slate-700'
-                            }`}
-                          >
-                            <div
-                              className={`w-5 h-5 rounded-full bg-slate-950 shadow-md transition-transform ${
-                                tvDoctorEnabled ? 'translate-x-6' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Lenyíló részletes információs és napló ablak (ugyanúgy nyitható/csukható, mint a frissítésnél) */}
-                      {showTvDoctorDetails && (
-                        <div
-                          data-tv-doctor-details=""
-                          className="border-t border-cyan-800/50 pt-3 space-y-2.5 cursor-default"
-                        >
-                          {/* 1. Általános működési állapot + Supabase kapcsolat */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <div
-                              data-tv-doctor-health=""
-                              className="rounded-lg border border-cyan-900/40 bg-[#081329] p-2.5 space-y-1.5"
-                            >
-                              <div className="flex items-center gap-1.5 text-[11px] font-black text-white">
-                                <CheckCircle2
-                                  className={`h-3.5 w-3.5 shrink-0 ${
-                                    !tvDoctorEnabled
-                                      ? 'text-slate-400'
-                                      : hasAnyIssue
-                                        ? 'text-amber-300'
-                                        : 'text-emerald-400'
-                                  }`}
-                                />
-                                <span>Működési állapot</span>
-                              </div>
-                              <p className="text-[11px] text-slate-200 font-semibold">
-                                {!tvDoctorEnabled
-                                  ? 'Kikapcsolva – az alap lejátszó üzemel.'
-                                  : hasAnyIssue
-                                    ? 'Működik, de figyelmeztetés van (lásd alább).'
-                                    : 'Jól működik minden – nincs hiba vagy elakadás.'}
-                              </p>
-                              <div className="text-[10px] text-slate-400 space-y-0.5">
-                                <div>
-                                  Tanult csatornák:{' '}
-                                  <strong className="text-slate-200">
-                                    {doctorMem.learnedChannelCount} / {doctorMem.maxLearnedChannels}
-                                  </strong>
-                                </div>
-                                <div>
-                                  Sikeres javítások:{' '}
-                                  <strong className="text-slate-200">{doctorSummary.totalVerifiedRepairs} db</strong>
-                                </div>
-                                <div>
-                                  Sebesség:{' '}
-                                  <strong className="text-slate-200">
-                                    {doctorOp.lastSlowOp
-                                      ? `Lassulás volt (${doctorOp.lastSlowOp.elapsedMs} ms)`
-                                      : 'Villámgyors, akadásmentes'}
-                                  </strong>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div
-                              data-tv-doctor-supabase=""
-                              className="rounded-lg border border-cyan-900/40 bg-[#081329] p-2.5 space-y-1.5"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5 text-[11px] font-black text-white">
-                                  {doctorCloud.connected ? (
-                                    <Wifi className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                                  ) : (
-                                    <WifiOff className="h-3.5 w-3.5 shrink-0 text-amber-300" />
-                                  )}
-                                  <span>Supabase kapcsolat</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  data-tv-doctor-check-cloud=""
-                                  disabled={doctorCloud.checking || doctorCloud.syncing}
-                                  onPointerDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void checkTvDoctorConnection();
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-bold text-cyan-200 hover:bg-cyan-500/25 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-amber-400"
-                                >
-                                  <RefreshCw
-                                    className={`h-3 w-3 ${doctorCloud.checking || doctorCloud.syncing ? 'animate-spin' : ''}`}
-                                  />
-                                  <span>Teszt</span>
-                                </button>
-                              </div>
-                              <p
-                                className={`text-[11px] font-bold ${
-                                  doctorCloud.connected
-                                    ? 'text-emerald-300'
-                                    : doctorCloud.checking || doctorCloud.syncing
-                                      ? 'text-cyan-300'
-                                      : doctorCloud.connectionState === 'error'
-                                        ? 'text-rose-300'
-                                        : 'text-amber-300'
-                                }`}
-                              >
-                                {doctorCloud.checking || doctorCloud.syncing
-                                  ? 'Kapcsolat ellenőrzése folyamatban…'
-                                  : doctorCloud.connected
-                                    ? `Létrejött ✓${doctorCloud.latencyMs !== null ? ` (${doctorCloud.latencyMs} ms)` : ''}`
-                                    : doctorCloud.connectionState === 'offline'
-                                      ? 'Nem jött létre – a TV offline'
-                                      : doctorCloud.connectionState === 'error'
-                                        ? 'Nem jött létre – kapcsolati hiba'
-                                        : 'Még nem ellenőrzött'}
-                              </p>
-                              <div className="text-[10px] text-slate-400 space-y-0.5">
-                                <div>
-                                  Központi profilok:{' '}
-                                  <strong className="text-slate-200">{doctorCloud.cloudProfileCount} db</strong> • Várólista:{' '}
-                                  <strong className="text-slate-200">{doctorCloud.pendingCount} elem</strong>
-                                </div>
-                                <div className="truncate" title={lastSyncText}>
-                                  Utolsó szinkron: <strong className="text-slate-200">{lastSyncText}</strong>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* 2. Hibajelzés: pontosan megmutatja HOL a hiba és MI a hiba röviden a javításhoz */}
-                          {(hasCloudError || hasStorageError) ? (
-                            <div
-                              data-tv-doctor-error-box=""
-                              role="alert"
-                              className="rounded-lg border border-rose-500/50 bg-rose-950/45 p-2.5 space-y-1"
-                            >
-                              <div className="flex items-center gap-1.5 text-[11px] font-black text-rose-200">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-400" />
-                                <span>Hiba részletei a javításhoz</span>
-                              </div>
-                              {hasCloudError && (
-                                <div className="text-[11px] text-slate-200 leading-snug space-y-0.5">
-                                  <div>
-                                    <span className="text-rose-300 font-bold">Hol a hiba:</span>{' '}
-                                    <strong>{doctorCloud.lastErrorLocation || 'Supabase kapcsolat'}</strong>
-                                    {doctorCloud.lastErrorCode ? ` (${doctorCloud.lastErrorCode})` : ''}
-                                  </div>
-                                  <div>
-                                    <span className="text-rose-300 font-bold">Mi a hiba:</span>{' '}
-                                    <span>{doctorCloud.lastErrorSummary}</span>
-                                  </div>
-                                </div>
-                              )}
-                              {hasStorageError && doctorMem.lastStorageError && (
-                                <div className="text-[11px] text-slate-200 leading-snug space-y-0.5">
-                                  <div>
-                                    <span className="text-rose-300 font-bold">Hol a hiba:</span>{' '}
-                                    <strong>{doctorMem.lastStorageError.location}</strong>
-                                  </div>
-                                  <div>
-                                    <span className="text-rose-300 font-bold">Mi a hiba:</span>{' '}
-                                    <span>{doctorMem.lastStorageError.message}</span>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div
-                              data-tv-doctor-ok-banner=""
-                              className="rounded-lg border border-emerald-500/35 bg-emerald-950/30 px-2.5 py-2 text-[11px] font-semibold text-emerald-200"
-                            >
-                              {doctorCloud.connected
-                                ? '✓ Minden rendben: a Supabase kapcsolat aktív, és nem észlelhető hálózati vagy memóriahiba.'
-                                : '✓ Helyi motor hibátlan: nincs tárolási vagy lejátszási hiba.'}
-                            </div>
-                          )}
-
-                          {/* 3. Memória mérete és TV memóriahasználat */}
-                          <div
-                            data-tv-doctor-memory=""
-                            className="rounded-lg border border-cyan-900/40 bg-[#081329] p-2.5 space-y-1.5"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="flex items-center gap-1.5 text-[11px] font-black text-white">
-                                <Database className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
-                                <span>Memória és TV memóriahasználat</span>
-                              </span>
-                              <span
-                                className={`text-[10px] font-bold ${
-                                  doctorMem.memoryHealth === 'high'
-                                    ? 'text-rose-300'
-                                    : doctorMem.memoryHealth === 'moderate'
-                                      ? 'text-amber-300'
-                                      : 'text-emerald-300'
-                                }`}
-                              >
-                                {doctorMem.doctorBudgetPercent}% keret
-                              </span>
-                            </div>
-
-                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                              <div
-                                className={`h-full rounded-full transition-all ${
-                                  doctorMem.memoryHealth === 'high'
-                                    ? 'bg-rose-400'
-                                    : doctorMem.memoryHealth === 'moderate'
-                                      ? 'bg-amber-400'
-                                      : 'bg-cyan-400'
-                                }`}
-                                style={{ width: `${Math.max(doctorMem.doctorTotalBytes > 0 ? 2 : 0, Math.min(100, doctorMem.doctorBudgetPercent))}%` }}
-                              />
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-slate-300">
-                              <div>
-                                TV Doktor memória:{' '}
-                                <strong className="text-white">
-                                  {formatDoctorBytes(doctorMem.doctorTotalBytes)} / {formatDoctorBytes(doctorMem.maxSafeDoctorBytes)}
-                                </strong>
-                              </div>
-                              <div>
-                                TV tárhely összesen:{' '}
-                                <strong className="text-white">
-                                  {formatDoctorBytes(doctorMem.tvStorageUsedBytes)} / ~5.0 MB ({doctorMem.tvStoragePercent}%)
-                                </strong>
-                              </div>
-                              <div>
-                                Bontás:{' '}
-                                <span className="text-slate-400">
-                                  profilok {formatDoctorBytes(doctorMem.doctorStoreBytes)}, várólista {formatDoctorBytes(doctorMem.cloudQueueBytes)}
-                                </span>
-                              </div>
-                              <div>
-                                TV munkamemória (RAM):{' '}
-                                <strong className="text-white">
-                                  {doctorMem.jsHeapUsedMB !== null
-                                    ? `${doctorMem.jsHeapUsedMB} MB${doctorMem.jsHeapLimitMB ? ` / ${doctorMem.jsHeapLimitMB} MB` : ''}`
-                                    : 'webOS automatikus'}
-                                </strong>
-                              </div>
-                            </div>
-                            <p className="text-[10px] text-slate-400">{doctorMem.memoryHealthLabel}</p>
-                          </div>
-
-                          {/* 4. Elkülönített lenyíló TV Doktor eseménynapló */}
-                          <div
-                            data-tv-doctor-log-list=""
-                            className="rounded-lg border border-cyan-900/40 bg-slate-950/60 p-2.5 space-y-1.5"
-                          >
-                            <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-cyan-300">
-                              <span>Legutóbbi TV Doktor napló</span>
-                              <span className="text-slate-400 font-mono">{doctorSummary.recentLogs.length} sor</span>
-                            </div>
-                            {doctorSummary.recentLogs.length === 0 ? (
-                              <p className="text-[11px] text-slate-400">
-                                Nincs rögzített hiba vagy javítási esemény (0 bejegyzés).
-                              </p>
-                            ) : (
-                              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
-                                {doctorSummary.recentLogs
-                                  .slice(-6)
-                                  .reverse()
-                                  .map((entry, idx) => (
-                                    <div
-                                      key={`${entry.at}-${idx}`}
-                                      className="rounded border border-slate-800 bg-[#071124] px-2 py-1 text-[10px] leading-snug text-slate-300"
-                                    >
-                                      <span className="font-mono text-slate-400">{formatLogClock(entry.at)}</span>{' '}
-                                      <strong
-                                        className={
-                                          entry.level === 'verified'
-                                            ? 'text-emerald-300'
-                                            : entry.level === 'warn'
-                                              ? 'text-amber-300'
-                                              : 'text-cyan-300'
-                                        }
-                                      >
-                                        [{entry.channelName}]
-                                      </strong>{' '}
-                                      <span>{entry.message}</span>
-                                    </div>
-                                  ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
 
               {/* SECTION: MOZI & SOROZAT (Screenshot 2) */}
               <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
@@ -1910,6 +1982,15 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           )}
         </div>
       </div>
+      <SupabasePairingModal
+        isOpen={isSupabasePairingOpen}
+        onClose={() => {
+          setIsSupabasePairingOpen(false);
+          window.setTimeout(() => {
+            pairingBoxRef.current?.focus({ preventScroll: true } as any);
+          }, 40);
+        }}
+      />
     </div>
   );
 

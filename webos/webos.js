@@ -511,6 +511,7 @@
         '.webos-tv [role="dialog"][aria-label="Menü és beállítások"] .text-xs { font-size: 19px !important; line-height: 1.4 !important; }',
         '.webos-tv [role="dialog"][aria-label="Menü és beállítások"] .text-sm { font-size: 21px !important; line-height: 1.4 !important; }',
         '.webos-tv [role="dialog"][aria-label="Menü és beállítások"] .text-base { font-size: 23px !important; line-height: 1.4 !important; }',
+        '.webos-tv [role="dialog"][aria-label="Menü és beállítások"] .text-lg { font-size: 26px !important; line-height: 1.35 !important; }',
         '.webos-tv [role="dialog"] .overflow-y-auto { padding-bottom: 56px !important; }',
         '/* DOBOZ NAVIGÁCIÓ: a kijelölt beállítás-doboz jól látható sárga keretet kap. */',
         '/* A kék óra és az előtte ülő TV Doktor ikon teljes képernyőn a jobb felső',
@@ -1128,8 +1129,10 @@
         return;
       }
       if (innerF.length) {
-        innerF[0].focus({preventScroll:true});
-        revealEl(innerF[0]);
+        var boxDef = active.querySelector ? active.querySelector('[data-tv-box-default]') : null;
+        var enterTarget = (boxDef && innerF.indexOf(boxDef) !== -1) ? boxDef : innerF[0];
+        enterTarget.focus({preventScroll:true});
+        revealEl(enterTarget);
       }
       return;
     }

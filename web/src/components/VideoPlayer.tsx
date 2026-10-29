@@ -1716,14 +1716,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const vodUrl = customStreamUrlLocalRef.current || activeMediaUrlRef.current || pendingStreamUrlRef.current || '';
         if (!vodUrl && !vodTarget.title) return;
         const loadElapsedMs = docState.vodLoadStartedAt > 0 ? Math.max(0, Date.now() - docState.vodLoadStartedAt) : 0;
-        const pseudoChannel: Channel = {
+        const pseudoChannel = {
           id: vodTarget.id || normalizeVodDoctorKey(vodTarget),
           name: vodTarget.title || 'Film / Sorozat',
           streamUrl: vodUrl,
-          categoryId: 'vod',
-          isFavorite: false,
           countryCode: vodTarget.mediaKind === 'series' ? 'SER' : 'VOD',
-        };
+        } as unknown as Channel;
         collectDoctorDiagnostics({
           channel: pseudoChannel,
           trigger,

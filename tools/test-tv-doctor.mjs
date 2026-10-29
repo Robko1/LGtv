@@ -533,10 +533,105 @@ check(typeof edgeHandler === 'function', 'a Supabase tv-doctor Edge Function bet
 // Memóriabeli PostgREST adatbázis szimuláció az Edge Function mögé
 const dbProfiles = new Map();
 const dbEvents = [];
+const dbPairingCodes = [];
+const dbPairedDevices = new Map();
+let codeIdSeq = 1;
 const originalFetch = globalThis.fetch;
 
 globalThis.fetch = async (url, init = {}) => {
   const urlStr = String(url);
+  if (urlStr.startsWith('https://mock-db.supabase.co/rest/v1/tv_doctor_pairing_codes')) {
+    const method = (init.method || 'GET').toUpperCase();
+    const parsedUrl = new URL(urlStr);
+    const sp = parsedUrl.searchParams;
+    if (method === 'GET') {
+      let rows = [...dbPairingCodes];
+      const statusEq = sp.get('status');
+      if (statusEq && statusEq.startsWith('eq.')) {
+        const wanted = statusEq.slice(3);
+        rows = rows.filter((r) => r.status === wanted);
+      }
+      const createdGt = sp.get('created_at');
+      if (createdGt && createdGt.startsWith('gt.')) {
+        const gtMs = Date.parse(createdGt.slice(3));
+        rows = rows.filter((r) => Date.parse(r.created_at) > gtMs);
+      }
+      rows.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+      return new Response(JSON.stringify(rows), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (method === 'POST') {
+      const payload = JSON.parse(init.body || '{}');
+      const items = Array.isArray(payload) ? payload : [payload];
+      const inserted = items.map((item) => {
+        const rec = { id: `code-${codeIdSeq++}`, ...item };
+        dbPairingCodes.push(rec);
+        return rec;
+      });
+      return new Response(JSON.stringify(inserted), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (method === 'PATCH') {
+      const patch = JSON.parse(init.body || '{}');
+      const idEq = sp.get('id');
+      const statusEq = sp.get('status');
+      const reqDevEq = sp.get('requested_device_id');
+      const updated = [];
+      for (const row of dbPairingCodes) {
+        if (idEq && idEq.startsWith('eq.') && row.id !== idEq.slice(3)) continue;
+        if (statusEq && statusEq.startsWith('eq.') && row.status !== statusEq.slice(3)) continue;
+        if (reqDevEq && reqDevEq.startsWith('eq.') && row.requested_device_id !== reqDevEq.slice(3)) continue;
+        Object.assign(row, patch);
+        updated.push({ ...row });
+      }
+      return new Response(JSON.stringify(updated), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (urlStr.startsWith('https://mock-db.supabase.co/rest/v1/tv_doctor_paired_devices')) {
+    const method = (init.method || 'GET').toUpperCase();
+    const parsedUrl = new URL(urlStr);
+    const sp = parsedUrl.searchParams;
+    if (method === 'GET') {
+      let rows = Array.from(dbPairedDevices.values());
+      const devEq = sp.get('device_id');
+      if (devEq && devEq.startsWith('eq.')) {
+        rows = rows.filter((r) => r.device_id === devEq.slice(3));
+      }
+      return new Response(JSON.stringify(rows), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (method === 'POST') {
+      const incoming = JSON.parse(init.body || '[]');
+      const items = Array.isArray(incoming) ? incoming : [incoming];
+      const saved = items.map((row) => {
+        const merged = { ...(dbPairedDevices.get(row.device_id) || {}), ...row };
+        dbPairedDevices.set(row.device_id, merged);
+        return merged;
+      });
+      return new Response(JSON.stringify(saved), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (method === 'PATCH') {
+      const patch = JSON.parse(init.body || '{}');
+      const devEq = sp.get('device_id');
+      if (devEq && devEq.startsWith('eq.')) {
+        const existing = dbPairedDevices.get(devEq.slice(3));
+        if (existing) Object.assign(existing, patch);
+      }
+      return new Response(null, { status: 204 });
+    }
+  }
   if (urlStr.startsWith('https://mock-db.supabase.co/rest/v1/tv_doctor_channel_profiles')) {
     const method = (init.method || 'GET').toUpperCase();
     if (method === 'GET') {
@@ -582,18 +677,130 @@ globalThis.fetch = async (url, init = {}) => {
   return originalFetch ? originalFetch(url, init) : new Response('{}', { status: 200 });
 };
 
-// Két külön TV szinkronizálja tapasztalatát ugyanarra a csatornára az Edge Functionön keresztül:
+// Segédfüggvény egy teszt-TV párosításához (pair_request + Supabase oldali kódkiolvasás + pair_verify)
+async function pairMockTv(deviceId, tvModel) {
+  const reqHttp = await edgeHandler(
+    new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'pair_request', deviceId, tvModel }),
+    }),
+  );
+  const reqJson = await reqHttp.json();
+  // Biztonsági ellenőrzés: a nyilvános HTTP válaszban SOHA nem szerepelhet a 6 jegyű kód!
+  const codeRow = dbPairingCodes.find((r) => r.requested_device_id === deviceId && r.status === 'pending');
+  assert.equal(reqJson.ok, true);
+  assert.equal(JSON.stringify(reqJson).includes(codeRow.pairing_code), false);
+
+  const verHttp = await edgeHandler(
+    new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'pair_verify', deviceId, code: codeRow.pairing_code, tvModel }),
+    }),
+  );
+  const verJson = await verHttp.json();
+  assert.equal(verJson.ok, true);
+  return { deviceId, deviceToken: verJson.deviceToken, codeUsed: codeRow.pairing_code };
+}
+
+// 2.0 Nem párosított TV elutasítása (status, bootstrap és sync végpontokon egyaránt!)
+const unpairedAttemptHttp = await edgeHandler(
+  new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'bootstrap', deviceId: 'LG-IDEGEN-TV99' }),
+  }),
+);
+const unpairedAttemptJson = await unpairedAttemptHttp.json();
+check(
+  unpairedAttemptHttp.status === 401 && unpairedAttemptJson.ok === false && unpairedAttemptJson.paired === false,
+  'nem párosított TV kérését a Supabase Edge Function azonnal elutasítja (HTTP 401)',
+);
+
+// 2.1 Próbálkozási korlát (max 5 hibás kód -> zárolás) és egyszer használatos kód ellenőrzése
+await edgeHandler(
+  new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'pair_request', deviceId: 'LG-BRUTE-TEST' }),
+  }),
+);
+const bruteRow = dbPairingCodes.find((r) => r.requested_device_id === 'LG-BRUTE-TEST' && r.status === 'pending');
+const wrongCode = bruteRow.pairing_code === '123456' ? '654321' : '123456';
+let lastBruteStatus = 0;
+for (let attempt = 0; attempt < 5; attempt++) {
+  const r = await edgeHandler(
+    new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'pair_verify', deviceId: 'LG-BRUTE-TEST', code: wrongCode }),
+    }),
+  );
+  lastBruteStatus = r.status;
+}
+const afterLockRightCodeResp = await edgeHandler(
+  new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'pair_verify', deviceId: 'LG-BRUTE-TEST', code: bruteRow.pairing_code }),
+  }),
+);
+check(
+  lastBruteStatus === 429 && afterLockRightCodeResp.status !== 200 && bruteRow.status === 'locked',
+  '5 hibás 6 jegyű kódpróbálkozás után a kód zárolódik, és többé a helyes kóddal sem használható fel',
+);
+
+// Párosítjuk a 2 jogosult teszt-TV-t és ellenőrizzük, hogy ugyanaz a kód másodszor NEM használható fel:
+const tv1Auth = await pairMockTv('LG-OLED-TV01', 'OLED55C3');
+const replayCodeResp = await edgeHandler(
+  new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'pair_verify', deviceId: 'LG-LOPOTT-TV02', code: tv1Auth.codeUsed }),
+  }),
+);
+check(
+  replayCodeResp.status === 401 && !dbPairedDevices.get('LG-OLED-TV01').token_hash.includes(tv1Auth.deviceToken),
+  'a 6 jegyű párosítási kód szigorúan egyszer használatos, és a Supabase csak a token SHA-256 hash-ét tárolja',
+);
+
+// Másik, nem párosított TV hiába küldi el a párosított TV eszközazonosítóját érvényes token nélkül -> elutasítva!
+const spoofedDeviceIdResp = await edgeHandler(
+  new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-tv-device-id': tv1Auth.deviceId,
+      'x-tv-device-token': 'tvd_0000000000000000000000000000000000000000000000000000000000000000',
+    },
+    body: JSON.stringify({ action: 'status', deviceId: tv1Auth.deviceId }),
+  }),
+);
+check(
+  spoofedDeviceIdResp.status === 401,
+  'pusztán az eszközazonosító bemondása hamis tokennel HTTP 401 elutasítást eredményez (másik TV kizárva)',
+);
+
+const tv2Auth = await pairMockTv('LG-NANO-TV02', '55NANO81');
+
+// Két külön párosított TV szinkronizálja tapasztalatát ugyanarra a csatornára az Edge Functionön keresztül:
 const tv1SyncResp = await (
   await edgeHandler(
     new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tv-device-id': tv1Auth.deviceId,
+        'x-tv-device-token': tv1Auth.deviceToken,
+      },
       body: JSON.stringify({
         action: 'sync',
-        deviceHash: 'lg-oled-tv-1',
+        deviceId: tv1Auth.deviceId,
+        deviceToken: tv1Auth.deviceToken,
         tvModel: 'OLED55C3',
         webosVersion: '8.3.0',
-        appVersion: '2.5.191',
+        appVersion: '2.5.196',
         profiles: [
           {
             channelKey: 'hu:rtl-hd',
@@ -632,13 +839,18 @@ const tv2SyncResp = await (
   await edgeHandler(
     new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tv-device-id': tv2Auth.deviceId,
+        'x-tv-device-token': tv2Auth.deviceToken,
+      },
       body: JSON.stringify({
         action: 'sync',
-        deviceHash: 'lg-nanocell-tv-2',
+        deviceId: tv2Auth.deviceId,
+        deviceToken: tv2Auth.deviceToken,
         tvModel: '55NANO81',
         webosVersion: '7.2.0',
-        appVersion: '2.5.191',
+        appVersion: '2.5.196',
         profiles: [
           {
             channelKey: 'hu:rtl-hd',
@@ -661,21 +873,82 @@ check(
     tv2SyncResp.ok === true &&
     dbProfiles.get('hu:rtl-hd').device_count === 2 &&
     dbProfiles.get('hu:rtl-hd').best_format === 'hls',
-  'a Supabase Edge Function összesíti több készülék (2 külön LG TV) mérési tapasztalatait',
+  'a párosított TV-k hitelesített szinkronját a Supabase Edge Function elfogadja és összesíti',
 );
 check(
   dbEvents.length === 1 && !JSON.stringify(dbEvents[0]).includes('userA') && !JSON.stringify(dbEvents[0]).includes('passB'),
   'a Supabase szerveroldalon is kiszűr minden hitelesítő adatot a tárolás előtt',
 );
 
-// 3. TV (friss telepítés) letölti a központi tudásbázist, majd offline módban is működik!
+// 2.2 Saját TV kliensoldali egyszeri párosítása, újraindítás-tűrés, csendes tokenmegújítás és késleltetésmentes működés!
 globalThis.localStorage = new MemoryStorage();
 core.clearTvDoctorMemory();
 core.clearTvDoctorCloudQueue();
+await core.reloadTvDoctorPairingFromStorage();
 core.configureTvDoctorCloud(true);
 
+// Párosítás ELŐTT: a helyi TV Doktor 0 ms késleltetéssel működik, de a védett felhőadatokat nem tölti le:
+const localStartMs = performance.now();
+const unpairedLocalPlan = core.selectChannelLaunchPlan(
+  { id: 'ch-local-fast', name: '[HU] TV2 HD' },
+  'http://panel.local:8080/live/u/p/111.ts',
+  core.INITIAL_SETTINGS,
+);
+const localElapsedMs = performance.now() - localStartMs;
+const unpairedBootstrapCount = await core.bootstrapTvDoctorFromCloud();
+check(
+  unpairedBootstrapCount === 0 &&
+    core.getTvDoctorPairingInfo().paired === false &&
+    localElapsedMs < 15 &&
+    unpairedLocalPlan.primaryFormat === 'ts',
+  'párosítás nélkül a helyi TV Doktor korlátozás és lassulás nélkül működik, a védett felhőadatokat viszont nem éri el',
+);
+
+// Kliensről Új kód igénylése -> kód kiolvasása Supabase-ből -> egyszeri 6 jegyű párosítás!
+const clientReqRes = await core.requestTvDoctorPairingCode();
+const clientDeviceId = core.getTvDoctorPairingInfo().deviceId;
+const clientPendingRow = dbPairingCodes.find((r) => r.requested_device_id === clientDeviceId && r.status === 'pending');
+check(
+  clientReqRes.ok === true &&
+    Boolean(clientPendingRow) &&
+    /^[0-9]{6}$/.test(clientPendingRow.pairing_code) &&
+    !JSON.stringify(clientReqRes).includes(clientPendingRow.pairing_code),
+  'az Új kód igénylése biztonságosan létrehozza a 6 jegyű kódot a Supabase-ben anélkül, hogy a kliensnek visszaadná',
+);
+
+const clientVerifyRes = await core.verifyTvDoctorPairingCode(clientPendingRow.pairing_code);
+check(
+  clientVerifyRes.ok === true &&
+    clientVerifyRes.paired === true &&
+    core.getTvDoctorPairingInfo().paired === true &&
+    core.getTvDoctorPairingInfo().uiState === 'paired',
+  'egyszeri 6 jegyű kódbevitel után a TV sikeresen párosul és megkapja a saját tartós eszköztokenjét',
+);
+
+// Alkalmazás bezárása / TV kikapcsolása és hideg újraindítása után a párosítás megmarad kódkérés nélkül!
+await new Promise((r) => setTimeout(r, 40));
+core.clearTvDoctorMemory();
+core.clearTvDoctorCloudQueue();
+const afterRestartInfo = await core.reloadTvDoctorPairingFromStorage();
 const downloadedCount = await core.bootstrapTvDoctorFromCloud();
-check(downloadedCount >= 1, 'egy új TV induláskor letölti a központi csatornaprofilokat a Supabase-ről');
+check(
+  afterRestartInfo.paired === true &&
+    afterRestartInfo.deviceId === clientDeviceId &&
+    downloadedCount >= 1,
+  'alkalmazás-újraindítás után a TV ismételt kódkérés nélkül hitelesítve marad és letölti a védett profilokat',
+);
+
+// Háttérbeli csendes tokenmegújítás (rotateToken) kézi kódbevitel nélkül:
+const rawBeforeRotate = JSON.parse(globalThis.localStorage.getItem(core.TV_DOCTOR_PAIRING_STORAGE_KEY)).deviceToken;
+const statusAfterRotate = await core.checkTvDoctorConnection(5000, { rotateToken: true });
+const rawAfterRotate = JSON.parse(globalThis.localStorage.getItem(core.TV_DOCTOR_PAIRING_STORAGE_KEY)).deviceToken;
+check(
+  statusAfterRotate.connected === true &&
+    Boolean(rawAfterRotate) &&
+    rawAfterRotate !== rawBeforeRotate &&
+    dbPairedDevices.get(clientDeviceId).rotation_count >= 1,
+  'az eszköztoken a háttérben automatikusan megújítható/lecserélhető kézi kódbevitel és fennakadás nélkül',
+);
 
 // Szimulálunk teljes internetkimaradást a felhő irányába:
 globalThis.__SIMULATE_OFFLINE__ = true;
@@ -738,6 +1011,29 @@ check(
     core.isVodHandledByDoctor(syncedVodTarget) === true &&
     core.selectVodLaunchPlan(syncedVodTarget, core.INITIAL_SETTINGS).bufferProfileId === 'stable',
   'a VOD (film/sorozat) TV Doktor tapasztalatok is felmennek a Supabase tudásbázisba és másik TV-n azonnal kezeltként hasznosulnak',
+);
+
+// Párosítás visszavonása (unpair): a Supabase-ben revoked=true lesz, és a régi tokennel semmilyen hozzáférés nem engedélyezett!
+const savedTokenBeforeUnpair = JSON.parse(globalThis.localStorage.getItem(core.TV_DOCTOR_PAIRING_STORAGE_KEY)).deviceToken;
+await core.unpairTvDoctorDevice();
+const replayRevokedResp = await edgeHandler(
+  new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-tv-device-id': clientDeviceId,
+      'x-tv-device-token': savedTokenBeforeUnpair,
+    },
+    body: JSON.stringify({ action: 'status', deviceId: clientDeviceId }),
+  }),
+);
+const replayRevokedJson = await replayRevokedResp.json();
+check(
+  core.getTvDoctorPairingInfo().paired === false &&
+    dbPairedDevices.get(clientDeviceId)?.revoked === true &&
+    replayRevokedResp.status === 401 &&
+    replayRevokedJson.error === 'device_revoked',
+  'a párosítás visszavonása után a token azonnal érvénytelenné válik a Supabase szerveren is (HTTP 401 device_revoked)',
 );
 
 core.configureTvDoctorCloud(false);
@@ -967,6 +1263,44 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
     window.fetch = async (url, init) => {
       const urlStr = String(url);
       if (urlStr.includes('/functions/v1/tv-doctor')) {
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        if (body.action === 'pair_request') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              requested: true,
+              deviceId: body.deviceId,
+              expiresAt: '2026-10-29T20:10:00.000Z',
+              expiresInSeconds: 600,
+              maxAttempts: 5,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (body.action === 'pair_verify') {
+          if (body.code === '482915') {
+            return new Response(
+              JSON.stringify({
+                ok: true,
+                paired: true,
+                deviceId: body.deviceId,
+                deviceToken: 'tvd_a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
+                pairedAt: '2026-10-29T19:29:00.000Z',
+                tokenExpiresAt: '2027-04-27T19:29:00.000Z',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: 'invalid_code',
+              remainingAttempts: 4,
+              message: 'Hibás párosítási kód (4 próbálkozás maradt).',
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
         if (mockCloudMode === 'http_401') {
           return new Response(JSON.stringify({ message: 'Invalid API key' }), {
             status: 401,
@@ -980,7 +1314,7 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
           });
         }
         return new Response(
-          JSON.stringify({ ok: true, profileCount: 18, serverTime: '2026-10-29T19:30:00.000Z' }),
+          JSON.stringify({ ok: true, paired: true, profileCount: 18, serverTime: '2026-10-29T19:30:00.000Z' }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
@@ -1053,39 +1387,129 @@ try {
   await wait(50);
 
   const doc = window.document;
+  const allBoxes = Array.from(doc.querySelectorAll('[data-tv-box]'));
   const doctorBox = doc.querySelector('[data-tv-doctor-box]');
-  const doctorControls = doc.querySelector('[data-tv-doctor-controls]');
+  const doctorFooter = doc.querySelector('[data-tv-doctor-footer]');
+  const doctorExpandBtn = doc.querySelector('[data-tv-doctor-expand]');
   const doctorResetBtn = doc.querySelector('[data-tv-doctor-reset]');
   const doctorToggle = doc.querySelector('[data-tv-doctor-toggle]');
+  const doctorMenuIcon = doc.querySelector('[data-tv-doctor-menu-icon] [data-tv-doctor-svg]');
+  const shortDesc = doc.querySelector('[data-tv-doctor-short-desc]');
+  const pairingBox = doc.querySelector('[data-tv-doctor-pairing-box]');
+  const pairingMenuBtn = doc.querySelector('[data-tv-doctor-pairing-menu]');
 
   check(
-    Boolean(doctorBox) && doctorBox.hasAttribute('data-tv-box'),
-    'a Rendszer menüben megjelenik a dedikált dobozos TV Doktor kártya',
+    allBoxes[0] === doctorBox &&
+      doctorBox.hasAttribute('data-tv-default') &&
+      !doc.querySelector('[data-buffer-mode]') &&
+      !(doc.body.textContent || '').includes('Pufferelés'),
+    'a Rendszer fülön a TV Doktor a legelső elem, a Lejátszó sárga felirat és a Pufferelés doboz vizuálisan el van távolítva',
   );
   check(
-    Boolean(doctorControls) &&
-      doctorControls.contains(doctorResetBtn) &&
-      doctorControls.contains(doctorToggle) &&
+    Boolean(doctorMenuIcon) &&
+      doctorMenuIcon.getAttribute('data-doctor-handled') === 'true' &&
+      Boolean(shortDesc) &&
+      shortDesc.className.includes('line-clamp-2'),
+    'a TV Doktor dobozban a zöld 3D TV Doktor ikon szerepel, és a Minden rendben alatti szöveg rövid, maximum 2 soros',
+  );
+  check(
+    Boolean(doctorFooter) &&
+      doctorBox.contains(doctorFooter) &&
+      doctorFooter.contains(doctorExpandBtn) &&
+      doctorFooter.contains(doctorResetBtn) &&
+      doctorResetBtn.className.includes('ml-auto') &&
+      doctorExpandBtn.tagName === 'BUTTON' &&
       !doc.querySelector('[data-tv-doctor-details]'),
-    'a Memória: 0 gomb közvetlenül a Ki/Be kapcsoló mellett ül, és alapból csukva van a lenyíló naplórész',
+    'a piros Memória: 0 gomb ugyanabban a dobozban a jobb sarokban ül, az Állapot/Napló lenyitó pedig fókuszálható <button>',
   );
   check(doctorToggle.getAttribute('aria-checked') === 'true', 'alapértelmezetten a TV Doktor aktív');
 
-  // Külső dobozra nyomva (OK / Enter vagy kattintás) lenyílik a részletes információs ablak + ellenőrzi a Supabase kapcsolatot:
+  // Különálló Supabase-párosítás menüpont távirányítós megnyitása és 6 jegyű párosítás végigvitele:
+  check(
+    Boolean(pairingBox) && Boolean(pairingMenuBtn) && (pairingBox.textContent || '').includes('Supabase-párosítás'),
+    'a TV Doktor menü alatt megjelenik a különálló Supabase-párosítás menüpont',
+  );
+  pairingBox.focus();
+  pairingBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await wait(80);
+
+  const pairingModal = doc.querySelector('[data-supabase-pairing-modal]');
+  check(
+    Boolean(pairingModal) &&
+      pairingModal.querySelector('[data-tv-doctor-pair-status]')?.getAttribute('data-pair-state') === 'unpaired' &&
+      (pairingModal.textContent || '').includes('Nincs párosítva') &&
+      (pairingModal.textContent || '').includes('Eszköz azonosítója:'),
+    'a Supabase-párosítás ablak távirányítóval megnyílik, mutatja a Nincs párosítva állapotot és az Eszköz azonosítóját',
+  );
+
+  // Új kód igénylése + hibás kód állapotjelzés + érvényes 6 jegyű kód távirányítós számgombokkal:
+  pairingModal.querySelector('[data-tv-doctor-pair-request]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(60);
+
+  for (const d of ['1', '1', '1', '1', '1', '2']) {
+    pairingModal.dispatchEvent(new window.KeyboardEvent('keydown', { key: d, bubbles: true, cancelable: true }));
+  }
+  await wait(30);
+  pairingModal.querySelector('[data-tv-doctor-pair-verify]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(70);
+  check(
+    pairingModal.querySelector('[data-tv-doctor-pair-status]')?.getAttribute('data-pair-state') === 'error' &&
+      (pairingModal.textContent || '').includes('Állapot: Hiba'),
+    'hibás 6 jegyű kódnál a párosítási képernyő egyértelmű Hiba állapotot jelez',
+  );
+
+  // Ürítés + a helyes 6 jegyű kód (482915) beírása távirányítóval -> Sikeres párosítás!
+  pairingModal.querySelector('[data-tv-doctor-digit-clear]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(25);
+  for (const d of ['4', '8', '2', '9', '1', '5']) {
+    pairingModal.dispatchEvent(new window.KeyboardEvent('keydown', { key: d, bubbles: true, cancelable: true }));
+  }
+  await wait(30);
+  pairingModal.querySelector('[data-tv-doctor-pair-verify]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(90);
+  check(
+    pairingModal.querySelector('[data-tv-doctor-pair-status]')?.getAttribute('data-pair-state') === 'paired' &&
+      (pairingModal.textContent || '').includes('Sikeres párosítás') &&
+      (pairingModal.textContent || '').includes('LG-'),
+    'helyes 6 jegyű kód után Sikeres párosítás állapot és az eszköz azonosítója jelenik meg',
+  );
+
+  // Vissza (Escape) bezárja a párosítási ablakot, a Beállítások menü nyitva marad, a jelvény Párosítva állapotra vált:
+  pairingModal.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  await wait(60);
+  check(
+    !doc.querySelector('[data-supabase-pairing-modal]') &&
+      (doc.querySelector('[data-tv-doctor-pairing-badge]')?.textContent || '').includes('Párosítva'),
+    'Vissza gombbal csak a párosítási ablak záródik be, a menüsoron pedig látszik a Párosítva állapot',
+  );
+
+  // Távirányítós fókusz a TV Doktor dobozon: OK belép és közvetlenül az Állapot/Napló lenyitó gombra ad fókuszt, második OK pedig lenyitja!
   mockCloudMode = 'ok';
   doctorBox.focus();
   doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await wait(40);
+  const expandFocusedOnEnter = doc.activeElement === doctorExpandBtn;
+  doctorExpandBtn.click();
   await wait(90);
   const detailsOpen = doc.querySelector('[data-tv-doctor-details]');
   check(
-    Boolean(detailsOpen) &&
+    expandFocusedOnEnter &&
+      Boolean(detailsOpen) &&
       Boolean(doc.querySelector('[data-tv-doctor-health]')) &&
       Boolean(doc.querySelector('[data-tv-doctor-supabase]')) &&
       Boolean(doc.querySelector('[data-tv-doctor-memory]')) &&
       Boolean(doc.querySelector('[data-tv-doctor-log-list]')) &&
       detailsOpen.textContent.includes('Létrejött ✓') &&
       detailsOpen.textContent.includes('18 db'),
-    'a külső dobozra nyomva lenyílik az ablak: mutatja a működést, az élő Supabase kapcsolatot, a TV memóriát és az elkülönített naplót',
+    'távirányítós OK-ra az Állapot, Supabase, memória és napló lenyitása gomb fókuszt kap és lenyitja a teljes adatpanelt',
   );
 
   // Supabase hiba esetén pontosan kiírja HOL a hiba és MI a hiba röviden:
@@ -1116,8 +1540,8 @@ try {
     'Supabase adatbázishibánál pontosan megjelöli a tv_doctor adatbázis réteget mint hibahelyet',
   );
 
-  // Memória 0-ra állítása gomb a kapcsoló mellett: nullázza a tanult profilokat, a várólistát és a TV Doktor memóriát,
-  // miközben NEM csukja be a lenyíló ablakot és NEM törli a szolgáltatót/beállításokat!
+  // Memória 0-ra állítása gomb a jobb sarokban: nullázza a tanult profilokat, a várólistát és a TV Doktor memóriát,
+  // miközben NEM csukja be a lenyíló ablakot, NEM törli a listákat ÉS NEM szünteti meg a Supabase-párosítást!
   const memBeforeReset = window.__DOCTOR_UI__.getTvDoctorMemoryStats();
   doc.querySelector('[data-tv-doctor-reset]').dispatchEvent(
     new window.MouseEvent('click', { bubbles: true, cancelable: true }),
@@ -1130,17 +1554,18 @@ try {
       memAfterReset.learnedChannelCount === 0 &&
       memAfterReset.doctorTotalBytes === 0 &&
       cloudAfterReset.pendingCount === 0 &&
+      cloudAfterReset.paired === true &&
       Boolean(doc.querySelector('[data-tv-doctor-details]')) &&
       window.localStorage.getItem('iptv_rt_providers_v1')?.includes('Éles Szolgáltató'),
-    'a Memória: 0 gomb egyetlen nyomásra 0 B / 0 csatorna alapállapotra állítja a TV Doktort anélkül, hogy bezárná a panelt vagy törölné a listákat',
+    'a Memória: 0 gomb 0 B / 0 csatorna alapállapotra állítja a TV Doktort, miközben a párosítást és a csatornalistát érintetlenül hagyja',
   );
 
-  // Külső dobozra újra rányomva visszacsukódik az információs ablak:
-  doc.querySelector('[data-tv-doctor-box]').dispatchEvent(
+  // A lenyitó gombra újra rányomva visszacsukódik az információs ablak:
+  doc.querySelector('[data-tv-doctor-expand]').dispatchEvent(
     new window.MouseEvent('click', { bubbles: true, cancelable: true }),
   );
   await wait(50);
-  check(!doc.querySelector('[data-tv-doctor-details]'), 'a külső dobozra újra nyomva az információs ablak tisztán visszacsukódik');
+  check(!doc.querySelector('[data-tv-doctor-details]'), 'az Állapot és napló bezárása gombra nyomva az adatpanel tisztán visszacsukódik');
 
   // A Ki/Be kapcsoló önállóan kapcsol, nem nyitja ki véletlenül a lenyíló részt:
   doc.querySelector('[data-tv-doctor-toggle]').dispatchEvent(
