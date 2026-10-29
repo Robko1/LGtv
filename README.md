@@ -101,3 +101,32 @@ Az `npm test` több csomagolt, jsdom-alapú és szintetikus regressziós próbá
 **Helyi IPK-build ismert akadálya:** a tárolt `webos/splash-screen.png` ebben a checkoutban 1659×948-as RGB kép, kb. 1,4 MiB; a `tools/build-webos.sh` 1920×1080-as, palettás, 699 KiB alatti PNG-t követel, ezért ezen a fájlon megáll. A képet nem szabad pusztán a dokumentáció javítása miatt lecserélni. A kézi GitHub Actions workflow a meglévő képet a runneren átméretezi és palettássá alakítja a build előtt; a helyi script ezt nem végzi el. A létrejövő kép és IPK TV-s vizuális ellenőrzése továbbra is szükséges.
 
 A kézi GitHub workflow neve **IPK építés**, a repó `main` ágát veszi alapul, és siker esetén `webos/IPTV-RT.ipk` artifactot, valamint verziózott GitHub Release-t készít. Részletek: [README-PUSH.md](README-PUSH.md), telepítés: [webos/README.md](webos/README.md). Az IPK helyi buildtermék, nem Git-forrás. Az LG Developer Mode-os IPK és a GitHub commit/tag „Verified” aláírása külön dolog: [RELEASE-SIGNING.md](RELEASE-SIGNING.md).
+
+## Ideiglenes Android-logikájú csatornaváltási próba (2026-10-29)
+
+**Cél:** az LG webOS élő csatornaváltását rövid tesztre az Androidos tesztapp közvetlen indítási logikájához igazítani. Ez kísérleti változtatás, a TV-n még ellenőrizni kell.
+
+### Mi volt előtte?
+- Az élő csatorna indításakor az LG a korábbi formátum-emlékezetet és a beállított TS/HLS formátumot is figyelembe vette.
+- A lejátszási útvonal a HTML5 videón keresztül ment, és a szokásos indulási watchdog, formátum-fallback, valamint automatikus újrapróbálkozás is részt vehetett a folyamatban.
+- Az Android teszt az élő URL-t közvetlenül a natív MPV-nek adja át; a `.m3u8` címet előtte `.ts`-re alakítja.
+
+### Mit változtattunk a próbához?
+- A `web/src/components/VideoPlayer.tsx` élő csatornaváltása közvetlenül beállítja a videó `src` címét és meghívja a `play()`-t.
+- Élő adásnál a `.m3u8` cím `.ts`-re alakul, az előzőleg megjegyzett formátum és a fallback próba erre a tesztútvonalra nincs használva.
+- A próbaútvonal nem hív külön `video.load()`-ot, nem indít indulási watchdogot, és hiba esetén nem próbál automatikusan másik formátumra váltani.
+- A filmek és sorozatok útvonalát ez a teszt nem módosítja.
+- A `webos-build.yml` workflow-t ellenőriztük: kizárólag `workflow_dispatch` indítja, `main`-ről épít, a meglévő teszteket (`npm test`) és buildet futtatja. Automatikus indítás nincs beállítva. A workflow-t ez a módosítás nem indította el, ezért build-siker még nincs igazolva.
+
+### Visszaállítás
+A módosítás előtti teljes állapot mentése itt van: **`backup/channel-switch-before-android-test-20261029`**.
+
+Ha a TV-s próba nem jó, a `main` ágon futtasd:
+```bash
+git checkout main
+git checkout backup/channel-switch-before-android-test-20261029 -- web/src/components/VideoPlayer.tsx
+git commit -m "Rollback Android-style channel switch test"
+git push origin main
+```
+
+Ez visszaállítja az eredeti `VideoPlayer.tsx`-et. A próba kapcsolója a fájl tetején található: `ANDROID_STYLE_LIVE_ZAP_TEST = true`; kikapcsolásával a korábbi csatornaváltási útvonal aktiválható, de a teljes eredeti állapothoz a fenti visszaállítás ajánlott.
