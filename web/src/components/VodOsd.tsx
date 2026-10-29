@@ -5,6 +5,7 @@ import {
   Plus, Rewind, Subtitles, Volume2, VolumeX, X,
 } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
+import { trackLabel, trackMeta } from '../utils/trackLabels';
 
 /**
  * FILM / SOROZAT OSD – a referencia (sharktie/lg-iptv) VOD-lejátszó OSD-jének
@@ -51,46 +52,6 @@ interface VodOsdProps {
   onActivity?: () => void;
   /** A hívó (VideoPlayer) ezen keresztül éri el az OSD gyökerét (fókusz, mérés). */
   rootRef?: React.RefObject<HTMLDivElement | null>;
-}
-
-const LANGUAGE_NAMES: Record<string, string> = {
-  hu: 'Magyar', hun: 'Magyar', magyar: 'Magyar', hungarian: 'Magyar',
-  en: 'Angol', eng: 'Angol', english: 'Angol', original: 'Eredeti hangsáv',
-  fr: 'Francia', fra: 'Francia', fre: 'Francia', french: 'Francia',
-  de: 'Német', deu: 'Német', ger: 'Német', german: 'Német', deutsch: 'Német',
-  es: 'Spanyol', spa: 'Spanyol', spanish: 'Spanyol',
-  it: 'Olasz', ita: 'Olasz', italian: 'Olasz',
-  pl: 'Lengyel', pol: 'Lengyel', pt: 'Portugál', por: 'Portugál',
-  ro: 'Román', ron: 'Román', ru: 'Orosz', rus: 'Orosz',
-  uk: 'Ukrán', ukr: 'Ukrán', nl: 'Holland', nld: 'Holland',
-  cs: 'Cseh', ces: 'Cseh', sk: 'Szlovák', slk: 'Szlovák',
-  hr: 'Horvát', hrv: 'Horvát', sr: 'Szerb', srp: 'Szerb',
-  sv: 'Svéd', swe: 'Svéd', da: 'Dán', dan: 'Dán',
-  no: 'Norvég', nor: 'Norvég', fi: 'Finn', fin: 'Finn',
-  tr: 'Török', tur: 'Török', ar: 'Arab', ara: 'Arab',
-  el: 'Görög', ell: 'Görög', ja: 'Japán', jpn: 'Japán',
-  ko: 'Koreai', kor: 'Koreai', zh: 'Kínai', zho: 'Kínai',
-};
-
-const normalize = (value: unknown) => String(value || '').toLowerCase().replace(/_/g, '-');
-
-/** A sáv neve: ha csak egy rövid nyelvkód van, magyar nevet mutatunk. */
-function trackLabel(name?: string, lang?: string, fallback = 'Hangsáv'): string {
-  const rawName = String(name || '').trim();
-  const rawLang = String(lang || '').trim();
-  const nameKey = normalize(rawName);
-  const langKey = normalize(rawLang);
-  const isShortCode = /^[a-z]{2,3}(?:-[a-z]{2,4})?$/i.test(rawName);
-  const isGeneric = /^(?:hangsáv|audio|track|sáv|felirat|subtitle)\s*#?\s*\d*$/i.test(rawName);
-  if (rawName && !isShortCode && !isGeneric) return rawName;
-  return LANGUAGE_NAMES[langKey] || LANGUAGE_NAMES[langKey.split('-')[0]]
-    || LANGUAGE_NAMES[nameKey] || LANGUAGE_NAMES[nameKey.split('-')[0]]
-    || rawLang || fallback;
-}
-
-function trackMeta(lang?: string, codec?: string, channels?: number | string): string {
-  const rawLang = String(lang || '').trim();
-  return [rawLang ? rawLang.toUpperCase() : '', codec, channels].filter(Boolean).join(' / ');
 }
 
 function formatTime(seconds: number): string {
@@ -638,16 +599,17 @@ export const VodOsd: React.FC<VodOsdProps> = ({
         >
           <div
             onClick={(event) => event.stopPropagation()}
+            data-track-panel="vod"
             className="w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden rounded-2xl border-2 border-blue-500/60 bg-[#081329] shadow-2xl"
           >
-            <div className="flex items-center justify-between gap-3 border-b border-blue-900/60 bg-[#0a1835] p-4">
-              <div className="flex items-center gap-2 min-w-0">
+            <div className="relative flex items-center justify-center gap-3 border-b border-blue-900/60 bg-[#0a1835] px-12 py-3 text-center">
+              <div className="flex items-center justify-center gap-2 min-w-0">
                 {menu === 'audio'
                   ? <Languages className="w-5 h-5 shrink-0 text-emerald-300" />
                   : <Captions className="w-5 h-5 shrink-0 text-emerald-300" />}
                 <div className="min-w-0">
-                  <h2 className="text-base sm:text-lg font-black tracking-wide text-white truncate">{menuTitle}</h2>
-                  <p className="text-[11px] text-slate-400 truncate">
+                  <h2 className="text-base sm:text-lg font-black tracking-wide text-white">{menuTitle}</h2>
+                  <p className="text-[11px] text-slate-400">
                     Alap nyelv: Beállítások → Mozi &amp; Sorozat (Magyar)
                   </p>
                 </div>
@@ -656,13 +618,13 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                 type="button"
                 onClick={() => onMenuChange(null)}
                 aria-label="Bezárás"
-                className="p-1.5 rounded-full border-2 border-blue-500/60 bg-[#0e1d3b] text-blue-300 transition-all hover:bg-[#16274b] active:scale-90"
+                className="absolute right-3 top-3 p-1.5 rounded-full border-2 border-blue-500/60 bg-[#0e1d3b] text-blue-300 transition-all hover:bg-[#16274b] active:scale-90"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto p-4">
+            <div data-track-list="" className="flex-1 min-h-0 space-y-2 overflow-y-auto p-4">
               {menu === 'subtitle' && (
                 <>
                   {subtitleTracks.length === 0 && (
@@ -679,29 +641,24 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                         key={String(track.id)}
                         type="button"
                         data-vod-menu-item=""
+                        data-track-option=""
                         data-vod-menu-selected={selected ? '1' : undefined}
                         onClick={() => { onActivity?.(); onSelectSubtitle(track); onMenuChange(null); }}
-                        className={`w-full rounded-2xl border p-3 text-left transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
+                        className={`w-full rounded-2xl border p-3 text-center transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
                           selected
                             ? 'border-blue-400 bg-[#0f244a] text-white ring-1 ring-blue-400/40'
                             : 'border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042]'
                         }`}
                       >
-                        <span className="flex items-center justify-between gap-3">
-                          <span className="min-w-0">
-                            <span className="block truncate text-xs sm:text-sm font-bold">
-                              {trackLabel(track.name, track.lang, 'Felirat')}
-                            </span>
-                            <span className="mt-0.5 block truncate text-[11px] font-mono text-slate-400">
-                              {String(track.lang || '').toUpperCase() || 'Lejátszó feliratsáv'}
-                            </span>
-                          </span>
-                          {selected && (
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-400 text-slate-950">
-                              <Check className="w-4 h-4 stroke-[3]" />
-                            </span>
-                          )}
+                        <span data-track-content="">
+                          <span data-track-title="">{trackLabel(track.name, track.lang, 'Felirat')}</span>
+                          <span data-track-meta="" className="text-slate-400">{trackMeta(track.lang) || 'Lejátszó feliratsáv'}</span>
                         </span>
+                        {selected && (
+                          <span data-track-check="" className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400 text-slate-950">
+                            <Check className="w-4 h-4 stroke-[3]" />
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -724,33 +681,28 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                         key={String(track.id)}
                         type="button"
                         data-vod-menu-item=""
+                        data-track-option=""
                         data-vod-menu-selected={selected ? '1' : undefined}
                         onClick={() => { onActivity?.(); onSelectAudio(track); onMenuChange(null); }}
-                        className={`w-full rounded-2xl border p-3 text-left transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
+                        className={`w-full rounded-2xl border p-3 text-center transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
                           selected
                             ? 'border-blue-400 bg-[#0f244a] text-white ring-1 ring-blue-400/40'
                             : 'border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042]'
                         }`}
                       >
-                        <span className="flex items-center justify-between gap-3">
-                          <span className="min-w-0">
-                            <span className="block truncate text-xs sm:text-sm font-bold">
-                              {trackLabel(track.name, track.lang)}
-                            </span>
-                            <span className="mt-0.5 block truncate text-[11px] font-mono text-slate-400">
-                              {meta || 'Elérhető hangsáv'}
-                            </span>
-                          </span>
-                          {selected && (
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-400 text-slate-950">
-                              <Check className="w-4 h-4 stroke-[3]" />
-                            </span>
-                          )}
+                        <span data-track-content="">
+                          <span data-track-title="">{trackLabel(track.name, track.lang)}</span>
+                          <span data-track-meta="" className="text-slate-400">{meta || 'Elérhető hangsáv'}</span>
                         </span>
+                        {selected && (
+                          <span data-track-check="" className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400 text-slate-950">
+                            <Check className="w-4 h-4 stroke-[3]" />
+                          </span>
+                        )}
                       </button>
                     );
                   })}
-                  <p className="flex items-center gap-1.5 pt-1 text-[11px] text-slate-500">
+                  <p className="flex items-center justify-center gap-1.5 pt-1 text-[11px] text-slate-500">
                     <Plus className="w-3 h-3" />
                     A magyar hangsáv automatikusan kiválasztódik, ha van ilyen.
                   </p>
@@ -759,7 +711,7 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             </div>
 
             {/* Távirányító-súgó: a színes gombok közvetlenül ezt a dobozt nyitják. */}
-            <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-blue-900/60 bg-[#071227] px-4 py-2 text-[11px] font-bold text-slate-400">
+            <div data-track-help="" className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-blue-900/60 bg-[#071227] px-4 py-2 text-[11px] font-bold text-slate-400">
               <span><span className="text-emerald-400">ZÖLD</span> = hangsáv</span>
               <span><span className="text-blue-400">KÉK</span> = felirat</span>
               <span>▲▼ = választás</span>

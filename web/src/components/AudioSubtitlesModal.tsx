@@ -2,6 +2,7 @@ import React from 'react';
 import { AudioTrack, SubtitleTrack, AppSettings, SubtitleSize } from '../types/iptv';
 import { Subtitles, Mic2, Check } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
+import { trackLabel, trackMeta } from '../utils/trackLabels';
 
 interface AudioSubtitlesModalProps {
   isOpen: boolean;
@@ -19,10 +20,22 @@ type LiveAudioCcSelectorProps = Pick<AudioSubtitlesModalProps,
   'isOpen' | 'onClose' | 'audioTracks' | 'onSelectAudioTrack' | 'subtitleTracks' | 'onSelectSubtitleTrack'
 >;
 
+/** A logikai TV-kijelölés kövesse a kisebb, görgethető listát is. */
+function revealFocusedTrack(panel: HTMLElement | null): void {
+  const row = panel?.querySelector<HTMLElement>('[data-track-focused="1"]');
+  const list = row?.closest<HTMLElement>('[data-track-list]');
+  if (!row || !list) return;
+  const rowRect = row.getBoundingClientRect();
+  const listRect = list.getBoundingClientRect();
+  if (rowRect.top < listRect.top) list.scrollTop += rowRect.top - listRect.top;
+  else if (rowRect.bottom > listRect.bottom) list.scrollTop += rowRect.bottom - listRect.bottom;
+}
+
 /** Élő TV: egyetlen, kétoszlopos távirányítós hangsáv- és CC-választó. */
 const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
   isOpen, onClose, audioTracks = [], onSelectAudioTrack, subtitleTracks = [], onSelectSubtitleTrack,
 }) => {
+  const panelRef = React.useRef<HTMLDivElement>(null);
   const [column, setColumn] = React.useState<'audio' | 'subtitle'>('audio');
   const [audioId, setAudioId] = React.useState<string>('');
   const [subtitleId, setSubtitleId] = React.useState<string>('');
@@ -92,35 +105,39 @@ const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [isOpen, column, audioTracks, subtitleItems, audioId, subtitleId, onClose, onSelectAudioTrack, onSelectSubtitleTrack]);
 
+  React.useLayoutEffect(() => {
+    if (isOpen) revealFocusedTrack(panelRef.current);
+  }, [isOpen, column, audioId, subtitleId, audioTracks, subtitleTracks]);
+
   if (!isOpen) return null;
-  const panel = 'min-w-0 rounded-xl border border-slate-700/70 bg-[#09152c] p-3 flex flex-col gap-2';
-  const rowClass = (focused: boolean, selected: boolean) => `p-3 w-full rounded-xl flex items-center justify-between text-left border transition-all ${focused ? 'bg-[#0f244a] border-yellow-400 text-white shadow-md ring-2 ring-yellow-400/80' : selected ? 'bg-[#0f244a] border-cyan-400 text-white shadow-md ring-1 ring-cyan-400/40' : 'bg-[#0a152d] border-slate-800 text-slate-300'}`;
+  const panel = 'min-w-0 min-h-0 rounded-xl border border-slate-700/70 bg-[#09152c] p-3 flex flex-col gap-2';
+  const rowClass = (focused: boolean, selected: boolean) => `p-3 w-full rounded-xl flex items-center justify-center text-center border transition-all ${focused ? 'bg-[#0f244a] border-yellow-400 text-white shadow-md ring-2 ring-yellow-400/80' : selected ? 'bg-[#0f244a] border-cyan-400 text-white shadow-md ring-1 ring-cyan-400/40' : 'bg-[#0a152d] border-slate-800 text-slate-300'}`;
   return (
     <div className="fixed inset-0 z-[2147483010] flex items-center justify-center p-3 md:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn select-none pointer-events-auto">
-      <div role="dialog" aria-modal="true" aria-label="Élő TV hangsáv és CC választás" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
-        <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
+      <div ref={panelRef} data-track-panel="live" role="dialog" aria-modal="true" aria-label="Élő TV hangsáv és CC választás" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
+        <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-center text-center">
           <div className="flex items-center gap-2"><Mic2 className="w-5 h-5 text-rose-400 stroke-[2.5]" /><Subtitles className="w-5 h-5 text-cyan-300 stroke-[2.5]" /><h2 className="text-base sm:text-lg font-black text-white tracking-wide">HANGSÁV / CC</h2></div>
         </div>
         <div className="grid grid-cols-2 gap-3 p-3 md:p-4 overflow-hidden min-h-0">
-          <section className={panel}><h3 className="text-xs font-black text-rose-400 uppercase tracking-wider flex items-center gap-1.5"><Mic2 className="w-4 h-4" />HANGSÁV</h3>
-            <div className="overflow-y-auto min-h-0 space-y-1.5">
+          <section className={panel}><h3 className="text-sm font-black text-rose-400 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center"><Mic2 className="w-4 h-4" />HANGSÁV</h3>
+            <div data-track-list="" className="overflow-y-auto min-h-0 space-y-1.5">
               {audioTracks.length === 0 && <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">Nincs jelzett választható hangsáv.</p>}
-              {audioTracks.map((track) => { const id = String(track.id); const selected = track.selected === true; return <button key={id} onClick={() => { setColumn('audio'); setAudioId(id); setPendingAudioId(id); onSelectAudioTrack?.(track); if (selected) { setPendingAudioId(null); onClose(); } }} className={rowClass(column === 'audio' && audioId === id, selected)} aria-pressed={selected}>
-                <span className="min-w-0"><span className="block text-xs sm:text-sm font-bold">{track.name || track.lang || 'Hangsáv'}</span><span className="block text-[11px] text-slate-400 font-mono mt-0.5">{[track.lang, track.codec, track.channels].filter(Boolean).join(' / ') || 'Lejátszó hangsáv'}</span></span>
-                {selected && <span className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0"><Check className="w-4 h-4 stroke-[3]" /></span>}
+              {audioTracks.map((track) => { const id = String(track.id); const selected = track.selected === true; return <button key={id} data-track-option="" data-track-focused={column === 'audio' && audioId === id ? '1' : undefined} onClick={() => { setColumn('audio'); setAudioId(id); setPendingAudioId(id); onSelectAudioTrack?.(track); if (selected) { setPendingAudioId(null); onClose(); } }} className={rowClass(column === 'audio' && audioId === id, selected)} aria-pressed={selected}>
+                <span data-track-content=""><span data-track-title="">{trackLabel(track.name, track.lang)}</span><span data-track-meta="" className="text-slate-400">{trackMeta(track.lang, track.codec, track.channels) || 'Lejátszó hangsáv'}</span></span>
+                {selected && <span data-track-check="" className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Check className="w-4 h-4 stroke-[3]" /></span>}
               </button>; })}
             </div>
           </section>
-          <section className={panel}><h3 className="text-xs font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1.5"><Subtitles className="w-4 h-4" />CC / FELIRAT</h3>
-            <div className="overflow-y-auto min-h-0 space-y-1.5">
+          <section className={panel}><h3 className="text-sm font-black text-cyan-300 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center"><Subtitles className="w-4 h-4" />CC / FELIRAT</h3>
+            <div data-track-list="" className="overflow-y-auto min-h-0 space-y-1.5">
               {subtitleTracks.length === 0 && <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">Nincs jelzett választható felirat.</p>}
-              {subtitleItems.map((track) => { const id = String(track?.id ?? 'off'); const selected = track ? track.selected === true : !subtitleTracks.some((item) => item.selected === true); return <button key={id} onClick={() => {
+              {subtitleItems.map((track) => { const id = String(track?.id ?? 'off'); const selected = track ? track.selected === true : !subtitleTracks.some((item) => item.selected === true); return <button key={id} data-track-option="" data-track-focused={column === 'subtitle' && subtitleId === id ? '1' : undefined} onClick={() => {
                 setColumn('subtitle'); setSubtitleId(id);
                 if (!track) { onSelectSubtitleTrack?.(null); setPendingSubtitleId(null); onClose(); return; }
                 setPendingSubtitleId(id); onSelectSubtitleTrack?.(track); if (selected) { setPendingSubtitleId(null); onClose(); }
               }} className={rowClass(column === 'subtitle' && subtitleId === id, selected)} aria-pressed={selected}>
-                <span className="text-xs sm:text-sm font-bold">{track ? (track.name || track.lang || 'Felirat') : 'Felirat kikapcsolva'}</span>
-                {selected && <span className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0"><Check className="w-4 h-4 stroke-[3]" /></span>}
+                <span data-track-content=""><span data-track-title="">{track ? trackLabel(track.name, track.lang, 'Felirat') : 'Felirat kikapcsolva'}</span></span>
+                {selected && <span data-track-check="" className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Check className="w-4 h-4 stroke-[3]" /></span>}
               </button>; })}
             </div>
           </section>
@@ -141,6 +158,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
   subtitleTracks = [],
   onSelectSubtitleTrack,
 }) => {
+  const panelRef = React.useRef<HTMLDivElement>(null);
   const [pendingAudioTrackId, setPendingAudioTrackId] = React.useState<string | null>(null);
   const [pendingSubtitleTrackId, setPendingSubtitleTrackId] = React.useState<string | null>(null);
   const [focusedAudioTrackId, setFocusedAudioTrackId] = React.useState<string | null>(null);
@@ -217,6 +235,10 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
     }
   }, [isOpen, mode, pendingSubtitleTrackId, subtitleTracks, onClose]);
 
+  React.useLayoutEffect(() => {
+    if (isOpen && mode === 'audio') revealFocusedTrack(panelRef.current);
+  }, [isOpen, mode, focusedAudioTrackId, audioTracks]);
+
   if (!isOpen) return null;
   if (mode === 'live') return <LiveAudioCcSelector isOpen={isOpen} onClose={onClose} audioTracks={audioTracks} onSelectAudioTrack={onSelectAudioTrack} subtitleTracks={subtitleTracks} onSelectSubtitleTrack={onSelectSubtitleTrack} />;
 
@@ -225,15 +247,15 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
   // mentette, a stream hangsávját nem tudta megváltoztatni.
   const orderedAudioOptions = audioTracks.map((track) => ({
     id: String(track.id),
-    name: track.name || track.lang || 'Hangsáv',
-    format: [track.lang, track.codec, track.channels].filter(Boolean).join(' / ') || 'Lejátszó hangsáv',
+    name: trackLabel(track.name, track.lang),
+    format: trackMeta(track.lang, track.codec, track.channels) || 'Lejátszó hangsáv',
     track,
   }));
   const availableTracks = subtitleTracks;
   const subtitleOptions: Array<{ id: string; name: string; track?: SubtitleTrack }> = [
     ...availableTracks.map((track) => ({
       id: String(track.id),
-      name: track.name || track.lang || 'Felirat',
+      name: trackLabel(track.name, track.lang, 'Felirat'),
       track,
     })),
     { id: 'Kikapcsolva', name: 'Felirat kikapcsolva' },
@@ -248,8 +270,8 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
      * legfelső rétegre kerül (az OSD 2147483001 felett).
      */
     <div className="fixed inset-0 z-[2147483010] flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto pointer-events-auto">
-      <div role="dialog" aria-modal="true" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl w-full max-h-[85vh] lg:max-h-[80vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
-        <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
+      <div ref={panelRef} data-track-panel="single" role="dialog" aria-modal="true" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl w-full max-h-[85vh] lg:max-h-[80vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
+        <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-center text-center">
           <div className="flex items-center gap-2">
             {mode === 'subtitle'
               ? <Subtitles className="w-5 h-5 text-cyan-300 stroke-[2.5]" />
@@ -258,10 +280,10 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div data-track-list="" className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           {mode === 'audio' ? (
             <div className="space-y-2">
-              <h3 className="text-xs font-black text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+              <h3 className="text-sm font-black text-rose-400 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center">
                 <Mic2 className="w-3.5 h-3.5 text-rose-400" />
                 <span>Hangsáv Választása</span>
               </h3>
@@ -277,6 +299,8 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
                   return (
                     <button
                       key={opt.id}
+                      data-track-option=""
+                      data-track-focused={focusedAudioTrackId === opt.id ? '1' : undefined}
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -296,11 +320,11 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
                             : 'bg-[#0a152d] border-slate-800 text-slate-300 hover:bg-[#102042]'
                       }`}
                     >
-                      <div>
-                        <span className="block text-xs sm:text-sm font-bold">{opt.name}</span>
-                        <span className="block text-[11px] text-slate-400 font-mono mt-0.5">{opt.format}</span>
-                      </div>
-                      {isSelected && <span className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0"><Check className="w-4 h-4 stroke-[3]" /></span>}
+                      <span data-track-content="">
+                        <span data-track-title="">{opt.name}</span>
+                        <span data-track-meta="" className="text-slate-400">{opt.format}</span>
+                      </span>
+                      {isSelected && <span data-track-check="" className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Check className="w-4 h-4 stroke-[3]" /></span>}
                     </button>
                   );
                 })}
@@ -309,7 +333,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
           ) : (
           <>
           <div className="space-y-2">
-            <h3 className="text-xs font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+            <h3 className="text-sm font-black text-cyan-300 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center">
               <Subtitles className="w-3.5 h-3.5 text-cyan-300" />
               <span>FELIRAT VÁLASZTÁS</span>
             </h3>
@@ -330,6 +354,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
                 return (
                   <button
                     key={opt.id}
+                    data-track-option=""
                     onClick={() => {
                       if (opt.id === 'Kikapcsolva') {
                         if (availableTracks.length > 0) onSelectSubtitleTrack?.(null);
@@ -354,8 +379,8 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
                         : 'bg-[#0a152d] border-slate-800 text-slate-300 hover:bg-[#102042]'
                     }`}
                   >
-                    <span className="text-xs sm:text-sm font-bold">{opt.name}</span>
-                    {isSelected && <span className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0"><Check className="w-4 h-4 stroke-[3]" /></span>}
+                    <span data-track-content=""><span data-track-title="">{opt.name}</span></span>
+                    {isSelected && <span data-track-check="" className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Check className="w-4 h-4 stroke-[3]" /></span>}
                   </button>
                 );
               })}
@@ -363,7 +388,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
           </div>
 
           <div className="pt-3 border-t border-cyan-950 space-y-2">
-            <h3 className="text-xs font-black text-cyan-300 uppercase tracking-wider">Felirat mérete</h3>
+            <h3 className="text-sm font-black text-cyan-300 uppercase tracking-wider text-center">Felirat mérete</h3>
             <div className="grid grid-cols-5 gap-1">
               {subtitleSizes.map((size) => (
                 <button
