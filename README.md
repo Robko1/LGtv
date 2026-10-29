@@ -129,4 +129,4 @@ git commit -m "Rollback Android-style channel switch test"
 git push origin main
 ```
 
-Ez visszaállítja az eredeti `VideoPlayer.tsx`-et. A próba kapcsolója a fájl tetején található: `ANDROID_STYLE_LIVE_ZAP_TEST = true`; kikapcsolásával a korábbi csatornaváltási útvonal aktiválható, de a teljes eredeti állapothoz a fenti visszaállítás ajánlott.
+Ez visszaállítja az eredeti `VideoPlayer.tsx`-et. A próba alapértelmezetten aktív. A régi fallback/recovery regressziós tesztek a `window.__IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__ = false` kapcsolóval külön a korábbi útvonalat tesztelik; ez a TV-s próba működését nem kapcsolja ki.
