@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom';
 import assert from 'node:assert/strict';
 const esbuild = createRequire(resolve('web/package.json'))('esbuild');
 const harness = `
-import React, {useState} from 'react';
+import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {VodOsd} from './web/src/components/VodOsd';
 import {ChannelList} from './web/src/components/ChannelList';
@@ -15,11 +15,11 @@ import {storageService} from './web/src/services/storageService';
 window.readSettings = () => storageService.getSettings();
 window.calls = {mute:0, seeks:[], seekBy:[], volumes:[], play:0, selected:[]};
 function Harness() {
- const [volume,setVolume] = useState(0.5);
+ const volume = 0.5;
  return <VodOsd title="Film" currentTime={30} duration={100} isPlaying={true} volume={volume} seekStep={10}
  audioTracks={[]} subtitleTracks={[]} activeSubtitleId={null} menu={null} onMenuChange={()=>{}}
  onTogglePlay={()=>window.calls.play++} onSeekBy={n=>window.calls.seekBy.push(n)} onSeekTo={n=>window.calls.seeks.push(n)}
- onSelectAudio={()=>{}} onSelectSubtitle={()=>{}} onClose={()=>{}} onVolumeChange={n=>{window.calls.volumes.push(n);setVolume(n)}}
+ onSelectAudio={()=>{}} onSelectSubtitle={()=>{}} onClose={()=>{}}
  onToggleMute={()=>window.calls.mute++}/>;
 }
 createRoot(document.getElementById('root')).render(<Harness />);
@@ -49,17 +49,8 @@ assert.equal(restored.preferredAudioLang, 'Angol');
 const get = selector => { const el=doc.querySelector(selector); assert.ok(el,selector); return el; };
 get('[data-vod-osd-volume]').click();
 assert.equal(window.calls.mute,1,'a némítás azonnali, nincs duplakattintás-időzítő');
-get('[data-vod-osd-volume-slider]').click();
-await tick(70);
-const slider=get('input[aria-label="Hangerő"]');
-assert.equal(doc.activeElement,slider,'a TV a hangerőn kapja a fókuszt');
-slider.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowUp',keyCode:38,bubbles:true}));
-await tick(30);
-assert.ok(Math.abs(window.calls.volumes.at(-1)-0.55)<0.001,'TV-nyíllal állítható a hangerő');
-slider.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',keyCode:461,bubbles:true}));
-await tick(30);
-assert.equal(doc.querySelector('input[aria-label="Hangerő"]'),null,'VISSZA csak a csúszkát zárja');
-assert.equal(doc.activeElement,get('[data-vod-osd-volume-slider]'));
+assert.equal(doc.querySelector('[data-vod-osd-volume-slider]'), null, 'nincs plusz/csúszka az OSD-ben');
+assert.equal(doc.querySelector('[data-vod-volume-range]'), null);
 const seek=get('[data-vod-osd-seek]'); seek.focus();
 seek.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowRight',keyCode:39,bubbles:true}));
 assert.equal(window.calls.seekBy.at(-1),1,'TV nyíllal tekerés továbbra is működik');
@@ -85,4 +76,4 @@ assert.equal(manifest.splashBackground,'splash-screen.png');
 const versionFile = readFileSync(resolve('web/src/appVersion.ts'),'utf8');
 assert.match(versionFile, /WEB_VERSION\s*=\s*'[0-9]+\.[0-9]+\.[0-9]+'/);
 assert.match(versionFile, /version:\s*'[^']+'/,'a GitHub IPK workflow verziócseréje működőképes');
-console.log('OK – webOS + React: TV VOD némítás, hangerő, fókusz, VISSZA, idővonal és Magic Remote');
+console.log('OK – webOS + React: TV VOD némítás, plusz nélkül, idővonal és Magic Remote');

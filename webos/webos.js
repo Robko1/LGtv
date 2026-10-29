@@ -996,18 +996,20 @@
       // PIROS / Record (403) = TÜKRÖZÖTT elrendezés be/ki (a felhasználó
       // kérésére); SÁRGA (405) = kézi hibakeresési napló ablak.
       //
-      // FILM / SOROZAT alatt a ZÖLD és a KÉK gomb a LEJÁTSZÓ kék OSD-jének
-      // választóját nyitja: ZÖLD = hangsávok, KÉK = feliratok (CC). Élő TV-n
-      // ugyanezek a gombok a régi funkciót viszik: ZÖLD = hangsáv-ablak,
-      // KÉK = csatornamozgatás a listában. A felismerés a lejátszó
-      // data-vod-active jelölésén alapul (csak film/sorozat alatt van ott).
+      // Film/sorozat közben a ZÖLD közös sávválasztót nyit. KÉK sem
+      // lejátszáskor, sem a film- vagy sorozatböngészőben nem végez műveletet.
       var vodActive = false;
+      var vodView = false;
       try {
         vodActive = !!document.querySelector('[data-tv-player][data-vod-active]');
+        var currentPane = document.querySelector('[data-view-pane]:not([data-view-hidden])');
+        var view = currentPane && currentPane.getAttribute('data-view-pane');
+        vodView = view === 'movies' || view === 'series';
       } catch (eVod) { vodActive = false; }
+      if (kc === 406 && (vodActive || vodView)) return;
       var tvAction = kc === 403 ? 'mirror'
         : (kc === 404 ? (vodActive ? 'vod-audio' : 'audio')
-        : (kc === 405 ? 'diagnostic-share' : (vodActive ? 'vod-subtitles' : 'move')));
+        : (kc === 405 ? 'diagnostic-share' : 'move'));
       var evAction = null;
       try {
         evAction = new CustomEvent('iptv-tv-action', { detail: { action: tvAction } });
@@ -1025,10 +1027,6 @@
     // kilép a mezőből (lezárja a virtuális billentyűzet utáni beragadást),
     // FEL/LE nyíl pedig kinavigál a mezőből a környező vezérlőkre.
     var activeNow = document.activeElement;
-    // A VOD hangerő-csúszka nem szövegmező: a saját React kezelője kapja
-    // a nyilakat és a VISSZA gombot, ne a virtuális billentyűzet navigációja.
-    if (activeNow && activeNow.hasAttribute && activeNow.hasAttribute('data-vod-volume-range') &&
-        (isArrowKey(key) || key === 'Escape' || key === 'Backspace' || kc === 461)) return;
     var inTextNow = activeNow && /^(INPUT|TEXTAREA)$/.test(activeNow.tagName);
     if (inTextNow && (kc === 461 || (key === 'Escape' && kc !== 8))) {
       e.preventDefault();

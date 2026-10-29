@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
 import {
   appLog,
@@ -28,6 +28,7 @@ import {
 import { ChannelLogo } from './ChannelLogo';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { VodOsd } from './VodOsd';
+import { LiveAudioCcSelector } from './AudioSubtitlesModal';
 import {
   VodSubtitleSource,
   SubtitleCue,
@@ -612,7 +613,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isPlaying,
   setIsPlaying,
   volume,
-  onVolumeChange,
   onToggleMute,
   onRegisterTogglePlay,
   onRegisterCast,
@@ -1811,7 +1811,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isVod]);
   const [showFullscreenEpg, setShowFullscreenEpg] = useState<boolean>(false);
   const osdHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [vodTrackMenu, setVodTrackMenu] = useState<'audio' | 'subtitle' | null>(null);
+  const [vodTrackMenu, setVodTrackMenu] = useState<'audio' | 'subtitle' | 'combined' | null>(null);
   /**
    * Film/sorozat OSD: minden felhasználói művelet (gombnyomás, tekerés)
    * újraindítja az eltűnési időzítőt – így nem tűnik el a kezünk alól.
@@ -2955,14 +2955,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   /** A muxolt (HTML) + beágyazott (Luna) + szolgáltatói feliratok együtt (ezt látja az OSD). */
-  const availableVodSubtitleTracks: SubtitleTrack[] = [
+  const availableVodSubtitleTracks = useMemo<SubtitleTrack[]>(() => [
     ...vodSubtitleTracks,
     ...embeddedSubtitleTracks.filter((embedded) =>
       !vodSubtitleTracks.some((track) => String(track.id) === String(embedded.id))),
     ...providerSubtitleTracks.filter((provider) =>
       !vodSubtitleTracks.some((track) => String(track.id) === String(provider.id))
       && !embeddedSubtitleTracks.some((track) => String(track.id) === String(provider.id))),
-  ];
+  ].map((track) => ({ ...track, selected: activeVodSubtitleId != null && String(track.id) === String(activeVodSubtitleId) })),
+  [vodSubtitleTracks, embeddedSubtitleTracks, providerSubtitleTracks, activeVodSubtitleId]);
 
   const selectVodSubtitleRef = useRef<((track: SubtitleTrack | null) => void) | null>(null);
   const selectVodSubtitle = (track: SubtitleTrack | null) => {
@@ -2982,7 +2983,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setVodTrackMenu(null);
       appLog(`Film felirat kiválasztva: beágyazott sáv=${track.name || track.lang || track.id}.`);
       const scalePercent = Number(String(settings.subtitleSize || '100%').replace('%', '')) || 100;
-      void selectEmbeddedSubtitle(htmlVideoRef.current, lunaIndex, scalePercent).then((applied) => {
+      const selectionVideo = htmlVideoRef.current;
+      const selectionGeneration = streamLoadGenerationRef.current;
+      void selectEmbeddedSubtitle(selectionVideo, lunaIndex, scalePercent).then((applied) => {
+        if (selectionGeneration !== streamLoadGenerationRef.current || selectionVideo !== htmlVideoRef.current) return;
+        // Egy korábbi, még folyamatban lévő Luna-bekapcsolás a kikapcsolás
+        // után érhet célba. Ilyenkor ismét tiltsuk le, de csak ugyanazon filmnél.
+        if (!lunaSubtitleActiveRef.current) {
+          void disableEmbeddedSubtitle(selectionVideo);
+        }
         if (!applied && userVodSubtitleChoiceRef.current === String(track.id)) {
           // A TV nem kapcsolta be: az OSD ne mutassa bekapcsoltnak, és a
           // sikertelen próbálkozás ne zárja el a többi feliratforrást sem.
@@ -3229,17 +3238,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
 
   /*
-   * TÁVIRANYÍTÓ: ZÖLD (hangsáv) / KÉK (felirat) gomb film közben.
+   * TÁVIRÁNYÍTÓ: ZÖLD – közös hangsáv- és feliratválasztó film közben.
    *
    * A webos.js a színes gombot minden fókuszhelyzetben elkapja, ezért a
-   * lejátszó külön eseményt kap – így a kék választó doboz akkor is kinyílik,
-   * ha az OSD éppen rejtve volt, és a fókusz rögtön a kiválasztott sorra kerül.
+   * lejátszó külön eseményt kap – az egyesített választó akkor is kinyílik,
+   * ha az OSD éppen rejtve volt.
    */
   useEffect(() => {
     if (!isVod) return;
     const onVodMenu = (event: Event) => {
       const menu = (event as CustomEvent)?.detail?.menu;
-      if (menu !== 'audio' && menu !== 'subtitle') return;
+      if (menu !== 'combined') return;
       setVodTrackMenu(menu);
       setShowControlsOverlay(true);
       setVodOsdActivity((value) => value + 1);
@@ -3248,7 +3257,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
        * Előfordulhat, hogy az induló keresés hálózati időtúllépésbe futott;
        * ilyenkor a néző ne maradjon felirat nélkül task nélkül.
        */
-      if (menu === 'subtitle' && vodSubtitleTracks.length === 0 && providerSubtitleTracks.length === 0) {
+      if (vodSubtitleTracks.length === 0 && providerSubtitleTracks.length === 0) {
         appLog('Felirat választó: nincs sáv – a szolgáltatói feliratkeresés újraindul.');
         providerSubtitleRequestRef.current = '';
         setSubtitleSearchNonce((value) => value + 1);
@@ -3408,9 +3417,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     // 2) FELIRAT: a kézi választást és a már bekapcsolt feliratot nem írjuk felül.
-    // A film/sorozat CC-választóban nincs „kikapcsolva” mód: a feliratlista
-    // ugyanúgy választható marad a lejátszó által elérhető sávlistából. Régi mentett
-    // „Kikapcsolva” beállítást Magyar alapnyelvre kezelünk, nem tiltásként.
+    // Régi mentett „Kikapcsolva” alapbeállítást továbbra is Magyar nyelvként
+    // kezelünk; a lejátszás közben kézzel kért kikapcsolást nem írjuk felül.
     const savedSubtitlePreference = (settings.preferredSubtitle || 'Magyar').trim();
     const preferredSubtitle = /^kikapcsolva$/i.test(savedSubtitlePreference)
       ? 'Magyar'
@@ -4486,7 +4494,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ref={containerRef}
       data-tv-player=""
       /* Film/sorozat alatt ez a jelölés mondja meg a webos.js-nek, hogy a
-         ZÖLD/KÉK gomb a lejátszó kék OSD-jét nyitja (hangsáv / felirat). */
+         ZÖLD gomb a közös sávválasztót nyitja, KÉK nem végez műveletet. */
       data-vod-active={isVod ? '1' : undefined}
       data-player-engine={playerEngine}
       tabIndex={isFullscreen ? 0 : -1}
@@ -5061,30 +5069,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             a Beállításokban megadott OSD-idő után), a „sebesség” gomb helyén
             pedig a PIROS ✕ áll, ami visszalép a filmválasztáshoz.
           */
-          <VodOsd
-            title={customTitle || 'Film / Sorozat'}
-            currentTime={vodCurrentTime}
-            duration={vodDuration}
-            isPlaying={isPlaying}
-            volume={volume}
-            seekStep={settings.seekStep}
-            audioTracks={vodAudioTracks}
-            subtitleTracks={availableVodSubtitleTracks}
-            activeSubtitleId={activeVodSubtitleId}
-            menu={vodTrackMenu}
-            onMenuChange={setVodTrackMenu}
-            onTogglePlay={togglePlay}
-            onSeekBy={seekVodByConfiguredStep}
-            onSeekTo={seekVod}
-            onSelectAudio={selectVodAudio}
-            onSelectSubtitle={selectVodSubtitle}
-            onClose={() => onCloseVod?.()}
-            onVolumeChange={onVolumeChange}
-            onToggleMute={onToggleMute}
-            onActivity={handleVodOsdActivity}
-            rootRef={vodOsdRef}
-          />
-
+          <>
+            <VodOsd
+              title={customTitle || 'Film / Sorozat'}
+              currentTime={vodCurrentTime}
+              duration={vodDuration}
+              isPlaying={isPlaying}
+              volume={volume}
+              seekStep={settings.seekStep}
+              audioTracks={vodAudioTracks}
+              subtitleTracks={availableVodSubtitleTracks}
+              activeSubtitleId={activeVodSubtitleId}
+              menu={vodTrackMenu === 'combined' ? null : vodTrackMenu}
+              onMenuChange={setVodTrackMenu}
+              onTogglePlay={togglePlay}
+              onSeekBy={seekVodByConfiguredStep}
+              onSeekTo={seekVod}
+              onSelectAudio={selectVodAudio}
+              onSelectSubtitle={selectVodSubtitle}
+              onClose={() => onCloseVod?.()}
+              onToggleMute={onToggleMute}
+              onActivity={handleVodOsdActivity}
+              rootRef={vodOsdRef}
+            />
+            <LiveAudioCcSelector
+              isOpen={vodTrackMenu === 'combined'}
+              preferOffWhenUnselected
+              onClose={() => setVodTrackMenu(null)}
+              audioTracks={vodAudioTracks}
+              onSelectAudioTrack={selectVodAudio}
+              subtitleTracks={availableVodSubtitleTracks}
+              onSelectSubtitleTrack={selectVodSubtitle}
+            />
+          </>
         ) : null}
       </div>
     </div>

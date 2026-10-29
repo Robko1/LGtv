@@ -30,7 +30,7 @@ function VodHarness({ initialMenu }: { initialMenu: 'audio' | 'subtitle' }) {
     onTogglePlay={() => {}} onSeekBy={() => {}} onSeekTo={() => {}}
     onSelectAudio={track => calls.audio.push(String(track.id))}
     onSelectSubtitle={track => calls.subtitle.push(track ? String(track.id) : null)}
-    onClose={() => {}} onVolumeChange={() => {}} onToggleMute={() => {}} />;
+    onClose={() => {}} onToggleMute={() => {}} />;
 }
 function LiveHarness({ mode }: { mode: 'live' | 'audio' | 'subtitle' }) {
   const [open, setOpen] = useState(true);

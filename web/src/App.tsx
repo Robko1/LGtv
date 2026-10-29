@@ -3808,17 +3808,9 @@ export function App() {
       // elrendezést fordítja meg (csatornalista balra, OSD jobbra).
       else if (action === 'mirror') handleToggleMirrorLayout();
       else if (action === 'diagnostic-share') setIsDiagnosticShareOpen(true);
-      /*
-       * FILM / SOROZAT alatt a ZÖLD és a KÉK gomb a lejátszó KÉK OSD-dobozát
-       * nyitja (hangsáv / felirat). A webos.js csak akkor küldi ezeket, ha a
-       * lejátszó data-vod-active jelölése ott van – élő TV-n tehát a régi
-       * funkciók (hangválasztó ablak / csatornamozgatás) maradnak.
-       */
+      // Film/sorozat lejátszásakor a zöld gomb a közös választót nyitja.
       else if (action === 'vod-audio') {
-        window.dispatchEvent(new CustomEvent('iptv-vod-menu', { detail: { menu: 'audio' } }));
-      }
-      else if (action === 'vod-subtitles') {
-        window.dispatchEvent(new CustomEvent('iptv-vod-menu', { detail: { menu: 'subtitle' } }));
+        window.dispatchEvent(new CustomEvent('iptv-vod-menu', { detail: { menu: 'combined' } }));
       }
     };
     window.addEventListener('iptv-tv-action', onTvAction);
