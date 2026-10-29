@@ -4209,7 +4209,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // A pufferprofil élő lejátszás közben is váltható. Nem indítjuk újra a
   // forrást pusztán a módváltás miatt: a következő watchdog/recovery már az
   // új policy-t használja, így a menü tesztelése nem okoz mesterséges akadozást.
-  const loadKey = ANDROID_STYLE_LIVE_ZAP_TEST ? `${streamUrl}|${settings.bufferMode}` : streamUrl;
+  const loadKey = streamUrl;
   useEffect(() => {
     clearAutoRetry();
     clearRecovery();
@@ -4341,7 +4341,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadKey, clearAutoRetry, clearBufferWatchdog, ANDROID_STYLE_LIVE_ZAP_TEST ? settings.bufferMode : settings.streamFormat, playbackActive]);
+  }, [loadKey, clearAutoRetry, clearBufferWatchdog, settings.streamFormat, playbackActive]);
 
   // Play/pause: natív hídon vagy LG webOS HTML5 videón keresztül.
   const togglePlay = () => {
