@@ -499,3 +499,60 @@ body:not(.iptv-tv-fullscreen) [data-fullscreen-osd] {
 body.iptv-tv-fullscreen [data-tv-player].iptv-fs:focus {
   outline: none !important;
 }
+
+/* Élő és VOD sávválasztók: arányos panel, olvasható, középre zárt sorok.
+   A hosszú szolgáltatói címkék új sorba törnek, nem nyúlnak ki a gombból. */
+[data-track-panel] {
+  max-width: 520px;
+  max-height: 75vh;
+  min-height: 0;
+}
+[data-track-panel="live"] { max-width: 800px; }
+/* A webOS általános 92vh-s dialógus-szabályánál ez célzottabb. */
+html body.webos-tv [role="dialog"][data-track-panel],
+html body.webos-tv [data-vod-menu] > [data-track-panel] { max-height: 75vh !important; }
+html body.webos-tv [data-track-panel] [data-track-list] { padding-bottom: 12px !important; }
+[data-track-option] {
+  position: relative;
+  min-width: 0;
+  padding: 10px 38px;
+  text-align: center;
+}
+[data-track-content] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+[data-track-title] {
+  display: block;
+  font-size: 20px;
+  line-height: 1.25;
+  font-weight: 700;
+}
+[data-track-meta] {
+  display: block;
+  margin-top: 3px;
+  font-size: 16px;
+  line-height: 1.3;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+[data-track-check] {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+[data-track-panel] p,
+[data-track-panel] h2,
+[data-track-panel] h3,
+[data-track-help] {
+  text-align: center;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+[data-track-panel] h3 { flex-wrap: wrap; }
+[data-track-help] { max-height: 20vh; overflow-y: auto; font-size: 14px; line-height: 1.3; }
