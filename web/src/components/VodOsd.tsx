@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AudioTrack, SubtitleTrack } from '../types/iptv';
 import {
-  ArrowLeft, Captions, Check, FastForward, Languages, Mic2, Pause, Play,
-  Plus, Rewind, Subtitles, Volume2, VolumeX, X,
+  ArrowLeft, Check, FastForward, Mic2, Pause, Play,
+  Rewind, Subtitles, Volume2, VolumeX, X,
 } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { trackLabel } from '../utils/trackLabels';
@@ -46,7 +46,6 @@ interface VodOsdProps {
   onSelectAudio: (track: AudioTrack) => void;
   onSelectSubtitle: (track: SubtitleTrack | null) => void;
   onClose: () => void;
-  onVolumeChange: (value: number) => void;
   onToggleMute: () => void;
   /** Bármilyen felhasználói művelet – ilyenkor az OSD eltűnési időzítője újraindul. */
   onActivity?: () => void;
@@ -100,7 +99,6 @@ export const VodOsd: React.FC<VodOsdProps> = ({
   onSelectAudio,
   onSelectSubtitle,
   onClose,
-  onVolumeChange,
   onToggleMute,
   onActivity,
   rootRef,
@@ -118,21 +116,6 @@ export const VodOsd: React.FC<VodOsdProps> = ({
    */
   const menuRef = useRef<HTMLDivElement | null>(null);
   const seekRef = useRef<HTMLDivElement | null>(null);
-  const volumeRef = useRef<HTMLDivElement | null>(null);
-  const volumeSliderRef = useRef<HTMLInputElement | null>(null);
-  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
-
-  useEffect(() => {
-    if (!showVolumeSlider) return;
-    const close = (event: PointerEvent) => {
-      if (volumeRef.current && !volumeRef.current.contains(event.target as Node)) {
-        setShowVolumeSlider(false);
-      }
-    };
-    document.addEventListener('pointerdown', close);
-    return () => document.removeEventListener('pointerdown', close);
-  }, [showVolumeSlider]);
-
   const hasAudioChoice = audioTracks.length > 1;
   const hasSubtitleChoice = subtitleTracks.length > 0;
   const hasDuration = Number.isFinite(duration) && duration > 0;
@@ -247,9 +230,8 @@ export const VodOsd: React.FC<VodOsdProps> = ({
   /**
    * A választó doboz billentyűkezelése (CAPTURE).
    *
-   * Csak akkor fut, ha a doboz nyitva van. A színes gombokat (403–406) NEM
-   * nyeli el – így a ZÖLD/KÉK gombbal is lehet váltani a két lista között –,
-   * a VISSZA gomb viszont a dobozt zárja (nem a lejátszót).
+   * Csak akkor fut, ha a doboz nyitva van. A színes gombokat (403–406)
+   * a webOS kezeli, a VISSZA gomb a dobozt zárja (nem a lejátszót).
    */
   useEffect(() => {
     if (!menu) return;
@@ -310,7 +292,7 @@ export const VodOsd: React.FC<VodOsdProps> = ({
     return () => window.removeEventListener('keydown', handler, true);
   }, [menu, onMenuChange, onActivity]);
 
-  const menuTitle = menu === 'audio' ? 'HANGSÁV' : 'FELIRAT';
+  const menuTitle = menu === 'audio' ? 'Hangsáv' : 'Felirat';
 
   return (
     <div
@@ -475,7 +457,7 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             data-vod-osd-subs-choice={hasSubtitleChoice ? '1' : undefined}
             onClick={() => {
               onActivity?.();
-              // A felirat-doboz is mindig kinyílik (CC gomb / KÉK gomb).
+              // A felirat-doboz is mindig kinyílik (OSD CC gomb).
               onMenuChange(menu === 'subtitle' ? null : 'subtitle');
             }}
             className={`${ROUND_BUTTON_BASE} ${hasSubtitleChoice ? ROUND_BUTTON_GREEN : ROUND_BUTTON_IDLE} relative w-[2.85rem] h-[2.85rem] md:w-[3.25rem] md:h-[3.25rem] ${hasSubtitleChoice ? '' : 'opacity-80'}`}
@@ -488,74 +470,18 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             )}
           </button>
 
-          {/* HANGERŐ: külön, távirányítóval is elérhető némító és csúszka. */}
-          <div ref={volumeRef} className="relative flex items-center gap-1">
-            <button
-              type="button"
-              data-vod-focus=""
-              data-vod-osd-volume=""
-              onClick={() => { onActivity?.(); onToggleMute(); }}
-              className={`${ROUND_BUTTON_BASE} ${isMuted ? ROUND_BUTTON_RED : ROUND_BUTTON_IDLE} w-[2.85rem] h-[2.85rem] md:w-[3.25rem] md:h-[3.25rem]`}
-              title={isMuted ? 'Némítás ki' : 'Némítás'}
-              aria-label={isMuted ? 'Hang bekapcsolása' : 'Hang némítása'}
-            >
-              {isMuted ? <VolumeX className="w-[22px] h-[22px]" /> : <Volume2 className="w-[22px] h-[22px]" />}
-            </button>
-            <button
-              type="button"
-              data-vod-focus=""
-              data-vod-osd-volume-slider=""
-              onClick={() => {
-                onActivity?.();
-                if (showVolumeSlider) setShowVolumeSlider(false);
-                else {
-                  setShowVolumeSlider(true);
-                  window.requestAnimationFrame(() => volumeSliderRef.current?.focus({ preventScroll: true }));
-                }
-              }}
-              className={`${ROUND_BUTTON_BASE} ${ROUND_BUTTON_IDLE} w-[2.85rem] h-[2.85rem] md:w-[3.25rem] md:h-[3.25rem]`}
-              aria-label="Hangerő beállítása"
-              aria-expanded={showVolumeSlider}
-              title="Hangerő beállítása"
-            ><Plus className="w-4 h-4" /></button>
-            {showVolumeSlider && (
-              <div
-                className="absolute bottom-[3.4rem] left-1/2 -translate-x-1/2 z-[120] min-w-[70px] rounded-2xl border border-blue-500/50 bg-[#081226]/95 px-4 py-3 shadow-2xl"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <input
-                  ref={volumeSliderRef}
-                  data-vod-volume-range=""
-                  data-vod-focus=""
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={volume}
-                  onChange={(event) => onVolumeChange(Number(event.target.value))}
-                  onKeyDown={(event) => {
-                    const key = normalizeTvKey(event);
-                    if (key === 'ArrowLeft' || key === 'ArrowDown' || key === 'ArrowRight' || key === 'ArrowUp') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onActivity?.();
-                      const delta = key === 'ArrowLeft' || key === 'ArrowDown' ? -0.05 : 0.05;
-                      onVolumeChange(Math.max(0, Math.min(1, volume + delta)));
-                    } else if (key === 'Escape' || key === 'Backspace') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setShowVolumeSlider(false);
-                      osdRef.current?.querySelector<HTMLElement>('[data-vod-osd-volume-slider]')?.focus({ preventScroll: true });
-                    }
-                  }}
-                  className="h-24 w-2 cursor-pointer accent-blue-400"
-                  style={{ writingMode: 'vertical-lr', direction: 'rtl' } as React.CSSProperties}
-                  aria-label="Hangerő"
-                />
-                <div className="mt-1 text-center text-[10px] text-slate-300">{Math.round(volume * 100)}%</div>
-              </div>
-            )}
-          </div>
+          {/* Némítás megmarad; a külön hangerő-csúszka nem része az OSD-nek. */}
+          <button
+            type="button"
+            data-vod-focus=""
+            data-vod-osd-volume=""
+            onClick={() => { onActivity?.(); onToggleMute(); }}
+            className={`${ROUND_BUTTON_BASE} ${isMuted ? ROUND_BUTTON_RED : ROUND_BUTTON_IDLE} w-[2.85rem] h-[2.85rem] md:w-[3.25rem] md:h-[3.25rem]`}
+            title={isMuted ? 'Némítás ki' : 'Némítás'}
+            aria-label={isMuted ? 'Hang bekapcsolása' : 'Hang némítása'}
+          >
+            {isMuted ? <VolumeX className="w-[22px] h-[22px]" /> : <Volume2 className="w-[22px] h-[22px]" />}
+          </button>
 
           {/* PIROS ✕ – a referencia „sebesség” gombjának helyén: visszalép oda,
               ahonnan a filmet kiválasztottuk. */}
@@ -603,25 +529,17 @@ export const VodOsd: React.FC<VodOsdProps> = ({
             className="w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden rounded-2xl border-2 border-blue-500/60 bg-[#081329] shadow-2xl"
           >
             <div className="relative flex items-center justify-center gap-3 border-b border-blue-900/60 bg-[#0a1835] px-12 py-3 text-center">
-              <div className="flex items-center justify-center gap-2 min-w-0">
-                {menu === 'audio'
-                  ? <Languages className="w-5 h-5 shrink-0 text-emerald-300" />
-                  : <Captions className="w-5 h-5 shrink-0 text-emerald-300" />}
-                <div className="min-w-0">
-                  <h2 className="text-base sm:text-lg font-black tracking-wide text-white">{menuTitle}</h2>
-                  <p className="text-[11px] text-slate-400">
-                    Alap nyelv: Beállítások → Mozi &amp; Sorozat (Magyar)
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => onMenuChange(null)}
-                aria-label="Bezárás"
-                className="absolute right-3 top-3 p-1.5 rounded-full border-2 border-blue-500/60 bg-[#0e1d3b] text-blue-300 transition-all hover:bg-[#16274b] active:scale-90"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <h2 className="text-base sm:text-lg font-black tracking-wide text-white">{menuTitle}</h2>
+              {menu === 'subtitle' && (
+                <button
+                  type="button"
+                  onClick={() => onMenuChange(null)}
+                  aria-label="Bezárás"
+                  className="absolute right-3 top-3 p-1.5 rounded-full border-2 border-blue-500/60 bg-[#0e1d3b] text-blue-300 transition-all hover:bg-[#16274b] active:scale-90"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
 
             <div data-track-list="" className="flex-1 min-h-0 space-y-2 overflow-y-auto p-4">
@@ -635,7 +553,7 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                   )}
 
                   {subtitleTracks.map((track) => {
-                    const selected = String(track.id) === String(activeSubtitleId) || track.selected === true;
+                    const selected = activeSubtitleId != null && String(track.id) === String(activeSubtitleId);
                     return (
                       <button
                         key={String(track.id)}
@@ -661,6 +579,22 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                       </button>
                     );
                   })}
+                  <button
+                    type="button"
+                    data-vod-menu-item=""
+                    data-track-option=""
+                    data-vod-menu-selected={activeSubtitleId == null ? '1' : undefined}
+                    aria-pressed={activeSubtitleId == null}
+                    onClick={() => { onActivity?.(); onSelectSubtitle(null); onMenuChange(null); }}
+                    className={`w-full rounded-2xl border p-3 text-center transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-400 focus:bg-[#102042] ${
+                      activeSubtitleId == null
+                        ? 'border-blue-400 bg-[#0f244a] text-white ring-1 ring-blue-400/40'
+                        : 'border-slate-800 bg-[#0a152d] text-slate-300 hover:bg-[#102042]'
+                    }`}
+                  >
+                    <span data-track-content=""><span data-track-title="">Felirat kikapcsolva</span></span>
+                    {activeSubtitleId == null && <span data-track-check="" className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400 text-slate-950"><Check className="w-4 h-4 stroke-[3]" /></span>}
+                  </button>
                 </>
               )}
 
@@ -699,22 +633,10 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                       </button>
                     );
                   })}
-                  <p className="flex items-center justify-center gap-1.5 pt-1 text-[11px] text-slate-500">
-                    <Plus className="w-3 h-3" />
-                    A magyar hangsáv automatikusan kiválasztódik, ha van ilyen.
-                  </p>
                 </>
               )}
             </div>
 
-            {/* Távirányító-súgó: a színes gombok közvetlenül ezt a dobozt nyitják. */}
-            <div data-track-help="" className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-blue-900/60 bg-[#071227] px-4 py-2 text-[11px] font-bold text-slate-400">
-              <span><span className="text-emerald-400">ZÖLD</span> = hangsáv</span>
-              <span><span className="text-blue-400">KÉK</span> = felirat</span>
-              <span>▲▼ = választás</span>
-              <span><span className="text-amber-400">OK</span> = alkalmaz</span>
-              <span>VISSZA = bezár</span>
-            </div>
           </div>
         </div>
       )}

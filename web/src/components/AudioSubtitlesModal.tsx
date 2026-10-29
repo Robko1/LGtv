@@ -18,7 +18,7 @@ interface AudioSubtitlesModalProps {
 
 type LiveAudioCcSelectorProps = Pick<AudioSubtitlesModalProps,
   'isOpen' | 'onClose' | 'audioTracks' | 'onSelectAudioTrack' | 'subtitleTracks' | 'onSelectSubtitleTrack'
->;
+> & { preferOffWhenUnselected?: boolean };
 
 /** A logikai TV-kijelölés kövesse a kisebb, görgethető listát is. */
 function revealFocusedTrack(panel: HTMLElement | null): void {
@@ -32,8 +32,8 @@ function revealFocusedTrack(panel: HTMLElement | null): void {
 }
 
 /** Élő TV: egyetlen, kétoszlopos távirányítós hangsáv- és CC-választó. */
-const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
-  isOpen, onClose, audioTracks = [], onSelectAudioTrack, subtitleTracks = [], onSelectSubtitleTrack,
+export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
+  isOpen, onClose, audioTracks = [], onSelectAudioTrack, subtitleTracks = [], onSelectSubtitleTrack, preferOffWhenUnselected = false,
 }) => {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [column, setColumn] = React.useState<'audio' | 'subtitle'>('audio');
@@ -44,11 +44,15 @@ const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
   const subtitleItems = React.useMemo<Array<SubtitleTrack | null>>(() => [...subtitleTracks, null], [subtitleTracks]);
 
   React.useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setPendingAudioId(null);
+      setPendingSubtitleId(null);
+      return;
+    }
     setAudioId(String(audioTracks.find((track) => track.selected)?.id ?? audioTracks[0]?.id ?? ''));
-    setSubtitleId(String(subtitleTracks.find((track) => track.selected)?.id ?? (subtitleTracks.length ? subtitleTracks[0].id : 'off')));
+    setSubtitleId(String(subtitleTracks.find((track) => track.selected)?.id ?? (!preferOffWhenUnselected && subtitleTracks.length ? subtitleTracks[0].id : 'off')));
     setColumn('audio');
-  }, [isOpen, audioTracks, subtitleTracks]);
+  }, [isOpen, audioTracks, subtitleTracks, preferOffWhenUnselected]);
 
   React.useEffect(() => {
     if (isOpen && pendingAudioId !== null && audioTracks.some((track) => String(track.id) === pendingAudioId && track.selected)) {
@@ -114,7 +118,7 @@ const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
   const rowClass = (focused: boolean, selected: boolean) => `p-3 w-full rounded-xl flex items-center justify-center text-center border transition-all ${focused ? 'bg-[#0f244a] border-yellow-400 text-white shadow-md ring-2 ring-yellow-400/80' : selected ? 'bg-[#0f244a] border-cyan-400 text-white shadow-md ring-1 ring-cyan-400/40' : 'bg-[#0a152d] border-slate-800 text-slate-300'}`;
   return (
     <div className="fixed inset-0 z-[2147483010] flex items-center justify-center p-3 md:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn select-none pointer-events-auto">
-      <div ref={panelRef} data-track-panel="live" role="dialog" aria-modal="true" aria-label="Élő TV hangsáv és CC választás" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
+      <div ref={panelRef} data-track-panel="live" role="dialog" aria-modal="true" aria-label="Hangsáv és CC választás" className="bg-[#081329] border-2 border-cyan-500/60 rounded-xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-center text-center">
           <div className="flex items-center gap-2"><Mic2 className="w-5 h-5 text-rose-400 stroke-[2.5]" /><Subtitles className="w-5 h-5 text-cyan-300 stroke-[2.5]" /><h2 className="text-base sm:text-lg font-black text-white tracking-wide">HANGSÁV / CC</h2></div>
         </div>
