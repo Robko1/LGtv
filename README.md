@@ -1,3 +1,5 @@
+![LGtv saját logója](webos/icon-rt2.png)
+
 # IPTV R.T – LG webOS TV
 
 LG webOS TV-re készült IPTV-alkalmazás: élő csatornák, filmek, sorozatok, EPG, kedvencek, feliratok és telefonos szolgáltató-beállítás. Android APK-t nem épít.
