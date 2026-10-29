@@ -11,7 +11,7 @@ import {
 } from '../services/appLog';
 import { tvDeviceText } from '../services/tvDevice';
 import { fsFinish, fsNow, fsPerfTimed, fsStart, fsStep } from '../services/fullscreenPerf';
-import { speedLoad, speedStep } from '../services/speedDiagnostics';
+import { speedAttemptObserver, speedChannelCommit, speedLoad, speedStep } from '../services/speedDiagnostics';
 import {
   MediaProgressSample,
   StallDetector,
@@ -637,6 +637,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isVodRef.current = Boolean(customStreamUrl);
   const playbackActiveRef = useRef(playbackActive);
   playbackActiveRef.current = playbackActive;
+  useLayoutEffect(() => {
+    if (!customStreamUrl) speedChannelCommit('lejátszó React commit', channel?.id);
+  }, [channel?.id, customStreamUrl]);
 
   /*
    * BELSŐ FORRÁSVÁLTÁS JELZÉSE.
@@ -825,6 +828,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     startedAt: number;
     attemptStartedAt: number;
     attemptNumber: number;
+    loadCount: number;
     channelId: string;
     channelName: string;
     waitingLogged: boolean;
@@ -1525,7 +1529,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         /\.ts(?=([?#]|$))/i.test(video.currentSrc || video.src) ? 'MPEG-TS' : 'ismeretlen')
       : 'nincs';
     appLog(
-      `CSATORNAVÁLTÁS ÖSSZESÍTÉS; eredmény=${result}; csatorna=${diagnostic.channelName}; teljes-idő=${Date.now() - diagnostic.startedAt} ms; utolsó-próba-idő=${Date.now() - diagnostic.attemptStartedAt} ms; próbálkozások=${Math.max(1, sequence.index + 1)}/${Math.max(1, sequence.urls.length)}; próbált-formátumok=${triedFormats}; aktív-formátum=${activeFormat}; ok=${reason}`
+      `CSATORNAVÁLTÁS ÖSSZESÍTÉS; eredmény=${result}; csatorna=${diagnostic.channelName}; teljes-idő=${Date.now() - diagnostic.startedAt} ms; utolsó-próba-idő=${Date.now() - diagnostic.attemptStartedAt} ms; formátum-próba=${Math.max(1, sequence.index + 1)}/${Math.max(1, sequence.urls.length)}; összes-betöltés=${diagnostic.loadCount}; próbált-formátumok=${triedFormats}; aktív-formátum=${activeFormat}; ok=${reason}`
     );
   };
   const scheduleAutoRetry = useCallback(() => {
@@ -3851,6 +3855,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           startedAt: isSameSwitch ? previousDiagnostic!.startedAt : now,
           attemptStartedAt: now,
           attemptNumber: Math.max(1, liveRetrySequenceRef.current.index + 1),
+          loadCount: isSameSwitch ? previousDiagnostic!.loadCount + 1 : 1,
           channelId,
           channelName,
           waitingLogged: false,
@@ -3909,8 +3914,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
       applyMuteState(video, volume);
+      const playObserver = speedAttemptObserver();
       const playPromise = video.play();
       speedStep('play() meghívva');
+      if (playObserver && playPromise && typeof playPromise.then === 'function') {
+        void playPromise.then(
+          () => playObserver('play() ígéret teljesült'),
+          (error: unknown) => {
+            const name = error && typeof error === 'object' && 'name' in error ? String(error.name).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60) : 'ismeretlen';
+            playObserver('play() ígéret elutasítva', `hiba=${name}`);
+          },
+        );
+      }
       setIsPlaying(true);
       // ZAP-ŐR: ha az élő adás nem indul el időben (a HLS-próba csak "lóg",
       // se hiba, se kép), nem várunk a végtelenségig pörgő töltésre -
