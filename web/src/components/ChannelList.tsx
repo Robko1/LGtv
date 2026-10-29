@@ -683,6 +683,34 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     return true;
   };
 
+  // CH+/CH−: ha a lista kapta a fókuszt, a sárga fókuszkeret is kövesse
+  // az újonnan lejátszott csatornát. A virtualizált lista miatt előbb
+  // odagörgetünk és kirajzoltatjuk a cél-sort, majd arra helyezzük a fókuszt.
+  useEffect(() => {
+    const list = channelScrollRef.current;
+    const active = document.activeElement as HTMLElement | null;
+    if (!list || !active || !list.contains(active)) return;
+    if (list.closest('[data-view-hidden]') || list.style.visibility === 'hidden') return;
+    const targetIndex = channelIndexById.get(selectedChannelId);
+    if (targetIndex === undefined) return;
+
+    setHighlightedId(selectedChannelId);
+    const targetTop = Math.max(0, targetIndex * rowPitch - Math.max(0, (list.clientHeight - rowPitch) / 2));
+    list.scrollTop = targetTop;
+    computeWindow();
+
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        focusChannelRow(selectedChannelId);
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [selectedChannelId, channelIndexById, rowPitch, computeWindow]);
+
   /** A lista elejére (vagy a kijelölt csatornára) ugrás – mindig sorra. */
   const focusFirstChannelRow = (): boolean => {
     const preferred = highlightedId || selectedChannelId;
