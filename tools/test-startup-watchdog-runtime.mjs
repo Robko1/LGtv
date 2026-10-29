@@ -24,7 +24,7 @@ const bundle=await esbuild.build({stdin:{contents:harness,resolveDir:resolve('.'
  platform:'browser',format:'iife',jsx:'automatic',nodePaths:[resolve('web/node_modules')],define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
 const vc=new VirtualConsole(); vc.on('jsdomError',e=>{if(!/Not implemented/.test(e.message))throw e;});
 const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:'http://localhost/',runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,beforeParse(window){
- window.__IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__ = false; // a watchdog/fallback regressziós tesztjeihez
+ window.__IPTV_DIRECT_LIVE_ZAP_TEST__ = false; // a watchdog/fallback regressziós tesztjeihez
  const set=window.setTimeout.bind(window); window.setTimeout=(fn,ms,...args)=>set(fn,ms===1200?150:ms,...args);
  window.state={ready:0,buffered:false,plays:[],loads:0}; const p=window.HTMLMediaElement.prototype;
  Object.defineProperty(p,'paused',{configurable:true,get(){return this.__paused??true;}});
