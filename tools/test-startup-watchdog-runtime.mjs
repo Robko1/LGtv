@@ -48,20 +48,22 @@ async function mount(ext='m3u8',ready=0,vod) {
 }
 const fire=(video,name)=>video.dispatchEvent(new window.Event(name,{bubbles:true}));
 try {
- // HLS no data: the very next play is the alternative TS, not a second HLS.
- let video=await mount();await until(()=>window.state.plays.length>=2,'HLS timeout fallback');
- assert.match(window.state.plays[0],/\.m3u8$/);assert.match(window.state.plays[1],/\.ts$/);
- assert.equal(window.state.plays.length,2);
+ // A visszaállított működés: az időtúllépett HLS-t először egyszer újrapróbálja,
+ // majd csak a következő timeout/hiba után indítja a tartalékot.
+ let video=await mount();await until(()=>window.state.plays.length>=2,'HLS timeout retry');
+ assert.match(window.state.plays[0],/\.m3u8$/);assert.match(window.state.plays[1],/\.m3u8$/);
+ fire(video,'error');await until(()=>window.state.plays.length>=3,'TS fallback');
+ assert.match(window.state.plays[2],/\.ts$/);
  // Failure of the TS fallback still leaves the primary HLS available to recovery.
- fire(video,'error');await until(()=>window.state.plays.length>=3,'primary HLS recovery');
- assert.match(window.state.plays[2],/\.m3u8$/);fire(video,'playing');
+ fire(video,'error');await until(()=>window.state.plays.length>=4,'primary HLS recovery');
+ assert.match(window.state.plays[3],/\.m3u8$/);fire(video,'playing');
  // A buffered HLS is not interrupted by the initial watchdog: playing during
  // the existing grace period cancels the pending transition.
  video=await mount('m3u8',4);await wait(200);assert.equal(window.state.plays.length,1);
  fire(video,'playing');await wait(280);assert.equal(window.state.plays.length,1,'playing alatt nincs fallback');
- // Even after grace expires the second attempt is the alternative.
- video=await mount('m3u8',4);await until(()=>window.state.plays.length>=2,'HLS grace timeout fallback');
- assert.match(window.state.plays[1],/\.ts$/);assert.equal(window.state.plays.length,2);fire(video,'playing');
+ // Even after grace expires the original same-format retry is preserved.
+ video=await mount('m3u8',4);await until(()=>window.state.plays.length>=2,'HLS grace timeout retry');
+ assert.match(window.state.plays[1],/\.m3u8$/);assert.equal(window.state.plays.length,2);fire(video,'playing');
  // Actual HLS media errors still receive the original same-format retry.
  video=await mount();fire(video,'error');await until(()=>window.state.plays.length>=2,'HLS error retry');
  assert.match(window.state.plays[1],/\.m3u8$/);fire(video,'playing');
@@ -81,5 +83,5 @@ try {
  // VOD remains on its original address and does not use the live startup guard.
  video=await mount('m3u8',0,'http://example.invalid/movie/example.mkv');await wait(600);
  assert.equal(window.state.plays.length,1);assert.match(window.state.plays[0],/example\.mkv$/);
- console.log('OK – valós VideoPlayer: HLS timeout fallback, türelmi idő, hibák, TS, recovery és VOD');
+ console.log('OK – valós VideoPlayer: visszaállított HLS újrapróba, türelmi idő, hibák, TS, recovery és VOD');
 } finally {window.testPlayer.unmount();window.close();}
