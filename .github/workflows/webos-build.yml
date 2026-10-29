@@ -599,16 +599,21 @@ jobs:
             exit 1
           }
 
-          # A jelenlegi nyilvános Release esetleges korábbi IPK assetjét is
-          # eltávolítjuk, ha ugyanaz a tag már létezett a publikus repóban.
+          # A nyilvános LGtv Release csak verzióinformációt tartalmazzon.
+          # Erre szüksége van az alkalmazás nyilvános frissítés-ellenőrzőjének;
+          # IPK bináris fájlt SOHA nem töltünk fel ide.
           export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          PUBLIC_NOTES="Új LG webOS TV verzió: $CURRENT_VERSION. A telepítő IPK kizárólag a privát Robko1/Ipk tárolóból tölthető le."
           if gh release view "$RELEASE_TAG" --repo Robko1/LGtv >/dev/null 2>&1; then
-            if gh release view "$RELEASE_TAG" --repo Robko1/LGtv --json assets --jq '.assets[].name' | grep -Fxq "IPTV-RT.ipk"; then
-              gh release delete-asset "$RELEASE_TAG" "IPTV-RT.ipk" --repo Robko1/LGtv --yes
-            fi
+            gh release edit "$RELEASE_TAG" --repo Robko1/LGtv --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$PUBLIC_NOTES"
+          else
+            gh release create "$RELEASE_TAG" --repo Robko1/LGtv --target "$BUILD_COMMIT" --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$PUBLIC_NOTES"
+          fi
+          if gh release view "$RELEASE_TAG" --repo Robko1/LGtv --json assets --jq '.assets[].name' | grep -Fxq "IPTV-RT.ipk"; then
+            gh release delete-asset "$RELEASE_TAG" "IPTV-RT.ipk" --repo Robko1/LGtv --yes
           fi
 
-          echo "OK: régi IPK-kiadások átvitele/ellenőrzése kész; új IPK v$CURRENT_VERSION a privát Robko1/Ipk repóba feltöltve; SHA-256 egyezik."
+          echo "OK: régi IPK-kiadások átvitele/ellenőrzése kész; az új IPK v$CURRENT_VERSION a privát Robko1/Ipk repóban van; a nyilvános Release csak verzióinformációt tartalmaz; SHA-256 egyezik."
       - name: 13. Összefoglaló
         if: always()
         shell: bash
