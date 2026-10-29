@@ -538,8 +538,9 @@ jobs:
             fi
 
             export GH_TOKEN="$IPK_REPO_TOKEN"
+            AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$IPK_REPO_TOKEN" | base64 -w0)"
             if ! gh api "repos/Robko1/Ipk/git/ref/tags/$tag" >/dev/null 2>&1; then
-              gh api --method POST repos/Robko1/Ipk/git/refs -f "ref=refs/tags/$tag" -f "sha=$SOURCE_COMMIT" >/dev/null
+              git -c http.extraheader="$AUTH_HEADER" push https://github.com/Robko1/Ipk.git "$SOURCE_COMMIT:refs/tags/$tag"
             fi
             if ! gh release view "$tag" --repo Robko1/Ipk >/dev/null 2>&1; then
               gh release create "$tag" --repo Robko1/Ipk --title "${SOURCE_TITLE:-IPTV-RT $tag}" --notes "$SOURCE_BODY"
@@ -559,16 +560,18 @@ jobs:
 
           # Az új kiadás Git-tagje a pontosan most lefordított main commitra mutat.
           export GH_TOKEN="$IPK_REPO_TOKEN"
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$IPK_REPO_TOKEN" | base64 -w0)"
           if ! gh api "repos/Robko1/Ipk/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            gh api --method POST repos/Robko1/Ipk/git/refs -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$BUILD_COMMIT" >/dev/null
+            git -c http.extraheader="$AUTH_HEADER" push https://github.com/Robko1/Ipk.git "$BUILD_COMMIT:refs/tags/$RELEASE_TAG"
           fi
 
           RELEASE_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
           LOCAL_SHA="$(sha256sum "webos/$IPK_FILE_NAME" | awk '{print $1}')"
+          export RELEASE_TAG
           PREVIOUS_TAG="$(python3 - <<'PY'
-          import json
+          import json, os
           rows=json.load(open("/tmp/ipk-migration/releases.json"))
-          rows=[r for r in rows if not r.get("isDraft") and not r.get("isPrerelease") and r.get("tagName") != "${RELEASE_TAG}"]
+          rows=[r for r in rows if not r.get("isDraft") and not r.get("isPrerelease") and r.get("tagName") != os.environ["RELEASE_TAG"]]
           rows.sort(key=lambda x:x.get("publishedAt") or "")
           print(rows[-1]["tagName"] if rows else "")
           PY
