@@ -65,7 +65,7 @@ import {
   rememberedFormatFor,
 } from '../services/liveFormatMemory';
 
-const ANDROID_STYLE_LIVE_ZAP_TEST = (window as Window & { __IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__?: boolean }).__IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__ !== false;
+const DIRECT_LIVE_ZAP_TEST = (window as Window & { __IPTV_DIRECT_LIVE_ZAP_TEST__?: boolean }).__IPTV_DIRECT_LIVE_ZAP_TEST__ !== false;
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
@@ -3882,9 +3882,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         };
         channelSwitchDiagnosticRef.current = diagnostic;
 
-        // IDEIGLENES ANDROID-LOGIKAI CSATORNAVÁLTÁSI PRÓBA:
+        // IDEIGLENES KÖZVETLEN CSATORNAVÁLTÁSI PRÓBA:
         // közvetlen src + play; nincs load(), format fallback vagy indítási watchdog.
-        if (ANDROID_STYLE_LIVE_ZAP_TEST && !isVodRef.current && !customStreamUrl) {
+        if (DIRECT_LIVE_ZAP_TEST && !isVodRef.current && !customStreamUrl) {
           try {
             video.volume = Math.max(0, Math.min(1, volume));
             applyMuteState(video, volume);
@@ -4226,7 +4226,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     nativeRetryCountRef.current = 0;
     setActiveUrlIndex(0);
     setCurrentStreamHasFrame(false);
-    const androidStyleStreamUrl = ANDROID_STYLE_LIVE_ZAP_TEST && !isVod
+    const directLiveStreamUrl = DIRECT_LIVE_ZAP_TEST && !isVod
       ? streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts')
       : streamUrl;
     // Élő adásnál először a csatornán korábban sikeres formátumot használjuk.
@@ -4243,7 +4243,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
      */
     if (!isVod && playbackActive && channel?.id && lastPlayedRef.current
         && lastPlayedRef.current.channelId === channel.id
-        && formatOfUrl(lastPlayedRef.current.url) === formatOfUrl(androidStyleStreamUrl)) {
+        && formatOfUrl(lastPlayedRef.current.url) === formatOfUrl(directLiveStreamUrl)) {
       const playing = htmlVideoRef.current;
       // Csak akkor maradhat minden, ha a forrás TÉNYLEG a videóelemen van
       // (a Mozi/Sorozat nézet eltávolítja a forrást – akkor újra kell tölteni).
@@ -4252,11 +4252,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return undefined;
       }
     }
-    // Androidhoz igazított ideiglenes próba: élő csatornánál az új címet
+    // Közvetlen csatornaváltási ideiglenes próba: élő csatornánál az új címet
     // közvetlenül továbbítjuk, a .m3u8 címet pedig ugyanúgy .ts-re alakítjuk.
     // A szokásos formátum-emlékezet és automatikus fallback most nem fut.
-    if (ANDROID_STYLE_LIVE_ZAP_TEST && !isVod && playbackActive) {
-      const directUrl = androidStyleStreamUrl;
+    if (DIRECT_LIVE_ZAP_TEST && !isVod && playbackActive) {
+      const directUrl = directLiveStreamUrl;
       pendingStreamUrlRef.current = directUrl;
       liveFallbackRef.current = null;
       liveRetrySequenceRef.current = { urls: [], index: 0 };
@@ -4862,7 +4862,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 vodRecoveryRef.current('videó elem hiba');
                 return;
               }
-              if (ANDROID_STYLE_LIVE_ZAP_TEST) {
+              if (DIRECT_LIVE_ZAP_TEST) {
                 // A próba alatt hiba esetén nincs automatikus formátumváltás/újracsatlakozás.
                 endSwitch();
                 setHasError(true);
