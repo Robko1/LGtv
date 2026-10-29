@@ -2,12 +2,6 @@
 
 A `webos/` mappa a manifestet, a távirányítóhídat, a jóváhagyott ikonokat és a natív indítóképet tartalmazza. A React/Vite alkalmazás a `web/` könyvtárban van.
 
-## Védett indítási referencia: 2.5.176
-
-A felhasználó által sikeresnek elfogadott működés a **natív webOS takarókép után közvetlenül megjelenő főoldal**. A `webos/appinfo.json` a `splashBackground: "splash-screen.png"` fájlt használja; a React `#root` nincs saját HTML-takaróval elrejtve. A `web/src/main.tsx` a gyökér első DOM-elemének megjelenése után hívja a `webOSSystem.notifyAppLoaded()`-et, ha van ilyen API. Nincs külön saját animáció, százalékos indítóképernyő vagy induló videó. A DOM-jelzés nem azonos a fizikai kijelző festési időpontjának mérésével.
-
-**Ne cseréld le a jóváhagyott képet vagy ezt a folyamatot régi, generált splashre/animációra.** A képmegjelenítés és EPG is védett referencia: [fő README](../README.md); verziózott mérések: [tesztnapló](../README-TESZTNAPLO.md).
-
 ## Fontos fájlok
 
 ```text
