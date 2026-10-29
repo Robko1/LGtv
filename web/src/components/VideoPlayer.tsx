@@ -65,6 +65,8 @@ import {
   rememberedFormatFor,
 } from '../services/liveFormatMemory';
 
+const ANDROID_STYLE_LIVE_ZAP_TEST = true;
+
 interface NativeApi {
   play?: (url: string, title?: string) => void;
   stop?: () => void;
@@ -3879,6 +3881,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           summaryLogged: false,
         };
         channelSwitchDiagnosticRef.current = diagnostic;
+
+        // IDEIGLENES ANDROID-LOGIKAI CSATORNAVÁLTÁSI PRÓBA:
+        // közvetlen src + play; nincs load(), format fallback vagy indítási watchdog.
+        if (ANDROID_STYLE_LIVE_ZAP_TEST && !isVodRef.current && !customStreamUrl) {
+          try {
+            video.volume = Math.max(0, Math.min(1, volume));
+            applyMuteState(video, volume);
+            video.src = url;
+            const directPlayPromise = video.play();
+            if (directPlayPromise && typeof directPlayPromise.catch === 'function') {
+              void directPlayPromise.catch((error: unknown) => {
+                if (!isCurrentLoad()) return;
+                endSwitch();
+                setIsLoading(false);
+                setIsPlaying(false);
+                setHasError(true);
+                setErrorMessage(error instanceof Error
+                  ? `A TV nem tudta elindítani az adatfolyamot: ${error.name}.`
+                  : 'A TV nem tudta elindítani az adatfolyamot.');
+              });
+            }
+            setIsPlaying(true);
+            endSwitch();
+          } catch (error) {
+            endSwitch();
+            setIsLoading(false);
+            setHasError(true);
+            setErrorMessage(error instanceof Error ? error.message : 'A TV nem tudta elindítani az adatfolyamot.');
+          }
+          return;
+        }
+
         const channelMemory = rememberedFormatFor(channel?.id);
         const timing = bufferTiming();
         const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
@@ -4215,6 +4249,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return undefined;
       }
     }
+    // Androidhoz igazított ideiglenes próba: élő csatornánál az új címet
+    // közvetlenül továbbítjuk, a .m3u8 címet pedig ugyanúgy .ts-re alakítjuk.
+    // A szokásos formátum-emlékezet és automatikus fallback most nem fut.
+    if (ANDROID_STYLE_LIVE_ZAP_TEST && !isVod && playbackActive) {
+      const directUrl = streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
+      pendingStreamUrlRef.current = directUrl;
+      liveFallbackRef.current = null;
+      liveRetrySequenceRef.current = { urls: [], index: 0 };
+      initialFormatRetryRef.current = false;
+      liveRecoveryOnlyRef.current = false;
+      if (directUrl) loadStreamRef.current(directUrl);
+      return () => {
+        clearBufferWatchdog();
+        playbackStartedRef.current = false;
+        clearAutoRetry(false);
+        clearRecovery();
+        if (pendingLiveLoadTimerRef.current !== null) {
+          window.clearTimeout(pendingLiveLoadTimerRef.current);
+          pendingLiveLoadTimerRef.current = null;
+        }
+      };
+    }
+
     const hlsUrl = streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
     const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
       ? streamUrl
@@ -4800,6 +4857,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 // ugyanarról a pozícióról, automatikusan.
                 setHasError(false);
                 vodRecoveryRef.current('videó elem hiba');
+                return;
+              }
+              if (ANDROID_STYLE_LIVE_ZAP_TEST) {
+                // A próba alatt hiba esetén nincs automatikus formátumváltás/újracsatlakozás.
+                setHasError(true);
                 return;
               }
               if (playbackStartedRef.current) {
