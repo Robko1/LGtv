@@ -19,18 +19,10 @@ Az alkalmazás beépített **TV Doktor** modult tartalmaz az élő csatornák, f
 - Jogosult párosítás nélkül az alkalmazás helyi lejátszása, valamint a TV Doktor helyi diagnosztikai és javítási funkciói korlátozás és lassítás nélkül működnek a készüléken, de a védett központi adatokhoz való hozzáférést a szerver elutasítja.
 - Kliensoldali, módosítható környezetben futó alkalmazás önmagában nem tudja 100%-os fizikai bizonyossággal igazolni a TV hardverazonosságát; a védett távoli adatok elérése ezért szerveroldali jogosultság-ellenőrzéshez kötött.
 
-## Védett működési referencia: 2.5.176
-
-A felhasználó által elfogadott működési alap a **2.5.176** (`e994abb7a46763f9dce060209fd8cdd8a83996dc`). A következő három terület regressziós referencia, amely csak külön kérésre és fizikai LG TV-s ellenőrzés mellett módosítható:
-
-1. **Natív indítókép és közvetlen főoldal:** a webOS az `appinfo.json` `splashBackground` mezőjében megadott `webos/splash-screen.png` képet jeleníti meg. Nincs saját HTML-es takarókép, százalékjelző vagy induló videó; a React főoldal felépülésekor a `webOSSystem.notifyAppLoaded()` jelzi a rendszernek a kész állapotot.
-2. **Képmegjelenítés:** HTML5 `<video>` elem természetes színekkel (`filter: none`, `imageRendering: auto`). Teljes képernyőn az élő adás `object-fit: cover !important`, az aktív film/sorozat (`[data-vod-active]`) `object-fit: fill !important` szabályt használ.
-3. **EPG – műsorújság:** a csatornalista és az élő sáv a darabolt XMLTV-indexből/gyorsítótárból és szükség esetén a rövid EPG-végpontokból (`get_short_epg`, tartalékként `get_simple_data_table`) jeleníti meg az aktuális és következő műsort.
-
 ## TV-s vezérlés és kézi hibakeresés
 
 - **Távirányító és Magic Remote:** az alkalmazás LG TV távirányítóra készült (`supportTouchMode: none`). Élő TV-n a kiválasztott csatorna **OK** gombbal indítható, a már játszott csatornán az **OK** teljes képernyőre vált, a **VISSZA** vagy **OK** visszalép a főoldalra. A film/sorozat OSD-je a távirányító nyilaival, némítás és hangsáv/felirat választó gombjaival működik.
-- **Kézi hibakeresési napló:** a naplózás nem indul automatikusan; a távirányító **SÁRGA** gombja nyitja meg a naplóablakot (**Naplózás indítása** → tesztelés → **Naplózás leállítása** / küldés). Szabad szövegben soha ne adj meg jelszót vagy személyes tokent. A verziózott TV-s méréseket a [README-TESZTNAPLO.md](README-TESZTNAPLO.md) tartalmazza.
+- **Kézi hibakeresési napló:** a naplózás nem indul automatikusan; a távirányító **SÁRGA** gombja nyitja meg a naplóablakot (**Naplózás indítása** → tesztelés → **Naplózás leállítása** / küldés). Szabad szövegben soha ne adj meg jelszót vagy személyes tokent. A tényleges IPK-verziót a build eredményében és a csomag manifestjében ellenőrizd.
 
 ## Fő könyvtárak
 
