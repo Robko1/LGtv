@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, startTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Season, Series, WatchHistoryItem } from './types/iptv';
 import { storageService } from './services/storageService';
@@ -36,7 +36,7 @@ import {
   bootScreenTransfer,
 } from './services/bootScreen';
 import { fsPerf, fsStep } from './services/fullscreenPerf';
-import { speedSelect } from './services/speedDiagnostics';
+import { speedChannelCommit, speedSelect } from './services/speedDiagnostics';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import { displayChannelPositions } from './utils/displayChannelOrder';
@@ -1869,7 +1869,7 @@ export function App() {
      * megszakította a filmet (a lejátszó `customStreamUrl`-je törlődött).
      */
     if (customStreamUrlRef.current) return;
-    speedSelect('élő', channel.name || 'csatorna');
+    speedSelect('élő', channel.name || 'csatorna', true, channel.id);
     setNextEpisodeToPlay(null);
     setCustomStreamUrl(undefined);
     setCustomStreamTitle(undefined);
@@ -1882,6 +1882,10 @@ export function App() {
       setActiveView('live');
     }
   }, [activeView]);
+
+  useLayoutEffect(() => {
+    speedChannelCommit('főoldal React commit', activeChannelId);
+  }, [activeChannelId]);
 
   // Next / Prev channel switching: always follow the numeric channel number,
   // not the current category/search/render order. Stop at the ends instead of
