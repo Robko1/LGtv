@@ -1532,7 +1532,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       `CSATORNAVÁLTÁS ÖSSZESÍTÉS; eredmény=${result}; csatorna=${diagnostic.channelName}; teljes-idő=${Date.now() - diagnostic.startedAt} ms; utolsó-próba-idő=${Date.now() - diagnostic.attemptStartedAt} ms; formátum-próba=${Math.max(1, sequence.index + 1)}/${Math.max(1, sequence.urls.length)}; összes-betöltés=${diagnostic.loadCount}; próbált-formátumok=${triedFormats}; aktív-formátum=${activeFormat}; ok=${reason}`
     );
   };
-  const scheduleAutoRetry = useCallback(() => {
+  const scheduleAutoRetry = useCallback((reason: 'error' | 'startup-timeout' = 'error') => {
     if (autoRetryTimerRef.current !== null) return;
     // Élő TV-n először a kézzel kiválasztott formátum fut; ha az nem indul,
     // egyszer automatikusan kipróbáljuk a másik TS/HLS változatot.
@@ -1543,6 +1543,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // elsődleges címet ezért egyszer újra teljes load()-dal kérjük; csak a
       // második sikertelen indulás után jöhet a másik formátum. Ez az első
       // használatnál is működik, nem csak a már emlékezett csatornánál.
+      // A #75-ben az időtúllépett HLS újraindítása több másodperccel
+      // késleltette a végül sikeres TS-próbát. Csak indulási watchdog esetén,
+      // az aktuális időkorlát (és szükség esetén türelmi idő) lejárta után
+      // lépünk közvetlenül a tartalékra.
+      // Konkrét médiahiba és TS esetén a bevált azonos formátumú próba marad.
+      const skipHlsTimeoutRetry = reason === 'startup-timeout' && sequence.index === 0
+        && sequence.urls.length > 1 && formatOfUrl(sequence.urls[0]) === 'hls';
+      if (skipHlsTimeoutRetry && initialFormatRetryRef.current) {
+        initialFormatRetryRef.current = false;
+        appLog('ELAKADT HLS INDULÁS: azonos újrapróba helyett a tartalék formátum következik.');
+      }
       if (initialFormatRetryRef.current && sequence.index === 0 && sequence.urls.length > 1) {
         initialFormatRetryRef.current = false;
         const currentUrl = sequence.urls[0];
@@ -3950,13 +3961,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 zapWatchdogRef.current = null;
                 if (isCurrentLoad() && !playbackStartedRef.current) {
                   appLog('Zap-őr: a türelmi idő után sem indult el az adás, formátumpróba következik.');
-                  scheduleAutoRetry();
+                  scheduleAutoRetry('startup-timeout');
                 }
               }, graceMs);
               return;
             }
             appLog('Zap-őr: nem indult el az adás időben, automatikus formátumváltás.');
-            scheduleAutoRetry();
+            scheduleAutoRetry('startup-timeout');
           }
         }, attemptTimeoutMs);
       }

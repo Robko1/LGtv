@@ -2,7 +2,7 @@ import React from 'react';
 import { AudioTrack, SubtitleTrack, AppSettings, SubtitleSize } from '../types/iptv';
 import { Subtitles, Mic2, Check } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { trackLabel, trackMeta } from '../utils/trackLabels';
+import { trackLabel } from '../utils/trackLabels';
 
 interface AudioSubtitlesModalProps {
   isOpen: boolean;
@@ -123,7 +123,7 @@ const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
             <div data-track-list="" className="overflow-y-auto min-h-0 space-y-1.5">
               {audioTracks.length === 0 && <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">Nincs jelzett választható hangsáv.</p>}
               {audioTracks.map((track) => { const id = String(track.id); const selected = track.selected === true; return <button key={id} data-track-option="" data-track-focused={column === 'audio' && audioId === id ? '1' : undefined} onClick={() => { setColumn('audio'); setAudioId(id); setPendingAudioId(id); onSelectAudioTrack?.(track); if (selected) { setPendingAudioId(null); onClose(); } }} className={rowClass(column === 'audio' && audioId === id, selected)} aria-pressed={selected}>
-                <span data-track-content=""><span data-track-title="">{trackLabel(track.name, track.lang)}</span><span data-track-meta="" className="text-slate-400">{trackMeta(track.lang, track.codec, track.channels) || 'Lejátszó hangsáv'}</span></span>
+                <span data-track-content=""><span data-track-title="">{trackLabel(track.name, track.lang)}</span></span>
                 {selected && <span data-track-check="" className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Check className="w-4 h-4 stroke-[3]" /></span>}
               </button>; })}
             </div>
@@ -248,7 +248,6 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
   const orderedAudioOptions = audioTracks.map((track) => ({
     id: String(track.id),
     name: trackLabel(track.name, track.lang),
-    format: trackMeta(track.lang, track.codec, track.channels) || 'Lejátszó hangsáv',
     track,
   }));
   const availableTracks = subtitleTracks;
@@ -322,7 +321,6 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
                     >
                       <span data-track-content="">
                         <span data-track-title="">{opt.name}</span>
-                        <span data-track-meta="" className="text-slate-400">{opt.format}</span>
                       </span>
                       {isSelected && <span data-track-check="" className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Check className="w-4 h-4 stroke-[3]" /></span>}
                     </button>
