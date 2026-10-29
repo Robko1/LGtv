@@ -1213,26 +1213,9 @@
       }
     }
 
-    // Channel Up/Down (33/34): a listára küldjük, mert a documentre
-    // dispatcholt esemény nem jut el a lista React onKeyDown kezelőjéhez.
-    if (key === 'PageUp' || key === 'PageDown') {
-      var channelList = channelsListBox();
-      if (channelList && !dialogAtStart) {
-        e.preventDefault();
-        e.stopPropagation();
-        // CH+/CH- a KIJELÖLT SORBÓL indul (nem a listadobozból).
-        var curRow = document.activeElement;
-        if (!curRow || !curRow.closest || !curRow.closest('[role="listbox"]')) {
-          curRow = firstChannelRow(true);
-        }
-        if (!curRow) return;
-        curRow.focus({preventScroll:true});
-        var up = key === 'PageUp';
-        var evCh = makeKeyEvent(up ? 'ArrowUp' : 'ArrowDown', up ? 38 : 40);
-        if (evCh) curRow.dispatchEvent(evCh);
-        return;
-      }
-    }
+    // CH+/CH- (33/34) nem fókusznavigáció: az eredeti PageUp/PageDown
+    // eseményt továbbengedjük az App globális kezelőjéhez, amely csatornát vált.
+    // Ne alakítsuk ArrowUp/ArrowDown eseménnyé, mert az csak a lista kijelölését mozgatná.
 
     // D-pad modalban: TÉRBELI navigáció a modalon BELÜL (irány szerint lép,
     // nem sorban minden gombon), a fókusz nem szökhet ki a háttérbe.
