@@ -4226,6 +4226,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     nativeRetryCountRef.current = 0;
     setActiveUrlIndex(0);
     setCurrentStreamHasFrame(false);
+    const androidStyleStreamUrl = ANDROID_STYLE_LIVE_ZAP_TEST && !isVod
+      ? streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts')
+      : streamUrl;
     // Élő adásnál először a csatornán korábban sikeres formátumot használjuk.
     // Ha nincs emlék, a korábbi alapértelmezés (MPEG-TS) marad. Hiba esetén
     // a másik formátum következik; a generációs őr védi az új csatornát
@@ -4240,7 +4243,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
      */
     if (!isVod && playbackActive && channel?.id && lastPlayedRef.current
         && lastPlayedRef.current.channelId === channel.id
-        && formatOfUrl(lastPlayedRef.current.url) === formatOfUrl(streamUrl)) {
+        && formatOfUrl(lastPlayedRef.current.url) === formatOfUrl(androidStyleStreamUrl)) {
       const playing = htmlVideoRef.current;
       // Csak akkor maradhat minden, ha a forrás TÉNYLEG a videóelemen van
       // (a Mozi/Sorozat nézet eltávolítja a forrást – akkor újra kell tölteni).
@@ -4253,7 +4256,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // közvetlenül továbbítjuk, a .m3u8 címet pedig ugyanúgy .ts-re alakítjuk.
     // A szokásos formátum-emlékezet és automatikus fallback most nem fut.
     if (ANDROID_STYLE_LIVE_ZAP_TEST && !isVod && playbackActive) {
-      const directUrl = streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts');
+      const directUrl = androidStyleStreamUrl;
       pendingStreamUrlRef.current = directUrl;
       liveFallbackRef.current = null;
       liveRetrySequenceRef.current = { urls: [], index: 0 };
