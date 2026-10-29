@@ -3780,9 +3780,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.clearTimeout(pendingLiveLoadTimerRef.current);
       pendingLiveLoadTimerRef.current = null;
     }
-    if (!isVodRef.current && !customStreamUrl) {
-      try { htmlVideoRef.current?.pause(); } catch { /* régi webOS motor */ }
-    }
+    // Élő csatornaváltáskor nem állítjuk le külön a régi videót:
+    // az új src közvetlen beállítása megszakítja a régi forrást. A külön
+    // pause() fölösleges médiaállapot-váltást és késői pause eseményt okozhat
+    // a webOS-en, ezért a gyors zap útvonalból kihagyjuk.
     const loadGeneration = ++streamLoadGenerationRef.current;
     const isCurrentLoad = () => loadGeneration === streamLoadGenerationRef.current;
     clearZapWatchdog();
