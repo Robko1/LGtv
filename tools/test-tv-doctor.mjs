@@ -622,17 +622,37 @@ core.configureTvDoctorCloud(false);
 globalThis.fetch = originalFetch;
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * 3. MENÜ ÉS EGYKAPCSOLÓS VEZÉRLÉS + VIDEOPLAYER INTEGRÁCIÓS FUTÁSIDEJŰ TESZT
+ * 3. MENÜ LENYÍLÓ PANEL, SUPABASE HIBAHELY, MEMÓRIA 0-RA ÁLLÍTÁS,
+ *    KÉZI HIBANAPLÓZÁS BŐVÍTÉS ÉS VIDEOPLAYER INTEGRÁCIÓS TESZT
  * ═══════════════════════════════════════════════════════════════════════════ */
-console.log('\n3. Valódi React MenuSettingsModal kapcsoló és VideoPlayer futásidejű integráció');
+console.log('\n3. Valódi React MenuSettingsModal (lenyíló állapot, Memória: 0, Supabase hibalokalizáció), DiagnosticShareModal és VideoPlayer');
 
 const uiHarness = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MenuSettingsModal } from './web/src/components/MenuSettingsModal.tsx';
+import { DiagnosticShareModal } from './web/src/components/DiagnosticShareModal.tsx';
 import { VideoPlayer } from './web/src/components/VideoPlayer.tsx';
 import { INITIAL_SETTINGS } from './web/src/data/mockData.ts';
-import { recordDoctorChannelSuccess, clearTvDoctorMemory, getChannelDoctorRecord } from './web/src/services/tvDoctor.ts';
+import {
+  recordDoctorChannelSuccess,
+  recordDoctorChannelFailure,
+  evaluateSmartFreeze,
+  recordDoctorOpTiming,
+  clearTvDoctorMemory,
+  getChannelDoctorRecord,
+  getTvDoctorMemoryStats,
+} from './web/src/services/tvDoctor.ts';
+import {
+  attachTvDoctorDiagnostics,
+  configureTvDoctorCloud,
+  checkTvDoctorConnection,
+  getTvDoctorCloudStatus,
+  resetTvDoctorAllToZero,
+} from './web/src/services/tvDoctorCloud.ts';
+import { getAppLogText, manualLogSnapshot } from './web/src/services/appLog.ts';
+
+attachTvDoctorDiagnostics();
 
 function TestApp({ initialMode }) {
   const [settings, setSettings] = useState({ ...INITIAL_SETTINGS });
@@ -647,8 +667,18 @@ function TestApp({ initialMode }) {
     setSettings: (patch) => setSettings((s) => ({ ...s, ...patch })),
     setChannel,
     recordDoctorChannelSuccess,
+    recordDoctorChannelFailure,
+    evaluateSmartFreeze,
+    recordDoctorOpTiming,
     clearTvDoctorMemory,
     getChannelDoctorRecord,
+    getTvDoctorMemoryStats,
+    configureTvDoctorCloud,
+    checkTvDoctorConnection,
+    getTvDoctorCloudStatus,
+    resetTvDoctorAllToZero,
+    getAppLogText,
+    manualLogSnapshot,
   };
   if (initialMode === 'menu') {
     return React.createElement(MenuSettingsModal, {
@@ -675,6 +705,12 @@ function TestApp({ initialMode }) {
       watchHistory: [],
       onContinueWatching: () => {},
       onRemoveWatchHistoryItem: () => {},
+    });
+  }
+  if (initialMode === 'diag') {
+    return React.createElement(DiagnosticShareModal, {
+      isOpen: true,
+      onClose: () => {},
     });
   }
   return React.createElement(VideoPlayer, {
@@ -714,13 +750,58 @@ await esbuild.build({
 const vc = new VirtualConsole();
 vc.on('jsdomError', () => {});
 const playedUrls = [];
+let mockCloudMode = 'ok';
+const sentDiagnosticPayloads = [];
+
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
   url: 'https://tv.local/',
   pretendToBeVisual: true,
   runScripts: 'dangerously',
   virtualConsole: vc,
   beforeParse(window) {
-    window.fetch = () => new Promise(() => {});
+    window.fetch = async (url, init) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/functions/v1/tv-doctor')) {
+        if (mockCloudMode === 'http_401') {
+          return new Response(JSON.stringify({ message: 'Invalid API key' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (mockCloudMode === 'db_500') {
+          return new Response(JSON.stringify({ ok: false, error: 'DB select failed: relation tv_doctor_channel_profiles' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(
+          JSON.stringify({ ok: true, profileCount: 18, serverTime: '2026-10-29T19:30:00.000Z' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (urlStr.includes('/functions/v1/tv-diagnostic-share')) {
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        if (body.action === 'send') {
+          sentDiagnosticPayloads.push(body);
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              logNumber: body.logNumber,
+              startedAt: body.startedAt,
+              createdAt: '2026-10-29T19:31:00.000Z',
+              charCount: body.charCount,
+              lineCount: body.lineCount,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, records: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 200 });
+    };
     window.Element.prototype.getClientRects = function getClientRects() {
       return this.hasAttribute('hidden') ? [] : [{ width: 120, height: 40 }];
     };
@@ -737,49 +818,201 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
   },
 });
 
-const wait = (ms = 45) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms = 55) => new Promise((r) => setTimeout(r, ms));
 try {
   const { window } = dom;
   const script = window.document.createElement('script');
   script.textContent = fs.readFileSync(uiBundleFile, 'utf8');
   window.document.body.appendChild(script);
 
-  // 3.1 Menü -> Rendszer -> TV Doktor dobozos egykapcsolós vezérlő
+  // 3.1 Menü -> Rendszer -> TV Doktor kártya, felső gombcsoport (Memória: 0 a kapcsoló mellett) és lenyíló ablak
   window.__MOUNT_MODE__('menu');
   await wait(80);
+
+  window.localStorage.setItem('iptv_rt_providers_v1', '[{"id":"prov-1","name":"Éles Szolgáltató"}]');
+  window.__DOCTOR_UI__.configureTvDoctorCloud(true);
+  window.__DOCTOR_UI__.recordDoctorChannelSuccess({
+    channel: { id: 'ch-m4', name: '[HU] M4 Sport HD' },
+    format: 'hls',
+    bufferProfile: 'fast',
+    startupMs: 310,
+  });
+  window.__DOCTOR_UI__.recordDoctorChannelFailure({
+    channel: { id: 'ch-rtl', name: '[HU] RTL HD' },
+    format: 'ts',
+    bufferProfile: 'balanced',
+    trigger: 'playback_stall',
+    errorCode: 'STALL',
+    errorDetail: 'Puffer kiürült',
+  });
+  await wait(50);
+
   const doc = window.document;
   const doctorBox = doc.querySelector('[data-tv-doctor-box]');
+  const doctorControls = doc.querySelector('[data-tv-doctor-controls]');
+  const doctorResetBtn = doc.querySelector('[data-tv-doctor-reset]');
   const doctorToggle = doc.querySelector('[data-tv-doctor-toggle]');
-  check(Boolean(doctorBox) && doctorBox.hasAttribute('data-tv-box'), 'a Rendszer menüben megjelenik a dedikált dobozos TV Doktor kártya');
+
   check(
-    Boolean(doctorToggle) &&
-      doctorToggle.getAttribute('role') === 'switch' &&
-      doctorBox.querySelectorAll('button').length === 1,
-    'egyetlen letisztult kapcsológomb van a TV Doktor dobozban',
+    Boolean(doctorBox) && doctorBox.hasAttribute('data-tv-box'),
+    'a Rendszer menüben megjelenik a dedikált dobozos TV Doktor kártya',
+  );
+  check(
+    Boolean(doctorControls) &&
+      doctorControls.contains(doctorResetBtn) &&
+      doctorControls.contains(doctorToggle) &&
+      !doc.querySelector('[data-tv-doctor-details]'),
+    'a Memória: 0 gomb közvetlenül a Ki/Be kapcsoló mellett ül, és alapból csukva van a lenyíló naplórész',
   );
   check(doctorToggle.getAttribute('aria-checked') === 'true', 'alapértelmezetten a TV Doktor aktív');
 
-  // Kattintás kikapcsolja:
-  doctorToggle.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  // Külső dobozra nyomva (OK / Enter vagy kattintás) lenyílik a részletes információs ablak + ellenőrzi a Supabase kapcsolatot:
+  mockCloudMode = 'ok';
+  doctorBox.focus();
+  doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await wait(90);
+  const detailsOpen = doc.querySelector('[data-tv-doctor-details]');
+  check(
+    Boolean(detailsOpen) &&
+      Boolean(doc.querySelector('[data-tv-doctor-health]')) &&
+      Boolean(doc.querySelector('[data-tv-doctor-supabase]')) &&
+      Boolean(doc.querySelector('[data-tv-doctor-memory]')) &&
+      Boolean(doc.querySelector('[data-tv-doctor-log-list]')) &&
+      detailsOpen.textContent.includes('Létrejött ✓') &&
+      detailsOpen.textContent.includes('18 db'),
+    'a külső dobozra nyomva lenyílik az ablak: mutatja a működést, az élő Supabase kapcsolatot, a TV memóriát és az elkülönített naplót',
+  );
+
+  // Supabase hiba esetén pontosan kiírja HOL a hiba és MI a hiba röviden:
+  mockCloudMode = 'http_401';
+  doc.querySelector('[data-tv-doctor-check-cloud]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(80);
+  const errBox401 = doc.querySelector('[data-tv-doctor-error-box]');
+  check(
+    Boolean(errBox401) &&
+      errBox401.textContent.includes('Hol a hiba:') &&
+      errBox401.textContent.includes('Supabase hitelesítés (API kulcs') &&
+      errBox401.textContent.includes('HTTP 401'),
+    'Supabase API-kulcs hibánál pontosan kiírja HOL a hiba (hitelesítés) és MI a teendő',
+  );
+
+  mockCloudMode = 'db_500';
+  doc.querySelector('[data-tv-doctor-check-cloud]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(80);
+  const errBox500 = doc.querySelector('[data-tv-doctor-error-box]');
+  check(
+    Boolean(errBox500) &&
+      errBox500.textContent.includes('Supabase adatbázis (tv_doctor táblák)') &&
+      errBox500.textContent.includes('HTTP 500'),
+    'Supabase adatbázishibánál pontosan megjelöli a tv_doctor adatbázis réteget mint hibahelyet',
+  );
+
+  // Memória 0-ra állítása gomb a kapcsoló mellett: nullázza a tanult profilokat, a várólistát és a TV Doktor memóriát,
+  // miközben NEM csukja be a lenyíló ablakot és NEM törli a szolgáltatót/beállításokat!
+  const memBeforeReset = window.__DOCTOR_UI__.getTvDoctorMemoryStats();
+  doc.querySelector('[data-tv-doctor-reset]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(60);
+  const memAfterReset = window.__DOCTOR_UI__.getTvDoctorMemoryStats();
+  const cloudAfterReset = window.__DOCTOR_UI__.getTvDoctorCloudStatus();
+  check(
+    memBeforeReset.doctorTotalBytes > 0 &&
+      memAfterReset.learnedChannelCount === 0 &&
+      memAfterReset.doctorTotalBytes === 0 &&
+      cloudAfterReset.pendingCount === 0 &&
+      Boolean(doc.querySelector('[data-tv-doctor-details]')) &&
+      window.localStorage.getItem('iptv_rt_providers_v1')?.includes('Éles Szolgáltató'),
+    'a Memória: 0 gomb egyetlen nyomásra 0 B / 0 csatorna alapállapotra állítja a TV Doktort anélkül, hogy bezárná a panelt vagy törölné a listákat',
+  );
+
+  // Külső dobozra újra rányomva visszacsukódik az információs ablak:
+  doc.querySelector('[data-tv-doctor-box]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(50);
+  check(!doc.querySelector('[data-tv-doctor-details]'), 'a külső dobozra újra nyomva az információs ablak tisztán visszacsukódik');
+
+  // A Ki/Be kapcsoló önállóan kapcsol, nem nyitja ki véletlenül a lenyíló részt:
+  doc.querySelector('[data-tv-doctor-toggle]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
   await wait(50);
   check(
     window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === false &&
-      doc.querySelector('[data-tv-doctor-toggle]').getAttribute('aria-checked') === 'false',
-    'a kapcsoló egyetlen kattintással kikapcsolja a TV Doktort',
+      doc.querySelector('[data-tv-doctor-toggle]').getAttribute('aria-checked') === 'false' &&
+      !doc.querySelector('[data-tv-doctor-details]'),
+    'a Ki/Be kapcsoló önállóan kikapcsolja a TV Doktort, és nem nyitja le véletlenül a naplórészt',
   );
+  // Visszakapcsoljuk a további tesztekhez:
+  doc.querySelector('[data-tv-doctor-toggle]').dispatchEvent(
+    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+  );
+  await wait(40);
 
-  // Távirányító OK (Enter) közvetlenül a kijelölt dobozon visszakapcsolja:
-  const boxNow = doc.querySelector('[data-tv-doctor-box]');
-  boxNow.focus();
-  boxNow.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-  await wait(50);
+  // 3.2 Kézi hibakeresési napló (DiagnosticShareModal): TV Doktor naplózás + elakadás rögzítése + változatlan Supabase küldés
+  mockCloudMode = 'db_500';
+  await window.__DOCTOR_UI__.checkTvDoctorConnection();
+  window.__MOUNT_MODE__('diag');
+  await wait(90);
+
+  const diagDocToggle = doc.querySelector('[data-diagnostic-tv-doctor-toggle]');
+  const diagStartBtn = doc.querySelector('[data-diagnostic-toggle]');
+  const diagSendBtn = doc.querySelector('[data-diagnostic-send]');
   check(
-    window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === true &&
-      doc.querySelector('[data-tv-doctor-toggle]').getAttribute('aria-checked') === 'true',
-    'TV távirányító OK (Enter) gombbal is egyetlen gombnyomással kapcsolható a TV Doktor',
+    Boolean(diagDocToggle) && diagDocToggle.getAttribute('aria-checked') === 'true',
+    'a Kézi hibakeresési napló ablakban megjelenik az aktív TV Doktor működés- és elakadás-naplózás kapcsoló',
   );
 
-  // 3.2 VideoPlayer integráció: tanult HLS profil előválasztása vs. kikapcsolt TV Doktor
+  // Elindítjuk a kézi naplózást, szimulálunk TV Doktor működést és egy elakadást/lassulást, majd elküldjük Supabase-re:
+  diagStartBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await wait(50);
+
+  window.__DOCTOR_UI__.recordDoctorOpTiming('selectChannelLaunchPlan', 48, '[HU] M2 UHD');
+  window.__DOCTOR_UI__.evaluateSmartFreeze({
+    prevSnapshot: { currentTime: 10, decodedFrames: 250, bufferedEnd: 10.1 },
+    currentSnapshot: { currentTime: 10, decodedFrames: 250, bufferedEnd: 10.1 },
+    streamState: {
+      readyState: 2,
+      networkState: 2,
+      paused: false,
+      ended: false,
+      currentTime: 10,
+      duration: null,
+      bufferedAheadSeconds: 0.1,
+      decodedFrames: 250,
+      droppedFrames: 5,
+      videoWidth: 3840,
+      videoHeight: 2160,
+      waitingOrStalled: true,
+    },
+    consecutiveStallTicks: 2,
+    minBufferAheadSeconds: 3.0,
+  });
+  await wait(40);
+
+  diagSendBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await wait(120);
+
+  const sentPayload = sentDiagnosticPayloads[0];
+  check(
+    Boolean(sentPayload) &&
+      typeof sentPayload.logText === 'string' &&
+      sentPayload.logText.includes('TV DOKTOR ÁLLAPOTKÉP') &&
+      sentPayload.logText.includes('TV DOKTOR MEMÓRIA:') &&
+      sentPayload.logText.includes('TV DOKTOR SUPABASE HIBA RÉSZLETEK:') &&
+      sentPayload.logText.includes('TV DOKTOR ELAKADÁS / LASSULÁS: művelet=selectChannelLaunchPlan') &&
+      sentPayload.logText.includes('TV DOKTOR ELAKADÁS ÉSZLELVE:') &&
+      sentPayload.logText.includes('TV DOKTOR NAPLÓ ÖSSZESÍTÉS:') &&
+      window.__DOCTOR_UI__.manualLogSnapshot().charCount === 0,
+    'a kézi hibanapló rögzíti a TV Doktor állapotát, memóriáját, Supabase hibáját és elakadásait, majd a meglévő küldővel hibátlanul elküldi és felszabadítja a RAM-ot',
+  );
+
+  // 3.3 VideoPlayer integráció: tanult HLS profil előválasztása vs. kikapcsolt TV Doktor
   window.__DOCTOR_UI__.clearTvDoctorMemory();
   window.localStorage.clear();
   window.__DOCTOR_UI__.recordDoctorChannelSuccess({

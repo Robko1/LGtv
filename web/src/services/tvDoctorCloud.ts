@@ -1,22 +1,41 @@
 import { WEB_VERSION } from '../appVersion';
-import { appLog } from './appLog';
+import { appLog, isVerbosePlaybackLogging, registerLoggingLifecycleHooks } from './appLog';
 import { tvDeviceInfo } from './tvDevice';
 import {
   ChannelDoctorRecord,
   CloudChannelProfileInput,
+  clearTvDoctorMemory,
+  formatDoctorBytes,
+  getTvDoctorMemoryStats,
+  getTvDoctorOperationHealth,
+  getTvDoctorSummary,
+  isTvDoctorDiagLoggingEnabled,
   mergeCloudProfilesIntoLocal,
+  notifyTvDoctorListeners,
+  resetTvDoctorOperationCounters,
   setTvDoctorCloudHook,
+  TV_DOCTOR_SYNC_STORAGE_KEY,
 } from './tvDoctor';
 
 const DEFAULT_API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
-const SYNC_STATE_KEY = 'iptv_rt_tv_doctor_sync_v1';
+const SYNC_STATE_KEY = TV_DOCTOR_SYNC_STORAGE_KEY;
 
 const REQUEST_TIMEOUT_MS = 12_000;
+const STATUS_CHECK_TIMEOUT_MS = 7_500;
+const SLOW_CLOUD_THRESHOLD_MS = 3_500;
 const BOOTSTRAP_DELAY_MS = 3_800;
 const FLUSH_DEBOUNCE_MS = 14_000;
 const MAX_PENDING_PROFILES = 30;
 const MAX_PENDING_EVENTS = 35;
+
+export type TvDoctorConnectionState =
+  | 'disabled'
+  | 'unchecked'
+  | 'checking'
+  | 'connected'
+  | 'offline'
+  | 'error';
 
 export interface PendingProfileSync {
   channelKey: string;
@@ -67,17 +86,50 @@ interface PersistedSyncState {
 
 export interface TvDoctorCloudStatus {
   enabled: boolean;
+  connected: boolean;
+  connectionState: TvDoctorConnectionState;
   lastSyncAt: string | null;
+  lastCheckedAt: string | null;
+  latencyMs: number | null;
   pendingCount: number;
   cloudProfileCount: number;
   syncing: boolean;
+  checking: boolean;
+  lastErrorCode: string | null;
+  lastErrorLocation: string | null;
+  lastErrorSummary: string | null;
+  lastErrorAt: string | null;
+}
+
+interface CloudRuntimeConnection {
+  connected: boolean;
+  connectionState: TvDoctorConnectionState;
+  lastCheckedAt: string | null;
+  latencyMs: number | null;
+  lastErrorCode: string | null;
+  lastErrorLocation: string | null;
+  lastErrorSummary: string | null;
+  lastErrorAt: string | null;
 }
 
 let cloudEnabled = true;
 let syncingNow = false;
+let checkingNow = false;
+let diagnosticsAttached = false;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let bootstrapTimer: ReturnType<typeof setTimeout> | null = null;
 let cachedState: PersistedSyncState | null = null;
+
+const runtimeConn: CloudRuntimeConnection = {
+  connected: false,
+  connectionState: 'unchecked',
+  lastCheckedAt: null,
+  latencyMs: null,
+  lastErrorCode: null,
+  lastErrorLocation: null,
+  lastErrorSummary: null,
+  lastErrorAt: null,
+};
 
 function scheduleTimer(fn: () => void, ms: number): ReturnType<typeof setTimeout> {
   if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
@@ -118,6 +170,11 @@ function readSyncState(): PersistedSyncState {
           pendingProfiles: parsed.pendingProfiles && typeof parsed.pendingProfiles === 'object' ? parsed.pendingProfiles : {},
           pendingEvents: Array.isArray(parsed.pendingEvents) ? parsed.pendingEvents.slice(-MAX_PENDING_EVENTS) : [],
         };
+        if (cachedState.lastSyncAt && runtimeConn.connectionState === 'unchecked') {
+          runtimeConn.connected = true;
+          runtimeConn.connectionState = 'connected';
+          runtimeConn.lastCheckedAt = cachedState.lastSyncAt;
+        }
         return cachedState;
       }
     }
@@ -136,13 +193,32 @@ function readSyncState(): PersistedSyncState {
 
 function saveSyncState(): void {
   if (!cachedState) return;
+  const pendingCount = Object.keys(cachedState.pendingProfiles).length + cachedState.pendingEvents.length;
+  // Ha teljesen 0 állapotban vagyunk (nincs várakozó elem, nincs felhőszinkron), ne foglaljunk feleslegesen kulcsot sem.
+  if (!cachedState.lastSyncAt && cachedState.cloudProfileCount === 0 && pendingCount === 0) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(SYNC_STATE_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+    notifyTvDoctorListeners();
+    return;
+  }
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(cachedState));
     }
-  } catch {
-    /* Offline memóriában tovább működik, soha nem dob hibát. */
+  } catch (err) {
+    recordCloudError(
+      'error',
+      'STORAGE_QUOTA',
+      'TV helyi tárhely (localStorage)',
+      `A szinkron várólista mentése ütközött a tárhelykorláttal (${safeCleanText(err, 60) || 'kvóta'}). Nyomd meg a Memória: 0 gombot.`,
+    );
   }
+  notifyTvDoctorListeners();
 }
 
 const SECRET_LABELS = ['username', 'user', 'password', 'passwd', 'token', 'authorization', 'api_key', 'apikey', 'secret'];
@@ -164,11 +240,135 @@ function safeCleanText(input: unknown, maxLen = 140): string | undefined {
   return redactDoctorText(input, maxLen);
 }
 
-async function postTvDoctor(body: Record<string, unknown>): Promise<any | null> {
-  if (typeof fetch !== 'function') return null;
+function recordCloudSuccess(latencyMs: number): void {
+  const nowIso = new Date().toISOString();
+  runtimeConn.connected = true;
+  runtimeConn.connectionState = 'connected';
+  runtimeConn.lastCheckedAt = nowIso;
+  runtimeConn.latencyMs = Math.max(1, Math.round(latencyMs));
+  runtimeConn.lastErrorCode = null;
+  runtimeConn.lastErrorLocation = null;
+  runtimeConn.lastErrorSummary = null;
+  runtimeConn.lastErrorAt = null;
+  if (latencyMs >= SLOW_CLOUD_THRESHOLD_MS && isTvDoctorDiagLoggingEnabled()) {
+    appLog(
+      `TV DOKTOR SUPABASE LASSULÁS: a tv-doctor szerver válasza ${Math.round(latencyMs)} ms volt (küszöb=${SLOW_CLOUD_THRESHOLD_MS} ms)`,
+    );
+  }
+  notifyTvDoctorListeners();
+}
+
+function recordCloudError(
+  state: 'offline' | 'error',
+  code: string,
+  location: string,
+  summary: string,
+): void {
+  const nowIso = new Date().toISOString();
+  runtimeConn.connected = false;
+  runtimeConn.connectionState = state;
+  runtimeConn.lastCheckedAt = nowIso;
+  runtimeConn.lastErrorCode = code;
+  runtimeConn.lastErrorLocation = location;
+  runtimeConn.lastErrorSummary = summary;
+  runtimeConn.lastErrorAt = nowIso;
+  if (isTvDoctorDiagLoggingEnabled()) {
+    appLog(`TV DOKTOR SUPABASE HIBA [hely=${location}; kód=${code}]: ${summary}`);
+  }
+  notifyTvDoctorListeners();
+}
+
+function classifyHttpError(status: number, rawBody: string): {
+  code: string;
+  location: string;
+  summary: string;
+} {
+  let detail = '';
+  try {
+    const parsed = rawBody ? JSON.parse(rawBody) : null;
+    detail = safeCleanText(parsed?.error || parsed?.message || parsed?.reason || '', 90) || '';
+  } catch {
+    detail = safeCleanText(rawBody, 80) || '';
+  }
+
+  if (status === 401 || status === 403) {
+    return {
+      code: `HTTP_${status}`,
+      location: 'Supabase hitelesítés (API kulcs / jogosultság)',
+      summary: `HTTP ${status}: A Supabase elutasította a kérést. Ellenőrizd a publishable API kulcsot és a tv-doctor függvény jogosultságát.`,
+    };
+  }
+  if (status === 404) {
+    return {
+      code: 'HTTP_404',
+      location: 'Supabase Edge Function (tv-doctor végpont)',
+      summary: 'HTTP 404: A tv-doctor Edge Function nem található a Supabase szerveren.',
+    };
+  }
+  if (status === 429) {
+    return {
+      code: 'HTTP_429',
+      location: 'Supabase kéréskorlát (Rate Limit)',
+      summary: 'HTTP 429: Túl sok kérés érkezett egyszerre; a TV Doktor később automatikusan újrapróbálja.',
+    };
+  }
+  if (status >= 500) {
+    const isDbError = /tv_doctor|relation|schema|postgres|pgrst|rpc|table|database/i.test(detail);
+    if (isDbError) {
+      return {
+        code: `HTTP_${status}`,
+        location: 'Supabase adatbázis (tv_doctor táblák)',
+        summary: `HTTP ${status}: Adatbázis hiba (${detail || 'tábla/migráció'}). Ellenőrizd a tv_doctor_channel_profiles táblát.`,
+      };
+    }
+    return {
+      code: `HTTP_${status}`,
+      location: 'Supabase szerver (tv-doctor Edge Function)',
+      summary: `HTTP ${status}: Szerveroldali hiba a tv-doctor függvényben${detail ? ` (${detail})` : ''}.`,
+    };
+  }
+  return {
+    code: `HTTP_${status}`,
+    location: 'Supabase API kérés (tv-doctor)',
+    summary: `HTTP ${status}: Váratlan válasz a szervertől${detail ? ` (${detail})` : ''}.`,
+  };
+}
+
+async function postTvDoctor(
+  body: Record<string, unknown>,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<any | null> {
+  if (typeof fetch !== 'function') {
+    recordCloudError(
+      'error',
+      'NO_FETCH',
+      'TV böngészőmotor (fetch API)',
+      'A TV környezetében nem érhető el a hálózati fetch modul; csak helyi gyorsítótár működik.',
+    );
+    return null;
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    recordCloudError(
+      'offline',
+      'OFFLINE',
+      'TV internetkapcsolat (Wi-Fi / LAN)',
+      'A TV jelenleg nincs internetre csatlakoztatva. Ellenőrizd a hálózatot (helyi gyorsítótárról hibátlanul fut tovább).',
+    );
+    return null;
+  }
+
+  const startedAt = Date.now();
   const AbortCtor = typeof AbortController !== 'undefined' ? AbortController : null;
   const controller = AbortCtor ? new AbortCtor() : null;
-  const timeout = controller ? scheduleTimer(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
+  let timedOut = false;
+  const timeout = controller
+    ? scheduleTimer(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs)
+    : null;
+
   try {
     const response = await fetch(getApiUrl(), {
       method: 'POST',
@@ -180,14 +380,123 @@ async function postTvDoctor(body: Record<string, unknown>): Promise<any | null> 
       body: JSON.stringify(body),
       ...(controller ? { signal: controller.signal } : {}),
     });
-    if (!response || !response.ok) return null;
-    const text = await response.text();
-    return text ? JSON.parse(text) : null;
-  } catch {
+
+    const elapsedMs = Date.now() - startedAt;
+    if (!response) {
+      recordCloudError(
+        'error',
+        'EMPTY_RESPONSE',
+        'Hálózat / Supabase átjáró',
+        'Nem érkezett HTTP válasz a Supabase tv-doctor végponttól.',
+      );
+      return null;
+    }
+
+    const text = await response.text().catch(() => '');
+    if (!response.ok) {
+      const classified = classifyHttpError(response.status, text);
+      recordCloudError('error', classified.code, classified.location, classified.summary);
+      return null;
+    }
+
+    let parsed: any = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      recordCloudError(
+        'error',
+        'INVALID_JSON',
+        'Supabase válaszfeldolgozás (JSON)',
+        'Érvénytelen (nem JSON) válasz érkezett a tv-doctor végponttól.',
+      );
+      return null;
+    }
+
+    if (!parsed || parsed.ok === false) {
+      const errDetail = safeCleanText(parsed?.error || parsed?.message || 'ismeretlen szerverhiba', 90) || 'ismeretlen hiba';
+      const isDb = /tv_doctor|relation|schema|postgres|pgrst|table|database/i.test(errDetail);
+      recordCloudError(
+        'error',
+        'API_REJECTED',
+        isDb ? 'Supabase adatbázis (tv_doctor táblák)' : 'Supabase tv-doctor Edge Function',
+        `A szerver hibát jelzett: ${errDetail}.`,
+      );
+      return null;
+    }
+
+    recordCloudSuccess(elapsedMs);
+    return parsed;
+  } catch (cause: any) {
+    const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (isOfflineNow) {
+      recordCloudError(
+        'offline',
+        'OFFLINE',
+        'TV internetkapcsolat (Wi-Fi / LAN)',
+        'Megszakadt a TV internetkapcsolata. Ellenőrizd a Wi-Fi / LAN kábelt.',
+      );
+      return null;
+    }
+    if (timedOut || cause?.name === 'AbortError') {
+      recordCloudError(
+        'error',
+        'TIMEOUT',
+        'Hálózat / Supabase válaszidő (időtúllépés)',
+        `A Supabase szerver ${Math.round(timeoutMs / 1000)} mp alatt nem válaszolt. Lassú internet vagy DNS/tűzfal blokkolás okozhatja.`,
+      );
+      return null;
+    }
+    const errText = safeCleanText(cause?.message || cause, 70) || 'hálózati hiba';
+    recordCloudError(
+      'error',
+      'NETWORK_ERROR',
+      'Hálózat / DNS / TLS kapcsolat',
+      `Nem sikerült elérni a Supabase végpontot (${errText}). Ellenőrizd a TV internet- és DNS-kapcsolatát.`,
+    );
     return null;
   } finally {
     cancelTimer(timeout);
   }
+}
+
+/**
+ * Élő Supabase kapcsolat- és állapotellenőrzés a menühöz és diagnosztikához.
+ */
+export async function checkTvDoctorConnection(timeoutMs = STATUS_CHECK_TIMEOUT_MS): Promise<TvDoctorCloudStatus> {
+  if (checkingNow) return getTvDoctorCloudStatus();
+  const state = readSyncState();
+  checkingNow = true;
+  if (runtimeConn.connectionState === 'unchecked') {
+    runtimeConn.connectionState = 'checking';
+  }
+  notifyTvDoctorListeners();
+
+  try {
+    const res = await postTvDoctor({ action: 'status' }, timeoutMs);
+    if (res && res.ok) {
+      if (typeof res.profileCount === 'number' && Number.isFinite(res.profileCount)) {
+        state.cloudProfileCount = Math.max(0, Math.round(res.profileCount));
+      }
+      if (typeof res.serverTime === 'string' && !state.lastSyncAt) {
+        state.lastSyncAt = res.serverTime;
+      }
+      saveSyncState();
+      if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+        appLog(
+          `TV DOKTOR SUPABASE KAPCSOLAT OK: válaszidő=${runtimeConn.latencyMs ?? 0}ms; központi_profilok=${state.cloudProfileCount}`,
+        );
+      }
+      const pendingCount = Object.keys(state.pendingProfiles).length + state.pendingEvents.length;
+      if (cloudEnabled && pendingCount > 0 && !syncingNow) {
+        void flushTvDoctorCloudQueue();
+      }
+    }
+  } finally {
+    checkingNow = false;
+    notifyTvDoctorListeners();
+  }
+
+  return getTvDoctorCloudStatus();
 }
 
 /**
@@ -198,6 +507,7 @@ export async function bootstrapTvDoctorFromCloud(): Promise<number> {
   if (!cloudEnabled || syncingNow) return 0;
   const state = readSyncState();
   syncingNow = true;
+  notifyTvDoctorListeners();
   try {
     const res = await postTvDoctor({
       action: 'bootstrap',
@@ -215,7 +525,7 @@ export async function bootstrapTvDoctorFromCloud(): Promise<number> {
     state.cloudProfileCount = Math.max(state.cloudProfileCount, res.profiles.length);
     saveSyncState();
 
-    if (merged > 0) {
+    if (merged > 0 && isTvDoctorDiagLoggingEnabled()) {
       appLog(`TV DOKTOR FELHŐ: ${merged} csatornaprofil letöltve és összefésülve`);
     }
     return merged;
@@ -223,6 +533,7 @@ export async function bootstrapTvDoctorFromCloud(): Promise<number> {
     return 0;
   } finally {
     syncingNow = false;
+    notifyTvDoctorListeners();
   }
 }
 
@@ -244,6 +555,7 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
   const tv = tvDeviceInfo();
 
   syncingNow = true;
+  notifyTvDoctorListeners();
   try {
     const res = await postTvDoctor({
       action: 'sync',
@@ -272,11 +584,17 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
     }
     state.lastSyncAt = typeof res.serverTime === 'string' ? res.serverTime : new Date().toISOString();
     saveSyncState();
+    if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR FELHŐ SZINKRON OK: elküldve profil=${profilesToSend.length}, esemény=${eventsToSend.length}`,
+      );
+    }
     return true;
   } catch {
     return false;
   } finally {
     syncingNow = false;
+    notifyTvDoctorListeners();
   }
 }
 
@@ -375,9 +693,13 @@ export function configureTvDoctorCloud(enabled: boolean): void {
     cancelTimer(bootstrapTimer);
     flushTimer = null;
     bootstrapTimer = null;
+    notifyTvDoctorListeners();
     return;
   }
 
+  if (runtimeConn.connectionState === 'disabled') {
+    runtimeConn.connectionState = runtimeConn.connected ? 'connected' : 'unchecked';
+  }
   setTvDoctorCloudHook(enqueueFromHook);
   if (bootstrapTimer === null) {
     bootstrapTimer = scheduleTimer(() => {
@@ -390,17 +712,34 @@ export function configureTvDoctorCloud(enabled: boolean): void {
       });
     }, BOOTSTRAP_DELAY_MS);
   }
+  notifyTvDoctorListeners();
 }
 
 export function getTvDoctorCloudStatus(): TvDoctorCloudStatus {
   const state = readSyncState();
   const pendingCount = Object.keys(state.pendingProfiles).length + state.pendingEvents.length;
+  let effectiveState: TvDoctorConnectionState = runtimeConn.connectionState;
+  if (checkingNow || syncingNow) {
+    effectiveState = 'checking';
+  } else if (!cloudEnabled && runtimeConn.connectionState === 'unchecked') {
+    effectiveState = 'disabled';
+  }
+
   return {
     enabled: cloudEnabled,
+    connected: runtimeConn.connected,
+    connectionState: effectiveState,
     lastSyncAt: state.lastSyncAt,
+    lastCheckedAt: runtimeConn.lastCheckedAt,
+    latencyMs: runtimeConn.latencyMs,
     pendingCount,
     cloudProfileCount: state.cloudProfileCount,
     syncing: syncingNow,
+    checking: checkingNow,
+    lastErrorCode: runtimeConn.lastErrorCode,
+    lastErrorLocation: runtimeConn.lastErrorLocation,
+    lastErrorSummary: runtimeConn.lastErrorSummary,
+    lastErrorAt: runtimeConn.lastErrorAt,
   };
 }
 
@@ -410,6 +749,13 @@ export function clearTvDoctorCloudQueue(): void {
   cancelTimer(bootstrapTimer);
   flushTimer = null;
   bootstrapTimer = null;
+  runtimeConn.lastErrorCode = null;
+  runtimeConn.lastErrorLocation = null;
+  runtimeConn.lastErrorSummary = null;
+  runtimeConn.lastErrorAt = null;
+  if (!runtimeConn.connected) {
+    runtimeConn.connectionState = cloudEnabled ? 'unchecked' : 'disabled';
+  }
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(SYNC_STATE_KEY);
@@ -417,4 +763,86 @@ export function clearTvDoctorCloudQueue(): void {
   } catch {
     /* ignore */
   }
+  notifyTvDoctorListeners();
+}
+
+/**
+ * Kézi „Memória: 0” visszaállítás:
+ * Törli a TV Doktor helyi csatorna-memóriáját, naplóit és a felhő-várólistát is 0 állapotra,
+ * miközben a csatornalistához, kedvencekhez és egyéb beállításokhoz SOHA nem nyúl.
+ */
+export function resetTvDoctorAllToZero(storage?: Storage | null): void {
+  clearTvDoctorMemory(storage);
+  clearTvDoctorCloudQueue();
+  if (cloudEnabled) {
+    setTvDoctorCloudHook(enqueueFromHook);
+  }
+  if (isTvDoctorDiagLoggingEnabled()) {
+    appLog('TV DOKTOR NULLÁZÁS: a tanuló memória és a szinkron-várólista kézzel 0 állapotra lett állítva.');
+  }
+  notifyTvDoctorListeners();
+}
+
+/**
+ * Csatlakoztatja a TV Doktor működés- és elakadás-naplózását a meglévő Kézi hibakeresési naplóhoz
+ * (SÁRGA gombos ablak). A meglévő naplózási és Supabase-küldési mechanizmust változatlanul hagyja,
+ * csupán kiegészíti a TV Doktor állapot-, memória-, kapcsolat- és elakadás-soraival.
+ */
+export function attachTvDoctorDiagnostics(): void {
+  if (diagnosticsAttached) return;
+  diagnosticsAttached = true;
+
+  registerLoggingLifecycleHooks({
+    onStart: () => {
+      if (!isTvDoctorDiagLoggingEnabled()) {
+        appLog('TV DOKTOR NAPLÓ: a TV Doktor részletes naplózása jelenleg ki van kapcsolva a kézi napló ablakban.');
+        return;
+      }
+
+      const summary = getTvDoctorSummary();
+      const mem = getTvDoctorMemoryStats();
+      const op = getTvDoctorOperationHealth();
+      const cloud = getTvDoctorCloudStatus();
+
+      appLog(
+        `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; igazolt_javítások=${summary.totalVerifiedRepairs} ===`,
+      );
+      appLog(
+        `TV DOKTOR MEMÓRIA: doktor=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)} (${mem.doctorBudgetPercent}%); tv_tárhely=${formatDoctorBytes(mem.tvStorageUsedBytes)}/~5.0 MB (${mem.tvStoragePercent}%)${mem.jsHeapUsedMB !== null ? `; js_ram=${mem.jsHeapUsedMB} MB` : ''}; állapot=${mem.memoryHealthLabel}`,
+      );
+      appLog(
+        `TV DOKTOR SUPABASE: kapcsolat=${cloud.connected ? 'LÉTREJÖTT' : 'NINCS'}; állapot=${cloud.connectionState}; válaszidő=${cloud.latencyMs !== null ? `${cloud.latencyMs}ms` : 'nincs mérve'}; központi_profilok=${cloud.cloudProfileCount}; várólista=${cloud.pendingCount}; utolsó_szinkron=${cloud.lastSyncAt || 'még nem volt'}`,
+      );
+      if (cloud.lastErrorSummary) {
+        appLog(
+          `TV DOKTOR SUPABASE HIBA RÉSZLETEK: hol=${cloud.lastErrorLocation || 'ismeretlen'}; kód=${cloud.lastErrorCode || '-'}; hiba=${cloud.lastErrorSummary}`,
+        );
+      }
+      if (mem.lastStorageError) {
+        appLog(
+          `TV DOKTOR TÁRHELY HIBA RÉSZLETEK: hol=${mem.lastStorageError.location}; hiba=${mem.lastStorageError.message}`,
+        );
+      }
+      if (op.lastSlowOp) {
+        appLog(
+          `TV DOKTOR KORÁBBI LASSULÁS: művelet=${op.lastSlowOp.op}; idő=${op.lastSlowOp.elapsedMs}ms${op.lastSlowOp.channelName ? `; csatorna=${op.lastSlowOp.channelName}` : ''}`,
+        );
+      }
+      const tailLogs = summary.recentLogs.slice(-5);
+      for (let i = 0; i < tailLogs.length; i += 1) {
+        const entry = tailLogs[i];
+        appLog(`TV DOKTOR ELŐZMÉNY [${entry.channelName}] (${entry.level}): ${entry.message}`);
+      }
+      resetTvDoctorOperationCounters();
+    },
+    onStop: () => {
+      if (!isTvDoctorDiagLoggingEnabled()) return;
+      const mem = getTvDoctorMemoryStats();
+      const op = getTvDoctorOperationHealth();
+      const cloud = getTvDoctorCloudStatus();
+      appLog(
+        `=== TV DOKTOR NAPLÓ ÖSSZESÍTÉS: döntések=${op.decisionsCount}; max_döntési_idő=${op.maxDecisionMs}ms; elakadások_lassulások=${op.slowOpsCount}; fagyásvizsgálatok=${op.freezeChecksCount} (igazolt_fagyás=${op.confirmedFreezesCount}); javítási_lépések=${op.repairsAttemptedCount} (igazolt=${op.repairsVerifiedCount}); memória=${formatDoctorBytes(mem.doctorTotalBytes)}; supabase=${cloud.connected ? 'OK' : cloud.connectionState}${cloud.lastErrorSummary ? ` [${cloud.lastErrorLocation}: ${cloud.lastErrorSummary}]` : ''} ===`,
+      );
+    },
+  });
 }
