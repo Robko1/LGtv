@@ -1,3 +1,7 @@
+![LGtv saját logója](webos/icon-rt2.png)
+
+---
+
 # LGtv – Egyedi, korlátozott felhasználási licenc
 # LGtv – Custom Restricted Use License
 
