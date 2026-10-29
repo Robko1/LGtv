@@ -241,6 +241,15 @@ jobs:
             git commit -m "chore: bump webOS IPK version to v$NEXT"
             echo "SIGNED_COMMIT=0" >> "$GITHUB_ENV"
           fi
+          # A build közben generált, verziócommiton kívüli fájlok (például
+          # webos/webos.js) ne akadályozzák a rebase-t. Csak ideiglenesen stash,
+          # a push után visszaállítjuk őket. Force push továbbra sincs.
+          STASHED=0
+          if ! git diff --quiet || ! git diff --cached --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+            git stash push --include-untracked -m "workflow-generated changes before version push"
+            STASHED=1
+          fi
+
           # A build közben a main ágra érkező más commitokat is meg kell tartani.
           # A saját verziócommitot mindig a legfrissebb main tetejére rebase-eljük.
           # Push-elutasítás esetén újra fetch + rebase következik; force push tilos.
@@ -263,6 +272,13 @@ jobs:
           if [[ "$PUSHED" != "1" ]]; then
             echo "HIBA: öt próbálkozás után sem sikerült biztonságosan frissíteni a main ágat." >&2
             exit 1
+          fi
+
+          if [[ "$STASHED" == "1" ]]; then
+            if ! git stash pop; then
+              echo "HIBA: a verziócommit sikeresen felkerült a main ágra, de a generált fájlok visszaállítása ütközött." >&2
+              exit 1
+            fi
           fi
           echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
