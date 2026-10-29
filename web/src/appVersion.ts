@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.195';
+export const WEB_VERSION = '2.5.196';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,19 +7,19 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.195',
+    version: '2.5.196',
     date: '2026-10-29',
     changes: [
-      '3D TV Doktor ikon (televíziót tartó kis doktor) a csatornasorokban a kedvenc csillag alatt (zöld állapotjelzés a már kezelt csatornáknál) és teljes képernyőn a jobb felső sarokban az óra előtt, az órával azonos méretben.',
-      'TV Doktor működés kiterjesztése a VOD tartalmakra (filmek és sorozatok), valamint teljes képernyős, automatikusan eltűnő félig átlátszó állapotablak aktív betöltés, pufferelés, hiba és újrapróbálkozás közben.',
+      'Rendszer menü átrendezése: a TV Doktor első helyre került 3D zöld TV Doktor ikonnal, nagyobb és jobban olvasható feliratokkal, távirányítóval fókuszálható és lenyitható állapot-/naplópanellel, valamint a jobb sarokba helyezett Memória: 0 gombbal.',
+      'Különálló, távirányítóval kezelhető Supabase-párosítás menüpont a TV Doktor alatt egyszeri 6 jegyű számkódos hitelesítéssel a védett TV Doktor adatok eléréséhez.',
     ],
   },
   {
-    version: '2.5.193',
+    version: '2.5.195',
     date: '2026-10-29',
     changes: [
-      'TV Doktor lenyíló állapot-, Supabase kapcsolat-, memóriahasználat- és hibalokalizáló panel a Rendszer menüben, a kapcsoló mellett elhelyezett kézi Memória: 0 visszaállítással.',
-      'Kézi hibakeresési napló bővítése a TV Doktor működés-, memória-, kapcsolat- és elakadás-naplózásával a meglévő naplóküldési útvonal változatlanul hagyásával.',
+      '3D TV Doktor ikon (televíziót tartó kis doktor) a csatornasorokban a kedvenc csillag alatt és teljes képernyőn a jobb felső sarokban az óra előtt.',
+      'TV Doktor működés kiterjesztése a VOD tartalmakra (filmek és sorozatok), valamint teljes képernyős, automatikusan eltűnő állapotablak aktív betöltés, pufferelés, hiba és újrapróbálkozás közben.',
     ],
   },
 ];

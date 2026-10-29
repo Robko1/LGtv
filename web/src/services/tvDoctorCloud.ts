@@ -20,6 +20,11 @@ import {
 const DEFAULT_API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
 const SYNC_STATE_KEY = TV_DOCTOR_SYNC_STORAGE_KEY;
+export const TV_DOCTOR_PAIRING_STORAGE_KEY = 'iptv_rt_tv_doctor_pairing_v1';
+
+const IDB_NAME = 'iptv_tv_doctor_pairing_db_v1';
+const IDB_STORE = 'pairing';
+const IDB_PRIMARY_KEY = 'primary';
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const STATUS_CHECK_TIMEOUT_MS = 7_500;
@@ -31,11 +36,40 @@ const MAX_PENDING_EVENTS = 35;
 
 export type TvDoctorConnectionState =
   | 'disabled'
+  | 'unpaired'
   | 'unchecked'
   | 'checking'
   | 'connected'
   | 'offline'
   | 'error';
+
+export type TvDoctorPairingUiState =
+  | 'unpaired'
+  | 'verifying'
+  | 'paired'
+  | 'error';
+
+export interface PersistedPairingState {
+  deviceId: string;
+  deviceToken: string | null;
+  pairedAt: string | null;
+  tokenExpiresAt: string | null;
+  codeRequestedAt: string | null;
+  codeExpiresAt: string | null;
+}
+
+export interface TvDoctorPairingInfo {
+  paired: boolean;
+  deviceId: string;
+  pairedAt: string | null;
+  tokenExpiresAt: string | null;
+  codeRequestedAt: string | null;
+  codeExpiresAt: string | null;
+  uiState: TvDoctorPairingUiState;
+  statusMessage: string | null;
+  requestingCode: boolean;
+  verifyingCode: boolean;
+}
 
 export interface PendingProfileSync {
   channelKey: string;
@@ -86,6 +120,8 @@ interface PersistedSyncState {
 
 export interface TvDoctorCloudStatus {
   enabled: boolean;
+  paired: boolean;
+  deviceId: string;
   connected: boolean;
   connectionState: TvDoctorConnectionState;
   lastSyncAt: string | null;
@@ -115,10 +151,22 @@ interface CloudRuntimeConnection {
 let cloudEnabled = true;
 let syncingNow = false;
 let checkingNow = false;
+let requestingCodeNow = false;
+let verifyingCodeNow = false;
 let diagnosticsAttached = false;
+let idbHydrationStarted = false;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let bootstrapTimer: ReturnType<typeof setTimeout> | null = null;
 let cachedState: PersistedSyncState | null = null;
+let cachedPairing: PersistedPairingState | null = null;
+
+let pairingUiOverride: {
+  state: TvDoctorPairingUiState | null;
+  message: string | null;
+} = {
+  state: null,
+  message: null,
+};
 
 const runtimeConn: CloudRuntimeConnection = {
   connected: false,
@@ -130,6 +178,14 @@ const runtimeConn: CloudRuntimeConnection = {
   lastErrorSummary: null,
   lastErrorAt: null,
 };
+
+const PAIRING_AUTH_ERROR_CODES = new Set([
+  'pairing_required',
+  'device_not_paired',
+  'device_revoked',
+  'token_expired',
+  'invalid_device_token',
+]);
 
 function scheduleTimer(fn: () => void, ms: number): ReturnType<typeof setTimeout> {
   if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
@@ -152,25 +208,299 @@ function getApiUrl(): string {
   return g.__TV_DOCTOR_API_URL__ || DEFAULT_API_URL;
 }
 
-function randomSeed(): string {
-  return `tv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+function generateDeviceId(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(8);
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      crypto.getRandomValues(bytes);
+    } else {
+      for (let i = 0; i < bytes.length; i += 1) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+  } catch {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  let p1 = '';
+  let p2 = '';
+  for (let i = 0; i < 4; i += 1) {
+    p1 += alphabet[bytes[i] % alphabet.length];
+    p2 += alphabet[bytes[i + 4] % alphabet.length];
+  }
+  return `LG-${p1}-${p2}`;
+}
+
+function sanitizeDeviceId(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const cleaned = raw.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  return cleaned.length >= 6 ? cleaned : null;
+}
+
+function sanitizeDeviceToken(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const cleaned = raw.trim();
+  if (cleaned.length < 32 || cleaned.length > 160) return null;
+  if (!/^[a-zA-Z0-9_-]+$/.test(cleaned)) return null;
+  return cleaned;
+}
+
+function openPairingIndexedDb(): Promise<IDBDatabase | null> {
+  return new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === 'undefined' || !indexedDB) {
+        resolve(null);
+        return;
+      }
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        try {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)) {
+            db.createObjectStore(IDB_STORE);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function idbWritePairing(record: PersistedPairingState): Promise<void> {
+  const db = await openPairingIndexedDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(record, IDB_PRIMARY_KEY);
+      tx.oncomplete = () => {
+        try { db.close(); } catch { /* ignore */ }
+        resolve();
+      };
+      tx.onerror = () => {
+        try { db.close(); } catch { /* ignore */ }
+        resolve();
+      };
+      tx.onabort = () => {
+        try { db.close(); } catch { /* ignore */ }
+        resolve();
+      };
+    } catch {
+      try { db.close(); } catch { /* ignore */ }
+      resolve();
+    }
+  });
+}
+
+async function idbReadPairing(): Promise<PersistedPairingState | null> {
+  const db = await openPairingIndexedDb();
+  if (!db) return null;
+  return await new Promise<PersistedPairingState | null>((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(IDB_PRIMARY_KEY);
+      req.onsuccess = () => {
+        const val = req.result;
+        try { db.close(); } catch { /* ignore */ }
+        if (val && typeof val === 'object') {
+          const deviceId = sanitizeDeviceId((val as any).deviceId);
+          if (deviceId) {
+            resolve({
+              deviceId,
+              deviceToken: sanitizeDeviceToken((val as any).deviceToken),
+              pairedAt: typeof (val as any).pairedAt === 'string' ? (val as any).pairedAt : null,
+              tokenExpiresAt: typeof (val as any).tokenExpiresAt === 'string' ? (val as any).tokenExpiresAt : null,
+              codeRequestedAt: typeof (val as any).codeRequestedAt === 'string' ? (val as any).codeRequestedAt : null,
+              codeExpiresAt: typeof (val as any).codeExpiresAt === 'string' ? (val as any).codeExpiresAt : null,
+            });
+            return;
+          }
+        }
+        resolve(null);
+      };
+      req.onerror = () => {
+        try { db.close(); } catch { /* ignore */ }
+        resolve(null);
+      };
+    } catch {
+      try { db.close(); } catch { /* ignore */ }
+      resolve(null);
+    }
+  });
+}
+
+function readPairingState(): PersistedPairingState {
+  if (cachedPairing) return cachedPairing;
+
+  try {
+    const raw = typeof localStorage !== 'undefined'
+      ? localStorage.getItem(TV_DOCTOR_PAIRING_STORAGE_KEY)
+      : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const validId = sanitizeDeviceId(parsed?.deviceId);
+      if (validId) {
+        cachedPairing = {
+          deviceId: validId,
+          deviceToken: sanitizeDeviceToken(parsed?.deviceToken),
+          pairedAt: typeof parsed?.pairedAt === 'string' ? parsed.pairedAt : null,
+          tokenExpiresAt: typeof parsed?.tokenExpiresAt === 'string' ? parsed.tokenExpiresAt : null,
+          codeRequestedAt: typeof parsed?.codeRequestedAt === 'string' ? parsed.codeRequestedAt : null,
+          codeExpiresAt: typeof parsed?.codeExpiresAt === 'string' ? parsed.codeExpiresAt : null,
+        };
+        if (!idbHydrationStarted) {
+          idbHydrationStarted = true;
+          void hydratePairingFromIndexedDb();
+        }
+        return cachedPairing;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  cachedPairing = {
+    deviceId: generateDeviceId(),
+    deviceToken: null,
+    pairedAt: null,
+    tokenExpiresAt: null,
+    codeRequestedAt: null,
+    codeExpiresAt: null,
+  };
+  writePairingLocalOnly(cachedPairing);
+  if (!idbHydrationStarted) {
+    idbHydrationStarted = true;
+    void hydratePairingFromIndexedDb();
+  }
+  return cachedPairing;
+}
+
+function writePairingLocalOnly(record: PersistedPairingState): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(TV_DOCTOR_PAIRING_STORAGE_KEY, JSON.stringify(record));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function savePairingState(record: PersistedPairingState): void {
+  cachedPairing = record;
+  writePairingLocalOnly(record);
+  void idbWritePairing({ ...record });
+  notifyTvDoctorListeners();
+}
+
+async function hydratePairingFromIndexedDb(): Promise<void> {
+  const fromIdb = await idbReadPairing();
+  const current = cachedPairing;
+  if (!fromIdb) {
+    if (current && current.deviceToken) {
+      await idbWritePairing({ ...current });
+    }
+    return;
+  }
+
+  // Ha a localStorage elveszett (pl. TV újraindítás/gyorsítótár-ürítés), az IndexedDB visszaállítja a párosítást!
+  if ((!current || !current.deviceToken) && fromIdb.deviceToken) {
+    cachedPairing = { ...fromIdb };
+    writePairingLocalOnly(cachedPairing);
+    if (runtimeConn.connectionState === 'unpaired' || runtimeConn.connectionState === 'unchecked') {
+      runtimeConn.connectionState = 'unchecked';
+    }
+    notifyTvDoctorListeners();
+    if (cloudEnabled) {
+      void bootstrapTvDoctorFromCloud().then(() => {
+        const st = readSyncState();
+        if (Object.keys(st.pendingProfiles).length > 0 || st.pendingEvents.length > 0) {
+          void flushTvDoctorCloudQueue();
+        }
+      });
+    }
+    return;
+  }
+
+  if (current && current.deviceToken) {
+    await idbWritePairing({ ...current });
+  }
+}
+
+export function isTvDoctorPaired(): boolean {
+  const pairing = readPairingState();
+  return Boolean(pairing.deviceId && pairing.deviceToken);
+}
+
+/**
+ * Alkalmazás-újraindítás / hidegindítás szimulálásához és visszaellenőrzéséhez:
+ * törli a memóriabeli gyorsítótárat és újra betölti a tartós tárhelyről (localStorage + IndexedDB).
+ */
+export async function reloadTvDoctorPairingFromStorage(): Promise<TvDoctorPairingInfo> {
+  cachedPairing = null;
+  idbHydrationStarted = true;
+  const local = readPairingState();
+  if (!local.deviceToken) {
+    const fromIdb = await idbReadPairing();
+    if (fromIdb && fromIdb.deviceToken) {
+      cachedPairing = { ...fromIdb };
+      writePairingLocalOnly(cachedPairing);
+    }
+  }
+  notifyTvDoctorListeners();
+  return getTvDoctorPairingInfo();
+}
+
+export function getTvDoctorPairingInfo(): TvDoctorPairingInfo {
+  const pairing = readPairingState();
+  const paired = Boolean(pairing.deviceId && pairing.deviceToken);
+
+  let uiState: TvDoctorPairingUiState = paired ? 'paired' : 'unpaired';
+  if (verifyingCodeNow) {
+    uiState = 'verifying';
+  } else if (pairingUiOverride.state === 'error' && !paired) {
+    uiState = 'error';
+  } else if (pairingUiOverride.state) {
+    uiState = pairingUiOverride.state;
+  }
+
+  return {
+    paired,
+    deviceId: pairing.deviceId,
+    pairedAt: pairing.pairedAt,
+    tokenExpiresAt: pairing.tokenExpiresAt,
+    codeRequestedAt: pairing.codeRequestedAt,
+    codeExpiresAt: pairing.codeExpiresAt,
+    uiState,
+    statusMessage: pairingUiOverride.message,
+    requestingCode: requestingCodeNow,
+    verifyingCode: verifyingCodeNow,
+  };
 }
 
 function readSyncState(): PersistedSyncState {
   if (cachedState) return cachedState;
+  const pairing = readPairingState();
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SYNC_STATE_KEY) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
         cachedState = {
-          deviceSeed: typeof parsed.deviceSeed === 'string' && parsed.deviceSeed ? parsed.deviceSeed : randomSeed(),
+          deviceSeed: pairing.deviceId,
           lastSyncAt: typeof parsed.lastSyncAt === 'string' ? parsed.lastSyncAt : null,
           cloudProfileCount: Math.max(0, Number(parsed.cloudProfileCount) || 0),
           pendingProfiles: parsed.pendingProfiles && typeof parsed.pendingProfiles === 'object' ? parsed.pendingProfiles : {},
           pendingEvents: Array.isArray(parsed.pendingEvents) ? parsed.pendingEvents.slice(-MAX_PENDING_EVENTS) : [],
         };
-        if (cachedState.lastSyncAt && runtimeConn.connectionState === 'unchecked') {
+        if (cachedState.lastSyncAt && pairing.deviceToken && runtimeConn.connectionState === 'unchecked') {
           runtimeConn.connected = true;
           runtimeConn.connectionState = 'connected';
           runtimeConn.lastCheckedAt = cachedState.lastSyncAt;
@@ -182,7 +512,7 @@ function readSyncState(): PersistedSyncState {
     /* ignore */
   }
   cachedState = {
-    deviceSeed: randomSeed(),
+    deviceSeed: pairing.deviceId,
     lastSyncAt: null,
     cloudProfileCount: 0,
     pendingProfiles: {},
@@ -194,7 +524,6 @@ function readSyncState(): PersistedSyncState {
 function saveSyncState(): void {
   if (!cachedState) return;
   const pendingCount = Object.keys(cachedState.pendingProfiles).length + cachedState.pendingEvents.length;
-  // Ha teljesen 0 állapotban vagyunk (nincs várakozó elem, nincs felhőszinkron), ne foglaljunk feleslegesen kulcsot sem.
   if (!cachedState.lastSyncAt && cachedState.cloudProfileCount === 0 && pendingCount === 0) {
     try {
       if (typeof localStorage !== 'undefined') {
@@ -240,6 +569,45 @@ function safeCleanText(input: unknown, maxLen = 140): string | undefined {
   return redactDoctorText(input, maxLen);
 }
 
+function applySilentTokenRotation(parsed: any): void {
+  if (!parsed || typeof parsed !== 'object') return;
+  const nextToken = sanitizeDeviceToken(parsed.rotatedDeviceToken);
+  if (!nextToken) return;
+  const current = readPairingState();
+  savePairingState({
+    ...current,
+    deviceToken: nextToken,
+    tokenExpiresAt: typeof parsed.tokenExpiresAt === 'string' ? parsed.tokenExpiresAt : current.tokenExpiresAt,
+  });
+}
+
+function handleServerPairingRejection(errorCode: string, serverMessage?: string): void {
+  const current = readPairingState();
+  savePairingState({
+    ...current,
+    deviceToken: null,
+    tokenExpiresAt: null,
+  });
+  const reasonMsg = serverMessage
+    || (errorCode === 'device_revoked'
+      ? 'A készülék párosítása visszavonásra került. Párosítsd újra a Supabase-párosítás menüben.'
+      : errorCode === 'token_expired'
+        ? 'A készülék tokenje lejárt. Párosítsd újra a Supabase-párosítás menüben.'
+        : 'A készülék nincs párosítva a védett Supabase adattárral.');
+  pairingUiOverride = {
+    state: 'unpaired',
+    message: reasonMsg,
+  };
+  runtimeConn.connected = false;
+  runtimeConn.connectionState = 'unpaired';
+  runtimeConn.lastCheckedAt = new Date().toISOString();
+  runtimeConn.lastErrorCode = errorCode.toUpperCase();
+  runtimeConn.lastErrorLocation = 'Supabase TV-párosítás';
+  runtimeConn.lastErrorSummary = reasonMsg;
+  runtimeConn.lastErrorAt = runtimeConn.lastCheckedAt;
+  notifyTvDoctorListeners();
+}
+
 function recordCloudSuccess(latencyMs: number): void {
   const nowIso = new Date().toISOString();
   runtimeConn.connected = true;
@@ -259,7 +627,7 @@ function recordCloudSuccess(latencyMs: number): void {
 }
 
 function recordCloudError(
-  state: 'offline' | 'error',
+  state: 'offline' | 'error' | 'unpaired',
   code: string,
   location: string,
   summary: string,
@@ -282,20 +650,36 @@ function classifyHttpError(status: number, rawBody: string): {
   code: string;
   location: string;
   summary: string;
+  pairingErrorCode?: string;
+  serverMessage?: string;
 } {
   let detail = '';
+  let parsedErrorCode = '';
+  let serverMessage = '';
   try {
     const parsed = rawBody ? JSON.parse(rawBody) : null;
+    parsedErrorCode = typeof parsed?.error === 'string' ? parsed.error : '';
+    serverMessage = typeof parsed?.message === 'string' ? parsed.message : '';
     detail = safeCleanText(parsed?.error || parsed?.message || parsed?.reason || '', 90) || '';
   } catch {
     detail = safeCleanText(rawBody, 80) || '';
+  }
+
+  if (status === 401 && PAIRING_AUTH_ERROR_CODES.has(parsedErrorCode)) {
+    return {
+      code: parsedErrorCode.toUpperCase(),
+      location: 'Supabase TV-párosítás',
+      summary: serverMessage || 'A TV nincs párosítva vagy a párosítás érvénytelenné vált.',
+      pairingErrorCode: parsedErrorCode,
+      serverMessage,
+    };
   }
 
   if (status === 401 || status === 403) {
     return {
       code: `HTTP_${status}`,
       location: 'Supabase hitelesítés (API kulcs / jogosultság)',
-      summary: `HTTP ${status}: A Supabase elutasította a kérést. Ellenőrizd a publishable API kulcsot és a tv-doctor függvény jogosultságát.`,
+      summary: `HTTP ${status}: A Supabase elutasította a kérést. Ellenőrizd a jogosultságot.`,
     };
   }
   if (status === 404) {
@@ -309,7 +693,7 @@ function classifyHttpError(status: number, rawBody: string): {
     return {
       code: 'HTTP_429',
       location: 'Supabase kéréskorlát (Rate Limit)',
-      summary: 'HTTP 429: Túl sok kérés érkezett egyszerre; a TV Doktor később automatikusan újrapróbálja.',
+      summary: serverMessage || 'HTTP 429: Túl sok kérés érkezett egyszerre; próbáld újra kicsit később.',
     };
   }
   if (status >= 500) {
@@ -337,7 +721,16 @@ function classifyHttpError(status: number, rawBody: string): {
 async function postTvDoctor(
   body: Record<string, unknown>,
   timeoutMs = REQUEST_TIMEOUT_MS,
+  requirePairingAuth = true,
 ): Promise<any | null> {
+  const pairing = readPairingState();
+  if (requirePairingAuth && (!pairing.deviceId || !pairing.deviceToken)) {
+    runtimeConn.connected = false;
+    runtimeConn.connectionState = 'unpaired';
+    notifyTvDoctorListeners();
+    return null;
+  }
+
   if (typeof fetch !== 'function') {
     recordCloudError(
       'error',
@@ -353,7 +746,7 @@ async function postTvDoctor(
       'offline',
       'OFFLINE',
       'TV internetkapcsolat (Wi-Fi / LAN)',
-      'A TV jelenleg nincs internetre csatlakoztatva. Ellenőrizd a hálózatot (helyi gyorsítótárról hibátlanul fut tovább).',
+      'A TV jelenleg nincs internetre csatlakoztatva. Helyi gyorsítótárról hibátlanul fut tovább.',
     );
     return null;
   }
@@ -369,15 +762,26 @@ async function postTvDoctor(
       }, timeoutMs)
     : null;
 
+  const reqHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    apikey: API_KEY,
+    Authorization: `Bearer ${API_KEY}`,
+    'x-tv-device-id': pairing.deviceId,
+  };
+  const payloadBody: Record<string, unknown> = {
+    deviceId: pairing.deviceId,
+    ...body,
+  };
+  if (requirePairingAuth && pairing.deviceToken) {
+    reqHeaders['x-tv-device-token'] = pairing.deviceToken;
+    payloadBody.deviceToken = pairing.deviceToken;
+  }
+
   try {
     const response = await fetch(getApiUrl(), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: API_KEY,
-        Authorization: `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify(body),
+      headers: reqHeaders,
+      body: JSON.stringify(payloadBody),
       ...(controller ? { signal: controller.signal } : {}),
     });
 
@@ -387,7 +791,7 @@ async function postTvDoctor(
         'error',
         'EMPTY_RESPONSE',
         'Hálózat / Supabase átjáró',
-        'Nem érkezett HTTP válasz a Supabase tv-doctor végponttól.',
+        'Nem érkezett HTTP válasz a Supabase végponttól.',
       );
       return null;
     }
@@ -395,6 +799,10 @@ async function postTvDoctor(
     const text = await response.text().catch(() => '');
     if (!response.ok) {
       const classified = classifyHttpError(response.status, text);
+      if (requirePairingAuth && classified.pairingErrorCode) {
+        handleServerPairingRejection(classified.pairingErrorCode, classified.serverMessage);
+        return null;
+      }
       recordCloudError('error', classified.code, classified.location, classified.summary);
       return null;
     }
@@ -407,7 +815,7 @@ async function postTvDoctor(
         'error',
         'INVALID_JSON',
         'Supabase válaszfeldolgozás (JSON)',
-        'Érvénytelen (nem JSON) válasz érkezett a tv-doctor végponttól.',
+        'Érvénytelen (nem JSON) válasz érkezett a szervertől.',
       );
       return null;
     }
@@ -424,7 +832,10 @@ async function postTvDoctor(
       return null;
     }
 
-    recordCloudSuccess(elapsedMs);
+    applySilentTokenRotation(parsed);
+    if (requirePairingAuth) {
+      recordCloudSuccess(elapsedMs);
+    }
     return parsed;
   } catch (cause: any) {
     const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -442,7 +853,7 @@ async function postTvDoctor(
         'error',
         'TIMEOUT',
         'Hálózat / Supabase válaszidő (időtúllépés)',
-        `A Supabase szerver ${Math.round(timeoutMs / 1000)} mp alatt nem válaszolt. Lassú internet vagy DNS/tűzfal blokkolás okozhatja.`,
+        `A Supabase szerver ${Math.round(timeoutMs / 1000)} mp alatt nem válaszolt.`,
       );
       return null;
     }
@@ -451,7 +862,7 @@ async function postTvDoctor(
       'error',
       'NETWORK_ERROR',
       'Hálózat / DNS / TLS kapcsolat',
-      `Nem sikerült elérni a Supabase végpontot (${errText}). Ellenőrizd a TV internet- és DNS-kapcsolatát.`,
+      `Nem sikerült elérni a Supabase végpontot (${errText}).`,
     );
     return null;
   } finally {
@@ -460,19 +871,291 @@ async function postTvDoctor(
 }
 
 /**
- * Élő Supabase kapcsolat- és állapotellenőrzés a menühöz és diagnosztikához.
+ * Új 6 jegyű, egyszer használatos párosítási kód igénylése a tévéről.
+ * A nyers 6 jegyű kódot kizárólag a Supabase-hez hozzáféréssel rendelkező jogosult fél olvashatja ki.
  */
-export async function checkTvDoctorConnection(timeoutMs = STATUS_CHECK_TIMEOUT_MS): Promise<TvDoctorCloudStatus> {
+export async function requestTvDoctorPairingCode(): Promise<{
+  ok: boolean;
+  expiresAt?: string;
+  expiresInSeconds?: number;
+  maxAttempts?: number;
+  message: string;
+}> {
+  if (requestingCodeNow) {
+    return { ok: false, message: 'A kódigénylés már folyamatban van…' };
+  }
+  const pairing = readPairingState();
+  const tv = tvDeviceInfo();
+  requestingCodeNow = true;
+  pairingUiOverride = {
+    state: pairing.deviceToken ? 'paired' : 'unpaired',
+    message: 'Új párosítási kód igénylése folyamatban…',
+  };
+  notifyTvDoctorListeners();
+
+  try {
+    if (typeof fetch !== 'function') {
+      const msg = 'Hálózati kapcsolat nem érhető el ezen az eszközön.';
+      pairingUiOverride = { state: 'error', message: msg };
+      return { ok: false, message: msg };
+    }
+    const response = await fetch(getApiUrl(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: API_KEY,
+        Authorization: `Bearer ${API_KEY}`,
+        'x-tv-device-id': pairing.deviceId,
+      },
+      body: JSON.stringify({
+        action: 'pair_request',
+        deviceId: pairing.deviceId,
+        tvModel: safeCleanText(tv?.model || 'LG webOS TV', 64),
+        webosVersion: safeCleanText(tv?.webOsVersion || tv?.sdkVersion || '', 32),
+        appVersion: WEB_VERSION,
+      }),
+    });
+
+    const text = await response.text().catch(() => '');
+    let parsed: any = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+
+    if (!response.ok || !parsed || parsed.ok !== true) {
+      const errMsg = (typeof parsed?.message === 'string' && parsed.message)
+        || (response.status === 429
+          ? 'Túl sok kódigénylés rövid időn belül. Várj néhány percet.'
+          : 'Nem sikerült új párosítási kódot igényelni. Ellenőrizd az internetkapcsolatot.');
+      pairingUiOverride = { state: 'error', message: errMsg };
+      return { ok: false, message: errMsg };
+    }
+
+    const nowIso = new Date().toISOString();
+    const expiresAt = typeof parsed.expiresAt === 'string' ? parsed.expiresAt : undefined;
+    savePairingState({
+      ...pairing,
+      codeRequestedAt: nowIso,
+      codeExpiresAt: expiresAt || null,
+    });
+    const successMsg = 'Új 6 jegyű párosítási kód létrehozva a Supabase-ben (10 percig érvényes). Írd be a kódot!';
+    pairingUiOverride = {
+      state: pairing.deviceToken ? 'paired' : 'unpaired',
+      message: successMsg,
+    };
+    return {
+      ok: true,
+      expiresAt,
+      expiresInSeconds: typeof parsed.expiresInSeconds === 'number' ? parsed.expiresInSeconds : 600,
+      maxAttempts: typeof parsed.maxAttempts === 'number' ? parsed.maxAttempts : 5,
+      message: successMsg,
+    };
+  } catch {
+    const msg = 'Nem sikerült elérni a Supabase szervert a kódigényléshez.';
+    pairingUiOverride = { state: 'error', message: msg };
+    return { ok: false, message: msg };
+  } finally {
+    requestingCodeNow = false;
+    notifyTvDoctorListeners();
+  }
+}
+
+/**
+ * A beírt 6 jegyű számkód ellenőrzése és a hosszú távú, megújítható eszköztoken mentése.
+ */
+export async function verifyTvDoctorPairingCode(rawCode: string): Promise<{
+  ok: boolean;
+  paired: boolean;
+  deviceId: string;
+  pairedAt?: string;
+  remainingAttempts?: number;
+  message: string;
+}> {
+  const pairing = readPairingState();
+  const digits = String(rawCode || '').trim();
+  if (!/^[0-9]{6}$/.test(digits)) {
+    const msg = 'Kérlek pontosan 6 számjegyet adj meg a párosításhoz!';
+    pairingUiOverride = { state: 'error', message: msg };
+    notifyTvDoctorListeners();
+    return { ok: false, paired: Boolean(pairing.deviceToken), deviceId: pairing.deviceId, message: msg };
+  }
+
+  if (verifyingCodeNow) {
+    return {
+      ok: false,
+      paired: Boolean(pairing.deviceToken),
+      deviceId: pairing.deviceId,
+      message: 'Ellenőrzés folyamatban…',
+    };
+  }
+
+  const tv = tvDeviceInfo();
+  verifyingCodeNow = true;
+  pairingUiOverride = { state: 'verifying', message: 'Ellenőrzés folyamatban…' };
+  notifyTvDoctorListeners();
+
+  try {
+    if (typeof fetch !== 'function') {
+      const msg = 'Hálózati kapcsolat nem érhető el ezen az eszközön.';
+      pairingUiOverride = { state: 'error', message: msg };
+      return { ok: false, paired: false, deviceId: pairing.deviceId, message: msg };
+    }
+
+    const startedAt = Date.now();
+    const response = await fetch(getApiUrl(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: API_KEY,
+        Authorization: `Bearer ${API_KEY}`,
+        'x-tv-device-id': pairing.deviceId,
+      },
+      body: JSON.stringify({
+        action: 'pair_verify',
+        deviceId: pairing.deviceId,
+        code: digits,
+        tvModel: safeCleanText(tv?.model || 'LG webOS TV', 64),
+        webosVersion: safeCleanText(tv?.webOsVersion || tv?.sdkVersion || '', 32),
+        appVersion: WEB_VERSION,
+      }),
+    });
+
+    const elapsedMs = Date.now() - startedAt;
+    const text = await response.text().catch(() => '');
+    let parsed: any = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+
+    if (!response.ok || !parsed || parsed.ok !== true || !parsed.deviceToken) {
+      const remaining = typeof parsed?.remainingAttempts === 'number' ? parsed.remainingAttempts : undefined;
+      const errMsg = (typeof parsed?.message === 'string' && parsed.message)
+        || 'Sikertelen párosítás: érvénytelen vagy lejárt kód.';
+      pairingUiOverride = { state: 'error', message: errMsg };
+      return {
+        ok: false,
+        paired: Boolean(pairing.deviceToken),
+        deviceId: pairing.deviceId,
+        remainingAttempts: remaining,
+        message: errMsg,
+      };
+    }
+
+    const validToken = sanitizeDeviceToken(parsed.deviceToken);
+    if (!validToken) {
+      const msg = 'A szerver érvénytelen formátumú tokent adott vissza.';
+      pairingUiOverride = { state: 'error', message: msg };
+      return { ok: false, paired: false, deviceId: pairing.deviceId, message: msg };
+    }
+
+    const pairedAt = typeof parsed.pairedAt === 'string' ? parsed.pairedAt : new Date().toISOString();
+    const tokenExpiresAt = typeof parsed.tokenExpiresAt === 'string' ? parsed.tokenExpiresAt : null;
+    const confirmedDeviceId = sanitizeDeviceId(parsed.deviceId) || pairing.deviceId;
+
+    savePairingState({
+      deviceId: confirmedDeviceId,
+      deviceToken: validToken,
+      pairedAt,
+      tokenExpiresAt,
+      codeRequestedAt: null,
+      codeExpiresAt: null,
+    });
+
+    const state = readSyncState();
+    state.deviceSeed = confirmedDeviceId;
+    saveSyncState();
+
+    pairingUiOverride = {
+      state: 'paired',
+      message: 'Sikeres párosítás! A TV biztonságosan csatlakozott a védett Supabase memóriához.',
+    };
+    recordCloudSuccess(elapsedMs);
+
+    // Háttérben azonnal letöltjük a védett tudásbázist és felküldjük a várólistát, késleltetés nélkül!
+    if (cloudEnabled) {
+      void bootstrapTvDoctorFromCloud().then(() => {
+        void flushTvDoctorCloudQueue();
+      });
+    }
+
+    return {
+      ok: true,
+      paired: true,
+      deviceId: confirmedDeviceId,
+      pairedAt,
+      message: 'Sikeres párosítás!',
+    };
+  } catch {
+    const msg = 'Hálózati hiba történt a párosítás ellenőrzése közben.';
+    pairingUiOverride = { state: 'error', message: msg };
+    return { ok: false, paired: Boolean(pairing.deviceToken), deviceId: pairing.deviceId, message: msg };
+  } finally {
+    verifyingCodeNow = false;
+    notifyTvDoctorListeners();
+  }
+}
+
+/**
+ * Kifejezett felhasználói kérésre visszavonja a jelenlegi párosítást.
+ */
+export async function unpairTvDoctorDevice(): Promise<boolean> {
+  const pairing = readPairingState();
+  if (pairing.deviceToken) {
+    try {
+      await postTvDoctor({ action: 'pair_unpair' }, STATUS_CHECK_TIMEOUT_MS, true);
+    } catch {
+      /* helyileg is töröljük */
+    }
+  }
+  savePairingState({
+    deviceId: pairing.deviceId,
+    deviceToken: null,
+    pairedAt: null,
+    tokenExpiresAt: null,
+    codeRequestedAt: null,
+    codeExpiresAt: null,
+  });
+  runtimeConn.connected = false;
+  runtimeConn.connectionState = 'unpaired';
+  runtimeConn.lastErrorCode = null;
+  runtimeConn.lastErrorLocation = null;
+  runtimeConn.lastErrorSummary = null;
+  runtimeConn.lastErrorAt = null;
+  pairingUiOverride = {
+    state: 'unpaired',
+    message: 'A párosítás megszüntetve. Új 6 jegyű kóddal bármikor újra párosíthatod a TV-t.',
+  };
+  notifyTvDoctorListeners();
+  return true;
+}
+
+/**
+ * Élő Supabase kapcsolat- és token-ellenőrzés a menühöz és diagnosztikához.
+ */
+export async function checkTvDoctorConnection(
+  timeoutMs = STATUS_CHECK_TIMEOUT_MS,
+  options?: { rotateToken?: boolean },
+): Promise<TvDoctorCloudStatus> {
   if (checkingNow) return getTvDoctorCloudStatus();
+  if (!isTvDoctorPaired()) {
+    runtimeConn.connected = false;
+    runtimeConn.connectionState = 'unpaired';
+    notifyTvDoctorListeners();
+    return getTvDoctorCloudStatus();
+  }
+
   const state = readSyncState();
   checkingNow = true;
-  if (runtimeConn.connectionState === 'unchecked') {
+  if (runtimeConn.connectionState === 'unchecked' || runtimeConn.connectionState === 'unpaired') {
     runtimeConn.connectionState = 'checking';
   }
   notifyTvDoctorListeners();
 
   try {
-    const res = await postTvDoctor({ action: 'status' }, timeoutMs);
+    const res = await postTvDoctor(
+      {
+        action: 'status',
+        ...(options?.rotateToken ? { rotateToken: true } : {}),
+      },
+      timeoutMs,
+      true,
+    );
     if (res && res.ok) {
       if (typeof res.profileCount === 'number' && Number.isFinite(res.profileCount)) {
         state.cloudProfileCount = Math.max(0, Math.round(res.profileCount));
@@ -500,11 +1183,11 @@ export async function checkTvDoctorConnection(timeoutMs = STATUS_CHECK_TIMEOUT_M
 }
 
 /**
- * Letölti a központi Supabase tudásbázisból a csatornákhoz tartozó bevált profilokat,
- * így a TV-nek nem kell minden tesztet elölről kezdenie, és több készülék tapasztalatát is hasznosítja.
+ * Letölti a védett Supabase tudásbázisból a csatornákhoz tartozó bevált profilokat
+ * (kizárólag párosított TV esetén; párosítás nélkül 0 ms alatt azonnal visszatér).
  */
 export async function bootstrapTvDoctorFromCloud(): Promise<number> {
-  if (!cloudEnabled || syncingNow) return 0;
+  if (!cloudEnabled || syncingNow || !isTvDoctorPaired()) return 0;
   const state = readSyncState();
   syncingNow = true;
   notifyTvDoctorListeners();
@@ -513,7 +1196,7 @@ export async function bootstrapTvDoctorFromCloud(): Promise<number> {
       action: 'bootstrap',
       since: state.lastSyncAt || undefined,
       limit: 400,
-    });
+    }, REQUEST_TIMEOUT_MS, true);
     if (!res || !res.ok || !Array.isArray(res.profiles)) return 0;
 
     const merged = mergeCloudProfilesIntoLocal(res.profiles as CloudChannelProfileInput[]);
@@ -538,13 +1221,14 @@ export async function bootstrapTvDoctorFromCloud(): Promise<number> {
 }
 
 /**
- * Elküldi a helyileg összegyűjtött méréseket, hibákat és sikeres javításokat a Supabase-nek.
- * Ha nincs internetkapcsolat, az adatok a korlátozott helyi várólistában maradnak későbbi küldésre.
+ * Elküldi a helyileg összegyűjtött méréseket, hibákat és sikeres javításokat a Supabase-nek
+ * (kizárólag párosított TV esetén).
  */
 export async function flushTvDoctorCloudQueue(): Promise<boolean> {
   cancelTimer(flushTimer);
   flushTimer = null;
   if (!cloudEnabled || syncingNow) return false;
+  if (!isTvDoctorPaired()) return false;
 
   const state = readSyncState();
   const profileKeys = Object.keys(state.pendingProfiles);
@@ -553,25 +1237,25 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
 
   const profilesToSend = profileKeys.slice(0, MAX_PENDING_PROFILES).map((k) => state.pendingProfiles[k]);
   const tv = tvDeviceInfo();
+  const pairing = readPairingState();
 
   syncingNow = true;
   notifyTvDoctorListeners();
   try {
     const res = await postTvDoctor({
       action: 'sync',
-      deviceHash: state.deviceSeed,
-      tvModel: safeCleanText(tv?.modelName || 'LG webOS TV', 64),
-      webosVersion: safeCleanText(tv?.sdkVersion || tv?.firmware || '', 32),
+      deviceHash: pairing.deviceId,
+      tvModel: safeCleanText(tv?.model || 'LG webOS TV', 64),
+      webosVersion: safeCleanText(tv?.webOsVersion || tv?.sdkVersion || '', 32),
       appVersion: WEB_VERSION,
       profiles: profilesToSend,
       events: eventsToSend,
-    });
+    }, REQUEST_TIMEOUT_MS, true);
 
     if (!res || !res.ok) {
       return false;
     }
 
-    // Sikeres szinkron után töröljük az elküldött tételeket a várólistáról:
     for (const sent of profilesToSend) {
       delete state.pendingProfiles[sent.channelKey];
     }
@@ -599,7 +1283,7 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
 }
 
 function scheduleDeferredFlush(): void {
-  if (!cloudEnabled || flushTimer !== null) return;
+  if (!cloudEnabled || !isTvDoctorPaired() || flushTimer !== null) return;
   flushTimer = scheduleTimer(() => {
     flushTimer = null;
     void flushTvDoctorCloudQueue();
@@ -652,8 +1336,6 @@ function enqueueFromHook(payload: {
     }
   }
 
-  // Rutin mérésekből nem árasztjuk el az eseménytáblát, csak hibákat, teszteket és javításokat küldünk eseményként;
-  // a sebességmérések a csatornaprofilokba összevontan kerülnek fel!
   if (eventType !== 'measurement') {
     const channelKey = safeCleanText(event.channelKey, 120);
     const channelName = safeCleanText(event.channelName, 140);
@@ -687,6 +1369,7 @@ function enqueueFromHook(payload: {
 /** TV Doktor hibrid felhőszinkron engedélyezése vagy leállítása (beállítás-kapcsolóhoz kötve). */
 export function configureTvDoctorCloud(enabled: boolean): void {
   cloudEnabled = enabled;
+  readPairingState();
   if (!enabled) {
     setTvDoctorCloudHook(null);
     cancelTimer(flushTimer);
@@ -698,12 +1381,15 @@ export function configureTvDoctorCloud(enabled: boolean): void {
   }
 
   if (runtimeConn.connectionState === 'disabled') {
-    runtimeConn.connectionState = runtimeConn.connected ? 'connected' : 'unchecked';
+    runtimeConn.connectionState = isTvDoctorPaired()
+      ? (runtimeConn.connected ? 'connected' : 'unchecked')
+      : 'unpaired';
   }
   setTvDoctorCloudHook(enqueueFromHook);
-  if (bootstrapTimer === null) {
+  if (bootstrapTimer === null && isTvDoctorPaired()) {
     bootstrapTimer = scheduleTimer(() => {
       bootstrapTimer = null;
+      if (!isTvDoctorPaired()) return;
       void bootstrapTvDoctorFromCloud().then(() => {
         const st = readSyncState();
         if (Object.keys(st.pendingProfiles).length > 0 || st.pendingEvents.length > 0) {
@@ -716,18 +1402,26 @@ export function configureTvDoctorCloud(enabled: boolean): void {
 }
 
 export function getTvDoctorCloudStatus(): TvDoctorCloudStatus {
+  const pairing = readPairingState();
+  const paired = Boolean(pairing.deviceId && pairing.deviceToken);
   const state = readSyncState();
   const pendingCount = Object.keys(state.pendingProfiles).length + state.pendingEvents.length;
   let effectiveState: TvDoctorConnectionState = runtimeConn.connectionState;
-  if (checkingNow || syncingNow) {
+  if (!paired) {
+    effectiveState = cloudEnabled ? 'unpaired' : 'disabled';
+  } else if (checkingNow || syncingNow) {
     effectiveState = 'checking';
   } else if (!cloudEnabled && runtimeConn.connectionState === 'unchecked') {
     effectiveState = 'disabled';
+  } else if (paired && effectiveState === 'unpaired') {
+    effectiveState = runtimeConn.connected ? 'connected' : 'unchecked';
   }
 
   return {
     enabled: cloudEnabled,
-    connected: runtimeConn.connected,
+    paired,
+    deviceId: pairing.deviceId,
+    connected: paired && runtimeConn.connected,
     connectionState: effectiveState,
     lastSyncAt: state.lastSyncAt,
     lastCheckedAt: runtimeConn.lastCheckedAt,
@@ -754,7 +1448,11 @@ export function clearTvDoctorCloudQueue(): void {
   runtimeConn.lastErrorSummary = null;
   runtimeConn.lastErrorAt = null;
   if (!runtimeConn.connected) {
-    runtimeConn.connectionState = cloudEnabled ? 'unchecked' : 'disabled';
+    runtimeConn.connectionState = !cloudEnabled
+      ? 'disabled'
+      : isTvDoctorPaired()
+        ? 'unchecked'
+        : 'unpaired';
   }
   try {
     if (typeof localStorage !== 'undefined') {
@@ -769,7 +1467,7 @@ export function clearTvDoctorCloudQueue(): void {
 /**
  * Kézi „Memória: 0” visszaállítás:
  * Törli a TV Doktor helyi csatorna-memóriáját, naplóit és a felhő-várólistát is 0 állapotra,
- * miközben a csatornalistához, kedvencekhez és egyéb beállításokhoz SOHA nem nyúl.
+ * miközben a csatornalistához, kedvencekhez, beállításokhoz ÉS a Supabase-párosításhoz SOHA nem nyúl!
  */
 export function resetTvDoctorAllToZero(storage?: Storage | null): void {
   clearTvDoctorMemory(storage);
@@ -785,8 +1483,7 @@ export function resetTvDoctorAllToZero(storage?: Storage | null): void {
 
 /**
  * Csatlakoztatja a TV Doktor működés- és elakadás-naplózását a meglévő Kézi hibakeresési naplóhoz
- * (SÁRGA gombos ablak). A meglévő naplózási és Supabase-küldési mechanizmust változatlanul hagyja,
- * csupán kiegészíti a TV Doktor állapot-, memória-, kapcsolat- és elakadás-soraival.
+ * (SÁRGA gombos ablak).
  */
 export function attachTvDoctorDiagnostics(): void {
   if (diagnosticsAttached) return;
@@ -805,13 +1502,13 @@ export function attachTvDoctorDiagnostics(): void {
       const cloud = getTvDoctorCloudStatus();
 
       appLog(
-        `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; igazolt_javítások=${summary.totalVerifiedRepairs} ===`,
+        `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; igazolt_javítások=${summary.totalVerifiedRepairs} ===`,
       );
       appLog(
         `TV DOKTOR MEMÓRIA: doktor=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)} (${mem.doctorBudgetPercent}%); tv_tárhely=${formatDoctorBytes(mem.tvStorageUsedBytes)}/~5.0 MB (${mem.tvStoragePercent}%)${mem.jsHeapUsedMB !== null ? `; js_ram=${mem.jsHeapUsedMB} MB` : ''}; állapot=${mem.memoryHealthLabel}`,
       );
       appLog(
-        `TV DOKTOR SUPABASE: kapcsolat=${cloud.connected ? 'LÉTREJÖTT' : 'NINCS'}; állapot=${cloud.connectionState}; válaszidő=${cloud.latencyMs !== null ? `${cloud.latencyMs}ms` : 'nincs mérve'}; központi_profilok=${cloud.cloudProfileCount}; várólista=${cloud.pendingCount}; utolsó_szinkron=${cloud.lastSyncAt || 'még nem volt'}`,
+        `TV DOKTOR SUPABASE: párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; kapcsolat=${cloud.connected ? 'LÉTREJÖTT' : 'NINCS'}; állapot=${cloud.connectionState}; válaszidő=${cloud.latencyMs !== null ? `${cloud.latencyMs}ms` : 'nincs mérve'}; központi_profilok=${cloud.cloudProfileCount}; várólista=${cloud.pendingCount}; utolsó_szinkron=${cloud.lastSyncAt || 'még nem volt'}`,
       );
       if (cloud.lastErrorSummary) {
         appLog(
