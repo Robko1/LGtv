@@ -39,6 +39,7 @@ const bundle = await esbuild.build({stdin:{contents:harness,resolveDir:resolve('
 const vc = new VirtualConsole(); vc.on('jsdomError', e => { if (!/navigation|Not implemented/.test(e.message)) throw e; });
 const dom = new JSDOM('<!doctype html><html><body class="webos-tv"><div id="root"></div></body></html>',
   {url:'http://localhost/',runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,beforeParse(window) {
+    window.__IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__ = false; // a régi diagnosztikai/fallback útvonal tesztje
     const proto = window.HTMLMediaElement.prototype;
     Object.defineProperty(proto,'paused',{configurable:true,get(){return this.__paused ?? true;}});
     Object.defineProperty(proto,'currentSrc',{configurable:true,get(){return this.getAttribute('src') || '';}});
