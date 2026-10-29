@@ -130,3 +130,8 @@ git push origin main
 ```
 
 Ez visszaállítja az eredeti `VideoPlayer.tsx`-et. A próba alapértelmezetten aktív. A régi fallback/recovery regressziós tesztek a `window.__IPTV_ANDROID_STYLE_LIVE_ZAP_TEST__ = false` kapcsolóval külön a korábbi útvonalat tesztelik; ez a TV-s próba működését nem kapcsolja ki.
+
+### Buildhiba javítása – 2026-10-29
+- A `40918288667` workflow a regressziós tesztnél állt meg: a pufferprofil megváltoztatása nem indíthatja újra az aktuális streamet.
+- A próba során véletlenül a `loadKey` is függött a `bufferMode` értékétől. Ezt visszaállítottuk `const loadKey = streamUrl;` értékre, a csatornaváltási közvetlen indítás megmaradt.
+- A hibás futásban 1 teszt bukott el; az IPK-építési lépések emiatt el sem indultak. A javítás után új, kézi workflow-futtatás szükséges.
