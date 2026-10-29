@@ -12,14 +12,14 @@ const audio: AudioTrack[] = [
   { id: 'ad', name: 'Audio 2', lang: 'de-DE', codec: 'AC3', channels: '5.1' },
   { id: 'ae', name: 'Rendezői kommentár', lang: 'en_US' },
   { id: 'long', name: 'Rendkívülhosszúszóköznélküliszolgáltatóihangsávelnevezés'.repeat(2), lang: 'hu' },
-  ...Array.from({ length: 12 }, (_, i) => ({ id: `a${i}`, name: `Hangsáv ${i + 5}`, lang: 'eng' })),
+  ...Array.from({ length: 25 }, (_, i) => ({ id: `a${i}`, name: `Hangsáv ${i + 5}`, lang: 'eng' })),
 ];
 const subtitles: SubtitleTrack[] = [
   { id: 'sf', name: 'fre', lang: 'fr', selected: true },
   { id: 'sd', name: 'de', lang: 'de' },
   { id: 'se', name: 'English', lang: 'en' },
   { id: 'slong', name: 'Rendkívülhosszúszóköznélkülifeliratsávelnevezés'.repeat(2), lang: 'hu' },
-  ...Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, name: `Felirat ${i + 5}`, lang: 'hun' })),
+  ...Array.from({ length: 25 }, (_, i) => ({ id: `s${i}`, name: `Felirat ${i + 5}`, lang: 'hun' })),
 ];
 const calls: { audio: string[]; subtitle: Array<string | null>; closed: number } = { audio: [], subtitle: [], closed: 0 };
 

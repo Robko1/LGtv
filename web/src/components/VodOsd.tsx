@@ -5,7 +5,7 @@ import {
   Plus, Rewind, Subtitles, Volume2, VolumeX, X,
 } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { trackLabel, trackMeta } from '../utils/trackLabels';
+import { trackLabel } from '../utils/trackLabels';
 
 /**
  * FILM / SOROZAT OSD – a referencia (sharktie/lg-iptv) VOD-lejátszó OSD-jének
@@ -652,7 +652,6 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                       >
                         <span data-track-content="">
                           <span data-track-title="">{trackLabel(track.name, track.lang, 'Felirat')}</span>
-                          <span data-track-meta="" className="text-slate-400">{trackMeta(track.lang) || 'Lejátszó feliratsáv'}</span>
                         </span>
                         {selected && (
                           <span data-track-check="" className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400 text-slate-950">
@@ -675,7 +674,6 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                     const hasNativeSelection = audioTracks.some((item) => item.selected === true);
                     const selected = track.selected === true
                       || (!hasNativeSelection && String(track.id) === String(audioTracks[0]?.id));
-                    const meta = trackMeta(track.lang, track.codec, track.channels);
                     return (
                       <button
                         key={String(track.id)}
@@ -692,7 +690,6 @@ export const VodOsd: React.FC<VodOsdProps> = ({
                       >
                         <span data-track-content="">
                           <span data-track-title="">{trackLabel(track.name, track.lang)}</span>
-                          <span data-track-meta="" className="text-slate-400">{meta || 'Elérhető hangsáv'}</span>
                         </span>
                         {selected && (
                           <span data-track-check="" className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400 text-slate-950">

@@ -32,6 +32,8 @@ test('track selector panels keep text centered, readable and inside rows', { ski
           const issues = [];
           for (const row of panel.querySelectorAll('[data-track-option]')) {
             const rr = row.getBoundingClientRect();
+            const titles = row.querySelectorAll('[data-track-title]');
+            if (titles.length !== 1 || row.querySelector('[data-track-meta]') || row.textContent.trim() !== titles[0].textContent.trim()) issues.push('duplicate track text');
             for (const child of row.querySelectorAll('[data-track-title], [data-track-meta]')) {
               const r = child.getBoundingClientRect(), style = getComputedStyle(child);
               if (child.scrollWidth > child.clientWidth + 1 || child.scrollHeight > child.clientHeight + 1) issues.push(`overflow ${child.textContent}`);
@@ -55,7 +57,7 @@ test('track selector panels keep text centered, readable and inside rows', { ski
           await page.screenshot({ path:resolve(`build/tests/track-${view}.png`) });
         }
         if (view === 'vod-audio' || view === 'vod-subtitle') {
-          for (let i=0; i<12; i++) { await page.keyboard.press('ArrowDown'); await page.waitForTimeout(30); }
+          for (let i=0; i<20; i++) { await page.keyboard.press('ArrowDown'); await page.waitForTimeout(30); }
           const focused = await page.evaluate(() => {
             const row = document.activeElement, list = row.closest('[data-track-list]');
             const r = row.getBoundingClientRect(), l = list.getBoundingClientRect();
@@ -63,11 +65,11 @@ test('track selector panels keep text centered, readable and inside rows', { ski
           });
           assert.ok(focused.scroll > 0 && focused.visible, `${width}x${height}: VOD focus follows scroll ${JSON.stringify(focused)}`);
           await page.keyboard.press('Enter');
-          if (view === 'vod-audio') assert.deepEqual(await page.evaluate(() => window.trackTest.calls.audio), ['a8']);
-          else assert.deepEqual(await page.evaluate(() => window.trackTest.calls.subtitle), ['s8']);
+          if (view === 'vod-audio') assert.deepEqual(await page.evaluate(() => window.trackTest.calls.audio), ['a16']);
+          else assert.deepEqual(await page.evaluate(() => window.trackTest.calls.subtitle), ['s16']);
         }
         if (view === 'live') {
-          for (let i=0; i<12; i++) { await page.keyboard.press('ArrowDown'); await page.waitForTimeout(30); }
+          for (let i=0; i<20; i++) { await page.keyboard.press('ArrowDown'); await page.waitForTimeout(30); }
           const focus = await page.evaluate(() => {
             const row = document.querySelector('[data-track-focused="1"]'), list = row.closest('[data-track-list]');
             const r = row.getBoundingClientRect(), l = list.getBoundingClientRect();
@@ -75,7 +77,7 @@ test('track selector panels keep text centered, readable and inside rows', { ski
           });
           assert.ok(focus.scroll > 0 && focus.visible, `${width}x${height}: selected live row must scroll into view ${JSON.stringify(focus)}`);
           await page.keyboard.press('ArrowRight');
-          for (let i=0; i<12; i++) { await page.keyboard.press('ArrowDown'); await page.waitForTimeout(30); }
+          for (let i=0; i<20; i++) { await page.keyboard.press('ArrowDown'); await page.waitForTimeout(30); }
           const subFocus = await page.evaluate(() => {
             const row = document.querySelector('[data-track-focused="1"]'), list = row.closest('[data-track-list]');
             const r = row.getBoundingClientRect(), l = list.getBoundingClientRect();
@@ -83,7 +85,7 @@ test('track selector panels keep text centered, readable and inside rows', { ski
           });
           assert.ok(subFocus.scroll > 0 && subFocus.visible, `${width}x${height}: selected subtitle row must scroll into view ${JSON.stringify(subFocus)}`);
           await page.keyboard.press('Enter');
-          assert.deepEqual(await page.evaluate(() => window.trackTest.calls.subtitle), ['s8']);
+          assert.deepEqual(await page.evaluate(() => window.trackTest.calls.subtitle), ['s16']);
         }
       }
       await page.close();
