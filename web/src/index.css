@@ -403,13 +403,15 @@ body.has-mouse [role="option"]:hover {
 [data-live-accent="red"] [data-live-sidebar] [data-favorite-star] svg,
 [data-live-accent="blue"] [data-live-sidebar] [data-favorite-star] svg,
 [data-live-accent="pink"] [data-live-sidebar] [data-favorite-star] svg,
-[data-live-accent="green"] [data-live-sidebar] [data-favorite-star] svg {
+[data-live-accent="green"] [data-live-sidebar] [data-favorite-star] svg,
+[data-live-accent="white"] [data-live-sidebar] [data-favorite-star] svg {
   color: #fbbf24 !important;
 }
 [data-live-accent="red"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
 [data-live-accent="blue"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
 [data-live-accent="pink"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
-[data-live-accent="green"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"] {
+[data-live-accent="green"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
+[data-live-accent="white"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"] {
   fill: #fbbf24 !important;
 }
 
@@ -452,6 +454,10 @@ body.has-mouse [role="option"]:hover {
    azonnal eltűnik, akkor is, ha a React még nem bontotta le az OSD-t.
    Kizárólag a fullscreen OSD-t érinti, a főoldali OSD és VOD változatlan. */
 body:not(.iptv-tv-fullscreen) [data-fullscreen-osd] {
+  display: none !important;
+}
+
+body:not(.iptv-tv-fullscreen) [data-fullscreen-top-right] {
   display: none !important;
 }
 

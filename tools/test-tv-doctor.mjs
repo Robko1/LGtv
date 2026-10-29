@@ -340,6 +340,98 @@ check(
   'a javító korlátozott lépésben vált formátumot, puffert, tartalék URL-t, majd visszaáll az alap helyreállításra',
 );
 
+// 1.7 VOD (Filmek és Sorozatok) TV Doktor támogatás: kulcsképzés, állapotjelzés, puffertanulás, korlátozott javítás
+const vodStore = new MemoryStorage();
+const sampleMovie = {
+  id: 'vod:901',
+  title: 'Dűne: Második rész (2024)',
+  streamUrl: 'http://panel.example:8080/movie/titkosUser/titkosPass/901.mkv',
+  mediaKind: 'movie',
+};
+const sampleEpisode = {
+  id: 'ep:4402',
+  title: 'A Hatalom Gyűrűi - S02E03',
+  streamUrl: 'http://panel.example:8080/series/titkosUser/titkosPass/4402.mp4',
+  mediaKind: 'series',
+};
+
+const movieKey = core.normalizeVodDoctorKey(sampleMovie);
+const episodeKey = core.normalizeVodDoctorKey(sampleEpisode);
+check(
+  movieKey === 'vod:movie:dune-masodik-resz-2024' &&
+    episodeKey === 'vod:series:a-hatalom-gyurui-s02e03' &&
+    !movieKey.includes('titkos') &&
+    !episodeKey.includes('titkos'),
+  'a VOD (film és sorozat) kulcsképzés ékezetmentes, elkülöníti a filmet és sorozatot, és nem tartalmaz hitelesítő adatot',
+);
+
+check(
+  core.isVodHandledByDoctor(sampleMovie, vodStore) === false &&
+    core.isVodHandledByDoctor(sampleEpisode, vodStore) === false,
+  'érintetlen film és sorozatepizód kezdetben nincs kezeltként megjelölve (nincs szimulált zöld állapot)',
+);
+
+const movieInitialPlan = core.selectVodLaunchPlan(sampleMovie, core.INITIAL_SETTINGS, vodStore);
+check(
+  movieInitialPlan.enabled === true &&
+    movieInitialPlan.hasLearnedProfile === false &&
+    movieInitialPlan.startupWatchdogMs >= 8500,
+  'új film indításakor a VOD TV Doktor terv biztonságos (≥ 8,5 mp) indulási őrrel és alap pufferrel indul',
+);
+
+core.recordDoctorVodFailure({
+  target: sampleMovie,
+  bufferProfile: 'balanced',
+  trigger: 'buffer_stall',
+  errorCode: 'BUFFER_STALL',
+  errorDetail: 'pufferelés elakadt',
+  stallMs: 6200,
+  storage: vodStore,
+});
+const vodRepair1 = core.planVodDoctorRepairStep({
+  target: sampleMovie,
+  trigger: 'buffer_stall',
+  step: 1,
+  currentBufferProfile: 'balanced',
+  streamUrl: sampleMovie.streamUrl,
+  resumePositionSeconds: 745,
+  storage: vodStore,
+});
+const vodRepairExhausted = core.planVodDoctorRepairStep({
+  target: sampleMovie,
+  trigger: 'buffer_stall',
+  step: 6,
+  currentBufferProfile: 'adaptive-3',
+  streamUrl: sampleMovie.streamUrl,
+  resumePositionSeconds: 745,
+  storage: vodStore,
+});
+check(
+  vodRepair1.exhausted === false &&
+    vodRepair1.nextUrl === sampleMovie.streamUrl &&
+    vodRepair1.nextUrl.endsWith('.mkv') &&
+    vodRepair1.nextBufferTiming.minBufferAheadSeconds > core.DOCTOR_BUFFER_CONFIGS.balanced.minBufferAheadSeconds &&
+    vodRepair1.nextBufferTiming.minBufferAheadSeconds <= 10.0 &&
+    vodRepairExhausted.exhausted === true,
+  'a VOD javító SOHA nem írja át a .mkv/.mp4 kiterjesztést, emeli a puffert ≤ 10 mp korlátig, majd korlátozott lépés után átadja a vezérlést',
+);
+
+core.recordDoctorVodSuccess({
+  target: sampleEpisode,
+  bufferProfile: 'stable',
+  startupMs: 620,
+  wasRepair: true,
+  storage: vodStore,
+});
+const episodeLearnedPlan = core.selectVodLaunchPlan(sampleEpisode, core.INITIAL_SETTINGS, vodStore);
+check(
+  core.isVodHandledByDoctor(sampleMovie, vodStore) === true &&
+    core.isVodHandledByDoctor(sampleEpisode, vodStore) === true &&
+    episodeLearnedPlan.hasLearnedProfile === true &&
+    episodeLearnedPlan.bufferProfileId === 'stable',
+  'a megvizsgált/javított film és sorozatepizód valódi kezelt állapotot és tanult stabil profilt kap',
+);
+
 // Bővíthető plugin regisztráció (8. követelmény)
 const unregisterDiag = core.registerDoctorDiagnosticPlugin({
   id: 'custom-net-probe',
@@ -618,6 +710,36 @@ check(
   onlineFlushOk === true && core.getTvDoctorCloudStatus().pendingCount === 0 && dbProfiles.has('hu:duna-hd'),
   'a kapcsolat helyreállásakor a várólista automatikusan szinkronizálódik a Supabase tudásbázisba',
 );
+
+// VOD (film és sorozat) profilok hibrid Supabase szinkronja és visszaolvasása egy másik TV-n:
+core.recordDoctorVodSuccess({
+  target: {
+    id: 'vod:7788',
+    title: 'Gladiátor II (2024)',
+    streamUrl: 'http://panel.local:8080/movie/titkosU/titkosP/7788.mkv',
+    mediaKind: 'movie',
+  },
+  bufferProfile: 'stable',
+  startupMs: 540,
+  wasRepair: true,
+});
+await core.flushTvDoctorCloudQueue();
+core.clearTvDoctorMemory();
+const vodBootCount = await core.bootstrapTvDoctorFromCloud();
+const syncedVodTarget = {
+  id: 'other-provider-vod-id',
+  title: 'Gladiátor II (2024)',
+  streamUrl: 'http://other.panel:8080/movie/x/y/1122.mkv',
+  mediaKind: 'movie',
+};
+check(
+  vodBootCount >= 1 &&
+    dbProfiles.has('vod:movie:gladiator-ii-2024') &&
+    core.isVodHandledByDoctor(syncedVodTarget) === true &&
+    core.selectVodLaunchPlan(syncedVodTarget, core.INITIAL_SETTINGS).bufferProfileId === 'stable',
+  'a VOD (film/sorozat) TV Doktor tapasztalatok is felmennek a Supabase tudásbázisba és másik TV-n azonnal kezeltként hasznosulnak',
+);
+
 core.configureTvDoctorCloud(false);
 globalThis.fetch = originalFetch;
 
@@ -633,14 +755,19 @@ import { createRoot } from 'react-dom/client';
 import { MenuSettingsModal } from './web/src/components/MenuSettingsModal.tsx';
 import { DiagnosticShareModal } from './web/src/components/DiagnosticShareModal.tsx';
 import { VideoPlayer } from './web/src/components/VideoPlayer.tsx';
+import { ChannelList } from './web/src/components/ChannelList.tsx';
 import { INITIAL_SETTINGS } from './web/src/data/mockData.ts';
 import {
   recordDoctorChannelSuccess,
   recordDoctorChannelFailure,
+  recordDoctorVodSuccess,
+  recordDoctorVodFailure,
   evaluateSmartFreeze,
   recordDoctorOpTiming,
   clearTvDoctorMemory,
   getChannelDoctorRecord,
+  isChannelHandledByDoctor,
+  isVodHandledByDoctor,
   getTvDoctorMemoryStats,
 } from './web/src/services/tvDoctor.ts';
 import {
@@ -654,9 +781,45 @@ import { getAppLogText, manualLogSnapshot } from './web/src/services/appLog.ts';
 
 attachTvDoctorDiagnostics();
 
+const SAMPLE_LIST_CHANNELS = [
+  {
+    id: 'ch-handled',
+    name: '[HU] M4 Sport HD',
+    categoryId: 'hu',
+    countryCode: 'HU',
+    streamUrl: 'http://stream.example:8080/live/u/p/101.ts',
+    isFavorite: true,
+    channelNumber: 1,
+  },
+  {
+    id: 'ch-untouched',
+    name: '[HU] Duna World HD',
+    categoryId: 'hu',
+    countryCode: 'HU',
+    streamUrl: 'http://stream.example:8080/live/u/p/102.ts',
+    isFavorite: false,
+    channelNumber: 2,
+  },
+  {
+    id: 'ch-third',
+    name: '[HU] Spektrum HD',
+    categoryId: 'hu',
+    countryCode: 'HU',
+    streamUrl: 'http://stream.example:8080/live/u/p/103.ts',
+    isFavorite: false,
+    channelNumber: 3,
+  },
+];
+
 function TestApp({ initialMode }) {
   const [settings, setSettings] = useState({ ...INITIAL_SETTINGS });
   const [isPlaying, setIsPlaying] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [customStreamUrl, setCustomStreamUrl] = useState(undefined);
+  const [customTitle, setCustomTitle] = useState(undefined);
+  const [subtitleSource, setSubtitleSource] = useState(undefined);
+  const [selectedListId, setSelectedListId] = useState('ch-handled');
+  const [favoriteClickedFor, setFavoriteClickedFor] = useState(null);
   const [channel, setChannel] = useState({
     id: 'ch-atv',
     name: '[HU] ATV HD',
@@ -666,12 +829,28 @@ function TestApp({ initialMode }) {
     getSettings: () => settings,
     setSettings: (patch) => setSettings((s) => ({ ...s, ...patch })),
     setChannel,
+    setIsFullscreen: (fsOn) => {
+      if (fsOn) {
+        window.dispatchEvent(new window.CustomEvent('iptv-enter-fullscreen'));
+      }
+    },
+    setVodPlayback: ({ url, title, subSource }) => {
+      setCustomStreamUrl(url);
+      setCustomTitle(title);
+      setSubtitleSource(subSource);
+    },
+    getSelectedListId: () => selectedListId,
+    getFavoriteClickedFor: () => favoriteClickedFor,
     recordDoctorChannelSuccess,
     recordDoctorChannelFailure,
+    recordDoctorVodSuccess,
+    recordDoctorVodFailure,
     evaluateSmartFreeze,
     recordDoctorOpTiming,
     clearTvDoctorMemory,
     getChannelDoctorRecord,
+    isChannelHandledByDoctor,
+    isVodHandledByDoctor,
     getTvDoctorMemoryStats,
     configureTvDoctorCloud,
     checkTvDoctorConnection,
@@ -680,6 +859,27 @@ function TestApp({ initialMode }) {
     getAppLogText,
     manualLogSnapshot,
   };
+  if (initialMode === 'channelList') {
+    return React.createElement(
+      'div',
+      { 'data-live-sidebar': '', style: { width: '420px', height: '640px' } },
+      React.createElement(ChannelList, {
+        channels: SAMPLE_LIST_CHANNELS,
+        categories: [{ id: 'hu', name: 'Magyarország', code: 'HU' }],
+        selectedChannel: SAMPLE_LIST_CHANNELS.find((c) => c.id === selectedListId) || SAMPLE_LIST_CHANNELS[0],
+        onSelectChannel: (ch) => setSelectedListId(ch.id),
+        onToggleFavorite: (id) => setFavoriteClickedFor(id),
+        searchQuery: '',
+        selectedCategory: 'all',
+        onSelectCategory: () => {},
+        folders: [{ id: 'f1', name: 'Kedvencek', channelIds: ['ch-handled'] }],
+        selectedFolderId: null,
+        onAssignToFolder: (chId) => setFavoriteClickedFor(chId),
+        tvDoctorEnabled: settings.tvDoctorEnabled !== false,
+        isActive: true,
+      }),
+    );
+  }
   if (initialMode === 'menu') {
     return React.createElement(MenuSettingsModal, {
       isOpen: true,
@@ -715,9 +915,14 @@ function TestApp({ initialMode }) {
   }
   return React.createElement(VideoPlayer, {
     channel,
+    customStreamUrl,
+    customTitle,
+    subtitleSource,
     settings,
     isPlaying,
     setIsPlaying,
+    isFullscreen,
+    onToggleFullscreen: () => setIsFullscreen((f) => !f),
     volume: 0.5,
     onVolumeChange: () => {},
     onToggleMute: () => {},
@@ -1050,6 +1255,239 @@ try {
   check(
     playedUrls.length >= 1 && playedUrls[0].endsWith('/702.ts'),
     'kikapcsolt TV Doktornál a VideoPlayer azonnal visszaáll az eredeti TS lejátszási mechanizmusra',
+  );
+
+  /* ═════════════════════════════════════════════════════════════════════════
+   * 4. FŐOLDALI CSATORNALISTA IKON, TELJES KÉPERNYŐS ÓRA ELŐTTI 3D DOKTOR IKON,
+   *    VOD (FILM ÉS SOROZAT) VALÓDI MŰKÖDÉS ÉS AUTOMATIKUS ÁLLAPOTABLAK TESZT
+   * ═════════════════════════════════════════════════════════════════════════ */
+  console.log('\n4. Főoldali csatornalista 3D zöld állapotikon, teljes képernyős óra előtti ikon és aktív állapotablak (Élő TV + Film + Sorozat)');
+
+  window.__DOCTOR_UI__.clearTvDoctorMemory();
+  window.localStorage.clear();
+  // Csak a ch-handled ([HU] M4 Sport HD) csatornát vizsgálta/kezelte eddig a TV Doktor:
+  window.__DOCTOR_UI__.recordDoctorChannelSuccess({
+    channel: { id: 'ch-handled', name: '[HU] M4 Sport HD', countryCode: 'HU' },
+    format: 'ts',
+    bufferProfile: 'balanced',
+    startupMs: 410,
+  });
+
+  window.__MOUNT_MODE__('channelList');
+  await wait(90);
+
+  const stackHandled = doc.querySelector('[data-channel-right-stack="ch-handled"]');
+  const stackUntouched = doc.querySelector('[data-channel-right-stack="ch-untouched"]');
+  const stackThird = doc.querySelector('[data-channel-right-stack="ch-third"]');
+  const starHandled = doc.querySelector('[data-favorite-star="ch-handled"]');
+  const slotHandled = doc.querySelector('[data-tv-doctor-slot="ch-handled"]');
+  const slotUntouched = doc.querySelector('[data-tv-doctor-slot="ch-untouched"]');
+  const slotThird = doc.querySelector('[data-tv-doctor-slot="ch-third"]');
+  const rowIconHandled = doc.querySelector('[data-tv-doctor-row-icon="ch-handled"]');
+  const rowIconUntouched = doc.querySelector('[data-tv-doctor-row-icon="ch-untouched"]');
+  const rowIconThird = doc.querySelector('[data-tv-doctor-row-icon="ch-third"]');
+
+  check(
+    Boolean(stackHandled && stackUntouched && stackThird) &&
+      Boolean(slotHandled && slotUntouched && slotThird) &&
+      stackHandled.firstElementChild === starHandled &&
+      stackHandled.lastElementChild === slotHandled,
+    'minden csatornasorban a kedvenc csillag feljebb került, és közvetlenül alatta egységesen ugyanazon a helyen ül a TV Doktor sáv',
+  );
+
+  const rowDoctorSvg = rowIconHandled?.querySelector('svg[data-tv-doctor-svg]');
+  check(
+    Boolean(rowIconHandled) &&
+      rowIconHandled.getAttribute('data-doctor-color') === 'green' &&
+      rowDoctorSvg?.getAttribute('data-doctor-handled') === 'true' &&
+      !rowIconUntouched &&
+      !rowIconThird,
+    'a 3D zöld TV Doktor ikon KIZÁRÓLAG a TV Doktor által ténylegesen kezelt/megjegyzett csatornánál jelenik meg',
+  );
+
+  check(
+    !slotHandled.hasAttribute('tabindex') &&
+      !rowIconHandled.hasAttribute('tabindex') &&
+      slotHandled.querySelectorAll('button, a, [tabindex]').length === 0 &&
+      slotHandled.className.includes('pointer-events-none') &&
+      (slotHandled.textContent || '').trim() === '' &&
+      !doc.querySelector('[data-tv-doctor-status-window]'),
+    'a főoldali csatornalista ikon tisztán passzív állapotjelző: nem fókuszálható, nem kattintható, nincs szöveg és nincs állapotablak a főoldalon',
+  );
+
+  // Ha a TV Doktor menet közben megvizsgál egy másik csatornát (ch-untouched), azonnal megjelenik a zöld ikon:
+  window.__DOCTOR_UI__.recordDoctorChannelSuccess({
+    channel: { id: 'ch-untouched', name: '[HU] Duna World HD', countryCode: 'HU' },
+    format: 'hls',
+    bufferProfile: 'fast',
+    startupMs: 360,
+  });
+  await wait(60);
+  check(
+    Boolean(doc.querySelector('[data-tv-doctor-row-icon="ch-untouched"]')) &&
+      !doc.querySelector('[data-tv-doctor-row-icon="ch-third"]'),
+    'amikor a TV Doktor megvizsgál vagy megjegyez egy csatornát, a zöld 3D ikon valódi állapot alapján megjelenik',
+  );
+
+  // Memória 0-ra állításkor minden főoldali zöld ikon eltűnik (nem marad hamis/szimulált jelzés):
+  window.__DOCTOR_UI__.clearTvDoctorMemory();
+  await wait(60);
+  check(
+    doc.querySelectorAll('[data-tv-doctor-row-icon]').length === 0,
+    'a TV Doktor memória 0-ra törlésekor a főoldali zöld állapotikonok is azonnal eltűnnek',
+  );
+
+  // 4.2 Teljes képernyős lejátszás – Élő TV, Film és Sorozat + óra előtti ikon + állapotablak
+  window.__MOUNT_MODE__('player');
+  await wait(70);
+  window.__DOCTOR_UI__.setSettings({ tvDoctorEnabled: true, alwaysShowBlueClock: true });
+  await wait(50);
+
+  // Főoldali (nem teljes képernyős) lejátszónál sem a felső HUD, sem az állapotablak nem jelenhet meg:
+  check(
+    !doc.querySelector('[data-fullscreen-top-right]') &&
+      !doc.querySelector('[data-tv-doctor-status-window]'),
+    'főoldali (nem teljes képernyős) nézetben sem a teljes képernyős doktor HUD, sem az állapotablak nem jelenik meg',
+  );
+
+  // Belépés teljes képernyőre egy MÉG NEM KEZELT élő csatornával:
+  window.__DOCTOR_UI__.setIsFullscreen(true);
+  window.__DOCTOR_UI__.setChannel({
+    id: 'ch-fresh-live',
+    name: '[HU] Hir TV HD',
+    streamUrl: 'http://stream.example:8080/live/u/p/777.ts',
+  });
+  await wait(80);
+
+  const topRightRow = doc.querySelector('[data-fullscreen-top-right-row]');
+  const fsDocIcon = doc.querySelector('[data-fullscreen-doctor-icon]');
+  const fsBlueClock = doc.querySelector('[data-fullscreen-top-right-row] [data-blue-clock]');
+  const fsStatusOnLiveLoad = doc.querySelector('[data-tv-doctor-status-window]');
+  check(
+    Boolean(topRightRow && fsDocIcon && fsBlueClock) &&
+      topRightRow.children[0] === fsDocIcon &&
+      topRightRow.children[1] === fsBlueClock &&
+      fsDocIcon.className.includes('h-14') &&
+      fsDocIcon.className.includes('w-14') &&
+      fsBlueClock.className.includes('h-14'),
+    'teljes képernyőn a jobb felső sarokban közvetlenül az óra ELŐTT jelenik meg a 3D TV Doktor ikon, az órával pontosan azonos (h-14) méretben',
+  );
+  check(
+    fsDocIcon.getAttribute('data-doctor-handled') === 'false' &&
+      Boolean(fsStatusOnLiveLoad) &&
+      (fsStatusOnLiveLoad.textContent || '').includes('Csatorna betöltése'),
+    'új élő csatornára váltáskor az óra előtti ikon jelzi, hogy még nem kezelt, alatta pedig megjelenik a félig átlátszó állapotablak',
+  );
+
+  // A lejátszás elindul (playing esemény) -> az ikon zöldre vált (handled=true), az állapotablak pedig automatikusan eltűnik, miközben az ikon látható marad!
+  const videoEl = doc.querySelector('video');
+  videoEl.dispatchEvent(new window.Event('playing'));
+  await wait(780);
+  check(
+    doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true' &&
+      !doc.querySelector('[data-tv-doctor-status-window]') &&
+      Boolean(doc.querySelector('[data-fullscreen-doctor-icon]')),
+    'sikeres csatornaindulás után az óra előtti ikon zöld (kezelt) állapotra vált, az állapotablak automatikusan eltűnik, az ikon pedig látható marad',
+  );
+
+  // Élő pufferelési probléma -> állapotablak megjelenik a doktor ikon alatt, majd helyreálláskor eltűnik:
+  videoEl.dispatchEvent(new window.Event('waiting'));
+  await wait(60);
+  const liveBufWindow = doc.querySelector('[data-tv-doctor-status-window]');
+  check(
+    Boolean(liveBufWindow) &&
+      liveBufWindow.getAttribute('data-doctor-phase') === 'buffering' &&
+      (liveBufWindow.textContent || '').includes('Pufferelési probléma'),
+    'élő adás pufferelési problémájánál az óra előtti doktor ikon alatt megjelenik a rövid magyar állapotablak',
+  );
+  videoEl.dispatchEvent(new window.Event('playing'));
+  await wait(780);
+  check(
+    !doc.querySelector('[data-tv-doctor-status-window]'),
+    'a pufferelés megszűnése után az állapotablak ismét automatikusan eltűnik',
+  );
+
+  // FILM (VOD) indítása teljes képernyőn:
+  playedUrls.length = 0;
+  window.__DOCTOR_UI__.setVodPlayback({
+    url: 'http://stream.example:8080/movie/u/p/9001.mkv',
+    title: 'Csillagok között (2014)',
+    subSource: { vodId: '9001' },
+  });
+  await wait(80);
+  const movieIconBefore = doc.querySelector('[data-fullscreen-doctor-icon]');
+  const movieStatusLoad = doc.querySelector('[data-tv-doctor-status-window]');
+  check(
+    movieIconBefore?.getAttribute('data-doctor-handled') === 'false' &&
+      Boolean(movieStatusLoad) &&
+      (movieStatusLoad.textContent || '').includes('Film betöltése'),
+    'film indításakor a teljes képernyős doktor ikon jelzi a még nem kezelt állapotot, alatta pedig „Film betöltése” látszik',
+  );
+
+  // Film közbeni hiba -> a TV Doktor rögzíti, kezeli, újrapróbálja (.mkv marad!), állapotablak mutatja, majd stabil lejátszás után eltűnik:
+  const vodVideo = doc.querySelector('video');
+  vodVideo.dispatchEvent(new window.Event('error'));
+  await wait(60);
+  const movieErrWindow = doc.querySelector('[data-tv-doctor-status-window]');
+  check(
+    Boolean(movieErrWindow) &&
+      ((movieErrWindow.textContent || '').includes('VOD visszaállítás') ||
+        (movieErrWindow.textContent || '').includes('Adatfolyam-hiba')) &&
+      doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true',
+    'film közbeni hibánál a TV Doktor azonnal közbelép, kezeltre váltja az ikont, és megjeleníti a VOD helyreállítási állapotablakot',
+  );
+
+  // Megvárjuk az újrapróbálkozást és szimuláljuk a sikeres, stabil lejátszást:
+  await wait(450);
+  vodVideo.dispatchEvent(new window.Event('playing'));
+  await wait(90);
+  const movieVerifyWindow = doc.querySelector('[data-tv-doctor-status-window]');
+  check(
+    Boolean(movieVerifyWindow) &&
+      (movieVerifyWindow.textContent || '').includes('VOD javítás ellenőrzése') &&
+      playedUrls.every((u) => u.endsWith('/9001.mkv')),
+    'a VOD helyreállítás megtartja az eredeti .mkv címet, és ellenőrzi a javított filmlejátszás stabilitását',
+  );
+  await wait(2900);
+  check(
+    !doc.querySelector('[data-tv-doctor-status-window]') &&
+      doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true',
+    'a film sikeres helyreállítása után az állapotablak automatikusan eltűnik, a zöld 3D doktor ikon pedig az óra előtt marad',
+  );
+
+  // SOROZAT (VOD) indítása teljes képernyőn:
+  window.__DOCTOR_UI__.setVodPlayback({
+    url: 'http://stream.example:8080/series/u/p/5501.mp4',
+    title: 'Sárkányok háza - S02E01',
+    subSource: { seriesId: '550', episodeId: '5501' },
+  });
+  await wait(80);
+  const seriesIconBefore = doc.querySelector('[data-fullscreen-doctor-icon]');
+  const seriesStatusLoad = doc.querySelector('[data-tv-doctor-status-window]');
+  check(
+    seriesIconBefore?.getAttribute('data-doctor-handled') === 'false' &&
+      Boolean(seriesStatusLoad) &&
+      (seriesStatusLoad.textContent || '').includes('Sorozat betöltése'),
+    'sorozat indításakor a teljes képernyős doktor ikon jelzi az új epizódot, alatta pedig „Sorozat betöltése” jelenik meg',
+  );
+  doc.querySelector('video').dispatchEvent(new window.Event('playing'));
+  await wait(780);
+  check(
+    doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true' &&
+      !doc.querySelector('[data-tv-doctor-status-window]'),
+    'sorozatepizód elindulása után az ikon zöldre vált és a sorozat-állapotablak automatikusan eltűnik',
+  );
+
+  // Már kezelt film újbóli megnyitásakor AZONNAL zöld (handled=true) állapotot mutat az indítás pillanatában:
+  window.__DOCTOR_UI__.setVodPlayback({
+    url: 'http://stream.example:8080/movie/u/p/9001.mkv',
+    title: 'Csillagok között (2014)',
+    subSource: { vodId: '9001' },
+  });
+  await wait(80);
+  check(
+    doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true',
+    'már kezelt film vagy csatorna újbóli indításakor a teljes képernyős doktor ikon azonnal jelzi a kezelt (zöld) állapotot',
   );
 } finally {
   dom.window.close();

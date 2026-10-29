@@ -483,6 +483,25 @@ function foldAscii(input: string): string {
   return out;
 }
 
+export interface VodDoctorTarget {
+  id?: string;
+  title?: string;
+  streamUrl?: string;
+  mediaKind?: 'movie' | 'series' | 'vod';
+}
+
+export interface VodLaunchPlan {
+  enabled: boolean;
+  hasLearnedProfile: boolean;
+  vodKey: string;
+  streamFormat: LiveFormat;
+  bufferProfileId: DoctorBufferProfileId;
+  bufferTiming: BufferProfileTiming;
+  startupWatchdogMs: number;
+  expectedStartupMs: number | null;
+  reason: string;
+}
+
 export function normalizeChannelDoctorKey(
   channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
 ): string {
@@ -516,6 +535,53 @@ export function normalizeChannelDoctorKey(
     .replace(/^-+|-+$/g, '')
     .slice(0, 88);
   return fallbackId || 'unknown-channel';
+}
+
+/**
+ * Kanonikus, hitelesítő adatoktól és szerver-URL-től teljesen mentes kulcs
+ * filmekhez és sorozatepizódokhoz (VOD).
+ */
+export function normalizeVodDoctorKey(target?: VodDoctorTarget | null): string {
+  if (!target) return 'vod:unknown';
+  const rawUrl = String(target.streamUrl || '').split(/[?#]/)[0];
+  let kind: 'movie' | 'series' | 'vod' = target.mediaKind || 'vod';
+  if (kind === 'vod') {
+    if (/\/series\//i.test(rawUrl)) kind = 'series';
+    else if (/\/movie\//i.test(rawUrl)) kind = 'movie';
+  }
+
+  // Kizárólag az utolsó fájlnév-szegmens tisztított törzsét vizsgáljuk (soha nem a user/pass részt!).
+  let fileStem = '';
+  if (rawUrl) {
+    const segments = rawUrl.split('/').filter(Boolean);
+    const lastSegment = segments.length > 0 ? segments[segments.length - 1] : '';
+    const withoutExt = lastSegment.replace(/\.[a-z0-9]{2,5}$/i, '');
+    fileStem = foldAscii(withoutExt)
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32);
+  }
+
+  const titleSlug = foldAscii(String(target.title || ''))
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+
+  const idSlug = foldAscii(String(target.id || ''))
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+
+  if (titleSlug) {
+    return `vod:${kind}:${titleSlug}`.slice(0, 112);
+  }
+  if (idSlug) {
+    return `vod:${kind}:${idSlug}`.slice(0, 112);
+  }
+  if (fileStem) {
+    return `vod:${kind}:${fileStem}`.slice(0, 112);
+  }
+  return `vod:${kind}:unknown`;
 }
 
 export function clampBufferTiming(timing: BufferProfileTiming): BufferProfileTiming {
@@ -669,7 +735,11 @@ function writeStore(store: DoctorStoreData, storage?: Storage | null): void {
   pruneStore(store);
   if (!storage) memoryCache = store;
   const target = getStorage(storage);
-  if (!target) return;
+  if (!target) {
+    recordDoctorOpTiming('writeStore', nowPerfMs() - startedAt);
+    notifyTvDoctorListeners();
+    return;
+  }
   try {
     target.setItem(TV_DOCTOR_STORAGE_KEY, JSON.stringify(store));
     opHealth.lastStorageError = null;
@@ -839,6 +909,19 @@ export function getTvDoctorSummary(storage?: Storage | null): {
   };
 }
 
+export function isDoctorRecordHandled(rec?: ChannelDoctorRecord | null): boolean {
+  if (!rec) return false;
+  if (rec.source === 'cloud' || rec.source === 'merged') return true;
+  const totalActivity =
+    (rec.tsOk || 0) +
+    (rec.tsFail || 0) +
+    (rec.hlsOk || 0) +
+    (rec.hlsFail || 0) +
+    (rec.stalls || 0) +
+    (rec.repairsOk || 0);
+  return totalActivity > 0;
+}
+
 export function getChannelDoctorRecord(
   channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
   storage?: Storage | null,
@@ -851,6 +934,44 @@ export function getChannelDoctorRecord(
   }
   const key = normalizeChannelDoctorKey(channel);
   return store.byKey[key] || null;
+}
+
+/**
+ * Igaz, ha a TV Doktor az adott élő csatornát már ténylegesen kezelte,
+ * megvizsgálta vagy megjegyezte a tudásbázisban (nem szimulált állapot).
+ */
+export function isChannelHandledByDoctor(
+  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
+  storage?: Storage | null,
+): boolean {
+  const rec = getChannelDoctorRecord(channel, storage);
+  return isDoctorRecordHandled(rec);
+}
+
+export function getVodDoctorRecord(
+  target?: VodDoctorTarget | null,
+  storage?: Storage | null,
+): ChannelDoctorRecord | null {
+  if (!target || (!target.title && !target.streamUrl && !target.id)) return null;
+  const store = readStore(storage);
+  if (target.id && store.idIndex[target.id]) {
+    const byId = store.byKey[store.idIndex[target.id]];
+    if (byId) return byId;
+  }
+  const key = normalizeVodDoctorKey(target);
+  return store.byKey[key] || null;
+}
+
+/**
+ * Igaz, ha a TV Doktor az adott VOD-tartalmat (filmet vagy sorozatepizódot)
+ * már ténylegesen kezelte, megvizsgálta vagy megjegyezte.
+ */
+export function isVodHandledByDoctor(
+  target?: VodDoctorTarget | null,
+  storage?: Storage | null,
+): boolean {
+  const rec = getVodDoctorRecord(target, storage);
+  return isDoctorRecordHandled(rec);
 }
 
 function logDoctor(
@@ -1892,3 +2013,457 @@ registerDoctorDiagnosticPlugin({
     };
   },
 });
+
+/* ============================================================================
+ * VOD (FILMEK ÉS SOROZATOK) TV DOKTOR TÁMOGATÁS
+ * ============================================================================
+ * A VOD adatfolyamok (MKV / MP4 / TS / HLS) kiterjesztését SOHA nem írjuk át
+ * más fájlnévre; a TV Doktor a filmeknél és sorozatoknál a kezdeti sebességet,
+ * az optimális pufferprofilt, az elakadás-/fagyásvédelmet és a pozíciómegőrző
+ * újracsatlakozást tanulja és vezérli.
+ */
+
+function vodFormatTag(streamUrl?: string): LiveFormat {
+  return /\.m3u8(?=([?#]|$))/i.test(String(streamUrl || '')) ? 'hls' : 'ts';
+}
+
+function getOrCreateVodRecord(
+  store: DoctorStoreData,
+  target: VodDoctorTarget,
+  defaultFormat: LiveFormat,
+  defaultBuffer: DoctorBufferProfileId,
+): ChannelDoctorRecord {
+  const vodKey = normalizeVodDoctorKey(target);
+  let rec = (target.id && store.idIndex[target.id] ? store.byKey[store.idIndex[target.id]] : null)
+    || store.byKey[vodKey];
+
+  const cleanTitle = String(target.title || target.id || 'Film / Sorozat').trim().slice(0, 140);
+  const kindTag = target.mediaKind === 'series' || /\/series\//i.test(String(target.streamUrl || ''))
+    ? 'SER'
+    : 'VOD';
+
+  if (!rec) {
+    rec = {
+      channelKey: vodKey,
+      channelId: target.id ? String(target.id).slice(0, 120) : undefined,
+      channelName: cleanTitle,
+      countryCode: kindTag,
+      bestFormat: defaultFormat,
+      bestBufferProfile: defaultBuffer,
+      bestBufferAheadSeconds: getDoctorBufferConfig(defaultBuffer).minBufferAheadSeconds,
+      tsAvgStartupMs: null,
+      hlsAvgStartupMs: null,
+      bestStartupMs: null,
+      tsOk: 0,
+      tsFail: 0,
+      hlsOk: 0,
+      hlsFail: 0,
+      stalls: 0,
+      repairsOk: 0,
+      bufferStats: {},
+      source: 'local',
+      updatedAt: Date.now(),
+    };
+    store.byKey[vodKey] = rec;
+  }
+
+  if (target.id) {
+    rec.channelId = String(target.id).slice(0, 120);
+    store.idIndex[rec.channelId] = rec.channelKey;
+  }
+  if (cleanTitle) rec.channelName = cleanTitle;
+  return rec;
+}
+
+export function selectVodLaunchPlan(
+  target: VodDoctorTarget | null | undefined,
+  settings: Pick<AppSettings, 'bufferMode' | 'tvDoctorEnabled'>,
+  storage?: Storage | null,
+): VodLaunchPlan {
+  const startedAt = nowPerfMs();
+  const baseBufferMode: BufferMode = settings.bufferMode || 'balanced';
+  const defaultTiming = bufferProfileTiming(baseBufferMode);
+  const vodKey = normalizeVodDoctorKey(target);
+  const fmt = vodFormatTag(target?.streamUrl);
+  const enabled = settings.tvDoctorEnabled !== false;
+
+  if (!enabled || !target || (!target.streamUrl && !target.title)) {
+    return {
+      enabled: false,
+      hasLearnedProfile: false,
+      vodKey,
+      streamFormat: fmt,
+      bufferProfileId: baseBufferMode,
+      bufferTiming: defaultTiming,
+      startupWatchdogMs: 8500,
+      expectedStartupMs: null,
+      reason: 'alapértelmezett VOD lejátszási mód',
+    };
+  }
+
+  opHealth.decisionsCount += 1;
+
+  try {
+    const rec = getVodDoctorRecord(target, storage);
+    if (!rec || !isDoctorRecordHandled(rec)) {
+      const elapsed = nowPerfMs() - startedAt;
+      recordDoctorOpTiming('selectVodLaunchPlan', elapsed, target.title);
+      return {
+        enabled: true,
+        hasLearnedProfile: false,
+        vodKey,
+        streamFormat: fmt,
+        bufferProfileId: baseBufferMode,
+        bufferTiming: defaultTiming,
+        startupWatchdogMs: 8500,
+        expectedStartupMs: null,
+        reason: 'első VOD vizsgálat és mérés',
+      };
+    }
+
+    const chosenBufferProfile = evaluateBestBufferProfile(
+      rec.bufferStats,
+      rec.bestBufferProfile || baseBufferMode,
+    );
+    const hasBufferExperience =
+      Object.keys(rec.bufferStats || {}).length > 0 ||
+      rec.source === 'cloud' ||
+      rec.stalls > 0 ||
+      rec.repairsOk > 0;
+    const doctorCfg = getDoctorBufferConfig(chosenBufferProfile);
+    const chosenTiming: BufferProfileTiming = hasBufferExperience
+      ? clampBufferTiming({
+          ...doctorCfg,
+          minBufferAheadSeconds:
+            rec.bestBufferProfile === chosenBufferProfile
+              ? rec.bestBufferAheadSeconds
+              : doctorCfg.minBufferAheadSeconds,
+        })
+      : defaultTiming;
+
+    const expectedStartupMs = fmt === 'hls' ? rec.hlsAvgStartupMs : rec.tsAvgStartupMs;
+    const startupWatchdogMs = Math.max(8500, Math.min(11000, chosenTiming.startupWatchdogMs + 6000));
+    const elapsed = nowPerfMs() - startedAt;
+    recordDoctorOpTiming('selectVodLaunchPlan', elapsed, target.title);
+
+    if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR VOD DÖNTÉS [${target.title || vodKey}]: puffer=${chosenBufferProfile} (${chosenTiming.minBufferAheadSeconds}mp); számítás=${Math.round(elapsed * 10) / 10}ms`,
+      );
+    }
+
+    return {
+      enabled: true,
+      hasLearnedProfile: true,
+      vodKey,
+      streamFormat: fmt,
+      bufferProfileId: hasBufferExperience ? chosenBufferProfile : baseBufferMode,
+      bufferTiming: chosenTiming,
+      startupWatchdogMs,
+      expectedStartupMs,
+      reason: `tanult VOD profil (puffer=${chosenBufferProfile}${expectedStartupMs ? `, ~${expectedStartupMs}ms` : ''})`,
+    };
+  } catch {
+    return {
+      enabled: false,
+      hasLearnedProfile: false,
+      vodKey,
+      streamFormat: fmt,
+      bufferProfileId: baseBufferMode,
+      bufferTiming: defaultTiming,
+      startupWatchdogMs: 8500,
+      expectedStartupMs: null,
+      reason: 'biztonsági VOD visszaállás',
+    };
+  }
+}
+
+export function recordDoctorVodSuccess(params: {
+  target?: VodDoctorTarget | null;
+  bufferProfile: DoctorBufferProfileId;
+  startupMs: number;
+  wasRepair?: boolean;
+  storage?: Storage | null;
+}): ChannelDoctorRecord | null {
+  const { target, bufferProfile, startupMs, wasRepair = false, storage } = params;
+  if (!target || (!target.title && !target.streamUrl && !target.id)) return null;
+
+  try {
+    const store = readStore(storage);
+    const fmt = vodFormatTag(target.streamUrl);
+    const rec = getOrCreateVodRecord(store, target, fmt, bufferProfile);
+    const safeMs = Math.max(20, Math.min(60000, Math.round(startupMs)));
+
+    if (fmt === 'hls') {
+      rec.hlsOk += 1;
+      rec.hlsAvgStartupMs = ewma(rec.hlsAvgStartupMs, safeMs);
+    } else {
+      rec.tsOk += 1;
+      rec.tsAvgStartupMs = ewma(rec.tsAvgStartupMs, safeMs);
+    }
+
+    rec.bestStartupMs = rec.bestStartupMs === null ? safeMs : Math.min(rec.bestStartupMs, safeMs);
+    if (wasRepair) {
+      rec.repairsOk += 1;
+      opHealth.repairsVerifiedCount += 1;
+    }
+
+    const prevBuf = rec.bufferStats[bufferProfile] || { ok: 0, fail: 0, stalls: 0, avgStartupMs: null };
+    rec.bufferStats[bufferProfile] = {
+      ok: prevBuf.ok + 1,
+      fail: prevBuf.fail,
+      stalls: prevBuf.stalls,
+      avgStartupMs: ewma(prevBuf.avgStartupMs, safeMs),
+    };
+
+    rec.bestBufferProfile = evaluateBestBufferProfile(rec.bufferStats, bufferProfile);
+    rec.bestBufferAheadSeconds = getDoctorBufferConfig(rec.bestBufferProfile).minBufferAheadSeconds;
+    rec.bestFormat = fmt;
+    rec.source = rec.source === 'cloud' ? 'merged' : 'local';
+    rec.updatedAt = Date.now();
+
+    writeStore(store, storage);
+
+    if (wasRepair) {
+      recentDoctorLogs.push({
+        at: Date.now(),
+        level: 'verified',
+        channelKey: rec.channelKey,
+        channelName: rec.channelName,
+        message: `VOD JAVÍTÁS ELLENŐRIZVE ÉS MENTVE: puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp) indulás=${safeMs}ms`,
+      });
+      if (recentDoctorLogs.length > MAX_RECENT_LOGS) {
+        recentDoctorLogs.splice(0, recentDoctorLogs.length - MAX_RECENT_LOGS);
+      }
+      if (isTvDoctorDiagLoggingEnabled()) {
+        appLog(`TV DOKTOR VOD [${rec.channelName}] JAVÍTÁS ELLENŐRIZVE ÉS MENTVE: puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp)`);
+      }
+      notifyTvDoctorListeners();
+    } else if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+      appLog(
+        `TV DOKTOR VOD MÉRÉS [${rec.channelName}]: sikeres indulás=${safeMs}ms; ajánlott puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp)`,
+      );
+    }
+
+    if (cloudHook) {
+      cloudHook({
+        eventType: wasRepair ? 'repair_verified' : 'measurement',
+        record: rec,
+        event: {
+          channelKey: rec.channelKey,
+          channelId: rec.channelId,
+          channelName: rec.channelName,
+          playbackFormat: fmt,
+          bufferProfile: rec.bestBufferProfile,
+          bufferAheadSeconds: rec.bestBufferAheadSeconds,
+          startupMs: safeMs,
+          recovered: wasRepair ? true : undefined,
+          tsSuccessDelta: fmt === 'ts' ? 1 : 0,
+          hlsSuccessDelta: fmt === 'hls' ? 1 : 0,
+          repairSuccessDelta: wasRepair ? 1 : 0,
+        },
+      });
+    }
+
+    return rec;
+  } catch {
+    return null;
+  }
+}
+
+export function recordDoctorVodFailure(params: {
+  target?: VodDoctorTarget | null;
+  bufferProfile: DoctorBufferProfileId;
+  trigger: DoctorTriggerReason;
+  errorCode?: string | null;
+  errorDetail?: string | null;
+  stallMs?: number;
+  storage?: Storage | null;
+}): ChannelDoctorRecord | null {
+  const { target, bufferProfile, trigger, errorCode, errorDetail, stallMs, storage } = params;
+  if (!target || (!target.title && !target.streamUrl && !target.id)) return null;
+
+  try {
+    const store = readStore(storage);
+    const fmt = vodFormatTag(target.streamUrl);
+    const rec = getOrCreateVodRecord(store, target, fmt, bufferProfile);
+    const isStall = trigger === 'playback_stall' || trigger === 'buffer_stall';
+
+    if (isStall) {
+      rec.stalls += 1;
+    } else if (fmt === 'hls') {
+      rec.hlsFail += 1;
+    } else {
+      rec.tsFail += 1;
+    }
+
+    const prevBuf = rec.bufferStats[bufferProfile] || { ok: 0, fail: 0, stalls: 0, avgStartupMs: null };
+    rec.bufferStats[bufferProfile] = {
+      ok: prevBuf.ok,
+      fail: isStall ? prevBuf.fail : prevBuf.fail + 1,
+      stalls: isStall ? prevBuf.stalls + 1 : prevBuf.stalls,
+      avgStartupMs: prevBuf.avgStartupMs,
+    };
+
+    const stepped = nextSafeBufferProfile(bufferProfile);
+    rec.bestBufferProfile = stepped;
+    rec.bestBufferAheadSeconds = getDoctorBufferConfig(stepped).minBufferAheadSeconds;
+    if (errorCode) rec.lastErrorCode = String(errorCode).slice(0, 48);
+    rec.lastErrorReason = String(errorDetail || trigger).slice(0, 120);
+    rec.source = rec.source === 'cloud' ? 'merged' : 'local';
+    rec.updatedAt = Date.now();
+    writeStore(store, storage);
+
+    if (cloudHook) {
+      cloudHook({
+        eventType: isStall ? 'freeze_detected' : 'diagnostic',
+        record: rec,
+        event: {
+          channelKey: rec.channelKey,
+          channelId: rec.channelId,
+          channelName: rec.channelName,
+          playbackFormat: fmt,
+          bufferProfile,
+          bufferAheadSeconds: getDoctorBufferConfig(bufferProfile).minBufferAheadSeconds,
+          stallMs: stallMs || undefined,
+          errorCode: errorCode || trigger,
+          errorReason: errorDetail || trigger,
+          recovered: false,
+          tsFailureDelta: !isStall && fmt === 'ts' ? 1 : 0,
+          hlsFailureDelta: !isStall && fmt === 'hls' ? 1 : 0,
+          stallDelta: isStall ? 1 : 0,
+        },
+      });
+    }
+
+    return rec;
+  } catch {
+    return null;
+  }
+}
+
+export function planVodDoctorRepairStep(params: {
+  target?: VodDoctorTarget | null;
+  trigger: DoctorTriggerReason;
+  step: number;
+  currentBufferProfile: DoctorBufferProfileId;
+  streamUrl: string;
+  resumePositionSeconds?: number;
+  storage?: Storage | null;
+}): DoctorRepairProposal {
+  const {
+    target,
+    trigger,
+    step,
+    currentBufferProfile,
+    streamUrl,
+    resumePositionSeconds = 0,
+    storage,
+  } = params;
+
+  const vodKey = normalizeVodDoctorKey(target);
+  const fmt = vodFormatTag(streamUrl);
+  const cleanTitle = String(target?.title || 'Film / Sorozat').slice(0, 120);
+  const record = getVodDoctorRecord(target, storage);
+
+  if (step > MAX_DOCTOR_REPAIR_STEPS || !canDoctorIntervene(vodKey)) {
+    const safeCfg = getDoctorBufferConfig(record?.bestBufferProfile || currentBufferProfile);
+    recentDoctorLogs.push({
+      at: Date.now(),
+      level: 'warn',
+      channelKey: vodKey,
+      channelName: cleanTitle,
+      message: `VOD JAVÍTÁSI KORLÁT ELÉRVE (${step}/${MAX_DOCTOR_REPAIR_STEPS}) – kímélő alap újrapróba`,
+    });
+    if (recentDoctorLogs.length > MAX_RECENT_LOGS) {
+      recentDoctorLogs.splice(0, recentDoctorLogs.length - MAX_RECENT_LOGS);
+    }
+    notifyTvDoctorListeners();
+    return {
+      step,
+      maxSteps: MAX_DOCTOR_REPAIR_STEPS,
+      strategyId: 'vod_fallback_recovery',
+      description: 'kímélő VOD újracsatlakozás',
+      nextFormat: fmt,
+      nextUrl: streamUrl,
+      nextBufferProfile: safeCfg.id,
+      nextBufferTiming: safeCfg,
+      delayMs: 1600,
+      useFallbackUrl: false,
+      exhausted: true,
+    };
+  }
+
+  markIntervention(vodKey);
+  opHealth.repairsAttemptedCount += 1;
+
+  const isStall = trigger === 'playback_stall' || trigger === 'buffer_stall';
+  let nextBufferProfile: DoctorBufferProfileId = currentBufferProfile;
+  let strategyId = 'vod_resume_retry';
+  let delayMs = 220;
+
+  if (step === 1) {
+    nextBufferProfile = isStall ? nextSafeBufferProfile(currentBufferProfile) : currentBufferProfile;
+    strategyId = isStall ? 'vod_buffer_step_up' : 'vod_quick_reconnect';
+    delayMs = 200;
+  } else if (step <= 3) {
+    nextBufferProfile = nextSafeBufferProfile(currentBufferProfile);
+    strategyId = 'vod_progressive_buffer';
+    delayMs = 380;
+  } else {
+    nextBufferProfile = step === 4 ? nextSafeBufferProfile(nextSafeBufferProfile(currentBufferProfile)) : 'adaptive-3';
+    strategyId = 'vod_protected_ceiling';
+    delayMs = 600;
+  }
+
+  const nextCfg = getDoctorBufferConfig(nextBufferProfile);
+  const posNote = resumePositionSeconds > 1 ? `, folytatás ${Math.round(resumePositionSeconds)} mp-től` : '';
+  const description = `puffer=${nextCfg.minBufferAheadSeconds} mp${posNote}`;
+
+  recentDoctorLogs.push({
+    at: Date.now(),
+    level: 'repair',
+    channelKey: vodKey,
+    channelName: cleanTitle,
+    message: `VOD JAVÍTÁS [${step}/${MAX_DOCTOR_REPAIR_STEPS}] stratégia=${strategyId} -> ${description}`,
+  });
+  if (recentDoctorLogs.length > MAX_RECENT_LOGS) {
+    recentDoctorLogs.splice(0, recentDoctorLogs.length - MAX_RECENT_LOGS);
+  }
+  if (isTvDoctorDiagLoggingEnabled()) {
+    appLog(`TV DOKTOR VOD [${cleanTitle}] JAVÍTÁS [${step}/${MAX_DOCTOR_REPAIR_STEPS}] ${strategyId} -> ${description}`);
+  }
+  notifyTvDoctorListeners();
+
+  if (cloudHook) {
+    cloudHook({
+      eventType: isStall ? 'buffer_test' : 'repair_attempt',
+      record,
+      event: {
+        channelKey: vodKey,
+        channelId: target?.id,
+        channelName: cleanTitle,
+        playbackFormat: fmt,
+        bufferProfile: nextBufferProfile,
+        bufferAheadSeconds: nextCfg.minBufferAheadSeconds,
+        errorReason: trigger,
+        details: { step, strategyId, vod: true },
+      },
+    });
+  }
+
+  return {
+    step,
+    maxSteps: MAX_DOCTOR_REPAIR_STEPS,
+    strategyId,
+    description,
+    nextFormat: fmt,
+    nextUrl: streamUrl,
+    nextBufferProfile,
+    nextBufferTiming: nextCfg,
+    delayMs,
+    useFallbackUrl: false,
+    exhausted: false,
+  };
+}
+
