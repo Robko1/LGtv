@@ -37,6 +37,7 @@ import {
 } from './services/bootScreen';
 import { fsPerf, fsStep } from './services/fullscreenPerf';
 import { speedChannelCommit, speedSelect } from './services/speedDiagnostics';
+import { configureTvDoctorCloud } from './services/tvDoctorCloud';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import { displayChannelPositions } from './utils/displayChannelOrder';
@@ -1694,6 +1695,14 @@ export function App() {
       return updated;
     });
   }, []);
+
+  useEffect(() => {
+    const enabled = settings.tvDoctorEnabled !== false;
+    configureTvDoctorCloud(enabled);
+    return () => {
+      configureTvDoctorCloud(false);
+    };
+  }, [settings.tvDoctorEnabled]);
 
   /**
    * Tükrözött elrendezés be/ki (PIROS / Record gomb).

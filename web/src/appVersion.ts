@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.190';
+export const WEB_VERSION = '2.5.191';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,11 +7,11 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.190',
-    date: '2026-10-28',
+    version: '2.5.191',
+    date: '2026-10-29',
     changes: [
-      'Kizárólag kézzel indítható, célzott sebességnapló: távirányító, teljes képernyő, csatornaváltás és film/sorozat lejátszása.',
-      'A napló a betöltési és médiaesemények, várakozások és újrapróbák idejét rögzíti; az indulási és képminőségi háttérdiagnosztika nem fut.',
+      'TV Doktor intelligens hibajavító és csatorna-optimalizáló rendszer: villámgyors csatornaváltás, csatornánkénti formátum- és puffertanulás, okos fagyásfigyelés és korlátozott automatikus javítás.',
+      'Hibrid helyi + Supabase tudásbázis offline gyorsítótárral, valamint dedikált egykapcsolós TV Doktor vezérlődoboz a Rendszer menüben.',
     ],
   },
 ];

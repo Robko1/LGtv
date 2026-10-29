@@ -223,6 +223,8 @@ export interface AppSettings {
   activeProviderId: string;
   lastPlayedChannelId?: string;
   corsProxy: string;
+  /** TV Doktor intelligens hibajavító és csatorna-optimalizáló rendszer (alapból bekapcsolva). */
+  tvDoctorEnabled?: boolean;
 }
 
 export interface WatchHistoryItem {

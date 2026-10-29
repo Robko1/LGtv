@@ -19,8 +19,11 @@ import {
   Waves,
   PanelsTopLeft,
   Clock,
+  Stethoscope,
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
+import { getTvDoctorSummary } from '../services/tvDoctor';
+import { getTvDoctorCloudStatus } from '../services/tvDoctorCloud';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { WEB_VERSION } from '../appVersion';
 import { checkLatestWebOSRelease, type WebOSReleaseInfo } from '../services/webosUpdateService';
@@ -354,6 +357,10 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         e.preventDefault();
         e.stopPropagation();
         if (key === 'Enter' && active === box) {
+          if (box.hasAttribute('data-tv-doctor-box') && controls.length === 1) {
+            controls[0]?.click();
+            return;
+          }
           controls[0]?.focus({ preventScroll: true } as any);
           controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
           return;
@@ -1210,6 +1217,83 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
               </div>
+
+              {/* SECTION: TV DOKTOR */}
+              {(() => {
+                const tvDoctorEnabled = settings.tvDoctorEnabled !== false;
+                const doctorSummary = getTvDoctorSummary();
+                const doctorCloud = getTvDoctorCloudStatus();
+                return (
+                  <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3 shadow-md">
+                    <h3 className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Stethoscope className="w-3.5 h-3.5" />
+                      <span>TV Doktor</span>
+                    </h3>
+
+                    <div
+                      data-tv-box=""
+                      data-tv-doctor-box=""
+                      tabIndex={0}
+                      className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    >
+                      <div className="flex min-w-0 items-start gap-2.5 pr-2">
+                        <span
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                            tvDoctorEnabled
+                              ? 'border-cyan-400/40 bg-cyan-400/15 text-cyan-300'
+                              : 'border-slate-600/50 bg-slate-800/60 text-slate-400'
+                          }`}
+                        >
+                          <Stethoscope className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-bold text-white">
+                              Intelligens hibajavítás és csatorna-optimalizálás
+                            </span>
+                            <span
+                              className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+                                tvDoctorEnabled
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                                  : 'bg-slate-800 text-slate-400 border border-slate-600/50'
+                              }`}
+                            >
+                              {tvDoctorEnabled ? 'Aktív' : 'Kikapcsolva'}
+                            </span>
+                          </div>
+                          <span className="block text-[11px] text-slate-400 leading-snug">
+                            Villámgyors csatornaváltás, automatikus puffer- és módválasztás, okos fagyásfigyelés és hibrid tanulómód.
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[10px] font-semibold text-cyan-300/80">
+                            <span>Tanult csatornák: {doctorSummary.learnedChannelCount}</span>
+                            <span>•</span>
+                            <span>Javítások: {doctorSummary.totalVerifiedRepairs}</span>
+                            <span>•</span>
+                            <span>{doctorCloud.lastSyncAt ? 'Felhő szinkron kész' : 'Helyi gyorsítótár aktív'}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        data-tv-doctor-toggle=""
+                        aria-checked={tvDoctorEnabled}
+                        aria-label="TV Doktor be- és kikapcsolása"
+                        onClick={() => onUpdateSettings({ tvDoctorEnabled: !tvDoctorEnabled })}
+                        className={`w-12 h-6 rounded-full transition-colors relative shrink-0 p-0.5 focus:outline-none focus:ring-2 focus:ring-amber-400 ${
+                          tvDoctorEnabled ? 'bg-cyan-400' : 'bg-slate-700'
+                        }`}
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-full bg-slate-950 shadow-md transition-transform ${
+                            tvDoctorEnabled ? 'translate-x-6' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* SECTION: MOZI & SOROZAT (Screenshot 2) */}
               <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
