@@ -3903,7 +3903,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               });
             }
             setIsPlaying(true);
-            endSwitch();
+            // A régi pause esemény ne állítsa le az új streamet; a playing esemény zárja le a váltást.
           } catch (error) {
             endSwitch();
             setIsLoading(false);
@@ -4861,6 +4861,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
               if (ANDROID_STYLE_LIVE_ZAP_TEST) {
                 // A próba alatt hiba esetén nincs automatikus formátumváltás/újracsatlakozás.
+                endSwitch();
                 setHasError(true);
                 return;
               }
