@@ -33,4 +33,5 @@ export const INITIAL_SETTINGS: AppSettings = {
   subtitleSize: '100%',
   activeProviderId: '',
   corsProxy: 'https://api.allorigins.win/raw?url=',
+  tvDoctorEnabled: true,
 };

@@ -1,5 +1,7 @@
 import { AppSettings, FavoriteFolder, ProviderAccount, WatchHistoryItem } from '../types/iptv';
 import { clearFormatMemory } from './liveFormatMemory';
+import { clearTvDoctorMemory } from './tvDoctor';
+import { clearTvDoctorCloudQueue } from './tvDoctorCloud';
 import { clearContent } from './contentStore';
 import { INITIAL_SETTINGS } from '../data/mockData';
 
@@ -98,6 +100,10 @@ export const storageService = {
       // Lejátszómotor: régi mentésekben még nincs - alapértelmezés HTML5.
       if (settings.playerEngine !== 'html5' && settings.playerEngine !== 'native') {
         settings.playerEngine = 'html5';
+      }
+      // TV Doktor: alapértelmezetten bekapcsolva.
+      if (typeof settings.tvDoctorEnabled !== 'boolean') {
+        settings.tvDoctorEnabled = true;
       }
       return settings;
     } catch {
@@ -254,6 +260,8 @@ export const storageService = {
     // A csatornánkénti formátum-emlékezet is a gyorsítótár része: törlés után
     // minden csatorna a beállított alapformátummal indul.
     clearFormatMemory();
+    clearTvDoctorMemory();
+    clearTvDoctorCloudQueue();
     localStorage.removeItem(SETTINGS_KEY);
     localStorage.removeItem(PROVIDERS_KEY);
     localStorage.removeItem(FOLDERS_KEY);
