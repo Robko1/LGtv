@@ -135,3 +135,7 @@ Ez visszaállítja az eredeti `VideoPlayer.tsx`-et. A próba alapértelmezetten 
 - A `40918288667` workflow a regressziós tesztnél állt meg: a pufferprofil megváltoztatása nem indíthatja újra az aktuális streamet.
 - A próba során véletlenül a `loadKey` is függött a `bufferMode` értékétől. Ezt visszaállítottuk `const loadKey = streamUrl;` értékre, a csatornaváltási közvetlen indítás megmaradt.
 - A hibás futásban 1 teszt bukott el; az IPK-építési lépések emiatt el sem indultak. A javítás után új, kézi workflow-futtatás szükséges.
+
+### 2026-10-29 – A közvetlen csatornaváltási kísérlet regressziós tesztjének javítása
+
+A 40918288667-es workflow futásidejű lejátszótesztje azért bukott el, mert a kísérleti kapcsoló átnevezése után a teszt még a régi globális változót állította hamisra. Emiatt a régi automatikus újracsatlakozást ellenőrző teszt véletlenül az új kísérleti útvonalat futtatta. A `tools/test-player-runtime.mjs`, `tools/test-channel-switch-diagnostics-runtime.mjs` és `tools/test-startup-watchdog-runtime.mjs` most az új `__IPTV_DIRECT_LIVE_ZAP_TEST__` kapcsolót állítja hamisra, így a hagyományos recovery-regressziós tesztek a hagyományos útvonalat ellenőrzik.
