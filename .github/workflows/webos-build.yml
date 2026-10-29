@@ -623,7 +623,7 @@ jobs:
             echo "- Indítás: kizárólag kézzel (workflow_dispatch)."
             echo "- Ellenőrzés: forrásfájlok, HTML build, webOS-frissítő, távirányító-kezelés, platformtisztaság, indítókép, verziók és szintaxis."
             echo "- IPK: csomagtartalom, HTML, verzió, ES5/polyfill, távirányító-kezelés és SHA-256 ellenőrzése."
-            echo "- Kimenet: IPK artifact és GitHub Release."
+            echo "- Kimenet: IPK és verziótag a privát Robko1/Ipk repóban; a nyilvános LGtv Release csak verzióinformációt tartalmaz."
             if [[ "${SIGNED_COMMIT:-0}" == "1" ]]; then
               echo "- Commit/tag: a beállított GPG- vagy SSH-kulccsal aláírva (GitHub Verified csak a fiókhoz hozzáadott publikus kulccsal jelenik meg)."
             else
