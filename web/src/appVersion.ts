@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.189';
+export const WEB_VERSION = '2.5.190';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.189',
+    version: '2.5.190',
     date: '2026-10-28',
     changes: [
       'Kizárólag kézzel indítható, célzott sebességnapló: távirányító, teljes képernyő, csatornaváltás és film/sorozat lejátszása.',
