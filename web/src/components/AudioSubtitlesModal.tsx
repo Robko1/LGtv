@@ -118,8 +118,8 @@ const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
         <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-center text-center">
           <div className="flex items-center gap-2"><Mic2 className="w-5 h-5 text-rose-400 stroke-[2.5]" /><Subtitles className="w-5 h-5 text-cyan-300 stroke-[2.5]" /><h2 className="text-base sm:text-lg font-black text-white tracking-wide">HANGSÁV / CC</h2></div>
         </div>
-        <div className="grid grid-cols-2 gap-3 p-3 md:p-4 overflow-hidden min-h-0">
-          <section className={panel}><h3 className="text-sm font-black text-rose-400 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center"><Mic2 className="w-4 h-4" />HANGSÁV</h3>
+        <div data-track-columns="" className="grid grid-cols-2 gap-3 p-3 md:p-4 overflow-hidden min-h-0">
+          <section data-track-column="" className={panel}><h3 className="text-sm font-black text-rose-400 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center"><Mic2 className="w-4 h-4" />HANGSÁV</h3>
             <div data-track-list="" className="overflow-y-auto min-h-0 space-y-1.5">
               {audioTracks.length === 0 && <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">Nincs jelzett választható hangsáv.</p>}
               {audioTracks.map((track) => { const id = String(track.id); const selected = track.selected === true; return <button key={id} data-track-option="" data-track-focused={column === 'audio' && audioId === id ? '1' : undefined} onClick={() => { setColumn('audio'); setAudioId(id); setPendingAudioId(id); onSelectAudioTrack?.(track); if (selected) { setPendingAudioId(null); onClose(); } }} className={rowClass(column === 'audio' && audioId === id, selected)} aria-pressed={selected}>
@@ -128,7 +128,7 @@ const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
               </button>; })}
             </div>
           </section>
-          <section className={panel}><h3 className="text-sm font-black text-cyan-300 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center"><Subtitles className="w-4 h-4" />CC / FELIRAT</h3>
+          <section data-track-column="" className={panel}><h3 className="text-sm font-black text-cyan-300 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center"><Subtitles className="w-4 h-4" />CC / FELIRAT</h3>
             <div data-track-list="" className="overflow-y-auto min-h-0 space-y-1.5">
               {subtitleTracks.length === 0 && <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">Nincs jelzett választható felirat.</p>}
               {subtitleItems.map((track) => { const id = String(track?.id ?? 'off'); const selected = track ? track.selected === true : !subtitleTracks.some((item) => item.selected === true); return <button key={id} data-track-option="" data-track-focused={column === 'subtitle' && subtitleId === id ? '1' : undefined} onClick={() => {

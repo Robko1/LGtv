@@ -32,6 +32,11 @@ test('track selector panels keep text centered, readable and inside rows', { ski
           const issues = [];
           for (const row of panel.querySelectorAll('[data-track-option]')) {
             const rr = row.getBoundingClientRect();
+            const check = row.querySelector('[data-track-check]');
+            if (check && row.querySelector('[data-track-title]')) {
+              const cr = check.getBoundingClientRect(), tr = row.querySelector('[data-track-title]').getBoundingClientRect();
+              if (tr.right > cr.left + 1) issues.push('title overlaps check icon');
+            }
             const titles = row.querySelectorAll('[data-track-title]');
             if (titles.length !== 1 || row.querySelector('[data-track-meta]') || row.textContent.trim() !== titles[0].textContent.trim()) issues.push('duplicate track text');
             for (const child of row.querySelectorAll('[data-track-title], [data-track-meta]')) {
@@ -40,7 +45,7 @@ test('track selector panels keep text centered, readable and inside rows', { ski
               if (r.left < rr.left - 1 || r.right > rr.right + 1 || r.top < rr.top - 1 || r.bottom > rr.bottom + 1) issues.push(`outside row ${child.textContent}`);
               if (Math.abs((r.left + r.right) / 2 - (rr.left + rr.right) / 2) > 1) issues.push(`not centered ${child.textContent}`);
               if (style.textAlign !== 'center') issues.push(`not text-aligned ${child.textContent}`);
-              if (child.hasAttribute('data-track-title') && parseFloat(style.fontSize) < 20) issues.push(`too small ${child.textContent}`);
+              if (child.hasAttribute('data-track-title') && parseFloat(style.fontSize) < (innerWidth >= 1024 ? 32 : innerWidth <= 520 ? 24 : 28)) issues.push(`too small ${child.textContent}`);
             }
           }
           for (const text of panel.querySelectorAll('p, h2, h3, [data-track-help] span')) {
@@ -48,8 +53,8 @@ test('track selector panels keep text centered, readable and inside rows', { ski
           }
           return { width:pr.width, height:pr.height, issues, html:panel.textContent };
         });
-        assert.ok(result.width <= Math.min(width - 20, view === 'live' ? 800 : 520) + 1, `${width}x${height} ${view} width ${result.width}`);
-        assert.ok(result.height <= height * .75 + 1, `${width}x${height} ${view} height ${result.height}`);
+        assert.ok(result.width <= Math.min(width - 20, view === 'live' ? 720 : 480) + 1, `${width}x${height} ${view} width ${result.width}`);
+        assert.ok(result.height <= height * .70 + 1, `${width}x${height} ${view} height ${result.height}`);
         assert.deepEqual(result.issues, [], `${width}x${height} ${view}: ${result.issues.join('; ')}`);
         assert.match(result.html, /Francia/); assert.match(result.html, /Német/);
         if (width === 1920 && (view === 'live' || view === 'vod-audio')) {
