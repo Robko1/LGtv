@@ -22,6 +22,8 @@ const LAST_SEEN_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 const VALID_FORMATS = new Set(["ts", "hls"]);
 const VALID_BUFFER_PROFILES = new Set([
+  "instant",
+  "turbo",
   "fast",
   "balanced",
   "stable",
@@ -30,6 +32,8 @@ const VALID_BUFFER_PROFILES = new Set([
   "adaptive-3",
 ]);
 const BUFFER_PROFILE_DEFAULT_SECONDS = {
+  "instant": 0.6,
+  "turbo": 0.9,
   "fast": 1.5,
   "balanced": 3.0,
   "stable": 5.0,
@@ -46,6 +50,9 @@ const VALID_EVENT_TYPES = new Set([
   "repair_verified",
   "repair_exhausted",
   "freeze_detected",
+  "channel_dead",
+  "epg_assist",
+  "epg_disabled",
 ]);
 
 const headers = {
@@ -102,12 +109,14 @@ function cleanKey(input) {
 }
 
 function clampInt(value, min, max, fallback = null) {
+  if (value === null || value === undefined || value === "") return fallback;
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.max(min, Math.min(max, Math.round(num)));
 }
 
 function clampNum(value, min, max, fallback) {
+  if (value === null || value === undefined || value === "") return fallback;
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.round(Math.max(min, Math.min(max, num)) * 100) / 100;
@@ -169,11 +178,13 @@ async function responseReason(response) {
 }
 
 function mergeEwma(prev, next) {
-  const p = clampInt(prev, 20, 60000, null);
-  const n = clampInt(next, 20, 60000, null);
+  const pRaw = clampInt(prev, 21, 60000, null);
+  const nRaw = clampInt(next, 21, 60000, null);
+  const p = typeof prev === "number" && prev <= 20 ? null : pRaw;
+  const n = typeof next === "number" && next <= 20 ? null : nRaw;
   if (p === null) return n;
   if (n === null) return p;
-  return Math.round(p * 0.65 + n * 0.35);
+  return Math.round(p * 0.55 + n * 0.45);
 }
 
 function sanitizeBufferScores(raw) {
@@ -182,11 +193,15 @@ function sanitizeBufferScores(raw) {
   for (const profile of VALID_BUFFER_PROFILES) {
     const item = raw[profile];
     if (!item || typeof item !== "object") continue;
+    const ok = clampInt(item.ok, 0, 100000, 0);
+    const avgRaw = ok > 0 && typeof item.avgStartupMs === "number" && item.avgStartupMs > 20
+      ? clampInt(item.avgStartupMs, 21, 60000, null)
+      : null;
     result[profile] = {
-      ok: clampInt(item.ok, 0, 100000, 0),
+      ok,
       fail: clampInt(item.fail, 0, 100000, 0),
       stalls: clampInt(item.stalls, 0, 100000, 0),
-      avgStartupMs: clampInt(item.avgStartupMs, 20, 60000, null),
+      avgStartupMs: avgRaw,
     };
   }
   return result;
@@ -202,11 +217,12 @@ function mergeBufferScores(existingRaw, incomingRaw) {
     if (!prev) {
       merged[profile] = inc;
     } else {
+      const ok = Math.max(prev.ok, inc.ok);
       merged[profile] = {
-        ok: Math.max(prev.ok, inc.ok),
+        ok,
         fail: Math.max(prev.fail, inc.fail),
         stalls: Math.max(prev.stalls, inc.stalls),
-        avgStartupMs: mergeEwma(prev.avgStartupMs, inc.avgStartupMs),
+        avgStartupMs: ok > 0 ? mergeEwma(prev.avgStartupMs, inc.avgStartupMs) : null,
       };
     }
   }
@@ -217,14 +233,20 @@ function chooseBestFormat(tsOk, tsFail, tsMs, hlsOk, hlsFail, hlsMs, fallbackFor
   const tsTotal = tsOk + tsFail;
   const hlsTotal = hlsOk + hlsFail;
   if (tsTotal === 0 && hlsTotal === 0) return VALID_FORMATS.has(fallbackFormat) ? fallbackFormat : "ts";
+  if (tsOk === 0 && hlsOk > 0) return "hls";
+  if (hlsOk === 0 && tsOk > 0) return "ts";
+  if (tsOk === 0 && hlsOk === 0) {
+    if (tsFail !== hlsFail) return tsFail < hlsFail ? "ts" : "hls";
+    return VALID_FORMATS.has(fallbackFormat) ? fallbackFormat : "ts";
+  }
 
-  const tsRate = tsTotal > 0 ? (tsOk + 0.5) / (tsTotal + 1) : 0.45;
-  const hlsRate = hlsTotal > 0 ? (hlsOk + 0.5) / (hlsTotal + 1) : 0.45;
-  const tsSpeedBonus = tsMs ? Math.max(0, (4000 - tsMs) / 20000) : 0;
-  const hlsSpeedBonus = hlsMs ? Math.max(0, (4000 - hlsMs) / 20000) : 0;
+  const tsRate = (tsOk + 0.5) / (tsTotal + 1);
+  const hlsRate = (hlsOk + 0.5) / (hlsTotal + 1);
+  const tsSpeedBonus = tsMs && tsMs > 20 ? Math.max(0, (4200 - tsMs) / 9500) : 0;
+  const hlsSpeedBonus = hlsMs && hlsMs > 20 ? Math.max(0, (4200 - hlsMs) / 9500) : 0;
 
-  const tsScore = tsOk > 0 ? tsRate + tsSpeedBonus : tsRate * 0.5;
-  const hlsScore = hlsOk > 0 ? hlsRate + hlsSpeedBonus : hlsRate * 0.5;
+  const tsScore = tsRate + tsSpeedBonus;
+  const hlsScore = hlsRate + hlsSpeedBonus;
 
   if (Math.abs(tsScore - hlsScore) < 0.04 && VALID_FORMATS.has(fallbackFormat)) {
     return fallbackFormat;
@@ -933,12 +955,22 @@ export function createTvDoctorHandler(customEnv = {}) {
             ? Number(prev.repair_success_count || 0) + (repairDelta !== null ? repairDelta : clampInt(inc.repairSuccessCount, 0, 500, 0))
             : clampInt(inc.repairSuccessCount ?? repairDelta, 0, 10000, 0);
 
-          const tsAvg = mergeEwma(prev && prev.ts_avg_startup_ms, inc.tsAvgStartupMs);
-          const hlsAvg = mergeEwma(prev && prev.hls_avg_startup_ms, inc.hlsAvgStartupMs);
+          const tsAvg = tsOk > 0
+            ? mergeEwma(prev && Number(prev.ts_success_count || 0) > 0 ? prev.ts_avg_startup_ms : null, inc.tsAvgStartupMs)
+            : null;
+          const hlsAvg = hlsOk > 0
+            ? mergeEwma(prev && Number(prev.hls_success_count || 0) > 0 ? prev.hls_avg_startup_ms : null, inc.hlsAvgStartupMs)
+            : null;
 
+          const prevValidBest = prev && typeof prev.best_startup_ms === "number" && prev.best_startup_ms > 20 && (tsOk + hlsOk) > 0
+            ? clampInt(prev.best_startup_ms, 21, 60000, null)
+            : null;
+          const incValidBest = typeof inc.bestStartupMs === "number" && inc.bestStartupMs > 20 && (tsOk + hlsOk) > 0
+            ? clampInt(inc.bestStartupMs, 21, 60000, null)
+            : null;
           const candidateBestMs = [
-            clampInt(prev && prev.best_startup_ms, 20, 60000, null),
-            clampInt(inc.bestStartupMs, 20, 60000, null),
+            prevValidBest,
+            incValidBest,
             tsAvg,
             hlsAvg,
           ].filter((v) => v !== null);
@@ -963,7 +995,7 @@ export function createTvDoctorHandler(customEnv = {}) {
           const defaultAhead = BUFFER_PROFILE_DEFAULT_SECONDS[bestBufferProfile] || 3.0;
           const bestBufferAheadSeconds = clampNum(
             inc.bestBufferAheadSeconds ?? defaultAhead,
-            1.0,
+            0.5,
             10.0,
             defaultAhead,
           );
@@ -1047,7 +1079,7 @@ export function createTvDoctorHandler(customEnv = {}) {
           app_version: appVersion,
           playback_format: VALID_FORMATS.has(ev.playbackFormat) ? ev.playbackFormat : null,
           buffer_profile: VALID_BUFFER_PROFILES.has(ev.bufferProfile) ? ev.bufferProfile : null,
-          buffer_ahead_seconds: ev.bufferAheadSeconds != null ? clampNum(ev.bufferAheadSeconds, 1.0, 10.0, 3.0) : null,
+          buffer_ahead_seconds: ev.bufferAheadSeconds != null ? clampNum(ev.bufferAheadSeconds, 0.5, 10.0, 3.0) : null,
           startup_ms: clampInt(ev.startupMs, 0, 120000, null),
           stall_ms: clampInt(ev.stallMs, 0, 300000, null),
           error_code: cleanText(ev.errorCode, 48) || null,
