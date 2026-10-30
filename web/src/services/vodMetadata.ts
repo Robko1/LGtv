@@ -58,11 +58,40 @@ function parseJson(value: unknown): unknown {
   try { return JSON.parse(text); } catch { return value; }
 }
 
+/*
+ * A kisbetűsített kulcs-érték lista RECORDONKÉNT EGYSZER készül el (2.5.225).
+ *
+ * Az 1-es TV-napló szerint a 102 994 filmes lista feldolgozása ~87 másodpercig
+ * tartott. A mérés (tools/bench-import.mjs) kimutatta: az idő nagy része a
+ * metaadat-olvasóban ment el, mert a `firstValue` MINDEN hívása újra bejárta
+ * és kisbetűsítette a teljes objektumot – elemenként 10+ alkalommal. A
+ * WeakMap-gyorsítótárral a kulcsok egyszer kerülnek kisbetűsítésre, a
+ * találati sorrend (a rekord mezősorrendje) pedig változatlan marad.
+ */
+const lowerEntriesCache = new WeakMap<object, Array<[string, unknown]>>();
+
+function lowerEntries(record: Record<string, unknown>): Array<[string, unknown]> {
+  let entries = lowerEntriesCache.get(record);
+  if (!entries) {
+    entries = Object.entries(record).map(([key, value]): [string, unknown] => [key.toLowerCase(), value]);
+    lowerEntriesCache.set(record, entries);
+  }
+  return entries;
+}
+
 function firstValue(record: Record<string, unknown> | null, keys: string[]): unknown {
   if (!record) return undefined;
+  const entries = lowerEntries(record);
+  if (keys.length === 1) {
+    const wantedKey = keys[0].toLowerCase();
+    for (const [key, value] of entries) {
+      if (key === wantedKey && value !== undefined && value !== null && clean(value) !== '') return value;
+    }
+    return undefined;
+  }
   const wanted = new Set(keys.map((key) => key.toLowerCase()));
-  for (const [key, value] of Object.entries(record)) {
-    if (wanted.has(key.toLowerCase()) && value !== undefined && value !== null && clean(value) !== '') return value;
+  for (const [key, value] of entries) {
+    if (wanted.has(key) && value !== undefined && value !== null && clean(value) !== '') return value;
   }
   return undefined;
 }
@@ -360,9 +389,128 @@ function parseCommon(node: unknown): Partial<ParsedVodMetadata> {
   };
 }
 
+/*
+ * GYORS ÚT A LAPOS LISTA-ELEMEKHEZ (2.5.225).
+ *
+ * A get_vod_streams / get_series bulk-válaszainak elemei LAPOSAK: csupa
+ * szám/szöveg mező (num, name, stream_id, stream_icon, rating, category_id,
+ * …), legfeljebb a backdrop_path egy szöveglista. Rajtuk a teljes, mély
+ * metaadat-bejárás (hangsáv-/feliratgyűjtő, rekurzív időtartam-kereső)
+ * BIZONYÍTHATÓAN üres kézzel tér vissza, mégis minden elemnél lefutott –
+ * 102 994 filmnél ez volt az import leglassabb része a TV-n.
+ *
+ * Az alábbi ellenőrzés pontosan azokat az eseteket engedi a gyors útra,
+ * ahol a mély bejárók eredménye garantáltan üres:
+ *   • minden érték primitív (vagy primitívekből álló lista),
+ *   • nincs info/movie_data/episodes/streams/tags kulcs (ezek más ágat
+ *     indítanának az eredeti kódban),
+ *   • nincs audio…/soundtrack… kezdetű kulcs (collectAudioEntries ezekből olvasna),
+ *   • nincs felirat-kulcs (collectSubtitleEntries pontos kulcskészlete).
+ * Minden más mező (poszter, leírás, műfaj, szereplők, év, játékidő,
+ * értékelés) ugyanazokkal a segédfüggvényekkel, azonos sorrendi
+ * szabályokkal kerül ki, mint a teljes úton – az eredmény bitre azonos.
+ * A paritást a tools/import.spec.ts külön próbája őrzi.
+ */
+const SUBTITLE_TRIGGER_KEYS = new Set([
+  'subtitles', 'sub_titles', 'subs', 'subtitle', 'captions', 'subtitle_list', 'subtitles_list',
+]);
+
+/*
+ * Mezőcsoportok a lapos gyors úthoz. A csoporton belüli „első találat” a
+ * REKORD mezősorrendje szerint dől el – pontosan úgy, ahogy a firstValue
+ * az eredeti úton (a kulcslisták sorrendje ott sem számított).
+ */
+const FLAT_GROUP_POSTER = 0;
+const FLAT_GROUP_BACKDROP = 1;
+const FLAT_GROUP_PLOT = 2;
+const FLAT_GROUP_DIRECTOR = 3;
+const FLAT_GROUP_RATING = 4;
+const FLAT_GROUP_YEAR = 5;
+const FLAT_GROUP_GENRES = 6;
+const FLAT_GROUP_CAST = 7;
+const FLAT_GROUP_BY_KEY = new Map<string, number>([
+  ['movie_image', FLAT_GROUP_POSTER], ['cover_big', FLAT_GROUP_POSTER], ['cover', FLAT_GROUP_POSTER],
+  ['poster', FLAT_GROUP_POSTER], ['stream_icon', FLAT_GROUP_POSTER], ['image', FLAT_GROUP_POSTER],
+  ['backdrop_path', FLAT_GROUP_BACKDROP], ['backdrop', FLAT_GROUP_BACKDROP],
+  ['backdrop_url', FLAT_GROUP_BACKDROP], ['fanart', FLAT_GROUP_BACKDROP],
+  ['plot', FLAT_GROUP_PLOT], ['description', FLAT_GROUP_PLOT], ['overview', FLAT_GROUP_PLOT],
+  ['director', FLAT_GROUP_DIRECTOR],
+  ['rating', FLAT_GROUP_RATING], ['rating_5based', FLAT_GROUP_RATING],
+  ['releasedate', FLAT_GROUP_YEAR], ['release_date', FLAT_GROUP_YEAR],
+  ['year', FLAT_GROUP_YEAR], ['release_year', FLAT_GROUP_YEAR],
+  ['genre', FLAT_GROUP_GENRES], ['genres', FLAT_GROUP_GENRES],
+  ['cast', FLAT_GROUP_CAST], ['actors', FLAT_GROUP_CAST], ['actor', FLAT_GROUP_CAST],
+]);
+/** A findDuration második (elsőbbségi sorrendű) köre – a sorrend kötött. */
+const FLAT_DURATION_KEYS = ['duration_minutes', 'episode_run_time', 'duration', 'runtime', 'length'];
+const FLAT_DURATION_INDEX = new Map(FLAT_DURATION_KEYS.map((key, index) => [key, index]));
+
+function parseFlatMetadata(record: Record<string, unknown>): ParsedVodMetadata | null {
+  const found: unknown[] = [undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined];
+  const durationCandidates: unknown[] = [undefined, undefined, undefined, undefined, undefined];
+  let durationFromSeconds = 0;
+  for (const [key, value] of Object.entries(record)) {
+    if (value && typeof value === 'object') {
+      // Csak primitívekből álló lista maradhat (pl. backdrop_path URL-ek).
+      if (!Array.isArray(value)) return null;
+      for (const item of value) {
+        if (item && typeof item === 'object') return null;
+      }
+    }
+    const lower = key.toLowerCase();
+    if (lower === 'info' || lower === 'movie_data' || lower === 'episodes') return null;
+    const normalized = lower.replace(/[- ]/g, '_');
+    if (normalized === 'streams' || normalized === 'tags') return null;
+    if (/^(?:audio|audios|soundtrack)(?:_|$)/.test(normalized)) return null;
+    if (SUBTITLE_TRIGGER_KEYS.has(lower)) return null;
+    if (value === undefined || value === null) continue;
+    // findDuration első köre: a másodperc-alapú kulcsok a rekord sorrendjében.
+    if (durationFromSeconds === 0 && /duration_secs?|duration_seconds?|runtime_seconds?/.test(lower)) {
+      const parsed = durationMinutesFromValue(value, key);
+      if (parsed > 0) durationFromSeconds = parsed;
+    }
+    const durationIndex = FLAT_DURATION_INDEX.get(lower);
+    if (durationIndex !== undefined && durationCandidates[durationIndex] === undefined && clean(value) !== '') {
+      durationCandidates[durationIndex] = value;
+    }
+    const group = FLAT_GROUP_BY_KEY.get(lower);
+    if (group !== undefined && found[group] === undefined && clean(value) !== '') {
+      found[group] = value;
+    }
+  }
+  let durationMinutes = durationFromSeconds;
+  if (durationMinutes === 0) {
+    for (let index = 0; index < FLAT_DURATION_KEYS.length && durationMinutes === 0; index++) {
+      if (durationCandidates[index] === undefined) continue;
+      const parsed = durationMinutesFromValue(durationCandidates[index], FLAT_DURATION_KEYS[index]);
+      if (parsed > 0) durationMinutes = parsed;
+    }
+  }
+  const year = Number((clean(found[FLAT_GROUP_YEAR]).match(/\d{4}/) || [0])[0]) || 0;
+  return {
+    durationMinutes,
+    audioTracks: [],
+    subtitleTracks: [],
+    audioLanguages: [UNKNOWN_LANGUAGE],
+    subtitleLanguages: [UNKNOWN_LANGUAGE],
+    poster: clean(found[FLAT_GROUP_POSTER]) || undefined,
+    backdrop: clean(found[FLAT_GROUP_BACKDROP]) || undefined,
+    plot: clean(found[FLAT_GROUP_PLOT]) || undefined,
+    genres: found[FLAT_GROUP_GENRES] === undefined ? [] : unique(flattenText(found[FLAT_GROUP_GENRES])),
+    director: clean(found[FLAT_GROUP_DIRECTOR]) || undefined,
+    cast: found[FLAT_GROUP_CAST] === undefined ? [] : unique(flattenText(found[FLAT_GROUP_CAST])),
+    rating: (Number(found[FLAT_GROUP_RATING] ?? 0) || 0) || undefined,
+    year: year || undefined,
+  };
+}
+
 /** A get_vod_info válaszának normalizált, UI- és tárolóbarát metaadata. */
 export function parseVodMetadata(response: unknown): ParsedVodMetadata {
   const root = asRecord(response);
+  if (root) {
+    const fast = parseFlatMetadata(root);
+    if (fast) return fast;
+  }
   const info = root?.info ?? response;
   const common = parseCommon(info);
   // Néhány panel a plakátot csak a movie_data objektumban küldi.
@@ -399,6 +547,12 @@ export function parseVodMetadata(response: unknown): ParsedVodMetadata {
 /** Sorozat-plakát metaadata: az info és az első epizód adatai együtt számítanak. */
 export function parseSeriesMetadata(response: unknown): ParsedVodMetadata {
   const root = asRecord(response);
+  if (root) {
+    // A bulk sorozatlista elemei is laposak (a backdrop_path URL-lista marad);
+    // a gyors út az info/episodes kulcsoknál magától a teljes útra esik vissza.
+    const fast = parseFlatMetadata(root);
+    if (fast) return fast;
+  }
   const info = root?.info ?? response;
   const episodes = asRecord(root?.episodes);
   const firstSeason = episodes ? Object.values(episodes).find((value) => Array.isArray(value) && value.length > 0) as unknown[] | undefined : undefined;

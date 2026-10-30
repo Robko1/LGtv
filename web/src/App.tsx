@@ -2588,6 +2588,13 @@ export function App() {
 
     /** Melyik szakasz került MÁR a tartós tárba az import közben. */
     const durableSaved = { live: false, vod: false, series: false };
+    /*
+     * A tartós mentések a háttérben futnak: a film-lista ~25 mp-es IndexedDB
+     * írása a sorozatfázis letöltésével PÁRHUZAMOSAN történik, nem előtte.
+     * A 100% kimondása előtt viszont MINDET bevárjuk (Promise.all), így a
+     * „kész” állapot továbbra is csak ténylegesen eltárolt adatra vonatkozik.
+     */
+    const pendingDurableSaves: Promise<void>[] = [];
 
     /**
      * Egy-egy szakasz azonnal a felületre kerül, ÉS azonnal a tartós tárba is.
@@ -2732,8 +2739,10 @@ export function App() {
          */
         const skipSave = new Set(partial.unchangedSections || []);
         if (partial.channels) { durableSaved.live = true; if (!skipSave.has('live')) saveLiveContentSafely(snapshot); }
-        if (partial.movies) { durableSaved.vod = true; if (!skipSave.has('vod')) await saveVodContentSafely(snapshot); }
-        if (partial.series) { durableSaved.series = true; if (!skipSave.has('series')) await saveSeriesContentSafely(snapshot); }
+        // Nem várjuk meg itt: a mentés a következő fázis letöltése ALATT fut,
+        // a befejező ág Promise.all-ja garantálja, hogy 100% előtt elkészül.
+        if (partial.movies) { durableSaved.vod = true; if (!skipSave.has('vod')) pendingDurableSaves.push(saveVodContentSafely(snapshot)); }
+        if (partial.series) { durableSaved.series = true; if (!skipSave.has('series')) pendingDurableSaves.push(saveSeriesContentSafely(snapshot)); }
       }
 
       setProviders((current) => {
@@ -2936,6 +2945,9 @@ export function App() {
       if (!durableSaved.live) saveLiveContentSafely(contentForStorage);
       if (!durableSaved.vod) await saveVodContentSafely(contentForStorage);
       if (!durableSaved.series) await saveSeriesContentSafely(contentForStorage);
+      // A háttérben indított film-/sorozatmentések bevárása: a „kész” jelzés
+      // csak akkor jöhet, ha tényleg minden szakasz a tartós tárban van.
+      await Promise.all(pendingDurableSaves);
       // A 20 részletes VOD-metaadat külön, néhány kB-os rekordba kerül:
       // visszatöltéskor a megfelelő filmekre/sorozatokra ráolvassuk.
       await saveCatalogExtras(id, contentForStorage.movies.filter((item) => item.detailProviderData), contentForStorage.series.filter((item) => item.detailProviderData || item.seasons.length > 0));
