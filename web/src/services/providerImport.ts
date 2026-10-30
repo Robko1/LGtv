@@ -1266,7 +1266,7 @@ export async function importXtreamProvider(
             catName,
             movie.stream_icon || '',
             Number(movie.rating ?? movie.rating_5based ?? 0) || 0,
-            Number((String(movie.added || '').match(/\d{4}/) || [0])[0]) || 0,
+            parseVodMetadata(movie).year || 0,
             movie.container_extension || 'mp4',
             (movie.plot || '').replace(/\s+/g, ' ').slice(0, 200),
           ]);
@@ -1350,7 +1350,7 @@ export async function importXtreamProvider(
                 catName,
                 movie.stream_icon || '',
                 Number(movie.rating ?? movie.rating_5based ?? 0) || 0,
-                Number((String(movie.added || '').match(/\d{4}/) || [0])[0]) || 0,
+                parseVodMetadata(movie).year || 0,
                 movie.container_extension || 'mp4',
                 (movie.plot || '').replace(/\s+/g, ' ').slice(0, 200),
               ]);
