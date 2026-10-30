@@ -602,9 +602,16 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --repo Robko1/Ipk --clobber
 
-          TARGET_SHA="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets --jq '.assets[] | select(.name == "IPTV R.T.ipk") | .digest' | sed 's/^sha256://')"
-          [[ -n "$TARGET_SHA" && "$TARGET_SHA" == "$LOCAL_SHA" ]] || {
-            echo "HIBA: a privát Release IPK SHA-256 értéke nem egyezik a buildelt fájllal." >&2
+          VERIFY_DIR="$(mktemp -d)"
+          gh release download "$RELEASE_TAG" --repo Robko1/Ipk --pattern "$IPK_FILE_NAME" --dir "$VERIFY_DIR" --clobber
+          DOWNLOADED_IPK="$VERIFY_DIR/$IPK_FILE_NAME"
+          [[ -f "$DOWNLOADED_IPK" ]] || {
+            echo "HIBA: a feltöltött IPK nem tölthető vissza a privát Release-ből." >&2
+            exit 1
+          }
+          TARGET_SHA="$(sha256sum "$DOWNLOADED_IPK" | awk '{print $1}')"
+          [[ "$TARGET_SHA" == "$LOCAL_SHA" ]] || {
+            echo "HIBA: a privát Release-ből visszatöltött IPK SHA-256 értéke eltér a buildelt fájltól. Helyi: $LOCAL_SHA; letöltött: $TARGET_SHA." >&2
             exit 1
           }
           ASSET_COUNT="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets --jq '.assets | length')"
