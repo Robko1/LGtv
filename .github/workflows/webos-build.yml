@@ -35,8 +35,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          # A web/ függőségei a legnagyobbak (vite, react, babel, esbuild) –
+          # a gyorsítótár nélkül minden build újra letöltötte őket (~1 perc).
           cache-dependency-path: |
             package-lock.json
+            web/package-lock.json
 
       - name: 3. Python 3.11
         uses: actions/setup-python@v4
@@ -58,7 +61,9 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          npm install --prefix web --no-audit --no-fund
+          # npm ci: gyorsabb és determinisztikus (a lockfile-ból telepít);
+          # a setup-node npm-gyorsítótára így ténylegesen hasznosul.
+          npm ci --prefix web --no-audit --no-fund
           pip install Pillow --break-system-packages -q || pip install Pillow -q
           # A feltöltött splash-screen.png marad az egyetlen kezdőkép.
           # Automatikus átméretezés 1920x1080-ra, majd adaptív palettás PNG-
@@ -71,6 +76,21 @@ jobs:
           path = Path("webos/splash-screen.png")
           if not path.is_file() or path.stat().st_size == 0:
               raise SystemExit("HIBA: hiányzik a feltöltött webos/splash-screen.png.")
+          # GYORSÍTÁS: ha a repóban lévő splash már megfelel minden
+          # követelménynek (1920x1080, palettás PNG, 699 KiB alatt), akkor az
+          # újratömörítés (~30-60 mp) teljesen kihagyható. Új, nyers kép
+          # feltöltésekor az optimalizálás automatikusan újra lefut.
+          limit = 699 * 1024
+          try:
+              with Image.open(path) as existing:
+                  if (existing.size == (1920, 1080) and existing.mode == "P"
+                          and path.stat().st_size < limit):
+                      print(f"OK: a splash már optimalizált ({path.stat().st_size} byte, palettás, 1920x1080) – újratömörítés kihagyva.")
+                      raise SystemExit(0)
+          except SystemExit:
+              raise
+          except Exception as error:
+              print(f"Figyelmeztetés: a meglévő splash gyors ellenőrzése nem sikerült ({error}); teljes optimalizálás következik.")
           with Image.open(path) as original:
               original.load()
               source = original.convert("RGB")

@@ -51,7 +51,7 @@ import {
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
-import { categoryCounts, liveRowFromRaw, movieRowFromRaw, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
+import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
 import { logVodItemResponse } from './vodProviderDiagnostics';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled } from './net';
@@ -89,6 +89,16 @@ export interface PartialContent {
   durable?: boolean;
   /** Incrementális frissítésnél az üres lista is valódi törlést jelent. */
   authoritative?: boolean;
+  /**
+   * EZEK A SZAKASZOK BIZTOSAN NEM VÁLTOZTAK a tárolt listához képest.
+   *
+   * Az incrementális frissítés a végén a TELJES összefésült tartalmat adja
+   * át, de ha pl. csak 3 új film érkezett, az élő- és sorozatlista bitre
+   * azonos a tárolttal. A változatlan szakaszok 40+ MB-os újraírása a TV-n
+   * 10–20 másodperc felesleges munka volt – a felület ezekre a szakaszokra
+   * kihagyja a tartós mentést.
+   */
+  unchangedSections?: Array<'live' | 'vod' | 'series'>;
   /**
    * AZ ÉLŐ LISTA ELKÉSZÜLT.
    *
@@ -1221,6 +1231,29 @@ export async function importXtreamProvider(
   let movies: Movie[] = [];
   let vodCats: Category[] = [];
 
+  /*
+   * A SOROZATLISTA ELŐTÖLTÉSE (2.5.222).
+   *
+   * A film-bulk válasz megérkezése UTÁN a hálózat eddig tétlen volt, amíg a
+   * 100 ezres filmlista feldolgozása futott – a sorozatok letöltése csak ez
+   * után indult. Most a sorozat-bulk kérés már a filmek feldolgozása ALATT
+   * elindul, így a sorozat-szakasz kezdetére a válasz (vagy annak nagy
+   * része) már megérkezett: az import teljes ideje érezhetően rövidebb.
+   */
+  let seriesListPrefetch:
+    | Promise<{ ok: true; value: XtreamSeriesItem[] } | { ok: false; error: unknown }>
+    | null = null;
+  const startSeriesPrefetch = (): void => {
+    if (seriesListPrefetch) return;
+    seriesListPrefetch = providerRequest(
+      () => xtreamService.seriesList(server, user, pass),
+      'Sorozatok egyben'
+    ).then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error })
+    );
+  };
+
   /* webOS MEGJEGYZÉS: korábban itt egy "gyors mód" volt, ami a TV-n csak az
    * élő csatornákat töltötte be, a filmeket/sorozatokat pedig egy soha meg
    * nem valósult "lusta betöltésre" hagyta - ezért maradt ÜRES a Mozi és a
@@ -1265,6 +1298,9 @@ export async function importXtreamProvider(
         () => xtreamService.vodStreams(server, user, pass),
         'Filmek egyben'
       );
+      // A filmválasz már itt van: a sorozatlista letöltése MOST indul, a
+      // filmek feldolgozásával párhuzamosan (a hálózat nem marad tétlen).
+      startSeriesPrefetch();
       logImportApiPayload('FILM LISTA', allVod as unknown[]);
       await vodCategoriesPromise;
       vodCategoryMap = makeCategoryMap(vodCategories);
@@ -1478,10 +1514,12 @@ export async function importXtreamProvider(
 
     try {
       onProgress({ phase: 'Sorozatok letöltése egyben…', detail: 'Gyorsított mód (1 kérés)', percent: 76 });
-      const allSeries = await providerRequest(
-        () => xtreamService.seriesList(server, user, pass),
-        'Sorozatok egyben'
-      );
+      // Ha a filmek szakasza már elindította az előtöltést, azt várjuk be;
+      // különben most indul a kérés (pl. kategória-fallback után).
+      startSeriesPrefetch();
+      const prefetched = await seriesListPrefetch!;
+      if (!prefetched.ok) throw prefetched.error;
+      const allSeries = prefetched.value;
       logImportApiPayload('SOROZAT LISTA', allSeries as unknown[]);
       await seriesCategoriesPromise;
       seriesCategoryMap = makeCategoryMap(seriesCategories);
@@ -2069,14 +2107,17 @@ export type RefreshOutcome =
 
 export interface CatalogDiff { added: number; changed: number; removed: number; }
 
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) || 'null';
-  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
-  const record = value as Record<string, unknown>;
-  return '{' + Object.keys(record).sort().map((key) => JSON.stringify(key) + ':' + stableJson(record[key])).join(',') + '}';
-}
-
 function emptyDiff(): CatalogDiff { return { added: 0, changed: 0, removed: 0 }; }
+
+/**
+ * A frissítés részletes (get_vod_info / get_series_info) kéréseinek felső
+ * korlátja. KORÁBBAN minden új vagy módosult elemhez külön kérés indult:
+ * egy nagyobb szolgáltatói változásnál ez TÖBB EZER rejtett HTTP-kérést
+ * jelentett – ez volt a 6 perces „frissítés” fő oka. A részletes adat a
+ * böngészés közbeni előreolvasással (prefetch) amúgy is megérkezik, ezért
+ * itt csak az első néhány új elem kap azonnali részleteket.
+ */
+const MAX_REFRESH_DETAILS = 20;
 
 /**
  * Xtream különbség-frissítés: a könnyű indexlisták összevetése után csak az új vagy
@@ -2133,7 +2174,21 @@ async function refreshXtreamIncremental(
   const changes = { live: emptyDiff(), vod: emptyDiff(), series: emptyDiff() };
   const next: ImportedContent = { ...previous, savedAt: new Date().toISOString(), warnings, authoritative: true };
 
-  const mergeSection = async <T extends { id: string; providerData?: Record<string, unknown> }>(
+  /*
+   * GYORS ÖSSZEVETÉS (2.5.222).
+   *
+   * A régi mergeSection minden nyers sorhoz teljes, kulcs-rendezett JSON-
+   * sorosítást (stableJson) futtatott – 128 000 elemnél ez önmagában több
+   * tíz másodperc volt a TV-n –, majd a TELJES nyers objektumot minden
+   * elemhez hozzáfűzte (providerData), és minden új/módosult elemhez külön
+   * részletkérést indított. Együtt ez adta a ~6 perces, memóriát felzabáló
+   * „frissítést”.
+   *
+   * Most: az összevetés a néhány bájtos ujjlenyomattal (providerSig)
+   * történik, a nyers objektum NEM kerül az elemekre, és legfeljebb
+   * MAX_REFRESH_DETAILS új elem kap azonnali részleteket.
+   */
+  const mergeSection = async <T extends { id: string; providerData?: Record<string, unknown>; providerSig?: string }>(
     rawRows: Array<Record<string, unknown>> | null,
     oldItems: T[],
     idOf: (raw: Record<string, unknown>) => string,
@@ -2151,6 +2206,7 @@ async function refreshXtreamIncremental(
     }
     const seen = new Set<string>();
     let migrated = false;
+    let skippedDetails = 0;
     const result: T[] = [];
     const detailTargets: Array<{ index: number; item: T }> = [];
     for (let index = 0; index < rawRows.length; index += 1) {
@@ -2160,18 +2216,34 @@ async function refreshXtreamIncremental(
       if (!id || seen.has(id)) continue;
       seen.add(id);
       const old = oldById.get(id);
-      const signature = stableJson(raw);
-      if (old && old.providerData && stableJson(old.providerData) === signature) {
+      const signature = rawItemSignature(raw);
+      if (old && old.providerSig && old.providerSig === signature) {
+        // Változatlan elem: helyben marad, semmit nem dekódolunk újra.
         result.push(old);
       } else {
         const fresh = decode(raw, index);
+        if (!fresh) continue;
         const merged = old ? preserve(fresh, old) : fresh;
-        merged.providerData = raw;
+        merged.providerSig = signature;
+        // A teljes nyers objektumot NEM tároljuk minden elemen – ez okozta a
+        // memória- és tárhely-robbanást (lásd rawItemSignature megjegyzése).
+        merged.providerData = undefined;
         result.push(merged);
-        if (old && old.providerData) diff.changed += 1; else if (!old) diff.added += 1; else migrated = true;
-        if (!old || old.providerData) detailTargets.push({ index: result.length - 1, item: merged });
+        if (!old) {
+          diff.added += 1;
+          // Csak az első néhány ÚJ elem kap azonnali részletes metaadatot;
+          // a többit a böngészés közbeni előreolvasás tölti fel.
+          if (detailTargets.length < MAX_REFRESH_DETAILS) detailTargets.push({ index: result.length - 1, item: merged });
+          else skippedDetails += 1;
+        } else if (old.providerSig) {
+          diff.changed += 1;
+        } else {
+          // Régi tárolási formátum (még ujjlenyomat nélkül): egyszeri,
+          // helyi átállás – NEM szolgáltatói változás és NEM részletkérés.
+          migrated = true;
+        }
       }
-      if (index % 1000 === 0) await yieldToUi();
+      if (index % 1500 === 0) await yieldToUi();
     }
     for (const old of oldItems) {
       const alt = (old as unknown as { streamId?: number; seriesId?: number }).streamId ?? (old as unknown as { seriesId?: number }).seriesId;
@@ -2199,6 +2271,12 @@ async function refreshXtreamIncremental(
     if (detailTargets.length) {
       onProgress({ phase: `${label} változásainak letöltése…`, detail: `${detailTargets.length} tétel`, percent: 40 });
       await Promise.all([worker(), worker()]);
+    }
+    if (skippedDetails > 0) {
+      logProviderEvent(
+        `${label}: ${skippedDetails} új elem részletes metaadata böngészés közben töltődik majd be `
+        + `(a frissítés nem indít elemenkénti kérésözönt).`
+      );
     }
     return { items: result, migrated };
   };
@@ -2242,16 +2320,26 @@ async function refreshXtreamIncremental(
     : providerFingerprint({ liveCategories: next.liveCategories, vodCategories: next.vodCategories, seriesCategories: next.seriesCategories });
   const categoryChanged = fingerprint !== loadSyncState(provider.id)?.fingerprint;
   const totalChanges = changes.live.added + changes.live.changed + changes.live.removed + changes.vod.added + changes.vod.changed + changes.vod.removed + changes.series.added + changes.series.changed + changes.series.removed;
+  // A bitre változatlan szakaszoknál a tartós újraírás (akár 40+ MB IndexedDB-
+  // művelet szakaszonként) kihagyható – ettől lesz pár másodperces a
+  // „nincs változás / csak pár új film” típusú frissítés.
+  const sectionUnchanged = (diff: CatalogDiff, sectionMigrated: boolean): boolean =>
+    diff.added + diff.changed + diff.removed === 0 && !sectionMigrated && !categoryChanged;
+  const unchangedSections: Array<'live' | 'vod' | 'series'> = [];
+  if (sectionUnchanged(changes.live, liveMerge.migrated)) unchangedSections.push('live');
+  if (sectionUnchanged(changes.vod, vodMerge.migrated)) unchangedSections.push('vod');
+  if (sectionUnchanged(changes.series, seriesMerge.migrated)) unchangedSections.push('series');
   if (totalChanges === 0 && !categoryChanged && warnings.length === 0) {
-    // Régi tárolású alapadat helyi kiegészítése (providerData) nem számít
-    // szolgáltatói változásnak, de egyszer mentjük az új formátumot.
+    // Régi tárolású alapadat helyi átalakítása (providerData → ujjlenyomat)
+    // nem számít szolgáltatói változásnak, de egyszer mentjük az új, karcsú
+    // formátumot, hogy a következő indulás/frissítés már gyors legyen.
     if (migrated) {
-      await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals });
+      await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals, unchangedSections });
       saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
     }
     return { unchanged: true, check: { unchanged: true, fresh: true, ageMs: 0, fingerprint, counts: { live: next.liveCategories.length, vod: next.vodCategories.length, series: next.seriesCategories.length } } };
   }
-  await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals });
+  await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals, unchangedSections });
   saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
   logProviderEvent(`Incrementális frissítés kész: élő +${changes.live.added}/~${changes.live.changed}/-${changes.live.removed}, film +${changes.vod.added}/~${changes.vod.changed}/-${changes.vod.removed}, sorozat +${changes.series.added}/~${changes.series.changed}/-${changes.series.removed}.`);
   return {

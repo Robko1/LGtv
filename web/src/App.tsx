@@ -2718,9 +2718,16 @@ export function App() {
           vodCategories: draft.vodCategories.slice(),
           seriesCategories: draft.seriesCategories.slice(),
         };
-        if (partial.channels) { durableSaved.live = true; saveLiveContentSafely(snapshot); }
-        if (partial.movies) { durableSaved.vod = true; await saveVodContentSafely(snapshot); }
-        if (partial.series) { durableSaved.series = true; await saveSeriesContentSafely(snapshot); }
+        /*
+         * Az incrementális frissítés jelzi, mely szakaszok BITRE AZONOSAK a
+         * tárolttal (unchangedSections): ezeknél a több tíz MB-os újraírás
+         * kimarad, de „mentettnek” számítanak, hogy a befejező ág se írja
+         * újra őket feleslegesen.
+         */
+        const skipSave = new Set(partial.unchangedSections || []);
+        if (partial.channels) { durableSaved.live = true; if (!skipSave.has('live')) saveLiveContentSafely(snapshot); }
+        if (partial.movies) { durableSaved.vod = true; if (!skipSave.has('vod')) await saveVodContentSafely(snapshot); }
+        if (partial.series) { durableSaved.series = true; if (!skipSave.has('series')) await saveSeriesContentSafely(snapshot); }
       }
 
       setProviders((current) => {
@@ -3186,44 +3193,63 @@ export function App() {
     const provider = activeProviderRef.current;
     if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) return;
     if (customStreamUrlRef.current) return;
-    const pending = items.filter((item) => !item.detailProviderData && !vodPrefetchInFlightRef.current.has(`${kind}:${item.id}`)).slice(0, 50);
+    /*
+     * KÍMÉLŐ ELŐREOLVASÁS (2.5.222).
+     *
+     * Korábban egyszerre 50 tételhez indult részletkérés, és MINDEN egyes
+     * válasz után a teljes (akár 102 994 elemű) lista újraépült egy
+     * setMovies/setSeries hívással – 50 kérésnél ez 50 teljes tömbmásolás
+     * és 50 újrarajzolás volt. A Mozi nézet emiatt akadt, görgetésnél a
+     * TV memóriája elfogyott. Most: legfeljebb 12 tétel, és a kész
+     * eredmények EGYETLEN állapotfrissítésben és EGY mentésben kerülnek ki.
+     */
+    const pending = items.filter((item) => !item.detailProviderData && !vodPrefetchInFlightRef.current.has(`${kind}:${item.id}`)).slice(0, 12);
     if (!pending.length) return;
+    for (const item of pending) vodPrefetchInFlightRef.current.add(`${kind}:${item.id}`);
+    const updatedMovies: Movie[] = [];
+    const updatedSeries: Series[] = [];
     let cursor = 0;
     const worker = async () => {
       while (cursor < pending.length) {
         const item = pending[cursor++];
-        const key = `${kind}:${item.id}`;
-        vodPrefetchInFlightRef.current.add(key);
         try {
           if (kind === 'movie') {
             const movie = item as Movie;
             const detail = await xtreamService.vodInfo(provider.serverUrl!, provider.username!, provider.password!, movie.streamId ?? movie.id);
-            const updated = { ...applyMovieMetadata(movie, parseVodMetadata(detail)), detailProviderData: detail as unknown as Movie['detailProviderData'] };
-            setMovies((previous) => previous.map((entry) => entry.id === updated.id ? updated : entry));
-            await saveCatalogExtras(provider.id, [updated], []);
+            updatedMovies.push({ ...applyMovieMetadata(movie, parseVodMetadata(detail)), detailProviderData: detail as unknown as Movie['detailProviderData'] });
           } else {
             const target = item as Series;
             const detail = await xtreamService.seriesInfo(provider.serverUrl!, provider.username!, provider.password!, target.seriesId ?? target.id);
             const enriched = applySeriesMetadata(target, parseSeriesMetadata(detail));
             const seasons = seasonsFromSeriesInfo(detail, enriched, provider);
-            const updated: Series = {
+            updatedSeries.push({
               ...enriched,
               detailProviderData: detail as unknown as Series['detailProviderData'],
               seasons,
               seasonsCount: seasons.length,
               episodesCount: seasons.reduce((sum, season) => sum + season.episodes.length, 0),
-            };
-            setSeries((previous) => previous.map((entry) => entry.id === updated.id ? updated : entry));
-            await saveCatalogExtras(provider.id, [], [updated]);
+            });
           }
         } catch {
           // A háttér-előreolvasás hibája nem zavarhatja a nézetet vagy a lejátszást.
-        } finally {
-          vodPrefetchInFlightRef.current.delete(key);
         }
       }
     };
-    await Promise.all([worker(), worker()]);
+    try {
+      await Promise.all([worker(), worker()]);
+      if (updatedMovies.length) {
+        const byId = new Map(updatedMovies.map((entry) => [entry.id, entry]));
+        setMovies((previous) => previous.map((entry) => byId.get(entry.id) || entry));
+        await saveCatalogExtras(provider.id, updatedMovies, []);
+      }
+      if (updatedSeries.length) {
+        const byId = new Map(updatedSeries.map((entry) => [entry.id, entry]));
+        setSeries((previous) => previous.map((entry) => byId.get(entry.id) || entry));
+        await saveCatalogExtras(provider.id, [], updatedSeries);
+      }
+    } finally {
+      for (const item of pending) vodPrefetchInFlightRef.current.delete(`${kind}:${item.id}`);
+    }
   }, []);
   const handlePrefetchMovieMetadata = useCallback((items: Movie[]) => { void prefetchVodMetadata('movie', items); }, [prefetchVodMetadata]);
   const handlePrefetchSeriesMetadata = useCallback((items: Series[]) => { void prefetchVodMetadata('series', items); }, [prefetchVodMetadata]);

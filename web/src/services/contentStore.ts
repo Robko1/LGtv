@@ -364,6 +364,8 @@ function encodeChannels(channels: Channel[]): Row[] {
     ch.epgChannelId || '',
     encodeOptionalJson(ch.providerData),
     ch.streamId ?? '',
+    // 12. elem: a nyers listaelem kicsi ujjlenyomata (a frissítés összevetéséhez).
+    ch.providerSig || '',
   ]);
 }
 
@@ -391,6 +393,7 @@ function decodeChannels(rows: Row[], provider: ProviderRef): Channel[] {
       streamId: isNumeric(String(row[10] ?? '')) ? Number(row[10]) : (isNumeric(rawStreamId) ? Number(rawStreamId) : undefined),
       epgChannelId: String(row[8] || '') || null,
       providerData: decodeOptionalJson<Channel['providerData']>(row[9], undefined),
+      providerSig: String(row[11] || '') || undefined,
       categoryId: String(row[3] || 'cat-other'),
       categoryName: String(row[4] || 'Egyéb'),
       country: info.country,
@@ -424,7 +427,7 @@ function encodeMovies(movies: Movie[]): Row[] {
     const hasVodMetadata = Boolean(
       m.durationMinutes > 0 || m.audioLanguages?.length || m.subtitleLanguages?.length
         || m.audioTracks?.length || m.subtitleTracks?.length || m.backdrop || m.genres.length
-        || m.director || m.cast?.length || m.providerData || m.detailProviderData
+        || m.director || m.cast?.length || m.providerData || m.detailProviderData || m.providerSig
     );
     if (hasVodMetadata) {
       row.push(
@@ -439,6 +442,7 @@ function encodeMovies(movies: Movie[]): Row[] {
         encodeOptionalJson(m.cast || []),
         encodeOptionalJson(m.providerData),
         encodeOptionalJson(m.detailProviderData),
+        m.providerSig || '',
       );
     }
     return row;
@@ -479,6 +483,7 @@ function decodeMovies(rows: Row[], provider: ProviderRef, offset = 0): Movie[] {
       cast: decodeOptionalJson<string[] | undefined>(row[18], undefined),
       providerData: decodeOptionalJson<Movie['providerData']>(row[19], undefined),
       detailProviderData: decodeOptionalJson<Movie['detailProviderData']>(row[20], undefined),
+      providerSig: String(row[21] || '') || undefined,
       isFavorite: Number(row[9] ?? 0) === 1,
     });
   }
@@ -504,6 +509,7 @@ function encodeSeries(series: Series[]): Row[] {
       s.durationMinutes && s.durationMinutes > 0 || s.audioLanguages?.length || s.subtitleLanguages?.length
         || s.audioTracks?.length || s.subtitleTracks?.length || s.backdrop || s.genres.length
         || s.director || s.cast?.length || s.providerData || s.detailProviderData || s.seasons.length
+        || s.providerSig
     );
     if (hasSeriesMetadata) {
       row.push(
@@ -519,6 +525,7 @@ function encodeSeries(series: Series[]): Row[] {
         encodeOptionalJson(s.providerData),
         encodeOptionalJson(s.detailProviderData),
         encodeOptionalJson(s.seasons || []),
+        s.providerSig || '',
       );
     }
     return row;
@@ -555,6 +562,7 @@ function decodeSeries(rows: Row[], provider: ProviderRef, offset = 0): Series[] 
       cast: decodeOptionalJson<string[] | undefined>(row[19], undefined),
       providerData: decodeOptionalJson<Series['providerData']>(row[20], undefined),
       detailProviderData: decodeOptionalJson<Series['detailProviderData']>(row[21], undefined),
+      providerSig: String(row[23] || '') || undefined,
       isFavorite: Number(row[10] ?? 0) === 1,
     });
   }
