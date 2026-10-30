@@ -360,3 +360,4 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
       </div>
     </div>
   );
+};
