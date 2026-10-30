@@ -194,7 +194,7 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item, isFavorite, onClos
           {series ? (
             <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <div className="flex min-w-0 flex-col gap-4">
-                {item.cast && item.cast.length > 0 && <Section title="Szereplők"><p className="text-slate-100">{item.cast.join(', ')}</p></Section>}
+
                 <Section title="Hang és felirat">
                   <div className="flex flex-col gap-3">
                     <div className="flex items-start gap-2"><Mic2 className="mt-1 h-5 w-5 shrink-0 text-rose-300" /><div><div className="font-bold text-rose-200">Hangnyelvek</div><div className="text-slate-100">{joinLanguages(audio) || 'Nincs mentett adat'}</div></div></div>
