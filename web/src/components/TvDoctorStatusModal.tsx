@@ -669,21 +669,6 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 <span>Supabase: Teszt</span>
               </button>
             </div>
-            <button
-              ref={testBtnRef}
-              type="button"
-              data-tv-doctor-check-cloud=""
-              disabled={doctorCloud.checking || doctorCloud.syncing}
-              onClick={() => {
-                void checkTvDoctorConnection();
-              }}
-              className="inline-flex items-center gap-2 rounded-xl border-2 border-cyan-400/60 bg-cyan-500/20 px-4 py-1.5 text-base lg:text-lg font-black text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-amber-400"
-            >
-              <RefreshCw
-                className={`h-5 w-5 ${doctorCloud.checking || doctorCloud.syncing ? 'animate-spin' : ''}`}
-              />
-              <span>Supabase: Teszt</span>
-            </button>
           </div>
 
           {/* 0. Színkódolt TV Doktor eseményjelzők: Tanulás (zöld) • Segítség/Javítás (kék) • Aktiválódás (sárga) • Csatornahiba (piros) */}
