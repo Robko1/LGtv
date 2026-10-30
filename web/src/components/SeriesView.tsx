@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Series, Episode } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
-import { Star, Play, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2, Mic2, Subtitles } from 'lucide-react';
+import { Star, Play, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2, Mic2, Subtitles, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { xtreamService } from '../services/xtreamService';
-import { parseSeriesMetadata, UNKNOWN_LANGUAGE } from '../services/vodMetadata';
+import { parseSeriesMetadata, ParsedVodMetadata } from '../services/vodMetadata';
+import { formatRuntime, joinLanguages, visibleLanguages } from '../utils/vodDisplay';
 
 interface SeriesViewProps {
   series: Series[];
@@ -51,7 +52,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
-  const [fetchedSeriesMeta, setFetchedSeriesMeta] = useState<{ durationMinutes: number; audioLanguages: string[]; subtitleLanguages: string[] } | null>(null);
+  const [fetchedSeriesMeta, setFetchedSeriesMeta] = useState<ParsedVodMetadata | null>(null);
   const [fetchingSeries, setFetchingSeries] = useState(false);
   const [visibleCount, setVisibleCount] = useState(() => seriesReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const seriesGridRef = useRef<HTMLDivElement | null>(null);
@@ -103,8 +104,9 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
 
   // Sorozat részletek lekérése a szolgáltatótól az infóablak megnyitásakor (csak xtream providernél).
   useEffect(() => {
+    // Kiválasztásváltáskor az előző sorozat adatai nem maradhatnak a képernyőn.
+    setFetchedSeriesMeta(null);
     if (!selectedSeriesId || !activeProvider?.serverUrl || !activeProvider.username || !activeProvider.password || activeProvider.type !== 'xtream') {
-      setFetchedSeriesMeta(null);
       setFetchingSeries(false);
       return;
     }
@@ -119,13 +121,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
           selectedSeriesId,
         );
         const parsed = parseSeriesMetadata(info);
-        if (!cancelled) {
-          setFetchedSeriesMeta({
-            durationMinutes: parsed.durationMinutes,
-            audioLanguages: parsed.audioLanguages,
-            subtitleLanguages: parsed.subtitleLanguages,
-          });
-        }
+        if (!cancelled) setFetchedSeriesMeta(parsed);
       } catch {
         if (!cancelled) setFetchedSeriesMeta(null);
       } finally {
@@ -223,6 +219,27 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   const activeSeason = selectedSeries?.seasons.find(
     (sn) => sn.seasonNumber === selectedSeasonNumber
   ) || selectedSeries?.seasons[0];
+
+  /*
+   * A részletek-ablak megjelenített adatai: a frissen lekért érték az
+   * elsődleges, de csak akkor, ha valóban ad adatot; hiányzó értéknél a már
+   * ismert adat marad, és semmilyen kitalált érték nem kerül a képernyőre.
+   */
+  const seriesDetail = useMemo(() => {
+    if (!selectedSeries) return null;
+    const fetchedAudio = visibleLanguages(fetchedSeriesMeta?.audioLanguages);
+    const fetchedSubtitles = visibleLanguages(fetchedSeriesMeta?.subtitleLanguages);
+    const fetchedDuration = fetchedSeriesMeta?.durationMinutes || 0;
+    return {
+      duration: fetchedDuration > 0 ? fetchedDuration : selectedSeries.durationMinutes || 0,
+      audio: fetchedAudio.length ? fetchedAudio : visibleLanguages(selectedSeries.audioLanguages),
+      subtitles: fetchedSubtitles.length ? fetchedSubtitles : visibleLanguages(selectedSeries.subtitleLanguages),
+      plot: selectedSeries.plot || fetchedSeriesMeta?.plot || '',
+      cast: (selectedSeries.cast && selectedSeries.cast.length ? selectedSeries.cast : fetchedSeriesMeta?.cast) || [],
+      backdrop: selectedSeries.backdrop || fetchedSeriesMeta?.backdrop || '',
+      year: selectedSeries.year || fetchedSeriesMeta?.year || 0,
+    };
+  }, [selectedSeries, fetchedSeriesMeta]);
 
   return (
     /* Keresőmező és „Poszterek” gomb NÉLKÜL (kérés szerint) – csak a
@@ -341,7 +358,31 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{ser.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Tv className="w-5 h-5" /></div></div>
                 </div>
-                <div className="p-3 flex-1"><h3 className="text-white font-black text-lg sm:text-xl truncate">{ser.title}</h3><div className="mt-1 text-lg sm:text-xl font-bold text-amber-300 text-center">{ser.year}</div></div>
+                <div className="p-3 flex-1">
+                  <h3 className="text-white font-black text-lg sm:text-xl truncate">{ser.title}</h3>
+                  {ser.year > 0 && (
+                    <div className="mt-1 text-lg sm:text-xl font-bold text-amber-300 text-center">{ser.year}</div>
+                  )}
+                  {/* Csak a szolgáltatótól megkapott adatok: játékidő, hang- és feliratnyelvek. */}
+                  {formatRuntime(ser.durationMinutes) && (
+                    <div className="mt-1 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-bold text-cyan-200">
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{formatRuntime(ser.durationMinutes)}</span>
+                    </div>
+                  )}
+                  {joinLanguages(ser.audioLanguages) && (
+                    <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-semibold text-rose-200">
+                      <Mic2 className="w-3 h-3 shrink-0 text-rose-300" />
+                      <span className="truncate">{joinLanguages(ser.audioLanguages)}</span>
+                    </div>
+                  )}
+                  {joinLanguages(ser.subtitleLanguages) && (
+                    <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-semibold text-cyan-300">
+                      <Subtitles className="w-3 h-3 shrink-0 text-cyan-400" />
+                      <span className="truncate">{joinLanguages(ser.subtitleLanguages)}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -358,7 +399,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
             {/* Header */}
             <div className="relative h-44 w-full bg-slate-900 overflow-hidden shrink-0">
               <img
-                src={selectedSeries.backdrop || selectedSeries.poster}
+                src={seriesDetail?.backdrop || selectedSeries.backdrop || selectedSeries.poster}
                 alt={selectedSeries.title}
                 className="w-full h-full object-cover opacity-60"
               />
@@ -375,12 +416,19 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                     {selectedSeries.title}
                   </h2>
                   <div className="flex flex-col items-start gap-1 mt-1">
-                    <div className="text-sm sm:text-base font-bold text-amber-300">
-                      {selectedSeries.year}
-                    </div>
-                    <div className="text-xs sm:text-sm font-bold text-cyan-200">
-                      {fetchingSeries ? 'Adatok betöltése…' : (fetchedSeriesMeta?.durationMinutes ?? selectedSeries.durationMinutes ?? 0) > 0 ? `${fetchedSeriesMeta?.durationMinutes ?? selectedSeries.durationMinutes ?? 0} perc` : '—'}
-                    </div>
+                    {(seriesDetail?.year || 0) > 0 && (
+                      <div className="text-sm sm:text-base font-bold text-amber-300">
+                        {seriesDetail?.year}
+                      </div>
+                    )}
+                    {fetchingSeries && !seriesDetail?.duration ? (
+                      <div className="text-xs sm:text-sm font-bold text-cyan-200">Adatok betöltése…</div>
+                    ) : formatRuntime(seriesDetail?.duration) ? (
+                      <div className="flex items-center gap-1 text-xs sm:text-sm font-bold text-cyan-200">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{formatRuntime(seriesDetail?.duration)}</span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -388,6 +436,18 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
 
             {/* Body */}
             <div className="p-4 space-y-4 flex-1">
+              {/* Leírás – csak akkor, ha a szolgáltató visszaadta */}
+              {seriesDetail?.plot ? (
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">
+                    Tartalom
+                  </h4>
+                  <p className="text-sm sm:text-base text-slate-200 leading-relaxed text-center">
+                    {seriesDetail.plot}
+                  </p>
+                </div>
+              ) : null}
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
                   <div className="flex items-center gap-1.5 text-sm font-bold text-rose-300 mb-2">
@@ -395,7 +455,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                     <span>Hangsávok</span>
                   </div>
                   <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {(fetchedSeriesMeta?.audioLanguages ?? selectedSeries.audioLanguages ?? []).filter((lang) => Boolean(lang) && lang !== UNKNOWN_LANGUAGE).join(' • ') || '—'}
+                    {seriesDetail?.audio.length ? seriesDetail.audio.join(' • ') : 'Nincs adat'}
                   </p>
                 </div>
                 <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
@@ -404,7 +464,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                     <span>Feliratok</span>
                   </div>
                   <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {(fetchedSeriesMeta?.subtitleLanguages ?? selectedSeries.subtitleLanguages ?? []).filter((lang) => Boolean(lang) && lang !== UNKNOWN_LANGUAGE).join(' • ') || '—'}
+                    {seriesDetail?.subtitles.length ? seriesDetail.subtitles.join(' • ') : 'Nincs adat'}
                   </p>
                 </div>
               </div>
@@ -519,6 +579,13 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                             )}
                           </div>
+                          {/* Az epizód játékideje, ha a szolgáltató visszaadta */}
+                          {formatRuntime(ep.durationMinutes) && (
+                            <div className="mt-0.5 flex items-center gap-1 text-[11px] sm:text-xs font-semibold text-cyan-300">
+                              <Clock className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{formatRuntime(ep.durationMinutes)}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
