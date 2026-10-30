@@ -619,7 +619,7 @@ jobs:
           if [[ -n "$PREVIOUS_TAG" ]]; then
             PREVIOUS_DATA="$(gh release view "$PREVIOUS_TAG" --repo Robko1/Ipk --json publishedAt,assets)"
             PREVIOUS_PUBLISHED="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("publishedAt") or "")')"
-            PREVIOUS_UPLOAD="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name")=="IPTV R.T.ipk"),{}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
+            PREVIOUS_UPLOAD="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name","").lower().endswith(".ipk")), {}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
           fi
 
           if ! gh release view "$RELEASE_TAG" --repo Robko1/Ipk >/dev/null 2>&1; then
@@ -674,7 +674,7 @@ jobs:
 
           # A feltöltés tényleges GitHub-időpontját olvassuk vissza az IPK assetből.
           CURRENT_DATA="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets)"
-          CURRENT_UPLOAD="$(printf '%s' "$CURRENT_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name")=="IPTV R.T.ipk"),{}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
+          CURRENT_UPLOAD="$(printf '%s' "$CURRENT_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name","").lower().endswith(".ipk")), {}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
           export BUILD_DATETIME CURRENT_UPLOAD PREVIOUS_TAG PREVIOUS_PUBLISHED PREVIOUS_UPLOAD CURRENT_VERSION
           NOTES="$(python3 - <<'PY'
           import os
