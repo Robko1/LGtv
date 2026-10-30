@@ -209,10 +209,21 @@ jobs:
           export CURRENT NEXT
           if [[ "$NEXT" == "$CURRENT" ]]; then
             MANIFEST_CURRENT="$(python3 -c 'import json; print(json.load(open("webos/appinfo.json")).get("version", ""))')"
-            [[ "$MANIFEST_CURRENT" == "$CURRENT" ]] || {
-              echo "HIBA: az újrapróbálandó verziónál az appinfo.json eltér: $MANIFEST_CURRENT / $CURRENT." >&2
-              exit 1
-            }
+            if [[ "$MANIFEST_CURRENT" != "$CURRENT" ]]; then
+              # Kézi WEB_VERSION-emelés után az appinfo.json lemaradhat – ez
+              # NEM hiba: a webes verzió az egyetlen igazságforrás, ezért itt
+              # szinkronizáljuk, és a build megy tovább. (Korábban ez a lépés
+              # hibával leállította az egész IPK-építést.)
+              echo "appinfo.json szinkron a webes verzióhoz: $MANIFEST_CURRENT -> $CURRENT"
+              python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path("webos/appinfo.json")
+          manifest = json.loads(p.read_text(encoding="utf-8"))
+          manifest["version"] = os.environ["CURRENT"]
+          p.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+            fi
             echo "VERSION=$NEXT" >> "$GITHUB_ENV"
             echo "RELEASE_TAG=v$NEXT" >> "$GITHUB_ENV"
             echo "SIGNED_COMMIT=0" >> "$GITHUB_ENV"
