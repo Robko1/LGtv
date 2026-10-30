@@ -582,12 +582,22 @@ jobs:
               -f "sha=$PRIVATE_SHA" >/dev/null
           fi
 
-          RELEASE_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
+          BUILD_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
           LOCAL_SHA="$(sha256sum "webos/$IPK_FILE_NAME" | awk '{print $1}')"
-          NOTES="LG webOS TV privát IPK kiadás. Verzió: $CURRENT_VERSION. Build időpontja: $RELEASE_DATETIME."
+
+          # Az előző privát IPK-kiadás adatait még az új feltöltés előtt mentjük.
+          PREVIOUS_TAG=""
+          PREVIOUS_PUBLISHED=""
+          PREVIOUS_UPLOAD=""
+          PREVIOUS_TAG="$(gh release list --repo Robko1/Ipk --limit 100 --json tagName --jq "[.[] | select(.tagName != \"$RELEASE_TAG\")][0].tagName // empty")"
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            PREVIOUS_DATA="$(gh release view "$PREVIOUS_TAG" --repo Robko1/Ipk --json publishedAt,assets)"
+            PREVIOUS_PUBLISHED="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("publishedAt") or "")')"
+            PREVIOUS_UPLOAD="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name")=="IPTV-RT.ipk"),{}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
+          fi
 
           if ! gh release view "$RELEASE_TAG" --repo Robko1/Ipk >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$NOTES"
+            gh release create "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "LG webOS TV privát IPK kiadás."
           fi
           gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --repo Robko1/Ipk --clobber
 
@@ -601,6 +611,39 @@ jobs:
             echo "HIBA: a privát Release-ben $ASSET_COUNT fájl van; pontosan 1 IPK kell." >&2
             exit 1
           }
+
+          # A feltöltés tényleges GitHub-időpontját olvassuk vissza az IPK assetből.
+          CURRENT_DATA="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets)"
+          CURRENT_UPLOAD="$(printf '%s' "$CURRENT_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name")=="IPTV-RT.ipk"),{}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
+          export BUILD_DATETIME CURRENT_UPLOAD PREVIOUS_TAG PREVIOUS_PUBLISHED PREVIOUS_UPLOAD CURRENT_VERSION
+          NOTES="$(python3 - <<'PY'
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          zone = ZoneInfo("Europe/Dublin")
+          def fmt(value):
+              if not value:
+                  return "Nem áll rendelkezésre"
+              dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(zone)
+              return dt.strftime("%Y-%m-%d %H:%M %Z (Írország)")
+          lines = [
+              f"Legutóbbi build készítése: {os.environ['BUILD_DATETIME']}",
+              f"Letölthető IPK legutóbbi feltöltése/frissítése: {fmt(os.environ.get('CURRENT_UPLOAD', ''))}",
+              f"Most feltöltött alkalmazás verziója: {os.environ['CURRENT_VERSION']}",
+          ]
+          if os.environ.get("PREVIOUS_TAG"):
+              previous_version = os.environ["PREVIOUS_TAG"].removeprefix("v")
+              lines += [
+                  "",
+                  f"Előző IPK verziója: {previous_version}",
+                  f"Előző IPK feltöltésének dátuma és ideje: {fmt(os.environ.get('PREVIOUS_UPLOAD', '') or os.environ.get('PREVIOUS_PUBLISHED', ''))}",
+              ]
+          else:
+              lines += ["", "Előző IPK verziója: Nincs korábbi kiadás."]
+          print("\\n".join(lines))
+          PY
+          )"
+          gh release edit "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$NOTES"
 
           # A publikus Robko1/LGtv repóban NEM hozunk létre Release-t vagy verziócímkét.
           # Minden kiadási tag és IPK kizárólag a privát Robko1/Ipk repóba kerül.
