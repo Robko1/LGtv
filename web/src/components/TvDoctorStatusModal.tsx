@@ -373,6 +373,13 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       return;
     }
 
+    if (active === resetBtnRef.current && key === 'ArrowDown' && testBtnRef.current && !testBtnRef.current.disabled) {
+      e.preventDefault();
+      e.stopPropagation();
+      testBtnRef.current.focus({ preventScroll: true } as FocusOptions);
+      return;
+    }
+
     if (onRightPane) {
       if (key === 'ArrowDown' || key === 'ArrowUp') {
         e.preventDefault();
@@ -629,21 +636,53 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             </div>
 
             {/* Jobb felső sarok: piros Memória: 0 törlés funkció */}
+            <div className="shrink-0 flex flex-col items-end gap-2">
+              <button
+                ref={resetBtnRef}
+                type="button"
+                data-tv-doctor-reset=""
+                aria-label="TV Doktor memória nullázása 0 állapotra"
+                title="Tanult csatornák, EPG-tiltások, napló és szinkron-várólista visszaállítása 0 állapotra"
+                onClick={handleResetMemory}
+                className={`inline-flex items-center gap-2 rounded-2xl border-2 px-4 py-2.5 text-base lg:text-lg font-black shadow-lg focus:outline-none focus:ring-4 focus:ring-amber-400 ${
+                  resetFeedback
+                    ? 'border-emerald-400 bg-emerald-600/35 text-emerald-100'
+                    : 'border-rose-500 bg-rose-950/90 text-rose-100 hover:bg-rose-900'
+                }`}
+              >
+                <RotateCcw className="h-5 w-5 shrink-0" />
+                <span>{resetFeedback ? '0-ra állítva ✓' : 'Memória: 0'}</span>
+              </button>
+              <button
+                ref={testBtnRef}
+                type="button"
+                data-tv-doctor-check-cloud=""
+                disabled={doctorCloud.checking || doctorCloud.syncing}
+                onClick={() => {
+                  void checkTvDoctorConnection();
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border-2 border-cyan-400/60 bg-cyan-500/20 px-4 py-1.5 text-base lg:text-lg font-black text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-amber-400"
+              >
+                <RefreshCw
+                  className={`h-5 w-5 ${doctorCloud.checking || doctorCloud.syncing ? 'animate-spin' : ''}`}
+                />
+                <span>Supabase: Teszt</span>
+              </button>
+            </div>
             <button
-              ref={resetBtnRef}
+              ref={testBtnRef}
               type="button"
-              data-tv-doctor-reset=""
-              aria-label="TV Doktor memória nullázása 0 állapotra"
-              title="Tanult csatornák, EPG-tiltások, napló és szinkron-várólista visszaállítása 0 állapotra"
-              onClick={handleResetMemory}
-              className={`shrink-0 inline-flex items-center gap-2 rounded-2xl border-2 px-4 py-2.5 text-base lg:text-lg font-black shadow-lg focus:outline-none focus:ring-4 focus:ring-amber-400 ${
-                resetFeedback
-                  ? 'border-emerald-400 bg-emerald-600/35 text-emerald-100'
-                  : 'border-rose-500 bg-rose-950/90 text-rose-100 hover:bg-rose-900'
-              }`}
+              data-tv-doctor-check-cloud=""
+              disabled={doctorCloud.checking || doctorCloud.syncing}
+              onClick={() => {
+                void checkTvDoctorConnection();
+              }}
+              className="inline-flex items-center gap-2 rounded-xl border-2 border-cyan-400/60 bg-cyan-500/20 px-4 py-1.5 text-base lg:text-lg font-black text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-amber-400"
             >
-              <RotateCcw className="h-5 w-5 shrink-0" />
-              <span>{resetFeedback ? '0-ra állítva ✓' : 'Memória: 0'}</span>
+              <RefreshCw
+                className={`h-5 w-5 ${doctorCloud.checking || doctorCloud.syncing ? 'animate-spin' : ''}`}
+              />
+              <span>Supabase: Teszt</span>
             </button>
           </div>
 
@@ -706,59 +745,6 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             </div>
           </div>
 
-          {/* 1. Működési állapot + EPG felügyelet */}
-          <div
-            data-tv-doctor-health=""
-            className="rounded-2xl border border-cyan-800/60 bg-[#051024] p-4 space-y-2"
-          >
-            <div className="flex items-center gap-2.5 text-lg lg:text-xl font-black text-white">
-              <CheckCircle2
-                className={`h-6 w-6 shrink-0 ${
-                  !tvDoctorEnabled
-                    ? 'text-slate-400'
-                    : hasAnyIssue
-                      ? 'text-amber-300'
-                      : 'text-emerald-400'
-                }`}
-              />
-              <span>Működési állapot és EPG felügyelet</span>
-            </div>
-            <p className="text-base lg:text-lg text-slate-100 font-bold leading-snug">
-              {!tvDoctorEnabled
-                ? 'Kikapcsolva – az alap lejátszó üzemel.'
-                : hasAnyIssue
-                  ? 'Működik, de figyelmeztetés van (lásd alább).'
-                  : 'Jól működik minden – gyors csatornaváltás és EPG-ellenőrzés aktív.'}
-            </p>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1.5 pt-1 text-base lg:text-lg text-slate-200">
-              <div>
-                Tanult profilok:{' '}
-                <strong className="text-white font-black">
-                  {doctorMem.learnedChannelCount} / {doctorMem.maxLearnedChannels}
-                </strong>
-              </div>
-              <div>
-                Sikeres javítások:{' '}
-                <strong className="text-white font-black">{doctorSummary.totalVerifiedRepairs} db</strong>
-              </div>
-              <div>
-                Sebesség:{' '}
-                <strong className="text-white font-black">
-                  {doctorOp.lastSlowOp
-                    ? `Lassulás (${doctorOp.lastSlowOp.elapsedMs} ms)`
-                    : 'Villámgyors'}
-                </strong>
-              </div>
-              <div data-tv-doctor-epg-summary="">
-                EPG lekapcsolva (nincs műsor):{' '}
-                <strong className="text-emerald-300 font-black">
-                  {epgStats.disabledChannelCount} csatorna
-                </strong>
-                {epgStats.assistCount > 0 ? ` • segítés: ${epgStats.assistCount}x` : ''}
-              </div>
-            </div>
-          </div>
-
           {/* 2. Supabase kapcsolat */}
           <div
             data-tv-doctor-supabase=""
@@ -811,6 +797,59 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               </div>
               <div className="truncate" title={lastSyncText}>
                 Utolsó szinkron: <strong className="text-white font-black">{lastSyncText}</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* 1. Működési állapot + EPG felügyelet */}
+          <div
+            data-tv-doctor-health=""
+            className="rounded-2xl border border-cyan-800/60 bg-[#051024] p-4 space-y-2"
+          >
+            <div className="flex items-center gap-2.5 text-lg lg:text-xl font-black text-white">
+              <CheckCircle2
+                className={`h-6 w-6 shrink-0 ${
+                  !tvDoctorEnabled
+                    ? 'text-slate-400'
+                    : hasAnyIssue
+                      ? 'text-amber-300'
+                      : 'text-emerald-400'
+                }`}
+              />
+              <span>Működési állapot és EPG felügyelet</span>
+            </div>
+            <p className="text-base lg:text-lg text-slate-100 font-bold leading-snug">
+              {!tvDoctorEnabled
+                ? 'Kikapcsolva – az alap lejátszó üzemel.'
+                : hasAnyIssue
+                  ? 'Működik, de figyelmeztetés van (lásd alább).'
+                  : 'Jól működik minden – gyors csatornaváltás és EPG-ellenőrzés aktív.'}
+            </p>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1.5 pt-1 text-base lg:text-lg text-slate-200">
+              <div>
+                Tanult profilok:{' '}
+                <strong className="text-white font-black">
+                  {doctorMem.learnedChannelCount} / {doctorMem.maxLearnedChannels}
+                </strong>
+              </div>
+              <div>
+                Sikeres javítások:{' '}
+                <strong className="text-white font-black">{doctorSummary.totalVerifiedRepairs} db</strong>
+              </div>
+              <div>
+                Sebesség:{' '}
+                <strong className="text-white font-black">
+                  {doctorOp.lastSlowOp
+                    ? `Lassulás (${doctorOp.lastSlowOp.elapsedMs} ms)`
+                    : 'Villámgyors'}
+                </strong>
+              </div>
+              <div data-tv-doctor-epg-summary="">
+                EPG lekapcsolva (nincs műsor):{' '}
+                <strong className="text-emerald-300 font-black">
+                  {epgStats.disabledChannelCount} csatorna
+                </strong>
+                {epgStats.assistCount > 0 ? ` • segítés: ${epgStats.assistCount}x` : ''}
               </div>
             </div>
           </div>
@@ -931,22 +970,6 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               </div>
             </div>
             <p className="text-base font-semibold text-slate-300">{doctorMem.memoryHealthLabel}</p>
-            <div className="mt-2">
-              <button
-                type="button"
-                data-tv-doctor-check-cloud=""
-                disabled={doctorCloud.checking || doctorCloud.syncing}
-                onClick={() => {
-                  void checkTvDoctorConnection();
-                }}
-                className="inline-flex items-center gap-2 rounded-xl border-2 border-cyan-400/60 bg-cyan-500/20 px-4 py-1.5 text-base lg:text-lg font-black text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-amber-400"
-              >
-                <RefreshCw
-                  className={`h-5 w-5 ${doctorCloud.checking || doctorCloud.syncing ? 'animate-spin' : ''}`}
-                />
-                <span>Supabase: Teszt</span>
-              </button>
-            </div>
           </div>
 
         </section>
