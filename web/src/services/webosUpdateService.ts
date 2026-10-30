@@ -9,7 +9,8 @@ export interface WebOSReleaseInfo {
 import { WEB_VERSION } from '../appVersion';
 
 const CURRENT_WEBOS_VERSION = WEB_VERSION;
-const RELEASE_API = 'https://api.github.com/repos/Robko1/LGtv/releases/latest';
+// Nyilvánosan csak a verziószám olvasható; az IPK és a Release privát marad.
+const VERSION_URL = 'https://raw.githubusercontent.com/Robko1/LGtv/main/version.txt';
 
 function compareVersions(a: string, b: string): number {
   const left = a.replace(/^v/i, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -22,47 +23,35 @@ function compareVersions(a: string, b: string): number {
 }
 
 /**
- * Public release check only. LG webOS apps cannot silently install an IPK
- * from JavaScript; installation must be performed through a supported
- * webOS developer/deployment tool.
+ * A TV csak a publikus version.txt fájl egyetlen verziószámát olvassa.
+ * Az IPK és a privát Robko1/Ipk Release nem kerül nyilvánosságra.
  */
 export async function checkLatestWebOSRelease(): Promise<WebOSReleaseInfo> {
-  const response = await fetch(RELEASE_API, {
+  const response = await fetch(VERSION_URL, {
     method: 'GET',
-    headers: { Accept: 'application/vnd.github+json' },
+    headers: { Accept: 'text/plain' },
     cache: 'no-store',
   });
 
   if (!response.ok) {
     throw new Error(
       response.status === 404
-        ? 'Még nincs nyilvános GitHub Release ehhez az alkalmazáshoz.'
-        : `A GitHub frissítés-ellenőrzése sikertelen (HTTP ${response.status}).`,
+        ? 'A nyilvános verziófájl még nem érhető el. Futtasd le sikeresen az IPK buildet.'
+        : `A verzióellenőrzés sikertelen (HTTP ${response.status}).`,
     );
   }
 
-  const release = await response.json() as {
-    tag_name?: string;
-    html_url?: string;
-    draft?: boolean;
-    prerelease?: boolean;
-    assets?: Array<{ name?: string; browser_download_url?: string }>;
-  };
-
-  const latestVersion = String(release.tag_name || '').replace(/^v/i, '');
-  if (!latestVersion || !release.html_url) {
-    throw new Error('A GitHub Release válasza hiányos.');
+  const latestVersion = (await response.text()).trim().replace(/^v/i, '');
+  if (!/^\\d+\\.\\d+\\.\\d+$/.test(latestVersion)) {
+    throw new Error('A nyilvános verziófájl tartalma hibás; csak háromrészes verziószám lehet benne.');
   }
-
-  const ipk = (release.assets || []).find((asset) =>
-    String(asset.name || '').toLowerCase().endsWith('.ipk'),
-  );
 
   return {
     currentVersion: CURRENT_WEBOS_VERSION,
     latestVersion,
     updateAvailable: compareVersions(latestVersion, CURRENT_WEBOS_VERSION) > 0,
-    releaseUrl: release.html_url,
-    ipkUrl: ipk?.browser_download_url || null,
+    // Nincs nyilvános Release vagy IPK-hivatkozás.
+    releaseUrl: 'https://github.com/Robko1/LGtv',
+    ipkUrl: null,
   };
 }
