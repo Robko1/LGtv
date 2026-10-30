@@ -34,8 +34,8 @@ A script alapértelmezésben a `web/src/appVersion.ts` `WEB_VERSION` értékét 
 Sikeres csomagolás után például:
 
 ```bash
-ar t webos/IPTV R.T.ipk
-ar p webos/IPTV R.T.ipk data.tar.gz | tar tz | head -n 30
+ar t "webos/IPTV R.T.ipk"
+ar p "webos/IPTV R.T.ipk" data.tar.gz | tar tz | head -n 30
 npm run smoke  # build/webos/index.html szükséges
 ```
 
@@ -52,7 +52,7 @@ CLI-példa a repó gyökeréből:
 npm install -g @webos-tools/cli
 ares-setup-device
 ares-novacom --device <tv> --getkey
-ares-install --device <tv> webos/IPTV R.T.ipk
+ares-install --device <tv> "webos/IPTV R.T.ipk"
 ares-launch --device <tv> hu.rt.iptv.webos
 ```
 
