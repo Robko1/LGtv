@@ -13,7 +13,7 @@ import { normalizeLogoUrl } from './logoUrl';
  *     szöveget a memóriában tartani.
  */
 
-import { Category, Channel, Movie, Series } from '../types/iptv';
+import { Category, Channel, Movie, Season, Series } from '../types/iptv';
 import { flagFor } from '../utils/flags';
 import { xtreamService } from './xtreamService';
 import { appLog, appLogError, logMemory } from './appLog';
@@ -52,6 +52,8 @@ export interface ImportedContent {
    * kategóriánként sikerült a letöltés). Nem teszik „részlegessé” a betöltést.
    */
   notes?: string[];
+  /** Incrementális összevetés után az üres szakasz is valódi törlést jelent. */
+  authoritative?: boolean;
 }
 
 const LIVE_KEY = 'content-live';
@@ -308,10 +310,6 @@ function isNumeric(value: string | number): boolean {
   return /^\d+$/.test(String(value));
 }
 
-function compactText(value: string | undefined, max: number): string {
-  const text = (value || '').replace(/\s+/g, ' ').trim();
-  return text.length > max ? text.slice(0, max - 1) + '…' : text;
-}
 
 function encodeOptionalJson(value: unknown): string {
   if (value === undefined || value === null) return '';
@@ -364,6 +362,8 @@ function encodeChannels(channels: Channel[]): Row[] {
     // 9. elem: EPG azonosító (epg_channel_id) – a régi mentett adatokban nincs,
     // ezért a visszafejtés mindig kezeli a hiányzó elemet is.
     ch.epgChannelId || '',
+    encodeOptionalJson(ch.providerData),
+    ch.streamId ?? '',
   ]);
 }
 
@@ -388,8 +388,9 @@ function decodeChannels(rows: Row[], provider: ProviderRef): Channel[] {
       name,
       logo: normalizeLogoUrl(row[2], logoBase),
       streamUrl: streamUrlFor(provider, rawStreamId, 'ts', 'live'),
-      streamId: isNumeric(rawStreamId) ? Number(rawStreamId) : undefined,
+      streamId: isNumeric(String(row[10] ?? '')) ? Number(row[10]) : (isNumeric(rawStreamId) ? Number(rawStreamId) : undefined),
       epgChannelId: String(row[8] || '') || null,
+      providerData: decodeOptionalJson<Channel['providerData']>(row[9], undefined),
       categoryId: String(row[3] || 'cat-other'),
       categoryName: String(row[4] || 'Egyéb'),
       country: info.country,
@@ -415,7 +416,7 @@ function encodeMovies(movies: Movie[]): Row[] {
       m.rating,
       m.year,
       m.containerExtension || 'mp4',
-      compactText(m.plot, 200),
+      m.plot || '',
       m.isFavorite ? 1 : 0,
     ];
     // A régi tízsoros formátumot megtartjuk a nem részletezett elemeknél.
@@ -423,7 +424,7 @@ function encodeMovies(movies: Movie[]): Row[] {
     const hasVodMetadata = Boolean(
       m.durationMinutes > 0 || m.audioLanguages?.length || m.subtitleLanguages?.length
         || m.audioTracks?.length || m.subtitleTracks?.length || m.backdrop || m.genres.length
-        || m.director || m.cast?.length
+        || m.director || m.cast?.length || m.providerData || m.detailProviderData
     );
     if (hasVodMetadata) {
       row.push(
@@ -436,6 +437,8 @@ function encodeMovies(movies: Movie[]): Row[] {
         encodeOptionalJson(m.genres || []),
         m.director || '',
         encodeOptionalJson(m.cast || []),
+        encodeOptionalJson(m.providerData),
+        encodeOptionalJson(m.detailProviderData),
       );
     }
     return row;
@@ -474,6 +477,8 @@ function decodeMovies(rows: Row[], provider: ProviderRef, offset = 0): Movie[] {
       backdrop: String(row[15] || '') || undefined,
       director: String(row[17] || '') || undefined,
       cast: decodeOptionalJson<string[] | undefined>(row[18], undefined),
+      providerData: decodeOptionalJson<Movie['providerData']>(row[19], undefined),
+      detailProviderData: decodeOptionalJson<Movie['detailProviderData']>(row[20], undefined),
       isFavorite: Number(row[9] ?? 0) === 1,
     });
   }
@@ -490,7 +495,7 @@ function encodeSeries(series: Series[]): Row[] {
       s.poster || '',
       s.rating,
       s.year,
-      compactText(s.plot, 200),
+      s.plot || '',
       s.seasonsCount || 0,
       s.episodesCount || 0,
       s.isFavorite ? 1 : 0,
@@ -498,7 +503,7 @@ function encodeSeries(series: Series[]): Row[] {
     const hasSeriesMetadata = Boolean(
       s.durationMinutes && s.durationMinutes > 0 || s.audioLanguages?.length || s.subtitleLanguages?.length
         || s.audioTracks?.length || s.subtitleTracks?.length || s.backdrop || s.genres.length
-        || s.director || s.cast?.length
+        || s.director || s.cast?.length || s.providerData || s.detailProviderData || s.seasons.length
     );
     if (hasSeriesMetadata) {
       row.push(
@@ -511,6 +516,9 @@ function encodeSeries(series: Series[]): Row[] {
         encodeOptionalJson(s.genres || []),
         s.director || '',
         encodeOptionalJson(s.cast || []),
+        encodeOptionalJson(s.providerData),
+        encodeOptionalJson(s.detailProviderData),
+        encodeOptionalJson(s.seasons || []),
       );
     }
     return row;
@@ -537,7 +545,7 @@ function decodeSeries(rows: Row[], provider: ProviderRef, offset = 0): Series[] 
       durationMinutes: Number(row[11] ?? 0) || 0,
       plot: String(row[7] || ''),
       genres: decodeOptionalJson<string[]>(row[17], []),
-      seasons: [],
+      seasons: decodeOptionalJson<Season[]>(row[22], []),
       audioLanguages: decodeOptionalJson<string[] | undefined>(row[12], undefined),
       subtitleLanguages: decodeOptionalJson<string[] | undefined>(row[13], undefined),
       audioTracks: decodeOptionalJson<Series['audioTracks']>(row[14], undefined),
@@ -545,6 +553,8 @@ function decodeSeries(rows: Row[], provider: ProviderRef, offset = 0): Series[] 
       backdrop: String(row[16] || '') || undefined,
       director: String(row[18] || '') || undefined,
       cast: decodeOptionalJson<string[] | undefined>(row[19], undefined),
+      providerData: decodeOptionalJson<Series['providerData']>(row[20], undefined),
+      detailProviderData: decodeOptionalJson<Series['detailProviderData']>(row[21], undefined),
       isFavorite: Number(row[10] ?? 0) === 1,
     });
   }
@@ -1107,19 +1117,26 @@ export function catalogNeedsCheck(state: CatalogState | null): boolean {
  * és visszatöltéskor a megfelelő elemekre ráolvassuk.
  */
 const EXTRAS_PREFIX = 'catalog-extras-v2-';
-const EXTRAS_LIMIT = 30;
 type Extras = { movies: Movie[]; series: Series[] };
 const extrasCache = new Map<string, Extras>();
 
 export async function saveCatalogExtras(providerId: string, movies: Movie[], series: Series[]): Promise<void> {
   try {
+    if (!movies.length && !series.length) return;
     const store = await contentChunkStore();
     if (!store) return;
-    const extras: Extras = {
-      movies: movies.slice(0, EXTRAS_LIMIT),
-      series: series.slice(0, EXTRAS_LIMIT),
+    // A böngészés közben előreolvasott részletek NEM írhatják felül egymást:
+    // minden mentés a korábbi tételekhez fűz, azonos címnél frissít.
+    const previous = await loadCatalogExtras(providerId);
+    const merge = <T extends { id: string }>(oldItems: T[], newItems: T[]): T[] => {
+      const byId = new Map(oldItems.map((item) => [item.id, item]));
+      for (const item of newItems) byId.set(item.id, { ...(byId.get(item.id) || {}), ...item });
+      return Array.from(byId.values());
     };
-    if (!extras.movies.length && !extras.series.length) return;
+    const extras: Extras = {
+      movies: merge(previous.movies, movies),
+      series: merge(previous.series, series),
+    };
     await store.put(EXTRAS_PREFIX + providerId, JSON.stringify(extras));
     extrasCache.set(providerId, extras);
   } catch { /* a részletes metaadat nem kritikus */ }
@@ -1148,6 +1165,7 @@ export async function loadCatalogExtras(providerId: string): Promise<Extras> {
 const EXTRA_FIELDS = [
   'durationMinutes', 'plot', 'genres', 'rating', 'year', 'audioLanguages',
   'subtitleLanguages', 'audioTracks', 'subtitleTracks', 'backdrop', 'director', 'cast',
+  'providerData', 'detailProviderData', 'seasons', 'seasonsCount', 'episodesCount',
 ] as const;
 
 function applyExtras<T extends { id: string }>(target: T[], extras: T[]): void {

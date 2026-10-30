@@ -8,6 +8,8 @@ interface PosterImageProps {
   kind: PosterKind;
   className?: string;
   alt?: string;
+  /** VOD adatlapnál/kártyánál csak a mentett szolgáltatói kép; nincs TMDB-hálózat. */
+  localOnly?: boolean;
 }
 
 /**
@@ -181,9 +183,10 @@ export async function preloadPosterImage(
   src: string | null | undefined,
   title: string,
   kind: PosterKind,
+  localOnly = false,
 ): Promise<void> {
   let imageUrl = typeof src === 'string' ? src.trim() : '';
-  if (!imageUrl) imageUrl = (await lookupTmdbPoster(title, kind)) || '';
+  if (!imageUrl && !localOnly) imageUrl = (await lookupTmdbPoster(title, kind)) || '';
   if (!imageUrl) return;
 
   await new Promise<void>((resolve) => {
@@ -272,7 +275,7 @@ export const PosterSettingsButton: React.FC = () => {
   );
 };
 
-export const PosterImage: React.FC<PosterImageProps> = ({ src, title, kind, className = '', alt }) => {
+export const PosterImage: React.FC<PosterImageProps> = ({ src, title, kind, className = '', alt, localOnly = false }) => {
   const providerSrc = typeof src === 'string' ? src.trim() : '';
   const [imageSrc, setImageSrc] = useState(providerSrc || FALLBACK_POSTER);
   const [usingFallback, setUsingFallback] = useState(!providerSrc);
@@ -298,12 +301,13 @@ export const PosterImage: React.FC<PosterImageProps> = ({ src, title, kind, clas
       }
     };
 
-    if (!providerSrc) void search();
+    if (!providerSrc && !localOnly) void search();
     return () => { cancelled = true; };
-  }, [providerSrc, title, kind]);
+  }, [providerSrc, title, kind, localOnly]);
 
   useEffect(() => {
     const onKeyUpdated = () => {
+      if (localOnly) return;
       if (!providerSrc || usingFallback || imageSrc === FALLBACK_POSTER) {
         lookupStarted.current = false;
         void lookupTmdbPoster(title, kind).then((result) => {
@@ -316,10 +320,11 @@ export const PosterImage: React.FC<PosterImageProps> = ({ src, title, kind, clas
     };
     window.addEventListener('iptv-poster-key-updated', onKeyUpdated);
     return () => window.removeEventListener('iptv-poster-key-updated', onKeyUpdated);
-  }, [providerSrc, title, kind, usingFallback, imageSrc]);
+  }, [providerSrc, title, kind, usingFallback, imageSrc, localOnly]);
 
   const handleError = () => {
     if (imageSrc === FALLBACK_POSTER) return;
+    if (localOnly) { setImageSrc(FALLBACK_POSTER); setUsingFallback(true); return; }
     // A TMDB CDN image can itself be unavailable; do not retry the same cached URL forever.
     if (imageSrc.startsWith(IMAGE_BASE)) {
       setImageSrc(FALLBACK_POSTER);

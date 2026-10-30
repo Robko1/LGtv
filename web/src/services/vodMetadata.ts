@@ -97,6 +97,9 @@ export function displayLanguage(value: unknown): string {
 }
 
 function languageValue(record: Record<string, unknown> | null): string {
+  const tags = asRecord(record?.tags);
+  const tagValue = firstValue(tags, ['language', 'lang', 'language_code', 'lang_code', 'iso_639_1', 'iso_639_2']);
+  if (tagValue !== undefined) return clean(tagValue);
   const value = firstValue(record, [
     'language', 'lang', 'language_code', 'lang_code', 'iso', 'iso639', 'iso639_1', 'iso_639_1',
     'locale', 'audio_language', 'audio_lang', 'subtitle_language', 'subtitle_lang',
@@ -114,6 +117,11 @@ function trackName(record: Record<string, unknown> | null, rawLanguage: string, 
   return explicit || (displayLanguage(rawLanguage) !== UNKNOWN_LANGUAGE ? displayLanguage(rawLanguage) : `${kind === 'audio' ? 'Hangsáv' : 'Felirat'} ${index + 1}`);
 }
 
+function isMediaStreamRecord(record: Record<string, unknown>): boolean {
+  return clean(record.codec_type).toLowerCase() === 'audio'
+    || (record.codec_name !== undefined && record.index !== undefined);
+}
+
 function addAudioValue(value: unknown, out: Record<string, unknown>[]): void {
   const parsed = parseJson(value);
   if (Array.isArray(parsed)) {
@@ -129,11 +137,17 @@ function addAudioValue(value: unknown, out: Record<string, unknown>[]): void {
   }
   const record = asRecord(parsed);
   if (!record) return;
+  if (isMediaStreamRecord(record)) {
+    const tags = asRecord(record.tags) || {};
+    out.push({ ...record, ...tags, language: languageValue(record) || languageValue(tags) });
+    return;
+  }
   if (firstValue(record, ['language', 'lang', 'language_code', 'lang_code', 'iso', 'locale', 'name', 'title']) !== undefined) {
     out.push(record);
     return;
   }
   for (const [key, item] of Object.entries(record)) {
+    if (/^(index|codec.*|profile|level|sample.*|bit.*|channels?|channel_layout|disposition|tags|time_base|start.*|duration.*|width|height|display.*|field_order|color.*|chroma.*|bits_per.*)$/i.test(key)) continue;
     const itemRecord = asRecord(parseJson(item));
     if (itemRecord) out.push({ ...itemRecord, language: languageValue(itemRecord) || key });
     else if (typeof item === 'string' || typeof item === 'number') out.push({ language: key, name: String(item) });
@@ -146,6 +160,13 @@ function collectAudioEntries(node: unknown, out: Record<string, unknown>[], dept
   if (!record) {
     if (Array.isArray(node)) node.forEach((item) => collectAudioEntries(item, out, depth + 1));
     return;
+  }
+  const streams = record.streams;
+  if (Array.isArray(streams)) {
+    for (const stream of streams) {
+      const streamRecord = asRecord(stream);
+      if (streamRecord && isMediaStreamRecord(streamRecord)) addAudioValue(streamRecord, out);
+    }
   }
   for (const [key, value] of Object.entries(record)) {
     const lower = key.toLowerCase().replace(/[- ]/g, '_');
@@ -176,8 +197,8 @@ function parseAudioTracks(node: unknown): { tracks: AudioTrack[]; languages: str
   entries.forEach((entry, index) => {
     const rawLanguage = languageValue(entry);
     const label = displayLanguage(rawLanguage || firstValue(entry, ['language_name', 'name', 'title']));
-    if (label === UNKNOWN_LANGUAGE && !rawLanguage && !firstValue(entry, ['language_name', 'name', 'title'])) return;
-    const key = `${label.toLowerCase()}|${clean(firstValue(entry, ['codec']))}`;
+    if (label === UNKNOWN_LANGUAGE && !rawLanguage && !firstValue(entry, ['language_name', 'name', 'title']) && !firstValue(entry, ['codec_name', 'index'])) return;
+    const key = `${label.toLowerCase()}|${clean(firstValue(entry, ['codec']))}|${index}`;
     if (seen.has(key)) return;
     seen.add(key);
     const track: AudioTrack = {

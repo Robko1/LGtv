@@ -11,12 +11,13 @@ import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {VideoPlayer} from './web/src/components/VideoPlayer';
 import {INITIAL_SETTINGS} from './web/src/data/mockData';
+const PROVIDER_TRACKS=[{id:'cc:1',name:'Provider teszt',lang:'xx',url:'https://example.invalid/sub.srt'}];
 function Harness() {
  const [playing,setPlaying]=useState(true);
  return <VideoPlayer customStreamUrl="https://example.invalid/movie.mp4" isFullscreen={true}
   settings={INITIAL_SETTINGS} isPlaying={playing} setIsPlaying={setPlaying} volume={0.5}
   onVolumeChange={()=>{}} onToggleMute={()=>window.state.mutes++} playbackActive={true}
-  subtitleSource={{vodId:'99'}}/>;
+  subtitleSource={{vodId:'99'}} subtitleTracks={PROVIDER_TRACKS}/>;
 }
 const root=createRoot(document.getElementById('root')); root.render(<Harness/>);
 // The same event bridge as App: the webOS action is translated to the player's menu event.
@@ -81,13 +82,13 @@ try {
  assert.doesNotMatch(panel.textContent,/Alap nyelv|automatikusan|ZÖLD|KÉK|Mozi.*Sorozat/);
  await press(461,'Escape');doc.querySelector('[data-vod-osd-subs]').click();await until(()=>row('[data-track-panel="vod"]','HTML teszt'),'HTML list');
  await clickRow('[data-track-panel="vod"]','HTML teszt');assert.equal(w.tracks[0].mode,'hidden','HTML subtitle enabled');
- doc.querySelector('[data-vod-osd-subs]').click();await until(()=>row('[data-track-panel="vod"]','Felirat kikapcsolva'),'off item');await wait(60);await press(40,'ArrowDown');await press(13,'Enter');
+ doc.querySelector('[data-vod-osd-subs]').click();await clickRow('[data-track-panel="vod"]','Felirat kikapcsolva');
  assert.equal(w.tracks[0].mode,'disabled','HTML subtitle disabled');
  // Choosing off remains selected and cannot be undone by late auto-selection.
  await wait(1600);assert.equal(w.tracks[0].mode,'disabled');
  await press(404,'ColorF1Green');await until(()=>doc.querySelector('[data-track-panel="live"]'),'reopen green');
  assert.equal(row('[data-track-panel="live"]','Felirat kikapcsolva').getAttribute('aria-pressed'),'true');
- // Provider download arriving after OFF must not put captions back.
+ // A mentett provider-sáv kiválasztása után a késői fájlválasz nem kapcsolhatja vissza a feliratot.
  await clickRow('[data-track-panel="live"]','Provider teszt');await until(()=>w.state.finishProvider,'provider request');
  await press(404,'ColorF1Green');await clickRow('[data-track-panel="live"]','Felirat kikapcsolva');
  w.state.finishProvider([{start:0,end:999,text:'LATE CAPTION'}]);await wait(100);
