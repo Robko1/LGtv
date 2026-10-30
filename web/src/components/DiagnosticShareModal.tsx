@@ -225,7 +225,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 py-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-2">
           <div className={`flex shrink-0 items-center justify-between gap-3 rounded-xl border-2 px-3 py-2 ${statusBg}`}>
             <div className="flex min-w-0 items-center gap-2">
               <Circle className={`h-4 w-4 shrink-0 fill-current ${statusColor}`} />
@@ -240,7 +240,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             </div>
           </div>
 
-          <div className="grid shrink-0 grid-cols-5 gap-2">
+          <div className="grid shrink-0 grid-cols-4 gap-2">
             <div className="flex h-[68px] min-w-0 flex-col items-center justify-center rounded-xl border border-slate-700 bg-[#0b1730] px-1.5 py-1 text-center">
               <div className="text-2xl font-black leading-none text-white">{snapshot.lineCount}</div>
               <div className="mt-1 text-xs font-bold leading-tight tracking-wide text-slate-300">SOR</div>
@@ -257,25 +257,53 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
               <div className="text-lg font-black leading-none text-white">{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()).slice(0, 10) : '—'}</div>
               <div className="mt-1 text-xs font-bold leading-tight tracking-wide text-slate-300">KEZDETE</div>
             </div>
-            <button
-              data-diagnostic-tv-doctor-toggle=""
-              type="button"
-              role="switch"
-              aria-checked={doctorDiagEnabled}
-              aria-label="TV Doktor naplózás be- és kikapcsolása"
-              onClick={toggleDoctorDiag}
-              className={`flex h-[68px] min-w-0 flex-col items-center justify-center rounded-xl border-2 px-1.5 py-1 text-center text-sm font-black leading-tight transition-all focus:outline-none focus:ring-4 focus:ring-amber-400 ${
-                doctorDiagEnabled
-                  ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
-                  : 'border-slate-600 bg-slate-800/80 text-slate-200'
-              }`}
-            >
-              <span>TV DOKTOR</span>
-              <span>NAPLÓ: {doctorDiagEnabled ? 'BE' : 'KI'}</span>
-            </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-cyan-500/35 bg-[#081329] p-2">
+          <button
+            data-diagnostic-tv-doctor-toggle=""
+            type="button"
+            role="switch"
+            aria-checked={doctorDiagEnabled}
+            aria-label="TV Doktor naplózás be- és kikapcsolása"
+            onClick={toggleDoctorDiag}
+            className={`flex min-h-[48px] shrink-0 items-center justify-center gap-3 rounded-xl border-2 px-4 py-2 text-base font-black leading-tight transition-all focus:outline-none focus:ring-4 focus:ring-amber-400 ${
+              doctorDiagEnabled
+                ? 'border-blue-300 bg-blue-600 text-white'
+                : 'border-blue-500/70 bg-blue-950 text-blue-100'
+            }`}
+          >
+            <span className="text-lg">TV DOKTOR</span>
+            <span className="rounded-lg border border-white/30 bg-black/20 px-3 py-1">NAPLÓ: {doctorDiagEnabled ? 'BE' : 'KI'}</span>
+          </button>
+
+          <div
+            data-diagnostic-tv-doctor-box=""
+            className="flex shrink-0 items-start gap-3 rounded-xl border border-cyan-500/40 bg-[#08152d] px-3 py-2"
+          >
+            <span className={`mt-0.5 shrink-0 text-cyan-300 ${doctorDiagEnabled ? 'opacity-100' : 'text-slate-400'}`}>
+              <span className="text-2xl font-black">✚</span>
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className={`rounded-md px-2 py-1 text-xs font-black uppercase ${doctorDiagEnabled ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-800 text-slate-300'}`}>
+                  {doctorDiagEnabled ? 'Naplóba kerül' : 'Kikapcsolva'}
+                </span>
+                <div className="text-base font-black leading-tight tracking-wide text-white">TV Doktor működés- és elakadás-naplózás</div>
+              </div>
+              <p className="text-sm leading-snug text-slate-200">
+                Rögzíti a TV Doktor döntéseit, az elakadásokat/lassulásokat, a TV memóriáját és a Supabase kapcsolati hibákat, majd a meglévő hibakeresési naplóval együtt elküldi.
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold leading-snug text-cyan-200">
+                <span>Memória: {formatDoctorBytes(doctorMem.doctorTotalBytes)}</span>
+                <span>•</span>
+                <span>Supabase: {doctorCloud.connected ? 'Kapcsolódva' : (doctorCloud.lastErrorLocation ? `Hiba (${doctorCloud.lastErrorLocation})` : 'Helyi mód')}</span>
+                <span>•</span>
+                <span>Elakadás/lassulás: {doctorOp.slowOpsCount + doctorOp.confirmedFreezesCount} db</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="shrink-0 overflow-hidden rounded-xl border border-cyan-500/35 bg-[#081329] p-2">
             <div className="mb-1 flex items-center gap-2 text-sm font-black tracking-wide text-cyan-200"><History className="h-5 w-5 shrink-0" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
             {history.length ? (
               <div className="space-y-1">
@@ -303,31 +331,6 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
                 ))}
               </div>
             ) : <p className="text-base text-slate-500">Még nincs elküldött napló.</p>}
-          </div>
-
-          <div
-            data-diagnostic-tv-doctor-box=""
-            className="flex shrink-0 items-center gap-3 rounded-xl border border-cyan-500/40 bg-[#08152d] px-3 py-2"
-          >
-            <span className={`shrink-0 text-cyan-300 ${doctorDiagEnabled ? 'opacity-100' : 'text-slate-400'}`}>
-              <span className="text-xl font-black">✚</span>
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-black leading-tight tracking-wide text-white">TV Doktor működés- és elakadás-naplózás</div>
-              <p className="text-[11px] leading-tight text-slate-300">
-                Rögzíti a TV Doktor döntéseit, az elakadásokat/lassulásokat, a TV memóriáját és a Supabase kapcsolati hibákat, majd a meglévő hibakeresési naplóval együtt elküldi.
-              </p>
-              <div className="flex flex-wrap items-center gap-x-2 text-[11px] font-semibold leading-tight text-cyan-300/90">
-                <span>Memória: {formatDoctorBytes(doctorMem.doctorTotalBytes)}</span>
-                <span>•</span>
-                <span>Supabase: {doctorCloud.connected ? 'Kapcsolódva' : (doctorCloud.lastErrorLocation ? `Hiba (${doctorCloud.lastErrorLocation})` : 'Helyi mód')}</span>
-                <span>•</span>
-                <span>Elakadás/lassulás: {doctorOp.slowOpsCount + doctorOp.confirmedFreezesCount} db</span>
-              </div>
-            </div>
-            <span className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-black uppercase ${doctorDiagEnabled ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-800 text-slate-400'}`}>
-              {doctorDiagEnabled ? 'Naplóba kerül' : 'Kikapcsolva'}
-            </span>
           </div>
 
           {notice && <p role="status" className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-center text-xs font-bold leading-tight text-emerald-200">{notice}</p>}
