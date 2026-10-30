@@ -1215,7 +1215,7 @@ export function App() {
    * bejegyzésre kerül, és a futás végén automatikusan lefut.
    */
   const runRestoreRef = useRef<((plan?: StoredCatalogPlan | null, scope?: 'all' | 'live' | 'vod' | 'movies' | 'series') => Promise<void>) | null>(null);
-  const restoreQueuedRef = useRef<{ plan: StoredCatalogPlan; scope: 'all' | 'live' | 'vod' | 'movies' | 'series' } | null>(null);
+  const restoreQueuedRef = useRef<Array<{ plan: StoredCatalogPlan; scope: 'all' | 'live' | 'vod' | 'movies' | 'series' }>>([]);
 
   const runRestore = useCallback(async (
     plan?: StoredCatalogPlan | null,
@@ -1224,8 +1224,11 @@ export function App() {
     const target = plan || catalogPlanRef.current;
     if (!target) return;
     if (restoreRunningRef.current) {
-      // Egy futó visszatöltés alatt érkezett kérés: a végén menjen le.
-      restoreQueuedRef.current = { plan: target, scope };
+      // A futó visszatöltés alatt érkező külön Mozi/Sorozat kérések sem veszhetnek el.
+      const alreadyQueued = restoreQueuedRef.current.some(
+        (item) => item.plan.provider.id === target.provider.id && item.scope === scope,
+      );
+      if (!alreadyQueued) restoreQueuedRef.current.push({ plan: target, scope });
       return;
     }
     restoreRunningRef.current = true;
@@ -1301,8 +1304,7 @@ export function App() {
       }, { scope });
     } finally {
       restoreRunningRef.current = false;
-      const queued = restoreQueuedRef.current;
-      restoreQueuedRef.current = null;
+      const queued = restoreQueuedRef.current.shift();
       if (queued) {
         void runRestoreRef.current?.(queued.plan, queued.scope);
       }
