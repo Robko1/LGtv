@@ -3,7 +3,7 @@ import { Category, Series, Episode } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
-import { Star, Sparkles, Filter, ChevronDown, Tv, Mic2, Subtitles, Clock } from 'lucide-react';
+import { Star, Sparkles, Filter, ChevronDown, Tv, Mic2, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatRuntime, joinLanguages } from '../utils/vodDisplay';
 
@@ -282,13 +282,13 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                     seriesGridRef.current?.closest('[data-view-pane="series"]')?.querySelector<HTMLElement>('[data-category-trigger]')?.focus({ preventScroll: true } as FocusOptions);
                   }
                 } }}
-                className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                className="group relative h-fit self-start bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
                   <PosterImage src={ser.poster} title={ser.title} kind="tv" localOnly alt={ser.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{ser.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Tv className="w-5 h-5" /></div></div>
                 </div>
-                <div className="p-3 flex-1">
+                <div className="p-3">
                   <h3 className="text-white font-black text-lg sm:text-xl truncate">{ser.title}</h3>
                   {ser.year > 0 && (
                     <div className="mt-1 text-lg sm:text-xl font-bold text-amber-300 text-center">{ser.year}</div>
@@ -306,16 +306,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                       <span className="truncate">{joinLanguages(ser.audioLanguages)}</span>
                     </div>
                   )}
-                  {joinLanguages(ser.subtitleLanguages) && (
-                    <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-semibold text-cyan-300">
-                      <Subtitles className="w-3 h-3 shrink-0 text-cyan-400" />
-                      <span className="truncate">{joinLanguages(ser.subtitleLanguages)}</span>
-                    </div>
-                  )}
-                  {ser.genres.length > 0 && <div className="mt-1 truncate text-center text-[11px] text-slate-400">{ser.genres.slice(0, 3).join(' • ')}</div>}
-                  {ser.director && <div className="mt-0.5 truncate text-center text-[11px] text-slate-400">Rendező: {ser.director}</div>}
-                  {ser.cast && ser.cast.length > 0 && <div className="mt-0.5 truncate text-center text-[11px] text-slate-400">{ser.cast.slice(0, 3).join(', ')}</div>}
-                  {ser.plot && <p className="mt-1 text-[11px] leading-snug text-slate-500 line-clamp-2">{ser.plot}</p>}
+
                 </div>
               </div>
             ))}
