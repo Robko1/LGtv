@@ -1,30 +1,63 @@
-# TV – telepítés LG webOS készülékre
+# TV
 
-Ez az útmutató az alkalmazás saját LG televízióra történő telepítését és a helyi IPK-buildet ismerteti.
+A `webos/` mappa a manifestet, a távirányítóhídat, a jóváhagyott ikonokat és a natív indítóképet tartalmazza. A React/Vite alkalmazás a `web/` könyvtárban van.
 
-## Telepítés
+## Fontos fájlok
 
-1. Telepítsd az LG Content Store-ból a **Developer Mode** alkalmazást.
-2. Jelentkezz be LG Developer-fiókkal, majd kapcsold be a Developer Mode-ot és a Key Servert.
-3. Számítógépen indítsd el a [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop) alkalmazást, és csatlakoztasd a televíziót.
-4. Telepítsd a sikeres buildből letöltött **IPTV R.T.ipk** fájlt.
+```text
+webos/appinfo.json       manifest; app ID: hu.rt.iptv.webos
+webos/webos.js           webOS távirányító- és felülethíd
+webos/icon-rt2.png       launcher ikon
+webos/largeIcon-rt2.png  nagy launcher ikon
+webos/splash-screen.png  felhasználó által feltöltött natív indítókép
+tools/build-webos.sh     web build, ES5-fordítás és IPK-építés
+webos/tools/build-ipk.py helyi fejlesztői IPK-csomagoló
+```
 
-## Helyi IPK-build
+## Helyi build
 
-A repó gyökeréből Node.js és Python 3 használatával:
+A repó gyökeréből, Node.js 22 és Python 3 mellett:
 
 ```bash
 npm ci --no-audit --no-fund
 npm ci --prefix web --no-audit --no-fund
+# Pillow telepítése a saját Python-környezetbe:
 python3 -m pip install Pillow
 npm test
 bash tools/build-webos.sh
 ```
 
-Sikeres csomagolás esetén a telepítő a `webos/IPTV R.T.ipk` útvonalon található.
+A script alapértelmezésben a `web/src/appVersion.ts` `WEB_VERSION` értékét használja a **csomagolt** manifesthez; `VERSION=x.y.z` környezeti változóval ez felülírható. Kimenet siker esetén: `webos/IPTV R.T.ipk`, amely Git által ignorált fejlesztői csomag.
 
-## Fontos
+**Ismert helyi akadály:** a checkoutban lévő `splash-screen.png` 1659×948, RGB és kb. 1,4 MiB. A script 1920×1080, palettás (`P`), 699 KiB alatti PNG-t ellenőriz, így ezen a forráson megáll. A script nem generálja és nem alakítja át az indítóképet. A kézi GitHub **IPK építés** workflow a meglévő fájlt a runneren átméretezi és palettásra optimalizálja a csomagolás előtt; ez nem azonos a helyi script viselkedésével. Bármilyen jóváhagyott képi változtatást külön kell kezelni és TV-n ellenőrizni.
 
-A helyi build sikere önmagában nem igazolja, hogy minden funkció megfelelően működik a televízión. Telepítés után ellenőrizd az indulást, a lejátszást, az EPG-t és a távirányítós vezérlést.
+Sikeres csomagolás után például:
 
-Az aláírási és tanúsítvány-információkat a [RELEASE-SIGNING.md](../RELEASE-SIGNING.md) dokumentum tartalmazza.
+```bash
+ar t "webos/IPTV R.T.ipk"
+ar p "webos/IPTV R.T.ipk" data.tar.gz | tar tz | head -n 30
+npm run smoke  # build/webos/index.html szükséges
+```
+
+## Telepítés saját LG TV-re
+
+1. Telepítsd az LG Content Store-ból a **Developer Mode** alkalmazást.
+2. Jelentkezz be LG Developer-fiókkal, kapcsold be a Developer Mode-ot és a Key Servert.
+3. PC-n használd a [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop) alkalmazást vagy a webOS CLI-t, és add hozzá a TV-t a Developer Mode adataival.
+4. Telepítsd a sikeres buildből vagy Release-ből származó `IPTV R.T.ipk` fájlt.
+
+CLI-példa a repó gyökeréből:
+
+```bash
+npm install -g @webos-tools/cli
+ares-setup-device
+ares-novacom --device <tv> --getkey
+ares-install --device <tv> "webos/IPTV R.T.ipk"
+ares-launch --device <tv> hu.rt.iptv.webos
+```
+
+A Developer Mode lejáratát az LG alkalmazása kezeli. A helyi vagy CI build sikere önmagában nem igazolja a kép, EPG és indulás működését az adott televízión.
+
+## Aláírás és kiadás
+
+A GitHub commit/tag **Verified** jelzése nem az IPK aláírása. A jelenlegi csomagoló Developer Mode-os fejlesztői IPK-t készít; hivatalos LG/webOS terjesztéshez az LG által előírt tanúsítvány és eljárás szükséges. A privát kulcs nem kerülhet Gitbe, naplóba vagy chatbe. Részletek: [RELEASE-SIGNING.md](../RELEASE-SIGNING.md). A kézi GitHub build verziót emel, csomagot ellenőriz és Release-t hoz létre: [README-PUSH.md](../README-PUSH.md).
