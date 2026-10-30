@@ -521,6 +521,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.IPK_REPO_TOKEN }}
           IPK_REPO_TOKEN: ${{ secrets.IPK_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
