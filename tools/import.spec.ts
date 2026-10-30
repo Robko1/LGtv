@@ -262,6 +262,7 @@ async function main() {
     diffCatalogs,
     describeCatalogSummary,
     FULL_CHECK_WINDOW_MS,
+    DEEP_COMPARE_WINDOW_MS,
   } = await import('../web/src/services/providerImport.ts');
   const store = await import('../web/src/services/contentStore.ts');
   const { xtreamService } = await import('../web/src/services/xtreamService.ts');
@@ -736,7 +737,8 @@ async function main() {
     const savedState = store.loadSyncState(freshProvider.id);
     check('a teljes import elmenti a kategóriák ujjlenyomatát', Boolean(savedState?.fingerprint), String(savedState?.fingerprint));
 
-    // 2) Azonnali újabb frissítés: a könnyű indexlisták egyszer mennek le, részletek nem.
+    // 2) Azonnali újabb frissítés (2.5.224): csak a három kis kategórialista
+    // megy le – a nagy indexlisták és a részletek NEM töltődnek le újra.
     requestedActions.length = 0;
     const secondResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
     const contentRequests = requestedActions.filter((action) =>
@@ -748,8 +750,8 @@ async function main() {
     );
     const detailRequests = requestedActions.filter((action) => action === 'get_vod_info' || action === 'get_series_info');
     check(
-      'NEM tölti le újra a részleteket; az indexlista egyszer kérhető le változás-összevetéshez',
-      contentRequests.length === 3 && detailRequests.length === 0
+      'változatlan kategóriáknál a nagy listák és a részletek sem töltődnek le (csak a 3 kategórialista)',
+      contentRequests.length === 0 && detailRequests.length === 0
         && requestedActions.filter((action) => action === 'get_live_categories').length === 1,
       `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
     );
@@ -777,13 +779,10 @@ async function main() {
     /*
      * 4) RÉGI ELLENŐRZÉS, DE VÁLTOZATLAN KATEGÓRIÁK → NINCS ÚJRATÖLTÉS.
      *
-     * 2.5.141: a felhasználó kérése szerint a Frissítés csak azt nézi meg,
-     * változott-e valami a szolgáltatónál; ha a kategóriák azonosak, a teljes
-     * listák nem töltődnek le újra attól sem, hogy a 10 perces ablak letelt.
-     * A kategóriákon BELÜLI változást a 12 órás háttér-ellenőrzés
-     * (CATALOG_TTL_MS) fedezi fel, illetve az újraindítás utáni első teljes
-     * szinkron – a kézi Frissítés nem indít felesleges többtízezer soros
-     * letöltést.
+     * 2.5.224: a Frissítés gomb változatlan kategóriáknál akkor sem tölti le
+     * a nagy indexlistákat, ha a 10 perces frissességi ablak letelt – csak a
+     * napi (DEEP_COMPARE_WINDOW_MS) ablak letelte után fut le a teljes,
+     * elemenkénti összevetés. Így a megszokott gombnyomás pár másodperc.
      */
     const stateAfterChange = store.loadSyncState(freshProvider.id);
     store.saveSyncState({
@@ -794,12 +793,38 @@ async function main() {
     requestedActions.length = 0;
     const staleResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
     check(
-      'a frissességi ablak letelte után is csak az indexeket veti össze, részleteket nem tölt újra',
+      'a 10 perces ablak letelte után sem tölti le a nagy listákat, ha a kategóriák azonosak',
       'unchanged' in staleResult
         && staleResult.unchanged === true
-        && requestedActions.filter((action) => action === 'get_live_streams').length === 1
+        && requestedActions.filter((action) => action === 'get_live_streams').length === 0
         && !requestedActions.includes('get_vod_info')
         && !requestedActions.includes('get_series_info'),
+      `(kérések: ${requestedActions.join(', ')})`
+    );
+
+    /*
+     * 5) NAPI EGYSZERI TELJES ÖSSZEVETÉS: ha az utolsó alapos összevetés a
+     * napi ablaknál régebbi, a nagy indexlisták EGYSZER letöltődnek (az
+     * elemenkénti összevetéshez), de részletkérés változatlan tartalomnál
+     * ekkor sincs – és az összevetés ideje elmentődik, így a következő
+     * gombnyomás megint pár másodperces.
+     */
+    store.saveSyncState({
+      providerId: freshProvider.id,
+      fingerprint: String(stateAfterChange?.fingerprint ?? ''),
+      fullSyncAt: Date.now() - DEEP_COMPARE_WINDOW_MS - 60_000,
+    });
+    requestedActions.length = 0;
+    const deepResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    const deepState = store.loadSyncState(freshProvider.id);
+    check(
+      'a napi ablak letelte után egyszer lefut a teljes összevetés (indexek igen, részletek nem)',
+      'unchanged' in deepResult
+        && deepResult.unchanged === true
+        && requestedActions.filter((action) => action === 'get_live_streams').length === 1
+        && !requestedActions.includes('get_vod_info')
+        && !requestedActions.includes('get_series_info')
+        && Boolean(deepState && Date.now() - deepState.fullSyncAt < 60_000),
       `(kérések: ${requestedActions.join(', ')})`
     );
 

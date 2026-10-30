@@ -2121,6 +2121,16 @@ function emptyDiff(): CatalogDiff { return { added: 0, changed: 0, removed: 0 };
 const MAX_REFRESH_DETAILS = 20;
 
 /**
+ * Milyen gyakran fusson le a TELJES, elemenkénti összevetés (2.5.224)?
+ *
+ * A kategória-ujjlenyomat a kategóriák hozzáadását/átnevezését azonnal jelzi,
+ * de a meglévő kategórián BELÜLI új filmet nem. Ezért a kézi frissítés
+ * naponta egyszer akkor is lefuttatja a teljes összevetést, ha a kategóriák
+ * nem változtak – minden további gombnyomás pár másodperc alatt végez.
+ */
+export const DEEP_COMPARE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Xtream különbség-frissítés: a könnyű indexlisták összevetése után csak az új vagy
  * módosult elemek részletei töltődnek le. A változatlan tételek helyben maradnak.
  */
@@ -2158,11 +2168,60 @@ async function refreshXtreamIncremental(
     return result;
   }
 
+  /*
+   * GYORS ELLENŐRZÉS ELŐRE (2.5.224).
+   *
+   * A felhasználó panasza (18-as TV-napló): a Frissítés gomb egy már letöltött
+   * listánál is az ÖSSZES nagy listát (élő+film+sorozat, több tíz MB) újra
+   * letöltötte, ami percekig tartott és fagyásokat okozott. Mostantól előbb
+   * CSAK a három kis kategórialista (~44 kB) jön le: ha az ujjlenyomatuk
+   * azonos a legutóbbi teljes összevetésével, ÉS az nem régebbi a napi
+   * ablaknál, a frissítés pár másodperc alatt, letöltés nélkül végez.
+   * A teljes, elemenkénti összevetés legfeljebb naponta egyszer fut le.
+   */
   onProgress({ phase: 'Változások ellenőrzése…', percent: 6 });
-  const [liveCats, vodCats, seriesCats, liveRaw, vodRaw, seriesRaw, auth] = await Promise.all([
+  const [liveCats, vodCats, seriesCats] = await Promise.all([
     xtreamService.liveCategories(server, user, pass).catch(() => null),
     xtreamService.vodCategories(server, user, pass).catch(() => null),
     xtreamService.seriesCategories(server, user, pass).catch(() => null),
+  ]);
+  const quickFingerprint = rawCatalogFingerprint(liveCats || [], vodCats || [], seriesCats || []);
+  const syncState = loadSyncState(provider.id);
+  const anyCatsLoaded = (liveCats?.length || 0) + (vodCats?.length || 0) + (seriesCats?.length || 0) > 0;
+  const deepAgeMs = syncState && syncState.fullSyncAt > 0 ? Math.max(0, Date.now() - syncState.fullSyncAt) : null;
+  if (
+    anyCatsLoaded
+    && syncState
+    && syncState.fingerprint === quickFingerprint
+    && deepAgeMs !== null
+    && deepAgeMs <= DEEP_COMPARE_WINDOW_MS
+  ) {
+    const ageMinutes = Math.round(deepAgeMs / 60000);
+    logProviderEvent(
+      `Gyors frissítés: a kategória-ujjlenyomat változatlan (${liveCats?.length || 0}/${vodCats?.length || 0}/${seriesCats?.length || 0} kategória), `
+      + `az utolsó teljes összevetés ${ageMinutes} perce volt – a nagy listák letöltése kimarad.`
+    );
+    onProgress({ phase: 'Nincs változás a szolgáltatónál.', percent: 100 });
+    return {
+      unchanged: true,
+      check: {
+        unchanged: true,
+        fresh: true,
+        ageMs: deepAgeMs,
+        fingerprint: quickFingerprint,
+        counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: seriesCats?.length || 0 },
+      },
+    };
+  }
+  // Változott a kategórialista, vagy letelt a napi ablak: jöhet a teljes,
+  // elemenkénti összevetés – a letöltés okát a napló rögzíti.
+  logProviderEvent(
+    syncState && syncState.fingerprint === quickFingerprint
+      ? `Teljes összevetés indul: az utolsó alapos ellenőrzés ${deepAgeMs === null ? 'ismeretlen ideje' : Math.round(deepAgeMs / 3600000) + ' órája'} volt (napi egyszeri alapos összevetés).`
+      : 'Teljes összevetés indul: a szolgáltató kategórialistája megváltozott.'
+  );
+  onProgress({ phase: 'Teljes összevetés – listák letöltése…', percent: 8 });
+  const [liveRaw, vodRaw, seriesRaw, auth] = await Promise.all([
     xtreamService.liveStreams(server, user, pass).catch(() => null),
     xtreamService.vodStreams(server, user, pass).catch(() => null),
     xtreamService.seriesList(server, user, pass).catch(() => null),
@@ -2336,8 +2395,10 @@ async function refreshXtreamIncremental(
     // formátumot, hogy a következő indulás/frissítés már gyors legyen.
     if (migrated) {
       await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals, unchangedSections });
-      saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
     }
+    // A teljes összevetés ideje akkor is rögzül, ha nem volt változás –
+    // enélkül minden gombnyomás újra a nagy listákat töltené le (2.5.224).
+    saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
     // A teljes összevetés IGAZOLTA, hogy a tárolt katalógus hiánytalan:
     // az esetleges „hiányos szakasz” jelölések törlődnek.
     markCatalogSectionsComplete(['live', 'vod', 'series']);

@@ -316,7 +316,11 @@ window.__IPTV_TEST__.mount({ channel: LIVE, customStreamUrl: VOD_URL, customTitl
   onOverlayVisibilityChange: (visible) => vodVisibility.push(visible),
   onRegisterOsdToggle: (toggle) => { toggleVodOverlay = toggle; } });
 check(await waitFor(() => Boolean(video()), 5000, 'VOD videóelem'), 'a film/sorozat lejátszó is létrejön');
-check(String(video()?.getAttribute('src') || '') === VOD_URL, 'a VOD az EREDETI címet tölti (nincs .mkv → .m3u8 átírás)');
+// 2.5.224: a src beállítása külön effektben történik; terhelt gépen a
+// videóelem előbb létezik, mint a src. A várakozás a flaky hibát szünteti
+// meg – az őrzött regresszió (tartós .mkv → .m3u8 átírás) továbbra is elbukna.
+check(await waitFor(() => String(video()?.getAttribute('src') || '') === VOD_URL, 5000, 'VOD forrás'),
+  'a VOD az EREDETI címet tölti (nincs .mkv → .m3u8 átírás)');
 check(await waitFor(() => !!toggleVodOverlay && doc.querySelector('[data-tv-player]')?.classList.contains('iptv-fs')), 'a VOD OSD kapcsolója regisztrálva van');
 // A fullscreen kezdeti effektje először megnyitja az OSD-t; ne versenyezzünk vele.
 await tick(200);

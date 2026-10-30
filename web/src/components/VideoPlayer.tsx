@@ -4277,14 +4277,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const channelName = String(channel?.name || 'Ismeretlen csatorna');
         const channelId = String(channel?.id ?? channelName);
         const previousDiagnostic = channelSwitchDiagnosticRef.current;
-        const sequence = liveRetrySequenceRef.current;
-        // A recovery/fallback ugyanahhoz a nézői csatornaváltáshoz tartozik.
-        // Ne jelenjen meg minden automatikus src-újratöltés új „START”-ként:
-        // a #15-ben ez 64 indítási sort és felesleges logzajt adott, miközben
-        // a néző ennél jóval kevesebb csatornaváltást kért.
-        const isRecoveryAttempt = Boolean(
-          !isVodRef.current && (forceReload || liveRecoveryOnlyRef.current || sequence.index > 0)
-        );
         const isSameSwitch = Boolean(
           previousDiagnostic &&
           previousDiagnostic.channelId === channelId &&

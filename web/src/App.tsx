@@ -16,6 +16,7 @@ import {
   loadLive,
   markCatalogChecked,
   needsLiveCacheCompaction,
+  compactLiveCacheIfNeeded,
   ProviderRef,
   readCatalogStateSync,
   restoreStoredContent,
@@ -1640,7 +1641,10 @@ export function App() {
         sweepStorage();
         if (needsLiveCacheCompaction() && bootLive.provider && bootChannels.length > 0
           && !providerRefreshActiveRef.current) {
-          saveLiveContentSafely({
+          // 2.5.224: a tömörítés már NEM írja újra a teljes IndexedDB-listát
+          // (a 18-as naplóban ez 8 mp-es fagyást okozott minden indulásnál) –
+          // csak a localStorage-beli induló készletet cseréli kicsire.
+          void compactLiveCacheIfNeeded({
             provider: bootLive.provider,
             savedAt: bootLive.savedAt || new Date().toISOString(),
             channels: bootChannels,
