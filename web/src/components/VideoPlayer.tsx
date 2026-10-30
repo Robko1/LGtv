@@ -90,9 +90,6 @@ import {
   rememberedFormatFor,
 } from '../services/liveFormatMemory';
 
-// A kísérleti közvetlen váltás kikapcsolva: az eredeti TS/HLS fallback és automatikus recovery marad aktív.
-const DIRECT_LIVE_ZAP_TEST = false;
-
 interface NativeApi {
   play?: (url: string, title?: string) => void;
   stop?: () => void;
@@ -4205,9 +4202,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Egyetlen lejátszómotor: LG webOS-en a TV HTML5/HLS videóeleme játssza le az adatfolyamot.
   const loadStream = useCallback((url: string, forceReload = false) => {
-    // A belső pause/play események nem befolyásolhatják a lejátszási szándékot,
-    // amíg az új forrás el nem indul (lásd switchInProgressRef feljebb).
-    speedLoad(isVodRef.current ? 'VOD' : 'élő', `forceReload=${forceReload}; formátum=${formatOfUrl(url) || 'egyéb'}`, url);
+    // A lejátszási szándékot a forrásváltás végéig zároljuk.
     beginSwitch();
     // Az előző adást azonnal megállítjuk, és elvetjük az esetleges régi időzítőt.
     // Nincs fix 300 ms-os csatornaváltási késleltetés: a legfrissebb kérés indul.
@@ -4319,45 +4314,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         };
         channelSwitchDiagnosticRef.current = diagnostic;
 
-        // IDEIGLENES KÖZVETLEN CSATORNAVÁLTÁSI PRÓBA:
-        // közvetlen src + play; nincs load(), format fallback vagy indítási watchdog.
-        if (DIRECT_LIVE_ZAP_TEST && !isVodRef.current && !customStreamUrl) {
-          try {
-            video.volume = Math.max(0, Math.min(1, volume));
-            applyMuteState(video, volume);
-            video.src = url;
-            const directPlayPromise = video.play();
-            if (directPlayPromise && typeof directPlayPromise.catch === 'function') {
-              void directPlayPromise.catch((error: unknown) => {
-                if (!isCurrentLoad()) return;
-                endSwitch();
-                setIsLoading(false);
-                setIsPlaying(false);
-                setHasError(true);
-                setErrorMessage(error instanceof Error
-                  ? `A TV nem tudta elindítani az adatfolyamot: ${error.name}.`
-                  : 'A TV nem tudta elindítani az adatfolyamot.');
-              });
-            }
-            setIsPlaying(true);
-            // A régi pause esemény ne állítsa le az új streamet; a playing esemény zárja le a váltást.
-          } catch (error) {
-            endSwitch();
-            setIsLoading(false);
-            setHasError(true);
-            setErrorMessage(error instanceof Error ? error.message : 'A TV nem tudta elindítani az adatfolyamot.');
-          }
-          return;
-        }
-
-        const channelMemory = rememberedFormatFor(channel?.id);
-        const timing = bufferTiming();
-        const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
-        const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
-        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés előtt')}`);
-        if (isVerbosePlaybackLogging()) {
-          appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés előtt')}`);
-        }
       } else {
         doctorSessionRef.current.vodLoadStartedAt = Date.now();
       }
@@ -4383,11 +4339,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       // GYORS VÁLTÁS: a `src` felülírása megszakítja a régi adást, csak
       // a valóban szükséges fallback/recovery esetén indítunk teljes load()-ot.
-      while (video.firstChild) video.removeChild(video.firstChild);
       // A webOS HTML5 videóelemét használjuk. Élő adásnál legfeljebb két
       // külön formátum-próba van; a további indításokat a recovery időzíti.
       video.src = url;
-      speedStep('src beállítva', `load()=${forceReload || hadMediaError ? 'igen' : 'nem'}`);
       // UGYANAZ a cím az újracsatlakozásnál: a TV médiamotorja ilyenkor nem
       // mindig indít új kérést, ezért kifejezetten újratöltjük. Ha egy régi
       // hibaállapotot bontottunk le, az új címhez ugyanígy teljes reset kell.
@@ -4397,7 +4351,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       applyMuteState(video, volume);
       const playObserver = speedAttemptObserver();
       const playPromise = video.play();
+      // A stream indítása elsőbbséget kap; a naplózás csak a play() meghívása után fut.
+      speedLoad(isVodRef.current ? 'VOD' : 'élő', `forceReload=${forceReload}; formátum=${formatOfUrl(url) || 'egyéb'}`, url);
+      speedStep('src beállítva', `load()=${forceReload || hadMediaError ? 'igen' : 'nem'}`);
       speedStep('play() meghívva');
+        const channelMemory = rememberedFormatFor(channel?.id);
+        const timing = bufferTiming();
+        const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
+        const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
+        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
+        if (isVerbosePlaybackLogging()) {
+          appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés után')}`);
+        }
       if (playObserver && playPromise && typeof playPromise.then === 'function') {
         void playPromise.then(
           () => playObserver('play() ígéret teljesült'),
