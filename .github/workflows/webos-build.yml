@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IPK_FILE_NAME: 'IPTV-RT.ipk'
-  RELEASE_TITLE: 'IPTV-RT'
+  IPK_FILE_NAME: 'IPTV R.T.ipk'
+  RELEASE_TITLE: 'LG webOS TV'
 
 jobs:
   webos-epites:
@@ -594,15 +594,15 @@ jobs:
           if [[ -n "$PREVIOUS_TAG" ]]; then
             PREVIOUS_DATA="$(gh release view "$PREVIOUS_TAG" --repo Robko1/Ipk --json publishedAt,assets)"
             PREVIOUS_PUBLISHED="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("publishedAt") or "")')"
-            PREVIOUS_UPLOAD="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name")=="IPTV-RT.ipk"),{}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
+            PREVIOUS_UPLOAD="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name")=="IPTV R.T.ipk"),{}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
           fi
 
           if ! gh release view "$RELEASE_TAG" --repo Robko1/Ipk >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "LG webOS TV privát IPK kiadás."
+            gh release create "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE" --notes "LG webOS TV privát IPK kiadás."
           fi
           gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --repo Robko1/Ipk --clobber
 
-          TARGET_SHA="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets --jq '.assets[] | select(.name == "IPTV-RT.ipk") | .digest' | sed 's/^sha256://')"
+          TARGET_SHA="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets --jq '.assets[] | select(.name == "IPTV R.T.ipk") | .digest' | sed 's/^sha256://')"
           [[ -n "$TARGET_SHA" && "$TARGET_SHA" == "$LOCAL_SHA" ]] || {
             echo "HIBA: a privát Release IPK SHA-256 értéke nem egyezik a buildelt fájllal." >&2
             exit 1
@@ -615,7 +615,7 @@ jobs:
 
           # A feltöltés tényleges GitHub-időpontját olvassuk vissza az IPK assetből.
           CURRENT_DATA="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets)"
-          CURRENT_UPLOAD="$(printf '%s' "$CURRENT_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name")=="IPTV-RT.ipk"),{}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
+          CURRENT_UPLOAD="$(printf '%s' "$CURRENT_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name")=="IPTV R.T.ipk"),{}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
           export BUILD_DATETIME CURRENT_UPLOAD PREVIOUS_TAG PREVIOUS_PUBLISHED PREVIOUS_UPLOAD CURRENT_VERSION
           NOTES="$(python3 - <<'PY'
           import os
@@ -644,7 +644,7 @@ jobs:
           print("\n".join(lines))
           PY
           )"
-          gh release edit "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$NOTES"
+          gh release edit "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE" --notes "$NOTES"
 
           # Csak a verziószám kerül a publikus LGtv repóba. Az IPK és a privát
           # Release adatai továbbra is kizárólag a Robko1/Ipk repóban maradnak.
