@@ -12,7 +12,7 @@
 #   SKIP_WEB=1 tools/build-webos.sh  # meglévő build/web/index.html-t használja
 #
 # Kimenet:
-#   webos/IPTV R.T.ipk (egyetlen végleges kimenet)
+#   webos/IPTV-RT.ipk (egyetlen végleges kimenet)
 
 set -euo pipefail
 
@@ -418,7 +418,7 @@ JS
 # 5. IPK csomag készítése
 log "IPK csomag készítése"
 
-IPK_NAME="IPTV R.T.ipk"
+IPK_NAME="IPTV-RT.ipk"
 IPK_PATH="$WEBOS_DIR/$IPK_NAME"
 
 python3 "$WEBOS_DIR/tools/build-ipk.py" \
