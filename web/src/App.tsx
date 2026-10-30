@@ -328,6 +328,7 @@ import { ChannelOrderModal } from './components/ChannelOrderModal';
 import { ResumeHistoryModal } from './components/ResumeHistoryModal';
 import { QrProvisionModal } from './components/QrProvisionModal';
 import { DiagnosticShareModal } from './components/DiagnosticShareModal';
+import { TvDoctorStatusModal } from './components/TvDoctorStatusModal';
 
 export function App() {
   // Persistent state
@@ -844,6 +845,15 @@ export function App() {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [favoriteChannelId, setFavoriteChannelId] = useState<string | null>(null);
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
+  const [isTvDoctorModalOpen, setIsTvDoctorModalOpen] = useState(false);
+
+  // Ha elhagyjuk az élő TV nézetet vagy film/sorozat (VOD) lejátszás indul,
+  // a 0-ás gombbal előhívott TV Doktor ablak automatikusan bezáródik.
+  useEffect(() => {
+    if (isTvDoctorModalOpen && (activeView !== 'live' || Boolean(customStreamUrl))) {
+      setIsTvDoctorModalOpen(false);
+    }
+  }, [isTvDoctorModalOpen, activeView, customStreamUrl]);
 
   // Gyors csatorna-kereső: a teljes listán végigmenő `find` helyett egyszer
   // épített térkép. A lista akár 20-60 ezer elemű is lehet, és a keresés
@@ -3504,13 +3514,90 @@ export function App() {
     storageService.saveHistory([]);
   };
 
+  // TV-távirányító 0-ás gombja: a teljes TV Doktor állapot- és naplóablak előhívása.
+  // KIZÁRÓLAG a főoldalon és teljes képernyőn, élő TV lejátszásakor működik.
+  // Soha nem nyithatja meg a naplót film/sorozat lejátszásakor, Mozi/Sorozat nézetben,
+  // nyitott menü/modal esetén, vagy amikor 0-t tartalmazó kódot/szöveget ad be a felhasználó.
+  useEffect(() => {
+    const onZeroKey = (event: KeyboardEvent) => {
+      const key = event.key;
+      const code = event.code || '';
+      const kc = event.keyCode || event.which || 0;
+      const isZero = key === '0' || code === 'Digit0' || code === 'Numpad0' || kc === 48 || kc === 96;
+      if (!isZero || event.repeat) return;
+
+      const target = event.target as HTMLElement | null;
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
+      if (activeEl && (['INPUT', 'TEXTAREA', 'SELECT'].includes(activeEl.tagName) || activeEl.isContentEditable)) return;
+
+      if (isTvDoctorModalOpen) {
+        if (document.querySelector('[data-supabase-pairing-modal]')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setIsTvDoctorModalOpen(false);
+        return;
+      }
+
+      if (activeView !== 'live' || customStreamUrl || !activeChannel) return;
+      if (
+        isCategoriesOpen ||
+        isSettingsOpen ||
+        isEpgOpen ||
+        isAudioModalOpen ||
+        isSubtitlesModalOpen ||
+        isAddProviderOpen ||
+        isQrProvisionOpen ||
+        isDiagnosticShareOpen ||
+        isOrderModalOpen ||
+        isResumeModalOpen ||
+        diagnosticOpen ||
+        lastImportDiagnosticOpen ||
+        refreshLivePromptOpen ||
+        Boolean(nextEpisodeToPlay) ||
+        Boolean(favoriteChannelId)
+      ) {
+        return;
+      }
+      if (document.querySelector('[role="dialog"], [aria-modal="true"], [data-supabase-pairing-modal]')) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      setIsTvDoctorModalOpen(true);
+    };
+    window.addEventListener('keydown', onZeroKey, true);
+    return () => window.removeEventListener('keydown', onZeroKey, true);
+  }, [
+    isTvDoctorModalOpen,
+    activeView,
+    customStreamUrl,
+    activeChannel,
+    isCategoriesOpen,
+    isSettingsOpen,
+    isEpgOpen,
+    isAudioModalOpen,
+    isSubtitlesModalOpen,
+    isAddProviderOpen,
+    isQrProvisionOpen,
+    isDiagnosticShareOpen,
+    isOrderModalOpen,
+    isResumeModalOpen,
+    diagnosticOpen,
+    lastImportDiagnosticOpen,
+    refreshLivePromptOpen,
+    nextEpisodeToPlay,
+    favoriteChannelId,
+  ]);
+
   // TV-távirányító gombjai és az élő nézet számozott színválasztói
   // A hat színgyorsgomb kizárólag az Élő TV nézetben működik; nem módosít csatorna- vagy lejátszóállapotot.
   useEffect(() => {
     const onAccentKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
-      if (activeView !== 'live' || customStreamUrl || isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) return;
+      if (activeView !== 'live' || customStreamUrl || isTvDoctorModalOpen || isCategoriesOpen || isSettingsOpen || isEpgOpen || isAudioModalOpen || isSubtitlesModalOpen) return;
       const key = event.key;
       const code = event.keyCode || event.which;
       const next = key === '1' || key === 'Digit1' || code === 49 ? 'red'
@@ -3528,7 +3615,7 @@ export function App() {
     };
     window.addEventListener('keydown', onAccentKey, true);
     return () => window.removeEventListener('keydown', onAccentKey, true);
-  }, [activeView, customStreamUrl, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, showFullscreenLiveOsd]);
+  }, [activeView, customStreamUrl, isTvDoctorModalOpen, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, showFullscreenLiveOsd]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3540,9 +3627,17 @@ export function App() {
       // Szövegmezőben ne vegyük át a távirányító gombjait.
       const target = e.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
-      // A beállítások saját navigációja kezeli a nyilakat; a globális
+      // A beállítások és a TV Doktor ablak saját navigációja kezeli a nyilakat; a globális
       // kezelő itt sem fókuszt, sem csatornát, sem hangerőt nem módosíthat.
-      if (target?.closest?.('[data-tv-navigation-owner="settings"]')) return;
+      if (target?.closest?.('[data-tv-navigation-owner="settings"], [data-tv-navigation-owner="tv-doctor"]')) return;
+      if (isTvDoctorModalOpen) {
+        if (key === 'Escape' || key === 'Backspace') {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsTvDoctorModalOpen(false);
+        }
+        return;
+      }
 
       // Teljes képernyőben bármely gomb visszahozza az OSD-t (és újraindítja
       // az eltűnési időzítőt) – a set-top box-ok szokása. A hívás akkor sem
@@ -3796,7 +3891,7 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep, showFullscreenLiveOsd, activeView, handleViewChange, diagnosticOpen, lastImportDiagnosticOpen, closeRefreshDiagnostic, closeLastImportDiagnostic]);
+  }, [handleNextChannel, handlePrevChannel, handleVolumeChange, handleToggleMute, isCategoriesOpen, isSettingsOpen, isEpgOpen, isAudioModalOpen, isSubtitlesModalOpen, isTvDoctorModalOpen, isVideoFullscreen, customStreamUrl, volume, settings.seekStep, showFullscreenLiveOsd, activeView, handleViewChange, diagnosticOpen, lastImportDiagnosticOpen, closeRefreshDiagnostic, closeLastImportDiagnostic]);
 
   // TV távirányító: ZÖLD/SÁRGA/KÉK gyorsgombok a webos.js-ből egyedi
   // eseményként érkeznek (minden fókuszhelyzetben megbízható).
@@ -4484,6 +4579,14 @@ export function App() {
         history={history}
         onPlayItem={handlePlayHistoryItem}
         onClearHistory={handleClearHistory}
+      />
+
+      {/* 9. 0-ás távirányító gomb: teljes TV Doktor állapot- és naplóablak (2 oszlopos, élő TV-hez) */}
+      <TvDoctorStatusModal
+        isOpen={isTvDoctorModalOpen}
+        onClose={() => setIsTvDoctorModalOpen(false)}
+        settings={settings}
+        activeChannel={activeChannel}
       />
     </div>
   );

@@ -512,6 +512,12 @@
         '.webos-tv [role="dialog"][aria-label="Menü és beállítások"] .text-sm { font-size: 21px !important; line-height: 1.4 !important; }',
         '.webos-tv [role="dialog"][aria-label="Menü és beállítások"] .text-base { font-size: 23px !important; line-height: 1.4 !important; }',
         '.webos-tv [role="dialog"][aria-label="Menü és beállítások"] .text-lg { font-size: 26px !important; line-height: 1.35 !important; }',
+        '.webos-tv [data-tv-doctor-modal] .text-sm { font-size: 20px !important; line-height: 1.4 !important; }',
+        '.webos-tv [data-tv-doctor-modal] .text-base { font-size: 23px !important; line-height: 1.42 !important; }',
+        '.webos-tv [data-tv-doctor-modal] .text-lg { font-size: 26px !important; line-height: 1.4 !important; }',
+        '.webos-tv [data-tv-doctor-modal] .text-xl { font-size: 29px !important; line-height: 1.35 !important; }',
+        '.webos-tv [data-tv-doctor-modal] .text-2xl { font-size: 33px !important; line-height: 1.3 !important; }',
+        '.webos-tv [data-tv-doctor-modal] .text-3xl { font-size: 36px !important; line-height: 1.25 !important; }',
         '.webos-tv [role="dialog"] .overflow-y-auto { padding-bottom: 56px !important; }',
         '/* DOBOZ NAVIGÁCIÓ: a kijelölt beállítás-doboz jól látható sárga keretet kap. */',
         '/* A kék óra és az előtte ülő TV Doktor ikon teljes képernyőn a jobb felső',
@@ -986,9 +992,10 @@
     if (navOwner && isArrowKey(key)) {
       var ownerType = navOwner.getAttribute('data-tv-navigation-owner');
       if (ownerType === 'posters') return;
-      // A Beállítások/Kedvencek fül saját React-navigációja kezeli MIND a négy nyilat.
+      // A Beállítások/Kedvencek fül és a 0-ás TV Doktor ablak saját React-navigációja
+      // kezeli MIND a négy nyilat (és a bal oldali napló lefelé görgetését).
       // Capture fázisban itt nem szabad fókuszt mozgatni vagy a gombot elnyelni.
-      if (ownerType === 'settings') return;
+      if (ownerType === 'settings' || ownerType === 'tv-doctor') return;
     }
     // A színes gombokat a legkorábbi ponton egyedi eseményként adjuk át a Reactnek,
     // hogy minden fókuszhelyzetben megbízhatóan működjenek.

@@ -886,6 +886,7 @@ export function createTvDoctorHandler(customEnv = {}) {
         const channelKey = cleanKey(item.channelKey);
         const channelName = cleanText(item.channelName, 140);
         if (!channelKey || !channelName || seenKeys.has(channelKey)) continue;
+        if (channelKey.startsWith("vod:") || item.countryCode === "VOD" || item.countryCode === "SER") continue;
         seenKeys.add(channelKey);
         validIncoming.push({ ...item, channelKey, channelName });
       }
@@ -1031,7 +1032,7 @@ export function createTvDoctorHandler(customEnv = {}) {
         const eventType = VALID_EVENT_TYPES.has(ev.eventType) ? ev.eventType : "diagnostic";
         const channelKey = cleanKey(ev.channelKey);
         const channelName = cleanText(ev.channelName, 140);
-        if (!channelKey || !channelName) continue;
+        if (!channelKey || !channelName || channelKey.startsWith("vod:")) continue;
         const rawUid = cleanText(ev.eventUid, 80) || `${deviceHash}-${channelKey}-${eventType}-${nowFn()}-${i}`;
         const eventUid = await sha256Short(rawUid);
         eventRows.push({
