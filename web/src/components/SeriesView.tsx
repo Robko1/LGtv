@@ -290,23 +290,30 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                 </div>
                 <div className="p-3">
                   <h3 className="text-white font-black text-lg sm:text-xl truncate">{ser.title}</h3>
-                  {ser.year > 0 && (
-                    <div className="mt-1 text-lg sm:text-xl font-bold text-amber-300 text-center">{ser.year}</div>
-                  )}
-                  {/* Csak a szolgáltatótól megkapott adatok: játékidő, hang- és feliratnyelvek. */}
-                  {formatRuntime(ser.durationMinutes) && (
-                    <div className="mt-1 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-bold text-cyan-200">
-                      <Clock className="w-3 h-3 shrink-0" />
-                      <span className="truncate">{formatRuntime(ser.durationMinutes)}</span>
+                  {/* Év balra, játékidő jobbra – egyetlen vízszintes sorban. */}
+                  <div className="mt-1 flex min-h-6 items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-base sm:text-lg font-bold text-amber-300">
+                      {ser.year > 0 ? ser.year : ''}
+                    </span>
+                    {formatRuntime(ser.durationMinutes) && (
+                      <span className="flex min-w-0 items-center justify-end gap-1 truncate text-sm sm:text-base font-bold text-cyan-200">
+                        <Clock className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{formatRuntime(ser.durationMinutes)}</span>
+                      </span>
+                    )}
+                  </div>
+                  {/* Audió balra, jól olvasható feliratnyelvek jobbra – ugyanabban a sorban. */}
+                  {(joinLanguages(ser.audioLanguages) || joinLanguages(ser.subtitleLanguages)) && (
+                    <div className="mt-1 flex min-h-6 items-center justify-between gap-2 text-xs sm:text-sm font-semibold">
+                      <span className="flex min-w-0 flex-1 items-center gap-1 text-rose-200">
+                        <Mic2 className="h-4 w-4 shrink-0 text-rose-300" />
+                        <span className="truncate">{joinLanguages(ser.audioLanguages) || '—'}</span>
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-right text-slate-100">
+                        {joinLanguages(ser.subtitleLanguages) || '—'}
+                      </span>
                     </div>
                   )}
-                  {joinLanguages(ser.audioLanguages) && (
-                    <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-semibold text-rose-200">
-                      <Mic2 className="w-3 h-3 shrink-0 text-rose-300" />
-                      <span className="truncate">{joinLanguages(ser.audioLanguages)}</span>
-                    </div>
-                  )}
-
                 </div>
               </div>
             ))}
