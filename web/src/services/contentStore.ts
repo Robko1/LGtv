@@ -2563,13 +2563,13 @@ let restoreCancelled = false;
  * a megjelenés UTÁN, üresjáratban töltődik be, a filmek/sorozatok pedig csak
  * akkor, amikor a néző tényleg megnyitja a Mozi vagy Sorozat menüt.
  */
-let restoreDone: { live: boolean; vod: boolean } = { live: false, vod: false };
+let restoreDone: { live: boolean; movies: boolean; series: boolean } = { live: false, movies: false, series: false };
 
 /** A felület bezárásakor / új import indításakor a háttér-visszatöltés leáll. */
 export function cancelStoredContentRestore(): void {
   restoreCancelled = true;
   restoreChain = Promise.resolve();
-  restoreDone = { live: false, vod: false };
+  restoreDone = { live: false, movies: false, series: false };
 }
 
 /**
@@ -2589,12 +2589,13 @@ export function cancelStoredContentRestore(): void {
 export function restoreStoredContent(
   plan: StoredCatalogPlan,
   handlers: RestoreHandlers = {},
-  options: { scope?: 'all' | 'live' | 'vod' } = {},
+  options: { scope?: 'all' | 'live' | 'vod' | 'movies' | 'series' } = {},
 ): Promise<void> {
   const scope = options.scope || 'all';
   const wantLive = scope === 'all' || scope === 'live';
-  const wantVod = scope === 'all' || scope === 'vod';
-  if ((!wantLive || restoreDone.live) && (!wantVod || restoreDone.vod)) {
+  const wantMovies = scope === 'all' || scope === 'vod' || scope === 'movies';
+  const wantSeries = scope === 'all' || scope === 'vod' || scope === 'series';
+  if ((!wantLive || restoreDone.live) && (!wantMovies || restoreDone.movies) && (!wantSeries || restoreDone.series)) {
     return Promise.resolve();
   }
   restoreCancelled = false;
@@ -2623,7 +2624,7 @@ export function restoreStoredContent(
       }
       await yieldToStorage();
     }
-    if (wantVod && !restoreDone.vod && plan.hasVod && !restoreCancelled) {
+    if (wantMovies && !restoreDone.movies && plan.hasVod && !restoreCancelled) {
       handlers.onStage?.('filmlista a tartós tárból');
       const vod = await loadVodAsync(
         provider,
@@ -2634,9 +2635,10 @@ export function restoreStoredContent(
         handlers.onVod?.(vod);
         loaded += ` film=${vod.movies.length}`;
       }
+      if (!restoreCancelled) restoreDone.movies = true;
       await yieldToStorage();
     }
-    if (wantVod && !restoreDone.vod && plan.hasSeries && !restoreCancelled) {
+    if (wantSeries && !restoreDone.series && plan.hasSeries && !restoreCancelled) {
       handlers.onStage?.('sorozatlista a tartós tárból');
       const ser = await loadSeriesAsync(
         provider,
@@ -2647,6 +2649,7 @@ export function restoreStoredContent(
         handlers.onSeries?.(ser);
         loaded += ` sorozat=${ser.series.length}`;
       }
+      if (!restoreCancelled) restoreDone.series = true;
     }
     /*
      * Csak AKKOR jelöljük késznek, ha tényleg lefutott. Korábban a
@@ -2654,7 +2657,10 @@ export function restoreStoredContent(
      * látszott, ezért a Mozi nézet későbbi megnyitása VÉGLEG kihagyta a
      * filmeket – üres rács, újraindításig.
      */
-    if (wantVod && !restoreCancelled) restoreDone.vod = true;
+    if (!restoreCancelled) {
+      if (wantMovies) restoreDone.movies = true;
+      if (wantSeries) restoreDone.series = true;
+    }
     if (!restoreCancelled) {
       appLog(`TARTÓS VISSZATÖLTÉS készen (${Date.now() - startedAt} ms, letöltés nélkül):${loaded || ' üres'}.`);
     }
