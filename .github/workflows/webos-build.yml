@@ -554,8 +554,12 @@ jobs:
 
           # A verziótag a most lefordított main commitra mutat.
           if ! gh api "repos/Robko1/Ipk/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$IPK_REPO_TOKEN" | base64 -w0)"
-            git -c http.extraheader="$AUTH_HEADER" push https://github.com/Robko1/Ipk.git "$BUILD_COMMIT:refs/tags/$RELEASE_TAG"
+            # A git push itt nem használható: actions/checkout korábbi
+            # GITHUB_TOKEN extraheader beállítása felülírhatja/ütköztetheti
+            # a PAT hitelesítést. A tag-et közvetlenül a GitHub API hozza létre.
+            gh api --method POST repos/Robko1/Ipk/git/refs \
+              -f "ref=refs/tags/$RELEASE_TAG" \
+              -f "sha=$BUILD_COMMIT" >/dev/null
           fi
 
           RELEASE_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
