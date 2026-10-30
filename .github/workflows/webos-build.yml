@@ -2,7 +2,7 @@ name: IPK építés
 
 # Kizárólag LG webOS TV IPK build; minden forrás a jelenlegi repóból származik.
 # Kézi indítás (workflow_dispatch), automatikus futás nincs.
-# Kimenet: az aktuális verziójú Release-ben kizárólag az IPTV-RT.ipk marad.
+# Kimenet: kizárólag a privát Robko1/Ipk repóban jön létre Release, verziócímke és IPK.
 # A teljes forrásdiagnosztika és IPK-ellenőrzés ebben a workflow-ban fut.
 
 on:
@@ -602,19 +602,10 @@ jobs:
             exit 1
           }
 
-          # A nyilvános LGtv Release csak verzióinformációt tartalmazhat.
-          export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          PUBLIC_NOTES="Új LG webOS TV verzió: $CURRENT_VERSION. A telepítő IPK kizárólag a privát Robko1/Ipk tárolóból tölthető le."
-          if gh release view "$RELEASE_TAG" --repo Robko1/LGtv >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --repo Robko1/LGtv --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$PUBLIC_NOTES"
-          else
-            gh release create "$RELEASE_TAG" --repo Robko1/LGtv --target "$BUILD_COMMIT" --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$PUBLIC_NOTES"
-          fi
-          if gh release view "$RELEASE_TAG" --repo Robko1/LGtv --json assets --jq '.assets[].name' | grep -Fxq "IPTV-RT.ipk"; then
-            gh release delete-asset "$RELEASE_TAG" "IPTV-RT.ipk" --repo Robko1/LGtv --yes
-          fi
+          # A publikus Robko1/LGtv repóban NEM hozunk létre Release-t vagy verziócímkét.
+          # Minden kiadási tag és IPK kizárólag a privát Robko1/Ipk repóba kerül.
 
-          echo "OK: az új IPK v$CURRENT_VERSION a privát Robko1/Ipk repóban van; a nyilvános Release csak verzióinformációt tartalmaz; SHA-256 egyezik."
+          echo "OK: az IPK v$CURRENT_VERSION kizárólag a privát Robko1/Ipk Release-be került; SHA-256 egyezik."
       - name: 13. Összefoglaló
         if: always()
         shell: bash
@@ -624,7 +615,7 @@ jobs:
             echo "- Indítás: kizárólag kézzel (workflow_dispatch)."
             echo "- Ellenőrzés: forrásfájlok, HTML build, webOS-frissítő, távirányító-kezelés, platformtisztaság, indítókép, verziók és szintaxis."
             echo "- IPK: csomagtartalom, HTML, verzió, ES5/polyfill, távirányító-kezelés és SHA-256 ellenőrzése."
-            echo "- Kimenet: IPK és verziótag a privát Robko1/Ipk repóban; a nyilvános LGtv Release csak verzióinformációt tartalmaz."
+            echo "- Kimenet: Release, verziótag és IPK kizárólag a privát Robko1/Ipk repóban; a publikus LGtv repóban nincs Release vagy verziótag."
             if [[ "${SIGNED_COMMIT:-0}" == "1" ]]; then
               echo "- Commit/tag: a beállított GPG- vagy SSH-kulccsal aláírva (GitHub Verified csak a fiókhoz hozzáadott publikus kulccsal jelenik meg)."
             else
