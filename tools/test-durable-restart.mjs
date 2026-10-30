@@ -159,6 +159,7 @@ await esbuild.build({
       loadLive, loadLiveBoot, loadLiveFull, loadVodAsync, loadSeriesAsync,
       inspectStoredCatalogs, restoreStoredContent, cancelStoredContentRestore,
       readCatalogState, catalogNeedsCheck, markCatalogChecked, setCatalogFingerprint,
+      catalogIncompleteSections, markCatalogSectionsComplete,
       describeStoredContent, saveCatalogExtras, clearContent,
     } from './web/src/services/contentStore.ts';
     export { ensureDurableStorage, describeIdbStore, storageBudgetBytes } from './web/src/services/idbStore.ts';`,
@@ -329,8 +330,24 @@ try {
   const state = await app7.readCatalogState();
   check(Boolean(state && state.counts.vod > 0),
     'a katalógus-állapot (darabszám, mentési idő) megvan', JSON.stringify(state?.counts));
-  check(state && app7.catalogNeedsCheck(state) === false,
-    'friss gyorsítótárnál NEM indul felesleges ellenőrzés/letöltés');
+  /*
+   * VALÓDI MENTÉSI ÁLLAPOT (2.5.223): a 6. forgatókönyv meghiúsult mentése
+   * után a vod szakasz HIÁNYOSKÉNT van jelölve, ezért az ellenőrzés a
+   * frissességi ablakon belül is kötelező – a gyógyító frissítés így pótolja
+   * az elmaradt mentést. Az igazoltan hiánytalan állapotnál viszont továbbra
+   * sem indul felesleges ellenőrzés.
+   */
+  check(state && app7.catalogIncompleteSections(state).includes('vod'),
+    'a 6. pont meghiúsult mentése HIÁNYOS szakaszként látszik újraindítás után is');
+  check(state && app7.catalogNeedsCheck(state) === true,
+    'hiányos szakasznál az ellenőrzés a frissességi ablakon belül is kötelező');
+  app7.markCatalogSectionsComplete(['vod']);
+  await settle();
+  const healedState = await app7.readCatalogState();
+  check(healedState && app7.catalogIncompleteSections(healedState).length === 0,
+    'a gyógyító frissítés igazolása után a jelölés lekerül');
+  check(healedState && app7.catalogNeedsCheck(healedState) === false,
+    'friss, hiánytalan gyorsítótárnál NEM indul felesleges ellenőrzés/letöltés');
   const stale = { ...state, checkedAt: Date.now() - 13 * 60 * 60 * 1000 };
   check(app7.catalogNeedsCheck(stale) === true,
     'a 12 órás TTL lejárta után egyetlen olcsó ellenőrzés engedélyezett');

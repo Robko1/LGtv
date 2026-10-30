@@ -26,7 +26,13 @@ const oneTitle = () => { for (const row of doc.querySelectorAll('[data-track-opt
   assert.equal(row.textContent.trim(), row.querySelector('[data-track-title]').textContent.trim());
 } };
 const press = async key => { const code = { ArrowDown:40, ArrowUp:38, ArrowRight:39, ArrowLeft:37, Enter:13, Escape:461 }[key];
-  (doc.activeElement || doc.body).dispatchEvent(new window.KeyboardEvent('keydown', { key, keyCode:code, bubbles:true, cancelable:true })); await tick(40); };
+  const before = doc.activeElement;
+  (doc.activeElement || doc.body).dispatchEvent(new window.KeyboardEvent('keydown', { key, keyCode:code, bubbles:true, cancelable:true }));
+  // Terhelt gépen (párhuzamos tesztfuttatás) a React fókuszmozgatása 40 ms-nál
+  // tovább is tarthat: nyílbillentyűnél megvárjuk, hogy a fókusz TÉNYLEG átálljon,
+  // különben a következő Enter még a régi sort választaná ki (vak időzítés helyett).
+  if (key.startsWith('Arrow')) { for (let i=0; i<50 && doc.activeElement === before; i++) await tick(20); }
+  await tick(40); };
 const { trackLabel, trackMeta, trackLanguage } = window.trackTest;
 for (const [code, name] of [['fr','Francia'], ['fre','Francia'], ['de-DE','Német'], ['ger','Német'], ['en_US','Angol'], ['hun','Magyar'], ['English','Angol'], ['unknown','Ismeretlen']]) {
   assert.equal(trackLanguage(code), name); assert.equal(trackLabel(code, code), name);
