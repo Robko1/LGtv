@@ -8,7 +8,7 @@ A repó: <https://github.com/Robko1/LGtv>. A kézi **IPK építés** GitHub Acti
 2. GitHub → **Actions → IPK építés → Run workflow**.
 3. A workflow telepíti a függőségeket, futtatja a regressziós teszteket, majd – ha ezek sikeresek – a `web/src/appVersion.ts` aktuális patchverzióját eggyel növeli, hozzáigazítja a manifestet és a verzióemelést visszamenti a `main` ágra. Ezután építi és ellenőrzi az IPK-t. **Ezért egy későbbi csomagolási hiba esetén is előfordulhat, hogy a verzióemelés már a main ágra került.**
 4. A workflow a jóváhagyott `webos/splash-screen.png` fájlt a runneren 1920×1080-as, 699 KiB alatti palettás PNG-vé alakítja a build előtt. Nem állít elő helyette új színátmenetes indítóképet.
-5. Sikeres build és ellenőrzés után az **`IPTV-RT.ipk`** build artifactba és az aktuális `vX.Y.Z` GitHub Release-be kerül. A Release-verziót a tényleges futás határozza meg, nem egy régi, dokumentációba beégetett szám; az új Release-ben csak az aktuális IPK marad.
+5. Sikeres build és ellenőrzés után az **`IPTV R.T.ipk`** build artifactba és az aktuális `vX.Y.Z` GitHub Release-be kerül. A Release-verziót a tényleges futás határozza meg, nem egy régi, dokumentációba beégetett szám; az új Release-ben csak az aktuális IPK marad.
 
 
 ## Minden kiadás után
