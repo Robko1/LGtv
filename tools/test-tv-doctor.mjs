@@ -340,7 +340,7 @@ check(
   'a javító korlátozott lépésben vált formátumot, puffert, tartalék URL-t, majd visszaáll az alap helyreállításra',
 );
 
-// 1.7 VOD (Filmek és Sorozatok) TV Doktor támogatás: kulcsképzés, állapotjelzés, puffertanulás, korlátozott javítás
+// 1.7 VOD (Filmek és Sorozatok) TV Doktor támogatás: valós idejű lejátszássegítés MEMÓRIA- ÉS NAPLÓMENTÉS NÉLKÜL
 const vodStore = new MemoryStorage();
 const sampleMovie = {
   id: 'vod:901',
@@ -365,18 +365,12 @@ check(
   'a VOD (film és sorozat) kulcsképzés ékezetmentes, elkülöníti a filmet és sorozatot, és nem tartalmaz hitelesítő adatot',
 );
 
-check(
-  core.isVodHandledByDoctor(sampleMovie, vodStore) === false &&
-    core.isVodHandledByDoctor(sampleEpisode, vodStore) === false,
-  'érintetlen film és sorozatepizód kezdetben nincs kezeltként megjelölve (nincs szimulált zöld állapot)',
-);
-
 const movieInitialPlan = core.selectVodLaunchPlan(sampleMovie, core.INITIAL_SETTINGS, vodStore);
 check(
   movieInitialPlan.enabled === true &&
     movieInitialPlan.hasLearnedProfile === false &&
     movieInitialPlan.startupWatchdogMs >= 8500,
-  'új film indításakor a VOD TV Doktor terv biztonságos (≥ 8,5 mp) indulási őrrel és alap pufferrel indul',
+  'új film indításakor a VOD TV Doktor terv biztonságos (≥ 8,5 mp) indulási őrrel és valós idejű alap pufferrel indul',
 );
 
 core.recordDoctorVodFailure({
@@ -410,10 +404,11 @@ check(
   vodRepair1.exhausted === false &&
     vodRepair1.nextUrl === sampleMovie.streamUrl &&
     vodRepair1.nextUrl.endsWith('.mkv') &&
+    !vodRepair1.description.includes('745') &&
     vodRepair1.nextBufferTiming.minBufferAheadSeconds > core.DOCTOR_BUFFER_CONFIGS.balanced.minBufferAheadSeconds &&
     vodRepair1.nextBufferTiming.minBufferAheadSeconds <= 10.0 &&
     vodRepairExhausted.exhausted === true,
-  'a VOD javító SOHA nem írja át a .mkv/.mp4 kiterjesztést, emeli a puffert ≤ 10 mp korlátig, majd korlátozott lépés után átadja a vezérlést',
+  'a VOD javító valós időben segíti a folyamatos lejátszást (.mkv/.mp4 megőrzése, pufferemelés ≤ 10 mp-ig), pozíciószöveg naplózása nélkül',
 );
 
 core.recordDoctorVodSuccess({
@@ -423,13 +418,71 @@ core.recordDoctorVodSuccess({
   wasRepair: true,
   storage: vodStore,
 });
-const episodeLearnedPlan = core.selectVodLaunchPlan(sampleEpisode, core.INITIAL_SETTINGS, vodStore);
+const vodLogsCheck = core.getTvDoctorSummary(vodStore).recentLogs;
 check(
-  core.isVodHandledByDoctor(sampleMovie, vodStore) === true &&
-    core.isVodHandledByDoctor(sampleEpisode, vodStore) === true &&
-    episodeLearnedPlan.hasLearnedProfile === true &&
-    episodeLearnedPlan.bufferProfileId === 'stable',
-  'a megvizsgált/javított film és sorozatepizód valódi kezelt állapotot és tanult stabil profilt kap',
+  vodStore.getItem(core.TV_DOCTOR_STORAGE_KEY) === null &&
+    core.getVodDoctorRecord(sampleMovie, vodStore) === null &&
+    core.getVodDoctorRecord(sampleEpisode, vodStore) === null &&
+    core.isVodHandledByDoctor(sampleMovie, vodStore) === false &&
+    core.isVodHandledByDoctor(sampleEpisode, vodStore) === false &&
+    !vodLogsCheck.some((l) => l.channelName.includes('Dűne') || l.channelName.includes('Hatalom') || l.message.includes('745')),
+  'a TV Doktor SOHA nem menti el memóriába vagy naplóba, hogy melyik film vagy sorozat akadt el, illetve hol akadt el',
+);
+
+// Korábbi (legacy) tárolt VOD bejegyzések automatikus kiszűrése beolvasáskor:
+const legacyVodStore = new MemoryStorage();
+legacyVodStore.setItem(
+  core.TV_DOCTOR_STORAGE_KEY,
+  JSON.stringify({
+    version: 1,
+    updatedAt: Date.now(),
+    byKey: {
+      'vod:movie:regi-film': {
+        channelKey: 'vod:movie:regi-film',
+        channelIdHint: 'vod:1',
+        channelName: 'Régi Film',
+        countryCode: 'VOD',
+        bestFormat: 'ts',
+        bestBufferProfile: 'stable',
+        tsAvgStartupMs: 500,
+        hlsAvgStartupMs: null,
+        tsOk: 1,
+        tsFail: 1,
+        hlsOk: 0,
+        hlsFail: 0,
+        stalls: 1,
+        repairsOk: 1,
+        bufferScores: {},
+        updatedAt: Date.now(),
+        source: 'local',
+      },
+      'hu:m4-sport': {
+        channelKey: 'hu:m4-sport',
+        channelIdHint: 'ch-1',
+        channelName: 'M4 Sport HD',
+        countryCode: 'HU',
+        bestFormat: 'ts',
+        bestBufferProfile: 'balanced',
+        tsAvgStartupMs: 420,
+        hlsAvgStartupMs: null,
+        tsOk: 3,
+        tsFail: 0,
+        hlsOk: 0,
+        hlsFail: 0,
+        stalls: 0,
+        repairsOk: 0,
+        bufferScores: {},
+        updatedAt: Date.now(),
+        source: 'local',
+      },
+    },
+  }),
+);
+const cleanedSummary = core.getTvDoctorSummary(legacyVodStore);
+check(
+  cleanedSummary.learnedChannelCount === 1 &&
+    core.getVodDoctorRecord({ title: 'Régi Film', mediaKind: 'movie' }, legacyVodStore) === null,
+  'a korábbi tárolóból a vod: film/sorozat profilok automatikusan kiszűrődnek, miközben az élő TV profilok megmaradnak',
 );
 
 // Bővíthető plugin regisztráció (8. követelmény)
@@ -984,7 +1037,18 @@ check(
   'a kapcsolat helyreállásakor a várólista automatikusan szinkronizálódik a Supabase tudásbázisba',
 );
 
-// VOD (film és sorozat) profilok hibrid Supabase szinkronja és visszaolvasása egy másik TV-n:
+// VOD (film és sorozat) SOHA nem kerülhet be a Supabase várólistába vagy a központi adatbázisba:
+core.recordDoctorVodFailure({
+  target: {
+    id: 'vod:7788',
+    title: 'Gladiátor II (2024)',
+    streamUrl: 'http://panel.local:8080/movie/titkosU/titkosP/7788.mkv',
+    mediaKind: 'movie',
+  },
+  bufferProfile: 'balanced',
+  trigger: 'playback_stall',
+  stallMs: 4800,
+});
 core.recordDoctorVodSuccess({
   target: {
     id: 'vod:7788',
@@ -996,21 +1060,49 @@ core.recordDoctorVodSuccess({
   startupMs: 540,
   wasRepair: true,
 });
-await core.flushTvDoctorCloudQueue();
-core.clearTvDoctorMemory();
-const vodBootCount = await core.bootstrapTvDoctorFromCloud();
-const syncedVodTarget = {
-  id: 'other-provider-vod-id',
-  title: 'Gladiátor II (2024)',
-  streamUrl: 'http://other.panel:8080/movie/x/y/1122.mkv',
-  mediaKind: 'movie',
-};
+const pendingAfterVod = core.getTvDoctorCloudStatus().pendingCount;
+const activePairToken = JSON.parse(globalThis.localStorage.getItem(core.TV_DOCTOR_PAIRING_STORAGE_KEY)).deviceToken;
+const vodRejectResp = await edgeHandler(
+  new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-tv-device-id': clientDeviceId,
+      'x-tv-device-token': activePairToken,
+    },
+    body: JSON.stringify({
+      action: 'sync',
+      deviceId: clientDeviceId,
+      profiles: [
+        {
+          channelKey: 'vod:movie:gladiator-ii-2024',
+          channelName: 'Gladiátor II (2024)',
+          countryCode: 'VOD',
+          bestFormat: 'ts',
+          bestBufferProfile: 'stable',
+          tsSuccessDelta: 1,
+        },
+      ],
+      events: [
+        {
+          eventUid: 'vod-ev-1',
+          eventType: 'freeze_detected',
+          channelKey: 'vod:movie:gladiator-ii-2024',
+          channelName: 'Gladiátor II (2024)',
+          stallMs: 4800,
+        },
+      ],
+    }),
+  }),
+);
+const vodRejectJson = await vodRejectResp.json();
 check(
-  vodBootCount >= 1 &&
-    dbProfiles.has('vod:movie:gladiator-ii-2024') &&
-    core.isVodHandledByDoctor(syncedVodTarget) === true &&
-    core.selectVodLaunchPlan(syncedVodTarget, core.INITIAL_SETTINGS).bufferProfileId === 'stable',
-  'a VOD (film/sorozat) TV Doktor tapasztalatok is felmennek a Supabase tudásbázisba és másik TV-n azonnal kezeltként hasznosulnak',
+  pendingAfterVod === 0 &&
+    vodRejectResp.status === 200 &&
+    vodRejectJson.syncedProfiles === 0 &&
+    vodRejectJson.syncedEvents === 0 &&
+    !dbProfiles.has('vod:movie:gladiator-ii-2024'),
+  'sem a kliens várólista, sem a Supabase Edge Function nem ment el VOD (film/sorozat) címet vagy elakadási pozíciót',
 );
 
 // Párosítás visszavonása (unpair): a Supabase-ben revoked=true lesz, és a régi tokennel semmilyen hozzáférés nem engedélyezett!
@@ -1049,10 +1141,13 @@ const uiHarness = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MenuSettingsModal } from './web/src/components/MenuSettingsModal.tsx';
+import { TvDoctorStatusModal } from './web/src/components/TvDoctorStatusModal.tsx';
 import { DiagnosticShareModal } from './web/src/components/DiagnosticShareModal.tsx';
 import { VideoPlayer } from './web/src/components/VideoPlayer.tsx';
 import { ChannelList } from './web/src/components/ChannelList.tsx';
 import { INITIAL_SETTINGS } from './web/src/data/mockData.ts';
+import { saveLiveContentSafely } from './web/src/services/contentStore.ts';
+import { storageService } from './web/src/services/storageService.ts';
 import {
   recordDoctorChannelSuccess,
   recordDoctorChannelFailure,
@@ -1065,6 +1160,7 @@ import {
   isChannelHandledByDoctor,
   isVodHandledByDoctor,
   getTvDoctorMemoryStats,
+  getTvDoctorSummary,
 } from './web/src/services/tvDoctor.ts';
 import {
   attachTvDoctorDiagnostics,
@@ -1148,6 +1244,7 @@ function TestApp({ initialMode }) {
     isChannelHandledByDoctor,
     isVodHandledByDoctor,
     getTvDoctorMemoryStats,
+    getTvDoctorSummary,
     configureTvDoctorCloud,
     checkTvDoctorConnection,
     getTvDoctorCloudStatus,
@@ -1155,6 +1252,14 @@ function TestApp({ initialMode }) {
     getAppLogText,
     manualLogSnapshot,
   };
+  if (initialMode === 'doctorModal') {
+    return React.createElement(TvDoctorStatusModal, {
+      isOpen: true,
+      onClose: () => { window.__DOCTOR_MODAL_CLOSED__ = true; },
+      settings,
+      activeChannel: channel,
+    });
+  }
   if (initialMode === 'channelList') {
     return React.createElement(
       'div',
@@ -1232,6 +1337,34 @@ window.__MOUNT_MODE__ = (mode) => {
   root = createRoot(document.getElementById('root'));
   root.render(React.createElement(TestApp, { initialMode: mode }));
 };
+
+window.__MOUNT_FULL_APP__ = async () => {
+  storageService.saveHistory([
+    {
+      id: 'hist-vod-1',
+      title: 'Dűne (2021)',
+      mediaType: 'movie',
+      streamUrl: 'http://stream.example:8080/movie/u/p/7701.mkv',
+      positionSeconds: 180,
+      durationSeconds: 7200,
+      updatedAt: new Date().toISOString(),
+    },
+  ]);
+  saveLiveContentSafely({
+    provider: { id: 'prov-1', name: 'Éles Szolgáltató', type: 'xtream' },
+    channels: SAMPLE_LIST_CHANNELS,
+    liveCategories: [{ id: 'country-HU', name: 'Magyarország', flag: '🇭🇺', channelCount: 3, type: 'live' }],
+    vodCategories: [],
+    seriesCategories: [],
+    movies: [],
+    series: [],
+    totals: { live: 3, vod: 1, series: 1 },
+  });
+  const mod = await import('./web/src/App.tsx');
+  if (root) root.unmount();
+  root = createRoot(document.getElementById('root'));
+  root.render(React.createElement(mod.App));
+};
 `;
 
 const uiBundleFile = path.join(outDir, 'tv-doctor-ui-bundle.js');
@@ -1278,7 +1411,7 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
           );
         }
         if (body.action === 'pair_verify') {
-          if (body.code === '482915') {
+          if (body.code === '408015') {
             return new Response(
               JSON.stringify({
                 ok: true,
@@ -1413,18 +1546,33 @@ try {
     'a TV Doktor dobozban a zöld 3D TV Doktor ikon szerepel, és a Minden rendben alatti szöveg rövid, maximum 2 soros',
   );
   check(
-    Boolean(doctorFooter) &&
-      doctorBox.contains(doctorFooter) &&
-      doctorFooter.contains(doctorExpandBtn) &&
-      doctorFooter.contains(doctorResetBtn) &&
-      doctorResetBtn.className.includes('ml-auto') &&
-      doctorExpandBtn.tagName === 'BUTTON' &&
-      !doc.querySelector('[data-tv-doctor-details]'),
-    'a piros Memória: 0 gomb ugyanabban a dobozban a jobb sarokban ül, az Állapot/Napló lenyitó pedig fókuszálható <button>',
+    doctorFooter === null &&
+      doctorExpandBtn === null &&
+      doctorResetBtn === null &&
+      !doc.querySelector('[data-tv-doctor-details]') &&
+      Boolean(doctorToggle),
+    'a Beállítások → Rendszer → TV Doktor dobozban NEM látszik sem a sárga Állapot/Napló gomb, sem a piros Memória: 0 gomb — csak a Ki/Be kapcsoló és a feliratok',
   );
   check(doctorToggle.getAttribute('aria-checked') === 'true', 'alapértelmezetten a TV Doktor aktív');
 
-  // Különálló Supabase-párosítás menüpont távirányítós megnyitása és 6 jegyű párosítás végigvitele:
+  // Távirányítós OK a TV Doktor dobozon közvetlenül a Ki/Be kapcsolót váltja:
+  doctorBox.focus();
+  doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await wait(45);
+  check(
+    window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === false &&
+      doc.querySelector('[data-tv-doctor-toggle]').getAttribute('aria-checked') === 'false',
+    'a Rendszer → TV Doktor dobozon az OK (Enter) gomb közvetlenül átkapcsolja a TV Doktor kapcsolót',
+  );
+  doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await wait(45);
+  check(
+    window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === true &&
+      doc.querySelector('[data-tv-doctor-toggle]').getAttribute('aria-checked') === 'true',
+    'a Rendszer → TV Doktor dobozon az ismételt OK (Enter) visszakapcsolja a TV Doktort',
+  );
+
+  // Különálló Supabase-párosítás menüpont távirányítós megnyitása és 0-kat tartalmazó 6 jegyű párosítás végigvitele:
   check(
     Boolean(pairingBox) && Boolean(pairingMenuBtn) && (pairingBox.textContent || '').includes('Supabase-párosítás'),
     'a TV Doktor menü alatt megjelenik a különálló Supabase-párosítás menüpont',
@@ -1442,13 +1590,13 @@ try {
     'a Supabase-párosítás ablak távirányítóval megnyílik, mutatja a Nincs párosítva állapotot és az Eszköz azonosítóját',
   );
 
-  // Új kód igénylése + hibás kód állapotjelzés + érvényes 6 jegyű kód távirányítós számgombokkal:
+  // Új kód igénylése + hibás kód állapotjelzés + 0-kat tartalmazó érvényes 6 jegyű kód (408015) távirányítós számgombokkal:
   pairingModal.querySelector('[data-tv-doctor-pair-request]').dispatchEvent(
     new window.MouseEvent('click', { bubbles: true, cancelable: true }),
   );
   await wait(60);
 
-  for (const d of ['1', '1', '1', '1', '1', '2']) {
+  for (const d of ['1', '0', '1', '0', '1', '2']) {
     pairingModal.dispatchEvent(new window.KeyboardEvent('keydown', { key: d, bubbles: true, cancelable: true }));
   }
   await wait(30);
@@ -1462,13 +1610,13 @@ try {
     'hibás 6 jegyű kódnál a párosítási képernyő egyértelmű Hiba állapotot jelez',
   );
 
-  // Ürítés + a helyes 6 jegyű kód (482915) beírása távirányítóval -> Sikeres párosítás!
+  // Ürítés + a 0-kat tartalmazó helyes 6 jegyű kód (408015) beírása távirányítóval -> Sikeres párosítás!
   pairingModal.querySelector('[data-tv-doctor-digit-clear]').dispatchEvent(
     new window.MouseEvent('click', { bubbles: true, cancelable: true }),
   );
   await wait(25);
-  for (const d of ['4', '8', '2', '9', '1', '5']) {
-    pairingModal.dispatchEvent(new window.KeyboardEvent('keydown', { key: d, bubbles: true, cancelable: true }));
+  for (const d of ['4', '0', '8', '0', '1', '5']) {
+    pairingModal.dispatchEvent(new window.KeyboardEvent('keydown', { key: d, code: `Digit${d}`, keyCode: 48 + Number(d), bubbles: true, cancelable: true }));
   }
   await wait(30);
   pairingModal.querySelector('[data-tv-doctor-pair-verify]').dispatchEvent(
@@ -1478,8 +1626,9 @@ try {
   check(
     pairingModal.querySelector('[data-tv-doctor-pair-status]')?.getAttribute('data-pair-state') === 'paired' &&
       (pairingModal.textContent || '').includes('Sikeres párosítás') &&
-      (pairingModal.textContent || '').includes('LG-'),
-    'helyes 6 jegyű kód után Sikeres párosítás állapot és az eszköz azonosítója jelenik meg',
+      (pairingModal.textContent || '').includes('LG-') &&
+      !doc.querySelector('[data-tv-doctor-modal]'),
+    '0 számjegyeket tartalmazó helyes 6 jegyű kód (408015) után Sikeres párosítás állapot jelenik meg, a TV Doktor napló nem nyílik meg',
   );
 
   // Vissza (Escape) bezárja a párosítási ablakot, a Beállítások menü nyitva marad, a jelvény Párosítva állapotra vált:
@@ -1491,25 +1640,73 @@ try {
     'Vissza gombbal csak a párosítási ablak záródik be, a menüsoron pedig látszik a Párosítva állapot',
   );
 
-  // Távirányítós fókusz a TV Doktor dobozon: OK belép és közvetlenül az Állapot/Napló lenyitó gombra ad fókuszt, második OK pedig lenyitja!
+  // 3.1b 0-ás gombos 2 oszlopos TvDoctorStatusModal: bal oldalon lefelé görgethető napló,
+  // jobb oldalon állandó adatok + jobb felső sarokban a piros Memória: 0 gomb + Supabase hibalokalizáció:
   mockCloudMode = 'ok';
-  doctorBox.focus();
-  doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-  await wait(40);
-  const expandFocusedOnEnter = doc.activeElement === doctorExpandBtn;
-  doctorExpandBtn.click();
+  for (let i = 1; i <= 15; i += 1) {
+    window.__DOCTOR_UI__.recordDoctorChannelSuccess({
+      channel: { id: `ch-log-${i}`, name: `[HU] Teszt Adó ${i}`, countryCode: 'HU' },
+      format: i % 2 === 0 ? 'hls' : 'ts',
+      bufferProfile: 'balanced',
+      startupMs: 300 + i * 10,
+      wasRepair: i % 3 === 0,
+    });
+  }
+  window.__DOCTOR_MODAL_CLOSED__ = false;
+  window.__MOUNT_MODE__('doctorModal');
   await wait(90);
-  const detailsOpen = doc.querySelector('[data-tv-doctor-details]');
+
+  const doctorModal = doc.querySelector('[data-tv-doctor-modal]');
+  const leftPane = doc.querySelector('[data-tv-doctor-left-pane]');
+  const rightPane = doc.querySelector('[data-tv-doctor-right-pane]');
+  const logScroll = doc.querySelector('[data-tv-doctor-log-scroll]');
+  const modalResetBtn = rightPane?.querySelector('[data-tv-doctor-reset]');
+
   check(
-    expandFocusedOnEnter &&
-      Boolean(detailsOpen) &&
-      Boolean(doc.querySelector('[data-tv-doctor-health]')) &&
-      Boolean(doc.querySelector('[data-tv-doctor-supabase]')) &&
-      Boolean(doc.querySelector('[data-tv-doctor-memory]')) &&
-      Boolean(doc.querySelector('[data-tv-doctor-log-list]')) &&
-      detailsOpen.textContent.includes('Létrejött ✓') &&
-      detailsOpen.textContent.includes('18 db'),
-    'távirányítós OK-ra az Állapot, Supabase, memória és napló lenyitása gomb fókuszt kap és lenyitja a teljes adatpanelt',
+    Boolean(doctorModal) &&
+      Boolean(leftPane) &&
+      Boolean(rightPane) &&
+      Boolean(logScroll) &&
+      leftPane.contains(logScroll) &&
+      !leftPane.querySelector('[data-tv-doctor-health]') &&
+      !leftPane.querySelector('[data-tv-doctor-memory]') &&
+      !leftPane.querySelector('[data-tv-doctor-reset]') &&
+      Boolean(rightPane.querySelector('[data-tv-doctor-health]')) &&
+      Boolean(rightPane.querySelector('[data-tv-doctor-supabase]')) &&
+      Boolean(rightPane.querySelector('[data-tv-doctor-memory]')) &&
+      Boolean(modalResetBtn) &&
+      rightPane.textContent.includes('Létrejött ✓') &&
+      rightPane.textContent.includes('18 db'),
+    'a 0-ás gomb ablaka 2 oszlopos: bal oldalon kizárólag a Legutóbbi TV Doktor napló, jobb oldalon az állandó adatok és a jobb felső sarokban a piros Memória: 0 gomb',
+  );
+
+  // Lefelé menve végigolvasható napló távirányítóval (ArrowDown / ArrowUp):
+  Object.defineProperty(logScroll, 'clientHeight', { value: 400, configurable: true });
+  Object.defineProperty(logScroll, 'scrollHeight', { value: 1800, configurable: true });
+  check(doc.activeElement === logScroll, 'megnyitáskor az alapértelmezett fókusz a bal oldali görgethető naplón áll');
+  logScroll.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  await wait(20);
+  const scrollAfterDown1 = logScroll.scrollTop;
+  logScroll.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  await wait(20);
+  const scrollAfterDown2 = logScroll.scrollTop;
+  logScroll.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+  await wait(20);
+  const scrollAfterUp = logScroll.scrollTop;
+  check(
+    scrollAfterDown1 > 0 &&
+      scrollAfterDown2 > scrollAfterDown1 &&
+      scrollAfterUp < scrollAfterDown2 &&
+      doc.activeElement === logScroll,
+    'a bal oldali Legutóbbi TV Doktor napló távirányítóval (Le/Fel nyilakkal) valóban görgetve végigolvasható',
+  );
+
+  // Jobbra nyíllal átnavigálás a jobb felső sarokban lévő piros Memória: 0 gombra (elérhető távirányítóval!):
+  logScroll.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  await wait(25);
+  check(
+    doc.activeElement === modalResetBtn,
+    'a bal oldali naplóról Jobbra nyíllal közvetlenül elérhető a jobb felső sarokban lévő piros Memória: 0 gomb',
   );
 
   // Supabase hiba esetén pontosan kiírja HOL a hiba és MI a hiba röviden:
@@ -1524,7 +1721,7 @@ try {
       errBox401.textContent.includes('Hol a hiba:') &&
       errBox401.textContent.includes('Supabase hitelesítés (API kulcs') &&
       errBox401.textContent.includes('HTTP 401'),
-    'Supabase API-kulcs hibánál pontosan kiírja HOL a hiba (hitelesítés) és MI a teendő',
+    'Supabase API-kulcs hibánál a jobb oldalon pontosan kiírja HOL a hiba (hitelesítés) és MI a teendő',
   );
 
   mockCloudMode = 'db_500';
@@ -1540,10 +1737,10 @@ try {
     'Supabase adatbázishibánál pontosan megjelöli a tv_doctor adatbázis réteget mint hibahelyet',
   );
 
-  // Memória 0-ra állítása gomb a jobb sarokban: nullázza a tanult profilokat, a várólistát és a TV Doktor memóriát,
-  // miközben NEM csukja be a lenyíló ablakot, NEM törli a listákat ÉS NEM szünteti meg a Supabase-párosítást!
+  // Memória: 0 gomb a jobb felső sarokban: nullázza a tanult profilokat, a naplót és a várólistát,
+  // miközben NEM törli a listákat ÉS NEM szünteti meg a Supabase-párosítást!
   const memBeforeReset = window.__DOCTOR_UI__.getTvDoctorMemoryStats();
-  doc.querySelector('[data-tv-doctor-reset]').dispatchEvent(
+  modalResetBtn.dispatchEvent(
     new window.MouseEvent('click', { bubbles: true, cancelable: true }),
   );
   await wait(60);
@@ -1553,36 +1750,13 @@ try {
     memBeforeReset.doctorTotalBytes > 0 &&
       memAfterReset.learnedChannelCount === 0 &&
       memAfterReset.doctorTotalBytes === 0 &&
+      window.__DOCTOR_UI__.getTvDoctorSummary().recentLogs.length === 0 &&
+      (doc.querySelector('[data-tv-doctor-log-count]')?.textContent || '').includes('0 sor') &&
       cloudAfterReset.pendingCount === 0 &&
       cloudAfterReset.paired === true &&
-      Boolean(doc.querySelector('[data-tv-doctor-details]')) &&
       window.localStorage.getItem('iptv_rt_providers_v1')?.includes('Éles Szolgáltató'),
-    'a Memória: 0 gomb 0 B / 0 csatorna alapállapotra állítja a TV Doktort, miközben a párosítást és a csatornalistát érintetlenül hagyja',
+    'a jobb sarokban lévő piros Memória: 0 gomb 0 B / 0 csatorna / 0 naplósor állapotra állítja a TV Doktort, miközben a párosítást és a csatornalistát érintetlenül hagyja',
   );
-
-  // A lenyitó gombra újra rányomva visszacsukódik az információs ablak:
-  doc.querySelector('[data-tv-doctor-expand]').dispatchEvent(
-    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
-  );
-  await wait(50);
-  check(!doc.querySelector('[data-tv-doctor-details]'), 'az Állapot és napló bezárása gombra nyomva az adatpanel tisztán visszacsukódik');
-
-  // A Ki/Be kapcsoló önállóan kapcsol, nem nyitja ki véletlenül a lenyíló részt:
-  doc.querySelector('[data-tv-doctor-toggle]').dispatchEvent(
-    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
-  );
-  await wait(50);
-  check(
-    window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === false &&
-      doc.querySelector('[data-tv-doctor-toggle]').getAttribute('aria-checked') === 'false' &&
-      !doc.querySelector('[data-tv-doctor-details]'),
-    'a Ki/Be kapcsoló önállóan kikapcsolja a TV Doktort, és nem nyitja le véletlenül a naplórészt',
-  );
-  // Visszakapcsoljuk a további tesztekhez:
-  doc.querySelector('[data-tv-doctor-toggle]').dispatchEvent(
-    new window.MouseEvent('click', { bubbles: true, cancelable: true }),
-  );
-  await wait(40);
 
   // 3.2 Kézi hibakeresési napló (DiagnosticShareModal): TV Doktor naplózás + elakadás rögzítése + változatlan Supabase küldés
   mockCloudMode = 'db_500';
@@ -1832,8 +2006,9 @@ try {
     'a pufferelés megszűnése után az állapotablak ismét automatikusan eltűnik',
   );
 
-  // FILM (VOD) indítása teljes képernyőn:
+  // FILM (VOD) indítása teljes képernyőn – valós idejű lejátszássegítés, MEMÓRIA- ÉS NAPLÓMENTÉS NÉLKÜL:
   playedUrls.length = 0;
+  window.__DOCTOR_UI__.clearTvDoctorMemory();
   window.__DOCTOR_UI__.setVodPlayback({
     url: 'http://stream.example:8080/movie/u/p/9001.mkv',
     title: 'Csillagok között (2014)',
@@ -1846,10 +2021,10 @@ try {
     movieIconBefore?.getAttribute('data-doctor-handled') === 'false' &&
       Boolean(movieStatusLoad) &&
       (movieStatusLoad.textContent || '').includes('Film betöltése'),
-    'film indításakor a teljes képernyős doktor ikon jelzi a még nem kezelt állapotot, alatta pedig „Film betöltése” látszik',
+    'film indításakor a teljes képernyős doktor ikon jelzi az alap állapotot, alatta pedig „Film betöltése” látszik',
   );
 
-  // Film közbeni hiba -> a TV Doktor rögzíti, kezeli, újrapróbálja (.mkv marad!), állapotablak mutatja, majd stabil lejátszás után eltűnik:
+  // Film közbeni hiba -> a TV Doktor valós időben közbelép és újrapróbálja (.mkv marad!), de NEM menti memóriába/naplóba!
   const vodVideo = doc.querySelector('video');
   vodVideo.dispatchEvent(new window.Event('error'));
   await wait(60);
@@ -1859,7 +2034,7 @@ try {
       ((movieErrWindow.textContent || '').includes('VOD visszaállítás') ||
         (movieErrWindow.textContent || '').includes('Adatfolyam-hiba')) &&
       doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true',
-    'film közbeni hibánál a TV Doktor azonnal közbelép, kezeltre váltja az ikont, és megjeleníti a VOD helyreállítási állapotablakot',
+    'film közbeni hibánál a TV Doktor azonnal valós időben közbelép és megjeleníti a VOD helyreállítási állapotablakot',
   );
 
   // Megvárjuk az újrapróbálkozást és szimuláljuk a sikeres, stabil lejátszást:
@@ -1874,10 +2049,14 @@ try {
     'a VOD helyreállítás megtartja az eredeti .mkv címet, és ellenőrzi a javított filmlejátszás stabilitását',
   );
   await wait(2900);
+  const logsAfterMovie = window.__DOCTOR_UI__.getTvDoctorSummary().recentLogs;
+  const memAfterMovie = window.__DOCTOR_UI__.getTvDoctorMemoryStats();
   check(
     !doc.querySelector('[data-tv-doctor-status-window]') &&
-      doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true',
-    'a film sikeres helyreállítása után az állapotablak automatikusan eltűnik, a zöld 3D doktor ikon pedig az óra előtt marad',
+      memAfterMovie.learnedChannelCount === 0 &&
+      window.localStorage.getItem('iptv_tv_doctor_v1') === null &&
+      !logsAfterMovie.some((l) => l.channelName.includes('Csillagok') || l.message.includes('Csillagok')),
+    'a film helyreállítása után sem a helyi memóriába, sem a TV Doktor naplóba nem kerül be, hogy melyik film vagy hol akadt el',
   );
 
   // SOROZAT (VOD) indítása teljes képernyőn:
@@ -1897,13 +2076,15 @@ try {
   );
   doc.querySelector('video').dispatchEvent(new window.Event('playing'));
   await wait(780);
+  const logsAfterSeries = window.__DOCTOR_UI__.getTvDoctorSummary().recentLogs;
   check(
-    doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true' &&
-      !doc.querySelector('[data-tv-doctor-status-window]'),
-    'sorozatepizód elindulása után az ikon zöldre vált és a sorozat-állapotablak automatikusan eltűnik',
+    !doc.querySelector('[data-tv-doctor-status-window]') &&
+      window.__DOCTOR_UI__.getTvDoctorMemoryStats().learnedChannelCount === 0 &&
+      !logsAfterSeries.some((l) => l.channelName.includes('Sárkányok') || l.message.includes('Sárkányok')),
+    'sorozatepizód lejátszása után az állapotablak eltűnik, és a sorozat sem kerül be a TV Doktor memóriájába vagy naplójába',
   );
 
-  // Már kezelt film újbóli megnyitásakor AZONNAL zöld (handled=true) állapotot mutat az indítás pillanatában:
+  // Korábban megakadt film újbóli megnyitásakor is tiszta lappal indul (mivel nem tároltunk VOD memóriát):
   window.__DOCTOR_UI__.setVodPlayback({
     url: 'http://stream.example:8080/movie/u/p/9001.mkv',
     title: 'Csillagok között (2014)',
@@ -1911,8 +2092,177 @@ try {
   });
   await wait(80);
   check(
-    doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'true',
-    'már kezelt film vagy csatorna újbóli indításakor a teljes képernyős doktor ikon azonnal jelzi a kezelt (zöld) állapotot',
+    doc.querySelector('[data-fullscreen-doctor-icon]')?.getAttribute('data-doctor-handled') === 'false',
+    'a film újbóli megnyitásakor nincs eltárolt VOD-emlék (data-doctor-handled=false)',
+  );
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 5. TELJES APP INTEGRÁCIÓ: 0-ÁS SZÁMJEGY GOMB KIZÁRÓLAGOS MŰKÖDÉSE
+  //    (CSAK főoldal + teljes képernyős élő TV; SOHA Mozi/Sorozat/VOD/Menü/Kódbevitel közben)
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log('\n5. Távirányító 0-ás gomb kizárólagos védelme (főoldal + teljes képernyős élő TV vs. Mozi, Sorozat, menük és 0-s kódbevitel)');
+  mockCloudMode = 'ok';
+  await window.__MOUNT_FULL_APP__();
+  await wait(150);
+
+  const pressZeroOnWindow = (targetEl) => {
+    const evt = new window.KeyboardEvent('keydown', {
+      key: '0',
+      code: 'Digit0',
+      keyCode: 48,
+      which: 48,
+      bubbles: true,
+      cancelable: true,
+    });
+    (targetEl || doc.body).dispatchEvent(evt);
+  };
+
+  // 5.1 Főoldalon (élő TV aktív): 0 megnyitja a TV Doktor állapot- és naplóablakot, újabb 0 bezárja:
+  check(!doc.querySelector('[data-tv-doctor-modal]'), 'induláskor a 0-ás TV Doktor ablak zárva van');
+  pressZeroOnWindow(doc.body);
+  await wait(90);
+  check(
+    Boolean(doc.querySelector('[data-tv-doctor-modal]')),
+    'a főoldalon (élő TV lejátszása közben) a 0-ás gomb megnyitja a 2 oszlopos TV Doktor állapot- és naplóablakot',
+  );
+  pressZeroOnWindow(doc.activeElement || doc.body);
+  await wait(70);
+  check(
+    !doc.querySelector('[data-tv-doctor-modal]'),
+    'nyitott TV Doktor ablaknál a 0-ás gomb ismételt megnyomása tisztán bezárja az ablakot',
+  );
+
+  // 5.2 Teljes képernyős élő TV közben: 0 megnyitja, Escape bezárja, és teljes képernyőn maradunk:
+  window.dispatchEvent(new window.CustomEvent('iptv-enter-fullscreen'));
+  await wait(90);
+  check(
+    Boolean(doc.querySelector('[data-fullscreen-doctor-icon]')),
+    'az élő TV átváltott teljes képernyőre',
+  );
+  pressZeroOnWindow(doc.body);
+  await wait(90);
+  check(
+    Boolean(doc.querySelector('[data-tv-doctor-modal]')),
+    'teljes képernyős élő TV lejátszás közben is előhívható a 0-ás gombbal a TV Doktor ablak',
+  );
+  (doc.activeElement || doc.body).dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+  );
+  await wait(70);
+  check(
+    !doc.querySelector('[data-tv-doctor-modal]') &&
+      Boolean(doc.querySelector('[data-fullscreen-doctor-icon]')),
+    'Escape/Vissza csak a TV Doktor ablakot zárja be, az élő adás teljes képernyőn marad',
+  );
+
+  // Kilépés a teljes képernyőből vissza a főoldalra:
+  const fsPlayerEl = doc.querySelector('[data-tv-player]');
+  fsPlayerEl?.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+  );
+  await wait(80);
+
+  // 5.3 Mozi nézetben és Sorozatok nézetben a 0-ás gomb SOHA nem nyithatja meg a naplót:
+  const headerButtons = Array.from(doc.querySelectorAll('header button'));
+  const moviesTabBtn = headerButtons.find((b) => (b.textContent || '').includes('Mozi') || (b.textContent || '').includes('Filmek'));
+  const seriesTabBtn = headerButtons.find((b) => (b.textContent || '').includes('Sorozat'));
+  const liveTabBtn = headerButtons.find((b) => (b.textContent || '').includes('Élő') || (b.textContent || '').includes('TV'));
+
+  moviesTabBtn?.click();
+  await wait(80);
+  pressZeroOnWindow(doc.body);
+  await wait(60);
+  check(
+    !doc.querySelector('[data-tv-doctor-modal]'),
+    'Mozi (filmek) nézetben a 0-ás gomb NEM hozza elő a TV Doktor ablakot',
+  );
+
+  seriesTabBtn?.click();
+  await wait(80);
+  pressZeroOnWindow(doc.body);
+  await wait(60);
+  check(
+    !doc.querySelector('[data-tv-doctor-modal]'),
+    'Sorozatok nézetben a 0-ás gomb NEM hozza elő a TV Doktor ablakot',
+  );
+
+  // Vissza az Élő TV főoldalra:
+  Array.from(doc.querySelectorAll('header button'))
+    .find((b) => b.getAttribute('aria-label') === 'TV' || (b.textContent || '').includes('TV'))
+    ?.click();
+  await wait(80);
+
+  // 5.4 Nyitott Beállítások menüben és 0-t tartalmazó Supabase-párosítási kód megadásakor SOHA nem nyílhat meg a TV Doktor napló:
+  doc.querySelector('header button[aria-label="Menü"]')?.click();
+  await wait(80);
+  pressZeroOnWindow(doc.body);
+  await wait(60);
+  check(
+    Boolean(doc.querySelector('[aria-label="Menü és beállítások"]')) &&
+      !doc.querySelector('[data-tv-doctor-modal]'),
+    'nyitott Beállítások menüben a 0-ás gomb NEM nyitja meg a TV Doktor naplót',
+  );
+
+  // Átváltunk a Rendszer fülre, megnyitjuk a Supabase-párosítást, és 0-t ütünk le:
+  doc.querySelector('[data-tv-tabid="system"]')?.click();
+  await wait(60);
+  doc.querySelector('[data-tv-doctor-pairing-menu]')?.click();
+  await wait(80);
+  const fullAppPairingModal = doc.querySelector('[data-supabase-pairing-modal]');
+  pressZeroOnWindow(fullAppPairingModal || doc.body);
+  await wait(60);
+  check(
+    Boolean(doc.querySelector('[data-supabase-pairing-modal]')) &&
+      !doc.querySelector('[data-tv-doctor-modal]'),
+    'nyitott Supabase-párosító ablakban (0-t tartalmazó kód bevitelekor) a 0-ás gomb SOHA nem hívja elő a TV Doktor naplót',
+  );
+
+  // Bezárjuk a párosítót, megnyitjuk az Új lista (AddPlaylistModal) ablakot, és <input> mezőbe írunk 0-t:
+  doc.querySelector('[data-tv-doctor-pair-close]')?.click();
+  await wait(50);
+  doc.querySelector('[data-tv-tabid="lists"]')?.click();
+  await wait(60);
+  doc.querySelector('[data-tv-list-action="new"]')?.click();
+  await wait(80);
+  const playlistInput = doc.querySelector('input');
+  playlistInput?.focus();
+  pressZeroOnWindow(playlistInput || doc.body);
+  await wait(60);
+  check(
+    Boolean(playlistInput) && !doc.querySelector('[data-tv-doctor-modal]'),
+    'szövegmezőben (<input>, pl. URL/kód megadásakor) történő 0 bevitelkor SOHA nem nyílik meg a TV Doktor napló',
+  );
+
+  // Bezárjuk a modálokat, és még nyitott modál NÉLKÜL is ellenőrizzük a közvetlen <input> védelmet a főoldalon:
+  doc.querySelectorAll('[role="dialog"]').forEach((d) => {
+    d.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  });
+  await wait(80);
+  const standaloneInput = doc.createElement('input');
+  doc.body.appendChild(standaloneInput);
+  standaloneInput.focus();
+  pressZeroOnWindow(standaloneInput);
+  await wait(50);
+  const openedWhileInputFocused = Boolean(doc.querySelector('[data-tv-doctor-modal]'));
+  standaloneInput.remove();
+  check(
+    !openedWhileInputFocused,
+    'bármilyen fókuszált szövegmező (<input>) esetén a főoldalon is blokkolva van a 0-ás TV Doktor gyorsgomb',
+  );
+
+  // 5.5 Film / sorozat (VOD) teljes képernyős lejátszása közben a 0-ás gomb SOHA nem nyithatja meg a TV Doktor naplót:
+  doc.querySelector('header button[aria-label="Menü"]')?.click();
+  await wait(80);
+  doc.querySelector('[data-tv-tabid="favorites"]')?.click();
+  await wait(60);
+  doc.querySelector('[data-resume-continue]')?.click();
+  await wait(90);
+  pressZeroOnWindow(doc.body);
+  await wait(60);
+  check(
+    Boolean(doc.querySelector('[data-tv-player][data-vod-active]')) &&
+      !doc.querySelector('[data-tv-doctor-modal]'),
+    'film / sorozat (VOD) teljes képernyős lejátszása közben a 0-ás gomb SOHA nem hívja elő a TV Doktor ablakot',
   );
 } finally {
   dom.window.close();

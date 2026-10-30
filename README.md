@@ -8,16 +8,15 @@ LG webOS TV-re készült IPTV-alkalmazás (`hu.rt.iptv.webos`): élő csatornák
 
 Az alkalmazás beépített **TV Doktor** modult tartalmaz az élő csatornák, filmek és sorozatok lejátszásának felügyeletére:
 
-- **Lejátszási diagnosztika és hibafelismerés:** méri a csatorna- és VOD-indítási időket, figyeli a médiahibákat, az indulási időtúllépéseket, a pufferkiürülést, a váratlan megállást, és különbséget tesz a valódi stream-/dekóderfagyás, illetve az állóképes vagy hangalapú adások között.
-- **Támogatott automatikus javítási lépések:** hiba vagy elakadás esetén korlátozott lépésszámban (munkamenetenként legfeljebb 5 lépés, percenként korlátozott beavatkozással) támogatott TS/HLS formátumváltást próbál élő adásoknál, biztonságos határok között (`1,0–10,0 mp`) módosítja a pufferprofilt (`fast`, `balanced`, `stable`, `adaptive-1..3`), újraindítja a megakadt adatfolyamot, és csak igazolt stabil lejátszás után rögzíti a profilt sikeresként. Ha a javítási lépések kimerülnek, biztonságosan visszaáll az alap lejátszási működésre.
-- **Biztonsági korlátok:** a TV Doktor soha nem töröl csatornalistát, szolgáltatót, kedvencet vagy felhasználói beállítást; a helyi memória mérete és elemszáma korlátozott, és a **Beállítások → Rendszer → TV Doktor** menüben a **Memória: 0** gombbal bármikor nullázható.
+- **Élő TV diagnosztika és tanuló optimalizálás:** méri az élő csatornák indítási idejét, figyeli a médiahibákat, az indulási időtúllépéseket, a pufferkiürülést és a váratlan megállást, valamint különbséget tesz a valódi stream-/dekóderfagyás és az állóképes vagy hangalapú adások között. Hiba esetén korlátozott lépésszámban támogatott TS/HLS formátumváltást és biztonságos (`1,0–10,0 mp`) pufferlépcsőket próbál, és csak igazolt stabil lejátszás után jegyzi meg az élő csatorna profilját.
+- **Film és sorozat (VOD) valós idejű lejátszássegítés memória-mentés nélkül:** a Mozi és Sorozatok tartalmaknál a TV Doktor valós időben segíti a folyamatos lejátszást (indulási védelem, pufferlépcsőzés akadásnál, pozíciótartó újracsatlakozás), de nem menti el memóriába vagy naplóba, hogy melyik film vagy sorozat és hol akadt el.
+- **`0` gombos 2 oszlopos állapot- és naplóablak (élő TV közben):** a főoldalon és teljes képernyőn, kizárólag élő TV lejátszása közben a távirányító **`0`** gombja nagy, jól olvasható kétoszlopos ablakot nyit meg — bal oldalon a távirányítóval lefelé végigolvasható **Legutóbbi TV Doktor napló**, jobb oldalon az állandó állapot- és memóriaadatok, valamint a jobb felső sarokban elérhető piros **Memória: 0** nullázó gomb található. Film/sorozat lejátszásakor, Mozi/Sorozat nézetben, nyitott menükben és kód-/szövegbevitel közben a `0` gomb nem nyitja meg az ablakot.
+- **Biztonsági korlátok és menüvezérlés:** a TV Doktor soha nem töröl csatornalistát, szolgáltatót, kedvencet vagy felhasználói beállítást; a **Beállítások → Rendszer → TV Doktor** dobozban a Ki/Be kapcsoló érhető el.
 - **Állapotjelzés a felületen:** a már kezelt élő csatornáknál zöld 3D TV Doktor ikon jelenik meg a csatornalistában; teljes képernyős élő és VOD lejátszáskor a jobb felső óra előtt látható az állapotikon, aktív betöltés, pufferelés, hiba vagy javítás közben pedig automatikusan eltűnő állapotablak tájékoztat.
 
-### Korlátozott hozzáférésű védett memória és távoli funkciók
+### Korlátozott hozzáférésű távoli funkciók
 
-- A TV Doktor **védett távoli memóriája, tanult központi profiljai és a Supabase-hez kötött funkciók korlátozott hozzáférésűek**, és **nem érhetők el automatikusan más telepítések vagy nem jogosult készülékek számára**.
-- Jogosult párosítás nélkül az alkalmazás helyi lejátszása, valamint a TV Doktor helyi diagnosztikai és javítási funkciói korlátozás és lassítás nélkül működnek a készüléken, de a védett központi adatokhoz való hozzáférést a szerver elutasítja.
-- Kliensoldali, módosítható környezetben futó alkalmazás önmagában nem tudja 100%-os fizikai bizonyossággal igazolni a TV hardverazonosságát; a védett távoli adatok elérése ezért szerveroldali jogosultság-ellenőrzéshez kötött.
+- A TV Doktor távoli profiljai és felhőfunkciói korlátozott hozzáférésűek, és nem érhetők el automatikusan nem jogosult készülékek számára; jogosultság hiányában a helyi lejátszás és a helyi TV Doktor korlátozás és lassulás nélkül működik tovább a készüléken.
 
 ## TV-s vezérlés és kézi hibakeresés
 

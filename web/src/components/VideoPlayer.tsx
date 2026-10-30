@@ -43,7 +43,6 @@ import {
   planVodDoctorRepairStep,
   recordDoctorChannelFailure,
   recordDoctorChannelSuccess,
-  recordDoctorVodFailure,
   recordDoctorVodSuccess,
   selectChannelLaunchPlan,
   selectVodLaunchPlan,
@@ -1584,8 +1583,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (settings.tvDoctorEnabled === false) {
       clearDoctorStatusTimer();
       setDoctorStatus(null);
+      setVodSessionAssisted(false);
     }
   }, [settings.tvDoctorEnabled, clearDoctorStatusTimer]);
+
+  // VOD (film / sorozat) lejátszássegítés kizárólag az aktuális munkamenetben,
+  // memória- vagy naplómentés nélkül (bezáráskor / forrásváltáskor törlődik).
+  const [vodSessionAssisted, setVodSessionAssisted] = useState(false);
+  useEffect(() => {
+    setVodSessionAssisted(false);
+  }, [customStreamUrl]);
 
   const doctorSessionRef = useRef<{
     channelKey: string;
@@ -1715,31 +1722,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const vodTarget = buildVodDoctorTarget();
         const vodUrl = customStreamUrlLocalRef.current || activeMediaUrlRef.current || pendingStreamUrlRef.current || '';
         if (!vodUrl && !vodTarget.title) return;
-        const loadElapsedMs = docState.vodLoadStartedAt > 0 ? Math.max(0, Date.now() - docState.vodLoadStartedAt) : 0;
-        const pseudoChannel = {
-          id: vodTarget.id || normalizeVodDoctorKey(vodTarget),
-          name: vodTarget.title || 'Film / Sorozat',
-          streamUrl: vodUrl,
-          countryCode: vodTarget.mediaKind === 'series' ? 'SER' : 'VOD',
-        } as unknown as Channel;
-        collectDoctorDiagnostics({
-          channel: pseudoChannel,
-          trigger,
-          format: /\.m3u8(?=([?#]|$))/i.test(vodUrl) ? 'hls' : 'ts',
-          bufferProfile: docState.activeBufferProfile,
-          loadElapsedMs,
-          errorCode,
-          errorDetail,
-          streamState: streamSnapshot,
-        });
-        recordDoctorVodFailure({
-          target: vodTarget,
-          bufferProfile: docState.activeBufferProfile,
-          trigger,
-          errorCode,
-          errorDetail,
-          stallMs,
-        });
+        // VOD (Mozi / Sorozat): a TV Doktor valós időben segíti a folyamatos lejátszást,
+        // de NEM menti el memóriába / naplóba, hogy melyik film vagy sorozat hol akadt el.
+        setVodSessionAssisted(true);
         const resumePos = Math.max(
           0,
           Number(vodPositionKnownRef.current ? vodLastPositionRef.current : initialPositionSeconds) || 0,
@@ -5736,7 +5721,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           doctorStoreRevision >= 0 &&
           tvDoctorEnabled &&
           (isVod
-            ? isVodHandledByDoctor(buildVodDoctorTarget(customStreamUrl))
+            ? Boolean(vodSessionAssisted || isVodHandledByDoctor(buildVodDoctorTarget(customStreamUrl)))
             : isChannelHandledByDoctor(channel));
         return (
           <TvDoctorFullscreenHud

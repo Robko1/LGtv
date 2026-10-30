@@ -493,12 +493,24 @@ function readSyncState(): PersistedSyncState {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
+        const cleanPendingProfiles: Record<string, PendingProfileSync> = {};
+        if (parsed.pendingProfiles && typeof parsed.pendingProfiles === 'object') {
+          for (const [pk, pv] of Object.entries(parsed.pendingProfiles as Record<string, PendingProfileSync>)) {
+            if (!pk || pk.startsWith('vod:') || pv?.countryCode === 'VOD' || pv?.countryCode === 'SER') continue;
+            cleanPendingProfiles[pk] = pv;
+          }
+        }
+        const cleanPendingEvents = Array.isArray(parsed.pendingEvents)
+          ? parsed.pendingEvents
+              .filter((ev: any) => ev && !String(ev.channelKey || '').startsWith('vod:'))
+              .slice(-MAX_PENDING_EVENTS)
+          : [];
         cachedState = {
           deviceSeed: pairing.deviceId,
           lastSyncAt: typeof parsed.lastSyncAt === 'string' ? parsed.lastSyncAt : null,
           cloudProfileCount: Math.max(0, Number(parsed.cloudProfileCount) || 0),
-          pendingProfiles: parsed.pendingProfiles && typeof parsed.pendingProfiles === 'object' ? parsed.pendingProfiles : {},
-          pendingEvents: Array.isArray(parsed.pendingEvents) ? parsed.pendingEvents.slice(-MAX_PENDING_EVENTS) : [],
+          pendingProfiles: cleanPendingProfiles,
+          pendingEvents: cleanPendingEvents,
         };
         if (cachedState.lastSyncAt && pairing.deviceToken && runtimeConn.connectionState === 'unchecked') {
           runtimeConn.connected = true;
@@ -1296,6 +1308,10 @@ function enqueueFromHook(payload: {
   event: Record<string, unknown>;
 }): void {
   if (!cloudEnabled) return;
+  const rawKeyCheck = String(payload.record?.channelKey || payload.event?.channelKey || '');
+  if (rawKeyCheck.startsWith('vod:') || payload.record?.countryCode === 'VOD' || payload.record?.countryCode === 'SER') {
+    return;
+  }
   const state = readSyncState();
   const { eventType, record, event } = payload;
 
