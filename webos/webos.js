@@ -146,6 +146,8 @@
     37: 'ArrowLeft', 38: 'ArrowUp', 39: 'ArrowRight', 40: 'ArrowDown',
     13: 'Enter', 32: ' ', 8: 'Backspace', 27: 'Escape',
     33: 'PageUp', 34: 'PageDown',
+    48: '0', 49: '1', 50: '2', 51: '3', 52: '4', 53: '5', 54: '6', 55: '7', 56: '8', 57: '9',
+    96: '0', 97: '1', 98: '2', 99: '3', 100: '4', 101: '5', 102: '6', 103: '7', 104: '8', 105: '9',
     461: 'Escape',
     415: 'MediaPlay', 19: 'MediaPause', 413: 'MediaStop',
     412: 'MediaRewind', 417: 'MediaFastForward',
@@ -154,6 +156,8 @@
   var LEGACY_KEY_TO_KEY = {
     'Up': 'ArrowUp', 'Down': 'ArrowDown', 'Left': 'ArrowLeft', 'Right': 'ArrowRight',
     'Esc': 'Escape', 'Spacebar': ' ', 'U+0020': ' ',
+    'U+0030': '0', 'U+0031': '1', 'U+0032': '2', 'U+0033': '3', 'U+0034': '4',
+    'U+0035': '5', 'U+0036': '6', 'U+0037': '7', 'U+0038': '8', 'U+0039': '9',
     'OK': 'Enter', 'Accept': 'Enter', 'Select': 'Enter', 'NumpadEnter': 'Enter',
     'Back': 'Escape', 'GoBack': 'Escape', 'BrowserBack': 'Escape', 'XF86Back': 'Escape'
   };
@@ -474,6 +478,8 @@
         '.webos-tv [data-app-root] { height: 100% !important; min-height: 0 !important; max-height: 100% !important; }',
         '/* Teljes kepernyos lejatszo: dvh helyett vh a regi Chrome-on. */',
         '.webos-tv [data-tv-player].fixed { width: 100vw !important; height: 100vh !important; z-index: 2147483000 !important; }',
+        '/* A 0-gombos TV Doktor ablaknak teljes kepernyos elo TV folott is latszania kell! */',
+        '.webos-tv [data-tv-doctor-modal], [data-tv-doctor-modal] { z-index: 2147483600 !important; }',
         '/* TELJES KEPERNYO: a regi Chrome a 100dvh-t nem ismeri, ezert a doboz',
         '   magassaga 0 lehetett, a kep pedig balrol elcsuszott. Itt fixen a',
         '   teljes kijelzot hasznaljuk - bal oldali fekete sav nem maradhat. */',

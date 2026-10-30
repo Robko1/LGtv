@@ -1518,7 +1518,7 @@ export function attachTvDoctorDiagnostics(): void {
       const cloud = getTvDoctorCloudStatus();
 
       appLog(
-        `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; igazolt_javítások=${summary.totalVerifiedRepairs} ===`,
+        `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; lekapcsolt_epg=${mem.disabledEpgChannelCount}; igazolt_javítások=${summary.totalVerifiedRepairs}; kategóriák=(tanulás=${summary.categoryStats.learning.count}, segítség=${summary.categoryStats.assistance.count}, aktiválódás=${summary.categoryStats.activation.count}, csatornahiba=${summary.categoryStats.channel_error.count}) ===`,
       );
       appLog(
         `TV DOKTOR MEMÓRIA: doktor=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)} (${mem.doctorBudgetPercent}%); tv_tárhely=${formatDoctorBytes(mem.tvStorageUsedBytes)}/~5.0 MB (${mem.tvStoragePercent}%)${mem.jsHeapUsedMB !== null ? `; js_ram=${mem.jsHeapUsedMB} MB` : ''}; állapot=${mem.memoryHealthLabel}`,
@@ -1554,7 +1554,7 @@ export function attachTvDoctorDiagnostics(): void {
       const op = getTvDoctorOperationHealth();
       const cloud = getTvDoctorCloudStatus();
       appLog(
-        `=== TV DOKTOR NAPLÓ ÖSSZESÍTÉS: döntések=${op.decisionsCount}; max_döntési_idő=${op.maxDecisionMs}ms; elakadások_lassulások=${op.slowOpsCount}; fagyásvizsgálatok=${op.freezeChecksCount} (igazolt_fagyás=${op.confirmedFreezesCount}); javítási_lépések=${op.repairsAttemptedCount} (igazolt=${op.repairsVerifiedCount}); memória=${formatDoctorBytes(mem.doctorTotalBytes)}; supabase=${cloud.connected ? 'OK' : cloud.connectionState}${cloud.lastErrorSummary ? ` [${cloud.lastErrorLocation}: ${cloud.lastErrorSummary}]` : ''} ===`,
+        `=== TV DOKTOR NAPLÓ ÖSSZESÍTÉS: döntések=${op.decisionsCount}; max_döntési_idő=${op.maxDecisionMs}ms; elakadások_lassulások=${op.slowOpsCount}; fagyásvizsgálatok=${op.freezeChecksCount} (igazolt_fagyás=${op.confirmedFreezesCount}); javítási_lépések=${op.repairsAttemptedCount} (igazolt=${op.repairsVerifiedCount}); leállított_halott_csatorna=${op.deadChannelsHaltedCount}; epg_segítés=${op.epgAssistsCount}; epg_lekapcsolva=${op.epgDisabledCount}; memória=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)}; supabase=${cloud.connected ? 'OK' : cloud.connectionState}${cloud.lastErrorSummary ? ` [${cloud.lastErrorLocation}: ${cloud.lastErrorSummary}]` : ''} ===`,
       );
     },
   });

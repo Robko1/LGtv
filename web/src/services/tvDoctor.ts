@@ -15,49 +15,57 @@ import {
 import { appLog, isVerbosePlaybackLogging } from './appLog';
 
 /**
- * TV Doktor – intelligens, önfejlesztő diagnosztikai és lejátszás-optimalizáló rendszer.
+ * TV Doktor – intelligens, önfejlesztő diagnosztikai, csatornaváltás-gyorsító és EPG-felügyelő rendszer.
  *
  * Feladatai:
- *  1. Villámgyors csatornaváltás: csatornánként méri az indulási időket és előre kiválasztja
- *     a leggyorsabb, igazoltan stabil lejátszási formátumot (TS / HLS) és pufferprofilt.
- *  2. Automatikus aktiválás: hiba, indulási időtúllépés, fagyás vagy megszakadás esetén lép közbe.
- *  3. Hibakeresés: összegyűjti a csatorna, mód, indulási idő, hibakód és stream állapot adatait.
- *  4. Sebességteszt: biztonságosan összehasonlítja a támogatott lejátszási módok indulási idejét.
- *  5. Automatikus javítás: korlátozott számú lépésben módot/puffert vált, újraindít és ellenőriz.
- *  6. Tartós tanuló memória: csatornánként menti a bevált megoldást, sebességet és hibákat.
- *  7. Okos fagyásfigyelés: megkülönbözteti a valódi dekóder-/streamfagyást a ritkán változó
- *     képkockájú vagy hangalapú, valójában egészséges csatornáktól.
- *  8. Bővíthető architektúra: diagnosztikai és javítási bővítmények (pluginek) regisztrálhatók.
- *  9. Naplózás és biztonság: hitelesítő adatok nélkül naplóz, korlátozza az ismétléseket,
- *     soha nem töröl csatornalistát vagy felhasználói beállítást, hiba esetén visszaáll az alapra.
- * 10. Automatikus pufferoptimalizálás: előre meghatározott profilokat (fast / balanced / stable)
- *     és szigorú biztonságos határok közötti fokozatos lépcsőket (adaptive-1..3, max 10 mp) tesztel.
+ *  1. Villámgyors csatornaváltás: csatornánként pontosan megjegyzi a legutóbb ténylegesen működő
+ *     és leggyorsabb lejátszási formátumot (TS / HLS) + pufferprofilt (instant / turbo / fast / ...),
+ *     és újranyitáskor késlekedés nélkül azonnal azt alkalmazza.
+ *  2. Több különböző beállítás gyors kipróbálása: indulási vagy lejátszási hiba esetén nem ismételgeti
+ *     lassan ugyanazt a beállítást, hanem gyorsan végigpróbál több eltérő formátum- és pufferprofilt.
+ *  3. Valóban nem működő csatornák leállítása: korlátozott számú gyors beállításpróba után leállítja
+ *     az újrapróbálást, így soha nem pörög végtelen ciklusban egy halott csatornán.
+ *  4. 1 MB (1024 KB) dedikált, aszinkron háttér-memória: bőséges hely a tanult csatornaprofiloknak és
+ *     EPG-állapotoknak anélkül, hogy a localStorage írás valaha is megakasztaná a csatornaváltást.
+ *  5. EPG-ellenőrzés és csatornánkénti lekapcsolás: figyeli az EPG betöltését, elakadásnál segíti az
+ *     újratöltést, ha pedig egy csatornához igazoltan nincs EPG, lekapcsolja az EPG-keresést nála.
+ *  6. Színkódolt eseménykategóriák: külön követi és jelzi a Tanulás, Segítség/Javítás, Aktiválódás
+ *     és Csatornahiba eseményeket.
  */
 
 export const TV_DOCTOR_STORAGE_KEY = 'iptv_rt_tv_doctor_v1';
 export const TV_DOCTOR_SYNC_STORAGE_KEY = 'iptv_rt_tv_doctor_sync_v1';
 export const TV_DOCTOR_DIAG_LOGGING_KEY = 'iptv_rt_tv_doctor_diag_log_v1';
 
-/** Korlátok a TV erőforrásainak és a localStorage kvótának a védelmére. */
-export const MAX_LEARNED_CHANNELS = 450;
-export const MAX_SAFE_DOCTOR_STORAGE_BYTES = 256 * 1024;
+/** Korlátok a TV erőforrásainak és a localStorage kvótának a védelmére (1 MB dedikált keret). */
+export const MAX_LEARNED_CHANNELS = 1600;
+export const MAX_LEARNED_EPG_CHANNELS = 2400;
+export const MAX_SAFE_DOCTOR_STORAGE_BYTES = 1024 * 1024; // 1 MB (1024 KB)
 export const WEBOS_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024;
 export const DOCTOR_SLOW_OP_THRESHOLD_MS = 25;
 export const MAX_DOCTOR_REPAIR_STEPS = 5;
-export const MAX_INTERVENTIONS_PER_MINUTE = 6;
-export const DOCTOR_VERIFY_STABLE_MS = 2400;
+export const MAX_DEAD_CHANNEL_QUICK_STEPS = 2;
+export const MAX_INTERVENTIONS_PER_MINUTE = 8;
+export const DOCTOR_VERIFY_STABLE_MS = 2200;
+export const DEAD_CHANNEL_COOLDOWN_MS = 3 * 60 * 1000;
+export const EPG_DISABLED_TTL_MS = 12 * 60 * 60 * 1000;
+export const MAX_EPG_ASSIST_PER_WINDOW = 2;
+export const EPG_ASSIST_WINDOW_MS = 10 * 60 * 1000;
+const STORE_PERSIST_DEBOUNCE_MS = 220;
 
 /** Szigorú biztonsági határok a pufferbeállításokhoz (soha nem nőhet korlátlanul). */
-export const MIN_SAFE_BUFFER_SECONDS = 1.0;
+export const MIN_SAFE_BUFFER_SECONDS = 0.5;
 export const MAX_SAFE_BUFFER_SECONDS = 10.0;
-export const MIN_SAFE_STARTUP_WATCHDOG_MS = 1000;
+export const MIN_SAFE_STARTUP_WATCHDOG_MS = 550;
 export const MAX_SAFE_STARTUP_WATCHDOG_MS = 4000;
-export const MIN_SAFE_BUFFER_WATCHDOG_MS = 2500;
+export const MIN_SAFE_BUFFER_WATCHDOG_MS = 2200;
 export const MAX_SAFE_BUFFER_WATCHDOG_MS = 9000;
-export const MIN_SAFE_STALL_DETECTOR_MS = 3000;
+export const MIN_SAFE_STALL_DETECTOR_MS = 2800;
 export const MAX_SAFE_STALL_DETECTOR_MS = 9000;
 
 export type DoctorBufferProfileId =
+  | 'instant'
+  | 'turbo'
   | 'fast'
   | 'balanced'
   | 'stable'
@@ -66,6 +74,8 @@ export type DoctorBufferProfileId =
   | 'adaptive-3';
 
 export const DOCTOR_BUFFER_ORDER: readonly DoctorBufferProfileId[] = [
+  'instant',
+  'turbo',
   'fast',
   'balanced',
   'stable',
@@ -81,54 +91,74 @@ export interface DoctorBufferConfig extends BufferProfileTiming {
 }
 
 export const DOCTOR_BUFFER_CONFIGS: Record<DoctorBufferProfileId, DoctorBufferConfig> = {
+  instant: {
+    id: 'instant',
+    label: 'Azonnali (0.6 mp)',
+    isPreset: false,
+    startupWatchdogMs: 650,
+    bufferWatchdogMs: 2600,
+    stallDetectorMs: 3000,
+    retryMs: 55,
+    minBufferAheadSeconds: 0.6,
+  },
+  turbo: {
+    id: 'turbo',
+    label: 'Turbó (0.9 mp)',
+    isPreset: false,
+    startupWatchdogMs: 850,
+    bufferWatchdogMs: 3000,
+    stallDetectorMs: 3300,
+    retryMs: 75,
+    minBufferAheadSeconds: 0.9,
+  },
   fast: {
     id: 'fast',
     label: 'Gyors (1.5 mp)',
     isPreset: true,
-    startupWatchdogMs: 1200,
+    startupWatchdogMs: 1150,
     bufferWatchdogMs: 3500,
     stallDetectorMs: 3500,
-    retryMs: 250,
+    retryMs: 110,
     minBufferAheadSeconds: 1.5,
   },
   balanced: {
     id: 'balanced',
     label: 'Kiegyensúlyozott (3.0 mp)',
     isPreset: true,
-    startupWatchdogMs: 2000,
+    startupWatchdogMs: 1850,
     bufferWatchdogMs: 4500,
     stallDetectorMs: 5000,
-    retryMs: 400,
+    retryMs: 180,
     minBufferAheadSeconds: 3.0,
   },
   stable: {
     id: 'stable',
     label: 'Stabil (5.0 mp)',
     isPreset: true,
-    startupWatchdogMs: 2800,
+    startupWatchdogMs: 2600,
     bufferWatchdogMs: 5600,
     stallDetectorMs: 6000,
-    retryMs: 500,
+    retryMs: 320,
     minBufferAheadSeconds: 5.0,
   },
   'adaptive-1': {
     id: 'adaptive-1',
     label: 'Emelt puffer L1 (6.5 mp)',
     isPreset: false,
-    startupWatchdogMs: 3200,
+    startupWatchdogMs: 3100,
     bufferWatchdogMs: 6800,
     stallDetectorMs: 7000,
-    retryMs: 650,
+    retryMs: 450,
     minBufferAheadSeconds: 6.5,
   },
   'adaptive-2': {
     id: 'adaptive-2',
     label: 'Emelt puffer L2 (8.0 mp)',
     isPreset: false,
-    startupWatchdogMs: 3600,
+    startupWatchdogMs: 3500,
     bufferWatchdogMs: 7800,
     stallDetectorMs: 8000,
-    retryMs: 800,
+    retryMs: 600,
     minBufferAheadSeconds: 8.0,
   },
   'adaptive-3': {
@@ -138,7 +168,7 @@ export const DOCTOR_BUFFER_CONFIGS: Record<DoctorBufferProfileId, DoctorBufferCo
     startupWatchdogMs: 4000,
     bufferWatchdogMs: 9000,
     stallDetectorMs: 9000,
-    retryMs: 1000,
+    retryMs: 800,
     minBufferAheadSeconds: 10.0,
   },
 };
@@ -151,6 +181,32 @@ export type DoctorTriggerReason =
   | 'buffer_stall'
   | 'unexpected_end'
   | 'unexpected_pause';
+
+/**
+ * 4 elkülönített, színkódolt TV Doktor eseménykategória a 0-gombos ablakhoz és a naplóhoz:
+ *  - learning: Tanulás (csatornasebesség, működő formátum/puffer, EPG-mentes csatorna megtanulása)
+ *  - assistance: Segítség / Javítás (formátumváltás, pufferemelés, sikeres javítás, EPG újratöltés)
+ *  - activation: Aktiválódás (TV Doktor közbelépés indulási hiba, fagyás vagy EPG-kimaradás miatt)
+ *  - channel_error: Csatornahiba (stream hiba, vagy valóban nem működő csatorna végleges leállítása)
+ */
+export type DoctorEventCategory =
+  | 'learning'
+  | 'assistance'
+  | 'activation'
+  | 'channel_error';
+
+export interface DoctorCategoryBucket {
+  count: number;
+  lastAt: number | null;
+  lastChannelName: string | null;
+}
+
+export interface DoctorCategoryStats {
+  learning: DoctorCategoryBucket;
+  assistance: DoctorCategoryBucket;
+  activation: DoctorCategoryBucket;
+  channel_error: DoctorCategoryBucket;
+}
 
 export interface BufferProfileStats {
   ok: number;
@@ -167,13 +223,21 @@ export interface ChannelDoctorRecord {
   bestFormat: LiveFormat;
   bestBufferProfile: DoctorBufferProfileId;
   bestBufferAheadSeconds: number;
+  lastWorkingFormat?: LiveFormat;
+  lastWorkingBufferProfile?: DoctorBufferProfileId;
+  lastWorkingStartupMs?: number | null;
   tsAvgStartupMs: number | null;
   hlsAvgStartupMs: number | null;
   bestStartupMs: number | null;
   tsOk: number;
   tsFail: number;
+  tsConsecutiveFail?: number;
   hlsOk: number;
   hlsFail: number;
+  hlsConsecutiveFail?: number;
+  consecutiveCleanStarts?: number;
+  consecutiveFailures?: number;
+  deadUntil?: number;
   stalls: number;
   repairsOk: number;
   bufferStats: Partial<Record<DoctorBufferProfileId, BufferProfileStats>>;
@@ -182,6 +246,23 @@ export interface ChannelDoctorRecord {
   source?: 'local' | 'cloud' | 'merged';
   confidence?: number;
   updatedAt: number;
+}
+
+export interface ChannelEpgDoctorRecord {
+  channelKey: string;
+  channelId?: string;
+  channelName: string;
+  state: 'ok' | 'empty' | 'disabled';
+  emptyChecks: number;
+  updatedAt: number;
+}
+
+export interface TvDoctorEpgStats {
+  disabledChannelCount: number;
+  okChannelCount: number;
+  assistCount: number;
+  lastAssistAt: number | null;
+  lastRecoveredAt: number | null;
 }
 
 export interface DoctorStreamStateSnapshot {
@@ -219,6 +300,10 @@ export interface DoctorDiagnosticReport {
 export interface ChannelLaunchPlan {
   enabled: boolean;
   hasLearnedProfile: boolean;
+  directFastStart: boolean;
+  skipSameFormatRetry: boolean;
+  isRecentlyDead: boolean;
+  maxRepairSteps: number;
   channelKey: string;
   primaryFormat: LiveFormat;
   alternateFormat: LiveFormat | null;
@@ -239,12 +324,15 @@ export interface DoctorRepairProposal {
   nextBufferTiming: BufferProfileTiming;
   delayMs: number;
   useFallbackUrl: boolean;
+  forceCleanReset: boolean;
+  stopRetrying: boolean;
   exhausted: boolean;
 }
 
 export interface DoctorLogEntry {
   at: number;
-  level: 'info' | 'warn' | 'repair' | 'verified';
+  level: 'info' | 'warn' | 'repair' | 'verified' | 'error';
+  category: DoctorEventCategory;
   channelKey: string;
   channelName: string;
   message: string;
@@ -279,11 +367,18 @@ interface DoctorStoreData {
   v: 1;
   byKey: Record<string, ChannelDoctorRecord>;
   idIndex: Record<string, string>;
+  epgByKey: Record<string, ChannelEpgDoctorRecord>;
+  epgIdIndex: Record<string, string>;
+  categoryStats: DoctorCategoryStats;
+  epgAssistCount: number;
+  epgLastAssistAt: number | null;
+  epgLastRecoveredAt: number | null;
 }
 
 export interface TvDoctorMemoryStats {
   learnedChannelCount: number;
   maxLearnedChannels: number;
+  disabledEpgChannelCount: number;
   doctorStoreBytes: number;
   cloudQueueBytes: number;
   inMemoryLogBytes: number;
@@ -309,17 +404,24 @@ export interface TvDoctorOperationHealth {
   confirmedFreezesCount: number;
   repairsAttemptedCount: number;
   repairsVerifiedCount: number;
+  deadChannelsHaltedCount: number;
+  epgDisabledCount: number;
+  epgAssistsCount: number;
   lastStorageError: { location: string; message: string; at: number } | null;
 }
 
-const MAX_RECENT_LOGS = 60;
+const MAX_RECENT_LOGS = 80;
 const recentDoctorLogs: DoctorLogEntry[] = [];
 const diagnosticPlugins: DoctorDiagnosticPlugin[] = [];
 const repairPlugins: DoctorRepairPlugin[] = [];
 const interventionTimestampsByChannel = new Map<string, number[]>();
+const epgAssistTimestamps: number[] = [];
 const statusListeners: Array<() => void> = [];
 
 let memoryCache: DoctorStoreData | null = null;
+let memoryCacheSerializedChars = 0;
+let pendingPersistTimer: ReturnType<typeof setTimeout> | null = null;
+let lifecyclePersistAttached = false;
 let diagLoggingCache: boolean | null = null;
 
 const opHealth: TvDoctorOperationHealth = {
@@ -331,8 +433,46 @@ const opHealth: TvDoctorOperationHealth = {
   confirmedFreezesCount: 0,
   repairsAttemptedCount: 0,
   repairsVerifiedCount: 0,
+  deadChannelsHaltedCount: 0,
+  epgDisabledCount: 0,
+  epgAssistsCount: 0,
   lastStorageError: null,
 };
+
+function createEmptyCategoryStats(): DoctorCategoryStats {
+  return {
+    learning: { count: 0, lastAt: null, lastChannelName: null },
+    assistance: { count: 0, lastAt: null, lastChannelName: null },
+    activation: { count: 0, lastAt: null, lastChannelName: null },
+    channel_error: { count: 0, lastAt: null, lastChannelName: null },
+  };
+}
+
+function sanitizeCategoryBucket(raw: unknown): DoctorCategoryBucket {
+  if (!raw || typeof raw !== 'object') {
+    return { count: 0, lastAt: null, lastChannelName: null };
+  }
+  const obj = raw as Record<string, unknown>;
+  const count = Math.max(0, Math.round(Number(obj.count) || 0));
+  const lastAt = typeof obj.lastAt === 'number' && Number.isFinite(obj.lastAt) && obj.lastAt > 0
+    ? obj.lastAt
+    : null;
+  const lastChannelName = typeof obj.lastChannelName === 'string' && obj.lastChannelName
+    ? obj.lastChannelName.slice(0, 120)
+    : null;
+  return { count, lastAt, lastChannelName };
+}
+
+function sanitizeCategoryStats(raw: unknown): DoctorCategoryStats {
+  if (!raw || typeof raw !== 'object') return createEmptyCategoryStats();
+  const obj = raw as Record<string, unknown>;
+  return {
+    learning: sanitizeCategoryBucket(obj.learning),
+    assistance: sanitizeCategoryBucket(obj.assistance),
+    activation: sanitizeCategoryBucket(obj.activation),
+    channel_error: sanitizeCategoryBucket(obj.channel_error),
+  };
+}
 
 function nowPerfMs(): number {
   try {
@@ -419,6 +559,9 @@ export function getTvDoctorOperationHealth(): TvDoctorOperationHealth {
     confirmedFreezesCount: opHealth.confirmedFreezesCount,
     repairsAttemptedCount: opHealth.repairsAttemptedCount,
     repairsVerifiedCount: opHealth.repairsVerifiedCount,
+    deadChannelsHaltedCount: opHealth.deadChannelsHaltedCount,
+    epgDisabledCount: opHealth.epgDisabledCount,
+    epgAssistsCount: opHealth.epgAssistsCount,
     lastStorageError: opHealth.lastStorageError ? { ...opHealth.lastStorageError } : null,
   };
 }
@@ -432,6 +575,9 @@ export function resetTvDoctorOperationCounters(): void {
   opHealth.confirmedFreezesCount = 0;
   opHealth.repairsAttemptedCount = 0;
   opHealth.repairsVerifiedCount = 0;
+  opHealth.deadChannelsHaltedCount = 0;
+  opHealth.epgDisabledCount = 0;
+  opHealth.epgAssistsCount = 0;
 }
 
 export function formatDoctorBytes(bytes: number): string {
@@ -441,8 +587,9 @@ export function formatDoctorBytes(bytes: number): string {
   const kb = safe / 1024;
   if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
   const mb = kb / 1024;
-  return `${mb.toFixed(2)} MB`;
+  return Math.abs(mb - Math.round(mb)) < 0.005 ? `${Math.round(mb)} MB` : `${mb.toFixed(2)} MB`;
 }
+
 type CloudEventHook = (payload: {
   eventType:
     | 'measurement'
@@ -452,7 +599,10 @@ type CloudEventHook = (payload: {
     | 'repair_attempt'
     | 'repair_verified'
     | 'repair_exhausted'
-    | 'freeze_detected';
+    | 'freeze_detected'
+    | 'channel_dead'
+    | 'epg_assist'
+    | 'epg_disabled';
   record?: ChannelDoctorRecord | null;
   event: Record<string, unknown>;
 }) => void;
@@ -503,7 +653,7 @@ export interface VodLaunchPlan {
 }
 
 export function normalizeChannelDoctorKey(
-  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
+  channel?: (Pick<Channel, 'id' | 'name'> & { countryCode?: string }) | null,
 ): string {
   if (!channel) return 'unknown-channel';
   const rawName = String(channel.name || '').trim();
@@ -550,7 +700,6 @@ export function normalizeVodDoctorKey(target?: VodDoctorTarget | null): string {
     else if (/\/movie\//i.test(rawUrl)) kind = 'movie';
   }
 
-  // Kizárólag az utolsó fájlnév-szegmens tisztított törzsét vizsgáljuk (soha nem a user/pass részt!).
   let fileStem = '';
   if (rawUrl) {
     const segments = rawUrl.split('/').filter(Boolean);
@@ -591,10 +740,10 @@ export function clampBufferTiming(timing: BufferProfileTiming): BufferProfileTim
     return Math.max(min, Math.min(max, n));
   };
   return {
-    startupWatchdogMs: Math.round(clamp(timing.startupWatchdogMs, MIN_SAFE_STARTUP_WATCHDOG_MS, MAX_SAFE_STARTUP_WATCHDOG_MS, 2000)),
+    startupWatchdogMs: Math.round(clamp(timing.startupWatchdogMs, MIN_SAFE_STARTUP_WATCHDOG_MS, MAX_SAFE_STARTUP_WATCHDOG_MS, 1850)),
     bufferWatchdogMs: Math.round(clamp(timing.bufferWatchdogMs, MIN_SAFE_BUFFER_WATCHDOG_MS, MAX_SAFE_BUFFER_WATCHDOG_MS, 4500)),
     stallDetectorMs: Math.round(clamp(timing.stallDetectorMs, MIN_SAFE_STALL_DETECTOR_MS, MAX_SAFE_STALL_DETECTOR_MS, 5000)),
-    retryMs: Math.round(clamp(timing.retryMs, 80, 1500, 400)),
+    retryMs: Math.round(clamp(timing.retryMs, 40, 1500, 180)),
     minBufferAheadSeconds: Math.round(clamp(timing.minBufferAheadSeconds, MIN_SAFE_BUFFER_SECONDS, MAX_SAFE_BUFFER_SECONDS, 3.0) * 100) / 100,
   };
 }
@@ -608,7 +757,12 @@ export function getDoctorBufferConfig(profileId: DoctorBufferProfileId): DoctorB
   };
 }
 
+/**
+ * Hibajavításkor (megakadás/indulási gond) mindig felfelé, biztonságos pufferprofilra lépünk:
+ * az instant/turbo profilról egyből fast/balanced-ra ugrunk, hogy valóban érezhetően nőjön a tartalék.
+ */
 export function nextSafeBufferProfile(current: DoctorBufferProfileId): DoctorBufferProfileId {
+  if (current === 'instant' || current === 'turbo') return 'fast';
   const idx = DOCTOR_BUFFER_ORDER.indexOf(current);
   if (idx < 0) return 'balanced';
   if (idx >= DOCTOR_BUFFER_ORDER.length - 1) return DOCTOR_BUFFER_ORDER[DOCTOR_BUFFER_ORDER.length - 1];
@@ -617,7 +771,7 @@ export function nextSafeBufferProfile(current: DoctorBufferProfileId): DoctorBuf
 
 export function prevFasterBufferProfile(current: DoctorBufferProfileId): DoctorBufferProfileId {
   const idx = DOCTOR_BUFFER_ORDER.indexOf(current);
-  if (idx <= 0) return 'fast';
+  if (idx <= 0) return 'instant';
   return DOCTOR_BUFFER_ORDER[idx - 1];
 }
 
@@ -631,7 +785,17 @@ function getStorage(storage?: Storage | null): Storage | null {
 }
 
 function createEmptyStore(): DoctorStoreData {
-  return { v: 1, byKey: {}, idIndex: {} };
+  return {
+    v: 1,
+    byKey: {},
+    idIndex: {},
+    epgByKey: {},
+    epgIdIndex: {},
+    categoryStats: createEmptyCategoryStats(),
+    epgAssistCount: 0,
+    epgLastAssistAt: null,
+    epgLastRecoveredAt: null,
+  };
 }
 
 function isValidFormat(value: unknown): value is LiveFormat {
@@ -640,6 +804,14 @@ function isValidFormat(value: unknown): value is LiveFormat {
 
 function isValidBufferProfile(value: unknown): value is DoctorBufferProfileId {
   return typeof value === 'string' && (DOCTOR_BUFFER_ORDER as readonly string[]).indexOf(value) >= 0;
+}
+
+function sanitizePositiveStartupMs(raw: unknown, okCount: number): number | null {
+  if (okCount <= 0) return null;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return null;
+  // A korábbi szerver-oldali clampInt(null, 20, ...) hiba 20 ms-os helyőrzőt írt be.
+  // Valódi hálózati stream indulás TV-n nem 20 ms, ha mellette másik valós mérés van.
+  return Math.max(20, Math.min(60000, Math.round(raw)));
 }
 
 function readStore(storage?: Storage | null): DoctorStoreData {
@@ -653,13 +825,19 @@ function readStore(storage?: Storage | null): DoctorStoreData {
     const raw = target.getItem(TV_DOCTOR_STORAGE_KEY);
     if (!raw) {
       const empty = createEmptyStore();
-      if (!storage) memoryCache = empty;
+      if (!storage) {
+        memoryCache = empty;
+        memoryCacheSerializedChars = 0;
+      }
       return empty;
     }
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || typeof parsed.byKey !== 'object') {
       const empty = createEmptyStore();
-      if (!storage) memoryCache = empty;
+      if (!storage) {
+        memoryCache = empty;
+        memoryCacheSerializedChars = 0;
+      }
       return empty;
     }
     const cleanByKey: Record<string, ChannelDoctorRecord> = {};
@@ -681,6 +859,20 @@ function readStore(storage?: Storage | null): DoctorStoreData {
       const bp: DoctorBufferProfileId = isValidBufferProfile(v.bestBufferProfile)
         ? v.bestBufferProfile
         : 'balanced';
+      const tsOk = Math.max(0, Number(v.tsOk) || 0);
+      const tsFail = Math.max(0, Number(v.tsFail) || 0);
+      const hlsOk = Math.max(0, Number(v.hlsOk) || 0);
+      const hlsFail = Math.max(0, Number(v.hlsFail) || 0);
+      const tsAvgStartupMs = sanitizePositiveStartupMs(v.tsAvgStartupMs, tsOk);
+      const hlsAvgStartupMs = sanitizePositiveStartupMs(v.hlsAvgStartupMs, hlsOk);
+      const rawBestMs = typeof v.bestStartupMs === 'number' && v.bestStartupMs > 20
+        ? Math.round(v.bestStartupMs)
+        : null;
+      const bestCandidates = [rawBestMs, tsAvgStartupMs, hlsAvgStartupMs].filter(
+        (n): n is number => typeof n === 'number' && n > 0,
+      );
+      const bestStartupMs = bestCandidates.length > 0 ? Math.min(...bestCandidates) : null;
+
       const rec: ChannelDoctorRecord = {
         channelKey: candidateKey.slice(0, 120),
         channelId: typeof v.channelId === 'string' ? v.channelId.slice(0, 120) : undefined,
@@ -692,13 +884,23 @@ function readStore(storage?: Storage | null): DoctorStoreData {
           MIN_SAFE_BUFFER_SECONDS,
           Math.min(MAX_SAFE_BUFFER_SECONDS, Number(v.bestBufferAheadSeconds) || DOCTOR_BUFFER_CONFIGS[bp].minBufferAheadSeconds),
         ),
-        tsAvgStartupMs: typeof v.tsAvgStartupMs === 'number' && v.tsAvgStartupMs > 0 ? Math.round(v.tsAvgStartupMs) : null,
-        hlsAvgStartupMs: typeof v.hlsAvgStartupMs === 'number' && v.hlsAvgStartupMs > 0 ? Math.round(v.hlsAvgStartupMs) : null,
-        bestStartupMs: typeof v.bestStartupMs === 'number' && v.bestStartupMs > 0 ? Math.round(v.bestStartupMs) : null,
-        tsOk: Math.max(0, Number(v.tsOk) || 0),
-        tsFail: Math.max(0, Number(v.tsFail) || 0),
-        hlsOk: Math.max(0, Number(v.hlsOk) || 0),
-        hlsFail: Math.max(0, Number(v.hlsFail) || 0),
+        lastWorkingFormat: isValidFormat(v.lastWorkingFormat) ? v.lastWorkingFormat : undefined,
+        lastWorkingBufferProfile: isValidBufferProfile(v.lastWorkingBufferProfile) ? v.lastWorkingBufferProfile : undefined,
+        lastWorkingStartupMs: typeof v.lastWorkingStartupMs === 'number' && v.lastWorkingStartupMs > 0
+          ? Math.round(v.lastWorkingStartupMs)
+          : null,
+        tsAvgStartupMs,
+        hlsAvgStartupMs,
+        bestStartupMs,
+        tsOk,
+        tsFail,
+        tsConsecutiveFail: Math.max(0, Number(v.tsConsecutiveFail) || 0),
+        hlsOk,
+        hlsFail,
+        hlsConsecutiveFail: Math.max(0, Number(v.hlsConsecutiveFail) || 0),
+        consecutiveCleanStarts: Math.max(0, Number(v.consecutiveCleanStarts) || 0),
+        consecutiveFailures: Math.max(0, Number(v.consecutiveFailures) || 0),
+        deadUntil: typeof v.deadUntil === 'number' && v.deadUntil > 0 ? v.deadUntil : undefined,
         stalls: Math.max(0, Number(v.stalls) || 0),
         repairsOk: Math.max(0, Number(v.repairsOk) || 0),
         bufferStats: v.bufferStats && typeof v.bufferStats === 'object' ? v.bufferStats : {},
@@ -718,48 +920,120 @@ function readStore(storage?: Storage | null): DoctorStoreData {
         }
       }
     }
-    const loaded: DoctorStoreData = { v: 1, byKey: cleanByKey, idIndex: cleanIdIndex };
+
+    const cleanEpgByKey: Record<string, ChannelEpgDoctorRecord> = {};
+    const cleanEpgIdIndex: Record<string, string> = {};
+    if (parsed.epgByKey && typeof parsed.epgByKey === 'object') {
+      for (const [ek, ev] of Object.entries(parsed.epgByKey as Record<string, any>)) {
+        if (!ek || !ev || typeof ev !== 'object' || ek.startsWith('vod:')) continue;
+        const state = ev.state === 'disabled' || ev.state === 'ok' ? ev.state : 'empty';
+        const epgRec: ChannelEpgDoctorRecord = {
+          channelKey: String(ev.channelKey || ek).slice(0, 120),
+          channelId: typeof ev.channelId === 'string' ? ev.channelId.slice(0, 120) : undefined,
+          channelName: String(ev.channelName || ek).slice(0, 140),
+          state,
+          emptyChecks: Math.max(0, Number(ev.emptyChecks) || 0),
+          updatedAt: typeof ev.updatedAt === 'number' ? ev.updatedAt : 0,
+        };
+        cleanEpgByKey[epgRec.channelKey] = epgRec;
+        if (epgRec.channelId) cleanEpgIdIndex[epgRec.channelId] = epgRec.channelKey;
+      }
+    }
+    if (parsed.epgIdIndex && typeof parsed.epgIdIndex === 'object') {
+      for (const [cid, ckey] of Object.entries(parsed.epgIdIndex as Record<string, unknown>)) {
+        if (typeof ckey === 'string' && cleanEpgByKey[ckey]) {
+          cleanEpgIdIndex[cid] = ckey;
+        }
+      }
+    }
+
+    const loaded: DoctorStoreData = {
+      v: 1,
+      byKey: cleanByKey,
+      idIndex: cleanIdIndex,
+      epgByKey: cleanEpgByKey,
+      epgIdIndex: cleanEpgIdIndex,
+      categoryStats: sanitizeCategoryStats(parsed.categoryStats),
+      epgAssistCount: Math.max(0, Number(parsed.epgAssistCount) || 0),
+      epgLastAssistAt: typeof parsed.epgLastAssistAt === 'number' ? parsed.epgLastAssistAt : null,
+      epgLastRecoveredAt: typeof parsed.epgLastRecoveredAt === 'number' ? parsed.epgLastRecoveredAt : null,
+    };
     if (hadLegacyVod) {
       try {
-        target.setItem(TV_DOCTOR_STORAGE_KEY, JSON.stringify(loaded));
+        const cleanedJson = JSON.stringify(loaded);
+        target.setItem(TV_DOCTOR_STORAGE_KEY, cleanedJson);
+        if (!storage) memoryCacheSerializedChars = cleanedJson.length;
       } catch {
         /* ignore */
       }
+    } else if (!storage) {
+      memoryCacheSerializedChars = raw.length;
     }
     if (!storage) memoryCache = loaded;
     return loaded;
   } catch {
     const empty = createEmptyStore();
-    if (!storage) memoryCache = empty;
+    if (!storage) {
+      memoryCache = empty;
+      memoryCacheSerializedChars = 0;
+    }
     return empty;
   }
 }
 
 function pruneStore(store: DoctorStoreData): void {
   const keys = Object.keys(store.byKey);
-  if (keys.length <= MAX_LEARNED_CHANNELS) return;
-  const sorted = keys.sort((a, b) => (store.byKey[b]?.updatedAt || 0) - (store.byKey[a]?.updatedAt || 0));
-  const keepSet = new Set(sorted.slice(0, MAX_LEARNED_CHANNELS));
-  for (const k of keys) {
-    if (!keepSet.has(k)) delete store.byKey[k];
+  if (keys.length > MAX_LEARNED_CHANNELS) {
+    const sorted = keys.sort((a, b) => (store.byKey[b]?.updatedAt || 0) - (store.byKey[a]?.updatedAt || 0));
+    const keepSet = new Set(sorted.slice(0, MAX_LEARNED_CHANNELS));
+    for (const k of keys) {
+      if (!keepSet.has(k)) delete store.byKey[k];
+    }
+    for (const [cid, ckey] of Object.entries(store.idIndex)) {
+      if (!keepSet.has(ckey)) delete store.idIndex[cid];
+    }
   }
-  for (const [cid, ckey] of Object.entries(store.idIndex)) {
-    if (!keepSet.has(ckey)) delete store.idIndex[cid];
+
+  const epgKeys = Object.keys(store.epgByKey);
+  if (epgKeys.length > MAX_LEARNED_EPG_CHANNELS) {
+    const sortedEpg = epgKeys.sort(
+      (a, b) => (store.epgByKey[b]?.updatedAt || 0) - (store.epgByKey[a]?.updatedAt || 0),
+    );
+    const keepEpg = new Set(sortedEpg.slice(0, MAX_LEARNED_EPG_CHANNELS));
+    for (const ek of epgKeys) {
+      if (!keepEpg.has(ek)) delete store.epgByKey[ek];
+    }
+    for (const [cid, ckey] of Object.entries(store.epgIdIndex)) {
+      if (!keepEpg.has(ckey)) delete store.epgIdIndex[cid];
+    }
   }
 }
 
-function writeStore(store: DoctorStoreData, storage?: Storage | null): void {
+function persistStoreNow(store: DoctorStoreData, target: Storage): void {
   const startedAt = nowPerfMs();
-  pruneStore(store);
-  if (!storage) memoryCache = store;
-  const target = getStorage(storage);
-  if (!target) {
-    recordDoctorOpTiming('writeStore', nowPerfMs() - startedAt);
-    notifyTvDoctorListeners();
-    return;
-  }
   try {
-    target.setItem(TV_DOCTOR_STORAGE_KEY, JSON.stringify(store));
+    let serialized = JSON.stringify(store);
+    // Biztonsági 1 MB keretvédelem: ha megközelítenénk a 1 MB-os keretet,
+    // a legrégebbi elemeket fokozatosan ritkítjuk.
+    const maxChars = Math.floor((MAX_SAFE_DOCTOR_STORAGE_BYTES * 0.92) / 2);
+    if (serialized.length > maxChars) {
+      const keys = Object.keys(store.byKey).sort(
+        (a, b) => (store.byKey[b]?.updatedAt || 0) - (store.byKey[a]?.updatedAt || 0),
+      );
+      const keepCount = Math.max(100, Math.floor(keys.length * 0.7));
+      const keep = new Set(keys.slice(0, keepCount));
+      for (const k of keys) {
+        if (!keep.has(k)) delete store.byKey[k];
+      }
+      for (const [cid, ckey] of Object.entries(store.idIndex)) {
+        if (!keep.has(ckey)) delete store.idIndex[cid];
+      }
+      serialized = JSON.stringify(store);
+    }
+    target.setItem(TV_DOCTOR_STORAGE_KEY, serialized);
+    if (store === memoryCache) {
+      memoryCacheSerializedChars = serialized.length;
+    }
     opHealth.lastStorageError = null;
   } catch (err) {
     // Ha a tárhely megtelt, lefaragjuk a legrégebbi elemek felét, de SOHA nem nyúlunk
@@ -778,23 +1052,95 @@ function writeStore(store: DoctorStoreData, storage?: Storage | null): void {
       const keys = Object.keys(store.byKey).sort(
         (a, b) => (store.byKey[b]?.updatedAt || 0) - (store.byKey[a]?.updatedAt || 0),
       );
-      const keep = new Set(keys.slice(0, Math.floor(MAX_LEARNED_CHANNELS / 2)));
+      const keep = new Set(keys.slice(0, Math.max(20, Math.floor(keys.length / 2))));
       for (const k of keys) {
         if (!keep.has(k)) delete store.byKey[k];
       }
-      target.setItem(TV_DOCTOR_STORAGE_KEY, JSON.stringify(store));
+      const fallbackJson = JSON.stringify(store);
+      target.setItem(TV_DOCTOR_STORAGE_KEY, fallbackJson);
+      if (store === memoryCache) {
+        memoryCacheSerializedChars = fallbackJson.length;
+      }
     } catch {
       /* memóriában tovább működik */
     }
   } finally {
-    recordDoctorOpTiming('writeStore', nowPerfMs() - startedAt);
-    notifyTvDoctorListeners();
+    const elapsed = nowPerfMs() - startedAt;
+    // Csak a szokatlanul lassú (>65ms) háttérírást minősítjük lassulásnak,
+    // mivel az írás már a csatornaváltáson kívüli üresjáratban fut.
+    if (elapsed >= 65) {
+      recordDoctorOpTiming('persistStoreIdle', elapsed);
+    }
   }
 }
 
+function attachLifecycleFlushOnce(): void {
+  if (lifecyclePersistAttached || typeof window === 'undefined') return;
+  lifecyclePersistAttached = true;
+  const flushOnHide = () => {
+    flushTvDoctorStore();
+  };
+  try {
+    window.addEventListener('pagehide', flushOnHide);
+    window.addEventListener('beforeunload', flushOnHide);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function flushTvDoctorStore(storage?: Storage | null): void {
+  if (pendingPersistTimer !== null) {
+    clearTimeout(pendingPersistTimer);
+    pendingPersistTimer = null;
+  }
+  const store = storage ? readStore(storage) : memoryCache;
+  if (!store) return;
+  const target = getStorage(storage);
+  if (!target) return;
+  persistStoreNow(store, target);
+}
+
+/**
+ * Gyors tárolás: a memóriabeli tudásbázis AZONNAL (<0.05 ms) frissül a villámgyors
+ * csatornaváltáshoz, a localStorage sorosítás pedig összevontan (üresjáratban) fut,
+ * hogy a csatornaváltás közben SOHA ne fogja meg a TV főszálát.
+ * (Ha tesztből explicit `storage` érkezik, azonnal szinkron írja ki.)
+ */
+function writeStore(store: DoctorStoreData, storage?: Storage | null): void {
+  pruneStore(store);
+  if (storage !== undefined) {
+    const target = getStorage(storage);
+    if (target) {
+      persistStoreNow(store, target);
+    }
+    notifyTvDoctorListeners();
+    return;
+  }
+
+  memoryCache = store;
+  attachLifecycleFlushOnce();
+  if (pendingPersistTimer === null) {
+    pendingPersistTimer = setTimeout(() => {
+      pendingPersistTimer = null;
+      if (!memoryCache) return;
+      const target = getStorage();
+      if (target) {
+        persistStoreNow(memoryCache, target);
+      }
+    }, STORE_PERSIST_DEBOUNCE_MS);
+  }
+  notifyTvDoctorListeners();
+}
+
 export function clearTvDoctorMemory(storage?: Storage | null): void {
+  if (pendingPersistTimer !== null) {
+    clearTimeout(pendingPersistTimer);
+    pendingPersistTimer = null;
+  }
   memoryCache = createEmptyStore();
+  memoryCacheSerializedChars = 0;
   interventionTimestampsByChannel.clear();
+  epgAssistTimestamps.length = 0;
   recentDoctorLogs.length = 0;
   opHealth.lastStorageError = null;
   resetTvDoctorOperationCounters();
@@ -805,27 +1151,71 @@ export function clearTvDoctorMemory(storage?: Storage | null): void {
     /* ignore */
   }
   if (isTvDoctorDiagLoggingEnabled()) {
-    appLog('TV DOKTOR MEMÓRIA: a helyi tanuló memória és eseménylista 0 állapotra törölve.');
+    appLog('TV DOKTOR MEMÓRIA: a helyi tanuló memória, kategória-számlálók és EPG-tiltások 0 állapotra törölve.');
   }
   notifyTvDoctorListeners();
+}
+
+export function getTvDoctorCategoryStats(storage?: Storage | null): DoctorCategoryStats {
+  const store = readStore(storage);
+  return {
+    learning: { ...store.categoryStats.learning },
+    assistance: { ...store.categoryStats.assistance },
+    activation: { ...store.categoryStats.activation },
+    channel_error: { ...store.categoryStats.channel_error },
+  };
+}
+
+export function getTvDoctorEpgStats(storage?: Storage | null): TvDoctorEpgStats {
+  const store = readStore(storage);
+  let disabledChannelCount = 0;
+  let okChannelCount = 0;
+  const now = Date.now();
+  for (const item of Object.values(store.epgByKey)) {
+    if (item.state === 'disabled' && now - item.updatedAt < EPG_DISABLED_TTL_MS) {
+      disabledChannelCount += 1;
+    } else if (item.state === 'ok') {
+      okChannelCount += 1;
+    }
+  }
+  return {
+    disabledChannelCount,
+    okChannelCount,
+    assistCount: store.epgAssistCount || 0,
+    lastAssistAt: store.epgLastAssistAt,
+    lastRecoveredAt: store.epgLastRecoveredAt,
+  };
 }
 
 export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemoryStats {
   const store = readStore(storage);
   const learnedChannelCount = Object.keys(store.byKey).length;
+  const epgStats = getTvDoctorEpgStats(storage);
   const target = getStorage(storage);
 
   let doctorStoreBytes = 0;
   let cloudQueueBytes = 0;
   let tvStorageUsedBytes = 0;
+  const hasAnyDoctorData =
+    learnedChannelCount > 0 ||
+    Object.keys(store.epgByKey).length > 0 ||
+    store.categoryStats.learning.count > 0 ||
+    store.categoryStats.assistance.count > 0 ||
+    store.categoryStats.activation.count > 0 ||
+    store.categoryStats.channel_error.count > 0;
 
   if (target) {
     try {
       const rawDoctor = target.getItem(TV_DOCTOR_STORAGE_KEY);
-      if (rawDoctor) {
+      if (pendingPersistTimer !== null && !storage && hasAnyDoctorData) {
+        const liveSerialized = JSON.stringify(store);
+        memoryCacheSerializedChars = liveSerialized.length;
+        doctorStoreBytes = (TV_DOCTOR_STORAGE_KEY.length + liveSerialized.length) * 2;
+      } else if (rawDoctor) {
         doctorStoreBytes = (TV_DOCTOR_STORAGE_KEY.length + rawDoctor.length) * 2;
-      } else if (learnedChannelCount > 0) {
-        doctorStoreBytes = JSON.stringify(store).length * 2;
+      } else if (hasAnyDoctorData) {
+        const serializedChars = memoryCacheSerializedChars || JSON.stringify(store).length;
+        doctorStoreBytes = (TV_DOCTOR_STORAGE_KEY.length + serializedChars) * 2;
       }
       const rawSync = target.getItem(TV_DOCTOR_SYNC_STORAGE_KEY);
       if (rawSync) {
@@ -841,14 +1231,14 @@ export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemory
     } catch {
       /* Egyedi/mock Storage esetén sem dobhat hibát. */
     }
-  } else if (learnedChannelCount > 0) {
+  } else if (hasAnyDoctorData) {
     doctorStoreBytes = JSON.stringify(store).length * 2;
   }
 
   let inMemoryLogBytes = 0;
   for (let i = 0; i < recentDoctorLogs.length; i += 1) {
     const entry = recentDoctorLogs[i];
-    inMemoryLogBytes += ((entry.channelName?.length || 0) + (entry.message?.length || 0) + 24) * 2;
+    inMemoryLogBytes += ((entry.channelName?.length || 0) + (entry.message?.length || 0) + 28) * 2;
   }
 
   const doctorTotalBytes = doctorStoreBytes + cloudQueueBytes + inMemoryLogBytes;
@@ -880,11 +1270,11 @@ export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemory
   }
 
   let memoryHealth: TvDoctorMemoryStats['memoryHealth'] = 'optimal';
-  let memoryHealthLabel = 'Optimális – nem terheli és nem lassítja a TV-t';
-  if (opHealth.lastStorageError || doctorBudgetPercent >= 85 || tvStoragePercent >= 85) {
+  let memoryHealthLabel = 'Optimális (1 MB keret) – bőséges szabad hely, nem lassítja a TV-t';
+  if (opHealth.lastStorageError || doctorBudgetPercent >= 88 || tvStoragePercent >= 88) {
     memoryHealth = 'high';
     memoryHealthLabel = 'Magas telítettség – javasolt a Memória: 0 gomb megnyomása';
-  } else if (doctorBudgetPercent >= 55 || tvStoragePercent >= 65) {
+  } else if (doctorBudgetPercent >= 60 || tvStoragePercent >= 70) {
     memoryHealth = 'moderate';
     memoryHealthLabel = 'Mérsékelt foglaltság – normál, biztonságos működés';
   }
@@ -892,6 +1282,7 @@ export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemory
   return {
     learnedChannelCount,
     maxLearnedChannels: MAX_LEARNED_CHANNELS,
+    disabledEpgChannelCount: epgStats.disabledChannelCount,
     doctorStoreBytes,
     cloudQueueBytes,
     inMemoryLogBytes,
@@ -913,6 +1304,8 @@ export function getTvDoctorSummary(storage?: Storage | null): {
   learnedChannelCount: number;
   totalVerifiedRepairs: number;
   recentLogs: DoctorLogEntry[];
+  categoryStats: DoctorCategoryStats;
+  epgStats: TvDoctorEpgStats;
 } {
   const store = readStore(storage);
   const records = Object.values(store.byKey);
@@ -924,6 +1317,8 @@ export function getTvDoctorSummary(storage?: Storage | null): {
     learnedChannelCount: records.length,
     totalVerifiedRepairs,
     recentLogs: recentDoctorLogs.slice(-MAX_RECENT_LOGS),
+    categoryStats: getTvDoctorCategoryStats(storage),
+    epgStats: getTvDoctorEpgStats(storage),
   };
 }
 
@@ -954,10 +1349,6 @@ export function getChannelDoctorRecord(
   return store.byKey[key] || null;
 }
 
-/**
- * Igaz, ha a TV Doktor az adott élő csatornát már ténylegesen kezelte,
- * megvizsgálta vagy megjegyezte a tudásbázisban (nem szimulált állapot).
- */
 export function isChannelHandledByDoctor(
   channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
   storage?: Storage | null,
@@ -966,19 +1357,27 @@ export function isChannelHandledByDoctor(
   return isDoctorRecordHandled(rec);
 }
 
+/**
+ * Igaz, ha a csatorna a legutóbbi többlépcsős vizsgálat alapján valóban
+ * nem működik (halott stream), és még a védőablakon belül van.
+ */
+export function isChannelMarkedDead(
+  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
+  now = Date.now(),
+  storage?: Storage | null,
+): boolean {
+  const rec = getChannelDoctorRecord(channel, storage);
+  if (!rec || !rec.deadUntil) return false;
+  return rec.deadUntil > now;
+}
+
 export function getVodDoctorRecord(
   _target?: VodDoctorTarget | null,
   _storage?: Storage | null,
 ): ChannelDoctorRecord | null {
-  // Mozi és sorozat esetén a TV Doktor NEM ment el semmilyen film-/epizódcímet
-  // vagy elakadási pozíciót a memóriába; kizárólag a folyamatos lejátszást segíti.
   return null;
 }
 
-/**
- * A VOD (film és sorozat) lejátszást a TV Doktor valós időben segíti, de
- * memóriába soha nem menti el az adott filmet vagy epizódot.
- */
 export function isVodHandledByDoctor(
   _target?: VodDoctorTarget | null,
   _storage?: Storage | null,
@@ -986,16 +1385,44 @@ export function isVodHandledByDoctor(
   return false;
 }
 
+function defaultCategoryForLevel(level: DoctorLogEntry['level']): DoctorEventCategory {
+  if (level === 'error') return 'channel_error';
+  if (level === 'warn') return 'activation';
+  if (level === 'repair' || level === 'verified') return 'assistance';
+  return 'learning';
+}
+
+function recordCategoryTick(
+  store: DoctorStoreData,
+  category: DoctorEventCategory,
+  channelName: string,
+  at: number,
+): void {
+  const bucket = store.categoryStats[category];
+  bucket.count += 1;
+  bucket.lastAt = at;
+  bucket.lastChannelName = channelName.slice(0, 120);
+}
+
 function logDoctor(
   level: DoctorLogEntry['level'],
-  channel: Pick<Channel, 'id' | 'name' | 'countryCode'> | null | undefined,
+  channel: (Pick<Channel, 'id' | 'name'> & { countryCode?: string }) | null | undefined,
   message: string,
+  explicitCategory?: DoctorEventCategory,
+  storage?: Storage | null,
 ): void {
+  const at = Date.now();
+  const category = explicitCategory || defaultCategoryForLevel(level);
   const channelKey = normalizeChannelDoctorKey(channel);
-  const channelName = String(channel?.name || channel?.id || 'Ismeretlen');
+  const channelName = String(channel?.name || channel?.id || 'Rendszer');
+
+  const store = readStore(storage);
+  recordCategoryTick(store, category, channelName, at);
+
   recentDoctorLogs.push({
-    at: Date.now(),
+    at,
     level,
+    category,
     channelKey,
     channelName,
     message,
@@ -1004,44 +1431,90 @@ function logDoctor(
     recentDoctorLogs.splice(0, recentDoctorLogs.length - MAX_RECENT_LOGS);
   }
   if (isTvDoctorDiagLoggingEnabled()) {
-    appLog(`TV DOKTOR [${channelName}] ${message}`);
+    const tag =
+      category === 'learning'
+        ? 'TANULÁS'
+        : category === 'assistance'
+          ? 'SEGÍTSÉG/JAVÍTÁS'
+          : category === 'activation'
+            ? 'AKTIVÁLÓDÁS'
+            : 'CSATORNAHIBA';
+    appLog(`TV DOKTOR [${tag}] [${channelName}] ${message}`);
   }
-  notifyTvDoctorListeners();
+  writeStore(store, storage);
 }
 
-/** Sebesség- és megbízhatósági pontszám alapján kiválasztja a legjobb formátumot. */
+/**
+ * Sebesség- és megbízhatósági pontszám alapján kiválasztja a legjobb formátumot,
+ * kiemelt védelemmel a legutóbb ténylegesen működő formátum számára (pl. M2 UHD TS eset:
+ * SOHA nem vált vissza egy sorozatosan hibázó HLS-re közvetlenül egy sikeres TS lejátszás után!).
+ */
 export function pickFastestReliableFormat(
   record: ChannelDoctorRecord,
   fallbackFormat: LiveFormat,
 ): LiveFormat {
-  const tsTotal = record.tsOk + record.tsFail;
-  const hlsTotal = record.hlsOk + record.hlsFail;
-  if (tsTotal === 0 && hlsTotal === 0) return record.bestFormat || fallbackFormat;
+  const tsOk = Math.max(0, record.tsOk || 0);
+  const tsFail = Math.max(0, record.tsFail || 0);
+  const hlsOk = Math.max(0, record.hlsOk || 0);
+  const hlsFail = Math.max(0, record.hlsFail || 0);
+  const tsTotal = tsOk + tsFail;
+  const hlsTotal = hlsOk + hlsFail;
 
-  // Ha az egyik formátum sorozatosan elbukott, a másik pedig már bizonyított:
-  if (record.tsOk === 0 && record.tsFail > 0 && record.hlsOk > 0) return 'hls';
-  if (record.hlsOk === 0 && record.hlsFail > 0 && record.tsOk > 0) return 'ts';
+  if (tsTotal === 0 && hlsTotal === 0) {
+    return record.lastWorkingFormat || record.bestFormat || fallbackFormat;
+  }
 
-  const tsReliability = tsTotal > 0 ? (record.tsOk + 0.5) / (tsTotal + 1) : 0.45;
-  const hlsReliability = hlsTotal > 0 ? (record.hlsOk + 0.5) / (hlsTotal + 1) : 0.45;
+  // 1. Ha csak az egyik formátum tudott valaha elindulni, KIZÁRÓLAG azt választjuk!
+  if (tsOk === 0 && hlsOk > 0) return 'hls';
+  if (hlsOk === 0 && tsOk > 0) return 'ts';
+  if (tsOk === 0 && hlsOk === 0) {
+    if (tsFail !== hlsFail) return tsFail < hlsFail ? 'ts' : 'hls';
+    return fallbackFormat;
+  }
 
-  // Indulási sebesség bónusz: minél gyorsabban indul (ms), annál magasabb pontszám.
-  const tsSpeedBonus = record.tsAvgStartupMs !== null
-    ? Math.max(0, (4200 - record.tsAvgStartupMs) / 14000)
-    : 0;
-  const hlsSpeedBonus = record.hlsAvgStartupMs !== null
-    ? Math.max(0, (4200 - record.hlsAvgStartupMs) / 14000)
-    : 0;
+  const tsConsecFail = Math.max(0, record.tsConsecutiveFail || 0);
+  const hlsConsecFail = Math.max(0, record.hlsConsecutiveFail || 0);
 
-  const tsScore = record.tsOk > 0 ? tsReliability + tsSpeedBonus : tsReliability * 0.45;
-  const hlsScore = record.hlsOk > 0 ? hlsReliability + hlsSpeedBonus : hlsReliability * 0.45;
+  // 2. Ha van legutóbb igazoltan elindult formátum, és a MÁSIK formátum a legutóbbi próbáján
+  //    elbukott (consecutiveFail > 0), akkor SOHA nem írjuk felül a működő formátumot a hibással!
+  if (record.lastWorkingFormat === 'ts' && tsConsecFail === 0 && hlsConsecFail > 0) {
+    return 'ts';
+  }
+  if (record.lastWorkingFormat === 'hls' && hlsConsecFail === 0 && tsConsecFail > 0) {
+    return 'hls';
+  }
+
+  // Csak valódi, sikeres mérésből származó indulási átlag vehet részt a sebességpontozásban.
+  const validTsMs = tsOk > 0 && record.tsAvgStartupMs !== null && record.tsAvgStartupMs > 20
+    ? record.tsAvgStartupMs
+    : null;
+  const validHlsMs = hlsOk > 0 && record.hlsAvgStartupMs !== null && record.hlsAvgStartupMs > 20
+    ? record.hlsAvgStartupMs
+    : null;
+
+  const tsReliability = (tsOk + 0.5) / (tsTotal + 1);
+  const hlsReliability = (hlsOk + 0.5) / (hlsTotal + 1);
+
+  // Egymást követő friss hibák erős büntetése
+  const tsRecentPenalty = Math.min(0.45, tsConsecFail * 0.18);
+  const hlsRecentPenalty = Math.min(0.45, hlsConsecFail * 0.18);
+
+  // Indulási sebesség bónusz (erősebb súly a valóban gyors csatornaváltásért)
+  const tsSpeedBonus = validTsMs !== null ? Math.max(0, (4200 - validTsMs) / 9500) : 0;
+  const hlsSpeedBonus = validHlsMs !== null ? Math.max(0, (4200 - validHlsMs) / 9500) : 0;
+
+  // Kis stabilitási előny a legutóbb ténylegesen működő formátumnak, ha közel azonosak
+  const tsLastBonus = record.lastWorkingFormat === 'ts' && tsConsecFail === 0 ? 0.05 : 0;
+  const hlsLastBonus = record.lastWorkingFormat === 'hls' && hlsConsecFail === 0 ? 0.05 : 0;
+
+  const tsScore = tsReliability - tsRecentPenalty + tsSpeedBonus + tsLastBonus;
+  const hlsScore = hlsReliability - hlsRecentPenalty + hlsSpeedBonus + hlsLastBonus;
 
   if (Math.abs(tsScore - hlsScore) < 0.03) {
-    // Közel azonos megbízhatóságnál a mérten gyorsabb indulású mód nyer!
-    if (record.tsAvgStartupMs !== null && record.hlsAvgStartupMs !== null && record.tsOk > 0 && record.hlsOk > 0) {
-      return record.hlsAvgStartupMs + 80 < record.tsAvgStartupMs ? 'hls' : 'ts';
+    if (validTsMs !== null && validHlsMs !== null) {
+      return validHlsMs + 80 < validTsMs ? 'hls' : 'ts';
     }
-    return record.bestFormat || fallbackFormat;
+    return record.lastWorkingFormat || record.bestFormat || fallbackFormat;
   }
 
   return hlsScore > tsScore ? 'hls' : 'ts';
@@ -1063,14 +1536,14 @@ export function evaluateBestBufferProfile(
 
     const reliability = st.ok / total;
     const stallRatio = st.stalls / Math.max(1, st.ok);
-    // Ha egy profil gyakran megakad (stallRatio >= 0.45), erősen büntetjük.
-    const stallPenalty = Math.min(0.75, stallRatio * 0.42);
-    const speedBonus = st.avgStartupMs !== null
-      ? Math.max(0, (4500 - st.avgStartupMs) / 16000)
+    const stallPenalty = Math.min(0.8, stallRatio * 0.45);
+    const speedBonus = st.avgStartupMs !== null && st.avgStartupMs > 20
+      ? Math.max(0, (4500 - st.avgStartupMs) / 14000)
       : 0;
-    // Enyhe preferencia a kisebb késleltetésű profilok felé, ha hibátlanok:
     const idx = DOCTOR_BUFFER_ORDER.indexOf(profileId);
-    const agilityBonus = st.stalls === 0 && st.fail === 0 ? Math.max(0, (5 - idx) * 0.015) : 0;
+    const agilityBonus = st.stalls === 0 && st.fail === 0
+      ? Math.max(0, (DOCTOR_BUFFER_ORDER.length - 1 - idx) * 0.018)
+      : 0;
 
     const score = reliability - stallPenalty + speedBonus + agilityBonus;
     if (score > bestScore) {
@@ -1084,7 +1557,8 @@ export function evaluateBestBufferProfile(
 
 /**
  * 1. Villámgyors csatornaváltás: előre kiválasztja az adott csatornához
- * leggyorsabban induló, igazoltan stabil formátumot és pufferprofilt.
+ * leggyorsabban induló, igazoltan stabil formátumot, a kalibrált gyors
+ * indulási őrt és a közvetlen gyorsindítási módot.
  */
 export function selectChannelLaunchPlan(
   channel: Channel | null | undefined,
@@ -1110,6 +1584,10 @@ export function selectChannelLaunchPlan(
     return {
       enabled: false,
       hasLearnedProfile: false,
+      directFastStart: false,
+      skipSameFormatRetry: false,
+      isRecentlyDead: false,
+      maxRepairSteps: MAX_DOCTOR_REPAIR_STEPS,
       channelKey,
       primaryFormat: fallbackPrimary,
       alternateFormat: supportsDualFormat ? (fallbackPrimary === 'hls' ? 'ts' : 'hls') : null,
@@ -1125,16 +1603,27 @@ export function selectChannelLaunchPlan(
   try {
     const record = getChannelDoctorRecord(channel, storage);
     if (!record) {
+      // Még nem ismert csatornánál is gyorsabb indulási őrt adunk, hogy egy
+      // nem válaszoló első formátum ne tartsa vissza másodpercekig a másodikat!
+      const fastDiscoveryTiming = clampBufferTiming({
+        ...defaultTiming,
+        startupWatchdogMs: Math.min(defaultTiming.startupWatchdogMs, 1200),
+        retryMs: Math.min(defaultTiming.retryMs, 90),
+      });
       const plan: ChannelLaunchPlan = {
         enabled: true,
         hasLearnedProfile: false,
+        directFastStart: false,
+        skipSameFormatRetry: true,
+        isRecentlyDead: false,
+        maxRepairSteps: MAX_DOCTOR_REPAIR_STEPS,
         channelKey,
         primaryFormat: fallbackPrimary,
         alternateFormat: supportsDualFormat ? (fallbackPrimary === 'hls' ? 'ts' : 'hls') : null,
         bufferProfileId: baseBufferMode,
-        bufferTiming: defaultTiming,
+        bufferTiming: fastDiscoveryTiming,
         expectedStartupMs: null,
-        reason: legacyFormat ? `korábbi formátummemória (${legacyFormat})` : 'első mérés ezen a csatornán',
+        reason: legacyFormat ? `korábbi formátummemória (${legacyFormat})` : 'első gyors felmérés ezen a csatornán',
       };
       const elapsed = nowPerfMs() - startedAt;
       recordDoctorOpTiming('selectChannelLaunchPlan', elapsed, channel.name);
@@ -1146,42 +1635,83 @@ export function selectChannelLaunchPlan(
       return plan;
     }
 
+    const now = Date.now();
+    const isRecentlyDead = Boolean(record.deadUntil && record.deadUntil > now);
+    const totalLifetimeOk = (record.tsOk || 0) + (record.hlsOk || 0);
+    const maxRepairSteps = isRecentlyDead && totalLifetimeOk === 0
+      ? MAX_DEAD_CHANNEL_QUICK_STEPS
+      : MAX_DOCTOR_REPAIR_STEPS;
+
     const chosenFormat: LiveFormat = supportsDualFormat
       ? pickFastestReliableFormat(record, fallbackPrimary)
       : fallbackPrimary;
 
-    const chosenBufferProfile = evaluateBestBufferProfile(record.bufferStats, record.bestBufferProfile || baseBufferMode);
+    // Szinkronban tartjuk a VideoPlayer helyi formátum-emlékével is (csak ha a TV Doktor be van kapcsolva!).
+    if (channel.id && !storage && totalLifetimeOk > 0) {
+      rememberFormatFor(channel.id, chosenFormat);
+    }
+
+    const chosenBufferProfile = evaluateBestBufferProfile(
+      record.bufferStats,
+      record.bestBufferProfile || record.lastWorkingBufferProfile || baseBufferMode,
+    );
     const hasCustomBufferExperience =
-      Object.keys(record.bufferStats || {}).length > 0 || record.source === 'cloud' || record.stalls > 0 || record.repairsOk > 0;
+      Object.keys(record.bufferStats || {}).length > 0 ||
+      record.source === 'cloud' ||
+      record.stalls > 0 ||
+      record.repairsOk > 0 ||
+      totalLifetimeOk > 0;
 
     const doctorCfg = getDoctorBufferConfig(chosenBufferProfile);
+    const rawExpectedMs = chosenFormat === 'hls' ? record.hlsAvgStartupMs : record.tsAvgStartupMs;
+    const expectedStartupMs = rawExpectedMs !== null && rawExpectedMs > 20 ? rawExpectedMs : null;
+
+    const chosenOkCount = chosenFormat === 'hls' ? record.hlsOk : record.tsOk;
+    const chosenConsecFail = chosenFormat === 'hls' ? (record.hlsConsecutiveFail || 0) : (record.tsConsecutiveFail || 0);
+    const directFastStart = !isRecentlyDead && chosenOkCount >= 1 && chosenConsecFail === 0;
+
+    // Kalibrált indulási őr: ha a csatorna pl. 450 ms alatt szokott indulni,
+    // nem várunk 2000 ms-ot hiba esetén, hanem ~900 ms után már lépünk is!
+    const calibratedWatchdogMs = expectedStartupMs !== null && directFastStart
+      ? Math.max(
+          MIN_SAFE_STARTUP_WATCHDOG_MS,
+          Math.min(doctorCfg.startupWatchdogMs, Math.round(expectedStartupMs * 1.55 + 220)),
+        )
+      : doctorCfg.startupWatchdogMs;
+
     const chosenTiming: BufferProfileTiming = hasCustomBufferExperience
       ? clampBufferTiming({
           ...doctorCfg,
+          startupWatchdogMs: calibratedWatchdogMs,
+          retryMs: directFastStart ? Math.min(doctorCfg.retryMs, 75) : doctorCfg.retryMs,
           minBufferAheadSeconds: record.bestBufferProfile === chosenBufferProfile
             ? record.bestBufferAheadSeconds
             : doctorCfg.minBufferAheadSeconds,
         })
       : defaultTiming;
 
-    const expectedStartupMs = chosenFormat === 'hls' ? record.hlsAvgStartupMs : record.tsAvgStartupMs;
-
     const plan: ChannelLaunchPlan = {
       enabled: true,
       hasLearnedProfile: true,
+      directFastStart,
+      skipSameFormatRetry: true,
+      isRecentlyDead,
+      maxRepairSteps,
       channelKey,
       primaryFormat: chosenFormat,
       alternateFormat: supportsDualFormat ? (chosenFormat === 'hls' ? 'ts' : 'hls') : null,
       bufferProfileId: hasCustomBufferExperience ? chosenBufferProfile : baseBufferMode,
       bufferTiming: chosenTiming,
       expectedStartupMs,
-      reason: `tanult profil (${chosenFormat.toUpperCase()}, puffer=${chosenBufferProfile}${expectedStartupMs ? `, ~${expectedStartupMs}ms` : ''})`,
+      reason: isRecentlyDead
+        ? `korábban nem működő csatorna – rövidített (${maxRepairSteps} lépéses) gyors ellenőrzés`
+        : `tanult gyorsprofil (${chosenFormat.toUpperCase()}, puffer=${chosenBufferProfile}${expectedStartupMs ? `, ~${expectedStartupMs}ms` : ''})`,
     };
     const elapsed = nowPerfMs() - startedAt;
     recordDoctorOpTiming('selectChannelLaunchPlan', elapsed, channel.name);
     if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
       appLog(
-        `TV DOKTOR DÖNTÉS [${channel.name || channelKey}]: mód=${plan.primaryFormat.toUpperCase()}; puffer=${plan.bufferProfileId} (${plan.bufferTiming.minBufferAheadSeconds}mp); ok=${plan.reason}; számítás=${Math.round(elapsed * 10) / 10}ms`,
+        `TV DOKTOR DÖNTÉS [${channel.name || channelKey}]: mód=${plan.primaryFormat.toUpperCase()}; puffer=${plan.bufferProfileId} (${plan.bufferTiming.minBufferAheadSeconds}mp); őr=${plan.bufferTiming.startupWatchdogMs}ms; gyorsindítás=${directFastStart ? 'IGEN' : 'nem'}; ok=${plan.reason}; számítás=${Math.round(elapsed * 10) / 10}ms`,
       );
     }
     return plan;
@@ -1191,10 +1721,13 @@ export function selectChannelLaunchPlan(
         `TV DOKTOR HIBA [hely=selectChannelLaunchPlan; csatorna=${channel.name || channelKey}]: biztonsági visszaállás (${String(err).slice(0, 80)})`,
       );
     }
-    // Biztonsági visszaállás az eredeti mechanizmusra bármilyen belső hiba esetén.
     return {
       enabled: false,
       hasLearnedProfile: false,
+      directFastStart: false,
+      skipSameFormatRetry: false,
+      isRecentlyDead: false,
+      maxRepairSteps: MAX_DOCTOR_REPAIR_STEPS,
       channelKey,
       primaryFormat: fallbackPrimary,
       alternateFormat: supportsDualFormat ? (fallbackPrimary === 'hls' ? 'ts' : 'hls') : null,
@@ -1207,9 +1740,10 @@ export function selectChannelLaunchPlan(
 }
 
 function ewma(prev: number | null, sample: number): number {
-  const clamped = Math.max(20, Math.min(60000, Math.round(sample)));
-  if (prev === null || !Number.isFinite(prev)) return clamped;
-  return Math.round(prev * 0.65 + clamped * 0.35);
+  const clamped = Math.max(25, Math.min(60000, Math.round(sample)));
+  if (prev === null || !Number.isFinite(prev) || prev <= 20) return clamped;
+  // A friss mérés erősebb súlyt kap (0.45), hogy a csatorna aktuális sebességét gyorsan megtanulja.
+  return Math.round(prev * 0.55 + clamped * 0.45);
 }
 
 function getOrCreateRecord(
@@ -1236,8 +1770,12 @@ function getOrCreateRecord(
       bestStartupMs: null,
       tsOk: 0,
       tsFail: 0,
+      tsConsecutiveFail: 0,
       hlsOk: 0,
       hlsFail: 0,
+      hlsConsecutiveFail: 0,
+      consecutiveCleanStarts: 0,
+      consecutiveFailures: 0,
       stalls: 0,
       repairsOk: 0,
       bufferStats: {},
@@ -1257,9 +1795,9 @@ function getOrCreateRecord(
 }
 
 /**
- * Sikeres csatornaindulás rögzítése: méri a sebességet, frissíti a formátum- és
- * pufferstatisztikákat, és ha egy csatorna tartósan villámgyors és akadásmentes,
- * finoman gyorsabb pufferprofilra lépteti.
+ * Sikeres csatornaindulás rögzítése: pontosan elmenti az éppen sikeresen elindult
+ * formátumot és pufferprofilt (`lastWorkingFormat` + `bestFormat`), és akadásmentes
+ * csatornáknál fokozatosan gyorsabb profilra (`balanced -> fast -> turbo -> instant`) léptet.
  */
 export function recordDoctorChannelSuccess(params: {
   channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null;
@@ -1278,17 +1816,29 @@ export function recordDoctorChannelSuccess(params: {
     const wasFirstSample = (rec.tsOk + rec.tsFail + rec.hlsOk + rec.hlsFail) === 0;
     const prevBestFormat = rec.bestFormat;
     const prevBestBuffer = rec.bestBufferProfile;
-    const safeMs = Math.max(20, Math.min(60000, Math.round(startupMs)));
+    const safeMs = Math.max(25, Math.min(60000, Math.round(startupMs)));
 
     if (format === 'hls') {
       rec.hlsOk += 1;
+      rec.hlsConsecutiveFail = 0;
       rec.hlsAvgStartupMs = ewma(rec.hlsAvgStartupMs, safeMs);
     } else {
       rec.tsOk += 1;
+      rec.tsConsecutiveFail = 0;
       rec.tsAvgStartupMs = ewma(rec.tsAvgStartupMs, safeMs);
     }
 
-    rec.bestStartupMs = rec.bestStartupMs === null ? safeMs : Math.min(rec.bestStartupMs, safeMs);
+    // Pontosan megjegyezzük, hogyan indult el sikeresen legutóbb a csatorna!
+    rec.lastWorkingFormat = format;
+    rec.lastWorkingBufferProfile = bufferProfile;
+    rec.lastWorkingStartupMs = safeMs;
+    rec.consecutiveFailures = 0;
+    rec.deadUntil = undefined;
+    rec.consecutiveCleanStarts = wasRepair ? 1 : (rec.consecutiveCleanStarts || 0) + 1;
+
+    rec.bestStartupMs = rec.bestStartupMs === null || rec.bestStartupMs <= 20
+      ? safeMs
+      : Math.min(rec.bestStartupMs, safeMs);
     if (wasRepair) {
       rec.repairsOk += 1;
       opHealth.repairsVerifiedCount += 1;
@@ -1303,15 +1853,24 @@ export function recordDoctorChannelSuccess(params: {
     };
     rec.bufferStats[bufferProfile] = nextBuf;
 
-    // Ha a csatorna hibátlanul és villámgyorsan (<850ms) indul legalább 3 alkalommal
-    // egy nagyobb profilon (pl. balanced), kipróbálásra felkínálja / előlépteti a fast profilt is.
-    if (!wasRepair && safeMs <= 850 && nextBuf.ok >= 3 && nextBuf.stalls === 0 && bufferProfile === 'balanced' && !rec.bufferStats.fast) {
-      rec.bestBufferProfile = 'fast';
-      rec.bestBufferAheadSeconds = DOCTOR_BUFFER_CONFIGS.fast.minBufferAheadSeconds;
+    // Automatikus gyorsítási létra akadásmentes csatornákon:
+    //  - balanced -> fast (ha gyors és nincs stall)
+    //  - fast -> turbo (3 hibátlan indulás után)
+    //  - turbo -> instant (3 hibátlan turbó indulás után)
+    if (!wasRepair && rec.stalls === 0 && nextBuf.stalls === 0 && nextBuf.fail === 0) {
+      if (bufferProfile === 'balanced' && safeMs <= 1450 && nextBuf.ok >= 2 && !rec.bufferStats.fast) {
+        rec.bestBufferProfile = 'fast';
+      } else if (bufferProfile === 'fast' && safeMs <= 1450 && nextBuf.ok >= 3 && !rec.bufferStats.turbo) {
+        rec.bestBufferProfile = 'turbo';
+      } else if (bufferProfile === 'turbo' && safeMs <= 1050 && nextBuf.ok >= 3 && !rec.bufferStats.instant) {
+        rec.bestBufferProfile = 'instant';
+      } else {
+        rec.bestBufferProfile = evaluateBestBufferProfile(rec.bufferStats, bufferProfile);
+      }
     } else {
       rec.bestBufferProfile = evaluateBestBufferProfile(rec.bufferStats, bufferProfile);
-      rec.bestBufferAheadSeconds = getDoctorBufferConfig(rec.bestBufferProfile).minBufferAheadSeconds;
     }
+    rec.bestBufferAheadSeconds = getDoctorBufferConfig(rec.bestBufferProfile).minBufferAheadSeconds;
 
     rec.bestFormat = pickFastestReliableFormat(rec, format);
     rec.source = rec.source === 'cloud' ? 'merged' : 'local';
@@ -1320,30 +1879,43 @@ export function recordDoctorChannelSuccess(params: {
     if (channel.id && !storage) {
       rememberFormatFor(channel.id, rec.bestFormat);
     }
+
+    // A rekordot SZERENCSEM el kell menteni a storage-ba minden sikeres
+    // mérést követően (első minta, javítás és profilváltozás is egyaránt),
+    // különben a következő selectChannelLaunchPlan hívás "ismertетlen"
+    // csatornát lát és nem alkalmazza a tanult gyorsprofilot.
     writeStore(store, storage);
 
     if (wasRepair) {
       logDoctor(
         'verified',
         channel,
-        `JAVÍTÁS ELLENŐRIZVE ÉS MENTVE: mód=${format.toUpperCase()} puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp) indulás=${safeMs}ms`,
+        `JAVÍTÁS ELLENŐRIZVE ÉS MENTVE: mód=${rec.bestFormat.toUpperCase()} • puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp) • indulás=${safeMs}ms`,
+        'assistance',
+        storage,
       );
     } else if (wasFirstSample) {
       logDoctor(
         'info',
         channel,
-        `Csatorna felmérve: mód=${rec.bestFormat.toUpperCase()} • puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp) • indulás=${safeMs}ms`,
+        `Csatorna megtanulva: mód=${rec.bestFormat.toUpperCase()} • puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp) • indulás=${safeMs}ms`,
+        'learning',
+        storage,
       );
     } else if (prevBestFormat !== rec.bestFormat || prevBestBuffer !== rec.bestBufferProfile) {
       logDoctor(
         'info',
         channel,
-        `Profil optimalizálva: mód=${rec.bestFormat.toUpperCase()} • puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp) • indulás=${safeMs}ms`,
+        `Gyorsprofil finomhangolva: mód=${rec.bestFormat.toUpperCase()} • puffer=${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp) • indulás=${safeMs}ms`,
+        'learning',
+        storage,
       );
-    } else if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
-      appLog(
-        `TV DOKTOR MÉRÉS [${rec.channelName}]: sikeres indulás=${safeMs}ms; mód=${format.toUpperCase()}; ajánlott=${rec.bestFormat.toUpperCase()}/${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp)`,
-      );
+    } else {
+      if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+        appLog(
+          `TV DOKTOR MÉRÉS [${rec.channelName}]: sikeres indulás=${safeMs}ms; mód=${format.toUpperCase()}; tanult=${rec.bestFormat.toUpperCase()}/${rec.bestBufferProfile} (${rec.bestBufferAheadSeconds}mp)`,
+        );
+      }
     }
 
     if (cloudHook) {
@@ -1391,12 +1963,17 @@ export function recordDoctorChannelFailure(params: {
     const rec = getOrCreateRecord(store, channel, format, bufferProfile);
     const isStall = trigger === 'playback_stall' || trigger === 'buffer_stall';
 
+    rec.consecutiveCleanStarts = 0;
+    rec.consecutiveFailures = (rec.consecutiveFailures || 0) + 1;
+
     if (isStall) {
       rec.stalls += 1;
     } else if (format === 'hls') {
       rec.hlsFail += 1;
+      rec.hlsConsecutiveFail = (rec.hlsConsecutiveFail || 0) + 1;
     } else {
       rec.tsFail += 1;
+      rec.tsConsecutiveFail = (rec.tsConsecutiveFail || 0) + 1;
     }
 
     const prevBuf = rec.bufferStats[bufferProfile] || { ok: 0, fail: 0, stalls: 0, avgStartupMs: null };
@@ -1407,14 +1984,18 @@ export function recordDoctorChannelFailure(params: {
       avgStartupMs: prevBuf.avgStartupMs,
     };
 
-    // Ha az aktuális pufferprofil ismételten megakad, automatikusan egy fokozattal
-    // feljebb léptetjük a csatorna ajánlott pufferét a biztonsági plafonig (max 10 mp).
     if (isStall) {
       const stepped = nextSafeBufferProfile(bufferProfile);
       rec.bestBufferProfile = stepped;
       rec.bestBufferAheadSeconds = getDoctorBufferConfig(stepped).minBufferAheadSeconds;
     } else {
-      rec.bestFormat = pickFastestReliableFormat(rec, format === 'hls' ? 'ts' : 'hls');
+      const altFmt: LiveFormat = format === 'hls' ? 'ts' : 'hls';
+      if (rec.lastWorkingFormat === format) {
+        // Ha a korábban működő formátum zsinórban legalább 2x elbukott, engedjük át a másiknak
+        const consec = format === 'hls' ? (rec.hlsConsecutiveFail || 0) : (rec.tsConsecutiveFail || 0);
+        if (consec >= 2) rec.lastWorkingFormat = undefined;
+      }
+      rec.bestFormat = pickFastestReliableFormat(rec, altFmt);
       rec.bestBufferProfile = evaluateBestBufferProfile(rec.bufferStats, rec.bestBufferProfile);
       rec.bestBufferAheadSeconds = getDoctorBufferConfig(rec.bestBufferProfile).minBufferAheadSeconds;
     }
@@ -1465,8 +2046,9 @@ export function collectDoctorDiagnostics(params: {
   errorCode?: string | null;
   errorDetail?: string | null;
   streamState: DoctorStreamStateSnapshot;
+  storage?: Storage | null;
 }): DoctorDiagnosticReport {
-  const { channel, trigger, format, bufferProfile, loadElapsedMs, errorCode, errorDetail, streamState } = params;
+  const { channel, trigger, format, bufferProfile, loadElapsedMs, errorCode, errorDetail, streamState, storage } = params;
   const channelKey = normalizeChannelDoctorKey(channel);
   const extraMetrics: Record<string, string | number | boolean> = {};
 
@@ -1498,10 +2080,15 @@ export function collectDoctorDiagnostics(params: {
   };
 
   if (!channelKey.startsWith('vod:') && channel?.countryCode !== 'VOD' && channel?.countryCode !== 'SER') {
+    const isHardError = trigger === 'media_error' || trigger === 'play_rejected';
     logDoctor(
-      'warn',
+      isHardError ? 'error' : 'warn',
       channel,
-      `AKTIVÁLÁS ok=${trigger} mód=${format.toUpperCase()} puffer=${bufferProfile} betöltés=${report.loadElapsedMs}ms hiba=${report.errorCode || 'nincs'} rs=${streamState.readyState} ns=${streamState.networkState} tartalék=${streamState.bufferedAheadSeconds.toFixed(1)}mp`,
+      isHardError
+        ? `CSATORNAHIBA (${report.errorCode || trigger}): mód=${format.toUpperCase()} • puffer=${bufferProfile} • eltelt=${report.loadElapsedMs}ms`
+        : `AKTIVÁLÁS ok=${trigger} • mód=${format.toUpperCase()} • puffer=${bufferProfile} • betöltés=${report.loadElapsedMs}ms • hiba=${report.errorCode || 'nincs'} • tartalék=${streamState.bufferedAheadSeconds.toFixed(1)}mp`,
+      isHardError ? 'channel_error' : 'activation',
+      storage,
     );
   }
 
@@ -1509,10 +2096,7 @@ export function collectDoctorDiagnostics(params: {
 }
 
 /**
- * 7. Okos fagyásfigyelés:
- * Eldönti, hogy a StallDetector jelzése valódi kép-/adatfolyam-fagyás-e, vagy a csatorna
- * valójában rendesen működik (pl. hangcsatorna/rádió képkocka nélkül, vagy élő stream,
- * ahol a kép átmenetileg állóképet mutat, miközben nincs sem hálózati, sem pufferelési hiba).
+ * 7. Okos fagyásfigyelés
  */
 export interface FreezeCheckInput {
   prevSnapshot: MediaProgressSample | null;
@@ -1531,13 +2115,10 @@ export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecisio
   const { prevSnapshot, currentSnapshot, streamState, consecutiveStallTicks, minBufferAheadSeconds } = input;
   opHealth.freezeChecksCount += 1;
 
-  // 1. Ha az idővonal (currentTime) vagy a dekódolt képkockaszám nőtt, a műsor rendben megy.
   if (prevSnapshot && mediaProgressed(prevSnapshot, currentSnapshot)) {
     return { intervene: false, reason: 'idővonal vagy képkockaszám halad' };
   }
 
-  // 2. Hang-/rádiócsatorna védelem: ha még soha nem volt videófelbontás (0x0),
-  // a lejátszó nem állt meg, van elegendő adat (readyState >= 3), és nincs waiting/stalled:
   if (
     streamState.videoWidth === 0 &&
     streamState.videoHeight === 0 &&
@@ -1553,10 +2134,6 @@ export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecisio
     return { intervene: false, reason: 'aktív hangalapú adatfolyam (0x0 videó), nincs hamis beavatkozás' };
   }
 
-  // 3. Ritkán változó képkockájú / állóképes csatorna védelem:
-  // Ha a dekóder HAVE_ENOUGH_DATA (4) állapotban van, bőséges a puffer, nincs waiting/stalled
-  // esemény, és ez még csak az első fagyás-jelzés (consecutiveStallTicks <= 1),
-  // adunk még egy megerősítő ciklust, hogy állókép/tesztábra miatt ne indítsuk újra feleslegesen!
   const healthyBuffer = streamState.bufferedAheadSeconds >= Math.max(1.5, minBufferAheadSeconds * 0.75);
   if (
     consecutiveStallTicks <= 1 &&
@@ -1576,8 +2153,6 @@ export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecisio
     };
   }
 
-  // 4. Ha a puffer kiürült, waiting/stalled állapot áll fenn, vagy a megerősítő ciklus után is
-  // teljesen mozdulatlan mind az idővonal, mind a dekódolt képkocka (pl. M2 UHD dekóder-fagyás):
   opHealth.confirmedFreezesCount += 1;
   const detail = streamState.waitingOrStalled || streamState.bufferedAheadSeconds < 0.3
     ? 'adatfolyam-megakadás (kiürült puffer)'
@@ -1591,9 +2166,7 @@ export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecisio
 }
 
 /**
- * 4. Sebességteszt jelöltlista:
- * Biztonságosan meghatározza, mely támogatott módokat érdemes kipróbálni és összehasonlítani
- * anélkül, hogy túlterhelné a TV-t.
+ * 4. Sebességteszt jelöltlista: több különböző formátum + pufferprofil gyors kipróbálásához.
  */
 export function buildSafeSpeedTestCandidates(params: {
   streamUrl: string;
@@ -1610,17 +2183,15 @@ export function buildSafeSpeedTestCandidates(params: {
   const candidates: Array<{ format: LiveFormat; url: string; bufferProfile: DoctorBufferProfileId }> = [];
 
   if (dual) {
-    // Ha a másik formátumot még nem mértük, vagy gyorsabbnak tűnik:
     const altUntested = altFormat === 'hls' ? record?.hlsAvgStartupMs == null : record?.tsAvgStartupMs == null;
     candidates.push({
       format: altFormat,
       url: altFormat === 'hls' ? hlsUrl : tsUrl,
-      bufferProfile: altUntested ? currentBufferProfile : (record?.bestBufferProfile || currentBufferProfile),
+      bufferProfile: altUntested ? 'fast' : (record?.bestBufferProfile || currentBufferProfile),
     });
   }
 
-  // Előre meghatározott pufferprofilok kipróbálási sorrendje:
-  for (const preset of ['fast', 'balanced', 'stable'] as const) {
+  for (const preset of ['turbo', 'fast', 'balanced', 'stable'] as const) {
     if (preset !== currentBufferProfile) {
       candidates.push({
         format: currentFormat,
@@ -1649,12 +2220,14 @@ function markIntervention(channelKey: string, now = Date.now()): void {
 }
 
 /**
- * 5. & 10. Automatikus javítás és fokozatos pufferoptimalizálás (korlátozott lépésszámmal).
+ * 5. & 10. Automatikus javítás több különböző gyors beállítással,
+ * ÉS valóban nem működő csatornák végleges leállítása (végtelen ciklus nélkül!).
  */
 export function planDoctorRepairStep(params: {
   channel?: Channel | null;
   trigger: DoctorTriggerReason;
   step: number;
+  maxStepsOverride?: number;
   currentFormat: LiveFormat;
   currentBufferProfile: DoctorBufferProfileId;
   streamUrl: string;
@@ -1666,6 +2239,7 @@ export function planDoctorRepairStep(params: {
     channel,
     trigger,
     step,
+    maxStepsOverride,
     currentFormat,
     currentBufferProfile,
     streamUrl,
@@ -1677,17 +2251,40 @@ export function planDoctorRepairStep(params: {
   const channelKey = normalizeChannelDoctorKey(channel);
   const hasAlternateFormat = Boolean(tsUrl && hlsUrl && tsUrl !== hlsUrl);
   const altFormat: LiveFormat = currentFormat === 'hls' ? 'ts' : 'hls';
+  // Az elsődleges (csatorna-saját) formátum: a 2. lépésben bekapcsolt alternatív
+  // formátumra való visszaesés után a 3. lépésben vissza kell térni rá, ne maradjon
+  // az alternatívon (currentFormat), mert az már egyszer meghibásodott.
+  const primaryFormat: LiveFormat = formatOfUrl(streamUrl) || currentFormat;
   const urlFor = (fmt: LiveFormat) => (fmt === 'hls' ? hlsUrl : tsUrl) || streamUrl;
+  const store = readStore(storage);
   const record = getChannelDoctorRecord(channel, storage);
+  const effectiveMaxSteps = Math.max(
+    1,
+    Math.min(MAX_DOCTOR_REPAIR_STEPS, maxStepsOverride || MAX_DOCTOR_REPAIR_STEPS),
+  );
 
-  // Ha elértük a javítási korlátot vagy a biztonsági megszakítót, visszaállunk az alap helyreállításra:
-  if (step > MAX_DOCTOR_REPAIR_STEPS || !canDoctorIntervene(channelKey)) {
+  // Ha minden különböző beállítást kipróbáltunk és a csatorna nem működik,
+  // VÉGLEGESEN LEÁLLÍTJUK az újrapróbálást (nincs végtelen újracsatlakozási ciklus!).
+  if (step > effectiveMaxSteps || !canDoctorIntervene(channelKey)) {
     const safeCfg = getDoctorBufferConfig(record?.bestBufferProfile || currentBufferProfile);
+    opHealth.deadChannelsHaltedCount += 1;
+
+    if (channel) {
+      const rec = getOrCreateRecord(store, channel, currentFormat, currentBufferProfile);
+      rec.deadUntil = Date.now() + DEAD_CHANNEL_COOLDOWN_MS;
+      rec.lastErrorCode = 'CHANNEL_UNREACHABLE';
+      rec.lastErrorReason = `${effectiveMaxSteps} különböző beállítás sikertelen (${trigger})`;
+      rec.updatedAt = Date.now();
+    }
+
     logDoctor(
-      'warn',
+      'error',
       channel,
-      `JAVÍTÁSI KORLÁT ELÉRVE (${step}/${MAX_DOCTOR_REPAIR_STEPS}) – visszaállás a kímélő alap helyreállításra`,
+      `CSATORNA NEM MŰKÖDIK (${Math.min(step - 1, effectiveMaxSteps)}/${effectiveMaxSteps} beállítás sikertelen) – az újrapróbálás leállítva, nincs végtelen ciklus.`,
+      'channel_error',
+      storage,
     );
+
     if (cloudHook && record) {
       cloudHook({
         eventType: 'repair_exhausted',
@@ -1698,22 +2295,26 @@ export function planDoctorRepairStep(params: {
           channelName: channel?.name || channelKey,
           playbackFormat: currentFormat,
           bufferProfile: currentBufferProfile,
+          errorCode: 'CHANNEL_UNREACHABLE',
           errorReason: trigger,
           recovered: false,
         },
       });
     }
+
     return {
       step,
-      maxSteps: MAX_DOCTOR_REPAIR_STEPS,
-      strategyId: 'fallback_legacy_recovery',
-      description: 'korlát elérve – alap helyreállítás',
+      maxSteps: effectiveMaxSteps,
+      strategyId: 'channel_unreachable_stop',
+      description: 'a csatorna jelenleg nem működik – újrapróbálás leállítva',
       nextFormat: currentFormat,
       nextUrl: urlFor(currentFormat),
       nextBufferProfile: safeCfg.id,
       nextBufferTiming: safeCfg,
-      delayMs: 1500,
+      delayMs: 0,
       useFallbackUrl: false,
+      forceCleanReset: false,
+      stopRetrying: true,
       exhausted: true,
     };
   }
@@ -1740,15 +2341,17 @@ export function planDoctorRepairStep(params: {
         const cfg = getDoctorBufferConfig(custom.nextBufferProfile);
         return {
           step,
-          maxSteps: MAX_DOCTOR_REPAIR_STEPS,
+          maxSteps: effectiveMaxSteps,
           strategyId: custom.strategyId || plugin.id,
           description: custom.description || `bővítmény javítás (${plugin.id})`,
           nextFormat: custom.nextFormat,
           nextUrl: custom.nextUrl,
           nextBufferProfile: cfg.id,
           nextBufferTiming: custom.nextBufferTiming ? clampBufferTiming(custom.nextBufferTiming) : cfg,
-          delayMs: custom.delayMs ?? 250,
+          delayMs: custom.delayMs ?? 120,
           useFallbackUrl: Boolean(custom.useFallbackUrl),
+          forceCleanReset: Boolean(custom.forceCleanReset ?? true),
+          stopRetrying: false,
           exhausted: false,
         };
       }
@@ -1758,40 +2361,43 @@ export function planDoctorRepairStep(params: {
   }
 
   const isStallTrigger = trigger === 'playback_stall' || trigger === 'buffer_stall';
-  let strategyId = 'same_format_retry';
-  let description = 'gyors újrapróbálás az aktuális módban';
+  let strategyId = 'same_format_fast_reset';
+  let description = 'gyors dekóder-frissítés az aktuális módban';
   let nextFormat: LiveFormat = currentFormat;
   let nextBufferProfile: DoctorBufferProfileId = currentBufferProfile;
   let nextUrl = urlFor(currentFormat);
   let useFallbackUrl = false;
-  let delayMs = 120;
+  let forceCleanReset = true;
+  let delayMs = 60;
 
   if (isStallTrigger) {
-    // Megakadás/fagyás esetén:
-    // 1. lépés: előre meghatározott / következő biztonságos pufferprofilra emelés ugyanazon a formátumon
-    // 2. lépés: még egy pufferlépcső emelése (egészen max 10 mp-ig)
-    // 3. lépés: formátumváltás + emelt puffer (sebesség- és stabilitásteszt)
-    // 4-5. lépés: tartalék URL (ha van) vagy maximális védett puffer (adaptive-3)
+    // Megakadás/fagyás esetén 5 különböző beállítás gyors egymásutánban:
     if (step === 1) {
       nextBufferProfile = nextSafeBufferProfile(currentBufferProfile);
       strategyId = 'buffer_step_up';
       description = `puffer növelése (${currentBufferProfile} -> ${nextBufferProfile})`;
-      delayMs = 200;
+      delayMs = 80;
     } else if (step === 2 && hasAlternateFormat) {
       nextFormat = altFormat;
       nextUrl = urlFor(altFormat);
       nextBufferProfile = nextSafeBufferProfile(currentBufferProfile);
       strategyId = 'switch_format_with_buffer';
       description = `formátumváltás (${altFormat.toUpperCase()}) + emelt puffer (${nextBufferProfile})`;
-      delayMs = 250;
-    } else if (step <= 4) {
-      const raised = nextSafeBufferProfile(nextSafeBufferProfile(currentBufferProfile));
-      nextBufferProfile = raised;
-      nextFormat = hasAlternateFormat && step === 4 ? altFormat : currentFormat;
+      delayMs = 100;
+    } else if (step === 3) {
+      nextBufferProfile = nextSafeBufferProfile(nextSafeBufferProfile(currentBufferProfile));
+      nextFormat = currentFormat;
       nextUrl = urlFor(nextFormat);
       strategyId = 'progressive_buffer_tuning';
-      description = `fokozatos pufferfinomhangolás (${nextBufferProfile}, ${getDoctorBufferConfig(nextBufferProfile).minBufferAheadSeconds}mp)`;
-      delayMs = 400;
+      description = `fokozatos pufferfinomhangolás (${nextFormat.toUpperCase()}, ${getDoctorBufferConfig(nextBufferProfile).minBufferAheadSeconds}mp)`;
+      delayMs = 150;
+    } else if (step === 4) {
+      nextBufferProfile = nextSafeBufferProfile(nextSafeBufferProfile(nextSafeBufferProfile(currentBufferProfile)));
+      nextFormat = hasAlternateFormat ? altFormat : currentFormat;
+      nextUrl = urlFor(nextFormat);
+      strategyId = 'alt_progressive_buffer';
+      description = `stabilizált mód (${nextFormat.toUpperCase()}, ${getDoctorBufferConfig(nextBufferProfile).minBufferAheadSeconds}mp)`;
+      delayMs = 200;
     } else {
       nextBufferProfile = 'adaptive-3';
       if (channel?.fallbackUrl && channel.fallbackUrl !== nextUrl) {
@@ -1803,68 +2409,82 @@ export function planDoctorRepairStep(params: {
         nextFormat = hasAlternateFormat ? altFormat : currentFormat;
         nextUrl = urlFor(nextFormat);
         strategyId = 'max_safe_buffer_ceiling';
-        description = 'maximális biztonságos pufferhatár (10 mp)';
+        description = `maximális biztonságos pufferhatár (${nextFormat.toUpperCase()}, 10 mp)`;
       }
-      delayMs = 600;
+      delayMs = 260;
     }
   } else {
-    // Indulási hiba / időtúllépés / váratlan leállás esetén:
-    // 1. lépés: azonnali gyors újrapróba ugyanazzal a formátummal
-    // 2. lépés: formátumváltás (TS <-> HLS sebesség- és kompatibilitási próba)
-    // 3. lépés: pufferprofil emelése a stabilabb indulásért
-    // 4. lépés: másik formátum + emelt puffer
-    // 5. lépés: tartalék URL (ha van) vagy védett pufferhatár
+    // Indulási hiba / időtúllépés / váratlan leállás esetén 5 ELTÉRŐ gyors beállítás:
+    //  1. beállítás: az elsődleges formátum tiszta, turbó/gyors dekóder-resetje (60 ms)
+    //  2. beállítás: azonnali formátumváltás (TS <-> HLS) gyors profillal (70 ms)
+    //  3. beállítás: elsődleges formátum + emelt indulási puffer (130 ms)
+    //  4. beállítás: alternatív formátum + stabil puffer (180 ms)
+    //  5. beállítás: tartalék csatorna-URL (ha van) vagy védett emelt puffer (240 ms)
     if (step === 1) {
       nextFormat = currentFormat;
       nextUrl = urlFor(currentFormat);
-      nextBufferProfile = currentBufferProfile;
+      nextBufferProfile = currentBufferProfile === 'instant' || currentBufferProfile === 'turbo'
+        ? 'fast'
+        : currentBufferProfile;
       strategyId = 'quick_primary_retry';
-      description = `első formátum gyors újrapróbája (${currentFormat.toUpperCase()})`;
-      delayMs = 80;
+      description = `1. beállítás: gyors tiszta újraindítás (${nextFormat.toUpperCase()}, ${nextBufferProfile})`;
+      delayMs = 60;
     } else if (step === 2 && hasAlternateFormat) {
       nextFormat = altFormat;
       nextUrl = urlFor(altFormat);
-      nextBufferProfile = currentBufferProfile;
+      nextBufferProfile = 'fast';
       strategyId = 'format_switch_probe';
-      description = `formátumváltás és sebességmérés (${currentFormat.toUpperCase()} -> ${altFormat.toUpperCase()})`;
-      delayMs = 100;
+      description = `2. beállítás: azonnali formátumváltás (${currentFormat.toUpperCase()} -> ${altFormat.toUpperCase()}, gyors profil)`;
+      delayMs = 70;
     } else if (step === 3) {
-      nextFormat = hasAlternateFormat ? currentFormat : currentFormat;
+      // 3. beállítás: ELSŐDLEGES formátum + emelt indulási puffer. Ha a 2. lépés
+      // átvaltott az alternatív formátumra (pl. HLS -> TS) és az sem indul,
+      // vissza kell térni az elsődleges címre, nem megismételni az alternatívat.
+      nextFormat = primaryFormat;
       nextUrl = urlFor(nextFormat);
-      nextBufferProfile = nextSafeBufferProfile(currentBufferProfile);
+      nextBufferProfile = nextSafeBufferProfile(currentBufferProfile === 'fast' ? 'balanced' : currentBufferProfile);
       strategyId = 'startup_buffer_step_up';
-      description = `indulási puffer emelése (${nextBufferProfile})`;
-      delayMs = 300;
+      description = `3. beállítás: emelt indulási puffer (${nextFormat.toUpperCase()}, ${nextBufferProfile})`;
+      delayMs = 130;
     } else if (step === 4 && hasAlternateFormat) {
       nextFormat = altFormat;
       nextUrl = urlFor(altFormat);
-      nextBufferProfile = nextSafeBufferProfile(nextSafeBufferProfile(currentBufferProfile));
+      nextBufferProfile = 'stable';
       strategyId = 'alternate_format_raised_buffer';
-      description = `alternatív formátum (${altFormat.toUpperCase()}) + stabilizált puffer (${nextBufferProfile})`;
-      delayMs = 450;
+      description = `4. beállítás: alternatív formátum (${altFormat.toUpperCase()}) + stabil puffer (5.0 mp)`;
+      delayMs = 180;
     } else {
-      nextBufferProfile = nextSafeBufferProfile(nextSafeBufferProfile(currentBufferProfile));
+      nextBufferProfile = 'adaptive-1';
       if (channel?.fallbackUrl && channel.fallbackUrl !== nextUrl) {
         nextUrl = channel.fallbackUrl;
         useFallbackUrl = true;
         strategyId = 'fallback_url_repair';
-        description = 'tartalék csatorna-URL aktiválása';
+        description = '5. beállítás: tartalék csatorna-URL aktiválása';
       } else {
         nextFormat = hasAlternateFormat ? altFormat : currentFormat;
         nextUrl = urlFor(nextFormat);
         strategyId = 'final_bounded_repair';
-        description = `védett újraindítás (${nextFormat.toUpperCase()}, puffer=${nextBufferProfile})`;
+        description = `5. beállítás: védett utolsó próba (${nextFormat.toUpperCase()}, puffer=${nextBufferProfile})`;
       }
-      delayMs = 650;
+      delayMs = 240;
     }
   }
 
-  const nextCfg = getDoctorBufferConfig(nextBufferProfile);
+  const baseCfg = getDoctorBufferConfig(nextBufferProfile);
+  // A gyors beállításpróbáknál feszes indulási őrt tartunk, hogy 5 különböző beállítás se tartson sokáig!
+  const nextTiming = !isStallTrigger && step <= 2
+    ? clampBufferTiming({
+        ...baseCfg,
+        startupWatchdogMs: Math.min(baseCfg.startupWatchdogMs, 1150),
+      })
+    : baseCfg;
 
   logDoctor(
     'repair',
     channel,
-    `JAVÍTÁS [${step}/${MAX_DOCTOR_REPAIR_STEPS}] stratégia=${strategyId} -> ${description}`,
+    `JAVÍTÁS [${step}/${effectiveMaxSteps}] ${description}`,
+    'assistance',
+    storage,
   );
 
   if (cloudHook) {
@@ -1877,7 +2497,7 @@ export function planDoctorRepairStep(params: {
         channelName: channel?.name || channelKey,
         playbackFormat: nextFormat,
         bufferProfile: nextBufferProfile,
-        bufferAheadSeconds: nextCfg.minBufferAheadSeconds,
+        bufferAheadSeconds: nextTiming.minBufferAheadSeconds,
         errorReason: trigger,
         details: { step, strategyId },
       },
@@ -1886,24 +2506,195 @@ export function planDoctorRepairStep(params: {
 
   return {
     step,
-    maxSteps: MAX_DOCTOR_REPAIR_STEPS,
+    maxSteps: effectiveMaxSteps,
     strategyId,
     description,
     nextFormat,
     nextUrl,
     nextBufferProfile,
-    nextBufferTiming: nextCfg,
+    nextBufferTiming: nextTiming,
     delayMs,
     useFallbackUrl,
+    forceCleanReset,
+    stopRetrying: false,
     exhausted: false,
   };
 }
 
+/* ============================================================================
+ * EPG ELLENŐRZÉS, AKTÍV BETÖLTÉS-SEGÍTÉS ÉS CSATORNÁNKÉNTI LEKAPCSOLÁS
+ * ============================================================================
+ *  - Ha egy csatornához igazoltan nincs EPG (üres rövid/egyszerű EPG + betöltött
+ *    műsorújságban sem szerepel, vagy ismételten 0 műsort ad a panel), a TV Doktor
+ *    lekapcsolja annál a csatornánál az EPG-keresést (`shouldSkipChannelEpg === true`).
+ *  - Ha maga az EPG nem töltődik be, a TV Doktor korlátozott számban (max 2x / 10 perc)
+ *    aktívan segíti az EPG és az XMLTV műsorújság újratöltését.
+ */
+
+export function shouldSkipChannelEpg(
+  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
+  storage?: Storage | null,
+): boolean {
+  if (!channel) return false;
+  const store = readStore(storage);
+  const key = (channel.id && store.epgIdIndex[channel.id]) || normalizeChannelDoctorKey(channel);
+  const rec = store.epgByKey[key];
+  if (!rec || rec.state !== 'disabled') return false;
+  if (Date.now() - rec.updatedAt >= EPG_DISABLED_TTL_MS) {
+    return false;
+  }
+  return true;
+}
+
+export function recordDoctorEpgChannelResult(params: {
+  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null;
+  hasEntries: boolean;
+  guideLoaded?: boolean;
+  providerHasAnyEpg?: boolean;
+  storage?: Storage | null;
+}): ChannelEpgDoctorRecord | null {
+  const { channel, hasEntries, guideLoaded = false, providerHasAnyEpg = false, storage } = params;
+  if (!channel) return null;
+  const key = normalizeChannelDoctorKey(channel);
+  if (!key || key === 'unknown-channel' || key.startsWith('vod:')) return null;
+
+  const store = readStore(storage);
+  const existing = (channel.id && store.epgIdIndex[channel.id]
+    ? store.epgByKey[store.epgIdIndex[channel.id]]
+    : null) || store.epgByKey[key];
+  const now = Date.now();
+
+  if (hasEntries) {
+    if (existing && existing.state === 'ok' && now - existing.updatedAt < 10 * 60 * 1000) {
+      return existing;
+    }
+    const updated: ChannelEpgDoctorRecord = {
+      channelKey: key,
+      channelId: channel.id,
+      channelName: String(channel.name || channel.id || key).slice(0, 140),
+      state: 'ok',
+      emptyChecks: 0,
+      updatedAt: now,
+    };
+    store.epgByKey[key] = updated;
+    if (channel.id) store.epgIdIndex[channel.id] = key;
+    writeStore(store, storage);
+    return updated;
+  }
+
+  const nextEmpty = (existing?.emptyChecks || 0) + 1;
+  // Lekapcsoljuk az EPG-keresést ennél a csatornánál, ha:
+  //  - a teljes műsorújság (XMLTV) már betöltődött ÉS a rövid+egyszerű EPG is üres erre a csatornára, VAGY
+  //  - a szolgáltató más csatornákon ad EPG-t, de ennél a csatornánál már 2x üres volt, VAGY
+  //  - 3 külön ellenőrzés után sincs semmilyen EPG adat a csatornához.
+  const shouldDisable =
+    (guideLoaded && nextEmpty >= 1) ||
+    (providerHasAnyEpg && nextEmpty >= 2) ||
+    nextEmpty >= 3;
+
+  const wasAlreadyDisabled = existing?.state === 'disabled' && now - existing.updatedAt < EPG_DISABLED_TTL_MS;
+  const updated: ChannelEpgDoctorRecord = {
+    channelKey: key,
+    channelId: channel.id,
+    channelName: String(channel.name || channel.id || key).slice(0, 140),
+    state: shouldDisable ? 'disabled' : 'empty',
+    emptyChecks: nextEmpty,
+    updatedAt: now,
+  };
+  store.epgByKey[key] = updated;
+  if (channel.id) store.epgIdIndex[channel.id] = key;
+
+  if (shouldDisable && !wasAlreadyDisabled) {
+    opHealth.epgDisabledCount += 1;
+    logDoctor(
+      'info',
+      channel,
+      'EPG lekapcsolva: a csatornához nincs műsorújság – többé nem keresünk hozzá EPG-t.',
+      'learning',
+      storage,
+    );
+  } else {
+    writeStore(store, storage);
+  }
+
+  return updated;
+}
+
+export function requestDoctorEpgAssistance(params: {
+  providerName?: string;
+  reason: string;
+  now?: number;
+  storage?: Storage | null;
+}): { allowed: boolean; attempt: number } {
+  const { providerName, reason, now = Date.now(), storage } = params;
+  const windowStart = now - EPG_ASSIST_WINDOW_MS;
+  while (epgAssistTimestamps.length > 0 && epgAssistTimestamps[0] < windowStart) {
+    epgAssistTimestamps.shift();
+  }
+  if (epgAssistTimestamps.length >= MAX_EPG_ASSIST_PER_WINDOW) {
+    return { allowed: false, attempt: epgAssistTimestamps.length };
+  }
+
+  epgAssistTimestamps.push(now);
+  const attempt = epgAssistTimestamps.length;
+  opHealth.epgAssistsCount += 1;
+
+  const store = readStore(storage);
+  store.epgAssistCount = (store.epgAssistCount || 0) + 1;
+  store.epgLastAssistAt = now;
+
+  const targetChannel = {
+    id: 'epg-system',
+    name: providerName ? `EPG • ${providerName}` : 'EPG Műsorújság',
+    countryCode: undefined,
+  };
+
+  logDoctor(
+    'warn',
+    targetChannel,
+    `EPG-ellenőrzés aktiválódott: ${reason}`,
+    'activation',
+    storage,
+  );
+  logDoctor(
+    'repair',
+    targetChannel,
+    `EPG betöltés segítése [${attempt}/${MAX_EPG_ASSIST_PER_WINDOW}]: műsorújság és tartalék EPG újratöltése indítva`,
+    'assistance',
+    storage,
+  );
+
+  return { allowed: true, attempt };
+}
+
+export function recordDoctorEpgRecovered(params: {
+  providerName?: string;
+  channelCount: number;
+  source: 'xmltv' | 'short_epg';
+  storage?: Storage | null;
+}): void {
+  const { providerName, channelCount, source, storage } = params;
+  if (channelCount <= 0) return;
+  const store = readStore(storage);
+  const now = Date.now();
+  // Csak akkor naplózunk külön EPG-helyreállítást, ha előtte volt EPG-segítés vagy még nem volt rögzítve.
+  const hadAssist = store.epgLastAssistAt !== null && (store.epgLastRecoveredAt === null || store.epgLastRecoveredAt < store.epgLastAssistAt);
+  store.epgLastRecoveredAt = now;
+  if (hadAssist) {
+    logDoctor(
+      'verified',
+      { id: 'epg-system', name: providerName ? `EPG • ${providerName}` : 'EPG Műsorújság', countryCode: undefined },
+      `EPG sikeresen helyreállítva (${source === 'xmltv' ? 'teljes műsorújság' : 'tartalék csatorna-EPG'}): ${channelCount} csatorna műsora elérhető.`,
+      'assistance',
+      storage,
+    );
+  } else {
+    writeStore(store, storage);
+  }
+}
+
 /**
  * Központi (Supabase) profilok összefésülése a helyi tanuló memóriával.
- * Internetkimaradáskor a helyi gyorsítótár önállóan is működik; ha a felhőből
- * érkezik több készülék által igazolt tapasztalat, azzal feltölti az ismeretlen
- * csatornákat, a helyileg már igazolt csatornáknál pedig finoman súlyoz.
  */
 export interface CloudChannelProfileInput {
   channelKey: string;
@@ -1945,6 +2736,19 @@ export function mergeCloudProfilesIntoLocal(
       : 'balanced';
     const existing = store.byKey[key];
 
+    const incTsOk = Math.max(0, Number(incoming.tsSuccessCount) || 0);
+    const incTsFail = Math.max(0, Number(incoming.tsFailureCount) || 0);
+    const incHlsOk = Math.max(0, Number(incoming.hlsSuccessCount) || 0);
+    const incHlsFail = Math.max(0, Number(incoming.hlsFailureCount) || 0);
+    // Kiszűrjük a felhőből érkező esetleges 20 ms-os helyőrzőket vagy 0-sikerű átlagokat!
+    const incTsAvg = sanitizePositiveStartupMs(incoming.tsAvgStartupMs, incTsOk);
+    const incHlsAvg = sanitizePositiveStartupMs(incoming.hlsAvgStartupMs, incHlsOk);
+    const rawIncBest = typeof incoming.bestStartupMs === 'number' && incoming.bestStartupMs > 20
+      ? Math.round(incoming.bestStartupMs)
+      : null;
+    const bestCands = [rawIncBest, incTsAvg, incHlsAvg].filter((n): n is number => typeof n === 'number' && n > 0);
+    const incBestMs = bestCands.length > 0 ? Math.min(...bestCands) : null;
+
     if (!existing) {
       const created: ChannelDoctorRecord = {
         channelKey: key,
@@ -1960,13 +2764,13 @@ export function mergeCloudProfilesIntoLocal(
             Number(incoming.bestBufferAheadSeconds) || DOCTOR_BUFFER_CONFIGS[bp].minBufferAheadSeconds,
           ),
         ),
-        tsAvgStartupMs: typeof incoming.tsAvgStartupMs === 'number' ? Math.round(incoming.tsAvgStartupMs) : null,
-        hlsAvgStartupMs: typeof incoming.hlsAvgStartupMs === 'number' ? Math.round(incoming.hlsAvgStartupMs) : null,
-        bestStartupMs: typeof incoming.bestStartupMs === 'number' ? Math.round(incoming.bestStartupMs) : null,
-        tsOk: Math.max(0, Number(incoming.tsSuccessCount) || 0),
-        tsFail: Math.max(0, Number(incoming.tsFailureCount) || 0),
-        hlsOk: Math.max(0, Number(incoming.hlsSuccessCount) || 0),
-        hlsFail: Math.max(0, Number(incoming.hlsFailureCount) || 0),
+        tsAvgStartupMs: incTsAvg,
+        hlsAvgStartupMs: incHlsAvg,
+        bestStartupMs: incBestMs,
+        tsOk: incTsOk,
+        tsFail: incTsFail,
+        hlsOk: incHlsOk,
+        hlsFail: incHlsFail,
         stalls: Math.max(0, Number(incoming.stallCount) || 0),
         repairsOk: Math.max(0, Number(incoming.repairSuccessCount) || 0),
         bufferStats: incoming.bufferScores && typeof incoming.bufferScores === 'object' ? incoming.bufferScores : {},
@@ -1974,15 +2778,17 @@ export function mergeCloudProfilesIntoLocal(
         confidence: incoming.confidenceScore,
         updatedAt: Date.now(),
       };
+      created.bestFormat = pickFastestReliableFormat(created, incoming.bestFormat);
       store.byKey[key] = created;
       if (created.channelId && !store.idIndex[created.channelId]) {
         store.idIndex[created.channelId] = key;
       }
       mergedCount += 1;
     } else {
-      // Ha helyileg még kevés a mérés (< 3 sikeres indulás), a magas megbízhatóságú felhő-adat segít:
       const localSamples = existing.tsOk + existing.hlsOk;
-      if (localSamples < 3 && (incoming.confidenceScore || 0) >= 55) {
+      // SOHA nem írjuk felül egy helyileg már sikeresen lejátszott (`lastWorkingFormat`) csatorna
+      // formátumát a felhőből érkező adatokkal!
+      if (!existing.lastWorkingFormat && localSamples < 2 && (incoming.confidenceScore || 0) >= 55) {
         existing.bestFormat = incoming.bestFormat;
         existing.bestBufferProfile = bp;
         existing.bestBufferAheadSeconds = Math.max(
@@ -1993,11 +2799,11 @@ export function mergeCloudProfilesIntoLocal(
           ),
         );
       }
-      if (existing.tsAvgStartupMs === null && typeof incoming.tsAvgStartupMs === 'number') {
-        existing.tsAvgStartupMs = Math.round(incoming.tsAvgStartupMs);
+      if (existing.tsAvgStartupMs === null && incTsAvg !== null) {
+        existing.tsAvgStartupMs = incTsAvg;
       }
-      if (existing.hlsAvgStartupMs === null && typeof incoming.hlsAvgStartupMs === 'number') {
-        existing.hlsAvgStartupMs = Math.round(incoming.hlsAvgStartupMs);
+      if (existing.hlsAvgStartupMs === null && incHlsAvg !== null) {
+        existing.hlsAvgStartupMs = incHlsAvg;
       }
       existing.confidence = incoming.confidenceScore ?? existing.confidence;
       existing.source = 'merged';
@@ -2032,7 +2838,6 @@ export function registerDoctorRepairPlugin(plugin: DoctorRepairPlugin): () => vo
   };
 }
 
-// Alapértelmezett beépített diagnosztikai bővítmény: képfelbontás és ejtett képkocka arány.
 registerDoctorDiagnosticPlugin({
   id: 'video-quality-health',
   collect: ({ streamState }) => {
@@ -2048,13 +2853,7 @@ registerDoctorDiagnosticPlugin({
 
 /* ============================================================================
  * VOD (FILMEK ÉS SOROZATOK) TV DOKTOR TÁMOGATÁS (MEMÓRIAMENTÉS NÉLKÜL)
- * ============================================================================
- * A VOD adatfolyamok (MKV / MP4 / TS / HLS) kiterjesztését SOHA nem írjuk át
- * más fájlnévre; a TV Doktor a filmeknél és sorozatoknál KIZÁRÓLAG valós időben
- * segíti a folyamatos lejátszást (indulási őr, okos fagyásfigyelés, fokozatos
- * pufferemelés max. 10 mp-ig és újracsatlakozás), de SOHA nem menti el
- * memóriába, naplóba vagy felhőbe, hogy melyik film vagy sorozat hol akadt el.
- */
+ * ============================================================================ */
 
 const EPHEMERAL_VOD_BUCKET_KEY = '__vod_ephemeral_assist__';
 
@@ -2112,8 +2911,6 @@ export function recordDoctorVodSuccess(params: {
   wasRepair?: boolean;
   storage?: Storage | null;
 }): ChannelDoctorRecord | null {
-  // Filmek és sorozatok adatait a TV Doktor SOHA nem menti el memóriába,
-  // naplóba vagy felhőbe – csak a folyamatos lejátszást segíti.
   if (params?.wasRepair) {
     opHealth.repairsVerifiedCount += 1;
   }
@@ -2129,7 +2926,6 @@ export function recordDoctorVodFailure(_params: {
   stallMs?: number;
   storage?: Storage | null;
 }): ChannelDoctorRecord | null {
-  // Filmek és sorozatok elakadását vagy pozícióját SOHA nem mentjük memóriába.
   return null;
 }
 
@@ -2164,6 +2960,8 @@ export function planVodDoctorRepairStep(params: {
       nextBufferTiming: safeCfg,
       delayMs: 1600,
       useFallbackUrl: false,
+      forceCleanReset: true,
+      stopRetrying: true,
       exhausted: true,
     };
   }
@@ -2204,7 +3002,8 @@ export function planVodDoctorRepairStep(params: {
     nextBufferTiming: nextCfg,
     delayMs,
     useFallbackUrl: false,
+    forceCleanReset: true,
+    stopRetrying: false,
     exhausted: false,
   };
 }
-

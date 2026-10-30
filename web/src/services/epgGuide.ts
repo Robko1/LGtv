@@ -110,6 +110,25 @@ let statInvalidDate = 0;
 let statNoTitle = 0;
 let statCap = 0;
 let statKept = 0;
+const guideUpdateListeners: Array<() => void> = [];
+
+export function subscribeGuideUpdates(listener: () => void): () => void {
+  guideUpdateListeners.push(listener);
+  return () => {
+    const pos = guideUpdateListeners.indexOf(listener);
+    if (pos >= 0) guideUpdateListeners.splice(pos, 1);
+  };
+}
+
+function notifyGuideListeners(): void {
+  for (let i = 0; i < guideUpdateListeners.length; i += 1) {
+    try {
+      guideUpdateListeners[i]?.();
+    } catch {
+      /* ignore listener errors */
+    }
+  }
+}
 
 /* ─────────────────────────── XMLTV segédfüggvények ─────────────────────── */
 
@@ -379,18 +398,26 @@ async function feedWithBreath(text: string): Promise<void> {
 
 function finishParsing(): void {
   /*
-   * Rendezés + vágás: csak a mostani és a következő műsorok maradnak, így
-   * több ezer csatornánál is néhány megabájt a memóriaigény (a TV-n ez a
+   * Rendezés + duplikációszűrés + vágás: csak a mostani és a következő műsorok maradnak,
+   * így több ezer csatornánál is néhány megabájt a memóriaigény (a TV-n ez a
    * különbség a folyamatos és a „megfagyó” felület között).
    */
   const nowSec = Math.floor(Date.now() / 1000) - KEEP_BEFORE_SEC;
   statKept = 0;
   index.forEach((list, channel) => {
     list.sort((a, b) => a.s - b.s);
-    const kept = list.filter((entry) => entry.e > nowSec).slice(0, KEEP_ENTRIES_PER_CHANNEL);
-    if (kept.length) {
-      index.set(channel, kept);
-      statKept += kept.length;
+    const deduped: GuideEntry[] = [];
+    for (let i = 0; i < list.length; i += 1) {
+      const entry = list[i];
+      if (entry.e <= nowSec) continue;
+      const prev = deduped.length > 0 ? deduped[deduped.length - 1] : null;
+      if (prev && prev.s === entry.s && prev.e === entry.e && prev.t === entry.t) continue;
+      deduped.push(entry);
+      if (deduped.length >= KEEP_ENTRIES_PER_CHANNEL) break;
+    }
+    if (deduped.length) {
+      index.set(channel, deduped);
+      statKept += deduped.length;
     } else {
       index.delete(channel);
     }
@@ -478,11 +505,11 @@ async function download(provider: { serverUrl?: string; username?: string; passw
         lastYield = Date.now();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
-      // Haladásjelzés a naplóba (10 MB-onként): a TV-n ebből látszik, hogy a
-      // letöltés él és halad – és hogy a kihagyott (ablakon kívüli) műsorok
-      // miatt miért kevés a csatorna a fájl első felében.
+      // Haladásjelzés a naplóba (10 MB-onként) + a felület értesítése, hogy a már
+      // beolvasott csatornák sárga műsorsora azonnal megjelenjen letöltés közben is!
       if (bytes - lastLoggedBytes >= 10 * 1024 * 1024) {
         lastLoggedBytes = bytes;
+        notifyGuideListeners();
         appLog(
           `EPG: műsorújság olvasása – ${(bytes / 1048576).toFixed(0)} MB, `
           + `${index.size} csatorna, ${lastProgrammes} műsor a keresett időablakban.`
@@ -554,6 +581,10 @@ function guideMetaKey(providerId: string): string {
   return `${GUIDE_IDB_PREFIX}${providerId}-meta`;
 }
 
+function guideNamesKey(providerId: string): string {
+  return `${GUIDE_IDB_PREFIX}${providerId}-names`;
+}
+
 /** A memóriabeli index tömör, JSON-ba írható alakja. */
 function serializeGuide(): string[] {
   const rows: string[] = [];
@@ -566,6 +597,18 @@ function serializeGuide(): string[] {
     rows.push(row);
   });
   return rows;
+}
+
+function serializeNameMap(): string {
+  const pairs: Array<[string, string]> = [];
+  let chars = 0;
+  nameToId.forEach((targetId, normName) => {
+    if (!normName || !targetId || !index.has(targetId)) return;
+    chars += normName.length + targetId.length + 8;
+    if (chars > 1536 * 1024) return;
+    pairs.push([normName, targetId]);
+  });
+  return JSON.stringify(pairs);
 }
 
 async function persistGuide(providerId: string, complete: boolean): Promise<void> {
@@ -583,6 +626,10 @@ async function persistGuide(providerId: string, complete: boolean): Promise<void
       if (!ok) return;
       chunks += 1;
     }
+    // A név -> XMLTV csatornaazonosító térképet is elmentjük, különben a tartós
+    // tárból való visszatöltés után az epg_channel_id nélküli csatornákhoz
+    // nem találna műsort a felület!
+    await store.put(guideNamesKey(providerId), serializeNameMap());
     index.forEach((list) => { programmes += list.length; });
     const meta: PersistedGuideMeta = {
       providerId,
@@ -597,7 +644,7 @@ async function persistGuide(providerId: string, complete: boolean): Promise<void
     await store.put(guideMetaKey(providerId), JSON.stringify(meta));
     appLog(
       `EPG: a műsorújság elmentve a tartós tárba (${meta.channels} csatorna, `
-      + `${meta.programmes} műsor, ${chunks} adag${complete ? '' : ', RÉSZLEGES'}); a következő `
+      + `${meta.programmes} műsor, ${nameToId.size} név-azonosító, ${chunks} adag${complete ? '' : ', RÉSZLEGES'}); a következő `
       + `${complete ? 'indulás ebből indul' : 'indulás ezt ismét frissíti'}.`
     );
   } catch {
@@ -628,14 +675,40 @@ async function restorePersistedGuide(
       }
     }
     if (!restored) return null;
+
+    let restoredNamesCount = 0;
+    try {
+      const rawNames = await store.get(guideNamesKey(providerId));
+      if (rawNames) {
+        const parsedNames = JSON.parse(rawNames) as Array<[string, string]>;
+        if (Array.isArray(parsedNames)) {
+          for (let i = 0; i < parsedNames.length; i += 1) {
+            const pair = parsedNames[i];
+            if (Array.isArray(pair) && pair[0] && pair[1]) {
+              nameToId.set(String(pair[0]), String(pair[1]));
+              restoredNamesCount += 1;
+            }
+          }
+        }
+      }
+    } catch {
+      /* Régi mentés névtérkép nélkül: háttérbeli frissítéssel pótoljuk. */
+    }
+
     // A visszatöltött index is átesik a tisztításon (lejárt műsorok kidobása).
     finishParsing();
+    if (index.size === 0 || statKept === 0) {
+      return null;
+    }
+    // Ha a régi mentésből hiányzott a névtérkép (restoredNamesCount === 0),
+    // azonnal megjelenítjük az ID-alapú műsorokat, de a háttérben frissítjük is!
+    const hasNameMap = restoredNamesCount > 0;
     return {
       savedAt: meta.savedAt,
       channels: index.size,
-      programmes: meta.programmes,
+      programmes: statKept,
       bytes: meta.bytes,
-      complete: meta.complete === true,
+      complete: meta.complete === true && hasNameMap,
     };
   } catch {
     return null;

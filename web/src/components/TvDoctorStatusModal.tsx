@@ -1,19 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  Activity,
+  AlertOctagon,
   AlertTriangle,
+  BookOpenCheck,
   CheckCircle2,
   Database,
   RefreshCw,
   RotateCcw,
   Wifi,
   WifiOff,
+  Wrench,
   X,
 } from 'lucide-react';
 import { AppSettings, Channel } from '../types/iptv';
 import { TvDoctorIcon } from './TvDoctorIcon';
 import { dateTimeText } from '../services/appLog';
 import {
+  DoctorEventCategory,
+  DoctorLogEntry,
   formatDoctorBytes,
   getTvDoctorMemoryStats,
   getTvDoctorOperationHealth,
@@ -36,11 +42,116 @@ interface TvDoctorStatusModalProps {
   activeChannel?: Channel | null;
 }
 
+/**
+ * A teljes képernyős élő TV lejátszó (`[data-tv-player].fixed`) z-indexe 2147483000,
+ * ezért a 0-gombos TV Doktor ablak rétegének mindig afelett kell lennie!
+ */
+export const TV_DOCTOR_MODAL_Z_INDEX = 2147483600;
+
 function isZeroDigitKey(e: KeyboardEvent | React.KeyboardEvent): boolean {
+  const rawEvt = 'nativeEvent' in e ? e.nativeEvent : e;
+  const norm = normalizeTvKey(rawEvt as KeyboardEvent);
   const key = e.key;
   const code = (e as KeyboardEvent).code || '';
   const kc = e.keyCode || e.which || 0;
-  return key === '0' || code === 'Digit0' || code === 'Numpad0' || kc === 48 || kc === 96;
+  return (
+    norm === '0' ||
+    key === '0' ||
+    key === 'U+0030' ||
+    code === 'Digit0' ||
+    code === 'Numpad0' ||
+    kc === 48 ||
+    kc === 96
+  );
+}
+
+interface CategoryVisualMeta {
+  id: DoctorEventCategory;
+  title: string;
+  shortTag: string;
+  subtitle: string;
+  cardBorder: string;
+  cardBg: string;
+  dotClass: string;
+  titleColor: string;
+  countBadge: string;
+  logBorder: string;
+  logBadge: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}
+
+const CATEGORY_VISUALS: readonly CategoryVisualMeta[] = [
+  {
+    id: 'learning',
+    title: 'Tanulás',
+    shortTag: 'TANULÁS',
+    subtitle: 'Gyorsprofil, formátum és EPG-mentes csatorna',
+    cardBorder: 'border-emerald-400/75',
+    cardBg: 'bg-emerald-950/45',
+    dotClass: 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]',
+    titleColor: 'text-emerald-200',
+    countBadge: 'border-emerald-400/70 bg-emerald-500/25 text-emerald-100',
+    logBorder: 'border-emerald-400/70 bg-emerald-950/30',
+    logBadge: 'border-emerald-400/65 bg-emerald-500/25 text-emerald-200',
+    Icon: BookOpenCheck,
+  },
+  {
+    id: 'assistance',
+    title: 'Segítség / Javítás',
+    shortTag: 'SEGÍTSÉG',
+    subtitle: 'Beállításváltás, pufferemelés és EPG segítés',
+    cardBorder: 'border-sky-400/80',
+    cardBg: 'bg-sky-950/45',
+    dotClass: 'bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.9)]',
+    titleColor: 'text-sky-200',
+    countBadge: 'border-sky-400/75 bg-sky-500/25 text-sky-100',
+    logBorder: 'border-sky-400/75 bg-sky-950/35',
+    logBadge: 'border-sky-400/65 bg-sky-500/25 text-sky-200',
+    Icon: Wrench,
+  },
+  {
+    id: 'activation',
+    title: 'Aktiválódás',
+    shortTag: 'AKTIVÁLÓDÁS',
+    subtitle: 'Közbelépés késés, akadás vagy EPG miatt',
+    cardBorder: 'border-amber-400/80',
+    cardBg: 'bg-amber-950/40',
+    dotClass: 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)]',
+    titleColor: 'text-amber-200',
+    countBadge: 'border-amber-400/75 bg-amber-500/25 text-amber-100',
+    logBorder: 'border-amber-400/75 bg-amber-950/30',
+    logBadge: 'border-amber-400/65 bg-amber-500/25 text-amber-200',
+    Icon: Activity,
+  },
+  {
+    id: 'channel_error',
+    title: 'Hiba a csatornánál',
+    shortTag: 'CSATORNAHIBA',
+    subtitle: 'Stream hiba vagy nem működő adás leállítása',
+    cardBorder: 'border-rose-500/85',
+    cardBg: 'bg-rose-950/50',
+    dotClass: 'bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.95)]',
+    titleColor: 'text-rose-200',
+    countBadge: 'border-rose-400/80 bg-rose-500/25 text-rose-100',
+    logBorder: 'border-rose-500/80 bg-rose-950/40',
+    logBadge: 'border-rose-400/70 bg-rose-500/25 text-rose-200',
+    Icon: AlertOctagon,
+  },
+];
+
+const CATEGORY_BY_ID: Record<DoctorEventCategory, CategoryVisualMeta> = {
+  learning: CATEGORY_VISUALS[0],
+  assistance: CATEGORY_VISUALS[1],
+  activation: CATEGORY_VISUALS[2],
+  channel_error: CATEGORY_VISUALS[3],
+};
+
+function resolveEntryCategory(entry: DoctorLogEntry): DoctorEventCategory {
+  if (entry.category && CATEGORY_BY_ID[entry.category]) return entry.category;
+  if (entry.level === 'error') return 'channel_error';
+  if (entry.level === 'warn') return 'activation';
+  if (entry.level === 'repair' || entry.level === 'verified') return 'assistance';
+  return 'learning';
 }
 
 export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
@@ -103,7 +214,20 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
 
     return () => {
       window.clearTimeout(focusTimer);
+      const fsPlayer = typeof document !== 'undefined'
+        ? document.querySelector<HTMLElement>('[data-tv-player].fixed')
+        : null;
       const prev = previousFocusRef.current;
+      // Teljes képernyőn a bezárás után a teljes képernyős lejátszó visszakapja a fókuszt,
+      // hogy a csatornaváltás, hangerő, OK és Vissza azonnal reagáljon.
+      if (fsPlayer) {
+        try {
+          fsPlayer.focus({ preventScroll: true } as FocusOptions);
+          return;
+        } catch {
+          /* ignore */
+        }
+      }
       if (prev && document.contains(prev)) {
         try {
           prev.focus({ preventScroll: true } as FocusOptions);
@@ -122,6 +246,8 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
   const doctorOp = getTvDoctorOperationHealth();
   const doctorCloud = getTvDoctorCloudStatus();
   const pairingInfo = getTvDoctorPairingInfo();
+  const categoryStats = doctorSummary.categoryStats;
+  const epgStats = doctorSummary.epgStats;
 
   const hasCloudError = Boolean(doctorCloud.lastErrorSummary) && doctorCloud.connectionState !== 'unpaired';
   const hasStorageError = Boolean(doctorMem.lastStorageError);
@@ -249,17 +375,19 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
         e.preventDefault();
         e.stopPropagation();
         if (logScrollRef.current) {
-          const maxScroll = Math.max(0, logScrollRef.current.scrollHeight - logScrollRef.current.clientHeight);
-          logScrollRef.current.scrollTop = maxScroll;
-          setScrollOffsetPx(Math.round(maxScroll));
+          const bottom = Math.max(0, logScrollRef.current.scrollHeight - logScrollRef.current.clientHeight);
+          logScrollRef.current.scrollTop = bottom;
+          setScrollOffsetPx(Math.round(bottom));
         }
         return;
       }
       if (key === 'ArrowRight') {
-        e.preventDefault();
-        e.stopPropagation();
         const rightControls = getRightControls();
-        rightControls[0]?.focus({ preventScroll: true } as FocusOptions);
+        if (rightControls.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          rightControls[0].focus({ preventScroll: true } as FocusOptions);
+        }
         return;
       }
       if (key === 'ArrowLeft') {
@@ -270,34 +398,36 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     }
 
     const rightControls = getRightControls();
-    const rightIdx = active ? rightControls.indexOf(active as HTMLButtonElement) : -1;
-    if (rightIdx >= 0) {
+    const curRightIdx = active ? rightControls.indexOf(active as HTMLButtonElement) : -1;
+    if (curRightIdx >= 0) {
       if (key === 'ArrowLeft') {
         e.preventDefault();
         e.stopPropagation();
         logScrollRef.current?.focus({ preventScroll: true } as FocusOptions);
         return;
       }
-      if (key === 'ArrowDown' || key === 'ArrowRight') {
+      if (key === 'ArrowDown') {
         e.preventDefault();
         e.stopPropagation();
-        const next = Math.min(rightControls.length - 1, rightIdx + 1);
-        rightControls[next]?.focus({ preventScroll: true } as FocusOptions);
+        const next = rightControls[Math.min(rightControls.length - 1, curRightIdx + 1)];
+        next?.focus({ preventScroll: true } as FocusOptions);
         return;
       }
       if (key === 'ArrowUp') {
         e.preventDefault();
         e.stopPropagation();
-        const prev = Math.max(0, rightIdx - 1);
-        rightControls[prev]?.focus({ preventScroll: true } as FocusOptions);
+        const prev = rightControls[Math.max(0, curRightIdx - 1)];
+        prev?.focus({ preventScroll: true } as FocusOptions);
         return;
       }
-    } else if (
-      key === 'ArrowDown' ||
-      key === 'ArrowUp' ||
-      key === 'ArrowLeft' ||
-      key === 'ArrowRight'
-    ) {
+      if (key === 'ArrowRight') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+
+    if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'ArrowLeft' || key === 'ArrowRight') {
       e.preventDefault();
       e.stopPropagation();
       logScrollRef.current?.focus({ preventScroll: true } as FocusOptions);
@@ -311,7 +441,8 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="TV Doktor állapot és napló"
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 p-3 sm:p-5 select-none"
+      style={{ zIndex: TV_DOCTOR_MODAL_Z_INDEX }}
+      className="fixed inset-0 flex items-center justify-center bg-black/88 p-3 sm:p-5 select-none"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -323,10 +454,10 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
         onKeyDown={handleModalKeyDown}
         className="w-full max-w-[1760px] h-[92vh] max-h-[980px] rounded-3xl border-2 border-cyan-400/70 bg-[#061022] shadow-2xl overflow-hidden grid grid-cols-1 sm:grid-cols-2 focus:outline-none"
       >
-        {/* ================= BAL OLDAL: KIZÁRÓLAG A LEGUTÓBBI TV DOKTOR NAPLÓ (LEFELÉ GÖRGETHETŐ) ================= */}
+        {/* ================= BAL OLDAL: SZÍNKÓDOLT TV DOKTOR NAPLÓ (LEFELÉ GÖRGETHETŐ) ================= */}
         <section
           data-tv-doctor-left-pane=""
-          className="flex flex-col min-h-0 h-full border-b-2 sm:border-b-0 sm:border-r-2 border-cyan-500/40 bg-[#050d1d] p-5 lg:p-6 gap-3.5"
+          className="flex flex-col min-h-0 h-full border-b-2 sm:border-b-0 sm:border-r-2 border-cyan-500/40 bg-[#050d1d] p-5 lg:p-6 gap-3"
         >
           <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
             <div>
@@ -364,45 +495,51 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                   data-tv-doctor-log-empty=""
                   className="text-lg lg:text-xl font-bold text-slate-300 leading-relaxed"
                 >
-                  Nincs rögzített élő TV hiba vagy javítási esemény (0 bejegyzés).
+                  Nincs rögzített élő TV vagy EPG esemény (0 bejegyzés).
                 </p>
               </div>
             ) : (
-              orderedLogs.map((entry, idx) => (
-                <div
-                  key={`${entry.at}-${idx}`}
-                  data-tv-doctor-log-item=""
-                  className="rounded-xl border border-cyan-900/65 bg-[#08152c] px-4 py-3 space-y-1 shadow-sm"
-                >
-                  <div className="flex flex-wrap items-center gap-2.5 text-base lg:text-lg leading-snug">
-                    <span className="font-mono font-bold text-slate-300">
-                      {formatLogClock(entry.at)}
-                    </span>
-                    <strong
-                      className={`font-black ${
-                        entry.level === 'verified'
-                          ? 'text-emerald-300'
-                          : entry.level === 'warn'
-                            ? 'text-amber-300'
-                            : 'text-cyan-300'
-                      }`}
-                    >
-                      [{entry.channelName}]
-                    </strong>
+              orderedLogs.map((entry, idx) => {
+                const cat = resolveEntryCategory(entry);
+                const vis = CATEGORY_BY_ID[cat];
+                return (
+                  <div
+                    key={`${entry.at}-${idx}`}
+                    data-tv-doctor-log-item=""
+                    data-log-category={cat}
+                    className={`rounded-2xl border-2 p-3.5 space-y-1.5 ${vis.logBorder}`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          data-tv-doctor-log-badge={cat}
+                          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-0.5 text-sm font-black uppercase tracking-wider shrink-0 ${vis.logBadge}`}
+                        >
+                          <span className={`h-2.5 w-2.5 rounded-full ${vis.dotClass}`} />
+                          {vis.shortTag}
+                        </span>
+                        <span className="text-base lg:text-lg font-black text-white truncate">
+                          {entry.channelName}
+                        </span>
+                      </div>
+                      <span className="font-mono text-sm lg:text-base font-bold text-slate-300 shrink-0">
+                        {formatLogClock(entry.at)}
+                      </span>
+                    </div>
+                    <p className="text-base lg:text-lg font-semibold text-slate-100 leading-snug break-words">
+                      {entry.message}
+                    </p>
                   </div>
-                  <p className="text-base lg:text-lg font-semibold text-slate-100 leading-relaxed break-words">
-                    {entry.message}
-                  </p>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
 
-        {/* ================= JOBB OLDAL: ÁLLANDÓ ADATOK + JOBB FELSŐ SAROKBAN PIROS MEMÓRIA: 0 ================= */}
+        {/* ================= JOBB OLDAL: SZÍNKÓDOLT ESEMÉNYJELZŐK + ÁLLANDÓ ADATOK + MEMÓRIA: 0 ================= */}
         <section
           data-tv-doctor-right-pane=""
-          className="flex flex-col min-h-0 h-full overflow-y-auto bg-[#08152d] p-5 lg:p-6 gap-4"
+          className="flex flex-col min-h-0 h-full overflow-y-auto bg-[#08152d] p-5 lg:p-6 gap-3.5"
         >
           {/* Felső fejléc: bal oldalon ikon + cím + élő csatorna, jobb felső sarokban a piros Memória: 0 gomb */}
           <div className="flex items-start justify-between gap-4 shrink-0">
@@ -428,8 +565,8 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 </div>
                 <p className="text-base lg:text-lg font-bold text-cyan-200 truncate">
                   {activeChannel
-                    ? `Élő adás: ${activeChannel.name}${activeChannelHandled ? ' • Tanult profil aktív' : ' • Automatikus védelem'}`
-                    : 'Élő TV felügyelet aktív'}
+                    ? `Élő adás: ${activeChannel.name}${activeChannelHandled ? ' • Tanult gyorsprofil aktív' : ' • Automatikus védelem'}`
+                    : 'Élő TV és EPG felügyelet aktív'}
                 </p>
               </div>
             </div>
@@ -440,7 +577,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               type="button"
               data-tv-doctor-reset=""
               aria-label="TV Doktor memória nullázása 0 állapotra"
-              title="Tanult csatornák, napló és szinkron-várólista visszaállítása 0 állapotra"
+              title="Tanult csatornák, EPG-tiltások, napló és szinkron-várólista visszaállítása 0 állapotra"
               onClick={handleResetMemory}
               className={`shrink-0 inline-flex items-center gap-2 rounded-2xl border-2 px-4 py-2.5 text-base lg:text-lg font-black shadow-lg focus:outline-none focus:ring-4 focus:ring-amber-400 ${
                 resetFeedback
@@ -453,7 +590,66 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             </button>
           </div>
 
-          {/* 1. Működési állapot */}
+          {/* 0. Színkódolt TV Doktor eseményjelzők: Tanulás (zöld) • Segítség/Javítás (kék) • Aktiválódás (sárga) • Csatornahiba (piros) */}
+          <div
+            data-tv-doctor-category-panel=""
+            className="rounded-2xl border border-cyan-700/65 bg-[#051024] p-3.5 space-y-2.5 shrink-0"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-base lg:text-lg font-black uppercase tracking-wide text-cyan-200">
+                Eseményjelzők (színkódolt napló-összesítő)
+              </span>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
+              {CATEGORY_VISUALS.map((vis) => {
+                const stat = categoryStats[vis.id];
+                const active = stat.count > 0;
+                const IconComp = vis.Icon;
+                return (
+                  <div
+                    key={vis.id}
+                    data-tv-doctor-cat={vis.id}
+                    data-cat-active={active ? 'true' : 'false'}
+                    data-cat-count={stat.count}
+                    className={`rounded-xl border-2 px-3.5 py-2.5 transition-none ${
+                      active
+                        ? `${vis.cardBorder} ${vis.cardBg}`
+                        : 'border-slate-700/70 bg-slate-900/50 opacity-80'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`h-3 w-3 rounded-full shrink-0 ${
+                            active ? vis.dotClass : 'bg-slate-500'
+                          }`}
+                        />
+                        <IconComp className={`h-5 w-5 shrink-0 ${vis.titleColor}`} />
+                        <span className={`text-base lg:text-lg font-black truncate ${vis.titleColor}`}>
+                          {vis.title}
+                        </span>
+                      </div>
+                      <span
+                        data-tv-doctor-cat-count={vis.id}
+                        className={`inline-flex items-center rounded-lg border px-2.5 py-0.5 font-mono text-sm lg:text-base font-black shrink-0 ${vis.countBadge}`}
+                      >
+                        {stat.count} db
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-sm font-bold text-slate-200">
+                      <span className="truncate">
+                        {stat.lastAt !== null
+                          ? `Mikor: ${formatLogClock(stat.lastAt)}${stat.lastChannelName ? ` • ${stat.lastChannelName}` : ''}`
+                          : vis.subtitle}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 1. Működési állapot + EPG felügyelet */}
           <div
             data-tv-doctor-health=""
             className="rounded-2xl border border-cyan-800/60 bg-[#051024] p-4 space-y-2"
@@ -468,16 +664,16 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                       : 'text-emerald-400'
                 }`}
               />
-              <span>Működési állapot</span>
+              <span>Működési állapot és EPG felügyelet</span>
             </div>
             <p className="text-base lg:text-lg text-slate-100 font-bold leading-snug">
               {!tvDoctorEnabled
                 ? 'Kikapcsolva – az alap lejátszó üzemel.'
                 : hasAnyIssue
                   ? 'Működik, de figyelmeztetés van (lásd alább).'
-                  : 'Jól működik minden – nincs hiba vagy elakadás.'}
+                  : 'Jól működik minden – gyors csatornaváltás és EPG-ellenőrzés aktív.'}
             </p>
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-2 pt-1 text-base lg:text-lg text-slate-200">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1.5 pt-1 text-base lg:text-lg text-slate-200">
               <div>
                 Tanult profilok:{' '}
                 <strong className="text-white font-black">
@@ -495,6 +691,13 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                     ? `Lassulás (${doctorOp.lastSlowOp.elapsedMs} ms)`
                     : 'Villámgyors'}
                 </strong>
+              </div>
+              <div data-tv-doctor-epg-summary="">
+                EPG lekapcsolva (nincs műsor):{' '}
+                <strong className="text-emerald-300 font-black">
+                  {epgStats.disabledChannelCount} csatorna
+                </strong>
+                {epgStats.assistCount > 0 ? ` • segítés: ${epgStats.assistCount}x` : ''}
               </div>
             </div>
           </div>
@@ -620,7 +823,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             </div>
           )}
 
-          {/* 4. Memória és TV memóriahasználat */}
+          {/* 4. Memória és TV memóriahasználat (1 MB keret) */}
           <div
             data-tv-doctor-memory=""
             className="rounded-2xl border border-cyan-800/60 bg-[#051024] p-4 space-y-2.5"
@@ -628,7 +831,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             <div className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-2.5 text-lg lg:text-xl font-black text-white">
                 <Database className="h-6 w-6 shrink-0 text-cyan-300" />
-                <span>Memória és TV memóriahasználat</span>
+                <span>Memória és TV memóriahasználat (1 MB keret)</span>
               </span>
               <span
                 className={`text-base lg:text-lg font-black ${
