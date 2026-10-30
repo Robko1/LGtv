@@ -5,7 +5,7 @@ import { PosterImage, preloadPosterImage } from './PosterImage';
 import { Star, Play, Sparkles, Filter, ChevronDown, Mic2, Subtitles } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { xtreamService } from '../services/xtreamService';
-import { parseVodMetadata } from '../services/vodMetadata';
+import { parseVodMetadata, UNKNOWN_LANGUAGE } from '../services/vodMetadata';
 
 interface MoviesViewProps {
   movies: Movie[];
@@ -413,7 +413,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                     <span>Hangsávok</span>
                   </div>
                   <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {(fetchedMovieMeta?.audioLanguages ?? selectedMovie.audioLanguages ?? ['Ismeretlen']).join(' • ')}
+                    {(fetchedMovieMeta?.audioLanguages ?? selectedMovie.audioLanguages ?? []).filter((lang) => Boolean(lang) && lang !== UNKNOWN_LANGUAGE).join(' • ') || '—'}
                   </p>
                 </div>
 
@@ -423,7 +423,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                     <span>Feliratok</span>
                   </div>
                   <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {(fetchedMovieMeta?.subtitleLanguages ?? selectedMovie.subtitleLanguages ?? ['Ismeretlen']).join(' • ')}
+                    {(fetchedMovieMeta?.subtitleLanguages ?? selectedMovie.subtitleLanguages ?? []).filter((lang) => Boolean(lang) && lang !== UNKNOWN_LANGUAGE).join(' • ') || '—'}
                   </p>
                 </div>
               </div>

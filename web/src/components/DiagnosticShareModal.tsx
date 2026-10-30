@@ -245,6 +245,23 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{Math.round(snapshot.charCount / 1024)} KB</div><div className="text-[10px] font-bold tracking-wider text-slate-400">MÉRET / 1 MB</div></div>
             <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-cyan-200">{elapsed}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">ELTELT IDŐ</div></div>
             <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-base font-black text-white">{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()).slice(0, 10) : '—'}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">KEZDETE</div></div>
+            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center">
+              <button
+                data-diagnostic-tv-doctor-toggle=""
+                type="button"
+                role="switch"
+                aria-checked={doctorDiagEnabled}
+                aria-label="TV Doktor naplózás be- és kikapcsolása"
+                onClick={toggleDoctorDiag}
+                className={`flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl border-2 px-3.5 py-2 text-xs font-black transition-all focus:outline-none focus:ring-4 focus:ring-amber-400 ${
+                  doctorDiagEnabled
+                    ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
+                    : 'border-slate-600 bg-slate-800/80 text-slate-300'
+                }`}
+              >
+                <span>{doctorDiagEnabled ? 'TV Doktor napló: BE' : 'TV Doktor napló: KI'}</span>
+              </button>
+            </div>
           </div>
 
           {/*
@@ -337,33 +354,6 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
                   </div>
                 </div>
               </div>
-
-              <button
-                data-diagnostic-tv-doctor-toggle=""
-                type="button"
-                role="switch"
-                aria-checked={doctorDiagEnabled}
-                aria-label="TV Doktor naplózás be- és kikapcsolása a kézi hibakeresési naplóban"
-                onClick={toggleDoctorDiag}
-                className={`flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl border-2 px-3.5 py-2 text-xs font-black transition-all focus:outline-none focus:ring-4 focus:ring-amber-400 ${
-                  doctorDiagEnabled
-                    ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
-                    : 'border-slate-600 bg-slate-800/80 text-slate-300'
-                }`}
-              >
-                <span>{doctorDiagEnabled ? 'TV Doktor napló: BE' : 'TV Doktor napló: KI'}</span>
-                <span
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full p-0.5 transition-colors ${
-                    doctorDiagEnabled ? 'bg-cyan-400' : 'bg-slate-600'
-                  }`}
-                >
-                  <span
-                    className={`h-4 w-4 rounded-full bg-slate-950 transition-transform ${
-                      doctorDiagEnabled ? 'translate-x-4' : 'translate-x-0'
-                    }`}
-                  />
-                </span>
-              </button>
             </div>
           </div>
 

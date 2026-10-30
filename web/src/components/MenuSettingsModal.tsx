@@ -795,17 +795,17 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       </div>
 
                       {/* Counts in Bright Cyan */}
-                      <div className="mt-2 text-xs font-black text-cyan-300 tracking-tight">
+                      <div className="mt-2 text-sm font-black text-cyan-300 tracking-tight">
                         {p.channelsCount.toLocaleString()} csatorna • {p.moviesCount.toLocaleString()} film • {p.seriesCount.toLocaleString()} sorozat
                       </div>
 
                       {/* Type & Date */}
-                      <div className="mt-1 text-sm text-slate-300 font-medium">
+                      <div className="mt-1 text-base text-slate-300 font-medium">
                         {p.type === 'xtream' ? 'Xtream Codes' : 'M3U Lista'} • frissítve {p.lastUpdated}
                       </div>
 
                       {/* Provider Expiry in Yellow */}
-                      <div className="mt-1 text-xs font-bold text-amber-400">
+                      <div className="mt-1 text-sm font-bold text-amber-400">
                         Provider lejárata: {p.expireDate} • {p.maxConnections} kapcsolat
                       </div>
 
