@@ -275,10 +275,10 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 rounded-xl border border-cyan-500/35 bg-[#081329] p-3">
-            <div className="mb-2 flex items-center gap-2 text-sm font-black tracking-wide text-cyan-200"><History className="h-5 w-5 shrink-0" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
+          <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-cyan-500/35 bg-[#081329] p-2">
+            <div className="mb-1 flex items-center gap-2 text-sm font-black tracking-wide text-cyan-200"><History className="h-5 w-5 shrink-0" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
             {history.length ? (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
                 {history.slice(0, 5).map((record) => (
                   <div
                     key={`${record.logNumber}-${record.createdAt}`}
