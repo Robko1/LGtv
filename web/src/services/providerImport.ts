@@ -1,5 +1,6 @@
 import { normalizeLogoUrl } from './logoUrl';
 import {
+  appLog,
   logMemory,
   logPhase,
   logProviderEvent,
@@ -46,6 +47,7 @@ import {
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
+import { logVodItemResponse } from './vodProviderDiagnostics';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled } from './net';
 
@@ -117,6 +119,49 @@ export type PartialFn = (partial: PartialContent) => void | Promise<void>;
 const MAX_CHANNELS = 120000;
 const MAX_MOVIES = 150000;
 const MAX_SERIES = 60000;
+
+/**
+ * A tényleges Xtream-listaválasz mezőinek felmérése.
+ * Csak a kézzel futtatott diagnosztikai naplóba ír; nem indít további API-kérést.
+ */
+function logImportApiPayload(label: string, rows: unknown[]): void {
+  const counts = new Map<string, number>();
+  const samples: string[] = [];
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    const record = row as Record<string, unknown>;
+    for (const [key, value] of Object.entries(record)) {
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+    if (samples.length < 3) {
+      const safe: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(record)) {
+        if (/password|token|username|user_info/i.test(key)) continue;
+        if (typeof value === 'string') {
+          safe[key] = value.length > 180
+            ? value.slice(0, 180) + '…'
+            : value.replace(/(https?:\\/\\/[^?\\s]+)\\?[^\\s]*/gi, '$1?[query elrejtve]');
+        } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
+          safe[key] = value;
+        } else if (Array.isArray(value)) {
+          safe[key] = '[' + value.length + ' elem]';
+        } else if (typeof value === 'object') {
+          safe[key] = '{objektum}';
+        }
+      }
+      samples.push(JSON.stringify(safe));
+    }
+  }
+  const fields = [...counts.entries()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([key, count]) => `${key}=${count}/${rows.length}`);
+  appLog(`IMPORT-API-DIAG [${label}] visszakapott elemek=${rows.length}; mezők jelenléte (kitöltött/összes): ${fields.join(', ') || 'nincs mező'}`);
+  samples.forEach((sample, index) => appLog(`IMPORT-API-DIAG [${label}] minta ${index + 1}: ${sample}`));
+}
+
 
 /**
  * A felületfrissítéseket ritkítjuk: a sok callback lassíthatja a böngészőfelület-t.
@@ -610,9 +655,11 @@ async function enrichFirstVodMetadata(
       try {
         if (target.kind === 'movie') {
           const detail = await xtreamService.vodInfo(server, user, pass, target.id);
+          logVodItemResponse('movie', enrichedMovies[target.index], detail, 'kézi teljes frissítés');
           enrichedMovies[target.index] = applyMovieMetadata(enrichedMovies[target.index], parseVodMetadata(detail));
         } else {
           const detail = await xtreamService.seriesInfo(server, user, pass, target.id);
+          logVodItemResponse('series', enrichedSeries[target.index], detail, 'kézi teljes frissítés');
           enrichedSeries[target.index] = applySeriesMetadata(enrichedSeries[target.index], parseSeriesMetadata(detail));
         }
       } catch {
@@ -1067,6 +1114,7 @@ export async function importXtreamProvider(
       () => xtreamService.liveStreams(server, user, pass),
       'Élő csatornalista'
     ));
+    logImportApiPayload('ÉLŐ CSATORNALISTA', liveStreams as unknown[]);
     const liveCategoryMap = makeCategoryMap(liveCats);
     const liveRows: Array<Array<string | number>> = [];
     const liveCounts = new Map<string, number>();
@@ -1226,6 +1274,7 @@ export async function importXtreamProvider(
         () => xtreamService.vodStreams(server, user, pass),
         'Filmek egyben'
       );
+      logImportApiPayload('FILM LISTA', allVod as unknown[]);
       if (Array.isArray(allVod) && allVod.length > 0) {
         /*
          * A feldolgozás eleve MAX_MOVIES elemnél megáll, ezért egy ennél
@@ -1456,6 +1505,7 @@ export async function importXtreamProvider(
         () => xtreamService.seriesList(server, user, pass),
         'Sorozatok egyben'
       );
+      logImportApiPayload('SOROZAT LISTA', allSeries as unknown[]);
       if (Array.isArray(allSeries) && allSeries.length > 0) {
         // Ugyanaz, mint a filmeknél: a már letöltött nagy válasz nem kerül
         // a kukába, ezért nem indul kategóriánkénti újratöltés.

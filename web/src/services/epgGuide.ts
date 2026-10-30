@@ -833,6 +833,7 @@ export async function ensureGuide(provider: {
         + `${statInvalidDate} érvénytelen időpont, ${statNoTitle} cím nélküli, `
         + `${statCap} korlát miatt kihagyott), ${(lastBytes / 1024).toFixed(0)} KB${partial}.`
       );
+      appLog(`IMPORT-API-DIAG [EPG XMLTV] letöltés kész: ${channels} csatorna, ${statKept} megtartott műsor, ${lastProgrammes} feldolgozott blokk, ${(lastBytes / 1024).toFixed(0)} KB; mezők: channel-id/display-name, programme start/stop/title/desc (a ténylegesen beolvasott XML-elemek alapján).`);
       if (channels > 0) void persistGuide(provider.id, !abortReason);
       if (channels === 0) {
         appLog('EPG: a szolgáltató műsorújságja üres – a felület a rövid EPG-t használja tartalékként.');

@@ -2487,44 +2487,13 @@ export function App() {
      * elveszítette a néző sorrendjét és az EPG-jét – ez volt a „frissítés
      * után nem töltődik be az EPG” egyik útja.
      */
-    if (manual) {
-      const syncState = loadSyncState(id);
-      if (syncState) {
-        setDiagnosticOpen(!silent);
-        setDiagnosticEvents([]);
-        diagnosticEventsRef.current = [];
-        setDiagnosticError(null);
-        setDiagnosticStartedAt(refreshStartedAt);
-        setDiagnosticFinishedAt(null);
-        const probing = {
-          phase: 'Változások ellenőrzése…',
-          detail: 'Csak a szolgáltató kategórialistái töltődnek le (~44 kB); a csatornalisták nem.',
-          percent: 3,
-        };
-        setDiagnosticProgress(probing);
-        bootScreenProviderProgress(probing);
-        const probeGeneration = refreshGenerationRef.current;
-        let check: Awaited<ReturnType<typeof checkProviderChanges>> | null = null;
-        try {
-          check = await checkProviderChanges({
-            serverUrl: provider.serverUrl || '',
-            username: provider.username || '',
-            password: provider.password || '',
-            fingerprint: syncState.fingerprint,
-            lastFullSyncAt: syncState.fullSyncAt,
-          });
-        } catch (error) {
-          // Ha a vizsgálat nem megy (halott panel), a teljes import ad
-          // értelmes hibát – nem nyomjuk el, csak továbblépünk.
-          appLogError('Változás-ellenőrzés', error);
-        }
-        if (refreshGenerationRef.current !== probeGeneration) return;
-        if (check && check.unchanged) {
-          reportUnchangedRefresh(provider, check, refreshStartedAt);
-          return;
-        }
-      }
-    }
+    /*
+     * KÉZI TELJES FRISSÍTÉS (API-vizsgálat).
+     * A Frissítés gomb minden megnyomásakor a teljes élő-, film- és sorozatlista
+     * lekérése indul. Nem állunk meg a kategóriák változatlanságánál, mert a
+     * szolgáltató mezőit csak a tényleges listaválaszokból tudjuk felmérni.
+     * Automatikus háttérbetöltést ez a kézi ág nem módosít.
+     */
 
     // Egy futó háttér-visszatöltés nem írhatja felül a friss import eredményét.
     cancelStoredContentRestore();
