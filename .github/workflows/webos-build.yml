@@ -168,11 +168,11 @@ jobs:
           print(".".join(m.groups()))
           PY
           )"
-          PUBLISHED="$(tr -d '\\r\\n' < version.txt)"
+          PUBLISHED="$(tr -d '\r\n' < version.txt)"
           NEXT="$(python3 - "$CURRENT" "$PUBLISHED" <<'PY'
           import re, sys
           def parse(value):
-              if not re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", value):
+              if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value):
                   raise SystemExit(f"HIBA: érvénytelen verziószám: {value!r}")
               return tuple(map(int, value.split(".")))
           current, published = parse(sys.argv[1]), parse(sys.argv[2])
