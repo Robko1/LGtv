@@ -259,6 +259,23 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             </div>
           </div>
 
+          {/*
+            * ÚJ TESZT: Xtream VOD-metaadatok.
+            * A naplózás indításakor és a Mozi/Sorozatok nézet megnyitásakor a
+            * program VOD-DIAG sorokban rögzíti, hogy a szolgáltató milyen
+            * adatokat küld a filmekhez/sorozatokhoz, és ezek közül mi
+            * jeleníthető meg a poszterkártyán és az adatlapon.
+            */}
+          <div
+            data-vod-meta-test-info=""
+            className="shrink-0 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-left text-xs leading-snug text-amber-100"
+          >
+            <span className="font-black uppercase tracking-wide text-amber-200">Új teszt: Xtream film/sorozat adatok</span>
+            {' '}A naplózás indításakor és a Mozi/Sorozatok nézet megnyitásakor a napló rögzíti, milyen adatokat küld a szolgáltató
+            (év, megjelenési dátum, játékidő, hangsávok és hangnyelvek, feliratok és feliratnyelvek, poszter/borító/háttérkép, egyéb mezők),
+            és hogy ezek közül mi jeleníthető meg. Keresd a <span className="font-black text-amber-200">VOD-DIAG</span> sorokat.
+          </div>
+
           <button
             data-diagnostic-tv-doctor-toggle=""
             type="button"

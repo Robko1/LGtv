@@ -7,6 +7,7 @@ import { normalizeTvKey } from '../utils/tvKeys';
 import { xtreamService } from '../services/xtreamService';
 import { parseSeriesMetadata, ParsedVodMetadata } from '../services/vodMetadata';
 import { formatRuntime, joinLanguages, visibleLanguages } from '../utils/vodDisplay';
+import { logVodItemResponse } from '../services/vodProviderDiagnostics';
 
 interface SeriesViewProps {
   series: Series[];
@@ -51,6 +52,10 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
+  // A legfrissebb sorozatlista referenciában: a részletek-lekérő effekt
+  // függőségei nem változhatnak meg a lista háttérfrissítéseitől.
+  const seriesListRef = useRef<Series[]>(series);
+  seriesListRef.current = series;
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
   const [fetchedSeriesMeta, setFetchedSeriesMeta] = useState<ParsedVodMetadata | null>(null);
   const [fetchingSeries, setFetchingSeries] = useState(false);
@@ -121,6 +126,14 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
           selectedSeriesId,
         );
         const parsed = parseSeriesMetadata(info);
+        // Kézi naplózás alatt a szolgáltató teljes válasza a naplóba kerül
+        // (VOD-DIAG sorok) – újabb kérés nélkül, ebből a válaszból.
+        logVodItemResponse(
+          'series',
+          seriesListRef.current.find((item) => item.id === selectedSeriesId) || null,
+          info,
+          'Sorozatok poszter megnyitása',
+        );
         if (!cancelled) setFetchedSeriesMeta(parsed);
       } catch {
         if (!cancelled) setFetchedSeriesMeta(null);
