@@ -78,6 +78,13 @@ function createLocalStorage(quotaChars = 5200000) {
 /** IndexedDB kivonat: csak a contentStore által használt műveletek. */
 function createIndexedDb() {
   const data = new Map();
+  /*
+   * NÉMA ADATVESZTÉS SZIMULÁLÁSA: a webOS a háttérbe tevéskor úgy is
+   * lezárhatja a kapcsolatot, hogy az utolsó írások sikeresnek látszanak,
+   * de valójában nem kerülnek a lemezre. Ha a `dropPrefix` be van állítva,
+   * az ilyen kulcsú írás sikerrel tér vissza, de NEM tárolódik.
+   */
+  let dropPrefix = null;
   const later = (fn) => setTimeout(fn, 0);
   const request = (result) => {
     const req = { result, onsuccess: null, onerror: null };
@@ -85,7 +92,11 @@ function createIndexedDb() {
     return req;
   };
   const objectStore = {
-    put: (value, key) => { data.set(String(key), String(value)); return request(String(key)); },
+    put: (value, key) => {
+      if (dropPrefix && String(key).startsWith(dropPrefix)) return request(String(key));
+      data.set(String(key), String(value));
+      return request(String(key));
+    },
     get: (key) => request(data.get(String(key))),
     delete: (key) => { data.delete(String(key)); return request(undefined); },
     getAllKeys: () => request(Array.from(data.keys())),
@@ -107,6 +118,8 @@ function createIndexedDb() {
     },
     dump: () => Object.fromEntries(data),
     keys: () => Array.from(data.keys()),
+    remove: (key) => data.delete(String(key)),
+    setDropPrefix: (prefix) => { dropPrefix = prefix; },
   };
 }
 
@@ -162,6 +175,7 @@ await esbuild.build({
       saveLiveContentAsync, loadLive, loadLiveBoot, loadLiveFull, readSummary, sweepStorage,
       clearContent, needsLiveCacheCompaction, describeStoredContent,
       saveVodContentSafely, saveSeriesContentSafely, loadVodAsync, loadSeriesAsync,
+      readCatalogStateSync, catalogNeedsCheck, catalogIncompleteSections, markCatalogSectionsComplete,
     } from './web/src/services/contentStore.ts';`,
     resolveDir: ROOT,
     sourcefile: 'persistence-harness.ts',
@@ -388,6 +402,78 @@ try {
   check(JSON.stringify(savedMovie.detailProviderData) === JSON.stringify(rawDetail), 'a részletes válasz minden mezője megmarad', Object.keys(savedMovie.detailProviderData || {}));
   check(savedSeries.seasons.length === 1 && savedSeries.seasons[0].episodes[0].providerData.custom === 'megmarad', 'a sorozat évadai és epizódjai tartósan mentődnek', savedSeries.seasons);
   check(Boolean(savedSeries.detailProviderData?.episodes), 'a sorozat nyers részletei megmaradnak', savedSeries.detailProviderData);
+
+  /* ====== 5/c. IDEGEN SZOLGÁLTATÓ LISTÁJA NEM KEVEREDIK ================== */
+  const strangerVod = await app5.loadVodAsync({ id: 'p2', type: 'xtream', serverUrl: 'http://y', username: 'u2', password: 'p2' });
+  check(strangerVod.movies.length === 0, 'másik szolgáltatóval a mentett filmlista NEM szolgálható ki', String(strangerVod.movies.length));
+  const strangerSeries = await app5.loadSeriesAsync({ id: 'p2', type: 'xtream', serverUrl: 'http://y', username: 'u2', password: 'p2' });
+  check(strangerSeries.series.length === 0, 'másik szolgáltatóval a mentett sorozatlista sem keveredik', String(strangerSeries.series.length));
+
+  /* ====== 7. ÚJRAINDÍTÁS UTÁNI ELLENŐRZÉS: hiányzó adag felismerése ======= */
+  /*
+   * A fejléc 20 000 csatornát ígér, de egy adagot a webOS időközben
+   * kitakarított. A betöltő a meglévő részt kiszolgálja, viszont a szakaszt
+   * HIÁNYOSNAK jelöli, hogy a háttér-ellenőrzés gyógyító frissítést indítson
+   * – a hiányzó csatornák nem veszhetnek el némán.
+   */
+  await app5.saveLiveContentAsync(content);
+  await settle();
+  const liveMetaForDamage = JSON.parse(indexedDbFake.dump()['content-live-full-meta']);
+  indexedDbFake.remove(liveMetaForDamage.chunkPrefix + '1');
+  const damagedFull = await app5.loadLiveFull();
+  await settle();
+  check(
+    Boolean(damagedFull) && damagedFull.channels.length < 20000 && damagedFull.channels.length > 0,
+    'hiányzó adagnál a meglévő csatornák kiszolgálhatók',
+    String(damagedFull?.channels.length),
+  );
+  const damagedState = app5.readCatalogStateSync();
+  check(
+    app5.catalogIncompleteSections(damagedState).includes('live'),
+    'a hiányzó adag HIÁNYOS szakaszként jelölődik (nem vész el némán)',
+    JSON.stringify(damagedState?.sections),
+  );
+  check(app5.catalogNeedsCheck(damagedState) === true, 'hiányos szakasznál az ellenőrzés a frissességi ablakon belül is kötelező');
+
+  /* A gyógyító frissítés igazolása után a jelölés lekerül. */
+  app5.markCatalogSectionsComplete(['live']);
+  await settle();
+  check(
+    app5.catalogIncompleteSections(app5.readCatalogStateSync()).length === 0,
+    'az igazoltan hiánytalan szakaszról a jelölés lekerül',
+  );
+
+  /* ====== 8. ELLENŐRZÖTT MENTÉS: néma írásvesztésnél nincs hazug fejléc ==== */
+  /*
+   * A webOS-kapcsolat úgy is elhalhat, hogy az írások sikeresnek látszanak.
+   * A mentés most a fejléc kiírása ELŐTT ellenőrzi, hogy minden adag
+   * ténylegesen a tárolóban van-e: ha nem, a fejléc nem válik érvényessé,
+   * és a KORÁBBI, teljes lista marad az egyetlen igazság.
+   */
+  await app5.saveLiveContentAsync(content);
+  await settle();
+  indexedDbFake.setDropPrefix('content-live-full-v1-');
+  await app5.saveLiveContentAsync(makeContent({ hungarian: 3000, foreign: 0 }));
+  await settle();
+  indexedDbFake.setDropPrefix(null);
+  const afterSilentLoss = await app5.loadLiveFull();
+  check(
+    afterSilentLoss?.channels.length === 20000,
+    'néma írásvesztésnél a fejléc nem áll át: a korábbi, TELJES lista marad érvényben',
+    String(afterSilentLoss?.channels.length),
+  );
+  check(
+    app5.catalogIncompleteSections(app5.readCatalogStateSync()).includes('live'),
+    'a meghiúsult tartós mentés is hiányos szakaszként jelölődik (újrapróbálkozás + gyógyítás)',
+  );
+  /* Egy későbbi, SIKERES teljes mentés magától törli a jelölést. */
+  await app5.saveLiveContentAsync(content);
+  await settle();
+  check(
+    app5.catalogIncompleteSections(app5.readCatalogStateSync()).length === 0,
+    'a következő sikeres teljes mentés törli a hiányos jelölést',
+  );
+  check((await app5.loadLiveFull())?.channels.length === 20000, 'a sikeres újramentés után a teljes lista ép');
 
   /* ============ 6. TAKARÍTÁS ÉS TÖRLÉS ======================================= */
   localStorageFake.setQuota(5200000);

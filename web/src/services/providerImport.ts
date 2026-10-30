@@ -41,6 +41,7 @@ import {
   decodeMoviesForImport,
   decodeSeriesForImport,
   loadRawPlaylist,
+  markCatalogSectionsComplete,
   saveRawPlaylist,
   saveSyncState,
   loadSyncState,
@@ -2337,10 +2338,15 @@ async function refreshXtreamIncremental(
       await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals, unchangedSections });
       saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
     }
+    // A teljes összevetés IGAZOLTA, hogy a tárolt katalógus hiánytalan:
+    // az esetleges „hiányos szakasz” jelölések törlődnek.
+    markCatalogSectionsComplete(['live', 'vod', 'series']);
     return { unchanged: true, check: { unchanged: true, fresh: true, ageMs: 0, fingerprint, counts: { live: next.liveCategories.length, vod: next.vodCategories.length, series: next.seriesCategories.length } } };
   }
   await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals, unchangedSections });
   saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
+  // A bitre azonosnak igazolt szakaszokról a „hiányos” jelölés is lekerül.
+  markCatalogSectionsComplete(unchangedSections);
   logProviderEvent(`Incrementális frissítés kész: élő +${changes.live.added}/~${changes.live.changed}/-${changes.live.removed}, film +${changes.vod.added}/~${changes.vod.changed}/-${changes.vod.removed}, sorozat +${changes.series.added}/~${changes.series.changed}/-${changes.series.removed}.`);
   return {
     content: next,

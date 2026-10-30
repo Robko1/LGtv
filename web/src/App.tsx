@@ -5,6 +5,7 @@ import { storageService } from './services/storageService';
 import {
   CATALOG_TTL_MS,
   cancelStoredContentRestore,
+  catalogIncompleteSections,
   catalogNeedsCheck,
   clearContent,
   describeStoredContent,
@@ -16,6 +17,7 @@ import {
   markCatalogChecked,
   needsLiveCacheCompaction,
   ProviderRef,
+  readCatalogStateSync,
   restoreStoredContent,
   saveCatalogExtras,
   saveContent,
@@ -3125,7 +3127,9 @@ export function App() {
   useEffect(() => {
     if (!catalogPlanReady || backgroundCheckStartedRef.current) return undefined;
     const plan = catalogPlanRef.current;
-    if (!plan || !catalogNeedsCheck(plan.state)) return undefined;
+    // A friss (nem az induláskor lefényképezett) állapotot nézzük: a tartós
+    // visszatöltés közben derülhet ki, hogy egy szakasz hiányos.
+    if (!plan || !catalogNeedsCheck(readCatalogStateSync() || plan.state)) return undefined;
     const account = providers.find((item) => item.id === plan.provider.id)
       || providers.find((item) => item.isActive) || providers[0];
     if (!account || account.type !== 'xtream' || !account.serverUrl
@@ -3142,12 +3146,27 @@ export function App() {
             fingerprint: plan.state?.fingerprint || undefined,
             lastFullSyncAt: plan.savedAt || undefined,
           });
-          if (check.unchanged) {
+          /*
+           * HIÁNYOS SZAKASZ GYÓGYÍTÁSA (2.5.222): ha a tartós tárból hiányzik
+           * adat (félbeszakadt mentés, webOS-takarítás), akkor a „kategóriák
+           * nem változtak” válasz NEM elég – a csendes inkrementális
+           * frissítés visszapótolja a hiányzó elemeket, és újra elmenti a
+           * szakaszt. Változatlan + hiánytalan tárolónál továbbra sincs
+           * újratöltés.
+           */
+          const incomplete = catalogIncompleteSections(readCatalogStateSync() || plan.state);
+          if (check.unchanged && incomplete.length === 0) {
             markCatalogChecked();
             appLog(
               `Háttér-ellenőrzés (${ttlHours} órás frissességi ablak): a kategóriák nem változtak `
               + `(${check.counts.live}/${check.counts.vod}/${check.counts.series}); a teljes listák nem töltődnek újra.`
             );
+          } else if (check.unchanged) {
+            appLog(
+              `Háttér-ellenőrzés: a tartós tárban hiányos szakasz van (${incomplete.join(', ')}) – `
+              + 'csendes gyógyító frissítés indul, felugró ablak nélkül.'
+            );
+            void refreshRef.current(account, false, true);
           } else {
             appLog('Háttér-ellenőrzés: a katalógus változott – csendes frissítés indul, felugró ablak nélkül.');
             void refreshRef.current(account, false, true);

@@ -64,6 +64,9 @@ window.mountList();
 for (let i=0;i<80 && !doc.querySelector('[data-channel-id="one"] [role="option"]');i++) await tick(25);
 get('[data-channel-id="one"] [role="option"]').click();
 assert.equal(fullscreen,1,'Magic Remote a nézett csatornán egy OK-val teljes képernyőre vált');
+// Terhelt gépen (párhuzamos tesztfuttatás) a lista fokozatosan épül fel:
+// a "two" csatornára külön is várni kell, különben a próba vaktában bukik.
+for (let i=0;i<80 && !doc.querySelector('[data-channel-id="two"] [role="option"]');i++) await tick(25);
 get('[data-channel-id="two"] [role="option"]').click();
 assert.deepEqual([...window.calls.selected],['two'],'a másik csatorna Magic Remote-tal kiválasztható');
 get('[data-channel-id="one"] [role="option"]').dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',keyCode:13,bubbles:true}));
