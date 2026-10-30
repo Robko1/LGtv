@@ -4762,9 +4762,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     nativeRetryCountRef.current = 0;
     setActiveUrlIndex(0);
     setCurrentStreamHasFrame(false);
-    const directLiveStreamUrl = DIRECT_LIVE_ZAP_TEST && !isVod
-      ? streamUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts')
-      : streamUrl;
+    const directLiveStreamUrl = streamUrl;
     // Élő adásnál először a csatornán korábban sikeres formátumot használjuk.
     // Ha nincs emlék, a korábbi alapértelmezés (MPEG-TS) marad. Hiba esetén
     // a másik formátum következik; a generációs őr védi az új csatornát
@@ -4788,29 +4786,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return undefined;
       }
     }
-    // Közvetlen csatornaváltási ideiglenes próba: élő csatornánál az új címet
-    // közvetlenül továbbítjuk, a .m3u8 címet pedig ugyanúgy .ts-re alakítjuk.
-    // A szokásos formátum-emlékezet és automatikus fallback most nem fut.
-    if (DIRECT_LIVE_ZAP_TEST && !isVod && playbackActive) {
-      const directUrl = directLiveStreamUrl;
-      pendingStreamUrlRef.current = directUrl;
-      liveFallbackRef.current = null;
-      liveRetrySequenceRef.current = { urls: [], index: 0 };
-      initialFormatRetryRef.current = false;
-      liveRecoveryOnlyRef.current = false;
-      if (directUrl) loadStreamRef.current(directUrl);
-      return () => {
-        clearBufferWatchdog();
-        playbackStartedRef.current = false;
-        clearAutoRetry(false);
-        clearRecovery();
-        if (pendingLiveLoadTimerRef.current !== null) {
-          window.clearTimeout(pendingLiveLoadTimerRef.current);
-          pendingLiveLoadTimerRef.current = null;
-        }
-      };
-    }
-
     const hlsUrl = streamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
     const tsUrl = /\.ts(?=([?#]|$))/i.test(streamUrl)
       ? streamUrl
@@ -5586,12 +5561,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 setHasError(false);
                 notifyTvDoctorIncident('media_error', video, mediaErrCode, mediaErrMsg);
                 vodRecoveryRef.current('videó elem hiba');
-                return;
-              }
-              if (DIRECT_LIVE_ZAP_TEST) {
-                // A próba alatt hiba esetén nincs automatikus formátumváltás/újracsatlakozás.
-                endSwitch();
-                setHasError(true);
                 return;
               }
               notifyTvDoctorIncident('media_error', video, mediaErrCode, mediaErrMsg);
