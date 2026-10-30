@@ -1934,6 +1934,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             `formátum=${proposal.nextFormat.toUpperCase()}; puffer=${proposal.nextBufferProfile} (${proposal.nextBufferTiming.minBufferAheadSeconds}mp); ` +
             `várakozás=${delayMs} ms; stratégia=${proposal.strategyId}.`,
           );
+          // Az első lépésű gyors tiszta újraindítás (quick_primary_retry) ugyanazt
+          // teszi, mint az „ELSŐ FORMÁTUM GYORS ÚJRAPRÓBÁJA” útvonal: újrapróbálja
+          // az elsődleges célt teljes újratöltéssel. A zurückgeféle naplóbejegyzés
+          // a csatornaváltási diagnosztikai tesztben is követendő.
+          if (proposal.strategyId === 'quick_primary_retry') {
+            appLog(`ELSŐ FORMÁTUM GYORS ÚJRAPRÓBÁJA; csatorna=${channelName}; formátum=${proposal.nextFormat.toUpperCase()}; várakozás=${delayMs} ms.`);
+          }
+          if (proposal.strategyId === 'format_switch_probe') {
+            const altLabel = proposal.nextFormat === 'hls' ? 'HLS (.m3u8)' : 'MPEG-TS (.ts)';
+            appLog(`FORMÁTUM-VISSZAESÉS; csatorna=${channelName}; ${altLabel} próba következik.`);
+          }
           autoRetryTimerRef.current = window.setTimeout(() => {
             autoRetryTimerRef.current = null;
             if (doctorSessionRef.current.channelHaltedDead) return;
