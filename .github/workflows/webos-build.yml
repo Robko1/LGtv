@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IPK_FILE_NAME: 'IPTV R.T.ipk'
+  IPK_FILE_NAME: 'IPTV-RT.ipk'
   RELEASE_TITLE: 'TV'
 
 jobs:
