@@ -1,4 +1,4 @@
-# LG webOS TV
+# TV
 
 **Legutóbbi build készítése:** {{RELEASE_DATETIME}}  
 **Letölthető IPK legutóbbi feltöltése/frissítése:** {{RELEASE_UPDATED_DATETIME}}  
