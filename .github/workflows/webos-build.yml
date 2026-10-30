@@ -298,7 +298,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq 'https://api.github.com/repos/Robko1/LGtv/releases/latest' web/src/services/webosUpdateService.ts
+          grep -Fq 'https://raw.githubusercontent.com/Robko1/LGtv/main/version.txt' web/src/services/webosUpdateService.ts
           grep -Fq 'normalizeKey' webos/webos.js
           grep -Fq 'focusSpatially' webos/webos.js
           grep -Fq 'KEYCODE_TO_KEY' webos/webos.js
@@ -644,6 +644,39 @@ jobs:
           PY
           )"
           gh release edit "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$NOTES"
+
+          # Csak a verziószám kerül a publikus LGtv repóba. Az IPK és a privát
+          # Release adatai továbbra is kizárólag a Robko1/Ipk repóban maradnak.
+          if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            echo "HIBA: a publikus verziófájl frissítéséhez hiányzik a GITHUB_TOKEN." >&2
+            exit 1
+          fi
+          PUBLIC_FILE_API="https://api.github.com/repos/Robko1/LGtv/contents/version.txt"
+          PUBLIC_FILE_STATE="$(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "$PUBLIC_FILE_API" || true)"
+          PUBLIC_FILE_SHA="$(printf '%s' "$PUBLIC_FILE_STATE" | python3 -c 'import json,sys; d=json.load(sys.stdin) if sys.stdin.readable() else {}; print(d.get("sha", ""))' 2>/dev/null || true)"
+          VERSION_B64="$(printf '%s' "$CURRENT_VERSION" | base64 -w 0)"
+          python3 - "$CURRENT_VERSION" "$PUBLIC_FILE_SHA" "$VERSION_B64" <<'PY' > /tmp/public-version-payload.json
+          import json, sys
+          version, sha, content = sys.argv[1:]
+          payload = {
+              "message": "chore: publish latest public version number",
+              "content": content,
+          }
+          if sha:
+              payload["sha"] = sha
+          print(json.dumps(payload))
+          PY
+          curl -fsS -X PUT "$PUBLIC_FILE_API" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/public-version-payload.json >/dev/null
+          PUBLIC_VERSION_CHECK="$(curl -fsS -H "Cache-Control: no-cache" "https://raw.githubusercontent.com/Robko1/LGtv/main/version.txt" | tr -d '\r\n')"
+          [[ "$PUBLIC_VERSION_CHECK" == "$CURRENT_VERSION" ]] || {
+            echo "HIBA: a publikus verziófájl ellenőrzése nem egyezik: $PUBLIC_VERSION_CHECK / $CURRENT_VERSION." >&2
+            exit 1
+          }
+          echo "OK: a publikus version.txt kizárólag ezt a verziószámot tartalmazza: $CURRENT_VERSION."
 
           # A publikus Robko1/LGtv repóban NEM hozunk létre Release-t vagy verziócímkét.
           # Minden kiadási tag és IPK kizárólag a privát Robko1/Ipk repóba kerül.
