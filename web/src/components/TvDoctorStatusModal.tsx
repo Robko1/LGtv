@@ -12,7 +12,6 @@ import {
   Wifi,
   WifiOff,
   Wrench,
-  X,
 } from 'lucide-react';
 import { AppSettings, Channel } from '../types/iptv';
 import { TvDoctorIcon } from './TvDoctorIcon';
@@ -760,35 +759,18 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             </div>
           </div>
 
-          {/* 2. Supabase kapcsolat + Teszt */}
+          {/* 2. Supabase kapcsolat */}
           <div
             data-tv-doctor-supabase=""
             className="rounded-2xl border border-cyan-800/60 bg-[#051024] p-4 space-y-2"
           >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 text-lg lg:text-xl font-black text-white">
-                {doctorCloud.connected ? (
-                  <Wifi className="h-6 w-6 shrink-0 text-emerald-400" />
-                ) : (
-                  <WifiOff className="h-6 w-6 shrink-0 text-amber-300" />
-                )}
-                <span>Supabase kapcsolat</span>
-              </div>
-              <button
-                ref={testBtnRef}
-                type="button"
-                data-tv-doctor-check-cloud=""
-                disabled={doctorCloud.checking || doctorCloud.syncing}
-                onClick={() => {
-                  void checkTvDoctorConnection();
-                }}
-                className="inline-flex items-center gap-2 rounded-xl border-2 border-cyan-400/60 bg-cyan-500/20 px-4 py-1.5 text-base lg:text-lg font-black text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-amber-400"
-              >
-                <RefreshCw
-                  className={`h-5 w-5 ${doctorCloud.checking || doctorCloud.syncing ? 'animate-spin' : ''}`}
-                />
-                <span>Teszt</span>
-              </button>
+            <div className="flex items-center gap-2.5 text-lg lg:text-xl font-black text-white">
+              {doctorCloud.connected ? (
+                <Wifi className="h-6 w-6 shrink-0 text-emerald-400" />
+              ) : (
+                <WifiOff className="h-6 w-6 shrink-0 text-amber-300" />
+              )}
+              <span>Supabase kapcsolat</span>
             </div>
 
             <p
@@ -949,24 +931,24 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               </div>
             </div>
             <p className="text-base font-semibold text-slate-300">{doctorMem.memoryHealthLabel}</p>
+            <div className="mt-2">
+              <button
+                type="button"
+                data-tv-doctor-check-cloud=""
+                disabled={doctorCloud.checking || doctorCloud.syncing}
+                onClick={() => {
+                  void checkTvDoctorConnection();
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border-2 border-cyan-400/60 bg-cyan-500/20 px-4 py-1.5 text-base lg:text-lg font-black text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-amber-400"
+              >
+                <RefreshCw
+                  className={`h-5 w-5 ${doctorCloud.checking || doctorCloud.syncing ? 'animate-spin' : ''}`}
+                />
+                <span>Supabase: Teszt</span>
+              </button>
+            </div>
           </div>
 
-          {/* Alsó bezáró sáv */}
-          <div className="mt-auto pt-1 flex flex-wrap items-center justify-between gap-3 shrink-0">
-            <span className="text-sm lg:text-base font-bold text-slate-300">
-              0 gomb vagy VISSZA: bezárás • ◄ Balra: napló görgetése
-            </span>
-            <button
-              ref={closeBtnRef}
-              type="button"
-              data-tv-doctor-close=""
-              onClick={onClose}
-              className="inline-flex items-center gap-2 rounded-2xl border-2 border-cyan-400/60 bg-cyan-500/20 px-4 py-2 text-base lg:text-lg font-black text-cyan-100 hover:bg-cyan-500/30 focus:outline-none focus:ring-4 focus:ring-amber-400"
-            >
-              <X className="h-5 w-5 shrink-0" />
-              <span>Bezárás (0)</span>
-            </button>
-          </div>
         </section>
       </div>
     </div>

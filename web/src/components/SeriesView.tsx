@@ -5,7 +5,7 @@ import { PosterImage, preloadPosterImage } from './PosterImage';
 import { Star, Play, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2, Mic2, Subtitles } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { xtreamService } from '../services/xtreamService';
-import { parseSeriesMetadata } from '../services/vodMetadata';
+import { parseSeriesMetadata, UNKNOWN_LANGUAGE } from '../services/vodMetadata';
 
 interface SeriesViewProps {
   series: Series[];
@@ -395,7 +395,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                     <span>Hangsávok</span>
                   </div>
                   <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {(fetchedSeriesMeta?.audioLanguages ?? selectedSeries.audioLanguages ?? ['Ismeretlen']).join(' • ')}
+                    {(fetchedSeriesMeta?.audioLanguages ?? selectedSeries.audioLanguages ?? []).filter((lang) => Boolean(lang) && lang !== UNKNOWN_LANGUAGE).join(' • ') || '—'}
                   </p>
                 </div>
                 <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
@@ -404,7 +404,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                     <span>Feliratok</span>
                   </div>
                   <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {(fetchedSeriesMeta?.subtitleLanguages ?? selectedSeries.subtitleLanguages ?? ['Ismeretlen']).join(' • ')}
+                    {(fetchedSeriesMeta?.subtitleLanguages ?? selectedSeries.subtitleLanguages ?? []).filter((lang) => Boolean(lang) && lang !== UNKNOWN_LANGUAGE).join(' • ') || '—'}
                   </p>
                 </div>
               </div>
