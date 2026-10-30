@@ -255,7 +255,6 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item, isFavorite, onClos
             </div>
           )}
         </div>
-        </div>
       </div>
     </div>
   );
