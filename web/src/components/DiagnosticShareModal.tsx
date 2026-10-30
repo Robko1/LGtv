@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bug, Circle, Clock3, History, Loader2, Send, Stethoscope } from 'lucide-react';
+import { Bug, Circle, Clock3, History, Loader2, Send } from 'lucide-react';
 import {
   dateTimeText,
   discardSentAppLog,
@@ -210,77 +210,75 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const elapsed = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
 
   return (
-    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/85 p-3" role="dialog" aria-modal="true" aria-label="Kézi hibakeresési napló">
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/85 p-2" role="dialog" aria-modal="true" aria-label="Kézi hibakeresési napló">
       <div
         ref={modalRef}
         tabIndex={-1}
         onKeyDown={onModalKeyDown}
-        className="flex min-h-[560px] w-full max-w-4xl flex-col overflow-y-auto rounded-2xl border border-slate-700 bg-[#050b18] p-5 text-white shadow-2xl focus:outline-none"
+        className="flex h-[calc(100vh-16px)] max-h-[900px] min-h-0 w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-[#050b18] p-3 text-white shadow-2xl focus:outline-none"
       >
-        <div className="flex items-center gap-4 border-b border-slate-800 pb-4">
-          <Bug className="h-10 w-10 shrink-0 text-amber-300" />
-          <div>
-            <h2 className="text-2xl font-black tracking-wide">KÉZI HIBAKERESÉSI NAPLÓ</h2>
-            <p className="mt-1 text-sm text-slate-400">A SÁRGA gomb csak ezt az ablakot nyitja meg. Naplózás és küldés kizárólag kézzel indul.</p>
+        <div className="flex shrink-0 items-center gap-3 border-b border-slate-800 pb-2">
+          <Bug className="h-8 w-8 shrink-0 text-amber-300" />
+          <div className="min-w-0">
+            <h2 className="text-xl font-black tracking-wide">KÉZI HIBAKERESÉSI NAPLÓ</h2>
+            <p className="mt-0.5 text-xs text-slate-400">A SÁRGA gomb csak ezt az ablakot nyitja meg. Naplózás és küldés kizárólag kézzel indul.</p>
           </div>
         </div>
 
-        <div className="flex-1 space-y-4 py-5">
-          <div className={`flex items-center justify-between gap-4 rounded-xl border-2 px-4 py-3 ${statusBg}`}>
-            <div className="flex items-center gap-3">
-              <Circle className={`h-5 w-5 fill-current ${statusColor}`} />
-              <div>
-                <div className={`text-base font-black ${statusColor}`}>{snapshot.enabled ? 'NAPLÓZÁS BEKAPCSOLVA' : 'NAPLÓZÁS KIKAPCSOLVA'}</div>
-                <div className="text-xs text-slate-400">{snapshot.enabled ? 'A lejátszó eseményei most rögzülnek.' : 'Normál tévézés közben nincs diagnosztikai naplózás.'}</div>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 py-2">
+          <div className={`flex shrink-0 items-center justify-between gap-3 rounded-xl border-2 px-3 py-2 ${statusBg}`}>
+            <div className="flex min-w-0 items-center gap-2">
+              <Circle className={`h-4 w-4 shrink-0 fill-current ${statusColor}`} />
+              <div className="min-w-0">
+                <div className={`text-sm font-black leading-tight ${statusColor}`}>{snapshot.enabled ? 'NAPLÓZÁS BEKAPCSOLVA' : 'NAPLÓZÁS KIKAPCSOLVA'}</div>
+                <div className="text-[11px] leading-tight text-slate-400">{snapshot.enabled ? 'A lejátszó eseményei most rögzülnek.' : 'Normál tévézés közben nincs diagnosztikai naplózás.'}</div>
               </div>
             </div>
-            <div className="text-right font-mono text-sm text-slate-300">
+            <div className="shrink-0 text-right font-mono text-xs leading-tight text-slate-300">
               <div>Napló: <strong className="text-white">#{snapshot.number ?? '—'}</strong></div>
               <div>{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()) : 'Nincs aktív napló'}</div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3 sm:flex-nowrap">
-            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{snapshot.lineCount}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">SOR</div></div>
-            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{Math.round(snapshot.charCount / 1024)} KB</div><div className="text-[10px] font-bold tracking-wider text-slate-400">MÉRET / 1 MB</div></div>
-            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-cyan-200">{elapsed}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">ELTELT IDŐ</div></div>
-            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-base font-black text-white">{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()).slice(0, 10) : '—'}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">KEZDETE</div></div>
-            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center">
-              <button
-                data-diagnostic-tv-doctor-toggle=""
-                type="button"
-                role="switch"
-                aria-checked={doctorDiagEnabled}
-                aria-label="TV Doktor naplózás be- és kikapcsolása"
-                onClick={toggleDoctorDiag}
-                className={`flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl border-2 px-3.5 py-2 text-xs font-black transition-all focus:outline-none focus:ring-4 focus:ring-amber-400 ${
-                  doctorDiagEnabled
-                    ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
-                    : 'border-slate-600 bg-slate-800/80 text-slate-300'
-                }`}
-              >
-                <span>{doctorDiagEnabled ? 'TV Doktor napló: BE' : 'TV Doktor napló: KI'}</span>
-              </button>
+          <div className="grid shrink-0 grid-cols-5 gap-2">
+            <div className="flex h-[68px] min-w-0 flex-col items-center justify-center rounded-xl border border-slate-700 bg-[#0b1730] px-1.5 py-1 text-center">
+              <div className="text-2xl font-black leading-none text-white">{snapshot.lineCount}</div>
+              <div className="mt-1 text-xs font-bold leading-tight tracking-wide text-slate-300">SOR</div>
             </div>
+            <div className="flex h-[68px] min-w-0 flex-col items-center justify-center rounded-xl border border-slate-700 bg-[#0b1730] px-1.5 py-1 text-center">
+              <div className="text-2xl font-black leading-none text-white">{Math.round(snapshot.charCount / 1024)} KB</div>
+              <div className="mt-1 text-xs font-bold leading-tight tracking-wide text-slate-300">MÉRET / 1 MB</div>
+            </div>
+            <div className="flex h-[68px] min-w-0 flex-col items-center justify-center rounded-xl border border-slate-700 bg-[#0b1730] px-1.5 py-1 text-center">
+              <div className="text-2xl font-black leading-none text-cyan-200">{elapsed}</div>
+              <div className="mt-1 text-xs font-bold leading-tight tracking-wide text-slate-300">ELTELT IDŐ</div>
+            </div>
+            <div className="flex h-[68px] min-w-0 flex-col items-center justify-center rounded-xl border border-slate-700 bg-[#0b1730] px-1.5 py-1 text-center">
+              <div className="text-lg font-black leading-none text-white">{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()).slice(0, 10) : '—'}</div>
+              <div className="mt-1 text-xs font-bold leading-tight tracking-wide text-slate-300">KEZDETE</div>
+            </div>
+            <button
+              data-diagnostic-tv-doctor-toggle=""
+              type="button"
+              role="switch"
+              aria-checked={doctorDiagEnabled}
+              aria-label="TV Doktor naplózás be- és kikapcsolása"
+              onClick={toggleDoctorDiag}
+              className={`flex h-[68px] min-w-0 flex-col items-center justify-center rounded-xl border-2 px-1.5 py-1 text-center text-sm font-black leading-tight transition-all focus:outline-none focus:ring-4 focus:ring-amber-400 ${
+                doctorDiagEnabled
+                  ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
+                  : 'border-slate-600 bg-slate-800/80 text-slate-200'
+              }`}
+            >
+              <span>TV DOKTOR</span>
+              <span>NAPLÓ: {doctorDiagEnabled ? 'BE' : 'KI'}</span>
+            </button>
           </div>
 
-          {/*
-            UTOLSÓ 5 NAPLÓ – A SORSZÁM ÉS AZ IDŐ AKKORA, AMENNYIT A SAJÁT
-            FÜGGŐLEGES DOBOZA ENGED (2.5.131).
-
-            Korábban mindkét felirat `text-sm` (14 px) volt egy alacsony
-            sorban, ezért a TV-n kicsi és nehezen olvasható volt. Most minden
-            rekord egy legalább 72 px magas doboz: a sorszám 30/34 px, az
-            időbélyeg 20/24 px, mindkettő `leading-none`, tehát pontosan a
-            saját sorában ül. A `flex-wrap` + `min-w-0` + `break-words` +
-            `overflow-hidden` gondoskodik róla, hogy a hosszú
-            `ÉÉÉÉ-HH-NN ÓÓ:PP:MM` idő soha ne folyjon ki vagy lógjon túl a
-            dobozon – ha kell, a saját sorába tördelődik.
-          */}
-          <div className="rounded-xl border border-cyan-500/35 bg-[#081329] p-4">
-            <div className="mb-3 flex items-center gap-2 text-base font-black tracking-wider text-cyan-200"><History className="h-6 w-6 shrink-0" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
+          <div className="min-h-0 flex-1 rounded-xl border border-cyan-500/35 bg-[#081329] p-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-black tracking-wide text-cyan-200"><History className="h-5 w-5 shrink-0" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
             {history.length ? (
-              <div className="space-y-2.5">
+              <div className="grid grid-cols-2 gap-2">
                 {history.slice(0, 5).map((record) => (
                   <div
                     key={`${record.logNumber}-${record.createdAt}`}
@@ -307,67 +305,42 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             ) : <p className="text-base text-slate-500">Még nincs elküldött napló.</p>}
           </div>
 
-          {/* TV Doktor naplózási kiegészítés: a meglévő naplóba ír, és ugyanazzal a Küldés gombbal megy fel */}
           <div
             data-diagnostic-tv-doctor-box=""
-            className="rounded-xl border border-cyan-500/40 bg-[#08152d] p-3.5"
+            className="flex shrink-0 items-center gap-3 rounded-xl border border-cyan-500/40 bg-[#08152d] px-3 py-2"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-0 flex-1 items-start gap-3">
-                <span
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-                    doctorDiagEnabled
-                      ? 'border-cyan-400/50 bg-cyan-400/15 text-cyan-300'
-                      : 'border-slate-600/60 bg-slate-800/60 text-slate-400'
-                  }`}
-                >
-                  <Stethoscope className="h-5 w-5" />
-                </span>
-                <div className="min-w-0 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-black tracking-wide text-white">
-                      TV Doktor működés- és elakadás-naplózás
-                    </span>
-                    <span
-                      className={`rounded-md px-2 py-0.5 text-[11px] font-black uppercase ${
-                        doctorDiagEnabled
-                          ? 'border border-emerald-400/50 bg-emerald-500/20 text-emerald-200'
-                          : 'border border-slate-600 bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {doctorDiagEnabled ? ' Naplóba kerül ' : ' Kikapcsolva '}
-                    </span>
-                  </div>
-                  <p className="text-xs leading-snug text-slate-300">
-                    Rögzíti a TV Doktor döntéseit, az elakadásokat/lassulásokat, a TV memóriáját és a Supabase kapcsolati hibákat, majd a meglévő hibakeresési naplóval együtt elküldi.
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px] font-semibold text-cyan-300/90">
-                    <span>Memória: {formatDoctorBytes(doctorMem.doctorTotalBytes)}</span>
-                    <span>•</span>
-                    <span>
-                      Supabase: {doctorCloud.connected ? 'Kapcsolódva' : (doctorCloud.lastErrorLocation ? `Hiba (${doctorCloud.lastErrorLocation})` : 'Helyi mód')}
-                    </span>
-                    <span>•</span>
-                    <span>
-                      Elakadás/lassulás: {doctorOp.slowOpsCount + doctorOp.confirmedFreezesCount} db
-                    </span>
-                  </div>
-                </div>
+            <span className={`shrink-0 text-cyan-300 ${doctorDiagEnabled ? 'opacity-100' : 'text-slate-400'}`}>
+              <span className="text-xl font-black">✚</span>
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-black leading-tight tracking-wide text-white">TV Doktor működés- és elakadás-naplózás</div>
+              <p className="text-[11px] leading-tight text-slate-300">
+                Rögzíti a TV Doktor döntéseit, az elakadásokat/lassulásokat, a TV memóriáját és a Supabase kapcsolati hibákat, majd a meglévő hibakeresési naplóval együtt elküldi.
+              </p>
+              <div className="flex flex-wrap items-center gap-x-2 text-[11px] font-semibold leading-tight text-cyan-300/90">
+                <span>Memória: {formatDoctorBytes(doctorMem.doctorTotalBytes)}</span>
+                <span>•</span>
+                <span>Supabase: {doctorCloud.connected ? 'Kapcsolódva' : (doctorCloud.lastErrorLocation ? `Hiba (${doctorCloud.lastErrorLocation})` : 'Helyi mód')}</span>
+                <span>•</span>
+                <span>Elakadás/lassulás: {doctorOp.slowOpsCount + doctorOp.confirmedFreezesCount} db</span>
               </div>
             </div>
+            <span className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-black uppercase ${doctorDiagEnabled ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-800 text-slate-400'}`}>
+              {doctorDiagEnabled ? 'Naplóba kerül' : 'Kikapcsolva'}
+            </span>
           </div>
 
-          {notice && <p role="status" className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-3 text-center text-sm font-bold text-emerald-200">{notice}</p>}
-          {error && <p role="alert" className="rounded-lg border border-rose-400/40 bg-rose-500/10 p-3 text-center text-sm font-bold text-rose-200">{error}</p>}
+          {notice && <p role="status" className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-center text-xs font-bold leading-tight text-emerald-200">{notice}</p>}
+          {error && <p role="alert" className="shrink-0 rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-center text-xs font-bold leading-tight text-rose-200">{error}</p>}
         </div>
 
-        <div className="grid grid-cols-2 gap-4 border-t border-slate-700 pt-4">
+        <div className="grid shrink-0 grid-cols-2 gap-3 border-t border-slate-700 pt-2">
           <button
             data-diagnostic-toggle=""
             type="button"
             onClick={toggleLogging}
             disabled={busy}
-            className={`flex min-h-[64px] items-center justify-center gap-3 rounded-xl border-2 px-4 py-3 text-lg font-black focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-50 ${snapshot.enabled ? 'border-emerald-300 bg-emerald-400/20 text-emerald-100' : 'border-rose-300 bg-rose-400/15 text-rose-100'}`}
+            className={`flex min-h-[56px] items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-base font-black focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-50 ${snapshot.enabled ? 'border-emerald-300 bg-emerald-400/20 text-emerald-100' : 'border-rose-300 bg-rose-400/15 text-rose-100'}`}
           >
             <Circle className="h-5 w-5 fill-current" />
             {snapshot.enabled ? 'Naplózás leállítása' : 'Naplózás indítása'}
@@ -377,14 +350,13 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             type="button"
             onClick={() => void sendLog()}
             disabled={busy || Boolean(sentRecord) || !snapshot.number || snapshot.charCount <= 0}
-            className="flex min-h-[64px] items-center justify-center gap-3 rounded-xl border-2 border-cyan-300 bg-cyan-400/15 px-4 py-3 text-lg font-black text-cyan-100 focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-40"
+            className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border-2 border-cyan-300 bg-cyan-400/15 px-3 py-2 text-base font-black text-cyan-100 focus:outline-none focus:ring-4 focus:ring-amber-400 disabled:opacity-40"
           >
-            {busy ? <Loader2 className="h-6 w-6 animate-spin" /> : <Send className="h-6 w-6" />}
+            {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             Küldés Supabase-re
           </button>
         </div>
-        <p className="pt-3 text-center text-xs text-slate-500">Kilépéskor a naplózás automatikusan leáll. A naplók Supabase-en legfeljebb öt legfrissebb sorszámmal maradnak meg.</p>
+        <p className="shrink-0 pt-1 text-center text-[10px] leading-tight text-slate-500">Kilépéskor a naplózás automatikusan leáll. A naplók Supabase-en legfeljebb öt legfrissebb sorszámmal maradnak meg.</p>
       </div>
     </div>
   );
-};
