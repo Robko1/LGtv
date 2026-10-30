@@ -6,7 +6,7 @@
   "description": "TV alkalmazás – webOS IPK",
   "scripts": {
     "smoke": "node tools/smoke-test.mjs build/webos/index.html",
-    "test": "node --test tools/test-speed-diagnostics.mjs tools/test-fullscreen-switch.mjs tools/test-osd-layout-browser.mjs tools/test-channel-navigation-browser.mjs tools/test-track-selectors-browser.mjs tools/test-tv-navigation.mjs tools/test-vod-cc.mjs tools/test-live-cc.mjs && node tools/test-live-format.mjs && node tools/test-playback-recovery.mjs && node tools/test-player-runtime.mjs && node tools/test-startup-watchdog-runtime.mjs && node tools/test-channel-switch-diagnostics-runtime.mjs && node tools/test-channel-navigation-runtime.mjs && node tools/test-live-switch-performance.mjs && node tools/test-tv-only-runtime.mjs && node tools/test-vod-controls-runtime.mjs && node tools/test-track-selectors.mjs && node tools/test-bridge.mjs && node tools/test-channel-logos.mjs && node tools/test-import.mjs && node tools/test-vod-metadata.mjs && node tools/test-vod-cached-detail.mjs && node tools/test-vod-provider-diagnostics.mjs && node tools/test-persistence.mjs && node tools/test-durable-restart.mjs && node tools/test-live-cache.mjs && node tools/test-applog-discard.mjs && node tools/test-channel-selection.mjs && node tools/test-provider-delete.mjs && node tools/test-provider-load.mjs && node tools/test-epg-guide.mjs && node tools/test-storage-quota.mjs && node tools/test-import-stress.mjs && node tools/test-applog-runtime.mjs && node tools/test-quality-diagnostics.mjs && node tools/test-tv-device.mjs && node tools/test-tv-doctor.mjs"
+    "test": "node tools/run-tests.mjs"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"

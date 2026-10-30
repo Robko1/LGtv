@@ -71,6 +71,8 @@ export interface Channel {
   subtitleTracks?: SubtitleTrack[];
   /** A szolgáltatói listaelem teljes, változtatás nélkül megőrzött válasza. */
   providerData?: ProviderPayload;
+  /** A nyers listaelem kicsi ujjlenyomata – a frissítés változás-összevetéséhez. */
+  providerSig?: string;
 }
 
 export interface Category {
@@ -110,6 +112,8 @@ export interface Movie {
   isFavorite?: boolean;
   resumePositionSeconds?: number;
   providerData?: ProviderPayload;
+  /** A nyers listaelem kicsi ujjlenyomata – a frissítés változás-összevetéséhez. */
+  providerSig?: string;
   /** A get_vod_info teljes válasza; nem csak a belőle képzett mezők. */
   detailProviderData?: ProviderPayload;
 }
@@ -140,6 +144,8 @@ export interface Series {
   subtitleLanguages?: string[];
   isFavorite?: boolean;
   providerData?: ProviderPayload;
+  /** A nyers listaelem kicsi ujjlenyomata – a frissítés változás-összevetéséhez. */
+  providerSig?: string;
   /** A get_series_info teljes válasza (info, seasons, episodes együtt). */
   detailProviderData?: ProviderPayload;
 }

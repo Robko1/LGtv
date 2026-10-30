@@ -11,6 +11,28 @@ function payload(value: unknown): ProviderPayload | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as ProviderPayload : undefined;
 }
 
+/**
+ * Gyors, kicsi ujjlenyomat egy nyers lista-elemről (FNV-1a hash).
+ *
+ * KORÁBBAN a teljes nyers szolgáltatói objektum (providerData) minden egyes
+ * elemhez hozzá volt fűzve és a tárolóba is kiíródott. 102 824 filmnél és
+ * 24 977 sorozatnál ez több tíz MB felesleges JSON-t jelentett a memóriában
+ * ÉS az IndexedDB-ben: a TV emiatt fogyott ki a memóriából (a Mozi/Sorozat
+ * nézet görgetés közben 0 darabra esett), a visszatöltés és a frissítés
+ * pedig percekig tartott. A változás-összevetéshez NEM kell a teljes nyers
+ * objektum – elég ez a néhány bájtos ujjlenyomat.
+ */
+export function rawItemSignature(raw: unknown): string {
+  let text = '';
+  try { text = JSON.stringify(raw) || ''; } catch { text = ''; }
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${(hash >>> 0).toString(36)}:${text.length}`;
+}
+
 /** A lista-válasz minden mezőjét megőrizzük; a normalizált mezők csak gyors megjelenítést adnak. */
 export function movieRowFromRaw(
   raw: Record<string, unknown>,
@@ -37,8 +59,11 @@ export function movieRowFromRaw(
     JSON.stringify(meta.genres || []),
     meta.director || '',
     JSON.stringify(meta.cast || []),
-    JSON.stringify(payload(raw) || {}),
+    // providerData NEM kerül minden elemre: a részletes nyers adat a
+    // megnyitáskor/előreolvasáskor letöltött detailProviderData-ban él.
     '',
+    '',
+    rawItemSignature(raw),
   ];
 }
 
@@ -69,9 +94,11 @@ export function seriesRowFromRaw(
     JSON.stringify(meta.genres || []),
     meta.director || '',
     JSON.stringify(meta.cast || []),
-    JSON.stringify(payload(raw) || {}),
+    // providerData helyett csak a kicsi ujjlenyomat (lásd rawItemSignature).
+    '',
     '',
     '[]',
+    rawItemSignature(raw),
   ];
 }
 
@@ -93,8 +120,10 @@ export function liveRowFromRaw(
     info.flag,
     info.countryCode,
     String(raw.epg_channel_id || ''),
-    JSON.stringify(payload(raw) || {}),
+    // providerData helyett csak a kicsi ujjlenyomat (lásd rawItemSignature).
+    '',
     String(raw.stream_id ?? ''),
+    rawItemSignature(raw),
   ];
 }
 
