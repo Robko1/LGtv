@@ -143,7 +143,7 @@ function logImportApiPayload(label: string, rows: unknown[]): void {
         if (typeof value === 'string') {
           safe[key] = value.length > 180
             ? value.slice(0, 180) + '…'
-            : value.replace(/(https?:\\/\\/[^?\\s]+)\\?[^\\s]*/gi, '$1?[query elrejtve]');
+            : value.replace(/(https?:\/\/[^?\s]+)\?[^\s]*/gi, '$1?[query elrejtve]');
         } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
           safe[key] = value;
         } else if (Array.isArray(value)) {
