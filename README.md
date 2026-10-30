@@ -2,7 +2,7 @@
 
 # TV
 
-TV alkalmazás (`hu.rt.iptv.webos`): élő csatornák, filmek, sorozatok, XMLTV/Xtream műsorújság (EPG), kedvencmappák, valamint felirat- és hangsávválasztás. Kizárólag LG webOS IPK csomagot épít; Android APK-t nem készít.
+TV: élő csatornák, filmek, sorozatok, XMLTV/Xtream műsorújság (EPG), kedvencmappák, valamint felirat- és hangsávválasztás. Kizárólag LG webOS IPK csomagot épít; Android APK-t nem készít.
 
 ## TV Doktor – lejátszási diagnosztika és támogatott javítások
 
