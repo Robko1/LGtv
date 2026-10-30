@@ -3,6 +3,7 @@ import { Clock, Heart, Mic2, Play, Star, Subtitles, X } from 'lucide-react';
 import { Episode, Movie, Series } from '../types/iptv';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 import { formatRuntime, joinLanguages, visibleLanguages } from '../utils/vodDisplay';
+import { normalizeTvKey } from '../utils/tvKeys';
 import { PosterImage } from './PosterImage';
 
 type VodItem = Movie | Series;
@@ -120,6 +121,23 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item, isFavorite, onClos
   const season = series?.seasons.find((s) => s.seasonNumber === seasonNumber) || series?.seasons[0];
   const audio = visibleLanguages(item.audioLanguages);
   const subtitles = visibleLanguages(item.subtitleLanguages);
+  const handleDetailKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const key = normalizeTvKey(e);
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
+      const container = panelRef.current;
+      if (!container) return;
+      const nodes = Array.from(container.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter((el) => el.offsetParent !== null);
+      if (!nodes.length) return;
+      const current = nodes.indexOf(document.activeElement as HTMLElement);
+      const nextIndex = current < 0 ? (key === 'ArrowDown' ? 0 : nodes.length - 1) : key === 'ArrowDown' ? Math.min(current + 1, nodes.length - 1) : Math.max(current - 1, 0);
+      if (nextIndex !== current) {
+        e.preventDefault(); e.stopPropagation();
+        const next = nodes[nextIndex];
+        next?.focus({ preventScroll: true });
+        next?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+      }
+    } else handleKeyDown(e);
+  };
   const raw = useMemo(() => ({
     list: item.providerData,
     detail: item.detailProviderData,
@@ -133,7 +151,7 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item, isFavorite, onClos
         aria-modal="true"
         aria-label={`${item.title} adatlap`}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={handleKeyDown}
+        onKeyDown={handleDetailKeyDown}
         className="flex h-[94vh] w-full max-w-[1600px] flex-col overflow-hidden rounded-3xl border border-cyan-700/50 bg-[#070e1e] shadow-2xl"
       >
         <div className="relative min-h-[260px] h-[36vh] shrink-0 overflow-hidden bg-[#09152e]">
@@ -172,71 +190,71 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item, isFavorite, onClos
           </div>
         </div>
 
-        <div data-scroll-keep className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4 text-base md:text-lg leading-relaxed">
-          {item.plot && <Section title="Tartalom"><p className="whitespace-pre-wrap text-slate-100 text-lg md:text-xl">{item.plot}</p></Section>}
-          <div className="grid gap-4 lg:grid-cols-2">
-            {item.genres.length > 0 && <Section title="Műfajok"><div className="flex flex-wrap gap-2">{item.genres.map((g) => <span key={g} className="rounded-full bg-cyan-500/15 border border-cyan-500/30 px-3 py-1 text-cyan-100">{g}</span>)}</div></Section>}
-            {item.director && <Section title="Rendező"><p className="text-slate-100">{item.director}</p></Section>}
-            {item.cast && item.cast.length > 0 && <Section title="Szereplők"><p className="text-slate-100">{item.cast.join(', ')}</p></Section>}
-            <Section title="Hang és felirat">
-              <div className="flex flex-col gap-3">
-                <div className="flex items-start gap-2"><Mic2 className="mt-1 h-5 w-5 shrink-0 text-rose-300" /><div><div className="font-bold text-rose-200">Hangnyelvek</div><div className="text-slate-100">{joinLanguages(audio) || 'Nincs mentett adat'}</div></div></div>
-                {item.audioTracks && item.audioTracks.length > 0 && <ul className="ml-7 list-disc text-slate-200">{item.audioTracks.map((t) => <li key={String(t.id)}>{trackLine(t.name, t.lang, t.codec, t.channels)}</li>)}</ul>}
-                <div className="flex items-start gap-2"><Subtitles className="mt-1 h-5 w-5 shrink-0 text-cyan-300" /><div><div className="font-bold text-cyan-200">Feliratnyelvek</div><div className="text-slate-100">{joinLanguages(subtitles) || 'Nincs mentett adat'}</div></div></div>
-                {item.subtitleTracks && item.subtitleTracks.length > 0 && <ul className="ml-7 list-disc text-slate-200">{item.subtitleTracks.map((t) => <li key={String(t.id)}>{trackLine(t.name, t.lang)}</li>)}</ul>}
-              </div>
-            </Section>
-          </div>
-
-          {series && (
-            <Section title="Évadok és epizódok">
-              {series.seasons.length === 0 ? (
-                <p className="text-slate-400">Ehhez a sorozathoz még nincs mentett epizódlista. Az adatlap nem indít új letöltést.</p>
-              ) : (
-                <>
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {series.seasons.map((s) => (
-                      <button key={s.seasonNumber} type="button" onClick={() => setSeasonNumber(s.seasonNumber)} className={`rounded-xl px-4 py-2 font-bold border ${season?.seasonNumber === s.seasonNumber ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-[#0e1d3a] text-slate-200 border-slate-700'}`}>
-                        {s.name} ({s.episodeCount})
-                      </button>
-                    ))}
-                  </div>
+        <div data-scroll-keep className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 md:p-6 text-base md:text-lg leading-relaxed">
+          {series ? (
+            <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="flex min-w-0 flex-col gap-4">
+                {item.cast && item.cast.length > 0 && <Section title="Szereplők"><p className="text-slate-100">{item.cast.join(', ')}</p></Section>}
+                <Section title="Hang és felirat">
                   <div className="flex flex-col gap-3">
-                    {season?.episodes.map((episode) => (
-                      <div key={episode.id} data-vod-episode={episode.id} className="rounded-2xl border border-cyan-950/70 bg-[#081329] p-4">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <button type="button" onClick={() => onPlayEpisode?.(series, episode)} className="flex items-center gap-2 rounded-xl bg-cyan-500/20 border border-cyan-400/50 px-4 py-2 font-black text-cyan-100 hover:bg-cyan-500/30">
-                            <Play className="h-5 w-5" /> {episode.episodeNumber}. rész
-                          </button>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-lg md:text-xl font-bold text-white">{episode.title}</div>
-                            <div className="text-sm md:text-base text-slate-400">{formatRuntime(episode.durationMinutes)}{episode.watched ? ' • Megnézve' : ''}</div>
-                          </div>
-                          <button type="button" onClick={() => setExpandedEpisode(expandedEpisode === episode.id ? null : episode.id)} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-bold text-slate-200">
-                            {expandedEpisode === episode.id ? 'Adatok elrejtése' : 'Összes adat'}
-                          </button>
-                        </div>
-                        {expandedEpisode === episode.id && (
-                          <div className="mt-4 flex flex-col gap-3">
-                            {episode.plot && <p className="text-slate-100">{episode.plot}</p>}
-                            <RawValue value={episode.providerData || episode} />
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                    <div className="flex items-start gap-2"><Mic2 className="mt-1 h-5 w-5 shrink-0 text-rose-300" /><div><div className="font-bold text-rose-200">Hangnyelvek</div><div className="text-slate-100">{joinLanguages(audio) || 'Nincs mentett adat'}</div></div></div>
+                    {item.audioTracks && item.audioTracks.length > 0 && <ul className="ml-7 list-disc text-slate-200">{item.audioTracks.map((t) => <li key={String(t.id)}>{trackLine(t.name, t.lang, t.codec, t.channels)}</li>)}</ul>}
+                    <div className="flex items-start gap-2"><Subtitles className="mt-1 h-5 w-5 shrink-0 text-cyan-300" /><div><div className="font-bold text-cyan-200">Feliratnyelvek</div><div className="text-slate-100">{joinLanguages(subtitles) || 'Nincs mentett adat'}</div></div></div>
+                    {item.subtitleTracks && item.subtitleTracks.length > 0 && <ul className="ml-7 list-disc text-slate-200">{item.subtitleTracks.map((t) => <li key={String(t.id)}>{trackLine(t.name, t.lang)}</li>)}</ul>}
                   </div>
-                </>
-              )}
-            </Section>
-          )}
-
-          <Section title="Összes letöltött szolgáltatói adat">
-            <div className="flex flex-col gap-4">
-              {raw.detail ? <div><h4 className="mb-2 font-bold text-cyan-300">Részletes válasz</h4><RawValue value={raw.detail} /></div> : null}
-              {raw.list ? <div><h4 className="mb-2 font-bold text-cyan-300">Listaelem</h4><RawValue value={raw.list} /></div> : null}
-              {!raw.detail && !raw.list && <p className="text-slate-400">Ehhez az elemhez csak a korábban mentett, fenti adatok állnak rendelkezésre.</p>}
+                </Section>
+                <Section title="Összes letöltött szolgáltatói adat">
+                  <div className="flex flex-col gap-4">
+                    {raw.detail ? <div><h4 className="mb-2 font-bold text-cyan-300">Részletes válasz</h4><RawValue value={raw.detail} /></div> : null}
+                    {raw.list ? <div><h4 className="mb-2 font-bold text-cyan-300">Listaelem</h4><RawValue value={raw.list} /></div> : null}
+                    {!raw.detail && !raw.list && <p className="text-slate-400">Ehhez az elemhez csak a korábban mentett, fenti adatok állnak rendelkezésre.</p>}
+                  </div>
+                </Section>
+              </div>
+              <div className="flex min-w-0 flex-col gap-4">
+                <Section title="Évadok és epizódok">
+                  {series.seasons.length === 0 ? <p className="text-slate-400">Ehhez a sorozathoz még nincs mentett epizódlista. Az adatlap nem indít új letöltést.</p> : <>
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      {series.seasons.map((s) => <button key={s.seasonNumber} type="button" onClick={() => setSeasonNumber(s.seasonNumber)} className={`rounded-xl px-4 py-2 font-bold border focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${season?.seasonNumber === s.seasonNumber ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-[#0e1d3a] text-slate-200 border-slate-700'}`}>{s.name} ({s.episodeCount})</button>)}
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      {season?.episodes.map((episode) => <div key={episode.id} data-vod-episode={episode.id} className="rounded-2xl border border-cyan-950/70 bg-[#081329] p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <div className="min-w-0 flex-1"><div className="text-lg md:text-xl font-bold text-white">{episode.title}</div><div className="text-sm md:text-base text-slate-400">{formatRuntime(episode.durationMinutes)}{episode.watched ? ' • Megnézve' : ''}</div></div>
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            <button type="button" onClick={() => onPlayEpisode?.(series, episode)} className="flex items-center gap-2 rounded-xl bg-cyan-500/20 border border-cyan-400/50 px-4 py-2 font-black text-cyan-100 hover:bg-cyan-500/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"><Play className="h-5 w-5" /> {episode.episodeNumber}. rész lejátszása</button>
+                            <button type="button" onClick={() => setExpandedEpisode(expandedEpisode === episode.id ? null : episode.id)} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-bold text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">{expandedEpisode === episode.id ? 'Adatok elrejtése' : 'Összes adat'}</button>
+                          </div>
+                        </div>
+                        {expandedEpisode === episode.id && <div className="mt-4 flex flex-col gap-3">{episode.plot && <p className="text-slate-100">{episode.plot}</p>}<RawValue value={episode.providerData || episode} /></div>}
+                      </div>)}
+                    </div>
+                  </>}
+                </Section>
+              </div>
             </div>
-          </Section>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {item.plot && <Section title="Tartalom"><p className="whitespace-pre-wrap text-slate-100 text-lg md:text-xl">{item.plot}</p></Section>}
+              <div className="grid gap-4 lg:grid-cols-2">
+                {item.genres.length > 0 && <Section title="Műfajok"><div className="flex flex-wrap gap-2">{item.genres.map((g) => <span key={g} className="rounded-full bg-cyan-500/15 border border-cyan-500/30 px-3 py-1 text-cyan-100">{g}</span>)}</div></Section>}
+                {item.director && <Section title="Rendező"><p className="text-slate-100">{item.director}</p></Section>}
+                {item.cast && item.cast.length > 0 && <Section title="Szereplők"><p className="text-slate-100">{item.cast.join(', ')}</p></Section>}
+                <Section title="Hang és felirat"><div className="flex flex-col gap-3">
+                  <div className="flex items-start gap-2"><Mic2 className="mt-1 h-5 w-5 shrink-0 text-rose-300" /><div><div className="font-bold text-rose-200">Hangnyelvek</div><div className="text-slate-100">{joinLanguages(audio) || 'Nincs mentett adat'}</div></div></div>
+                  {item.audioTracks && item.audioTracks.length > 0 && <ul className="ml-7 list-disc text-slate-200">{item.audioTracks.map((t) => <li key={String(t.id)}>{trackLine(t.name, t.lang, t.codec, t.channels)}</li>)}</ul>}
+                  <div className="flex items-start gap-2"><Subtitles className="mt-1 h-5 w-5 shrink-0 text-cyan-300" /><div><div className="font-bold text-cyan-200">Feliratnyelvek</div><div className="text-slate-100">{joinLanguages(subtitles) || 'Nincs mentett adat'}</div></div></div>
+                  {item.subtitleTracks && item.subtitleTracks.length > 0 && <ul className="ml-7 list-disc text-slate-200">{item.subtitleTracks.map((t) => <li key={String(t.id)}>{trackLine(t.name, t.lang)}</li>)}</ul>}
+                </div></Section>
+              </div>
+              <Section title="Összes letöltött szolgáltatói adat"><div className="flex flex-col gap-4">
+                {raw.detail ? <div><h4 className="mb-2 font-bold text-cyan-300">Részletes válasz</h4><RawValue value={raw.detail} /></div> : null}
+                {raw.list ? <div><h4 className="mb-2 font-bold text-cyan-300">Listaelem</h4><RawValue value={raw.list} /></div> : null}
+                {!raw.detail && !raw.list && <p className="text-slate-400">Ehhez az elemhez csak a korábban mentett, fenti adatok állnak rendelkezésre.</p>}
+              </div></Section>
+            </div>
+          )}
+        </div>
         </div>
       </div>
     </div>
