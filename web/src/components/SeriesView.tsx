@@ -341,7 +341,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{ser.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Tv className="w-5 h-5" /></div></div>
                 </div>
-                <div className="p-3 flex-1"><h3 className="text-white font-black text-lg sm:text-xl truncate">{ser.title}</h3><div className="mt-1 text-sm sm:text-base font-bold text-amber-300">{ser.year}</div></div>
+                <div className="p-3 flex-1"><h3 className="text-white font-black text-lg sm:text-xl truncate">{ser.title}</h3><div className="mt-1 text-lg sm:text-xl font-bold text-amber-300 text-center">{ser.year}</div></div>
               </div>
             ))}
           </div>
