@@ -74,7 +74,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
   state: { error: Error | null } = { error: null };
   static getDerivedStateFromError(error: Error) { return { error }; }
   componentDidCatch(error: Error, info: ErrorInfo) {
-    try { console.error("IPTV-RT hiba:", error, info?.componentStack); } catch {}
+    try { console.error("LG webOS TV hiba:", error, info?.componentStack); } catch {}
     fail(error);
   }
   render() {
@@ -82,7 +82,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
       const message = this.state.error?.message || String(this.state.error);
       return (
         <div style={{ position:"fixed", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:12, padding:24, background:"#080d1a", color:"#f1f5f9", textAlign:"center", fontFamily:"system-ui, sans-serif" }}>
-          <div style={{ fontSize:18, fontWeight:800, letterSpacing:"0.04em" }}>IPTV R.T - webOS TV</div>
+          <div style={{ fontSize:18, fontWeight:800, letterSpacing:"0.04em" }}>LG webOS TV</div>
           <div style={{ color:"#f87171", fontWeight:700 }}>Hiba a felület betöltése közben</div>
           <div style={{ maxWidth:420, color:"#94a3b8", fontSize:12, lineHeight:1.6, wordBreak:"break-word" }}>{message}</div>
           <button onClick={() => window.location.reload()} style={{ marginTop:6, padding:"10px 18px", borderRadius:10, border:"1px solid rgba(56,189,248,0.5)", background:"rgba(56,189,248,0.15)", color:"#e2e8f0", fontWeight:700 }}>Újratöltés</button>
