@@ -1214,12 +1214,12 @@ export function App() {
    * megjelenik”). Mostantól a futás alatt érkező kérés egy helyre
    * bejegyzésre kerül, és a futás végén automatikusan lefut.
    */
-  const runRestoreRef = useRef<((plan?: StoredCatalogPlan | null, scope?: 'all' | 'live' | 'vod') => Promise<void>) | null>(null);
-  const restoreQueuedRef = useRef<{ plan: StoredCatalogPlan; scope: 'all' | 'live' | 'vod' } | null>(null);
+  const runRestoreRef = useRef<((plan?: StoredCatalogPlan | null, scope?: 'all' | 'live' | 'vod' | 'movies' | 'series') => Promise<void>) | null>(null);
+  const restoreQueuedRef = useRef<{ plan: StoredCatalogPlan; scope: 'all' | 'live' | 'vod' | 'movies' | 'series' } | null>(null);
 
   const runRestore = useCallback(async (
     plan?: StoredCatalogPlan | null,
-    scope: 'all' | 'live' | 'vod' = 'all',
+    scope: 'all' | 'live' | 'vod' | 'movies' | 'series' = 'all',
   ): Promise<void> => {
     const target = plan || catalogPlanRef.current;
     if (!target) return;
@@ -1319,7 +1319,7 @@ export function App() {
    * másodpercben). A menü megnyitásakor viszont a néző erre számít, és a
    * lista adagokban, lélegzve töltődik be.
    */
-  const ensureVodLoaded = useCallback(() => {
+  const ensureVodLoaded = useCallback((view: 'movies' | 'series') => {
     const plan = catalogPlanRef.current;
     if (!plan) return;
     /*
@@ -1330,15 +1330,15 @@ export function App() {
      * legyen üres. A teljes visszatöltés utána, a háttérben fut – a kérés
      * pedig sorba áll, ha épp más visszatöltés megy.
      */
-    if (moviesRef.current.length === 0 || seriesRef.current.length === 0) {
-      void loadCatalogPreview(plan.provider, 20)
+    if ((view === 'movies' && moviesRef.current.length === 0) || (view === 'series' && seriesRef.current.length === 0)) {
+      void loadCatalogPreview(plan.provider, 25)
         .then((preview) => {
           if (preview.movies.length) setMovies((current) => (current.length ? current : preview.movies));
           if (preview.series.length) setSeries((current) => (current.length ? current : preview.series));
         })
         .catch(() => { /* a teljes lista jön helyette */ });
     }
-    void runRestore(plan, 'vod');
+    void runRestore(plan, view);
   }, [runRestore]);
 
   /**
@@ -1838,7 +1838,7 @@ export function App() {
     setIsPlaying(view === 'live');
     if (view !== 'live') {
       // A film/sorozat lista betöltése már a menü megnyomásakor elindul.
-      window.setTimeout(ensureVodLoaded, 0);
+      window.setTimeout(() => ensureVodLoaded(view), 0);
     } else {
       /*
        * A SÁRGA FÓKUSZ A KIVÁLASZTOTT CSATORNÁN MARAD (2.5.165).
