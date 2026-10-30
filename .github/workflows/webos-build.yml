@@ -1,6 +1,6 @@
 name: IPK építés
 
-# Kizárólag LG webOS TV IPK build; minden forrás a jelenlegi repóból származik.
+# Kizárólag TV IPK build; minden forrás a jelenlegi repóból származik.
 # Kézi indítás (workflow_dispatch), automatikus futás nincs.
 # Kimenet: kizárólag a privát Robko1/Ipk repóban jön létre Release, verziócímke és IPK.
 # A teljes forrásdiagnosztika és IPK-ellenőrzés ebben a workflow-ban fut.
@@ -17,7 +17,7 @@ concurrency:
 
 env:
   IPK_FILE_NAME: 'IPTV R.T.ipk'
-  RELEASE_TITLE: 'LG webOS TV'
+  RELEASE_TITLE: 'TV'
 
 jobs:
   webos-epites:
@@ -473,7 +473,7 @@ jobs:
               raise SystemExit("HIBA: a csomagolt index.html a fejlesztői belépőt tartalmazza (nem production build).")
           if re.search(r'<script[^>]*\ssrc=["\']/src/', html):
               raise SystemExit("HIBA: a csomagolt index.html fejlesztői /src/ hivatkozást tartalmaz (nem production build).")
-          if "LG webOS TV · FEKVŐ 1920 × 1080" in html:
+          if "TV · FEKVŐ 1920 × 1080" in html:
               raise SystemExit("HIBA: régi, fölösleges indítófelirat maradt.")
           # A csomagban csak a webOS natív PNG maradhat; saját HTML-es indító
           # képernyő, takaróréteg vagy reveal-vezérlés nem lehet benne.
@@ -598,7 +598,7 @@ jobs:
           fi
 
           if ! gh release view "$RELEASE_TAG" --repo Robko1/Ipk >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE" --notes "LG webOS TV privát IPK kiadás."
+            gh release create "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE" --notes "TV privát IPK kiadás."
           fi
           gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --repo Robko1/Ipk --clobber
 
