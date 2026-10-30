@@ -1,10 +1,10 @@
 {
   "id": "hu.rt.iptv.webos",
   "version": "2.5.214",
-  "vendor": "LG",
+  "vendor": "TV",
   "type": "web",
   "main": "index.html",
-  "title": "LG webOS TV",
+  "title": "TV",
   "icon": "icon-rt2.png",
   "largeIcon": "largeIcon-rt2.png",
   "iconColor": "#00BFFF",
