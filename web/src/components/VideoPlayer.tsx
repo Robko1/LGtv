@@ -4355,14 +4355,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       speedLoad(isVodRef.current ? 'VOD' : 'élő', `forceReload=${forceReload}; formátum=${formatOfUrl(url) || 'egyéb'}`, url);
       speedStep('src beállítva', `load()=${forceReload || hadMediaError ? 'igen' : 'nem'}`);
       speedStep('play() meghívva');
+      if (!customStreamUrl) {
+        const channelName = String(channel?.name || 'Ismeretlen csatorna');
+        const diagnostic = channelSwitchDiagnosticRef.current;
+        const sequence = liveRetrySequenceRef.current;
+        const isRecoveryAttempt = Boolean(
+          !isVodRef.current && (forceReload || liveRecoveryOnlyRef.current || sequence.index > 0)
+        );
         const channelMemory = rememberedFormatFor(channel?.id);
         const timing = bufferTiming();
         const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
         const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
-        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
-        if (isVerbosePlaybackLogging()) {
-          appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, liveRetrySequenceRef.current.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${now - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés után')}`);
+        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
+        if (diagnostic && isVerbosePlaybackLogging()) {
+          appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, sequence.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés után')}`);
         }
+      }
       if (playObserver && playPromise && typeof playPromise.then === 'function') {
         void playPromise.then(
           () => playObserver('play() ígéret teljesült'),
