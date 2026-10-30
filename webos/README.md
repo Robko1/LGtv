@@ -1,4 +1,4 @@
-# IPTV R.T – LG webOS TV csomag
+# LG webOS TV
 
 A `webos/` mappa a manifestet, a távirányítóhídat, a jóváhagyott ikonokat és a natív indítóképet tartalmazza. A React/Vite alkalmazás a `web/` könyvtárban van.
 
@@ -27,15 +27,15 @@ npm test
 bash tools/build-webos.sh
 ```
 
-A script alapértelmezésben a `web/src/appVersion.ts` `WEB_VERSION` értékét használja a **csomagolt** manifesthez; `VERSION=x.y.z` környezeti változóval ez felülírható. Kimenet siker esetén: `webos/IPTV-RT.ipk`, amely Git által ignorált fejlesztői csomag.
+A script alapértelmezésben a `web/src/appVersion.ts` `WEB_VERSION` értékét használja a **csomagolt** manifesthez; `VERSION=x.y.z` környezeti változóval ez felülírható. Kimenet siker esetén: `webos/IPTV R.T.ipk`, amely Git által ignorált fejlesztői csomag.
 
 **Ismert helyi akadály:** a checkoutban lévő `splash-screen.png` 1659×948, RGB és kb. 1,4 MiB. A script 1920×1080, palettás (`P`), 699 KiB alatti PNG-t ellenőriz, így ezen a forráson megáll. A script nem generálja és nem alakítja át az indítóképet. A kézi GitHub **IPK építés** workflow a meglévő fájlt a runneren átméretezi és palettásra optimalizálja a csomagolás előtt; ez nem azonos a helyi script viselkedésével. Bármilyen jóváhagyott képi változtatást külön kell kezelni és TV-n ellenőrizni.
 
 Sikeres csomagolás után például:
 
 ```bash
-ar t webos/IPTV-RT.ipk
-ar p webos/IPTV-RT.ipk data.tar.gz | tar tz | head -n 30
+ar t webos/IPTV R.T.ipk
+ar p webos/IPTV R.T.ipk data.tar.gz | tar tz | head -n 30
 npm run smoke  # build/webos/index.html szükséges
 ```
 
@@ -44,7 +44,7 @@ npm run smoke  # build/webos/index.html szükséges
 1. Telepítsd az LG Content Store-ból a **Developer Mode** alkalmazást.
 2. Jelentkezz be LG Developer-fiókkal, kapcsold be a Developer Mode-ot és a Key Servert.
 3. PC-n használd a [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop) alkalmazást vagy a webOS CLI-t, és add hozzá a TV-t a Developer Mode adataival.
-4. Telepítsd a sikeres buildből vagy Release-ből származó `IPTV-RT.ipk` fájlt.
+4. Telepítsd a sikeres buildből vagy Release-ből származó `IPTV R.T.ipk` fájlt.
 
 CLI-példa a repó gyökeréből:
 
@@ -52,7 +52,7 @@ CLI-példa a repó gyökeréből:
 npm install -g @webos-tools/cli
 ares-setup-device
 ares-novacom --device <tv> --getkey
-ares-install --device <tv> webos/IPTV-RT.ipk
+ares-install --device <tv> webos/IPTV R.T.ipk
 ares-launch --device <tv> hu.rt.iptv.webos
 ```
 
