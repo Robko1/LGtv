@@ -1,4 +1,4 @@
-# LG webOS TV
+# TV
 
 A `webos/` mappa a manifestet, a távirányítóhídat, a jóváhagyott ikonokat és a natív indítóképet tartalmazza. A React/Vite alkalmazás a `web/` könyvtárban van.
 
