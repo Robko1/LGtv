@@ -1,0 +1,70 @@
+name: Delete all public Releases and Tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'A törlés megerősítéséhez írd be pontosan: DELETE ALL'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  delete-releases-and-tags:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [[ "$CONFIRM" != "DELETE ALL" ]]; then
+            echo "::error::A megerősítő szöveg nem pontos. Nem történt törlés."
+            exit 1
+          fi
+
+      - name: Delete every GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPOSITORY/releases?per_page=100" --jq '.[].id' |
+          while IFS= read -r release_id; do
+            [[ -n "$release_id" ]] || continue
+            echo "Release törlése: $release_id"
+            gh api --method DELETE "repos/$REPOSITORY/releases/$release_id"
+          done
+
+      - name: Delete every Git tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPOSITORY/git/matching-refs/tags" --jq '.[].ref' |
+          while IFS= read -r tag_ref; do
+            [[ -n "$tag_ref" ]] || continue
+            echo "Tag törlése: $tag_ref"
+            git push origin ":$tag_ref"
+          done
+
+      - name: Verify cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          releases=$(gh api --paginate "repos/$REPOSITORY/releases?per_page=100" --jq 'length' | awk '{s+=$1} END {print s+0}')
+          tags=$(gh api --paginate "repos/$REPOSITORY/git/matching-refs/tags" --jq 'length' | awk '{s+=$1} END {print s+0}')
+          echo "Megmaradt Releases: $releases"
+          echo "Megmaradt Tags: $tags"
+          [[ "$releases" == "0" && "$tags" == "0" ]]
