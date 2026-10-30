@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV – LG webOS TV .ipk készítése
+# TV – TV .ipk készítése
 #
 # A webes felületet (web/ → build/web/index.html) beleteszi a webOS appba,
 # hozzáadja a webOS specifikus fájlokat (appinfo.json, icon, webos.js) és a
@@ -36,7 +36,7 @@ PYVER
 )"
 fi
 APP_ID="hu.rt.iptv.webos"
-APP_TITLE="LG webOS TV"
+APP_TITLE="TV"
 
 log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
@@ -205,7 +205,7 @@ webos_js = (webos_dir / "webos.js").read_text(encoding="utf-8")
 # után indított betöltő) ELŐTT, így a `window.WEBOS_*` jelzők ugyanúgy
 # megvannak, amikor az app elindul.
 style_injection = f"""
-<!-- LG webOS TV specifikus -->
+<!-- TV specifikus -->
 <style>
 /* webOS TV - fekvő teljes képernyő, kisebb lejátszó */
 body.webos-tv, body.lg-webos {{
@@ -229,7 +229,7 @@ body.webos-tv, body.lg-webos {{
 """
 
 script_injection = f"""
-<!-- LG webOS TV specifikus (a <body> végén: nem késlelteti az első festést) -->
+<!-- TV specifikus (a <body> végén: nem késlelteti az első festést) -->
 <script>
 // webOS TV detektálás és gyors betöltés
 {webos_js}
@@ -442,7 +442,7 @@ fi
 SIZE=$(wc -c < "$IPK_PATH")
 log "Kész: $IPK_PATH ($((SIZE / 1024)) KB)"
 echo ""
-echo "Telepítés LG webOS TV-re:"
+echo "Telepítés TV-re:"
 echo "  1) Kapcsold be a Developer Mode-ot TV-n (LG Content Store → Developer Mode)"
 echo "  2) Telepítsd a webOS Dev Manager-t PC-re: https://github.com/webosbrew/dev-manager-desktop"
 echo "  3) Csatlakozz TV-hez és Install App → válaszd az .ipk-t"
