@@ -166,6 +166,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
 
   const modalCardRef = useRef<HTMLDivElement | null>(null);
   const logScrollRef = useRef<HTMLDivElement | null>(null);
+  const rightScrollRef = useRef<HTMLDivElement | null>(null);
   const resetBtnRef = useRef<HTMLButtonElement | null>(null);
   const testBtnRef = useRef<HTMLButtonElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -312,6 +313,17 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     setScrollOffsetPx(Math.round(nextTop));
   };
 
+  const scrollRightBy = (delta: number) => {
+    const pane = rightScrollRef.current;
+    if (!pane) return;
+    const hasLayout = pane.scrollHeight > 0 || pane.clientHeight > 0;
+    const maxScroll = hasLayout
+      ? Math.max(0, pane.scrollHeight - pane.clientHeight)
+      : Number.POSITIVE_INFINITY;
+    const nextTop = Math.max(0, Math.min(maxScroll, pane.scrollTop + delta));
+    pane.scrollTop = nextTop;
+  };
+
   const getRightControls = (): HTMLButtonElement[] => {
     const list: HTMLButtonElement[] = [];
     if (resetBtnRef.current && !resetBtnRef.current.disabled) list.push(resetBtnRef.current);
@@ -343,14 +355,57 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     const onLogPane = Boolean(
       active && logScrollRef.current && (active === logScrollRef.current || logScrollRef.current.contains(active)),
     );
+    const onRightPane = Boolean(
+      active && rightScrollRef.current && (active === rightScrollRef.current || rightScrollRef.current.contains(active)),
+    );
 
     if (key === 'PageDown' || key === 'PageUp') {
       e.preventDefault();
       e.stopPropagation();
+      if (onRightPane) {
+        const pane = rightScrollRef.current;
+        const pageStep = pane && pane.clientHeight > 0 ? Math.max(180, Math.round(pane.clientHeight * 0.75)) : 320;
+        scrollRightBy(key === 'PageDown' ? pageStep : -pageStep);
+        return;
+      }
       const pane = logScrollRef.current;
-      const pageStep = pane && pane.clientHeight > 0 ? Math.max(180, Math.round(pane.clientHeight * 0.75)) : 320;
+      const pageStep = pane && pane.clientHeight > 0 ? Math.max(180, Math.round(pane.clientHeight * 0.28)) : 320;
       scrollLogBy(key === 'PageDown' ? pageStep : -pageStep);
       return;
+    }
+
+    if (onRightPane) {
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopPropagation();
+        const pane = rightScrollRef.current;
+        const step = pane && pane.clientHeight > 0 ? Math.max(96, Math.round(pane.clientHeight * 0.28)) : 120;
+        scrollRightBy(key === 'ArrowDown' ? step : -step);
+        return;
+      }
+      if (key === 'Home') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (rightScrollRef.current) {
+          rightScrollRef.current.scrollTop = 0;
+        }
+        return;
+      }
+      if (key === 'End') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (rightScrollRef.current) {
+          const bottom = Math.max(0, rightScrollRef.current.scrollHeight - rightScrollRef.current.clientHeight);
+          rightScrollRef.current.scrollTop = bottom;
+        }
+        return;
+      }
+      if (key === 'ArrowLeft') {
+        e.preventDefault();
+        e.stopPropagation();
+        logScrollRef.current?.focus({ preventScroll: true } as FocusOptions);
+        return;
+      }
     }
 
     if (onLogPane) {
@@ -538,8 +593,11 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
 
         {/* ================= JOBB OLDAL: SZÍNKÓDOLT ESEMÉNYJELZŐK + ÁLLANDÓ ADATOK + MEMÓRIA: 0 ================= */}
         <section
+          ref={rightScrollRef}
           data-tv-doctor-right-pane=""
+          data-tv-doctor-right-scroll=""
           className="flex flex-col min-h-0 h-full overflow-y-auto bg-[#08152d] p-5 lg:p-6 gap-3.5"
+          onScroll={() => {}}
         >
           {/* Felső fejléc: bal oldalon ikon + cím + élő csatorna, jobb felső sarokban a piros Memória: 0 gomb */}
           <div className="flex items-start justify-between gap-4 shrink-0">

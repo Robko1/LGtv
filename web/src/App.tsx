@@ -4287,6 +4287,7 @@ export function App() {
             onBackToLive={handleBackToLive}
             onToggleFavoriteMovie={handleToggleFavoriteMovie}
             isActive={activeView === 'movies'}
+            activeProvider={activeProvider}
           />
         </div>
       )}
@@ -4311,6 +4312,7 @@ export function App() {
             onBackToLive={handleBackToLive}
             onToggleFavoriteSeries={handleToggleFavoriteSeries}
             isActive={activeView === 'series'}
+            activeProvider={activeProvider}
           />
         </div>
       )}

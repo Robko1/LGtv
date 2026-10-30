@@ -230,7 +230,7 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             <div className="flex items-center gap-3">
               <Circle className={`h-5 w-5 fill-current ${statusColor}`} />
               <div>
-                <div className={`text-lg font-black ${statusColor}`}>{snapshot.enabled ? 'NAPLÓZÁS BEKAPCSOLVA' : 'NAPLÓZÁS KIKAPCSOLVA'}</div>
+                <div className={`text-base font-black ${statusColor}`}>{snapshot.enabled ? 'NAPLÓZÁS BEKAPCSOLVA' : 'NAPLÓZÁS KIKAPCSOLVA'}</div>
                 <div className="text-xs text-slate-400">{snapshot.enabled ? 'A lejátszó eseményei most rögzülnek.' : 'Normál tévézés közben nincs diagnosztikai naplózás.'}</div>
               </div>
             </div>
@@ -240,11 +240,11 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{snapshot.lineCount}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">SOR</div></div>
-            <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{Math.round(snapshot.charCount / 1024)} KB</div><div className="text-[10px] font-bold tracking-wider text-slate-400">MÉRET / 1 MB</div></div>
-            <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-cyan-200">{elapsed}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">ELTELT IDŐ</div></div>
-            <div className="rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-base font-black text-white">{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()).slice(0, 10) : '—'}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">KEZDETE</div></div>
+          <div className="flex flex-wrap gap-3 sm:flex-nowrap">
+            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{snapshot.lineCount}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">SOR</div></div>
+            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-white">{Math.round(snapshot.charCount / 1024)} KB</div><div className="text-[10px] font-bold tracking-wider text-slate-400">MÉRET / 1 MB</div></div>
+            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-2xl font-black text-cyan-200">{elapsed}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">ELTELT IDŐ</div></div>
+            <div className="shrink-0 rounded-xl border border-slate-700 bg-[#0b1730] p-3 text-center"><div className="text-base font-black text-white">{snapshot.startedAt ? formatRecordDate(new Date(snapshot.startedAt).toISOString()).slice(0, 10) : '—'}</div><div className="text-[10px] font-bold tracking-wider text-slate-400">KEZDETE</div></div>
           </div>
 
           {/*

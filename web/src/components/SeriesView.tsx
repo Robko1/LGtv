@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Series, Episode } from '../types/iptv';
+import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
-import { Star, Play, Clock, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2, Mic2, Subtitles } from 'lucide-react';
+import { Star, Play, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2, Mic2, Subtitles } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
+import { xtreamService } from '../services/xtreamService';
+import { parseSeriesMetadata } from '../services/vodMetadata';
 
 interface SeriesViewProps {
   series: Series[];
@@ -16,6 +19,7 @@ interface SeriesViewProps {
   onBackToLive: () => void;
   onToggleFavoriteSeries: (seriesId: string) => void;
   isActive: boolean;
+  activeProvider?: ProviderRef | null;
 }
 
 /* Függőleges, ötoszlopos rács; a poszterek 25-ös adagokban jelennek meg. */
@@ -42,10 +46,13 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
   isActive,
+  activeProvider,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
+  const [fetchedSeriesMeta, setFetchedSeriesMeta] = useState<{ durationMinutes: number; audioLanguages: string[]; subtitleLanguages: string[] } | null>(null);
+  const [fetchingSeries, setFetchingSeries] = useState(false);
   const [visibleCount, setVisibleCount] = useState(() => seriesReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const seriesGridRef = useRef<HTMLDivElement | null>(null);
   // A kijelölt poszter teljes egészében látható maradjon a görgethető rácsban.
@@ -93,6 +100,41 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     }, 60);
     return () => window.clearTimeout(timer);
   }, [selectedSeriesId]);
+
+  // Sorozat részletek lekérése a szolgáltatótól az infóablak megnyitásakor (csak xtream providernél).
+  useEffect(() => {
+    if (!selectedSeriesId || !activeProvider?.serverUrl || !activeProvider.username || !activeProvider.password || activeProvider.type !== 'xtream') {
+      setFetchedSeriesMeta(null);
+      setFetchingSeries(false);
+      return;
+    }
+    let cancelled = false;
+    setFetchingSeries(true);
+    const fetchSeriesMeta = async () => {
+      try {
+        const info = await xtreamService.seriesInfo(
+          activeProvider.serverUrl!,
+          activeProvider.username!,
+          activeProvider.password!,
+          selectedSeriesId,
+        );
+        const parsed = parseSeriesMetadata(info);
+        if (!cancelled) {
+          setFetchedSeriesMeta({
+            durationMinutes: parsed.durationMinutes,
+            audioLanguages: parsed.audioLanguages,
+            subtitleLanguages: parsed.subtitleLanguages,
+          });
+        }
+      } catch {
+        if (!cancelled) setFetchedSeriesMeta(null);
+      } finally {
+        if (!cancelled) setFetchingSeries(false);
+      }
+    };
+    void fetchSeriesMeta();
+    return () => { cancelled = true; setFetchingSeries(false); };
+  }, [selectedSeriesId, activeProvider]);
 
   const categories = [
     { id: 'all', name: 'Összes sorozat' },
@@ -299,7 +341,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{ser.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Tv className="w-5 h-5" /></div></div>
                 </div>
-                <div className="p-2.5 flex-1"><h3 className="text-white font-bold text-base sm:text-lg truncate">{ser.title}</h3><div className="flex items-center gap-1.5 mt-1 text-sm text-slate-300"><span>{ser.year}</span><span>•</span><span>{ser.seasonsCount || ser.seasons.length} évad</span><span>•</span><span className="flex items-center gap-0.5"><Clock className="w-3 h-3" />{ser.durationMinutes || 0} perc</span></div><div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-slate-400"><span className="flex min-w-0 items-center gap-1 truncate" title="Hangsávnyelvek"><Mic2 className="w-3 h-3 shrink-0 text-rose-400" />{(ser.audioLanguages?.length ? ser.audioLanguages : ['Ismeretlen']).join(', ')}</span><span className="flex min-w-0 items-center gap-1 truncate" title="Feliratnyelvek"><Subtitles className="w-3 h-3 shrink-0 text-cyan-400" />{(ser.subtitleLanguages?.length ? ser.subtitleLanguages : ['Ismeretlen']).join(', ')}</span></div></div>
+                <div className="p-3 flex-1"><h3 className="text-white font-black text-lg sm:text-xl truncate">{ser.title}</h3><div className="mt-1 text-sm sm:text-base font-bold text-amber-300">{ser.year}</div></div>
               </div>
             ))}
           </div>
@@ -322,22 +364,23 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
               />
               <div className="absolute inset-0 bg-linear-to-t from-[#09152e] via-transparent to-black/60" />
 
-              <div className="absolute bottom-3 left-4 right-4 flex items-end gap-3">
+              <div className="absolute bottom-3 left-4 right-4 flex items-end gap-4">
                 <img
                   src={selectedSeries.poster}
                   alt={selectedSeries.title}
-                  className="w-16 h-24 object-cover rounded-xl border-2 border-cyan-400 shadow-xl shrink-0"
+                  className="w-20 h-32 object-cover rounded-xl border-2 border-cyan-400 shadow-2xl shrink-0"
                 />
                 <div className="min-w-0">
-                  <h2 className="text-white font-black text-base sm:text-lg leading-tight truncate">
+                  <h2 className="text-white font-black text-lg sm:text-xl xl:text-2xl leading-tight truncate">
                     {selectedSeries.title}
                   </h2>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-slate-300">
-                    <span className="font-bold text-amber-400">★ {selectedSeries.rating}</span>
-                    <span>•</span>
-                    <span>{selectedSeries.year}</span>
-                    <span>•</span>
-                    <span>{selectedSeries.seasonsCount} Évad</span>
+                  <div className="flex flex-col items-start gap-1 mt-1">
+                    <div className="text-sm sm:text-base font-bold text-amber-300">
+                      {selectedSeries.year}
+                    </div>
+                    <div className="text-xs sm:text-sm font-bold text-cyan-200">
+                      {fetchingSeries ? 'Adatok betöltése…' : (fetchedSeriesMeta?.durationMinutes ?? selectedSeries.durationMinutes ?? 0) > 0 ? `${fetchedSeriesMeta?.durationMinutes ?? selectedSeries.durationMinutes ?? 0} perc` : '—'}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -345,28 +388,23 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
 
             {/* Body */}
             <div className="p-4 space-y-4 flex-1">
-              {/* Plot */}
-              <p className="text-xs text-slate-300 leading-relaxed">
-                {selectedSeries.plot}
-              </p>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-rose-300 mb-1">
-                    <Mic2 className="w-3.5 h-3.5 text-rose-400" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
+                  <div className="flex items-center gap-1.5 text-sm font-bold text-rose-300 mb-2">
+                    <Mic2 className="w-4 h-4 text-rose-400" />
                     <span>Hangsávok</span>
                   </div>
-                  <p className="text-[11px] text-slate-300">
-                    {(selectedSeries.audioLanguages?.length ? selectedSeries.audioLanguages : ['Ismeretlen']).join(' • ')}
+                  <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
+                    {(fetchedSeriesMeta?.audioLanguages ?? selectedSeries.audioLanguages ?? ['Ismeretlen']).join(' • ')}
                   </p>
                 </div>
-                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-300 mb-1">
-                    <Subtitles className="w-3.5 h-3.5 text-cyan-400" />
+                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
+                  <div className="flex items-center gap-1.5 text-sm font-bold text-cyan-300 mb-2">
+                    <Subtitles className="w-4 h-4 text-cyan-400" />
                     <span>Feliratok</span>
                   </div>
-                  <p className="text-[11px] text-slate-300">
-                    {(selectedSeries.subtitleLanguages?.length ? selectedSeries.subtitleLanguages : ['Ismeretlen']).join(' • ')}
+                  <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
+                    {(fetchedSeriesMeta?.subtitleLanguages ?? selectedSeries.subtitleLanguages ?? ['Ismeretlen']).join(' • ')}
                   </p>
                 </div>
               </div>
@@ -474,21 +512,12 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
 
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <h6 className="text-white font-bold text-xs truncate group-hover:text-cyan-300">
+                            <h6 className="text-white font-black text-sm sm:text-base truncate group-hover:text-cyan-300">
                               {ep.title}
                             </h6>
                             {ep.watched && (
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                             )}
-                          </div>
-                          <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">
-                            {ep.plot}
-                          </p>
-                          <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-500 font-medium">
-                            <Clock className="w-3 h-3 text-cyan-400" />
-                            <span>{ep.durationMinutes} perc</span>
-                            <span>•</span>
-                            <span className="text-rose-300 font-bold">{(ep.audioLanguages?.length ? ep.audioLanguages : ['Ismeretlen']).join(', ')}</span>
                           </div>
                         </div>
                       </div>
