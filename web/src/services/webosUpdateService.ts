@@ -42,7 +42,8 @@ export async function checkLatestWebOSRelease(): Promise<WebOSReleaseInfo> {
   }
 
   const latestVersion = (await response.text()).trim().replace(/^v/i, '');
-  if (!/^\\d+\\.\\d+\\.\\d+$/.test(latestVersion)) {
+  // Pontosan három, csak számjegyekből álló verziórész engedélyezett.
+  if (!/^\d+\.\d+\.\d+$/.test(latestVersion)) {
     throw new Error('A nyilvános verziófájl tartalma hibás; csak háromrészes verziószám lehet benne.');
   }
 
