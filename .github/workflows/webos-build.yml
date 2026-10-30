@@ -263,7 +263,7 @@ jobs:
               # ellenőrizzük, hogy mindkét verziófájl pontosan a saját NEXT értékünk.
               git rebase --abort || true
               git fetch origin main
-              REMOTE_WEB_VERSION="$(git show origin/main:web/src/appVersion.ts | python3 -c 'import re,sys; s=sys.stdin.read(); m=re.search(r"WEB_VERSION\\s*=\\s*\x27([0-9]+\\.[0-9]+\\.[0-9]+)\x27",s); print(m.group(1) if m else "")')"
+              REMOTE_WEB_VERSION="$(git show origin/main:web/src/appVersion.ts | python3 -c 'import re,sys; s=sys.stdin.read(); m=re.search(r"WEB_VERSION\s*=\s*\x27([0-9]+\.[0-9]+\.[0-9]+)\x27",s); print(m.group(1) if m else "")')"
               REMOTE_MANIFEST_VERSION="$(git show origin/main:webos/appinfo.json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version", ""))')"
               if [[ "$REMOTE_WEB_VERSION" == "$NEXT" && "$REMOTE_MANIFEST_VERSION" == "$NEXT" ]]; then
                 echo "OK: a v$NEXT verzióemelés már megvan a friss main ágon; a meglévő commitot használjuk."
