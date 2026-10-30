@@ -47,6 +47,32 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
     return () => window.clearTimeout(closeTimer);
   }, [isOpen, terminal, onClose]);
 
+  /*
+   * A VISSZA GOMB MINDIG BEZÁRJA AZ ABLAKOT (2.5.224).
+   *
+   * A felhasználó jelezte: a betöltési diagnosztikát a távirányító VISSZA
+   * gombja nem zárta be. Az ok: az ablak a Beállításokból indított frissítésnél
+   * nyílik ki, de a fókusz a Beállítások gombján marad – így sem az ablak
+   * React-kezelője (nincs rajta fókusz), sem az App globális kezelője (a
+   * settings-tulajdonú elemeknél korán visszatér) nem kapta meg a gombot.
+   * Ez az ablak-szintű, elfogó (capture) kezelő minden más előtt fut, ezért
+   * a VISSZA akkor is bezár, ha a fókusz bárhol máshol ragadt.
+   * A háttérben futó frissítést a bezárás nem szakítja meg.
+   */
+  useEffect(() => {
+    if (!isOpen) return;
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      const key = normalizeTvKey(event);
+      if (key !== 'Escape' && key !== 'Backspace') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', onWindowKeyDown, true);
+    return () => window.removeEventListener('keydown', onWindowKeyDown, true);
+  }, [isOpen, onClose]);
+
   const handleModalKeyDown = (event: React.KeyboardEvent) => {
     const key = normalizeTvKey(event);
     if (key === 'Escape' || key === 'Backspace') {

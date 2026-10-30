@@ -966,6 +966,45 @@ export function saveLiveContent(content: ImportedContent): void {
   void saveLiveContentAsync(content);
 }
 
+/**
+ * A RÉGI, teljes localStorage-lista kicsinyítése – a teljes lista ÚJRAÍRÁSA
+ * NÉLKÜL (2.5.224).
+ *
+ * A 18-as TV-napló szerint az indulás utáni 12. másodpercben a tömörítés a
+ * TELJES 20 196 csatornás listát újraírta az IndexedDB-be (41 adag, ~4,4 MB,
+ * 11,8 s), és közben a fő szál 8 másodpercre megállt – a néző ezt fagyásnak
+ * látta. Pedig a teljes lista ilyenkor már hiánytalanul az IndexedDB-ben van:
+ * csak a localStorage-ban ragadt régi, nagy készletet kell az induló (magyar)
+ * készletre cserélni. A teljes újramentés kizárólag akkor fut le, ha a
+ * teljes lista az IndexedDB-ből tényleg hiányzik.
+ */
+export async function compactLiveCacheIfNeeded(content: ImportedContent): Promise<void> {
+  try {
+    if (!needsLiveCacheCompaction() || content.channels.length === 0) return;
+    const store = await contentChunkStore();
+    let idbHasFull = false;
+    if (store) {
+      try {
+        const chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
+        const idbTotal = chunked ? (Number(chunked.meta.liveTotal) || chunked.meta.chunks * CHUNK_SIZE) : 0;
+        idbHasFull = idbTotal >= content.channels.length;
+      } catch { /* az IndexedDB hibájánál a teljes mentés a biztonságos út */ }
+    }
+    if (!idbHasFull) {
+      // Nincs teljes lista a nagy tárban: a megszokott, teljes mentés fut.
+      await saveLiveContentAsync(content);
+      return;
+    }
+    // A teljes lista megvan az IndexedDB-ben: csak a kis induló készletet
+    // írjuk újra a localStorage-ba – ez tizedmásodperces művelet.
+    const channels = hungarianFirstForSave(content.channels);
+    saveLiveBootWithRetry(content, channels);
+    appLog('Élő csatornák: a régi localStorage-készlet kicsinyítve (a teljes lista érintetlenül az IndexedDB-ben marad).');
+  } catch (error) {
+    appLogError('Élő lista kicsinyítése (nem végzetes)', error);
+  }
+}
+
 /* ------------------------------------------------- szinkron-állapot */
 
 /**
@@ -1566,6 +1605,13 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       approxBytes += text.length;
       batch.push({ key: generationPrefix + index, value: text });
       if (batch.length >= IDB_BATCH_SIZE) await flush();
+      /*
+       * 2.5.224: a fő szál MINDEN adag kódolása után visszakapja a vezérlést.
+       * Korábban csak kötegenként (12 adag = 6000 elem kódolása egyben) volt
+       * yield – a 18-as TV-naplóban ez 8 másodperces főszál-megállást okozott
+       * mentés közben, amitől a távirányító és a lejátszó is akadozott.
+       */
+      else await yieldToStorage();
     }
     await flush();
 
