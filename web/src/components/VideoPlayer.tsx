@@ -4349,10 +4349,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
       applyMuteState(video, volume);
-      const playObserver = speedAttemptObserver();
       const playPromise = video.play();
       // A stream indítása elsőbbséget kap; a naplózás csak a play() meghívása után fut.
+      // A megfigyelőt a speedLoad után kell létrehozni, mert az növeli a próbasorszámot.
       speedLoad(isVodRef.current ? 'VOD' : 'élő', `forceReload=${forceReload}; formátum=${formatOfUrl(url) || 'egyéb'}`, url);
+      const playObserver = speedAttemptObserver();
       speedStep('src beállítva', `load()=${forceReload || hadMediaError ? 'igen' : 'nem'}`);
       speedStep('play() meghívva');
       if (!customStreamUrl) {
