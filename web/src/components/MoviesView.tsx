@@ -7,6 +7,7 @@ import { normalizeTvKey } from '../utils/tvKeys';
 import { xtreamService } from '../services/xtreamService';
 import { parseVodMetadata, ParsedVodMetadata } from '../services/vodMetadata';
 import { formatRuntime, joinLanguages, visibleLanguages } from '../utils/vodDisplay';
+import { logVodItemResponse } from '../services/vodProviderDiagnostics';
 
 interface MoviesViewProps {
   movies: Movie[];
@@ -113,6 +114,9 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
           String(selectedMovie.streamId ?? selectedMovie.id),
         );
         const parsed = parseVodMetadata(info);
+        // Kézi naplózás alatt a szolgáltató teljes válasza a naplóba kerül
+        // (VOD-DIAG sorok) – ehhez nem kell újabb kérés, ez a válasz már megvan.
+        logVodItemResponse('movie', selectedMovie, info, 'Mozi poszter megnyitása');
         if (!cancelled) {
           setFetchedMovieMeta(parsed);
           // A lekért adatot a filmkártya is megkapja (munkamenetre).

@@ -57,6 +57,12 @@ import { channelNowNext, clearGuide, ensureGuide, guideStatus, guideUpcoming } f
 import { xtreamService } from './services/xtreamService';
 import { parseEpisodeMetadata, parseSeriesMetadata, ParsedVodMetadata, UNKNOWN_LANGUAGE } from './services/vodMetadata';
 import { visibleLanguages } from './utils/vodDisplay';
+import {
+  attachVodProviderDiagnostics,
+  inspectVodSection,
+  logVodOverview,
+  VodDiagnosticsContext,
+} from './services/vodProviderDiagnostics';
 
 // Induláskor a korábban betöltött szolgáltatói lista töltődik be. Demó adat
 // helyett üres listát mutatunk, és a felület felhívja a figyelmet a lista
@@ -467,6 +473,23 @@ export function App() {
   const lastSavedRef = useRef<{ channels: unknown; movies: unknown; series: unknown }>({
     channels: bootChannels, movies: [], series: [],
   });
+  /*
+   * VOD-METAADAT DIAGNOSZTIKA (kézi napló).
+   *
+   * A naplózás indításakor és a Mozi/Sorozat nézet megnyitásakor ez a modul
+   * rögzíti, hogy a szolgáltató milyen adatokat küld a filmekhez/sorozatokhoz
+   * (év, megjelenés, játékidő, hang-/feliratnyelvek, képek, egyéb mezők), és
+   * ezek közül mi jeleníthető meg. A getter mindig a friss állapotot adja.
+   */
+  const vodDiagContextRef = useRef<VodDiagnosticsContext>({ provider: null, movies: [], series: [] });
+  vodDiagContextRef.current = {
+    provider: activeProvider,
+    movies,
+    series,
+    vodCategories,
+    seriesCategories,
+    totals: totalCounts,
+  };
   const [history, setHistory] = useState<WatchHistoryItem[]>(() => storageService.getHistory());
 
   // Navigation & Active View state – сохраняjuk a GitHub web-frissítés előtti nézetet.
@@ -1834,6 +1857,27 @@ export function App() {
       window.setTimeout(restoreFocus, 260);
     }
   }, [ensureVodLoaded, activeView, capturePaneScroll]);
+
+  /*
+   * VOD-METAADAT TESZT A KÉZI NAPLÓBAN.
+   *
+   * Csatlakozunk a naplózás életciklusához: a naplózás indításakor a modul
+   * naplózza a szolgáltatói áttekintést és egy kis részletes mintát. Kikapcsolt
+   * naplózásnál semmilyen kérés nem indul (a modul minden belépési pontja
+   * ellenőrzi az aktív naplózást).
+   */
+  useEffect(() => attachVodProviderDiagnostics(() => vodDiagContextRef.current), []);
+
+  /*
+   * A Mozi / Sorozatok nézet megnyitásakor pontosan naplózzuk, milyen adatokat
+   * ad a szolgáltató az adott tartalmakhoz. A lista későbbi betöltése is
+   * számít, ezért a darabszám-változásra is lefut (a modul 45 mp-en belül nem
+   * ismétli önmagát, és a részletes kérések száma munkamenetenként korlátozott).
+   */
+  useEffect(() => {
+    if (activeView === 'movies' || activeView === 'series') inspectVodSection(activeView);
+    if (activeView !== 'live') logVodOverview();
+  }, [activeView, movies.length, series.length]);
 
   // A nézetek propjai STABILAK (a React.memo így tudja kihagyni az
   // újrarajzolást, amikor csak a lejátszó teljes képernyős állapota változik).
