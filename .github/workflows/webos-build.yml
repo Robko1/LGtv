@@ -552,14 +552,25 @@ jobs:
             exit 1
           }
 
-          # A verziótag a most lefordított main commitra mutat.
+          # A privát Ipk repó külön Git-történetű, ezért a publikus LGtv
+          # BUILD_COMMIT SHA-ja ott nem létező objektum lehet (GitHub HTTP 422).
+          # A kiadási tag a privát repó saját alapágának létező commitjára mutat.
+          # Az IPK tartalmát ettől függetlenül a lenti SHA-256 ellenőrzés azonosítja.
           if ! gh api "repos/Robko1/Ipk/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            # A git push itt nem használható: actions/checkout korábbi
-            # GITHUB_TOKEN extraheader beállítása felülírhatja/ütköztetheti
-            # a PAT hitelesítést. A tag-et közvetlenül a GitHub API hozza létre.
+            PRIVATE_BRANCH="$(gh api repos/Robko1/Ipk --jq '.default_branch')"
+            [[ -n "$PRIVATE_BRANCH" && "$PRIVATE_BRANCH" != "null" ]] || {
+              echo "HIBA: a privát Ipk repó alapága nem olvasható." >&2
+              exit 1
+            }
+            PRIVATE_SHA="$(gh api "repos/Robko1/Ipk/git/ref/heads/$PRIVATE_BRANCH" --jq '.object.sha')"
+            [[ -n "$PRIVATE_SHA" && "$PRIVATE_SHA" != "null" ]] || {
+              echo "HIBA: a privát Ipk repó alapágának commitja nem olvasható." >&2
+              exit 1
+            }
+            # Közvetlen GitHub API: nincs git push / checkout extraheader ütközés.
             gh api --method POST repos/Robko1/Ipk/git/refs \
               -f "ref=refs/tags/$RELEASE_TAG" \
-              -f "sha=$BUILD_COMMIT" >/dev/null
+              -f "sha=$PRIVATE_SHA" >/dev/null
           fi
 
           RELEASE_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
