@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, startTransition } from 'react';
 import { createPortal } from 'react-dom';
-import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Season, Series, WatchHistoryItem } from './types/iptv';
+import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Series, WatchHistoryItem } from './types/iptv';
 import { storageService } from './services/storageService';
 import {
   CATALOG_TTL_MS,
@@ -13,7 +13,6 @@ import {
   inspectStoredCatalogs,
   loadCatalogPreview,
   loadLive,
-  loadSyncState,
   markCatalogChecked,
   needsLiveCacheCompaction,
   ProviderRef,
@@ -50,13 +49,15 @@ import {
   PartialContent,
   providerFingerprint,
   refreshProviderContent,
+  applyMovieMetadata,
+  applySeriesMetadata,
 } from './services/providerImport';
+import { seasonsFromSeriesInfo } from './services/catalogRows';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
 import { channelNowNext, clearGuide, ensureGuide, guideStatus, guideUpcoming } from './services/epgGuide';
 import { xtreamService } from './services/xtreamService';
-import { parseEpisodeMetadata, parseSeriesMetadata, ParsedVodMetadata, UNKNOWN_LANGUAGE } from './services/vodMetadata';
-import { visibleLanguages } from './utils/vodDisplay';
+import { parseSeriesMetadata, parseVodMetadata } from './services/vodMetadata';
 import {
   attachVodProviderDiagnostics,
   inspectVodSection,
@@ -467,7 +468,6 @@ export function App() {
   );
   // Változik minden új importnál/frissítésnél, akkor is, ha a szolgáltató és a csatornaazonosítók nem változnak.
   const [epgRevision, setEpgRevision] = useState(0);
-  const [loadingSeriesId, setLoadingSeriesId] = useState<string>('');
   const dirtyRef = useRef(false);
   // A legutóbb elmentett listák azonosítója: így csak a megváltozott rész íródik ki.
   const lastSavedRef = useRef<{ channels: unknown; movies: unknown; series: unknown }>({
@@ -2406,8 +2406,8 @@ export function App() {
     const finalProgress = {
       phase: 'Kész – nincs változás',
       detail:
-        `A szolgáltató kategóriái ellenőrizve (${check.counts.live} élő / ${check.counts.vod} film / ` +
-        `${check.counts.series} sorozat): mindenben azonosak a legutóbbival, ezért a teljes listák nem ` +
+        `A szolgáltató katalógusa ellenőrizve (${check.counts.live} élő / ${check.counts.vod} film / ` +
+        `${check.counts.series} sorozat): nem változott, ezért a teljes listák nem ` +
         `töltődtek le újra (utolsó teljes ellenőrzés: ${ageMinutes} perce). • ${summary.counts}`,
       percent: 100,
     };
@@ -2508,17 +2508,10 @@ export function App() {
     cancelNetworkRequests();
     resetNetworkBreaker();
     cancelAutoRetry();
-    if (manual) {
-      retryAttemptsRef.current = 0;
-      // A kézi provider-frissítés szándékosan új sorrenddel indul.
-      storageService.clearChannelOrder(id);
-    }
+    if (manual) retryAttemptsRef.current = 0;
     lastRefreshProviderIdRef.current = id;
     providerRefreshActiveRef.current = true;
-    clearEpgCache();
-    // A szolgáltató katalógusa megváltozott: a régi műsorújság is elavult.
-    clearGuide();
-    setEpgRevision((revision) => revision + 1);
+    // A különbség-frissítés NEM törli a néző sorrendjét, kedvenceit vagy EPG-jét.
     setProviderContentReady(false);
     // Automatikus betöltésnél NINCS felugró diagnosztikai ablak.
     setDiagnosticOpen(manual && !silent);
@@ -2598,8 +2591,8 @@ export function App() {
       if (partial.totals) draft.totals = { ...draft.totals, ...partial.totals };
       // Üres szakasz soha nem törölheti a már megjelenített (mentett) listát.
       const currentChannels = channelsRef.current;
-      if (partial.channels && (partial.channels.length > 0 || currentChannels.length === 0)) {
-        draft.channels = preserveChannelPreferences(partial.channels, currentChannels, !manual);
+      if (partial.channels && (partial.authoritative || partial.channels.length > 0 || currentChannels.length === 0)) {
+        draft.channels = preserveChannelPreferences(partial.channels, currentChannels, true);
         setActiveProvider(draft.provider);
         /*
          * A frissítés részletekben érkezik. A nézett csatornát a betöltés
@@ -2664,7 +2657,7 @@ export function App() {
         setCategories((current) => (sameCategories(current, partial.liveCategories!) ? current : partial.liveCategories!));
       }
       if (partial.movies) {
-        const nextMovies = keepIfFilled(moviesRef.current, partial.movies);
+        const nextMovies = partial.authoritative ? (partial.movies || []) : keepIfFilled(moviesRef.current, partial.movies);
         if (nextMovies) {
           draft.movies = nextMovies;
           moviesRef.current = nextMovies;
@@ -2680,7 +2673,7 @@ export function App() {
         setVodCategories((current) => (sameCategories(current, partial.vodCategories!) ? current : partial.vodCategories!));
       }
       if (partial.series) {
-        const nextSeries = keepIfFilled(seriesRef.current, partial.series);
+        const nextSeries = partial.authoritative ? (partial.series || []) : keepIfFilled(seriesRef.current, partial.series);
         if (nextSeries) {
           draft.series = nextSeries;
           seriesRef.current = nextSeries;
@@ -2774,7 +2767,7 @@ export function App() {
          * változtak – vagy a vizsgálat nem volt elvégezhető. Újabb
          * kategórialekérdezés felesleges lenne.
          */
-        { incremental: false }
+        { incremental: provider.type === 'xtream' }
       );
       if (refreshGenerationRef.current !== refreshGeneration) return;
 
@@ -2828,7 +2821,7 @@ export function App() {
       const isSameProvider = activeProviderRef.current?.id === id;
       // Kézi provider-frissítéskor a csatornák sorrendje a szolgáltató sorrendjére áll vissza.
       // A kedvencjelöléseket és a mappákhoz tartozó stabil csatornaazonosítókat megtartjuk.
-      const refreshedChannels = preserveChannelPreferences(content.channels, previousChannels, !manual);
+      const refreshedChannels = preserveChannelPreferences(content.channels, previousChannels, true);
       const watchedId = activeChannelIdRef.current;
       const currentlyWatched = isSameProvider
         ? previousChannels.find((channel) => channel.id === watchedId)
@@ -2839,9 +2832,9 @@ export function App() {
       const refreshedContent: ImportedContent = { ...content, channels: refreshedChannels };
       setActiveProvider(draft.provider);
       activeProviderRef.current = draft.provider;
-      const liveToShow = keepIfFilled(previousChannels, hungaryFirst(channelsForDisplay));
-      const moviesToShow = keepIfFilled(previousMovies, refreshedContent.movies);
-      const seriesToShow = keepIfFilled(previousSeries, refreshedContent.series);
+      const liveToShow = refreshedContent.authoritative ? hungaryFirst(channelsForDisplay) : keepIfFilled(previousChannels, hungaryFirst(channelsForDisplay));
+      const moviesToShow = refreshedContent.authoritative ? refreshedContent.movies : keepIfFilled(previousMovies, refreshedContent.movies);
+      const seriesToShow = refreshedContent.authoritative ? refreshedContent.series : keepIfFilled(previousSeries, refreshedContent.series);
       // Üres hibaválasz ugyanazon provider frissítésekor nem törölheti a
       // korábban működő cache-t. Új provider esetén viszont nem mentjük a
       // régi provider listáját az új azonosító alá.
@@ -2854,13 +2847,13 @@ export function App() {
         channels: persistedChannels,
         movies: persistedMovies,
         series: persistedSeries,
-        liveCategories: refreshedContent.liveCategories.length || !keepPreviousContent
+        liveCategories: refreshedContent.authoritative || refreshedContent.liveCategories.length || !keepPreviousContent
           ? refreshedContent.liveCategories
           : categoriesRef.current,
-        vodCategories: refreshedContent.vodCategories.length || !keepPreviousContent
+        vodCategories: refreshedContent.authoritative || refreshedContent.vodCategories.length || !keepPreviousContent
           ? refreshedContent.vodCategories
           : vodCategoriesRef.current,
-        seriesCategories: refreshedContent.seriesCategories.length || !keepPreviousContent
+        seriesCategories: refreshedContent.authoritative || refreshedContent.seriesCategories.length || !keepPreviousContent
           ? refreshedContent.seriesCategories
           : seriesCategoriesRef.current,
         totals: {
@@ -2888,11 +2881,24 @@ export function App() {
         if (delta === 0) return '';
         return `${delta > 0 ? '+' : '−'}${Math.abs(delta).toLocaleString('hu-HU')} ${label}`;
       };
-      const changes = [
-        countLabel('csatorna', previousChannels.length, persistedChannels.length),
-        countLabel('film', previousMovies.length, persistedMovies.length),
-        countLabel('sorozat', previousSeries.length, persistedSeries.length),
-      ].filter(Boolean);
+      const diff = 'changes' in result ? result.changes : undefined;
+      const diffLabel = (label: string, d?: { added: number; changed: number; removed: number }) => {
+        if (!d) return '';
+        const parts = [d.added ? `+${d.added}` : '', d.changed ? `~${d.changed}` : '', d.removed ? `−${d.removed}` : ''].filter(Boolean);
+        return parts.length ? `${parts.join('/')} ${label}` : '';
+      };
+      const changes = diff
+        ? [diffLabel('csatorna', diff.live), diffLabel('film', diff.vod), diffLabel('sorozat', diff.series)].filter(Boolean)
+        : [
+          countLabel('csatorna', previousChannels.length, persistedChannels.length),
+          countLabel('film', previousMovies.length, persistedMovies.length),
+          countLabel('sorozat', previousSeries.length, persistedSeries.length),
+        ].filter(Boolean);
+      if (diff && (diff.live.added || diff.live.changed || diff.live.removed)) {
+        clearEpgCache();
+        clearGuide();
+        setEpgRevision((revision) => revision + 1);
+      }
       if (liveToShow) setChannels(liveToShow);
       channelsRef.current = liveToShow || previousChannels;
       /*
@@ -2917,7 +2923,7 @@ export function App() {
       if (!durableSaved.series) await saveSeriesContentSafely(contentForStorage);
       // A 20 részletes VOD-metaadat külön, néhány kB-os rekordba kerül:
       // visszatöltéskor a megfelelő filmekre/sorozatokra ráolvassuk.
-      await saveCatalogExtras(id, contentForStorage.movies, contentForStorage.series);
+      await saveCatalogExtras(id, contentForStorage.movies.filter((item) => item.detailProviderData), contentForStorage.series.filter((item) => item.detailProviderData || item.seasons.length > 0));
       const fingerprint = 'fingerprint' in result && typeof result.fingerprint === 'string'
         ? result.fingerprint
         : providerFingerprint(contentForStorage);
@@ -3169,135 +3175,56 @@ export function App() {
    * részletek-ablakban legyenek láthatók. A már ismert értéket nem írjuk felül
    * hiányzó adattal, és kitalált érték sem kerül a listába.
    */
-  const handleMovieMetadataLoaded = useCallback((movieId: string, metadata: ParsedVodMetadata) => {
-    const audioLanguages = visibleLanguages(metadata.audioLanguages);
-    const subtitleLanguages = visibleLanguages(metadata.subtitleLanguages);
-    setMovies((previous) => {
-      let changed = false;
-      const next = previous.map((movie) => {
-        if (movie.id !== movieId) return movie;
-        const updated: Movie = {
-          ...movie,
-          durationMinutes: metadata.durationMinutes > 0 ? metadata.durationMinutes : movie.durationMinutes,
-          audioLanguages: audioLanguages.length ? audioLanguages : movie.audioLanguages,
-          subtitleLanguages: subtitleLanguages.length ? subtitleLanguages : movie.subtitleLanguages,
-          plot: movie.plot || metadata.plot || '',
-          backdrop: movie.backdrop || metadata.backdrop,
-          cast: movie.cast?.length ? movie.cast : (metadata.cast?.length ? metadata.cast : movie.cast),
-          director: movie.director || metadata.director,
-          genres: movie.genres?.length ? movie.genres : (metadata.genres?.length ? metadata.genres : movie.genres),
-          year: movie.year || metadata.year || 0,
-        };
-        const same = updated.durationMinutes === movie.durationMinutes
-          && updated.audioLanguages === movie.audioLanguages
-          && updated.subtitleLanguages === movie.subtitleLanguages
-          && updated.plot === movie.plot
-          && updated.backdrop === movie.backdrop
-          && updated.cast === movie.cast
-          && updated.director === movie.director
-          && updated.genres === movie.genres
-          && updated.year === movie.year;
-        if (same) return movie;
-        changed = true;
-        return updated;
-      });
-      return changed ? next : previous;
-    });
-  }, []);
-
-  // Sorozat részeinek (évadok) betöltése a szolgáltatótól
-  const handleLoadSeriesInfo = useCallback(
-    async (target: Series) => {
-      const provider = activeProvider;
-      if (!provider || provider.type !== 'xtream' || !target.seriesId) return;
-      if (!provider.serverUrl || !provider.username || !provider.password) return;
-
-      setLoadingSeriesId(target.id);
-      try {
-        const info = await xtreamService.seriesInfo(
-          provider.serverUrl,
-          provider.username,
-          provider.password,
-          target.seriesId
-        );
-        const episodesBySeason = info.episodes || {};
-        const seriesMetadata = parseSeriesMetadata(info);
-        const seasons: Season[] = Object.keys(episodesBySeason)
-          .sort((a, b) => Number(a) - Number(b))
-          .map((seasonKey) => {
-            const episodes = episodesBySeason[seasonKey] || [];
-            return {
-              seasonNumber: Number(seasonKey),
-              name: `${seasonKey}. évad`,
-              episodeCount: episodes.length,
-              episodes: episodes.map((episode, index) => {
-                const metadata = parseEpisodeMetadata(episode);
-                return {
-                  id: `ep-${target.id}-${episode.id ?? index}`,
-                  episodeNumber: Number(episode.episode_num ?? index + 1),
-                  seasonNumber: Number(seasonKey),
-                  title: episode.title || `${index + 1}. rész`,
-                  // Nincs több kitalált 45 perces érték: a hiányzó játékidő 0.
-                  durationMinutes: metadata.durationMinutes || 0,
-                  streamUrl: xtreamService.buildSeriesStreamUrl(
-                    provider.serverUrl || '',
-                    provider.username || '',
-                    provider.password || '',
-                    episode.id ?? '',
-                    episode.container_extension || 'mp4'
-                  ),
-                  plot: episode.info?.plot || '',
-                  thumbnail: episode.info?.movie_image || target.poster,
-                  audioTracks: metadata.audioTracks,
-                  subtitleTracks: metadata.subtitleTracks,
-                  audioLanguages: metadata.audioLanguages?.length ? metadata.audioLanguages : [UNKNOWN_LANGUAGE],
-                  subtitleLanguages: metadata.subtitleLanguages?.length ? metadata.subtitleLanguages : [UNKNOWN_LANGUAGE],
-                };
-              }),
+  /**
+   * VOD-metaadatok előreolvasása BÖNGÉSZÉS közben (látható + következő adag).
+   * Az adatlap megnyitása és a lejátszás indítása soha nem indít ilyen kérést.
+   */
+  const vodPrefetchInFlightRef = useRef<Set<string>>(new Set());
+  const prefetchVodMetadata = useCallback(async (kind: 'movie' | 'series', items: Array<Movie | Series>) => {
+    const provider = activeProviderRef.current;
+    if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) return;
+    if (customStreamUrlRef.current) return;
+    const pending = items.filter((item) => !item.detailProviderData && !vodPrefetchInFlightRef.current.has(`${kind}:${item.id}`)).slice(0, 50);
+    if (!pending.length) return;
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < pending.length) {
+        const item = pending[cursor++];
+        const key = `${kind}:${item.id}`;
+        vodPrefetchInFlightRef.current.add(key);
+        try {
+          if (kind === 'movie') {
+            const movie = item as Movie;
+            const detail = await xtreamService.vodInfo(provider.serverUrl!, provider.username!, provider.password!, movie.streamId ?? movie.id);
+            const updated = { ...applyMovieMetadata(movie, parseVodMetadata(detail)), detailProviderData: detail as unknown as Movie['detailProviderData'] };
+            setMovies((previous) => previous.map((entry) => entry.id === updated.id ? updated : entry));
+            await saveCatalogExtras(provider.id, [updated], []);
+          } else {
+            const target = item as Series;
+            const detail = await xtreamService.seriesInfo(provider.serverUrl!, provider.username!, provider.password!, target.seriesId ?? target.id);
+            const enriched = applySeriesMetadata(target, parseSeriesMetadata(detail));
+            const seasons = seasonsFromSeriesInfo(detail, enriched, provider);
+            const updated: Series = {
+              ...enriched,
+              detailProviderData: detail as unknown as Series['detailProviderData'],
+              seasons,
+              seasonsCount: seasons.length,
+              episodesCount: seasons.reduce((sum, season) => sum + season.episodes.length, 0),
             };
-          })
-          .filter((season) => season.episodes.length > 0);
-
-        const episodeTotal = seasons.reduce((sum, season) => sum + season.episodes.length, 0);
-        setSeries((prev) =>
-          prev.map((item) =>
-            item.id === target.id
-              ? {
-                  ...item,
-                  seasons,
-                  seasonsCount: seasons.length || item.seasonsCount,
-                  episodesCount: episodeTotal || item.episodesCount,
-                  plot: item.plot || info.info?.plot || '',
-                  genres: item.genres.length
-                    ? item.genres
-                    : (info.info?.genre || '')
-                        .split(',')
-                        .map((genre) => genre.trim())
-                        .filter(Boolean),
-                  durationMinutes: seriesMetadata.durationMinutes || item.durationMinutes || 0,
-                  audioTracks: seriesMetadata.audioTracks,
-                  subtitleTracks: seriesMetadata.subtitleTracks,
-                  audioLanguages: seriesMetadata.audioLanguages?.length ? seriesMetadata.audioLanguages : [UNKNOWN_LANGUAGE],
-                  subtitleLanguages: seriesMetadata.subtitleLanguages?.length ? seriesMetadata.subtitleLanguages : [UNKNOWN_LANGUAGE],
-                  backdrop: seriesMetadata.backdrop || item.backdrop,
-                  cast: seriesMetadata.cast?.length ? seriesMetadata.cast : item.cast,
-                  director: seriesMetadata.director || item.director,
-                }
-              : item
-          )
-        );
-      } catch (error) {
-        alert(
-          error instanceof Error
-            ? `A részek betöltése nem sikerült: ${error.message}`
-            : 'A részek betöltése nem sikerült.'
-        );
-      } finally {
-        setLoadingSeriesId('');
+            setSeries((previous) => previous.map((entry) => entry.id === updated.id ? updated : entry));
+            await saveCatalogExtras(provider.id, [], [updated]);
+          }
+        } catch {
+          // A háttér-előreolvasás hibája nem zavarhatja a nézetet vagy a lejátszást.
+        } finally {
+          vodPrefetchInFlightRef.current.delete(key);
+        }
       }
-    },
-    [activeProvider]
-  );
+    };
+    await Promise.all([worker(), worker()]);
+  }, []);
+  const handlePrefetchMovieMetadata = useCallback((items: Movie[]) => { void prefetchVodMetadata('movie', items); }, [prefetchVodMetadata]);
+  const handlePrefetchSeriesMetadata = useCallback((items: Series[]) => { void prefetchVodMetadata('series', items); }, [prefetchVodMetadata]);
 
   // Play Movie in Main Video Player
   const handlePlayMovie = useCallback((movie: Movie) => {
@@ -4345,7 +4272,7 @@ export function App() {
             onToggleFavoriteMovie={handleToggleFavoriteMovie}
             isActive={activeView === 'movies'}
             activeProvider={activeProvider}
-            onMovieMetadataLoaded={handleMovieMetadataLoaded}
+            onPrefetchMetadata={handlePrefetchMovieMetadata}
           />
         </div>
       )}
@@ -4362,8 +4289,7 @@ export function App() {
             series={series}
             categories={seriesCategories}
             totalCount={totalCounts.series}
-            loadingSeriesId={loadingSeriesId}
-            onOpenSeries={handleLoadSeriesInfo}
+            onPrefetchMetadata={handlePrefetchSeriesMetadata}
             onPlayEpisode={handlePlayEpisode}
             selectedCategoryId={seriesCategoryRef.current}
             onSelectedCategoryChange={handleSeriesCategoryChange}

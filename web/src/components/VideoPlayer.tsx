@@ -58,7 +58,6 @@ import { LiveAudioCcSelector } from './AudioSubtitlesModal';
 import {
   VodSubtitleSource,
   SubtitleCue,
-  resolveVodSubtitles,
   loadSubtitleCues,
   cueAt,
 } from '../services/subtitleService';
@@ -2700,7 +2699,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * be, és a lejátszó maga rajzolja ki (SubtitleOverlay) – így a régi webOS
    * Chromiumon is működik a felirat.
    */
-  const [providerSubtitleTracks, setProviderSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  const [providerSubtitleTracks, setProviderSubtitleTracks] = useState<SubtitleTrack[]>(providedSubtitleTracks || []);
   /**
    * A fájlba muxolt (beágyazott) feliratsávok: MKV fejlécből / a TV
    * médiaszolgáltatásából. A webOS ezeket a `textTracks` listában nem teszi
@@ -2998,7 +2997,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     setVodAudioTracks(providedAudioTracks || []);
-    setVodSubtitleTracks(providedSubtitleTracks || []);
+    setProviderSubtitleTracks(providedSubtitleTracks || []);
+    setVodSubtitleTracks([]);
     setVodTrackMenu(null);
     setActiveVodSubtitleId(null);
     // Új filmnél a kézi sávválasztás is újraindul, hogy a Beállítások →
@@ -3747,46 +3747,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isVod, vodSubtitleTracks.length, providerSubtitleTracks.length]);
 
   /*
-   * SZOLGÁLTATÓI FELIRATOK (CC) keresése a film/sorozat indításakor.
-   *
-   * Csak akkor indul, ha a stream NEM tesz közzé muxolt feliratot – ilyenkor
-   * a szolgáltatótól (Xtream) kérjük le a filmhez tartozó feliratfájlokat.
-   * Streamenként egyszer fut, és hálózati hiba esetén csendben feladja.
+   * VOD-feliratok: kizárólag a már letöltött és mentett sávlista használható.
+   * Lejátszás indításakor NEM kérünk új get_vod_info / get_series_info választ.
+   * A mentett feliratfájlt a néző kiválasztásakor tölti be a felirat-olvasó.
    */
   useEffect(() => {
     if (!isVod) return;
-    if (!subtitleSource) {
-      /*
-       * Nincs honnan feliratot kérni (nem Xtream szolgáltató, vagy a film /
-       * epizód azonosítója nem állapítható meg). Ezt a naplóban jelezzük, hogy
-       * a következő hibajegyből kiderüljön: nem a letöltés hibázott.
-       */
-      const noSourceKey = `nincs-forras|${streamUrl}`;
-      if (providerSubtitleRequestRef.current !== noSourceKey) {
-        providerSubtitleRequestRef.current = noSourceKey;
-        appLog('Feliratkeresés (CC): nincs szolgáltatói forrás ehhez a filmhez (nem Xtream lista vagy hiányzó film/epizód azonosító).');
-      }
-      setProviderSubtitleTracks([]);
-      setVodSubtitleCues([]);
-      return;
-    }
-    const key = `${streamUrl}|${subtitleSource.vodId || ''}|${subtitleSource.seriesId || ''}|${subtitleSource.episodeId || ''}`;
-    if (providerSubtitleRequestRef.current === key) return;
-    providerSubtitleRequestRef.current = key;
-    let cancelled = false;
-    setProviderSubtitleTracks([]);
     setVodSubtitleCues([]);
-    const timer = window.setTimeout(() => {
-      appLog(`Feliratkeresés (CC) indul: ${subtitleSource.vodId ? `vod=${subtitleSource.vodId}` : `sorozat=${subtitleSource.seriesId}, epizód=${subtitleSource.episodeId}`}.`);
-      void resolveVodSubtitles(subtitleSource).then((tracks) => {
-        if (cancelled || tracks.length === 0) return;
-        setProviderSubtitleTracks(tracks);
-      });
-    }, 1200);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
   }, [isVod, streamUrl, subtitleSource, subtitleSearchNonce]);
 
   /*
@@ -3920,17 +3887,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return;
     }
 
-    // 2b) Nincs (megfelelő) muxolt felirat: a szolgáltatótól letöltött CC.
-    //     Ha a beállított nyelven nincs, de csak EGY felirat van, azt kapcsoljuk
-    //     be – a felhasználó kérése, hogy a CC ne maradjon kikapcsolva.
-    const providerTrack = findPreferredVodTrack(providerSubtitleTracks, preferredSubtitle)
-      || (providerSubtitleTracks.length === 1 ? providerSubtitleTracks[0] : null);
-    if (providerTrack) {
-      selectVodSubtitleRef.current?.(providerTrack);
-      appLog(`Automatikus szolgáltatói felirat: ${providerTrack.lang || providerTrack.name} (beállítás: ${preferredSubtitle}).`);
-    } else if (providerSubtitleTracks.length > 1) {
-      appLog(`Szolgáltatói felirat: nincs „${preferredSubtitle}” sáv (${providerSubtitleTracks.map((track) => track.lang || track.name).join(', ')}); a CC gombbal választható.`);
-    }
+    // 2b) A mentett szolgáltatói feliratfájlt NEM töltjük le automatikusan
+    // lejátszás indításakor. A néző a CC menüben választhatja ki; a fájletöltés
+    // csak ekkor, kézi választásra indul.
   }, [
     isVod, nativeHandoff, streamUrl, vodAudioTracks, vodSubtitleTracks,
     providerSubtitleTracks, vodSubtitleCues.length,

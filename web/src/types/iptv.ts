@@ -9,6 +9,8 @@ export type LiveStreamFormat = 'ts' | 'hls';
 export type AspectRatioMode = 'contain' | 'cover' | 'fill'; // 'Illesztés' | 'Kitöltés' | 'Nyújtás'
 export type SubtitleSize = '75%' | '100%' | '125%' | '150%' | '200%';
 
+export type ProviderPayload = Record<string, unknown>;
+
 export interface AudioTrack {
   id: number | string;
   name: string;
@@ -67,6 +69,8 @@ export interface Channel {
   orderIndex: number;
   audioTracks?: AudioTrack[];
   subtitleTracks?: SubtitleTrack[];
+  /** A szolgáltatói listaelem teljes, változtatás nélkül megőrzött válasza. */
+  providerData?: ProviderPayload;
 }
 
 export interface Category {
@@ -105,6 +109,9 @@ export interface Movie {
   subtitleLanguages?: string[];
   isFavorite?: boolean;
   resumePositionSeconds?: number;
+  providerData?: ProviderPayload;
+  /** A get_vod_info teljes válasza; nem csak a belőle képzett mezők. */
+  detailProviderData?: ProviderPayload;
 }
 
 /** A filmekhez hasonló, elsődleges sorozat-plakát metaadatai. */
@@ -132,6 +139,9 @@ export interface Series {
   audioLanguages?: string[];
   subtitleLanguages?: string[];
   isFavorite?: boolean;
+  providerData?: ProviderPayload;
+  /** A get_series_info teljes válasza (info, seasons, episodes együtt). */
+  detailProviderData?: ProviderPayload;
 }
 
 export interface Episode {
@@ -149,6 +159,7 @@ export interface Episode {
   subtitleLanguages?: string[];
   watched?: boolean;
   resumePositionSeconds?: number;
+  providerData?: ProviderPayload;
 }
 
 export interface Season {

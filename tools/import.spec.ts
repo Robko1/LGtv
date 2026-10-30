@@ -727,10 +727,16 @@ async function main() {
     // 1) Teljes import: ez menti a szinkron-állapotot.
     const firstResult = await refreshProviderContent(freshProvider as never, () => {}, () => {});
     check('az első frissítés teljes tartalmat ad', 'content' in firstResult, JSON.stringify(Object.keys(firstResult)));
+    if ('content' in firstResult) {
+      await store.saveLiveContentAsync(firstResult.content);
+      await store.saveVodContentSafely(firstResult.content);
+      await store.saveSeriesContentSafely(firstResult.content);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
     const savedState = store.loadSyncState(freshProvider.id);
     check('a teljes import elmenti a kategóriák ujjlenyomatát', Boolean(savedState?.fingerprint), String(savedState?.fingerprint));
 
-    // 2) Azonnali újabb frissítés: csak a három kategórialista megy le.
+    // 2) Azonnali újabb frissítés: a könnyű indexlisták egyszer mennek le, részletek nem.
     requestedActions.length = 0;
     const secondResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
     const contentRequests = requestedActions.filter((action) =>
@@ -740,13 +746,15 @@ async function main() {
       'unchanged' in secondResult && secondResult.unchanged === true,
       JSON.stringify(Object.keys(secondResult))
     );
+    const detailRequests = requestedActions.filter((action) => action === 'get_vod_info' || action === 'get_series_info');
     check(
-      'NEM tölti le újra a tartalmat (csak kategórialisták)',
-      contentRequests.length === 0 && requestedActions.filter((action) => action === 'get_live_categories').length === 1,
+      'NEM tölti le újra a részleteket; az indexlista egyszer kérhető le változás-összevetéshez',
+      contentRequests.length === 3 && detailRequests.length === 0
+        && requestedActions.filter((action) => action === 'get_live_categories').length === 1,
       `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
     );
 
-    // 3) A kategória megváltozik → teljes letöltés.
+    // 3) A kategória megváltozik → az indexek összevetése után frissített kategóriák.
     freshFake.setLiveCategoryNames([
       { category_id: '10', category_name: 'Magyarország' },
       { category_id: '11', category_name: 'Németország' },
@@ -759,7 +767,7 @@ async function main() {
     requestedActions.length = 0;
     const changedResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
     check(
-      'kategóriaváltozásnál teljes letöltés indul',
+      'kategóriaváltozásnál az indexek alapján frissül a katalógus',
       'content' in changedResult
         && requestedActions.includes('get_live_streams')
         && requestedActions.includes('get_vod_streams'),
@@ -786,10 +794,12 @@ async function main() {
     requestedActions.length = 0;
     const staleResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
     check(
-      'a frissességi ablak letelte után is csak ellenőriz, nem tölt újra',
+      'a frissességi ablak letelte után is csak az indexeket veti össze, részleteket nem tölt újra',
       'unchanged' in staleResult
         && staleResult.unchanged === true
-        && !requestedActions.includes('get_live_streams'),
+        && requestedActions.filter((action) => action === 'get_live_streams').length === 1
+        && !requestedActions.includes('get_vod_info')
+        && !requestedActions.includes('get_series_info'),
       `(kérések: ${requestedActions.join(', ')})`
     );
 

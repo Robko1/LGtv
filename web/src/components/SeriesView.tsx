@@ -2,19 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Series, Episode } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
-import { Star, Play, Sparkles, Filter, ChevronDown, Tv, CheckCircle2, Loader2, Mic2, Subtitles, Clock } from 'lucide-react';
+import { VodDetailSheet } from './VodDetailSheet';
+import { Star, Sparkles, Filter, ChevronDown, Tv, Mic2, Subtitles, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { xtreamService } from '../services/xtreamService';
-import { parseSeriesMetadata, ParsedVodMetadata } from '../services/vodMetadata';
-import { formatRuntime, joinLanguages, visibleLanguages } from '../utils/vodDisplay';
-import { logVodItemResponse } from '../services/vodProviderDiagnostics';
+import { formatRuntime, joinLanguages } from '../utils/vodDisplay';
 
 interface SeriesViewProps {
   series: Series[];
   categories?: Category[];
   totalCount?: number;
-  loadingSeriesId?: string;
-  onOpenSeries?: (series: Series) => void;
+  onPrefetchMetadata?: (items: Series[]) => void;
   onPlayEpisode: (series: Series, episode: Episode) => void;
   selectedCategoryId?: string;
   onSelectedCategoryChange?: (categoryId: string) => void;
@@ -42,13 +39,12 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   series,
   categories: providerCategories,
   totalCount,
-  loadingSeriesId,
-  onOpenSeries,
   onPlayEpisode,
+  onToggleFavoriteSeries,
+  onPrefetchMetadata,
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
   isActive,
-  activeProvider,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
@@ -56,9 +52,6 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   // függőségei nem változhatnak meg a lista háttérfrissítéseitől.
   const seriesListRef = useRef<Series[]>(series);
   seriesListRef.current = series;
-  const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
-  const [fetchedSeriesMeta, setFetchedSeriesMeta] = useState<ParsedVodMetadata | null>(null);
-  const [fetchingSeries, setFetchingSeries] = useState(false);
   const [visibleCount, setVisibleCount] = useState(() => seriesReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const seriesGridRef = useRef<HTMLDivElement | null>(null);
   // A kijelölt poszter teljes egészében látható maradjon a görgethető rácsban.
@@ -107,44 +100,6 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [selectedSeriesId]);
 
-  // Sorozat részletek lekérése a szolgáltatótól az infóablak megnyitásakor (csak xtream providernél).
-  useEffect(() => {
-    // Kiválasztásváltáskor az előző sorozat adatai nem maradhatnak a képernyőn.
-    setFetchedSeriesMeta(null);
-    if (!selectedSeriesId || !activeProvider?.serverUrl || !activeProvider.username || !activeProvider.password || activeProvider.type !== 'xtream') {
-      setFetchingSeries(false);
-      return;
-    }
-    let cancelled = false;
-    setFetchingSeries(true);
-    const fetchSeriesMeta = async () => {
-      try {
-        const info = await xtreamService.seriesInfo(
-          activeProvider.serverUrl!,
-          activeProvider.username!,
-          activeProvider.password!,
-          selectedSeriesId,
-        );
-        const parsed = parseSeriesMetadata(info);
-        // Kézi naplózás alatt a szolgáltató teljes válasza a naplóba kerül
-        // (VOD-DIAG sorok) – újabb kérés nélkül, ebből a válaszból.
-        logVodItemResponse(
-          'series',
-          seriesListRef.current.find((item) => item.id === selectedSeriesId) || null,
-          info,
-          'Sorozatok poszter megnyitása',
-        );
-        if (!cancelled) setFetchedSeriesMeta(parsed);
-      } catch {
-        if (!cancelled) setFetchedSeriesMeta(null);
-      } finally {
-        if (!cancelled) setFetchingSeries(false);
-      }
-    };
-    void fetchSeriesMeta();
-    return () => { cancelled = true; setFetchingSeries(false); };
-  }, [selectedSeriesId, activeProvider]);
-
   const categories = [
     { id: 'all', name: 'Összes sorozat' },
     ...(providerCategories || [])
@@ -161,6 +116,14 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
       : series.filter((s) => s.categoryId === selectedCategory)),
     [series, selectedCategory],
   );
+
+  useEffect(() => {
+    if (!isActive || selectedSeriesId || !onPrefetchMetadata) return;
+    const pending = filteredSeries.slice(0, visibleCount + PAGE_SIZE).filter((item) => !item.detailProviderData);
+    if (!pending.length) return;
+    const timer = window.setTimeout(() => onPrefetchMetadata(pending), 350);
+    return () => window.clearTimeout(timer);
+  }, [isActive, selectedSeriesId, filteredSeries, visibleCount, onPrefetchMetadata]);
 
   /*
    * Kategóriaváltáskor a lista elejére ugrunk. FONTOS: NEM figyeljük a
@@ -186,73 +149,27 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     seriesReturnSnapshot = null;
   }, []);
 
-  const visibleSeries = filteredSeries.slice(0, visibleCount);
+  const visibleSeries = useMemo(() => filteredSeries.slice(0, visibleCount), [filteredSeries, visibleCount]);
 
-  // Háttérben, fokozatosan előtöltjük a posztereket, de csak az aktív
-  // Mozi/Sorozat nézetben, rövid késleltetés és böngésző-üresjárat után.
   useEffect(() => {
-    if (!isActive || preloadedThroughRef.current >= filteredSeries.length
-        || preloadedThroughRef.current >= visibleCount) return;
+    if (!isActive) return;
     let cancelled = false;
-    let timer = 0;
-    let idleHandle: number | undefined;
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
+    const posters = visibleSeries.filter((item) => item.poster).slice(0, PAGE_SIZE);
+    let cursor = 0;
+    const worker = async () => {
+      while (!cancelled && cursor < posters.length) {
+        const item = posters[cursor++];
+        await preloadPosterImage(item.poster, item.title, 'tv', true);
+      }
     };
-    const start = () => {
-      if (cancelled) return;
-      const batchEnd = Math.min(preloadedThroughRef.current + PAGE_SIZE, filteredSeries.length, visibleCountRef.current);
-      const tick = async () => {
-        if (cancelled || preloadedThroughRef.current >= batchEnd) return;
-        const entry = filteredSeries[preloadedThroughRef.current];
-        if (entry) await preloadPosterImage(entry.poster, entry.title, 'tv');
-        if (cancelled) return;
-        preloadedThroughRef.current += 1;
-        if (preloadedThroughRef.current < batchEnd) timer = window.setTimeout(() => { void tick(); }, 180);
-      };
-      void tick();
-    };
-    timer = window.setTimeout(() => {
-      if (idleWindow.requestIdleCallback) idleHandle = idleWindow.requestIdleCallback(start, { timeout: 1200 });
-      else start();
-    }, 1500);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle);
-    };
-  }, [isActive, selectedCategory, visibleCount, filteredSeries]);
+    const frame = window.requestAnimationFrame(() => { void worker(); void worker(); void worker(); });
+    return () => { cancelled = true; window.cancelAnimationFrame(frame); };
+  }, [isActive, visibleSeries]);
+
 
   // A kiválasztott sorozat mindig a legfrissebb adatból (a részek utólag
   // töltődnek be a szolgáltatótól).
   const selectedSeries = series.find((item) => item.id === selectedSeriesId) || null;
-  const isLoadingEpisodes = !!selectedSeries && loadingSeriesId === selectedSeries.id;
-
-  const activeSeason = selectedSeries?.seasons.find(
-    (sn) => sn.seasonNumber === selectedSeasonNumber
-  ) || selectedSeries?.seasons[0];
-
-  /*
-   * A részletek-ablak megjelenített adatai: a frissen lekért érték az
-   * elsődleges, de csak akkor, ha valóban ad adatot; hiányzó értéknél a már
-   * ismert adat marad, és semmilyen kitalált érték nem kerül a képernyőre.
-   */
-  const seriesDetail = useMemo(() => {
-    if (!selectedSeries) return null;
-    const fetchedAudio = visibleLanguages(fetchedSeriesMeta?.audioLanguages);
-    const fetchedSubtitles = visibleLanguages(fetchedSeriesMeta?.subtitleLanguages);
-    const fetchedDuration = fetchedSeriesMeta?.durationMinutes || 0;
-    return {
-      duration: fetchedDuration > 0 ? fetchedDuration : selectedSeries.durationMinutes || 0,
-      audio: fetchedAudio.length ? fetchedAudio : visibleLanguages(selectedSeries.audioLanguages),
-      subtitles: fetchedSubtitles.length ? fetchedSubtitles : visibleLanguages(selectedSeries.subtitleLanguages),
-      plot: selectedSeries.plot || fetchedSeriesMeta?.plot || '',
-      cast: (selectedSeries.cast && selectedSeries.cast.length ? selectedSeries.cast : fetchedSeriesMeta?.cast) || [],
-      backdrop: selectedSeries.backdrop || fetchedSeriesMeta?.backdrop || '',
-      year: selectedSeries.year || fetchedSeriesMeta?.year || 0,
-    };
-  }, [selectedSeries, fetchedSeriesMeta]);
 
   return (
     /* Keresőmező és „Poszterek” gomb NÉLKÜL (kérés szerint) – csak a
@@ -336,8 +253,8 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
               <div key={ser.id} role="button" tabIndex={0}
                 data-poster-index={index}
                 data-vod-card={String(ser.id)}
-                onClick={() => { setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); }}
-                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); setSelectedSeasonNumber(ser.seasons[0]?.seasonNumber || 1); onOpenSeries?.(ser); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+                onClick={() => { setSelectedSeriesId(ser.id); }}
+                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedSeriesId(ser.id); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
                   e.preventDefault();
                   e.stopPropagation();
                   const index = Number((e.currentTarget as HTMLElement).dataset.posterIndex);
@@ -367,7 +284,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                 } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
-                  <PosterImage src={ser.poster} title={ser.title} kind="tv" alt={ser.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <PosterImage src={ser.poster} title={ser.title} kind="tv" localOnly alt={ser.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{ser.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Tv className="w-5 h-5" /></div></div>
                 </div>
@@ -395,6 +312,10 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                       <span className="truncate">{joinLanguages(ser.subtitleLanguages)}</span>
                     </div>
                   )}
+                  {ser.genres.length > 0 && <div className="mt-1 truncate text-center text-[11px] text-slate-400">{ser.genres.slice(0, 3).join(' • ')}</div>}
+                  {ser.director && <div className="mt-0.5 truncate text-center text-[11px] text-slate-400">Rendező: {ser.director}</div>}
+                  {ser.cast && ser.cast.length > 0 && <div className="mt-0.5 truncate text-center text-[11px] text-slate-400">{ser.cast.slice(0, 3).join(', ')}</div>}
+                  {ser.plot && <p className="mt-1 text-[11px] leading-snug text-slate-500 line-clamp-2">{ser.plot}</p>}
                 </div>
               </div>
             ))}
@@ -404,215 +325,18 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
 
       {/* Series Season & Episode Detail Modal */}
       {selectedSeries && (
-        <div ref={detailDialogRef} role="dialog" aria-modal="true" aria-label="Sorozat részletei" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setSelectedSeriesId(''); } }} className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/85 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
-          <div
-            data-dialog-scroll=""
-            className="bg-[#09152e] border border-cyan-800/60 rounded-3xl max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl w-full max-h-[92dvh] lg:max-h-[85vh] overflow-y-auto overscroll-contain shadow-2xl animate-scaleUp flex flex-col"
-          >
-            {/* Header */}
-            <div className="relative h-44 w-full bg-slate-900 overflow-hidden shrink-0">
-              <img
-                src={seriesDetail?.backdrop || selectedSeries.backdrop || selectedSeries.poster}
-                alt={selectedSeries.title}
-                className="w-full h-full object-cover opacity-60"
-              />
-              <div className="absolute inset-0 bg-linear-to-t from-[#09152e] via-transparent to-black/60" />
-
-              <div className="absolute bottom-3 left-4 right-4 flex items-end gap-4">
-                <img
-                  src={selectedSeries.poster}
-                  alt={selectedSeries.title}
-                  className="w-20 h-32 object-cover rounded-xl border-2 border-cyan-400 shadow-2xl shrink-0"
-                />
-                <div className="min-w-0">
-                  <h2 className="text-white font-black text-lg sm:text-xl xl:text-2xl leading-tight truncate">
-                    {selectedSeries.title}
-                  </h2>
-                  <div className="flex flex-col items-start gap-1 mt-1">
-                    {(seriesDetail?.year || 0) > 0 && (
-                      <div className="text-sm sm:text-base font-bold text-amber-300">
-                        {seriesDetail?.year}
-                      </div>
-                    )}
-                    {fetchingSeries && !seriesDetail?.duration ? (
-                      <div className="text-xs sm:text-sm font-bold text-cyan-200">Adatok betöltése…</div>
-                    ) : formatRuntime(seriesDetail?.duration) ? (
-                      <div className="flex items-center gap-1 text-xs sm:text-sm font-bold text-cyan-200">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{formatRuntime(seriesDetail?.duration)}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Body */}
-            <div className="p-4 space-y-4 flex-1">
-              {/* Leírás – csak akkor, ha a szolgáltató visszaadta */}
-              {seriesDetail?.plot ? (
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">
-                    Tartalom
-                  </h4>
-                  <p className="text-sm sm:text-base text-slate-200 leading-relaxed text-center">
-                    {seriesDetail.plot}
-                  </p>
-                </div>
-              ) : null}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
-                  <div className="flex items-center gap-1.5 text-sm font-bold text-rose-300 mb-2">
-                    <Mic2 className="w-4 h-4 text-rose-400" />
-                    <span>Hangsávok</span>
-                  </div>
-                  <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {seriesDetail?.audio.length ? seriesDetail.audio.join(' • ') : 'Nincs adat'}
-                  </p>
-                </div>
-                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
-                  <div className="flex items-center gap-1.5 text-sm font-bold text-cyan-300 mb-2">
-                    <Subtitles className="w-4 h-4 text-cyan-400" />
-                    <span>Feliratok</span>
-                  </div>
-                  <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {seriesDetail?.subtitles.length ? seriesDetail.subtitles.join(' • ') : 'Nincs adat'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Részek betöltése a szolgáltatótól */}
-              {selectedSeries.seasons.length === 0 && (
-                <div className="flex flex-col items-center justify-center gap-2 py-6 text-center border border-cyan-950 rounded-2xl bg-[#0b162f]">
-                  {isLoadingEpisodes ? (
-                    <>
-                      <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
-                      <p className="text-xs text-slate-300 font-semibold">Évadok és részek letöltése…</p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-xs text-slate-300 font-semibold">Ehhez a sorozathoz nincs betöltött rész.</p>
-                      {onOpenSeries && (
-                        <button
-                          onClick={() => onOpenSeries(selectedSeries)}
-                          className="px-3 py-1.5 rounded-xl bg-cyan-400 text-slate-950 text-xs font-black active:scale-95 transition-all"
-                        >
-                          Részek betöltése
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Seasons Selector Tab */}
-              <div className="flex items-center justify-between border-b border-cyan-950 pb-2">
-                <h4 className="text-xs font-black text-cyan-400 uppercase tracking-wider">
-                  Évadok Választása:
-                </h4>
-                <div className="flex items-center gap-1.5 overflow-x-auto">
-                  {selectedSeries.seasons.map((sn) => (
-                    <button
-                      key={sn.seasonNumber}
-                      onClick={() => setSelectedSeasonNumber(sn.seasonNumber)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
-                        activeSeason?.seasonNumber === sn.seasonNumber
-                          ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
-                          : 'bg-[#0e1d3b] text-slate-300 border border-slate-700/60 hover:bg-[#142850]'
-                      }`}
-                    >
-                      {sn.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Episodes List */}
-              <div className="space-y-2">
-                <h5 className="text-xs font-bold text-slate-400">
-                  {activeSeason?.name} ({activeSeason?.episodes.length} epizód)
-                </h5>
-
-                <div
-                  data-episode-list=""
-                  className="space-y-2 max-h-72 overflow-y-auto overscroll-contain pt-1 pr-1"
-                >
-                  {activeSeason?.episodes.map((ep, epIndex) => (
-                    <div
-                      key={ep.id}
-                      /*
-                       * AZ EPIZÓDSOR FÓKUSZÁLHATÓ. Korábban csak onClick volt
-                       * rajta: a távirányítóval (D-pad + OK) egyetlen epizódot
-                       * sem lehetett elindítani, mert a sor nem volt a
-                       * fókuszálható elemek között.
-                       */
-                      role="button"
-                      tabIndex={0}
-                      data-dialog-primary={epIndex === 0 ? '' : undefined}
-                      /* Bezáráskor a lejátszott EPIZÓDRA térünk vissza. */
-                      data-vod-episode={String(ep.id)}
-                      onKeyDown={(e) => {
-                        const key = normalizeTvKey(e);
-                        if (key === 'Enter' || key === ' ') {
-                          e.preventDefault();
-                          (e.currentTarget as HTMLElement).click();
-                        }
-                      }}
-                      onClick={() => {
-                        const ser = selectedSeries;
-                        seriesReturnSnapshot = {
-                          scrollTop: seriesGridRef.current?.scrollTop ?? 0,
-                    visibleCount,
-                              };
-                        setSelectedSeriesId('');
-                        onPlayEpisode(ser, ep);
-                      }}
-                      className="group flex items-center justify-between p-2.5 rounded-2xl bg-[#0b162f] hover:bg-[#112347] border border-cyan-900/40 cursor-pointer transition-all active:scale-[0.99]"
-                    >
-                      {/* Left: Thumbnail & Episode info */}
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="relative w-20 h-14 rounded-xl bg-slate-800 overflow-hidden shrink-0 border border-slate-700">
-                          <img
-                            src={ep.thumbnail}
-                            alt={ep.title}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                          />
-                          <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Play className="w-5 h-5 fill-cyan-400 text-cyan-400" />
-                          </div>
-                        </div>
-
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h6 className="text-white font-black text-sm sm:text-base truncate group-hover:text-cyan-300">
-                              {ep.title}
-                            </h6>
-                            {ep.watched && (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                            )}
-                          </div>
-                          {/* Az epizód játékideje, ha a szolgáltató visszaadta */}
-                          {formatRuntime(ep.durationMinutes) && (
-                            <div className="mt-0.5 flex items-center gap-1 text-[11px] sm:text-xs font-semibold text-cyan-300">
-                              <Clock className="w-3 h-3 shrink-0" />
-                              <span className="truncate">{formatRuntime(ep.durationMinutes)}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right: Play pill */}
-                      <button tabIndex={-1} aria-hidden="true" className="shrink-0 p-2 rounded-xl bg-cyan-400/20 text-cyan-300 border border-cyan-500/40 group-hover:bg-cyan-400 group-hover:text-slate-950 transition-all ml-2">
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <VodDetailSheet
+          kind="series"
+          item={selectedSeries}
+          isFavorite={Boolean(selectedSeries.isFavorite)}
+          onClose={() => setSelectedSeriesId('')}
+          onToggleFavorite={() => onToggleFavoriteSeries(selectedSeries.id)}
+          onPlayEpisode={(ser, ep) => {
+            seriesReturnSnapshot = { scrollTop: seriesGridRef.current?.scrollTop ?? 0, visibleCount };
+            setSelectedSeriesId('');
+            onPlayEpisode(ser, ep);
+          }}
+        />
       )}
     </div>
   );

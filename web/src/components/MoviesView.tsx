@@ -2,12 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Movie } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
+import { VodDetailSheet } from './VodDetailSheet';
 import { Star, Play, Sparkles, Filter, ChevronDown, Mic2, Subtitles, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { xtreamService } from '../services/xtreamService';
-import { parseVodMetadata, ParsedVodMetadata } from '../services/vodMetadata';
-import { formatRuntime, joinLanguages, visibleLanguages } from '../utils/vodDisplay';
-import { logVodItemResponse } from '../services/vodProviderDiagnostics';
+import { formatRuntime, joinLanguages } from '../utils/vodDisplay';
 
 interface MoviesViewProps {
   movies: Movie[];
@@ -20,8 +18,8 @@ interface MoviesViewProps {
   onToggleFavoriteMovie: (movieId: string) => void;
   isActive: boolean;
   activeProvider?: ProviderRef | null;
-  /** A poszter megnyitásakor lekért részletes metaadat visszaadása a főoldalnak. */
-  onMovieMetadataLoaded?: (movieId: string, metadata: ParsedVodMetadata) => void;
+  /** Böngészés közbeni, adatlap-megnyitástól független előreolvasás. */
+  onPrefetchMetadata?: (items: Movie[]) => void;
 }
 
 /* Függőleges, ötoszlopos rács; a poszterek 25-ös adagokban jelennek meg. */
@@ -46,14 +44,13 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
   isActive,
-  activeProvider,
-  onMovieMetadataLoaded,
+  onPrefetchMetadata,
+  onToggleFavoriteMovie,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   // A rács csak a megjelenített adag kártyáit tartalmazza.
-  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [fetchedMovieMeta, setFetchedMovieMeta] = useState<ParsedVodMetadata | null>(null);
-  const [fetchingMovie, setFetchingMovie] = useState(false);
+  const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
+  const selectedMovie = useMemo(() => movies.find((movie) => movie.id === selectedMovieId) || null, [movies, selectedMovieId]);
   const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const movieGridRef = useRef<HTMLDivElement | null>(null);
   // A kijelölt poszter teljes egészében látható maradjon a görgethető rácsban.
@@ -94,43 +91,6 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     }, 60);
     return () => window.clearTimeout(timer);
   }, [selectedMovie]);
-
-  // Film részletek lekérése a szolgáltatótól az infóablak megnyitásakor (csak xtream providernél).
-  useEffect(() => {
-    // Kiválasztásváltáskor az előző film adatai nem maradhatnak a képernyőn.
-    setFetchedMovieMeta(null);
-    if (!selectedMovie || !activeProvider?.serverUrl || !activeProvider.username || !activeProvider.password || activeProvider.type !== 'xtream') {
-      setFetchingMovie(false);
-      return;
-    }
-    let cancelled = false;
-    setFetchingMovie(true);
-    const fetchMovieMeta = async () => {
-      try {
-        const info = await xtreamService.vodInfo(
-          activeProvider.serverUrl!,
-          activeProvider.username!,
-          activeProvider.password!,
-          String(selectedMovie.streamId ?? selectedMovie.id),
-        );
-        const parsed = parseVodMetadata(info);
-        // Kézi naplózás alatt a szolgáltató teljes válasza a naplóba kerül
-        // (VOD-DIAG sorok) – ehhez nem kell újabb kérés, ez a válasz már megvan.
-        logVodItemResponse('movie', selectedMovie, info, 'Mozi poszter megnyitása');
-        if (!cancelled) {
-          setFetchedMovieMeta(parsed);
-          // A lekért adatot a filmkártya is megkapja (munkamenetre).
-          onMovieMetadataLoaded?.(selectedMovie.id, parsed);
-        }
-      } catch {
-        if (!cancelled) setFetchedMovieMeta(null);
-      } finally {
-        if (!cancelled) setFetchingMovie(false);
-      }
-    };
-    void fetchMovieMeta();
-    return () => { cancelled = true; setFetchingMovie(false); };
-  }, [selectedMovie, activeProvider, onMovieMetadataLoaded]);
 
   const categories = [
     { id: 'all', name: 'Összes film' },
@@ -179,65 +139,34 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     movieReturnSnapshot = null;
   }, []);
 
-  const visibleMovies = filteredMovies.slice(0, visibleCount);
-
-  // Háttérben, fokozatosan előtöltjük a posztereket, de csak az aktív
-  // Mozi/Sorozat nézetben, rövid késleltetés és böngésző-üresjárat után.
+  // Az adatlap csak mentett adatot használ. A látható környezet előreolvasása
+  // böngészés közben fut, nem a poszter megnyitásakor vagy lejátszáskor.
   useEffect(() => {
-    if (!isActive || preloadedThroughRef.current >= filteredMovies.length
-        || preloadedThroughRef.current >= visibleCount) return;
-    let cancelled = false;
-    let timer = 0;
-    let idleHandle: number | undefined;
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const start = () => {
-      if (cancelled) return;
-      const batchEnd = Math.min(preloadedThroughRef.current + PAGE_SIZE, filteredMovies.length, visibleCountRef.current);
-      const tick = async () => {
-        if (cancelled || preloadedThroughRef.current >= batchEnd) return;
-        const entry = filteredMovies[preloadedThroughRef.current];
-        if (entry) await preloadPosterImage(entry.poster, entry.title, 'movie');
-        if (cancelled) return;
-        preloadedThroughRef.current += 1;
-        if (preloadedThroughRef.current < batchEnd) timer = window.setTimeout(() => { void tick(); }, 180);
-      };
-      void tick();
-    };
-    timer = window.setTimeout(() => {
-      if (idleWindow.requestIdleCallback) idleHandle = idleWindow.requestIdleCallback(start, { timeout: 1200 });
-      else start();
-    }, 1500);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle);
-    };
-  }, [isActive, selectedCategory, visibleCount, filteredMovies]);
+    if (!isActive || selectedMovie || !onPrefetchMetadata) return;
+    const pending = filteredMovies.slice(0, visibleCount + PAGE_SIZE).filter((item) => !item.detailProviderData);
+    if (!pending.length) return;
+    const timer = window.setTimeout(() => onPrefetchMetadata(pending), 350);
+    return () => window.clearTimeout(timer);
+  }, [isActive, selectedMovie, filteredMovies, visibleCount, onPrefetchMetadata]);
 
-  /*
-   * A részletek-ablak megjelenített adatai.
-   *
-   * A szolgáltatótól frissen lekért érték az elsődleges, de csak akkor, ha
-   * valóban ad adatot: hiányzó (0 / üres) értéknél a lista már ismert adata
-   * marad. Ha egyik forrás sem adja, a nézet nem jelenít meg kitalált értéket.
-   */
-  const movieDetail = useMemo(() => {
-    if (!selectedMovie) return null;
-    const fetchedAudio = visibleLanguages(fetchedMovieMeta?.audioLanguages);
-    const fetchedSubtitles = visibleLanguages(fetchedMovieMeta?.subtitleLanguages);
-    const fetchedDuration = fetchedMovieMeta?.durationMinutes || 0;
-    return {
-      duration: fetchedDuration > 0 ? fetchedDuration : selectedMovie.durationMinutes || 0,
-      audio: fetchedAudio.length ? fetchedAudio : visibleLanguages(selectedMovie.audioLanguages),
-      subtitles: fetchedSubtitles.length ? fetchedSubtitles : visibleLanguages(selectedMovie.subtitleLanguages),
-      plot: selectedMovie.plot || fetchedMovieMeta?.plot || '',
-      cast: (selectedMovie.cast && selectedMovie.cast.length ? selectedMovie.cast : fetchedMovieMeta?.cast) || [],
-      backdrop: selectedMovie.backdrop || fetchedMovieMeta?.backdrop || '',
+  const visibleMovies = useMemo(() => filteredMovies.slice(0, visibleCount), [filteredMovies, visibleCount]);
+
+  // Látható poszterek gyors, korlátozottan párhuzamos előtöltése helyi képcímmel.
+  useEffect(() => {
+    if (!isActive) return;
+    let cancelled = false;
+    const posters = visibleMovies.filter((movie) => movie.poster).slice(0, PAGE_SIZE);
+    let cursor = 0;
+    const worker = async () => {
+      while (!cancelled && cursor < posters.length) {
+        const movie = posters[cursor++];
+        await preloadPosterImage(movie.poster, movie.title, 'movie', true);
+      }
     };
-  }, [selectedMovie, fetchedMovieMeta]);
+    const frame = window.requestAnimationFrame(() => { void worker(); void worker(); void worker(); });
+    return () => { cancelled = true; window.cancelAnimationFrame(frame); };
+  }, [isActive, visibleMovies]);
+
 
   return (
     /*
@@ -325,8 +254,8 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
               <div key={mov.id} role="button" tabIndex={0}
                 data-poster-index={index}
                 data-vod-card={String(mov.id)}
-                onClick={() => setSelectedMovie(mov)}
-                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovie(mov); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+                onClick={() => setSelectedMovieId(mov.id)}
+                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovieId(mov.id); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
                   e.preventDefault();
                   e.stopPropagation();
                   const index = Number((e.currentTarget as HTMLElement).dataset.posterIndex);
@@ -356,7 +285,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                 } }}
                 className="group relative bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
-                  <PosterImage src={mov.poster} title={mov.title} kind="movie" alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <PosterImage src={mov.poster} title={mov.title} kind="movie" localOnly alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{mov.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Play className="w-5 h-5 fill-current ml-0.5" /></div></div>
                 </div>
@@ -384,6 +313,10 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                       <span className="truncate">{joinLanguages(mov.subtitleLanguages)}</span>
                     </div>
                   )}
+                  {mov.genres.length > 0 && <div className="mt-1 truncate text-center text-[11px] text-slate-400">{mov.genres.slice(0, 3).join(' • ')}</div>}
+                  {mov.director && <div className="mt-0.5 truncate text-center text-[11px] text-slate-400">Rendező: {mov.director}</div>}
+                  {mov.cast && mov.cast.length > 0 && <div className="mt-0.5 truncate text-center text-[11px] text-slate-400">{mov.cast.slice(0, 3).join(', ')}</div>}
+                  {mov.plot && <p className="mt-1 text-[11px] leading-snug text-slate-500 line-clamp-2">{mov.plot}</p>}
                 </div>
               </div>
             ))}
@@ -391,117 +324,19 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
         )}
       </div>
 
-      {/* Movie Details Modal */}
       {selectedMovie && (
-        <div ref={detailDialogRef} role="dialog" aria-modal="true" aria-label="Film részletei" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setSelectedMovie(null); } }} className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 lg:p-6 bg-black/80 backdrop-blur-sm animate-fadeIn select-none lg:select-auto">
-          <div className="bg-[#09152e] border border-cyan-800/60 rounded-3xl max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl w-full max-h-[90dvh] lg:max-h-[80vh] overflow-y-auto shadow-2xl animate-scaleUp">
-            {/* Modal Backdrop Banner */}
-            <div className="relative h-48 w-full bg-slate-900 overflow-hidden">
-              <img
-                src={movieDetail?.backdrop || selectedMovie.backdrop || selectedMovie.poster}
-                alt={selectedMovie.title}
-                className="w-full h-full object-cover opacity-60"
-              />
-              <div className="absolute inset-0 bg-linear-to-t from-[#09152e] via-transparent to-black/60" />
-
-              <div className="absolute bottom-3 left-4 right-4 flex items-end gap-4">
-                <img
-                  src={selectedMovie.poster}
-                  alt={selectedMovie.title}
-                  className="w-20 h-32 object-cover rounded-xl border-2 border-cyan-400 shadow-2xl shrink-0"
-                />
-                <div className="min-w-0">
-                  <h2 className="text-white font-black text-lg sm:text-xl xl:text-2xl leading-tight truncate">
-                    {selectedMovie.title}
-                  </h2>
-                  <div className="flex flex-col items-start gap-1 mt-1">
-                    {(selectedMovie.year > 0 || (fetchedMovieMeta?.year || 0) > 0) && (
-                      <div className="text-sm sm:text-base font-bold text-amber-300">
-                        {selectedMovie.year > 0 ? selectedMovie.year : fetchedMovieMeta?.year}
-                      </div>
-                    )}
-                    {fetchingMovie && !movieDetail?.duration ? (
-                      <div className="text-xs sm:text-sm font-bold text-cyan-200">Játékidő betöltése…</div>
-                    ) : formatRuntime(movieDetail?.duration) ? (
-                      <div className="flex items-center gap-1 text-xs sm:text-sm font-bold text-cyan-200">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{formatRuntime(movieDetail?.duration)}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-4 space-y-4">
-              {/* Play Button */}
-              <button
-                data-dialog-primary=""
-                onClick={() => {
-                  const mov = selectedMovie;
-                  movieReturnSnapshot = {
-                    scrollTop: movieGridRef.current?.scrollTop ?? 0,
-                    visibleCount,
-                  };
-                  setSelectedMovie(null);
-                  onPlayMovie(mov);
-                }}
-                className="w-full py-3.5 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-cyan-400/30 active:scale-95 transition-all"
-              >
-                <Play className="w-5 h-5 fill-current" />
-                <span>Film Indítása Most</span>
-              </button>
-
-              {/* Plot Synopsis – a szolgáltatótól frissen kért leírás is felhasználható */}
-              {movieDetail?.plot ? (
-                <div>
-                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">
-                    Tartalom
-                  </h4>
-                  <p className="text-sm sm:text-base text-slate-200 leading-relaxed text-center">
-                    {movieDetail.plot}
-                  </p>
-                </div>
-              ) : null}
-
-              {/* Audio & Subtitle Details */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
-                  <div className="flex items-center gap-1.5 text-sm font-bold text-rose-300 mb-2">
-                    <Mic2 className="w-4 h-4 text-rose-400" />
-                    <span>Hangsávok</span>
-                  </div>
-                  <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {movieDetail?.audio.length ? movieDetail.audio.join(' • ') : 'Nincs adat'}
-                  </p>
-                </div>
-
-                <div className="p-3 rounded-xl bg-[#0e1d3b] border border-cyan-900/40 flex flex-col items-center">
-                  <div className="flex items-center gap-1.5 text-sm font-bold text-cyan-300 mb-2">
-                    <Subtitles className="w-4 h-4 text-cyan-400" />
-                    <span>Feliratok</span>
-                  </div>
-                  <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {movieDetail?.subtitles.length ? movieDetail.subtitles.join(' • ') : 'Nincs adat'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Cast & Director – csak akkor, ha a szolgáltató visszaadta */}
-              {movieDetail?.cast.length ? (
-                <div>
-                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">
-                    Főbb Szereplők
-                  </h4>
-                  <p className="text-sm text-slate-300 text-center">
-                    {movieDetail.cast.join(', ')}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
+        <VodDetailSheet
+          kind="movie"
+          item={selectedMovie}
+          isFavorite={Boolean(selectedMovie.isFavorite)}
+          onClose={() => setSelectedMovieId(null)}
+          onToggleFavorite={() => onToggleFavoriteMovie(selectedMovie.id)}
+          onPlayMovie={(mov) => {
+            movieReturnSnapshot = { scrollTop: movieGridRef.current?.scrollTop ?? 0, visibleCount };
+            setSelectedMovieId(null);
+            onPlayMovie(mov);
+          }}
+        />
       )}
     </div>
   );

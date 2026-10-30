@@ -161,6 +161,7 @@ await esbuild.build({
     contents: `export {
       saveLiveContentAsync, loadLive, loadLiveBoot, loadLiveFull, readSummary, sweepStorage,
       clearContent, needsLiveCacheCompaction, describeStoredContent,
+      saveVodContentSafely, saveSeriesContentSafely, loadVodAsync, loadSeriesAsync,
     } from './web/src/services/contentStore.ts';`,
     resolveDir: ROOT,
     sourcefile: 'persistence-harness.ts',
@@ -349,6 +350,44 @@ try {
     'a tároló-jelentés megmondja, hol van a katalógus',
     JSON.stringify(report),
   );
+
+
+  /* ============ 5/b. VOD NYERS ADATOK VESZTESÉGMENTES MENTÉSE ============= */
+  const longPlot = 'Teljes történet. '.repeat(80);
+  const rawList = { stream_id: 77, name: 'Nyers film', stream_icon: 'http://img/p.jpg', tmdb: '123', custom_field: { a: [1, 2] }, category_id: '20' };
+  const rawDetail = { info: { plot: longPlot, director: 'Rendező Név', actors: 'Színész Egy, Színész Kettő', country: 'Franciaország', age: '16', video: { codec: 'h264' }, audio: [{ language: 'hu' }], bitrate: 9000 }, movie_data: { stream_id: 77, container_extension: 'mkv' } };
+  const vodContent = {
+    provider: { id: 'p1', type: 'xtream', serverUrl: 'http://x', username: 'u', password: 'p' },
+    savedAt: new Date().toISOString(),
+    channels: [], movies: [{
+      id: 'vod-p1-77', streamId: 77, title: 'Nyers film', categoryId: 'vc-20', categoryName: 'Filmek',
+      poster: 'http://img/p.jpg', rating: 7.5, year: 2024, durationMinutes: 120, plot: longPlot,
+      genres: ['Dráma'], director: 'Rendező Név', cast: ['Színész Egy'], streamUrl: 'http://x/movie/u/p/77.mkv',
+      audioLanguages: ['Magyar'], subtitleLanguages: ['Angol'], providerData: rawList, detailProviderData: rawDetail,
+    }], series: [{
+      id: 'ser-p1-88', seriesId: 88, title: 'Nyers sorozat', categoryId: 'sc-30', categoryName: 'Sorozatok',
+      poster: 'http://img/s.jpg', rating: 8, year: 2023, seasonsCount: 1, episodesCount: 1, plot: longPlot,
+      genres: ['Krimi'], seasons: [{ seasonNumber: 1, name: '1. évad', episodeCount: 1, episodes: [{
+        id: 'ep-1', episodeNumber: 1, seasonNumber: 1, title: 'Pilot', durationMinutes: 42, streamUrl: 'http://x/series/u/p/1.mkv',
+        plot: 'Epizód tartalom', thumbnail: '', audioLanguages: ['Magyar'], providerData: { id: '1', info: { duration: '00:42:00' }, custom: 'megmarad' },
+      }] }], providerData: { series_id: 88, plot: longPlot, cast: 'Szereplő' }, detailProviderData: { info: { plot: longPlot }, episodes: { '1': [{ id: '1' }] } },
+    }],
+    liveCategories: [], vodCategories: [{ id: 'vc-20', name: 'Filmek', channelCount: 1, subCategoryCount: 0, type: 'movie' }],
+    seriesCategories: [{ id: 'sc-30', name: 'Sorozatok', channelCount: 1, subCategoryCount: 0, type: 'series' }],
+    totals: { live: 0, vod: 1, series: 1 }, warnings: [],
+  };
+  await app5.saveVodContentSafely(vodContent);
+  await app5.saveSeriesContentSafely(vodContent);
+  await settle();
+  const loadedVod = await app5.loadVodAsync(vodContent.provider);
+  const loadedSeries = await app5.loadSeriesAsync(vodContent.provider);
+  const savedMovie = loadedVod.movies[0];
+  const savedSeries = loadedSeries.series[0];
+  check(savedMovie.plot === longPlot, 'a teljes plot nem csonkolódik 200 karakterre', savedMovie.plot.length);
+  check(JSON.stringify(savedMovie.providerData) === JSON.stringify(rawList), 'a nyers listamezők megmaradnak', savedMovie.providerData);
+  check(JSON.stringify(savedMovie.detailProviderData) === JSON.stringify(rawDetail), 'a részletes válasz minden mezője megmarad', Object.keys(savedMovie.detailProviderData || {}));
+  check(savedSeries.seasons.length === 1 && savedSeries.seasons[0].episodes[0].providerData.custom === 'megmarad', 'a sorozat évadai és epizódjai tartósan mentődnek', savedSeries.seasons);
+  check(Boolean(savedSeries.detailProviderData?.episodes), 'a sorozat nyers részletei megmaradnak', savedSeries.detailProviderData);
 
   /* ============ 6. TAKARÍTÁS ÉS TÖRLÉS ======================================= */
   localStorageFake.setQuota(5200000);

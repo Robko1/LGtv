@@ -71,6 +71,31 @@ check('hiányzó hangsávnál nincs kitalált nyelv', JSON.stringify(withoutTrac
 check('hiányzó feliratnál nincs kitalált nyelv', JSON.stringify(withoutTracks.subtitleLanguages) === JSON.stringify(['Ismeretlen']), withoutTracks.subtitleLanguages);
 check('hiányzó hangsávnál nincs megjeleníthető sáv', withoutTracks.audioTracks.length === 0);
 
+
+console.log('\n2/b. ffprobe/mediainfo hangsávok – a technikai kulcsok nem nyelvek');
+const ffprobe = parseVodMetadata({
+  info: {
+    audio: {
+      index: 1,
+      codec_name: 'eac3',
+      codec_type: 'audio',
+      sample_rate: '48000',
+      channels: 6,
+      channel_layout: '5.1',
+      tags: { language: 'fra', title: 'French' },
+      disposition: { default: 1 },
+    },
+    streams: [
+      { index: 0, codec_name: 'h264', codec_type: 'video' },
+      { index: 2, codec_name: 'aac', codec_type: 'audio', channels: 2, tags: { language: 'eng' } },
+      { index: 3, codec_name: 'aac', codec_type: 'audio', channels: 2 },
+    ],
+  },
+});
+check('a tags.language francia lesz, nem codec_name/index', ffprobe.audioLanguages.includes('Francia') && ffprobe.audioLanguages.includes('Angol') && !ffprobe.audioLanguages.includes('eac3') && !ffprobe.audioLanguages.includes('index'), ffprobe.audioLanguages);
+check('a technikai mezők nem válnak hangsávvá', ffprobe.audioTracks.length === 3, ffprobe.audioTracks);
+const frenchTrack = ffprobe.audioTracks.find((track) => track.lang === 'fra');
+check('a kodek és csatornaszám megmarad', frenchTrack?.codec === 'eac3' && frenchTrack?.channels === '6', frenchTrack);
 console.log('\n3. Megjelenítési szövegek (vodDisplay.ts)');
 check('120 perc szövege', formatRuntime(120) === '120 perc', formatRuntime(120));
 check('45 perc szövege', formatRuntime(45) === '45 perc', formatRuntime(45));
