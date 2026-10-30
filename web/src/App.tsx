@@ -55,7 +55,8 @@ import { flagFor } from './utils/flags';
 import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
 import { channelNowNext, clearGuide, ensureGuide, guideStatus, guideUpcoming } from './services/epgGuide';
 import { xtreamService } from './services/xtreamService';
-import { parseEpisodeMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './services/vodMetadata';
+import { parseEpisodeMetadata, parseSeriesMetadata, ParsedVodMetadata, UNKNOWN_LANGUAGE } from './services/vodMetadata';
+import { visibleLanguages } from './utils/vodDisplay';
 
 // Induláskor a korábban betöltött szolgáltatói lista töltődik be. Demó adat
 // helyett üres listát mutatunk, és a felület felhívja a figyelmet a lista
@@ -3149,6 +3150,48 @@ export function App() {
     setLastImportDiagnosticOpen(false);
   }, []);
 
+  /*
+   * A film poszterének megnyitásakor lekért részletes metaadat rákerül a
+   * filmkártyára is, hogy a játékidő és a hang-/feliratnyelvek ne csak a
+   * részletek-ablakban legyenek láthatók. A már ismert értéket nem írjuk felül
+   * hiányzó adattal, és kitalált érték sem kerül a listába.
+   */
+  const handleMovieMetadataLoaded = useCallback((movieId: string, metadata: ParsedVodMetadata) => {
+    const audioLanguages = visibleLanguages(metadata.audioLanguages);
+    const subtitleLanguages = visibleLanguages(metadata.subtitleLanguages);
+    setMovies((previous) => {
+      let changed = false;
+      const next = previous.map((movie) => {
+        if (movie.id !== movieId) return movie;
+        const updated: Movie = {
+          ...movie,
+          durationMinutes: metadata.durationMinutes > 0 ? metadata.durationMinutes : movie.durationMinutes,
+          audioLanguages: audioLanguages.length ? audioLanguages : movie.audioLanguages,
+          subtitleLanguages: subtitleLanguages.length ? subtitleLanguages : movie.subtitleLanguages,
+          plot: movie.plot || metadata.plot || '',
+          backdrop: movie.backdrop || metadata.backdrop,
+          cast: movie.cast?.length ? movie.cast : (metadata.cast?.length ? metadata.cast : movie.cast),
+          director: movie.director || metadata.director,
+          genres: movie.genres?.length ? movie.genres : (metadata.genres?.length ? metadata.genres : movie.genres),
+          year: movie.year || metadata.year || 0,
+        };
+        const same = updated.durationMinutes === movie.durationMinutes
+          && updated.audioLanguages === movie.audioLanguages
+          && updated.subtitleLanguages === movie.subtitleLanguages
+          && updated.plot === movie.plot
+          && updated.backdrop === movie.backdrop
+          && updated.cast === movie.cast
+          && updated.director === movie.director
+          && updated.genres === movie.genres
+          && updated.year === movie.year;
+        if (same) return movie;
+        changed = true;
+        return updated;
+      });
+      return changed ? next : previous;
+    });
+  }, []);
+
   // Sorozat részeinek (évadok) betöltése a szolgáltatótól
   const handleLoadSeriesInfo = useCallback(
     async (target: Series) => {
@@ -3261,7 +3304,8 @@ export function App() {
       id: `hist-${Date.now()}`,
       mediaType: 'movie',
       title: movie.title,
-      subtitle: `${movie.durationMinutes} perc • Folytatás`,
+      // Hiányzó játékidőnél nem írunk kitalált „0 perc” értéket az előzménybe.
+      subtitle: movie.durationMinutes > 0 ? `${movie.durationMinutes} perc • Folytatás` : 'Folytatás',
       poster: movie.poster,
       progressPercent: 0,
       positionSeconds: 0,
@@ -3296,7 +3340,7 @@ export function App() {
       id: `hist-${Date.now()}`,
       mediaType: 'series',
       title: `${ser.title} - ${episode.title}`,
-      subtitle: `${episode.durationMinutes} perc`,
+      subtitle: episode.durationMinutes > 0 ? `${episode.durationMinutes} perc` : '',
       poster: ser.poster,
       progressPercent: 0,
       positionSeconds: 0,
@@ -4288,6 +4332,7 @@ export function App() {
             onToggleFavoriteMovie={handleToggleFavoriteMovie}
             isActive={activeView === 'movies'}
             activeProvider={activeProvider}
+            onMovieMetadataLoaded={handleMovieMetadataLoaded}
           />
         </div>
       )}

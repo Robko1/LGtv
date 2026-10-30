@@ -224,23 +224,48 @@ function parseSubtitleTracks(node: unknown): { tracks: SubtitleTrack[]; language
   return { tracks, languages: unique(languages) };
 }
 
+/**
+ * Óra:perc:másodperc szöveg átalakítása percbe.
+ *
+ * A szolgáltatók `HH:MM:SS` és `HH:MM` alakot is adnak. Korábban a kétmezős
+ * alaknál csak az első számot vettük figyelembe, ezért egy kétórás film
+ * (`"2:00"`) 2 percként jelent meg 120 perc helyett. A kétmezős alak mostantól
+ * óra:perc (a nagy első értéknél, pl. `"42:10"` esetén perc:másodperc, mert az
+ * már nem lehet hihető óraérték).
+ */
+function colonDurationMinutes(text: string, secondsHint: boolean): number {
+  const colon = text.match(/^(\d{1,3}):(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!colon) return -1;
+  const first = Number(colon[1]);
+  const second = Number(colon[2]);
+  if (colon[3] !== undefined) {
+    // HH:MM:SS – óra + perc + másodperc.
+    const third = Number(colon[3]);
+    return Math.max(0, Math.round(first * 60 + second + third / 60));
+  }
+  // A "duration_secs" jellegű mezőknél a perc:másodperc értelmezés a helyes.
+  if (secondsHint) return Math.max(0, Math.round(first + second / 60));
+  // HH:MM – a második mező perc. Ha az első érték nem lehet óra (pl. 42:10),
+  // akkor a szolgáltató valójában perc:másodpercet adott.
+  const looksLikeHours = first <= 8 && second <= 59;
+  return looksLikeHours
+    ? Math.max(0, Math.round(first * 60 + second))
+    : Math.max(0, Math.round(first + second / 60));
+}
+
 function durationMinutesFromValue(value: unknown, key = 'duration'): number {
   const text = clean(value);
   if (!text) return 0;
-  const colon = text.match(/^(\d{1,3}):(\d{1,2})(?::(\d{1,2}))?$/);
-  if (colon) {
-    const first = Number(colon[1]);
-    const second = Number(colon[2]);
-    const third = colon[3] === undefined ? 0 : Number(colon[3]);
-    return colon[3] === undefined ? Math.max(0, first) : Math.max(0, Math.round(first * 60 + second + third / 60));
-  }
+  const lowerKey = key.toLowerCase();
+  const secondsHint = /sec/.test(lowerKey) || lowerKey.endsWith('_ms');
+  const colonMinutes = colonDurationMinutes(text, secondsHint);
+  if (colonMinutes >= 0) return colonMinutes;
   const hours = text.match(/(\d+(?:\.\d+)?)\s*h(?:ours?)?/i);
   const minutes = text.match(/(\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?/i);
   if (hours || minutes) return Math.max(0, Math.round((hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0)));
   const numeric = Number(text.replace(',', '.').replace(/[^0-9.+-]/g, ''));
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
-  const lower = key.toLowerCase();
-  if (lower.includes('sec') || lower.endsWith('_ms')) return Math.max(0, Math.round(numeric / (lower.endsWith('_ms') ? 60000 : 60)));
+  if (secondsHint) return Math.max(0, Math.round(numeric / (lowerKey.endsWith('_ms') ? 60000 : 60)));
   // A raw Xtream duration is usually seconds when it is larger than five hours.
   return Math.max(0, Math.round(numeric > 300 ? numeric / 60 : numeric));
 }

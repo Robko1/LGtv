@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Category, Movie } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
-import { Star, Play, Sparkles, Filter, ChevronDown, Mic2, Subtitles } from 'lucide-react';
+import { Star, Play, Sparkles, Filter, ChevronDown, Mic2, Subtitles, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { xtreamService } from '../services/xtreamService';
-import { parseVodMetadata, UNKNOWN_LANGUAGE } from '../services/vodMetadata';
+import { parseVodMetadata, ParsedVodMetadata } from '../services/vodMetadata';
+import { formatRuntime, joinLanguages, visibleLanguages } from '../utils/vodDisplay';
 
 interface MoviesViewProps {
   movies: Movie[];
@@ -18,6 +19,8 @@ interface MoviesViewProps {
   onToggleFavoriteMovie: (movieId: string) => void;
   isActive: boolean;
   activeProvider?: ProviderRef | null;
+  /** A poszter megnyitásakor lekért részletes metaadat visszaadása a főoldalnak. */
+  onMovieMetadataLoaded?: (movieId: string, metadata: ParsedVodMetadata) => void;
 }
 
 /* Függőleges, ötoszlopos rács; a poszterek 25-ös adagokban jelennek meg. */
@@ -43,11 +46,12 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   onSelectedCategoryChange,
   isActive,
   activeProvider,
+  onMovieMetadataLoaded,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   // A rács csak a megjelenített adag kártyáit tartalmazza.
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [fetchedMovieMeta, setFetchedMovieMeta] = useState<{ durationMinutes: number; audioLanguages: string[]; subtitleLanguages: string[] } | null>(null);
+  const [fetchedMovieMeta, setFetchedMovieMeta] = useState<ParsedVodMetadata | null>(null);
   const [fetchingMovie, setFetchingMovie] = useState(false);
   const [visibleCount, setVisibleCount] = useState(() => movieReturnSnapshot?.visibleCount ?? PAGE_SIZE);
   const movieGridRef = useRef<HTMLDivElement | null>(null);
@@ -92,8 +96,9 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
 
   // Film részletek lekérése a szolgáltatótól az infóablak megnyitásakor (csak xtream providernél).
   useEffect(() => {
+    // Kiválasztásváltáskor az előző film adatai nem maradhatnak a képernyőn.
+    setFetchedMovieMeta(null);
     if (!selectedMovie || !activeProvider?.serverUrl || !activeProvider.username || !activeProvider.password || activeProvider.type !== 'xtream') {
-      setFetchedMovieMeta(null);
       setFetchingMovie(false);
       return;
     }
@@ -109,11 +114,9 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
         );
         const parsed = parseVodMetadata(info);
         if (!cancelled) {
-          setFetchedMovieMeta({
-            durationMinutes: parsed.durationMinutes,
-            audioLanguages: parsed.audioLanguages,
-            subtitleLanguages: parsed.subtitleLanguages,
-          });
+          setFetchedMovieMeta(parsed);
+          // A lekért adatot a filmkártya is megkapja (munkamenetre).
+          onMovieMetadataLoaded?.(selectedMovie.id, parsed);
         }
       } catch {
         if (!cancelled) setFetchedMovieMeta(null);
@@ -123,7 +126,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     };
     void fetchMovieMeta();
     return () => { cancelled = true; setFetchingMovie(false); };
-  }, [selectedMovie, activeProvider]);
+  }, [selectedMovie, activeProvider, onMovieMetadataLoaded]);
 
   const categories = [
     { id: 'all', name: 'Összes film' },
@@ -210,7 +213,27 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     };
   }, [isActive, selectedCategory, visibleCount, filteredMovies]);
 
-
+  /*
+   * A részletek-ablak megjelenített adatai.
+   *
+   * A szolgáltatótól frissen lekért érték az elsődleges, de csak akkor, ha
+   * valóban ad adatot: hiányzó (0 / üres) értéknél a lista már ismert adata
+   * marad. Ha egyik forrás sem adja, a nézet nem jelenít meg kitalált értéket.
+   */
+  const movieDetail = useMemo(() => {
+    if (!selectedMovie) return null;
+    const fetchedAudio = visibleLanguages(fetchedMovieMeta?.audioLanguages);
+    const fetchedSubtitles = visibleLanguages(fetchedMovieMeta?.subtitleLanguages);
+    const fetchedDuration = fetchedMovieMeta?.durationMinutes || 0;
+    return {
+      duration: fetchedDuration > 0 ? fetchedDuration : selectedMovie.durationMinutes || 0,
+      audio: fetchedAudio.length ? fetchedAudio : visibleLanguages(selectedMovie.audioLanguages),
+      subtitles: fetchedSubtitles.length ? fetchedSubtitles : visibleLanguages(selectedMovie.subtitleLanguages),
+      plot: selectedMovie.plot || fetchedMovieMeta?.plot || '',
+      cast: (selectedMovie.cast && selectedMovie.cast.length ? selectedMovie.cast : fetchedMovieMeta?.cast) || [],
+      backdrop: selectedMovie.backdrop || fetchedMovieMeta?.backdrop || '',
+    };
+  }, [selectedMovie, fetchedMovieMeta]);
 
   return (
     /*
@@ -333,7 +356,31 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                   <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{mov.rating}</span></div>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Play className="w-5 h-5 fill-current ml-0.5" /></div></div>
                 </div>
-                <div className="p-3 flex-1"><h3 className="text-white font-black text-lg sm:text-xl truncate">{mov.title}</h3><div className="mt-1 text-lg sm:text-xl font-bold text-amber-300 text-center">{mov.year}</div></div>
+                <div className="p-3 flex-1">
+                  <h3 className="text-white font-black text-lg sm:text-xl truncate">{mov.title}</h3>
+                  {mov.year > 0 && (
+                    <div className="mt-1 text-lg sm:text-xl font-bold text-amber-300 text-center">{mov.year}</div>
+                  )}
+                  {/* Csak a szolgáltatótól megkapott adatok: játékidő, hang- és feliratnyelvek. */}
+                  {formatRuntime(mov.durationMinutes) && (
+                    <div className="mt-1 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-bold text-cyan-200">
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{formatRuntime(mov.durationMinutes)}</span>
+                    </div>
+                  )}
+                  {joinLanguages(mov.audioLanguages) && (
+                    <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-semibold text-rose-200">
+                      <Mic2 className="w-3 h-3 shrink-0 text-rose-300" />
+                      <span className="truncate">{joinLanguages(mov.audioLanguages)}</span>
+                    </div>
+                  )}
+                  {joinLanguages(mov.subtitleLanguages) && (
+                    <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] sm:text-xs font-semibold text-cyan-300">
+                      <Subtitles className="w-3 h-3 shrink-0 text-cyan-400" />
+                      <span className="truncate">{joinLanguages(mov.subtitleLanguages)}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -347,7 +394,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
             {/* Modal Backdrop Banner */}
             <div className="relative h-48 w-full bg-slate-900 overflow-hidden">
               <img
-                src={selectedMovie.backdrop || selectedMovie.poster}
+                src={movieDetail?.backdrop || selectedMovie.backdrop || selectedMovie.poster}
                 alt={selectedMovie.title}
                 className="w-full h-full object-cover opacity-60"
               />
@@ -364,12 +411,19 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                     {selectedMovie.title}
                   </h2>
                   <div className="flex flex-col items-start gap-1 mt-1">
-                    <div className="text-sm sm:text-base font-bold text-amber-300">
-                      {selectedMovie.year}
-                    </div>
-                    <div className="text-xs sm:text-sm font-bold text-cyan-200">
-                      {fetchingMovie ? 'Játékidő betöltése…' : (fetchedMovieMeta?.durationMinutes ?? selectedMovie.durationMinutes ?? 0) > 0 ? `${fetchedMovieMeta?.durationMinutes ?? selectedMovie.durationMinutes ?? 0} perc` : '—'}
-                    </div>
+                    {(selectedMovie.year > 0 || (fetchedMovieMeta?.year || 0) > 0) && (
+                      <div className="text-sm sm:text-base font-bold text-amber-300">
+                        {selectedMovie.year > 0 ? selectedMovie.year : fetchedMovieMeta?.year}
+                      </div>
+                    )}
+                    {fetchingMovie && !movieDetail?.duration ? (
+                      <div className="text-xs sm:text-sm font-bold text-cyan-200">Játékidő betöltése…</div>
+                    ) : formatRuntime(movieDetail?.duration) ? (
+                      <div className="flex items-center gap-1 text-xs sm:text-sm font-bold text-cyan-200">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{formatRuntime(movieDetail?.duration)}</span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -395,15 +449,17 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                 <span>Film Indítása Most</span>
               </button>
 
-              {/* Plot Synopsis */}
-              <div>
-                <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">
-                  Tartalom
-                </h4>
-                <p className="text-sm sm:text-base text-slate-200 leading-relaxed text-center">
-                  {selectedMovie.plot}
-                </p>
-              </div>
+              {/* Plot Synopsis – a szolgáltatótól frissen kért leírás is felhasználható */}
+              {movieDetail?.plot ? (
+                <div>
+                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">
+                    Tartalom
+                  </h4>
+                  <p className="text-sm sm:text-base text-slate-200 leading-relaxed text-center">
+                    {movieDetail.plot}
+                  </p>
+                </div>
+              ) : null}
 
               {/* Audio & Subtitle Details */}
               <div className="grid grid-cols-2 gap-3">
@@ -413,7 +469,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                     <span>Hangsávok</span>
                   </div>
                   <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {(fetchedMovieMeta?.audioLanguages ?? selectedMovie.audioLanguages ?? []).filter((lang) => Boolean(lang) && lang !== UNKNOWN_LANGUAGE).join(' • ') || '—'}
+                    {movieDetail?.audio.length ? movieDetail.audio.join(' • ') : 'Nincs adat'}
                   </p>
                 </div>
 
@@ -423,22 +479,22 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                     <span>Feliratok</span>
                   </div>
                   <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">
-                    {(fetchedMovieMeta?.subtitleLanguages ?? selectedMovie.subtitleLanguages ?? []).filter((lang) => Boolean(lang) && lang !== UNKNOWN_LANGUAGE).join(' • ') || '—'}
+                    {movieDetail?.subtitles.length ? movieDetail.subtitles.join(' • ') : 'Nincs adat'}
                   </p>
                 </div>
               </div>
 
-              {/* Cast & Director */}
-              {selectedMovie.cast && (
+              {/* Cast & Director – csak akkor, ha a szolgáltató visszaadta */}
+              {movieDetail?.cast.length ? (
                 <div>
                   <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">
                     Főbb Szereplők
                   </h4>
                   <p className="text-sm text-slate-300 text-center">
-                    {selectedMovie.cast.join(', ')}
+                    {movieDetail.cast.join(', ')}
                   </p>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
