@@ -1,4 +1,4 @@
-# IPTV-RT – LG webOS TV v{{CURRENT_VERSION}}
+# LG webOS TV
 
 **Legutóbbi build készítése:** {{RELEASE_DATETIME}}  
 **Letölthető IPK legutóbbi feltöltése/frissítése:** {{RELEASE_UPDATED_DATETIME}}  
