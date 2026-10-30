@@ -517,14 +517,34 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: 12. Régi IPK-k átvitele a privát repóba és új verzió közzététele
+      - name: 12. Új IPK közzététele a privát repóban
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.IPK_REPO_TOKEN }}
           IPK_REPO_TOKEN: ${{ secrets.IPK_REPO_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          : "${IPK_REPO_TOKEN:?HIBA: hiányzik az IPK_REPO_TOKEN Actions secret.}"
+          if [[ -z "${IPK_REPO_TOKEN:-}" ]]; then
+            echo "HIBA: az IPK_REPO_TOKEN secret hiányzik vagy üres az LGtv repóban." >&2
+            exit 1
+          fi
+          export GH_TOKEN="$IPK_REPO_TOKEN"
+
+          # Először ellenőrizzük a privát célrepó elérését és az írási jogot.
+          # Régi kiadások migrációja nem része az új buildnek, és nem blokkolhatja.
+          HTTP_CODE="$(gh api -i repos/Robko1/Ipk 2>/dev/null | awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}')"
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "HIBA: az IPK_REPO_TOKEN nem tudja elérni a Robko1/Ipk repót (HTTP: ${HTTP_CODE:-ismeretlen}). Ellenőrizd a token repository-hozzáférését." >&2
+            exit 1
+          fi
+          REPO_INFO="$(gh api repos/Robko1/Ipk)"
+          CAN_PUSH="$(printf '%s' "$REPO_INFO" | python3 -c 'import json,sys; print(str(bool(json.load(sys.stdin).get("permissions",{}).get("push"))).lower())')"
+          if [[ "$CAN_PUSH" != "true" ]]; then
+            echo "HIBA: a token látja a Robko1/Ipk repót, de nincs írási (push) jogosultsága. Adj Contents: Read and write hozzáférést." >&2
+            exit 1
+          fi
+          echo "OK: a privát célrepó elérhető, írási jogosultság rendben."
+
           CURRENT_VERSION="$(python3 -c 'import json; print(json.load(open("webos/appinfo.json"))["version"])')"
           EXPECTED_TAG="v$CURRENT_VERSION"
           [[ "$RELEASE_TAG" == "$EXPECTED_TAG" ]] || {
@@ -532,87 +552,18 @@ jobs:
             exit 1
           }
 
-          mkdir -p /tmp/ipk-migration
-          RELEASES_JSON=/tmp/ipk-migration/releases.json
-          gh release list --repo Robko1/LGtv --limit 1000 --json tagName,isDraft,isPrerelease,publishedAt > "$RELEASES_JSON"
-
-          # A korábbi nyilvános kiadások IPK-it egyenként átvisszük a privát
-          # Ipk repóba. A nyilvános assetet csak a privát feltöltés és ellenőrzés
-          # UTÁN töröljük. A forráskód és a nyilvános LGtv repó változatlan marad.
-          python3 - <<'PY' > /tmp/ipk-migration/tags.txt
-          import json
-          rows=json.load(open("/tmp/ipk-migration/releases.json"))
-          for row in sorted(rows, key=lambda x: x.get("publishedAt") or ""):
-              if not row.get("isDraft") and not row.get("isPrerelease") and row.get("tagName"):
-                  print(row["tagName"])
-          PY
-
-          while IFS= read -r tag; do
-            [[ -z "$tag" || "$tag" == "$EXPECTED_TAG" ]] && continue
-            assets="$(gh release view "$tag" --repo Robko1/LGtv --json assets --jq '[.assets[].name] | join(",")')"
-            [[ ",$assets," == *",IPTV-RT.ipk,"* ]] || continue
-
-            echo "Régi kiadás átvitele: $tag"
-            rm -f /tmp/ipk-migration/IPTV-RT.ipk
-            gh release download "$tag" --repo Robko1/LGtv --pattern "IPTV-RT.ipk" --dir /tmp/ipk-migration
-            test -s /tmp/ipk-migration/IPTV-RT.ipk
-            SOURCE_SHA="$(sha256sum /tmp/ipk-migration/IPTV-RT.ipk | awk '{print $1}')"
-            SOURCE_BODY="$(gh release view "$tag" --repo Robko1/LGtv --json body --jq '.body')"
-            SOURCE_TITLE="$(gh release view "$tag" --repo Robko1/LGtv --json name --jq '.name')"
-            SOURCE_COMMIT="$(git rev-parse "$tag^{commit}" 2>/dev/null || true)"
-            if [[ -z "$SOURCE_COMMIT" ]]; then
-              git fetch origin "refs/tags/$tag:refs/tags/$tag"
-              SOURCE_COMMIT="$(git rev-parse "$tag^{commit}")"
-            fi
-
-            export GH_TOKEN="$IPK_REPO_TOKEN"
-            AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$IPK_REPO_TOKEN" | base64 -w0)"
-            if ! gh api "repos/Robko1/Ipk/git/ref/tags/$tag" >/dev/null 2>&1; then
-              git -c http.extraheader="$AUTH_HEADER" push https://github.com/Robko1/Ipk.git "$SOURCE_COMMIT:refs/tags/$tag"
-            fi
-            if ! gh release view "$tag" --repo Robko1/Ipk >/dev/null 2>&1; then
-              gh release create "$tag" --repo Robko1/Ipk --title "${SOURCE_TITLE:-IPTV-RT $tag}" --notes "$SOURCE_BODY"
-            fi
-            gh release upload "$tag" /tmp/ipk-migration/IPTV-RT.ipk --repo Robko1/Ipk --clobber
-            TARGET_SHA="$(gh release view "$tag" --repo Robko1/Ipk --json assets --jq '.assets[] | select(.name == "IPTV-RT.ipk") | .digest' | sed 's/^sha256://')"
-            [[ "$TARGET_SHA" == "$SOURCE_SHA" ]] || {
-              echo "HIBA: a privát repóba átvitt $tag IPK SHA-256 értéke nem egyezik." >&2
-              exit 1
-            }
-
-            # Csak sikeres privát feltöltés és hash-ellenőrzés után töröljük
-            # a régi, nyilvánosan letölthető IPK assetet.
-            export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-            gh release delete-asset "$tag" "IPTV-RT.ipk" --repo Robko1/LGtv --yes
-          done < /tmp/ipk-migration/tags.txt
-
-          # Az új kiadás Git-tagje a pontosan most lefordított main commitra mutat.
-          export GH_TOKEN="$IPK_REPO_TOKEN"
-          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$IPK_REPO_TOKEN" | base64 -w0)"
+          # A verziótag a most lefordított main commitra mutat.
           if ! gh api "repos/Robko1/Ipk/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$IPK_REPO_TOKEN" | base64 -w0)"
             git -c http.extraheader="$AUTH_HEADER" push https://github.com/Robko1/Ipk.git "$BUILD_COMMIT:refs/tags/$RELEASE_TAG"
           fi
 
           RELEASE_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
           LOCAL_SHA="$(sha256sum "webos/$IPK_FILE_NAME" | awk '{print $1}')"
-          export RELEASE_TAG
-          PREVIOUS_TAG="$(python3 - <<'PY'
-          import json, os
-          rows=json.load(open("/tmp/ipk-migration/releases.json"))
-          rows=[r for r in rows if not r.get("isDraft") and not r.get("isPrerelease") and r.get("tagName") != os.environ["RELEASE_TAG"]]
-          rows.sort(key=lambda x:x.get("publishedAt") or "")
-          print(rows[-1]["tagName"] if rows else "")
-          PY
-          )"
-          PREVIOUS_VERSION="nincs korábbi kiadás"
-          PREVIOUS_DATETIME="nincs korábbi feltöltés"
-          if [[ -n "$PREVIOUS_TAG" ]]; then
-            PREVIOUS_DATETIME="$(gh release view "$PREVIOUS_TAG" --repo Robko1/Ipk --json publishedAt --jq '.publishedAt' 2>/dev/null || echo "korábbi kiadás")"
-            PREVIOUS_VERSION="$PREVIOUS_TAG"
-          fi
+          NOTES="LG webOS TV privát IPK kiadás. Verzió: $CURRENT_VERSION. Build időpontja: $RELEASE_DATETIME."
 
           if ! gh release view "$RELEASE_TAG" --repo Robko1/Ipk >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "LG webOS TV privát IPK kiadás."
+            gh release create "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE – LG webOS TV v$CURRENT_VERSION" --notes "$NOTES"
           fi
           gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --repo Robko1/Ipk --clobber
 
@@ -627,9 +578,7 @@ jobs:
             exit 1
           }
 
-          # A nyilvános LGtv Release csak verzióinformációt tartalmazzon.
-          # Erre szüksége van az alkalmazás nyilvános frissítés-ellenőrzőjének;
-          # IPK bináris fájlt SOHA nem töltünk fel ide.
+          # A nyilvános LGtv Release csak verzióinformációt tartalmazhat.
           export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           PUBLIC_NOTES="Új LG webOS TV verzió: $CURRENT_VERSION. A telepítő IPK kizárólag a privát Robko1/Ipk tárolóból tölthető le."
           if gh release view "$RELEASE_TAG" --repo Robko1/LGtv >/dev/null 2>&1; then
@@ -641,7 +590,7 @@ jobs:
             gh release delete-asset "$RELEASE_TAG" "IPTV-RT.ipk" --repo Robko1/LGtv --yes
           fi
 
-          echo "OK: régi IPK-kiadások átvitele/ellenőrzése kész; az új IPK v$CURRENT_VERSION a privát Robko1/Ipk repóban van; a nyilvános Release csak verzióinformációt tartalmaz; SHA-256 egyezik."
+          echo "OK: az új IPK v$CURRENT_VERSION a privát Robko1/Ipk repóban van; a nyilvános Release csak verzióinformációt tartalmaz; SHA-256 egyezik."
       - name: 13. Összefoglaló
         if: always()
         shell: bash
