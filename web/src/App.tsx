@@ -4942,13 +4942,17 @@ export function App() {
              * A döntés a teljes élő lista (liveComplete) megérkezésekor lesz.
              */
             setLiveListComplete(partial.liveComplete === true || partial.preview !== true);
-            if (partial.preview) {
+            // A magyar részlista már nézhető, de a teljes TV-lista még készül.
+            // Más részleges (nem teljes) csatornafrissítésből nem választunk.
+            if (partial.preview && partial.liveHungarianReady !== true) {
               if (partial.totals) setTotalCounts((previous) => ({ live: partial.totals?.live ?? previous.live, vod: partial.totals?.vod ?? previous.vod, series: partial.totals?.series ?? previous.series }));
               return;
             }
             setLiveListComplete(true);
             const savedLastChannelId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
-            const savedLastChannelExists = Boolean(savedLastChannelId && orderedChannels.some((channel) => channel.id === savedLastChannelId));
+            const savedLastChannelExists = Boolean(savedLastChannelId && orderedChannels.some(
+              (channel) => channel.id === savedLastChannelId && isHungarianChannel(channel)
+            ));
             /*
              * Az első VALÓBAN lejátszható magyar adó: a „##### HUNGARIA #####”
              * alakú ország-elválasztó sor nem kaphatja meg a lejátszást.
