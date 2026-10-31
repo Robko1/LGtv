@@ -614,29 +614,22 @@ function decodeSeries(rows: Row[], provider: ProviderRef, offset = 0): Series[] 
       seasonsCount: Number(row[8] ?? 0),
       episodesCount: Number(row[9] ?? 0),
       durationMinutes: Number(row[11] ?? 0) || 0,
-      plot: '',
-      genres: [],
+      plot: String(row[7] || ''),
+      genres: decodeOptionalJson<string[]>(row[17], []),
       seasons: decodeOptionalJson<Season[]>(row[22], []).map((season) => ({
         ...season,
-        episodes: (Array.isArray(season.episodes) ? season.episodes : []).map((episode) => ({
-          ...episode,
-          plot: '',
-          audioTracks: undefined,
-          subtitleTracks: undefined,
-          audioLanguages: undefined,
-          subtitleLanguages: undefined,
-          providerData: undefined,
-        })),
+        episodes: (Array.isArray(season.episodes) ? season.episodes : [])
+          .map((episode) => ({ ...episode })),
       })),
-      audioLanguages: undefined,
-      subtitleLanguages: undefined,
-      audioTracks: undefined,
-      subtitleTracks: undefined,
+      audioLanguages: decodeOptionalJson<string[] | undefined>(row[12], undefined),
+      subtitleLanguages: decodeOptionalJson<string[] | undefined>(row[13], undefined),
+      audioTracks: decodeOptionalJson<Series['audioTracks']>(row[14], undefined),
+      subtitleTracks: decodeOptionalJson<Series['subtitleTracks']>(row[15], undefined),
       backdrop: String(row[16] || '') || undefined,
-      director: undefined,
-      cast: undefined,
-      providerData: undefined,
-      detailProviderData: undefined,
+      director: String(row[18] || '') || undefined,
+      cast: decodeOptionalJson<string[] | undefined>(row[19], undefined),
+      providerData: decodeOptionalJson<Series['providerData']>(row[20], undefined),
+      detailProviderData: decodeOptionalJson<Series['detailProviderData']>(row[21], undefined),
       providerSig: String(row[23] || '') || undefined,
       isFavorite: Number(row[10] ?? 0) === 1,
     });
@@ -859,6 +852,7 @@ function liveBootSubset(
  */
 function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
   const chunkCount = Math.ceil(boot.length / CHUNK_SIZE);
+  const previousKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
   const generationPrefix = LIVE_GENERATION_PREFIX + Date.now() + '-' + (++writeSequence) + '-';
   for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
 
@@ -903,7 +897,11 @@ function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
   if (!write(LIVE_META_KEY, meta)) return abort('a fejléc nem fért be');
   for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
 
-  // Sikeres mentés után nem törlünk korábbi adatokat.
+  // Csak az új fejléc sikeres kiírása után töröljük a régi generáció adagjait.
+  // Kvótahiba esetén az abort() a régi listát érintetlenül hagyja.
+  for (const key of previousKeys) {
+    if (!key.startsWith(generationPrefix)) backend.remove(key);
+  }
   appLog(`Élő csatornák induló készlete elmentve: ${boot.length} csatorna (teljes lista: ${content.channels.length}).`);
   return true;
 }
@@ -1017,7 +1015,15 @@ export async function saveLiveContentAsync(content: ImportedContent): Promise<vo
   }
   const savedFull = await saveLiveFullToIdb(content, channels);
   if (savedFull === 'unavailable') {
-    appLog('Élő csatornák: IndexedDB nem érhető el; csak a magyar induló készlet marad a localStorage-ban.');
+    // Régebbi webOS / korlátozott környezet: kis listánál a teljes katalógus
+    // még biztonságosan elfér a localStorage-ban. Nagy listát nem erőltetünk
+    // az 5 MB-os tárba.
+    if (channels.length <= LIVE_BOOT_MIN_CHANNELS) {
+      saveLiveBootCache(content, channels);
+      appLog('Élő csatornák: az IndexedDB nem érhető el; a kis teljes lista a localStorage-ba került.');
+    } else {
+      appLog('Élő csatornák: IndexedDB nem érhető el; csak a magyar induló készlet marad a localStorage-ban.');
+    }
   }
 }
 
@@ -1391,6 +1397,11 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
   const chunkCount = Math.ceil(options.total / CHUNK_SIZE);
   const generationPrefix = options.generationPrefix + Date.now() + '-' + (++writeSequence) + '-';
   const previousKeys = readChunkKeys(options.metaKey, options.legacyPrefix);
+  // Kvótahiba esetén az előző adagok átmenetileg felszabadulhatnak. Mentsük
+  // el a tartalmukat, hogy sikertelen új mentésnél visszaállíthatók legyenek.
+  const previousValues = previousKeys
+    .map((key) => [key, backend.get(key)] as const)
+    .filter((entry) => entry[1] !== '');
   for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
 
   let storedChunks = 0;
@@ -1487,6 +1498,8 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
       cats: options.cats,
       chunks,
       chunkPrefix: generationPrefix,
+      ...(options.provider ? { provider: options.provider } : {}),
+      savedAtMs: Date.now(),
     } satisfies ChunkMeta);
     let metaOk = writeMeta(storedChunks);
     while (!metaOk && storedChunks > 1) {
@@ -1498,16 +1511,23 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
       throw new Error(`${options.label}: a lista fejléce nem menthető el – a tároló megtelt.`);
     }
   } catch (error) {
+    // Először az új, félkész generációt töröljük, hogy legyen hely a régi
+    // adagok visszaállítására. A fejléc addig a korábbi generációra mutat.
     for (let index = 0; index < chunkCount; index++) {
       backend.remove(generationPrefix + index);
       activeGenerations.delete(generationPrefix + index);
+    }
+    for (const [key, value] of previousValues) {
+      if (!backend.put(key, value)) {
+        appLog(`TÁROLÓ HIBA: a korábbi ${options.label} adag visszaállítása nem sikerült: ${key}.`);
+      }
     }
     appLogError(`${options.label} mentése sikertelen`, error);
     throw error;
   }
   for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
-
-  // Sikeres mentés után nincs utólagos takarítás.
+  // A régi generációt csak az új fejléc sikeres kiírása után takarítjuk.
+  for (const key of previousKeys) backend.remove(key);
   if (stoppedAt > 0 && storedChunks < chunkCount) {
     appLog(
       `TÁROLÓ FIGYELEM: ${options.label} – a tároló a ${stoppedAt + 1}/${chunkCount}. adagnál megtelt, ` +
@@ -1842,10 +1862,23 @@ async function saveChunkedAuto(options: ChunkedSaveOptions, retryAttempt = 0): P
       () => saveChunkedAuto(options, retryAttempt + 1));
     return;
   }
-  // Film- és sorozatlista soha nem kerülhet localStorage-ba.
+  // Ha az IndexedDB nem érhető el, csak a korlátozott méretű katalógust
+  // mentjük a localStorage-ba. A nagy szolgáltatói listát nem írjuk az 5 MB-os tárba.
+  if (options.total <= 60000) {
+    try {
+      await saveChunked(options);
+      if (section) noteSectionSaved(section, options.total, options.provider || null, Date.now());
+      appLog(`Tároló: ${options.label} a kisebb lista localStorage-ba mentve (IndexedDB nem elérhető).`);
+      return;
+    } catch (error) {
+      appLogError(`${options.label} helyi tartalékmentése`, error);
+      if (section) noteSectionIncomplete(section, 'a localStorage tartalékmentése is meghiúsult.');
+      return;
+    }
+  }
   appLog(
     `TÁROLÓ FIGYELEM: ${options.label} nem menthető, mert az IndexedDB nem érhető el; `
-    + 'a localStorage csak a magyar induló TV-készletet és a beállításokat tárolja.'
+    + 'a nagy katalógust nem írjuk a localStorage kis tárába.'
   );
 }
 

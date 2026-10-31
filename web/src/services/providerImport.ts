@@ -52,11 +52,71 @@ import {
   loadSeriesAsync,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
-import { parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
+import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
 import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
 import { logVodItemResponse } from './vodProviderDiagnostics';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled } from './net';
+
+/**
+ * Részletes filmadatok összeolvasztása az importált alaprekorddal.
+ * A részletes API hiányos válasza nem írhatja felül a már ismert adatokat.
+ */
+export function applyMovieMetadata(movie: Movie, metadata: ParsedVodMetadata): Movie {
+  const audioLanguages = metadata.audioLanguages.length
+    ? metadata.audioLanguages
+    : movie.audioLanguages?.length ? movie.audioLanguages : [UNKNOWN_LANGUAGE];
+  const subtitleLanguages = metadata.subtitleLanguages.length
+    ? metadata.subtitleLanguages
+    : movie.subtitleLanguages?.length ? movie.subtitleLanguages : [UNKNOWN_LANGUAGE];
+
+  return {
+    ...movie,
+    durationMinutes: metadata.durationMinutes > 0 ? metadata.durationMinutes : movie.durationMinutes,
+    audioTracks: metadata.audioTracks.length ? metadata.audioTracks : movie.audioTracks || [],
+    subtitleTracks: metadata.subtitleTracks.length ? metadata.subtitleTracks : movie.subtitleTracks || [],
+    audioLanguages,
+    subtitleLanguages,
+    poster: metadata.poster || movie.poster,
+    backdrop: metadata.backdrop || movie.backdrop,
+    plot: metadata.plot || movie.plot,
+    genres: metadata.genres?.length ? metadata.genres : movie.genres,
+    director: metadata.director || movie.director,
+    cast: metadata.cast?.length ? metadata.cast : movie.cast,
+    rating: metadata.rating !== undefined && metadata.rating > 0 ? metadata.rating : movie.rating,
+    year: metadata.year !== undefined && metadata.year > 0 ? metadata.year : movie.year,
+  };
+}
+
+/**
+ * Sorozat-metaadatok összeolvasztása. A sorozat-info végpont gyakran nem
+ * küld hangsáv/felirat adatot; ilyenkor a korábbi érték megmarad.
+ */
+export function applySeriesMetadata(series: Series, metadata: ParsedVodMetadata): Series {
+  const audioLanguages = metadata.audioLanguages.length
+    ? metadata.audioLanguages
+    : series.audioLanguages?.length ? series.audioLanguages : [UNKNOWN_LANGUAGE];
+  const subtitleLanguages = metadata.subtitleLanguages.length
+    ? metadata.subtitleLanguages
+    : series.subtitleLanguages?.length ? series.subtitleLanguages : [UNKNOWN_LANGUAGE];
+
+  return {
+    ...series,
+    durationMinutes: metadata.durationMinutes > 0 ? metadata.durationMinutes : series.durationMinutes,
+    audioTracks: metadata.audioTracks.length ? metadata.audioTracks : series.audioTracks || [],
+    subtitleTracks: metadata.subtitleTracks.length ? metadata.subtitleTracks : series.subtitleTracks || [],
+    audioLanguages,
+    subtitleLanguages,
+    poster: metadata.poster || series.poster,
+    backdrop: metadata.backdrop || series.backdrop,
+    plot: metadata.plot || series.plot,
+    genres: metadata.genres?.length ? metadata.genres : series.genres,
+    director: metadata.director || series.director,
+    cast: metadata.cast?.length ? metadata.cast : series.cast,
+    rating: metadata.rating !== undefined && metadata.rating > 0 ? metadata.rating : series.rating,
+    year: metadata.year !== undefined && metadata.year > 0 ? metadata.year : series.year,
+  };
+}
 
 // webOS TV gyors betöltés detektálás
 export interface ImportProgress {
@@ -137,6 +197,8 @@ export type PartialFn = (partial: PartialContent) => void | Promise<void>;
 const MAX_CHANNELS = 120000;
 const MAX_MOVIES = 150000;
 const MAX_SERIES = 60000;
+/** Az első importban csak az első 20 film és sorozat kap részletes API-lekérést. */
+const MAX_INITIAL_DETAIL_ITEMS = 20;
 
 /**
  * A tényleges Xtream-listaválasz mezőinek felmérése.
@@ -1296,6 +1358,30 @@ export async function importXtreamProvider(
     }
 
     onProgress({ phase: 'Filmek feldolgozása…', percent: 86 });
+    // A katalógus alaplistája után csak az első 20 filmhez kérünk részleteket.
+    // Két párhuzamos kérés elegendő: a TV nem kap több száz egyedi API-hívást.
+    let movieDetailCursor = 0;
+    const loadMovieDetails = async (): Promise<void> => {
+      while (movieDetailCursor < Math.min(decodedMovies.length, MAX_INITIAL_DETAIL_ITEMS)) {
+        const index = movieDetailCursor++;
+        const movie = decodedMovies[index];
+        try {
+          const detail = await xtreamService.vodInfo(server, user, pass, movie.streamId ?? movie.id);
+          decodedMovies[index] = {
+            ...applyMovieMetadata(movie, parseVodMetadata(detail)),
+            detailProviderData: detail as unknown as Movie['detailProviderData'],
+          };
+        } catch (error) {
+          if (isNetworkRequestCancelled(error)) throw error;
+          warnings.push(`A(z) ${movie.title} film részletes adatai nem töltődtek le.`);
+        }
+      }
+    };
+    if (decodedMovies.length) {
+      onProgress({ phase: 'Az első filmek részletes adatainak betöltése…', detail: `${Math.min(decodedMovies.length, MAX_INITIAL_DETAIL_ITEMS)} film`, percent: 68 });
+      await Promise.all([loadMovieDetails(), loadMovieDetails()]);
+    }
+
     movies = decodedMovies;
     vodCats = movies.length ? buildCategories(rawVodCategories, 'vc-', 'movie', vodCounts) : [];
 
@@ -1370,6 +1456,35 @@ export async function importXtreamProvider(
       }
       if (!decodedSeries.length) warnings.push('A szolgáltató sorozatlistája üres vagy nem tartalmaz használható sorozatokat.');
       onProgress({ phase: 'Sorozatok feldolgozva', detail: `${decodedSeries.length} sorozat`, percent: 96 });
+      // Az első 20 sorozat évadjait és epizódjait a részletes végpontból
+      // töltjük le. A többi sorozat alaplistája nem indít külön kéréseket.
+      let seriesDetailCursor = 0;
+      const loadSeriesDetails = async (): Promise<void> => {
+        while (seriesDetailCursor < Math.min(decodedSeries.length, MAX_INITIAL_DETAIL_ITEMS)) {
+          const index = seriesDetailCursor++;
+          const item = decodedSeries[index];
+          try {
+            const detail = await xtreamService.seriesInfo(server, user, pass, item.seriesId ?? item.id);
+            const enriched = applySeriesMetadata(item, parseSeriesMetadata(detail));
+            const seasons = seasonsFromSeriesInfo(detail, enriched, provider);
+            decodedSeries[index] = {
+              ...enriched,
+              detailProviderData: detail as unknown as Series['detailProviderData'],
+              seasons,
+              seasonsCount: seasons.length,
+              episodesCount: seasons.reduce((sum, season) => sum + season.episodes.length, 0),
+            };
+          } catch (error) {
+            if (isNetworkRequestCancelled(error)) throw error;
+            warnings.push(`A(z) ${item.title} sorozat részletes adatai nem töltődtek le.`);
+          }
+        }
+      };
+      if (decodedSeries.length) {
+        onProgress({ phase: 'Az első sorozatok részletes adatainak betöltése…', detail: `${Math.min(decodedSeries.length, MAX_INITIAL_DETAIL_ITEMS)} sorozat`, percent: 94 });
+        await Promise.all([loadSeriesDetails(), loadSeriesDetails()]);
+      }
+
       series = decodedSeries;
       seriesCats = series.length ? buildCategories(rawSeriesCategories, 'sc-', 'series', seriesCounts) : [];
       await onPartial({ preview: true, durable: true, series, seriesCategories: seriesCats, totals: { series: series.length } });
