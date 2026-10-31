@@ -1046,7 +1046,7 @@ export async function importXtreamProvider(
         if (!stream || stream.stream_id === undefined || stream.stream_id === null) continue;
         const streamCategoryId = String(stream.category_id ?? '');
         const streamCategoryName = String(liveCategoryMap.get(streamCategoryId)?.category_name || '');
-        const streamName = String(stream.name || stream.stream_display_name || '');
+        const streamName = String(stream.name || '');
         const isHungarianStream = hungarianCategoryIdSet.has(streamCategoryId)
           || flagFor(streamCategoryName).countryCode === 'HU'
           || flagFor(streamName).countryCode === 'HU';
