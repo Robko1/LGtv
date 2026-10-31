@@ -3,6 +3,8 @@ import { APP_ICON_DATA_URL } from '../generatedIcon';
 // A Beállítások füleinek nagy ikonjai: fogaskerék a takaróképről,
 // szív és jel-pajzs a felhasználó által beküldött képekből (2.5.230).
 import { KEDVENCEK_ICON_DATA_URL, LISTAK_ICON_DATA_URL, MENU_GEAR_ICON_DATA_URL } from '../generatedMenuIcons';
+// Kép alapú kedvencmappa-ikonok (Mr Bean, HBO Max) megjelenítése a mappalistában.
+import { getFolderImageIcon } from '../folderImageIcons';
 import { TvDoctorIcon } from './TvDoctorIcon';
 import { SupabasePairingModal } from './SupabasePairingModal';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -979,7 +981,15 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           aria-hidden="true"
                           className="flex items-center gap-3 min-w-0 flex-1 text-left pointer-events-none"
                         >
-                          <div className="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-xl shrink-0">{f.icon || '📁'}</div>
+                          {(() => {
+                            // Kép ikonos mappánál (Mr Bean, HBO Max) a kép jelenik meg, nagyobb méretben.
+                            const imageIcon = getFolderImageIcon(f.icon);
+                            return imageIcon ? (
+                              <img src={imageIcon.dataUrl} alt={imageIcon.name} className="w-14 h-14 rounded-xl object-cover shrink-0 pointer-events-none select-none border border-amber-400/40" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-xl shrink-0">{f.icon || '📁'}</div>
+                            );
+                          })()}
                           <div className="min-w-0">
                             <h4 className="text-white font-bold text-sm truncate">{f.name}</h4>
                             <p className="text-xs text-slate-400 font-medium">{folderChannels.length} csatorna</p>

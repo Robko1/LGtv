@@ -11,6 +11,8 @@ import { appLog, appLogError } from '../services/appLog';
 import { fsStart } from '../services/fullscreenPerf';
 import { isChannelHandledByDoctor, subscribeTvDoctorUpdates } from '../services/tvDoctor';
 import { normalizeTvKey, isTvArrowKey } from '../utils/tvKeys';
+// Kép alapú kedvencmappa-ikonok (Mr Bean, HBO Max): nagy, felirat nélküli megjelenítés.
+import { getFolderImageIcon } from '../folderImageIcons';
 
 interface ChannelListProps {
   channels: Channel[];
@@ -1124,6 +1126,28 @@ const ChannelListView: React.FC<ChannelListProps> = ({
           {folders.map((folder, folderIndex) => {
             const folderBorder = folderIndex % 2 === 0 ? 'border-cyan-400' : 'border-amber-400';
             const isSelected = selectedFavoriteFolderId === folder.id;
+            // Kép alapú mappa (pl. Mr Bean, HBO Max): a kép magáért beszél,
+            // ezért nincs felirat, viszont SOKKAL nagyobb, jól látható ikont kap.
+            const imageIcon = getFolderImageIcon(folder.icon);
+            if (imageIcon) {
+              return (
+                <button
+                  key={folder.id}
+                  type="button"
+                  data-tv-folder=""
+                  onClick={() => onSelectFavoriteFolder(folder.id)}
+                  title={imageIcon.name}
+                  aria-label={imageIcon.name}
+                  className={`p-0 rounded-2xl overflow-hidden shrink-0 border-2 transition-colors ${isSelected ? 'border-amber-400 ring-2 ring-amber-400/70' : folderBorder}`}
+                >
+                  <img
+                    src={imageIcon.dataUrl}
+                    alt={imageIcon.name}
+                    className="w-24 h-24 object-cover pointer-events-none select-none block"
+                  />
+                </button>
+              );
+            }
             return (
               <button
                 key={folder.id}
@@ -1528,19 +1552,28 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                     Még nincs kedvenc mappa. Hozz létre egyet a Menü → Kedvencek fülön,
                     utána a csatornasor jobb szélén lévő ⭐ gombbal ide tudod tenni a csatornákat.
                   </p>
-                ) : folders.map((folder) => (
-                  <button
-                    key={folder.id}
-                    type="button"
-                    onClick={() => {
-                      if (channel) onAssignToFolder?.(channel.id, folder.id);
-                      close();
-                    }}
-                    className="w-full text-left px-3 py-2.5 rounded-xl bg-[#0d1c3a] border border-cyan-700/50 text-slate-100 text-sm font-bold hover:bg-[#142b56] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-                  >
-                    {folder.icon || '📁'} {folder.name}
-                  </button>
-                ))}
+                ) : folders.map((folder) => {
+                  // Kép alapú mappánál a kép jelenik meg a listában is (nincs külön név).
+                  const imageIcon = getFolderImageIcon(folder.icon);
+                  return (
+                    <button
+                      key={folder.id}
+                      type="button"
+                      onClick={() => {
+                        if (channel) onAssignToFolder?.(channel.id, folder.id);
+                        close();
+                      }}
+                      className="w-full text-left px-3 py-2.5 rounded-xl bg-[#0d1c3a] border border-cyan-700/50 text-slate-100 text-sm font-bold hover:bg-[#142b56] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 flex items-center gap-2"
+                    >
+                      {imageIcon ? (
+                        <img src={imageIcon.dataUrl} alt={imageIcon.name} className="w-12 h-12 rounded-lg object-cover pointer-events-none select-none" />
+                      ) : (
+                        <span>{folder.icon || '📁'}</span>
+                      )}
+                      <span className="truncate">{folder.name}</span>
+                    </button>
+                  );
+                })}
               </div>
               {channel?.isFavorite && (
                 <button
