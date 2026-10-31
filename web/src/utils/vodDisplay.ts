@@ -44,3 +44,29 @@ export function joinLanguages(values?: readonly string[] | null, max = 3): strin
   if (list.length <= max) return list.join(' • ');
   return `${list.slice(0, max).join(' • ')} +${list.length - max}`;
 }
+
+/**
+ * A poszterkártya hangnyelv-sora (2.5.236, a felhasználó kérése):
+ *
+ *  - ha a film/sorozat nyelvei között VAN MAGYAR, az mindig ELÖL jelenik meg
+ *    (korábban a hosszú listák „Angol • Ukrán • … +N” alakban elrejtették);
+ *  - a magyar után az angol következik, majd a többi nyelv eredeti sorrendben;
+ *  - ha egyetlen ismert hangnyelv sincs mentve, „Angol” a felirat – a
+ *    legvalószínűbb alapértelmezés; lejátszás közben úgyis kiderül a valódi
+ *    hangsávlista.
+ */
+export function cardAudioLabel(values?: readonly string[] | null, max = 3): string {
+  const list = visibleLanguages(values);
+  if (!list.length) return 'Angol';
+  const rank = (label: string): number => {
+    if (/magyar|hungar|^hun?$/i.test(label)) return 0;
+    if (/angol|english|^eng?$/i.test(label)) return 1;
+    return 2;
+  };
+  const ordered = list
+    .map((label, index) => ({ label, index, rank: rank(label) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((item) => item.label);
+  if (ordered.length <= max) return ordered.join(' • ');
+  return `${ordered.slice(0, max).join(' • ')} +${ordered.length - max}`;
+}

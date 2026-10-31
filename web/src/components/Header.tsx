@@ -102,8 +102,12 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             aria-label="TV"
             title="TV"
           >
-            {/* 2.5.234: a beküldött ezüst TV-ikon (kör alak) a lucide Tv helyett. */}
-            <img src={TV_ICON_DATA_URL} alt="" aria-hidden="true" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain pointer-events-none select-none" />
+            {/* 2.5.236: az ikon a doboz tetejétől az aljáig ér, és világos
+                háttérkorongot kap, hogy a sötét ikonrajz jól kivehető legyen
+                (a doboz mérete változatlan). */}
+            <span aria-hidden="true" className="h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b from-slate-100 via-slate-300 to-slate-400 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none">
+              <img src={TV_ICON_DATA_URL} alt="" className="w-[94%] h-[94%] object-contain" />
+            </span>
             <span>TV</span>
           </button>
         )}
@@ -124,7 +128,10 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             title="Menü"
             aria-label="Menü"
           >
-            <img src={MENU_GEAR_ICON_DATA_URL} alt="" aria-hidden="true" className="w-8 h-8 shrink-0 object-contain pointer-events-none select-none" />
+            {/* 2.5.236: nagyobb ikon világos háttérkoronggal (doboz mérete változatlan). */}
+            <span aria-hidden="true" className="h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b from-slate-100 via-slate-300 to-slate-400 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none">
+              <img src={MENU_GEAR_ICON_DATA_URL} alt="" className="w-[94%] h-[94%] object-contain" />
+            </span>
             <span>Menü</span>
           </button>
         )}
@@ -140,7 +147,10 @@ const HeaderComponent: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
           }`}
         >
-          <img src={SOROZAT_ICON_DATA_URL} alt="" aria-hidden="true" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain pointer-events-none select-none" />
+          {/* 2.5.236: nagyobb ikon világos háttérkoronggal (doboz mérete változatlan). */}
+          <span aria-hidden="true" className="h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b from-slate-100 via-slate-300 to-slate-400 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none">
+            <img src={SOROZAT_ICON_DATA_URL} alt="" className="w-[94%] h-[94%] object-contain" />
+          </span>
           <span>Sorozatok</span>
         </button>
 
@@ -155,7 +165,10 @@ const HeaderComponent: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
           }`}
         >
-          <img src={MOZI_ICON_DATA_URL} alt="" aria-hidden="true" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain pointer-events-none select-none" />
+          {/* 2.5.236: nagyobb ikon világos háttérkoronggal (doboz mérete változatlan). */}
+          <span aria-hidden="true" className="h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b from-slate-100 via-slate-300 to-slate-400 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none">
+            <img src={MOZI_ICON_DATA_URL} alt="" className="w-[94%] h-[94%] object-contain" />
+          </span>
           <span>Mozi</span>
         </button>
 

@@ -283,7 +283,7 @@ function parseSubtitleTracks(node: unknown): { tracks: SubtitleTrack[]; language
  * óra:perc (a nagy első értéknél, pl. `"42:10"` esetén perc:másodperc, mert az
  * már nem lehet hihető óraérték).
  */
-function colonDurationMinutes(text: string, secondsHint: boolean): number {
+function colonDurationMinutes(text: string): number {
   const colon = text.match(/^(\d{1,3}):(\d{1,2})(?::(\d{1,2}))?$/);
   if (!colon) return -1;
   const first = Number(colon[1]);
@@ -293,10 +293,16 @@ function colonDurationMinutes(text: string, secondsHint: boolean): number {
     const third = Number(colon[3]);
     return Math.max(0, Math.round(first * 60 + second + third / 60));
   }
-  // A "duration_secs" jellegű mezőknél a perc:másodperc értelmezés a helyes.
-  if (secondsHint) return Math.max(0, Math.round(first + second / 60));
-  // HH:MM – a második mező perc. Ha az első érték nem lehet óra (pl. 42:10),
-  // akkor a szolgáltató valójában perc:másodpercet adott.
+  /*
+   * 2.5.236: a kettőspontos érték IDŐ-SZÖVEG, akkor is, ha a kulcs neve
+   * "duration_secs". Korábban a secs-gyanús kulcsnál a kétmezős alakot
+   * perc:másodpercnek vettük, ezért a "02:14" (2 óra 14 perc) 2 percként
+   * jelent meg a filmkártyán (1-es TV-fotó hibája). A kulcsnév helyett
+   * mindig ugyanaz az óra-heurisztika dönt.
+   *
+   * HH:MM – a második mező perc. Ha az első érték nem lehet óra (pl. 42:10),
+   * akkor a szolgáltató valójában perc:másodpercet adott.
+   */
   const looksLikeHours = first <= 8 && second <= 59;
   return looksLikeHours
     ? Math.max(0, Math.round(first * 60 + second))
@@ -308,45 +314,71 @@ function durationMinutesFromValue(value: unknown, key = 'duration'): number {
   if (!text) return 0;
   const lowerKey = key.toLowerCase();
   const secondsHint = /sec/.test(lowerKey) || lowerKey.endsWith('_ms');
-  const colonMinutes = colonDurationMinutes(text, secondsHint);
+  const colonMinutes = colonDurationMinutes(text);
   if (colonMinutes >= 0) return colonMinutes;
   const hours = text.match(/(\d+(?:\.\d+)?)\s*h(?:ours?)?/i);
   const minutes = text.match(/(\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?/i);
   if (hours || minutes) return Math.max(0, Math.round((hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0)));
   const numeric = Number(text.replace(',', '.').replace(/[^0-9.+-]/g, ''));
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
-  if (secondsHint) return Math.max(0, Math.round(numeric / (lowerKey.endsWith('_ms') ? 60000 : 60)));
+  if (secondsHint) {
+    if (lowerKey.endsWith('_ms')) return Math.max(0, Math.round(numeric / 60000));
+    /*
+     * 2.5.236: több panel PERCET ír a "duration_secs" mezőbe (pl. 114 egy
+     * 114 perces filmnél) – másodpercként osztva ebből lett a kártyán a
+     * hamis "2 perc". 300 alatt a másodperc-értelmezés 5 percnél rövidebb
+     * "filmet" jelentene, ami hihetetlen; ilyenkor a perc-értelmezés a jó.
+     */
+    return Math.max(0, Math.round(numeric >= 300 ? numeric / 60 : numeric));
+  }
   // A raw Xtream duration is usually seconds when it is larger than five hours.
   return Math.max(0, Math.round(numeric > 300 ? numeric / 60 : numeric));
 }
 
+/*
+ * 2.5.236: ez alatt a játékidő már nem hihető egy filmnél/epizódnál.
+ * A hibás kulcsból jövő apró érték (pl. episode_run_time: "2") nem nyomhatja
+ * el a másik kulcsban megadott valódi játékidőt (pl. runtime: "114") – a
+ * kis érték csak végső tartalékként marad meg, ha semmi jobb nincs.
+ */
+const PLAUSIBLE_RUNTIME_MINUTES = 15;
+
 function findDuration(node: unknown, depth = 0): number {
-  if (depth > 4 || node === null || node === undefined) return 0;
-  const record = asRecord(node);
-  if (record) {
-    for (const [key, value] of Object.entries(record)) {
-      const lower = key.toLowerCase();
-      if (/duration_secs?|duration_seconds?|runtime_seconds?/.test(lower)) {
-        const parsed = durationMinutesFromValue(value, key);
+  let fallback = 0;
+  const note = (parsed: number): number => {
+    if (parsed >= PLAUSIBLE_RUNTIME_MINUTES) return parsed;
+    if (parsed > 0 && fallback === 0) fallback = parsed;
+    return 0;
+  };
+  const visit = (current: unknown, level: number): number => {
+    if (level > 4 || current === null || current === undefined) return 0;
+    const record = asRecord(current);
+    if (record) {
+      for (const [key, value] of Object.entries(record)) {
+        const lower = key.toLowerCase();
+        if (/duration_secs?|duration_seconds?|runtime_seconds?/.test(lower)) {
+          const parsed = note(durationMinutesFromValue(value, key));
+          if (parsed > 0) return parsed;
+        }
+      }
+      for (const key of ['duration_minutes', 'episode_run_time', 'duration', 'runtime', 'length']) {
+        const value = firstValue(record, [key]);
+        const parsed = note(durationMinutesFromValue(value, key));
+        if (parsed > 0) return parsed;
+      }
+      for (const value of Object.values(record)) {
+        const parsed = visit(value, level + 1);
+        if (parsed > 0) return parsed;
+      }
+    } else if (Array.isArray(current)) {
+      for (const value of current) {
+        const parsed = visit(value, level + 1);
         if (parsed > 0) return parsed;
       }
     }
-    for (const key of ['duration_minutes', 'episode_run_time', 'duration', 'runtime', 'length']) {
-      const value = firstValue(record, [key]);
-      const parsed = durationMinutesFromValue(value, key);
-      if (parsed > 0) return parsed;
-    }
-    for (const value of Object.values(record)) {
-      const parsed = findDuration(value, depth + 1);
-      if (parsed > 0) return parsed;
-    }
-  } else if (Array.isArray(node)) {
-    for (const value of node) {
-      const parsed = findDuration(value, depth + 1);
-      if (parsed > 0) return parsed;
-    }
-  }
-  return 0;
+    return 0;
+  };
+  return visit(node, depth) || fallback;
 }
 
 function firstText(node: unknown, keys: string[]): string {
@@ -478,13 +510,21 @@ function parseFlatMetadata(record: Record<string, unknown>): ParsedVodMetadata |
       found[group] = value;
     }
   }
-  let durationMinutes = durationFromSeconds;
+  /*
+   * 2.5.236: a hihető (legalább 15 perces) érték elsőbbséget kap – a hibás
+   * kulcsból jövő apró szám (pl. episode_run_time: "2") csak végső tartalék,
+   * pontosan úgy, ahogy a mély út (findDuration) is dönt.
+   */
+  let durationMinutes = durationFromSeconds >= PLAUSIBLE_RUNTIME_MINUTES ? durationFromSeconds : 0;
+  let smallFallback = durationFromSeconds;
   if (durationMinutes === 0) {
     for (let index = 0; index < FLAT_DURATION_KEYS.length && durationMinutes === 0; index++) {
       if (durationCandidates[index] === undefined) continue;
       const parsed = durationMinutesFromValue(durationCandidates[index], FLAT_DURATION_KEYS[index]);
-      if (parsed > 0) durationMinutes = parsed;
+      if (parsed >= PLAUSIBLE_RUNTIME_MINUTES) durationMinutes = parsed;
+      else if (parsed > 0 && smallFallback === 0) smallFallback = parsed;
     }
+    if (durationMinutes === 0) durationMinutes = smallFallback;
   }
   const year = Number((clean(found[FLAT_GROUP_YEAR]).match(/\d{4}/) || [0])[0]) || 0;
   return {

@@ -7,7 +7,7 @@
  * („2:00”) 2 percként jelent meg 120 perc helyett.
  */
 import { parseEpisodeMetadata, parseSeriesMetadata, parseVodMetadata } from '../web/src/services/vodMetadata';
-import { formatRuntime, joinLanguages, visibleLanguages } from '../web/src/utils/vodDisplay';
+import { cardAudioLabel, formatRuntime, joinLanguages, visibleLanguages } from '../web/src/utils/vodDisplay';
 
 let passed = 0;
 let failed = 0;
@@ -35,6 +35,15 @@ const durations: Array<[string, Record<string, unknown>, number]> = [
   ['percben megadott érték', { runtime: 125 }, 125],
   ['szöveges óra/perc alak', { duration: '2h 5min' }, 125],
   ['hiányzó adat nem lesz kitalált érték', {}, 0],
+  // 2.5.236: a kettőspontos érték idő-szöveg a duration_secs kulcsban is –
+  // a "02:14" 2 óra 14 perc (134), nem 2 perc.
+  ['duration_secs kettőspontos alak – 2 óra 14 perc', { duration_secs: '02:14' }, 134],
+  // 2.5.236: percet író panel a duration_secs mezőben – 114 perc, nem 2 perc.
+  ['perc a duration_secs mezőben (panelhiba)', { duration_secs: '114' }, 114],
+  // 2.5.236: a hibás kulcs apró értéke nem nyomja el a valódi játékidőt.
+  ['apró episode_run_time mellett a runtime nyer', { episode_run_time: '2', runtime: '114' }, 114],
+  // Végső tartalék: ha csak apró érték van, az marad (rövidfilm lehet).
+  ['egyetlen apró érték megmarad', { runtime: '9' }, 9],
 ];
 for (const [label, info, expected] of durations) {
   const parsed = parseVodMetadata({ info });
@@ -104,6 +113,10 @@ check('az Ismeretlen nem jelenik meg nyelvként', JSON.stringify(visibleLanguage
 check('üres nyelvlista üres szöveget ad', joinLanguages(['Ismeretlen']) === '' && joinLanguages(undefined) === '', joinLanguages(['Ismeretlen']));
 check('a nyelvek tömör felsorolása', joinLanguages(['Magyar', 'Angol']) === 'Magyar • Angol', joinLanguages(['Magyar', 'Angol']));
 check('sok nyelvnél +N jelzés', joinLanguages(['Magyar', 'Angol', 'Német', 'Francia'], 2) === 'Magyar • Angol +2', joinLanguages(['Magyar', 'Angol', 'Német', 'Francia'], 2));
+// 2.5.236: a kártya hangnyelv-sora – a magyar mindig elöl, ismeretlen nyelvnél „Angol”.
+check('kártya: a magyar hang mindig elöl', cardAudioLabel(['Angol', 'Ukrán', 'Spanyol', 'Magyar']) === 'Magyar • Angol • Ukrán +1', cardAudioLabel(['Angol', 'Ukrán', 'Spanyol', 'Magyar']));
+check('kártya: magyar nélkül az angol az első', cardAudioLabel(['Spanyol', 'Angol']) === 'Angol • Spanyol', cardAudioLabel(['Spanyol', 'Angol']));
+check('kártya: ismert nyelv híján Angol az alapértelmezés', cardAudioLabel([]) === 'Angol' && cardAudioLabel(['Ismeretlen']) === 'Angol' && cardAudioLabel(undefined) === 'Angol', cardAudioLabel([]));
 
 console.log('\n4. Lapos gyors út paritása (a tömeges importlista feldolgozása)');
 /*
