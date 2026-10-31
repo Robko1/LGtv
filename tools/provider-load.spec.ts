@@ -332,7 +332,7 @@ async function main(): Promise<void> {
   );
   check(
     'az első (1500 csatornás) előnézet nem dönt a kijelölésről',
-    /if \(partial\.preview\)/.test(appSource)
+    /if \(partial\.preview(?:\s|&&)/.test(appSource)
   );
   check(
     'a háttérbetöltés alatt nem fut aktív csatorna-EPG kérés',
