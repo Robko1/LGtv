@@ -1378,7 +1378,7 @@ export async function importXtreamProvider(
       }
     };
     if (decodedMovies.length) {
-      onProgress({ phase: 'Az első filmek részletes adatainak betöltése…', detail: `${Math.min(decodedMovies.length, MAX_INITIAL_DETAIL_ITEMS)} film`, percent: 68 });
+      onProgress({ phase: 'Az első filmek részletes adatainak betöltése…', detail: `${Math.min(decodedMovies.length, MAX_INITIAL_DETAIL_ITEMS)} film`, percent: 88 });
       await Promise.all([loadMovieDetails(), loadMovieDetails()]);
     }
 
@@ -1481,7 +1481,7 @@ export async function importXtreamProvider(
         }
       };
       if (decodedSeries.length) {
-        onProgress({ phase: 'Az első sorozatok részletes adatainak betöltése…', detail: `${Math.min(decodedSeries.length, MAX_INITIAL_DETAIL_ITEMS)} sorozat`, percent: 94 });
+        onProgress({ phase: 'Az első sorozatok részletes adatainak betöltése…', detail: `${Math.min(decodedSeries.length, MAX_INITIAL_DETAIL_ITEMS)} sorozat`, percent: 97 });
         await Promise.all([loadSeriesDetails(), loadSeriesDetails()]);
       }
 
