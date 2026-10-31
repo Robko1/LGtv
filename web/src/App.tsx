@@ -2618,7 +2618,7 @@ export function App() {
         ? `Gyors ellenőrzés: a kategórialisták (${check.counts.live} élő / ${check.counts.vod} film / ` +
           `${check.counts.series} sorozat kategória) nem változtak, ezért a nagy listák le sem töltődtek ` +
           `(utolsó teljes összevetés: ${ageText}). Ha most új tartalmat vársz egy meglévő kategóriában, ` +
-          `nyomd meg ÚJRA a Frissítés gombot 2 percen belül – akkor teljes, elemenkénti összevetés fut. • ${summary.counts}`
+          `. • ${summary.counts}`
         : `A szolgáltató katalógusa elemenként összevetve (${check.counts.live} élő / ${check.counts.vod} film / ` +
           `${check.counts.series} sorozat kategória): nem változott, a tárolt készlet érvényes. • ${summary.counts}`,
       percent: 100,
@@ -2752,11 +2752,9 @@ export function App() {
      * után nem töltődik be az EPG” egyik útja.
      */
     /*
-     * KÉZI TELJES FRISSÍTÉS (API-vizsgálat).
-     * A Frissítés gomb minden megnyomásakor a teljes élő-, film- és sorozatlista
-     * lekérése indul. Nem állunk meg a kategóriák változatlanságánál, mert a
-     * szolgáltató mezőit csak a tényleges listaválaszokból tudjuk felmérni.
-     * Automatikus háttérbetöltést ez a kézi ág nem módosít.
+     * KÉZI FRISSÍTÉS: az Xtream API-n először csak a három kategórialista
+     * ellenőrzése fut le. Változatlan kategóriáknál nincs nagy lista-letöltés;
+     * változás esetén a néző jóváhagyása után indul a különbségek feldolgozása.
      */
 
     // Egy futó háttér-visszatöltés nem írhatja felül a friss import eredményét.
