@@ -860,7 +860,6 @@ function liveBootSubset(
 function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
   const chunkCount = Math.ceil(boot.length / CHUNK_SIZE);
   const generationPrefix = LIVE_GENERATION_PREFIX + Date.now() + '-' + (++writeSequence) + '-';
-  const previousKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
   for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
 
   const abort = (reason: string): false => {
@@ -1767,7 +1766,6 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
  * és a 76 MB-os újratöltést okozta. 60 000 sor a határ: efelett inkább a
  * korábbi, ÉP listát őrizzük meg.
  */
-const LOCAL_FALLBACK_MAX_ROWS = 60000;
 
 /** Melyik katalógus-szakaszhoz tartozik egy fejléc-kulcs. */
 function sectionForMetaKey(metaKey: string): 'live' | 'vod' | 'series' | null {
