@@ -108,6 +108,9 @@ export interface PartialContent {
   liveHungarianReady?: boolean;
   /** A teljes élő csatornalista feldolgozása elkészült. */
   liveComplete?: boolean;
+  /** Provider-identitás a magyar részlista korai megjelenítéséhez. */
+  provider?: ProviderRef;
+  providerName?: string;
   channels?: Channel[];
   liveCategories?: Category[];
   movies?: Movie[];
@@ -1093,6 +1096,8 @@ export async function importXtreamProvider(
       await onPartial({
         preview: true,
         liveHungarianReady: true,
+        provider,
+        providerName: input.name,
         channels: decodeChannelsForImport(liveRows.slice(), provider),
         liveCategories: buildCategories(hungarianCategories, 'lc-', 'live', liveCounts),
         totals: { live: liveRows.length },
@@ -1121,6 +1126,8 @@ export async function importXtreamProvider(
 
   // Az élő lista AZONNAL a felületre kerül (nem várunk a filmekre).
   await onPartial({
+    provider,
+    providerName: input.name,
     channels: liveChannels,
     liveCategories,
     totals: { live: liveStreamCount },
