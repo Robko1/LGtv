@@ -811,15 +811,13 @@ async function main() {
     );
 
     /*
-     * 4) RÉGI SZINKRON-IDŐBÉLYEG, VÁLTOZATLAN KATEGÓRIÁK (2.5.237).
+     * 4) RÉGI SZINKRON-IDŐBÉLYEG, VÁLTOZATLAN KATEGÓRIÁK (2.5.238).
      *
-     * A gyors kilépés CSAK a frissességi ablakon belül érvényes: lejárt
-     * ablaknál a kézi Frissítés teljes, elemenkénti összevetést futtat –
-     * ez fedi le a kategórián BELÜLI (darabszám-) változások vakfoltját.
-     * Az indexlisták egyszer letöltődnek az összehasonlításhoz, de
-     * változatlan tartalomnál részletkérés nem indul, és az összevetés
-     * időbélyege elmentődik. Megerősítő kérdés ilyenkor NINCS (a
-     * kategóriák nem változtak, csak az alapos ellenőrzés esedékes).
+     * SEMMI nem indul magától – a felhasználó kifejezett kérése. Akármilyen
+     * régi az utolsó teljes összevetés időbélyege, változatlan kategóriáknál
+     * a kézi Frissítés gyors „nincs változás”-t ad, indexletöltés és kérdés
+     * NÉLKÜL. Teljes, elemenkénti összevetés kizárólag a néző kérésére fut
+     * (forceDeep – lásd az 5. próbát).
      */
     const stateAfterChange = store.loadSyncState(freshProvider.id);
     store.saveSyncState({
@@ -833,16 +831,17 @@ async function main() {
       incremental: true,
       onChangeDetected: () => { staleSignals += 1; return false; },
     });
-    const staleState = store.loadSyncState(freshProvider.id);
     check(
-      'lejárt időablaknál lefut a teljes összevetés (indexek egyszer, részletek nem, kérdés nélkül)',
+      'lejárt időbélyegnél SINCS magától induló teljes összevetés: gyors „nincs változás”, letöltés nélkül',
       'unchanged' in staleResult
         && staleResult.unchanged === true
+        && 'quick' in staleResult && staleResult.quick === true
         && staleSignals === 0
-        && requestedActions.filter((action) => action === 'get_live_streams').length === 1
+        && !requestedActions.includes('get_live_streams')
+        && !requestedActions.includes('get_vod_streams')
+        && !requestedActions.includes('get_series')
         && !requestedActions.includes('get_vod_info')
-        && !requestedActions.includes('get_series_info')
-        && Boolean(staleState && Date.now() - staleState.fullSyncAt < 60_000),
+        && !requestedActions.includes('get_series_info'),
       `(kérések: ${requestedActions.join(', ')})`
     );
 
@@ -854,10 +853,10 @@ async function main() {
      * (elavult poszter/leírás): a változott elemre újra le kell kérni a
      * get_vod_info részleteket, a kereten belül.
      *
-     * A kategóriák itt NEM változnak és az előző összevetés friss, ezért a
-     * gyors út „nincs változás”-t adna – pont ez a gyors ellenőrzés
-     * vakfoltja. A `forceDeep` (a nézőnél: 2 percen belüli ÚJABB Frissítés
-     * gombnyomás) kikényszeríti a teljes, elemenkénti összevetést.
+     * A kategóriák itt NEM változnak, ezért a gyors út „nincs változás”-t
+     * ad – pont ez a gyors ellenőrzés vakfoltja. A `forceDeep` (a nézőnél:
+     * 2 percen belüli ÚJABB Frissítés gombnyomás) kéri a teljes,
+     * elemenkénti összevetést – ez az EGYETLEN út hozzá, magától sosem fut.
      */
     freshFake.setVodStreams([
       { name: 'Dűne', stream_id: 501, container_extension: 'mkv', category_id: '20', stream_icon: 'http://logo/dune-v2.jpg', rating: '8.5', added: '1690000000' },

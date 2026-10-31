@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.237';
+export const WEB_VERSION = '2.5.238';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.238',
+    date: '2026-10-31',
+    changes: [
+      'SEMMI nem fut magától – a 12 óránkénti, magától induló teljes összevetés kikerült. Változatlan kategóriáknál a Frissítés mindig a gyors „nincs változás” választ adja, akármikor volt az utolsó teljes ellenőrzés.',
+      'Teljes, elemenkénti összevetést kizárólag a néző indíthat: a gyors „nincs változás” után 2 percen belüli ÚJABB Frissítés gombnyomással. Ez találja meg a meglévő kategórián belüli új/törölt elemeket is.',
+      'Minden más változatlan: változás észlelésekor a „Letöltsem a változásokat?” kérdés után csak Igen válaszra indul a különbség-letöltés (kedvencek, sorrend és törölt csatornák megmaradnak).',
+    ],
+  },
   {
     version: '2.5.237',
     date: '2026-10-31',
