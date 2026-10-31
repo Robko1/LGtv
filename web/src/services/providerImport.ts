@@ -1978,15 +1978,15 @@ remove forced deep flow  /*
     xtreamService.authenticate(server, user, pass).catch(() => null),
   ]);
 
-  // Kézi frissítés: teljes, elemenkénti összevetés. A letöltés CSAK az
-  // összehasonlításhoz kell – a változatlan szakaszokat nem dolgozzuk fel
-  // és nem írjuk újra a tárolóba.
+  // Jóváhagyott kategóriaváltozás után az indexlistákból megkeressük
+  // az eltéréseket. A változatlan elemeket nem dolgozzuk fel és nem írjuk
+  // újra a tárolóba; ez nem teljes újraimport.
   logProviderEvent(
     syncState && syncState.fingerprint === quickFingerprint
-      ? 'Teljes összevetés indul (kézi frissítés): a kategóriák nem változtak, az elemenkénti ellenőrzés új filmet/sorozatot/csatornát keres.'
-      : 'Teljes összevetés indul (kézi frissítés): a szolgáltató kategórialistája megváltozott.'
+      ? 'A jóváhagyott frissítés eltéréseket keres a szolgáltató listáiban.'
+      : 'A kategóriaváltozás jóváhagyva: az alkalmazás megkeresi a tartalmi különbségeket.'
   );
-  onProgress({ phase: 'Összevetés: a friss listák letöltése a változások kereséséhez (a tárolt katalógus megmarad)…', percent: 8 });
+  onProgress({ phase: 'A jóváhagyott változások lekérése…', percent: 8 });
   // A letöltés már a tárolt katalógus beolvasása ALATT futott – itt csak bevárjuk.
   const [liveRaw, vodRaw, seriesRaw, auth] = await indexPromise;
   const indexMs = Date.now() - indexStartedAt;
