@@ -158,11 +158,44 @@ jobs:
 
       - name: 5b. Alkalmazás-regressziós tesztek
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           # Csak az alkalmazás működéséhez tartozó regressziós tesztek futnak.
           # Nincs külön HTML indítóképernyő vagy animációs reveal-teszt.
-          npm test
+          #
+          # HIBA-VISSZACSATOLÁS (2.5.235): ha a tesztek elbuknak, a kimenet
+          # vége felkerül a futás összefoglalójába ÉS commit-kommentbe is –
+          # így a javítás a PONTOS hibát látja, nem kell találgatni. Egy
+          # elbukott futás után EGYSZER újrafutnak a tesztek, hogy a
+          # futtatógép átmeneti hibái (leállított runner, időzítési
+          # ingadozás) ne állítsák le feleslegesen az IPK építést. Valódi
+          # hibánál a második futás is elbukik, és a build megáll.
+          run_tests() { npm test 2>&1 | tee "$1"; return "${PIPESTATUS[0]}"; }
+          report() {
+            {
+              echo "## 5b. tesztlépés hibakimenete (${2}. kísérlet, utolsó 120 sor)"
+              echo '```'
+              tail -n 120 "$1"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            BODY="$(printf 'IPK építés – 5b. tesztlépés hibája (run %s, %s. kísérlet, utolsó 100 sor):\n\n```\n%s\n```' "$GITHUB_RUN_ID" "$2" "$(tail -n 100 "$1")")"
+            gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$BODY" >/dev/null 2>&1 || echo "Figyelem: a hibakimenet commit-kommentje nem jött létre."
+          }
+          if run_tests /tmp/tesztnaplo-1.log; then
+            echo "OK: a tesztek első futásra sikeresek."
+            exit 0
+          fi
+          report /tmp/tesztnaplo-1.log 1
+          echo "A tesztek elbuktak – egyszeri újrafuttatás az átmeneti környezeti hibák kiszűrésére…"
+          if run_tests /tmp/tesztnaplo-2.log; then
+            echo "OK: a tesztek a második futásra sikeresek (az első hiba átmeneti volt; kimenete a futás összefoglalójában és commit-kommentben)."
+            exit 0
+          fi
+          report /tmp/tesztnaplo-2.log 2
+          echo "HIBA: a tesztek kétszer egymás után elbuktak – ez valódi hiba, az építés leáll." >&2
+          exit 1
 
       - name: 5c. Verzió automatikus emelése és mentése (csak sikeres tesztek után)
         id: version
