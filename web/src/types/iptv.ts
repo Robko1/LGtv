@@ -157,6 +157,7 @@ export interface Episode {
   title: string;
   durationMinutes: number;
   streamUrl: string;
+  containerExtension?: string;
   plot: string;
   thumbnail: string;
   audioTracks?: AudioTrack[];
