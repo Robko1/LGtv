@@ -1057,7 +1057,15 @@ export async function importXtreamProvider(
         const category = resolveCategory(liveCategoryMap, stream.category_id, 'lc-');
         const catId = category.id;
         liveCounts.set(catId, (liveCounts.get(catId) || 0) + 1);
-        liveRows.push(liveRowFromRaw(stream as unknown as Record<string, unknown>, category, liveRows.length, provider));
+        const row = liveRowFromRaw(stream as unknown as Record<string, unknown>, category, liveRows.length, provider);
+        // Ha a kategória nem országos, de maga a csatornanév magyar jelölést
+        // tartalmaz, a rekord országkódját is HU-ra állítjuk. Ezt használja
+        // a főoldal magyar csatorna-felismerése.
+        if (flagFor(streamName).countryCode === 'HU') {
+          row[6] = '🇭🇺';
+          row[7] = 'HU';
+        }
+        liveRows.push(row);
         liveProcessed++;
 
         if (liveProcessed % PROGRESS_UPDATE_EVERY === 0 || liveProcessed === liveProcessTotal) {
@@ -1071,9 +1079,14 @@ export async function importXtreamProvider(
       }
     };
 
-    // 1. Először kizárólag a magyar kategóriák csatornáit dolgozzuk fel.
+    // 1. Először kizárólag a magyar csatornákat dolgozzuk fel.
     await processLivePass(true);
-    if (liveRows.length > 0 && hungarianCategoryIds.length > 0) {
+    onProgress({
+      phase: 'Magyar TV-csatornák készen',
+      detail: `${liveProcessed.toLocaleString('hu-HU')} magyar csatorna; a teljes lista feldolgozása folytatódik`,
+      percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 32),
+    });
+    if (liveRows.length > 0) {
       const hungarianCategories = liveCats.filter((category) =>
         (liveCounts.get(`lc-${category.category_id}`) || 0) > 0
       );
