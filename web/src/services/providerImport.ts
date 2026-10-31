@@ -1206,7 +1206,10 @@ export async function importXtreamProvider(
       onProgress({ phase: 'Filmek letöltése egyben…', detail: 'Gyorsított mód (1 kérés)', percent: 48 });
       const [allVod, vodCategoryList] = await Promise.all([
         providerRequest(() => xtreamService.vodStreams(server, user, pass), 'Filmek egyben'),
-        providerRequest(() => xtreamService.vodCategories(server, user, pass), 'Film kategóriák').catch(() => [] as XtreamCategory[]),
+        providerRequest(() => xtreamService.vodCategories(server, user, pass), 'Film kategóriák').catch((error) => {
+          warnings.push(`A film kategórialistája nem töltődött le: ${safeErrorDetail(error)}`);
+          return [] as XtreamCategory[];
+        }),
       ]);
       rawVodCategories = vodCategoryList;
       const vodCategoryMap = makeCategoryMap(vodCategoryList);
@@ -1329,7 +1332,10 @@ export async function importXtreamProvider(
       if (!prefetched.ok) throw prefetched.error;
       const [allSeries, seriesCategoryList] = await Promise.all([
         Promise.resolve(prefetched.value),
-        providerRequest(() => xtreamService.seriesCategories(server, user, pass), 'Sorozat kategóriák').catch(() => [] as XtreamCategory[]),
+        providerRequest(() => xtreamService.seriesCategories(server, user, pass), 'Sorozat kategóriák').catch((error) => {
+          warnings.push(`A sorozat kategórialistája nem töltődött le: ${safeErrorDetail(error)}`);
+          return [] as XtreamCategory[];
+        }),
       ]);
       rawSeriesCategories = seriesCategoryList;
       const seriesCategoryMap = makeCategoryMap(seriesCategoryList);
