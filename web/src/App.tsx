@@ -25,6 +25,7 @@ import {
   setCatalogFingerprint,
   StoredCatalogPlan,
   sweepStorage,
+  hasPendingDeleteMarker,
 } from './services/contentStore';
 import { appLog, appLogError, logPhase } from './services/appLog';
 import {
@@ -50,6 +51,7 @@ import {
   refreshProviderContent,
   applyMovieMetadata,
   applySeriesMetadata,
+  yieldToUi,
 } from './services/providerImport';
 import { seasonsFromSeriesInfo } from './services/catalogRows';
 import { flagFor } from './utils/flags';
@@ -947,8 +949,15 @@ export function App() {
    */
   const holdLivePlaybackRef = useRef(false);
   const pendingImportChannelIdRef = useRef<string | null>(null);
+  /**
+   * 2.5.241: kézi frissítés teljes letöltése alatt a fő lejátszó kép és
+   * hang nélkül vár (playbackActive=false) – a letöltésé minden erőforrás,
+   * és nem indul el magától adás. Az ablak bezárása oldja fel.
+   */
+  const [livePlaybackSuspended, setLivePlaybackSuspended] = useState(false);
   const releaseImportPlaybackHold = useCallback(() => {
     holdLivePlaybackRef.current = false;
+    setLivePlaybackSuspended(false);
     const pending = pendingImportChannelIdRef.current;
     pendingImportChannelIdRef.current = null;
     if (pending) {
@@ -1667,15 +1676,20 @@ export function App() {
         if (cancelled) return;
         catalogPlanRef.current = plan;
         /*
-         * ÁRVA KATALÓGUS (2.5.239): van mentett tartalom, de EGYETLEN
-         * szolgáltató sincs elmentve. Ez félbemaradt törlés nyoma (a régi
-         * kód a nagy IndexedDB-törlést nem várta meg az újratöltés előtt).
-         * Ilyenkor a csatornák NEM térhetnek vissza: a maradványt most
-         * kitakarítjuk, és az app üres állapotból indul.
+         * ÁRVA KATALÓGUS (2.5.239, SZIGORÍTVA 2.5.241): van mentett
+         * tartalom, de EGYETLEN szolgáltató sincs elmentve. Ez CSAK akkor
+         * számít félbemaradt törlésnek, ha a törlés-jelző is ott van a
+         * tárban (a törlés indulásakor kerül be, és csak a sikeres
+         * befejezéskor tűnik el). Korábban a jelző nélkül is takarítottunk,
+         * és egyetlen átmeneti localStorage-olvasási hiba (üresnek látszó
+         * szolgáltatólista) a TELJES katalógus törléséhez vezetett – a néző
+         * ezután a Frissítés gombbal kénytelen volt MINDENT újra letölteni.
+         * Jelző nélkül a mentett tartalomhoz nem nyúlunk.
          */
         if (
           plan
           && providers.length === 0
+          && hasPendingDeleteMarker()
           && (plan.bootChannels.length || plan.hasLive || plan.hasVod || plan.hasSeries)
         ) {
           appLog('Indulás: mentett katalógus szolgáltató nélkül (félbemaradt törlés maradványa) – a tartós tár kiürítése.');
@@ -1689,6 +1703,15 @@ export function App() {
           startBackgroundWork(null);
           setBootProbeDone(true);
           return;
+        }
+        if (
+          plan
+          && providers.length === 0
+          && (plan.bootChannels.length || plan.hasLive || plan.hasVod || plan.hasSeries)
+        ) {
+          // Jelző nélkül ez NEM bizonyított törlés-maradvány: lehet átmeneti
+          // localStorage-hiba is. A több tíz MB-os katalógust nem dobjuk el.
+          appLog('Indulás: mentett katalógus van, de a szolgáltatólista üresnek látszik és törlés-jelző nincs – a tartalom MEGMARAD (óvatos mód).');
         }
         if (!plan || (!plan.bootChannels.length && !plan.hasLive && !plan.hasVod && !plan.hasSeries)) {
           decided = 'empty';
@@ -2850,8 +2873,36 @@ export function App() {
      * A 67 mp-es import alatt bármikor bezárhatják az alkalmazást: ilyenkor a
      * már kész listák megmaradnak, nem kell újra letölteni őket.
      */
+    /*
+     * Futamonként EGYSZER élesedik: ha a néző a letöltés közben bezárta az
+     * ablakot (ő adást akar nézni), a későbbi részadagok már nem állítják
+     * le újra a lejátszást.
+     */
+    let playbackHoldArmedThisRun = false;
     const applyPartial = async (partial: PartialContent): Promise<void> => {
       if (refreshGenerationRef.current !== refreshGeneration) return;
+      /*
+       * 2.5.241: AMÍG A TÉNYLEGES LETÖLTÉS FUT, NEM MEGY ÉLŐ ADÁS.
+       *
+       * A 2-es TV-napló bizonyítéka: a kézi frissítés teljes letöltése alatt
+       * az élő lejátszás magától elindult ([HU] M PLUS), végig futott, és a
+       * videó a 103 ezres filmlista feldolgozása mellett 55-60 mp-es
+       * főszál-leállásokat súlyosbított. A néző kifejezett kérése: amíg a
+       * betöltést nézi, NE induljon el adás magától. Az éppen nézett
+       * csatorna félre van téve, és a betöltő/diagnosztikai ablak
+       * bezárásakor (vagy a „Csatornák megtekintése” gombbal) folytatódik.
+       * A gyors „nincs változás” ellenőrzés ide el sem jut, ott az adás
+       * meg sem szakad.
+       */
+      if (manual && !silent && !playbackHoldArmedThisRun) {
+        playbackHoldArmedThisRun = true;
+        holdLivePlaybackRef.current = true;
+        // A lejátszó kép és hang nélkül vár (ugyanaz a kapu, mint Mozi
+        // nézetben); a kiválasztott csatorna nem változik, az ablak
+        // bezárásakor ugyanaz az adó folytatódik.
+        setLivePlaybackSuspended(true);
+        appLog('Frissítés: az élő lejátszás a letöltés idejére szünetel – az ablak bezárásakor folytatódik.');
+      }
       if (partial.totals) draft.totals = { ...draft.totals, ...partial.totals };
       // Üres szakasz soha nem törölheti a már megjelenített (mentett) listát.
       const currentChannels = channelsRef.current;
@@ -2957,9 +3008,11 @@ export function App() {
 
       // A mentés előtt visszaadjuk a vezérlést a felületnek; a sorozat
       // adagjai pedig befejeződnek, mielőtt az import a következő fázisra lép.
+      // 2.5.241: MessageChannel-lélegzés – a nyers setTimeout(0)-t a webOS
+      // időzítő-fojtása akár 60 mp-re nyújtotta (beragadt folyamatjelző).
       if (refreshGenerationRef.current !== refreshGeneration) return;
       if (partial.channels || partial.movies || partial.series) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        await yieldToUi();
         if (refreshGenerationRef.current !== refreshGeneration) return;
       }
       // ELŐNÉZET (a teljes lista még töltődik): csak megjelenítés, hogy a
@@ -3454,7 +3507,9 @@ export function App() {
     setDiagnosticError(null);
     setDiagnosticProgress(null);
     setDiagnosticFinishedAt(null);
-  }, [cancelDiagnosticFlush, answerRefreshChangePrompt]);
+    // 2.5.241: a letöltés idejére felfüggesztett élő adás innen folytatódik.
+    releaseImportPlaybackHold();
+  }, [cancelDiagnosticFlush, answerRefreshChangePrompt, releaseImportPlaybackHold]);
 
   /*
    * FRISSÍTÉS LEÁLLÍTÁSA – A DIAGNOSZTIKAI ABLAK X GOMBJA (2.5.239).
@@ -3479,7 +3534,10 @@ export function App() {
 
   const closeLastImportDiagnostic = useCallback(() => {
     setLastImportDiagnosticOpen(false);
-  }, []);
+    // 2.5.241: ha a néző a „Folyamat megtekintése” ablakot zárja be, a
+    // félretett élő adás itt folytatódik.
+    releaseImportPlaybackHold();
+  }, [releaseImportPlaybackHold]);
 
   /*
    * A film poszterének megnyitásakor lekért részletes metaadat rákerül a
@@ -4374,8 +4432,9 @@ export function App() {
             customStreamUrl={customStreamUrl}
             customTitle={customStreamTitle}
             /* Élő adás csak a főoldalon (élő nézetben) indul – Mozi/Sorozat
-               nézetben a háttérben sem kép, sem hang nem megy. */
-            playbackActive={activeView === 'live'}
+               nézetben a háttérben sem kép, sem hang nem megy. 2.5.241: kézi
+               frissítés teljes letöltése alatt is áll a lejátszás. */
+            playbackActive={activeView === 'live' && !livePlaybackSuspended}
             onCloseVod={() => {
               // Az OSD piros X-e bezárja a VOD-lejátszót; az App saját
               // teljes képernyős állapotát is azonnal vissza kell állítani,

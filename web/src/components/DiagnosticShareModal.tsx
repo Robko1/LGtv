@@ -54,6 +54,13 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [sentRecord, setSentRecord] = useState<DiagnosticLogRecord | null>(null);
+  /**
+   * 2.5.241: a szerveri lista frissítése LÁTHATÓ állapot. Az ablak nyitáskor
+   * azonnal a helyben tárolt (utolsó ismert) ötös listát mutatja; a Supabase
+   * Edge Function hidegindítása miatt a szerveri frissítés több másodperc is
+   * lehet – eddig ez úgy nézett ki, mintha a lista „darabokban” töltődne be.
+   */
+  const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const [doctorDiagEnabled, setDoctorDiagEnabled] = useState<boolean>(() => isTvDoctorDiagLoggingEnabled());
   const [, setDoctorRefreshTick] = useState(0);
   const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, onClose);
@@ -75,10 +82,13 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     setError('');
     setSentRecord(null);
     // A szerverről csak az utolsó öt azonosítót és dátumot kérjük le, a naplók
-    // teljes tartalma nem kerül vissza a TV-re.
+    // teljes tartalma nem kerül vissza a TV-re. A helyi lista már a nyitás
+    // pillanatában látszik; a szerveri frissítés állapota külön jelzést kap.
+    setHistoryRefreshing(true);
     void listDiagnosticLogHistory()
       .then((records) => setHistory(records))
-      .catch(() => { /* a helyi ötös lista offline is látható marad */ });
+      .catch(() => { /* a helyi ötös lista offline is látható marad */ })
+      .then(() => setHistoryRefreshing(false));
   }, [isOpen]);
 
   /**
@@ -304,7 +314,10 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
           </div>
 
           <div className="shrink-0 overflow-hidden rounded-xl border border-cyan-500/35 bg-[#081329] p-2">
-            <div className="mb-1 flex items-center gap-2 text-sm font-black tracking-wide text-cyan-200"><History className="h-5 w-5 shrink-0" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ</div>
+            <div className="mb-1 flex items-center gap-2 text-sm font-black tracking-wide text-cyan-200">
+              <History className="h-5 w-5 shrink-0" /> UTOLSÓ 5 ELKÜLDÖTT NAPLÓ
+              {historyRefreshing && <span className="ml-auto animate-pulse text-xs font-bold text-slate-400">Frissítés a szerverről…</span>}
+            </div>
             {history.length ? (
               <div className="space-y-1">
                 {history.slice(0, 5).map((record) => (
@@ -330,7 +343,11 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
                   </div>
                 ))}
               </div>
-            ) : <p className="text-base text-slate-500">Még nincs elküldött napló.</p>}
+            ) : (
+              <p className="text-base text-slate-500">
+                {historyRefreshing ? 'A lista letöltése a szerverről folyamatban…' : 'Még nincs elküldött napló.'}
+              </p>
+            )}
           </div>
 
           {notice && <p role="status" className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-center text-xs font-bold leading-tight text-emerald-200">{notice}</p>}

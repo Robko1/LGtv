@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.240';
+export const WEB_VERSION = '2.5.241';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,18 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.241',
+    date: '2026-10-31',
+    changes: [
+      'A frissítés 6%-nál/98%-nál való beragadásának javítása: a mentési és feldolgozási ciklus többé nem függ a webOS időzítőitől (a TV az időzítőket hosszú, gombnyomás nélküli letöltés alatt 60 másodpercenként egyszer engedte futni – a napló szerint a fő szál pontosan 60 000 ms-os periódusokban éledt fel, és a 206 adagos filmmentés örökre beragadt).',
+      'Az ELTELT IDŐ óra a betöltő ablakban időzítő-fojtás alatt is jár (requestAnimationFrame-alapú tartalék).',
+      'A frissítés nem tölti le feleslegesen az egész listát: az árva-katalógus őr mostantól csak kifejezett törlés-jelző esetén takarít – egy átmeneti tárolvasási hiba többé nem törölheti a teljes mentett katalógust.',
+      'Kézi frissítés teljes letöltése alatt nem indul el magától az élő adás: a nézett csatorna félre van téve, és az ablak bezárásakor folytatódik.',
+      'A betöltő ablak X gombja sima fehér (nem piros).',
+      'A kézi napló ablak azonnal a helyi listát mutatja, és külön jelzi, amíg az utolsó 5 elküldött napló a szerverről frissül.',
+    ],
+  },
   {
     version: '2.5.240',
     date: '2026-10-31',
