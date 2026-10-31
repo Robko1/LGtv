@@ -400,8 +400,19 @@ try {
   check(savedMovie.plot === longPlot, 'a teljes plot nem csonkolódik 200 karakterre', savedMovie.plot.length);
   check(JSON.stringify(savedMovie.providerData) === JSON.stringify(rawList), 'a nyers listamezők megmaradnak', savedMovie.providerData);
   check(JSON.stringify(savedMovie.detailProviderData) === JSON.stringify(rawDetail), 'a részletes válasz minden mezője megmarad', Object.keys(savedMovie.detailProviderData || {}));
-  check(savedSeries.seasons.length === 1 && savedSeries.seasons[0].episodes[0].providerData.custom === 'megmarad', 'a sorozat évadai és epizódjai tartósan mentődnek', savedSeries.seasons);
-  check(Boolean(savedSeries.detailProviderData?.episodes), 'a sorozat nyers részletei megmaradnak', savedSeries.detailProviderData);
+  check(
+    savedSeries.seasons.length === 1
+      && savedSeries.seasons[0].episodes[0].title === 'Pilot'
+      && savedSeries.seasons[0].episodes[0].durationMinutes === 42
+      && savedSeries.seasons[0].episodes[0].providerData === undefined,
+    'a sorozat évadai és lejátszáshoz szükséges epizódadatai megmaradnak; a nyers epizód-metaadat nem kerül vissza a memóriába',
+    savedSeries.seasons,
+  );
+  check(
+    savedSeries.detailProviderData === undefined,
+    'a teljes nyers sorozatválasz nem kerül vissza a lejátszási katalógusba',
+    String(savedSeries.detailProviderData),
+  );
 
   /* ====== 5/c. IDEGEN SZOLGÁLTATÓ LISTÁJA NEM KEVEREDIK ================== */
   const strangerVod = await app5.loadVodAsync({ id: 'p2', type: 'xtream', serverUrl: 'http://y', username: 'u2', password: 'p2' });

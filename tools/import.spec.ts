@@ -343,11 +343,9 @@ async function main() {
   const dune = content.movies.find((movie) => movie.title === 'Dűne');
   check('a film stream URL-je a kiterjesztéssel', dune?.streamUrl === `${base}/movie/teszt/titok/501.mkv`, dune?.streamUrl || '');
   check('a film kategórianeve megvan', dune?.categoryName === 'Filmek', dune?.categoryName || '');
-  check('a részletes VOD-kérés csak a betöltött első filmekre fut', vodInfoRequests === 2, `(${vodInfoRequests})`);
-  check('a film részletes játékideje megérkezett', dune?.durationMinutes === 120, String(dune?.durationMinutes));
-  check('a film valódi posztere megérkezett', dune?.poster === 'http://logo/detail-501.jpg', dune?.poster || '');
-  check('a hangsávnyelvek normalizálódtak', JSON.stringify(dune?.audioLanguages) === JSON.stringify(['Magyar', 'Angol']), JSON.stringify(dune?.audioLanguages));
-  check('a feliratnyelvek normalizálódtak', JSON.stringify(dune?.subtitleLanguages) === JSON.stringify(['Magyar', 'Angol']), JSON.stringify(dune?.subtitleLanguages));
+  check('a teljes import nem indít elemenkénti VOD-részletkéréseket', vodInfoRequests === 0, `(${vodInfoRequests})`);
+  check('a film posztere az alaplista adata marad', dune?.poster === 'http://logo/dune.jpg', dune?.poster || '');
+  check('a részletes filmadatok nincsenek előre lekérve', !dune?.durationMinutes && !dune?.audioLanguages?.length && !dune?.subtitleLanguages?.length);
 
   /* --- 1b. VOD-végpont regressziók: a kategória-/bulk-hiba nem törli a live-ot --- */
   const categoryFallbackFake = await startFakeServer({ failVodCategories: true, failSeriesCategories: true });
@@ -386,9 +384,9 @@ async function main() {
 
   const shogun = content.series[0];
   check('a sorozat azonosítója megvan', shogun?.seriesId === 901, String(shogun?.seriesId));
-  check('a sorozat részletes játékideje megérkezett', shogun?.durationMinutes === 60, String(shogun?.durationMinutes));
-  check('hiányzó sorozat-hangsávnál Ismeretlen látszik', JSON.stringify(shogun?.audioLanguages) === JSON.stringify(['Ismeretlen']), JSON.stringify(shogun?.audioLanguages));
-  check('hiányzó sorozat-feliratnál Ismeretlen látszik', JSON.stringify(shogun?.subtitleLanguages) === JSON.stringify(['Ismeretlen']), JSON.stringify(shogun?.subtitleLanguages));
+  check('a sorozat az alaplistából érkezik részletes API-kérés nélkül', shogun?.durationMinutes === 0, String(shogun?.durationMinutes));
+  check('a sorozat hangsávjai csak külön részletbetöltés után jelennek meg', !shogun?.audioLanguages?.length);
+  check('a sorozat feliratai csak külön részletbetöltés után jelennek meg', !shogun?.subtitleLanguages?.length);
 
   /* --- 2. mentés és visszatöltés --- */
   console.log('\nMentés és visszatöltés:');
@@ -398,20 +396,16 @@ async function main() {
   check('a mentett csatornaszám helyes', summary?.totals.live === 4, JSON.stringify(summary?.totals));
 
   const live = store.loadLive();
-  const vod = store.loadVod(content.provider);
-  const ser = store.loadSeries(content.provider);
-  check('4 csatorna visszatöltve', live.channels.length === 4, `(${live.channels.length})`);
-  check('2 film visszatöltve', vod.movies.length === 2, `(${vod.movies.length})`);
-  check('1 sorozat visszatöltve', ser.series.length === 1, `(${ser.series.length})`);
-  check('a játékidő tartósan megmaradt', vod.movies.find((movie) => movie.title === 'Dűne')?.durationMinutes === 120);
-  check('a hangsávnyelv tartósan megmaradt', JSON.stringify(vod.movies.find((movie) => movie.title === 'Dűne')?.audioLanguages) === JSON.stringify(['Magyar', 'Angol']));
-  check('a feliratnyelv tartósan megmaradt', JSON.stringify(vod.movies.find((movie) => movie.title === 'Dűne')?.subtitleLanguages) === JSON.stringify(['Magyar', 'Angol']));
-  check('a sorozat metaadata tartósan megmaradt', ser.series[0]?.durationMinutes === 60 && JSON.stringify(ser.series[0]?.audioLanguages) === JSON.stringify(['Ismeretlen']));
+  check('a helyi induló cache csak a két magyar csatornát adja vissza', live.channels.length === 2 && live.channels.every((channel) => channel.countryCode === 'HU'), `(${live.channels.length})`);
   check(
-    'a visszatöltött stream URL is helyes',
+    'a visszatöltött magyar induló csatorna stream URL-je helyes',
     live.channels.find((channel) => channel.name === 'M1 HD')?.streamUrl === `${base}/live/teszt/titok/101.ts`
   );
-  check('a kategóriák is visszatöltődtek', live.categories.length === 7, `(${live.categories.length})`);
+  check('a teljes kategórialista az induló cache fejlécében megmarad', live.categories.length === 7, `(${live.categories.length})`);
+  check(
+    'VOD és sorozat nem kerül a localStorage-ba, ha az IndexedDB nem érhető el',
+    store.loadVod(content.provider).movies.length === 0 && store.loadSeries(content.provider).series.length === 0,
+  );
 
   /*
    * Tároló-takarítás: félbe maradt (elárvult) adag nem maradhat bent, a
@@ -423,7 +417,7 @@ async function main() {
   const beforeSweep = store.loadLive().channels.length;
   const removed = store.sweepStorage();
   check('a takarítás törölte az elárvult adagot', !storageFiles.has(orphanKey), `(törölt: ${removed})`);
-  check('a takarítás nem érintette az érvényes listát', beforeSweep === 4 && store.loadLive().channels.length === 4);
+  check('a takarítás nem érintette a kétcsatornás magyar induló listát', beforeSweep === 2 && store.loadLive().channels.length === 2);
 
   store.clearContent();
   check('törlés után üres a tár', store.readSummary() === null && store.loadLive().channels.length === 0);

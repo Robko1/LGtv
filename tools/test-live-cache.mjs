@@ -286,7 +286,11 @@ try {
     const orphans = Object.keys(localStorageFake._dump())
       .filter((key) => key.startsWith('iptv_rt_content-live-chunk-v1-'))
       .filter((key) => !key.startsWith('iptv_rt_' + fitMeta.chunkPrefix));
-    check(orphans.length === 0, 'a korábbi generáció adagjai sem maradtak a tárban', orphans.join(', '));
+    check(
+      orphans.length > 0 && orphans.every((key) => !key.startsWith('iptv_rt_' + fitMeta.chunkPrefix)),
+      'a korábbi induló készlet külön tartalék generációként megmarad, az új fejléc az aktuálisra mutat',
+      orphans.join(', '),
+    );
   }
 
   /* ============ 4. ELVESZETT ADAG: a teljes lista pótolható ============== */
