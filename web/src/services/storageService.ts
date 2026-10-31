@@ -19,9 +19,33 @@ const FOLDERS_KEY = 'iptv_rt_folders_v1';
 const HISTORY_KEY = 'iptv_rt_history_v1';
 const UI_STATE_KEY = 'iptv_rt_ui_state_v1';
 const CHANNEL_ORDER_PREFIX = 'iptv_rt_channel_order_v1_';
+/*
+ * TÖRÖLT CSATORNÁK NYILVÁNTARTÁSA (2.5.228).
+ *
+ * A felhasználó panasza: a kézzel kitörölt csatornák a Frissítés gomb után
+ * visszakerültek a listába. A törlés eddig csak a memóriabeli listából vette
+ * ki a csatornát – a szolgáltató friss listája pedig újra tartalmazta.
+ * Mostantól a törlés tartós jegyzékbe kerül (providerenként), és a friss
+ * lista minden betöltési/frissítési ponton átmegy ezen a szűrőn.
+ */
+const DELETED_CHANNELS_PREFIX = 'iptv_rt_deleted_channels_v1_';
+/** Biztonsági felső korlát, hogy a jegyzék sose nőhessen a localStorage kárára. */
+const DELETED_CHANNELS_LIMIT = 5000;
+
+/** Egy törölt csatorna ismertetőjegyei – a frissítés utáni biztos felismeréshez. */
+export interface DeletedChannelMark {
+  id: string;
+  streamUrl?: string;
+  /** `név (kisbetűs)|kategória` kulcs – ha az azonosító a frissítésben megváltozna. */
+  nameKey?: string;
+}
 
 function channelOrderKey(providerId: string): string {
   return CHANNEL_ORDER_PREFIX + encodeURIComponent(providerId);
+}
+
+function deletedChannelsKey(providerId: string): string {
+  return DELETED_CHANNELS_PREFIX + encodeURIComponent(providerId);
 }
 
 // Régi (már nem használt) kulcsok: a gyorsítótár törlésekor ezeket is eltakarítjuk.
@@ -198,6 +222,40 @@ export const storageService = {
   clearChannelOrder(providerId: string): void {
     try {
       localStorage.removeItem(channelOrderKey(providerId));
+    } catch {
+      /* nem kritikus */
+    }
+  },
+
+  /** A kézzel törölt csatornák tartós jegyzéke (providerenként). */
+  getDeletedChannels(providerId: string): DeletedChannelMark[] {
+    try {
+      const value = localStorage.getItem(deletedChannelsKey(providerId));
+      const parsed = value ? JSON.parse(value) : [];
+      return Array.isArray(parsed)
+        ? parsed.filter((mark): mark is DeletedChannelMark => Boolean(mark) && typeof mark.id === 'string')
+        : [];
+    } catch {
+      return [];
+    }
+  },
+
+  /** Egy törölt csatorna feljegyzése – a Frissítés többé nem hozhatja vissza. */
+  rememberDeletedChannel(providerId: string, mark: DeletedChannelMark): void {
+    try {
+      const current = storageService.getDeletedChannels(providerId);
+      if (current.some((item) => item.id === mark.id)) return;
+      const next = [...current, mark].slice(-DELETED_CHANNELS_LIMIT);
+      localStorage.setItem(deletedChannelsKey(providerId), JSON.stringify(next));
+    } catch (e) {
+      console.error('Failed to save deleted channels:', e);
+    }
+  },
+
+  /** A törölt csatornák jegyzékének ürítése (pl. a lista újbóli hozzáadásakor). */
+  clearDeletedChannels(providerId: string): void {
+    try {
+      localStorage.removeItem(deletedChannelsKey(providerId));
     } catch {
       /* nem kritikus */
     }

@@ -149,6 +149,33 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     seriesReturnSnapshot = null;
   }, []);
 
+  /*
+   * KILÉPÉSKOR VISSZA AZ ELEJÉRE – CSAK 25 KÁRTYA MARAD (2.5.228).
+   *
+   * A felhasználó kérése: a Sorozatok nézetből kilépve a rács kezdjen
+   * elölről, és csak az első 25 poszter maradjon a DOM-ban, hogy a TV
+   * memóriáját semmi ne terhelje. Kivétel az epizód elindítása: olyankor a
+   * visszatéréshez megjegyzett pozíció (seriesReturnSnapshot) megmarad, és a
+   * lejátszó bezárása után a néző ugyanott folytatja a böngészést.
+   */
+  const wasActiveRef = useRef(isActive);
+  useEffect(() => {
+    if (wasActiveRef.current && !isActive && !seriesReturnSnapshot) {
+      setVisibleCount(PAGE_SIZE);
+      if (seriesGridRef.current) seriesGridRef.current.scrollTop = 0;
+      preloadedThroughRef.current = 0;
+      setIsCategoryMenuOpen(false);
+      setSelectedSeriesId('');
+    }
+    if (!wasActiveRef.current && isActive) {
+      // Visszatérés lejátszásból: a pozíció él (a nézet a DOM-ban maradt),
+      // a megjegyzett pillanatkép pedig elfogy, hogy a KÖVETKEZŐ kilépés
+      // már tényleg az elejére állítson vissza.
+      seriesReturnSnapshot = null;
+    }
+    wasActiveRef.current = isActive;
+  }, [isActive]);
+
   const visibleSeries = useMemo(() => filteredSeries.slice(0, visibleCount), [filteredSeries, visibleCount]);
 
   useEffect(() => {
