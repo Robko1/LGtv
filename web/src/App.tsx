@@ -2881,6 +2881,7 @@ export function App() {
     let playbackHoldArmedThisRun = false;
     const applyPartial = async (partial: PartialContent): Promise<void> => {
       if (refreshGenerationRef.current !== refreshGeneration) return;
+      let liveSectionCompleted = false;
       /*
        * 2.5.241: AMÍG A TÉNYLEGES LETÖLTÉS FUT, NEM MEGY ÉLŐ ADÁS.
        *
@@ -2948,7 +2949,10 @@ export function App() {
          * betöltés végén másikra váltana, vagy egy külföldi adót indítana.
          */
         const liveComplete = partial.liveComplete === true || partial.preview !== true;
-        if (liveComplete) setLiveListComplete(true);
+        if (liveComplete) {
+          setLiveListComplete(true);
+          liveSectionCompleted = true;
+        }
         /*
          * A betöltőképernyő 5/7 lépése AKKOR kész, amikor a szolgáltató ÉLŐ
          * listája ténylegesen megérkezett – nem előbb, és nem időzítőre.
@@ -2957,15 +2961,6 @@ export function App() {
           bootScreenPhase('live', `${orderedVisibleChannels.length} élő csatorna betöltve (${provider.name}).`);
         }
         keepOrMoveActiveChannel(orderedVisibleChannels, false, { allowSwitch: liveComplete });
-        /*
-         * A felugró ablak az ÉLŐ szakasz befejezésekor jelenik meg (a filmek és
-         * sorozatok még töltődnek) – nem a hiányos előnézet közben, mert akkor
-         * a néző elől eltakarná a már nézhető adást a betöltés legelején.
-         */
-        if (manual && !silent && liveComplete && partial.channels.length > 0 && !refreshLivePromptShownRef.current) {
-          refreshLivePromptShownRef.current = true;
-          setRefreshLivePromptOpen(true);
-        }
       }
       if (partial.liveCategories) {
         draft.liveCategories = partial.liveCategories;
@@ -3015,6 +3010,31 @@ export function App() {
         await yieldToUi();
         if (refreshGenerationRef.current !== refreshGeneration) return;
       }
+
+      /*
+       * AZ IMPORT KÉRDÉSE CSAK A KÉSZ MAGYAR TV-FŐOLDAL UTÁN JELENHET MEG.
+       * A csatornák és kategóriák állapotba kerülése után két képkockát adunk
+       * a főoldal kirajzolására, majd ellenőrizzük a választható magyar adót.
+       * Így a kérdés nem takarja el a feldolgozást, és a TV-nézés gomb már
+       * a használható magyar csatornalistára visz.
+       */
+      if (liveSectionCompleted && manual && !silent && !refreshLivePromptShownRef.current) {
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+        });
+        if (refreshGenerationRef.current !== refreshGeneration) return;
+        const readyHungarianChannel = firstPlayableHungarianChannel(channelsRef.current);
+        if (
+          readyHungarianChannel
+          && isHungarianChannel(readyHungarianChannel)
+          && activeView === 'live'
+          && !refreshLivePromptShownRef.current
+        ) {
+          refreshLivePromptShownRef.current = true;
+          setRefreshLivePromptOpen(true);
+        }
+      }
+
       // ELŐNÉZET (a teljes lista még töltődik): csak megjelenítés, hogy a
       // néző azonnal választhasson csatornát. Félkész listát NEM mentünk a
       // tárolóba – így nem maradhat hiányos adat a TV-n.
