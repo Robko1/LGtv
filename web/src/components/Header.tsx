@@ -51,36 +51,30 @@ const HeaderComponent: React.FC<HeaderProps> = ({
   const accentText = accentTextClass[liveAccent];
 
   /*
-   * 2.5.240: A FEJLÉC-IKONOK A HAT SZÍNGOMB (1–6) SZÍNÉT VESZIK FEL.
+   * 2.5.242: AZ IKONOK MÖGÖTTI KORONG VESZI FEL A HAT SZÍNGOMB (1–6) SZÍNÉT.
    *
-   * A felhasználó kérése: a TV / Menü / Sorozatok / Mozi ikon is váltson
-   * színt a távirányító 1–6 gombjával (ugyanazok a színek, mint az óránál),
-   * és a 2.5.236-os világos háttérkorong tűnjön el az ikonok mögül.
-   *
-   * Megvalósítás: CSS-szűrőlánc (grayscale → sepia → hue-rotate) színezi át
-   * magát a PNG ikonrajzot. A 3D árnyalatok és részletek MEGMARADNAK (nem
-   * sziluett!), csak a színviláguk áll át a kiemelőszínre. Előnézeten
-   * ellenőrzött paraméterek mind a hat színre.
+   * A néző pontosított kérése: az ikonrajz maradjon az eredeti (sötét,
+   * részletes render), a mögötte lévő – korábban fehér/világos – korong
+   * színe viszont kövesse a távirányító 1–6 gombjával választott
+   * kiemelőszínt (ugyanaz a hat szín, mint az óránál). A fehér előbeállítás
+   * a 2.5.236-os világos korongot adja. A fényes hatást ugyanaz a belső
+   * fény + vetett árnyék adja, mint korábban; a sötét ikon a színes
+   * korongon is jól kivehető marad.
    */
-  const accentIconFilter: Record<NonNullable<HeaderProps['liveAccent']>, string> = {
-    yellow: 'grayscale(1) sepia(1) saturate(3) hue-rotate(-8deg) brightness(1.35)',
-    red: 'grayscale(1) sepia(1) saturate(5) hue-rotate(-45deg) brightness(1.25)',
-    blue: 'grayscale(1) sepia(1) saturate(3) hue-rotate(180deg) brightness(1.35)',
-    pink: 'grayscale(1) sepia(1) saturate(3) hue-rotate(290deg) brightness(1.35)',
-    green: 'grayscale(1) sepia(1) saturate(3) hue-rotate(75deg) brightness(1.25)',
-    white: 'grayscale(1) brightness(1.6)',
+  const accentDiscClass: Record<NonNullable<HeaderProps['liveAccent']>, string> = {
+    yellow: 'from-amber-200 via-amber-400 to-amber-600',
+    red: 'from-red-300 via-red-500 to-red-700',
+    blue: 'from-blue-300 via-blue-500 to-blue-700',
+    pink: 'from-pink-200 via-pink-400 to-pink-600',
+    green: 'from-green-300 via-green-500 to-green-700',
+    white: 'from-slate-100 via-slate-300 to-slate-400',
   };
   const accentIcon = (dataUrl: string) => (
     <span
       aria-hidden="true"
-      className="h-[calc(100%-2px)] aspect-square shrink-0 flex items-center justify-center pointer-events-none select-none"
+      className={`h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b ${accentDiscClass[liveAccent]} shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none`}
     >
-      <img
-        src={dataUrl}
-        alt=""
-        className="w-[94%] h-[94%] object-contain"
-        style={{ filter: accentIconFilter[liveAccent] }}
-      />
+      <img src={dataUrl} alt="" className="w-[94%] h-[94%] object-contain" />
     </span>
   );
 
@@ -136,7 +130,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             aria-label="TV"
             title="TV"
           >
-            {/* 2.5.240: háttérkorong nélkül; az ikon a hat színgomb színét veszi fel. */}
+            {/* 2.5.242: az ikon mögötti korong a hat színgomb színét veszi fel. */}
             {accentIcon(TV_ICON_DATA_URL)}
             <span>TV</span>
           </button>
@@ -158,7 +152,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             title="Menü"
             aria-label="Menü"
           >
-            {/* 2.5.240: háttérkorong nélkül; az ikon a hat színgomb színét veszi fel. */}
+            {/* 2.5.242: az ikon mögötti korong a hat színgomb színét veszi fel. */}
             {accentIcon(MENU_GEAR_ICON_DATA_URL)}
             <span>Menü</span>
           </button>
@@ -175,7 +169,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
           }`}
         >
-          {/* 2.5.240: háttérkorong nélkül; az ikon a hat színgomb színét veszi fel. */}
+          {/* 2.5.242: az ikon mögötti korong a hat színgomb színét veszi fel. */}
           {accentIcon(SOROZAT_ICON_DATA_URL)}
           <span>Sorozatok</span>
         </button>
@@ -191,7 +185,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
           }`}
         >
-          {/* 2.5.240: háttérkorong nélkül; az ikon a hat színgomb színét veszi fel. */}
+          {/* 2.5.242: az ikon mögötti korong a hat színgomb színét veszi fel. */}
           {accentIcon(MOZI_ICON_DATA_URL)}
           <span>Mozi</span>
         </button>
