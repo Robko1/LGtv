@@ -63,10 +63,14 @@ function startFakeServer(options: {
   port: number;
   /** A kategórianevek menet közbeni átírása (változásvizsgálat próbájához). */
   setLiveCategoryNames: (names: Array<{ category_id: string; category_name: string }>) => void;
+  /** A filmlista menet közbeni átírása (változott film részletfrissítés-próbájához). */
+  setVodStreams: (streams: Array<Record<string, unknown>>) => void;
 }> {
   let listeningPort = 0;
   /** A frissítés-próba menet közben átírhatja (a szolgáltató változását utánozza). */
   let dynamicLiveCategoryNames: Array<{ category_id: string; category_name: string }> | null = null;
+  /** A frissítés-próba menet közben átírhatja a filmlistát (változott film). */
+  let dynamicVodStreams: Array<Record<string, unknown>> | null = null;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     if (!url.pathname.endsWith('/player_api.php')) {
@@ -127,7 +131,7 @@ function startFakeServer(options: {
           json(res, { error: 'bulk VOD végpont tiltva' });
           break;
         }
-        json(res, options.vodCount
+        json(res, dynamicVodStreams ?? (options.vodCount
           ? Array.from({ length: options.vodCount }, (_, i) => ({
               name: `Nagy film ${i + 1}`,
               stream_id: 700000 + i,
@@ -137,7 +141,7 @@ function startFakeServer(options: {
               rating: '7.0',
               added: '1690000000',
             }))
-          : VOD_STREAMS);
+          : VOD_STREAMS));
         break;
       case 'get_vod_info':
         vodInfoRequests++;
@@ -194,6 +198,9 @@ function startFakeServer(options: {
         port: listeningPort,
         setLiveCategoryNames: (names) => {
           dynamicLiveCategoryNames = names;
+        },
+        setVodStreams: (streams) => {
+          dynamicVodStreams = streams;
         },
       });
     });
@@ -806,6 +813,38 @@ async function main() {
         && !requestedActions.includes('get_series_info')
         && Boolean(staleState && Date.now() - staleState.fullSyncAt < 60_000),
       `(kérések: ${requestedActions.join(', ')})`
+    );
+
+    /*
+     * 5) VÁLTOZOTT FILM → FRISS RÉSZLETADAT (2.5.235).
+     *
+     * Ha egy meglévő film alapadata (ujjlenyomata) megváltozik a
+     * szolgáltatónál, a frissítés nem tarthatja meg a RÉGI részletes adatot
+     * (elavult poszter/leírás): a változott elemre újra le kell kérni a
+     * get_vod_info részleteket, a kereten belül.
+     */
+    freshFake.setVodStreams([
+      { name: 'Dűne', stream_id: 501, container_extension: 'mkv', category_id: '20', stream_icon: 'http://logo/dune-v2.jpg', rating: '8.5', added: '1690000000' },
+      { name: 'Avatar', stream_id: 502, container_extension: 'mp4', category_id: '20', stream_icon: '', rating: '8.1', added: '1690000000' },
+    ]);
+    requestedActions.length = 0;
+    const changedMovieResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    const changedMovie = 'content' in changedMovieResult
+      ? changedMovieResult.content.movies.find((movie: { title: string }) => movie.title === 'Dűne')
+      : undefined;
+    check(
+      'változott film: friss részletkérés fut (get_vod_info a módosult elemre)',
+      'content' in changedMovieResult
+        && requestedActions.filter((action) => action === 'get_vod_info').length === 1
+        && !requestedActions.includes('get_series_info'),
+      `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
+    );
+    check(
+      'változott film: a részletes poszter/leírás is frissül (nem marad elavult adat)',
+      Boolean(changedMovie)
+        && (changedMovie as { poster?: string } | undefined)?.poster === 'http://logo/detail-501.jpg'
+        && Boolean((changedMovie as { detailProviderData?: unknown } | undefined)?.detailProviderData),
+      JSON.stringify({ poster: (changedMovie as { poster?: string } | undefined)?.poster })
     );
 
     await new Promise<void>((resolve) => freshFake.server.close(() => resolve()));

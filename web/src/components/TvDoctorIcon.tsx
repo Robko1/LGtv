@@ -60,51 +60,62 @@ export const TvDoctorIcon: React.FC<TvDoctorIconProps> = ({
       className={`pointer-events-none select-none shrink-0 ${disabled ? 'opacity-65' : ''} ${className}`}
     >
       {/*
-        2.5.229: A TV Doktor megjelenése a felhasználó által küldött képből
-        készült kör alakú embléma (a doktor fejével együtt, körbevágva).
+        2.5.235: A TV-fotók szerint az állapotgyűrű eddig a kép FÖLÉ került,
+        ezért a doktor fejét/vállát (ami a jelvény körén túlnyúlik) a zöld
+        gyűrű „elvágta”, a margó nélküli (0–64) kép pedig kilógott a
+        főoldali sor lekerekített helyéről. Javítás:
+        - a derengés, az állapotgyűrű és a pulzáló kör a kép MÖGÉ kerül,
+          így a doktor alakja természetesen takarja őket (a figura a gyűrű
+          ELŐTT áll, semmi nem vágja el a fejét);
+        - a kép belső margót kap (4px a 64-es dobozban), így az ikon
+          hiánytalanul elfér a számára kijelölt helyen.
+        A kör középpontja/sugara a 176×176-os emblémaforrás jelvényköréhez
+        igazítva: középpont (87, 97), sugár 76 → a 4/3 eltolású, 56-os
+        méretű képen cx=31.7, cy=33.9, jelvénysugár≈24.2.
         Az SVG keret és a data-* jelzők változatlanok – a felület és a
-        tesztek erre épülnek. Az állapotot a gyűrű mutatja:
+        tesztek erre épülnek. Az állapot színe:
         zöld = a TV Doktor már kezelte, ezüst = készenlét, halvány = kikapcsolva.
       */}
       {/* Állapotjelző derengés az embléma köre mögött */}
       <circle
-        cx="31.9"
-        cy="36.1"
-        r="27.8"
+        cx="31.7"
+        cy="33.9"
+        r="25.8"
         fill={isGreen ? '#10b981' : '#64748b'}
         opacity={active ? 0.55 : 0.3}
       />
-      <image
-        href={TV_DOCTOR_ICON_DATA_URL}
-        xlinkHref={TV_DOCTOR_ICON_DATA_URL}
-        x="0"
-        y="0"
-        width="64"
-        height="64"
-        preserveAspectRatio="xMidYMid meet"
-        opacity={disabled ? 0.8 : 1}
-      />
-      {/* Állapotgyűrű az embléma pereme mentén */}
+      {/* Állapotgyűrű a jelvény pereme körül – a kép MÖGÖTT, hogy a doktor
+          feje/válla takarja, ne pedig fordítva */}
       <circle
-        cx="31.9"
-        cy="36.1"
-        r="27.4"
+        cx="31.7"
+        cy="33.9"
+        r="25.3"
         fill="none"
         stroke={isGreen ? '#34d399' : '#94a3b8'}
-        strokeWidth="1.7"
+        strokeWidth="1.8"
         strokeOpacity="0.95"
       />
       {active && (
         <circle
-          cx="31.9"
-          cy="36.1"
-          r="27.9"
+          cx="31.7"
+          cy="33.9"
+          r="27"
           fill="none"
           stroke="#38bdf8"
           strokeWidth="1.5"
           className="animate-pulse"
         />
       )}
+      <image
+        href={TV_DOCTOR_ICON_DATA_URL}
+        xlinkHref={TV_DOCTOR_ICON_DATA_URL}
+        x="4"
+        y="3"
+        width="56"
+        height="56"
+        preserveAspectRatio="xMidYMid meet"
+        opacity={disabled ? 0.8 : 1}
+      />
     </svg>
   );
 };
