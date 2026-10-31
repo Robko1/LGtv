@@ -140,6 +140,7 @@ export function seasonsFromSeriesInfo(
         const durationMinutes = parseEpisodeRuntimeMinutes(episode.info || episode);
         return {
           id: `ep-${series.id}-${episode.id ?? index}`,
+          episodeId: episode.id ?? '',
           episodeNumber: Number(episode.episode_num ?? index + 1),
           seasonNumber: Number(episode.season ?? seasonKey),
           title: String(episode.title || `${index + 1}. rész`),
