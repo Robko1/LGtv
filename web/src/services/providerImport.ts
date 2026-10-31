@@ -1962,7 +1962,7 @@ async function refreshXtreamIncremental(
     }
   }
 
-remove forced deep flow  /*
+/*
    * Meglévő katalógusnál a tárolt adatok már fent beolvasásra kerültek.
    * A friss indexlisták letöltése most párhuzamosan futhat a kategória-
    * ellenőrzés utáni további feldolgozással.
