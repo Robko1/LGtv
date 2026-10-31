@@ -4935,25 +4935,11 @@ export function App() {
             const orderedChannels = hungaryFirst(partial.channels);
             setChannels(orderedChannels);
             channelsRef.current = orderedChannels;
-            /*
-             * A korábban nézett csatornát ne írjuk felül az import első
-             * csatornájával.
-             *
-             * FONTOS: a csatornák TÖBB RÉSZLETBEN érkeznek, és az első adag
-             * csak az első 1500 csatornát tartalmazza. Korábban már ennél az
-             * előnézetnél eldőlt a kijelölés, ezért ha a mentett csatorna az
-             * 1500. után volt, a program „elveszettnek” hitte, és átugrott a
-             * lista első csatornájára – a néző ezt úgy látta, hogy betöltés
-             * közben magától másik csatornára vált. Ezért a kijelölésről csak
-             * a TELJES (nem előnézet) lista után döntünk; addig a nézett
-             * csatorna változatlan marad.
-             */
-            /*
-             * Az első betöltésnél is ugyanaz a szabály: amíg a lista csak
-             * előnézet (hiányos), a lejátszó nem indíthat adást a listából –
-             * különben a nyers első, gyakran külföldi csatorna indulna el.
-             * A döntés a teljes élő lista (liveComplete) megérkezésekor lesz.
-             */
+             /*
+              * A magyar részlista a magyar adókra nézve teljes, ezért abból
+              * biztonságosan kiválasztható magyar csatorna. A teljes lista
+              * később hozzáadja a többi ország csatornáit.
+              */
             setLiveListComplete(partial.liveComplete === true || partial.preview !== true);
             // A magyar részlista már nézhető, de a teljes TV-lista még készül.
             // Más részleges (nem teljes) csatornafrissítésből nem választunk.
