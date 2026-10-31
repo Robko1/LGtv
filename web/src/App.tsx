@@ -700,15 +700,9 @@ export function App() {
       const watchedId = activeChannelIdRef.current;
       if (watchedId && candidateList.some((channel) => channel.id === watchedId)) return;
       /*
-       * HIÁNYOS (ELŐNÉZET) LISTA: ilyenkor TILOS csatornát választani.
-       *
-       * A betöltés első 1500 csatornás adagja még nem a teljes lista. Ha ebből
-       * választanánk, a betöltés végén (a teljes listával) újra kellene
-       * választani – a néző szeme előtt váltana a program. Ha pedig az első
-       * adagban egyáltalán nincs magyar adó, a lista első (külföldi)
-       * csatornája indulna el: pontosan ez volt a „más ország csatornáját
-       * játssza le” hiba. Ezért előnézetből NEM döntünk; a döntés a teljes
-       * élő lista megérkezésekor (liveComplete) történik.
+       * Részleges listából csak magyar csatornát választunk. A magyar
+       * részlista már teljes a magyar adókra nézve; külföldi tartalékot csak
+       * a teljes szolgáltatói lista megérkezése után engedünk.
        */
       const fallback = firstPlayableHungarianChannel(candidateList);
       if (!fallback || fallback.id === watchedId) return;
@@ -991,14 +985,8 @@ export function App() {
   }, [channels]);
 
   /*
-   * AZ ÉLŐ LISTA TELJES-E?
-   *
-   * A betöltés közben az első 1500 csatornás adag már a felületre kerül, de a
-   * lista még hiányos. Amíg hiányos, a program NEM választ csatornát a
-   * listából: különben a lista első (gyakran külföldi) adóját indítaná el, vagy
-   * a betöltés végén másik csatornára váltana. A döntés a teljes élő lista
-   * megérkezésekor történik, és mindig a magyar sorrend első lejátszható
-   * csatornájára esik.
+   * A teljes szolgáltatói élő lista elkészült-e? A magyar részlista már
+   * megjeleníthető és nézhető, de ettől a többi ország csatornái még készülnek.
    */
   const [liveListComplete, setLiveListComplete] = useState(true);
 
@@ -2807,9 +2795,8 @@ export function App() {
     setRefreshLivePromptOpen(false);
     refreshLivePromptShownRef.current = false;
     /*
-     * A betöltés alatt a lista először HIÁNYOS (első 1500 csatorna). Ilyenkor
-     * nem választunk csatornát, nehogy a lista első – gyakran külföldi –
-     * adója induljon el, és a betöltés végén újra kelljen váltani.
+     * Import közben a teljes lista még készül. Először a teljes magyar
+     * csatornacsoport jelenik meg, a többi adó feldolgozása a háttérben fut.
      */
     setLiveListComplete(false);
     diagnosticFinishedRef.current = false;
