@@ -116,6 +116,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
    */
   const [pendingDeleteProviderId, setPendingDeleteProviderId] = useState<string | null>(null);
   const [pendingClearCache, setPendingClearCache] = useState(false);
+  /** Folyamatban lévő teljes törlés – a gomb ezalatt nem nyomható meg újra. */
+  const [clearingCache, setClearingCache] = useState(false);
   const [isSupabasePairingOpen, setIsSupabasePairingOpen] = useState(false);
   const pairingBoxRef = useRef<HTMLDivElement | null>(null);
   const [, setDoctorUiTick] = useState(0);
@@ -626,8 +628,19 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   if (!isOpen) return null;
 
   const handleClearCache = () => {
-    storageService.clearCache();
-    window.location.reload();
+    /*
+     * TELJES TÖRLÉS – MEGVÁRVA (2.5.239). Korábban a törlés csak ELINDULT,
+     * és az azonnali újratöltés a lassú TV-n megszakította: a csatornák a
+     * „törlés” után is visszajöttek a tartós tárból, miközben a szolgáltató
+     * már eltűnt. Most az újratöltés CSAK a tényleges kiürülés után fut
+     * (biztonsági felső korlát: 30 mp, hogy beragadt tárnál se álljon meg).
+     */
+    if (clearingCache) return;
+    setClearingCache(true);
+    const safetyCap = new Promise<void>((resolve) => { window.setTimeout(resolve, 30000); });
+    void Promise.race([storageService.clearCacheAsync(), safetyCap])
+      .catch(() => { /* a törlés hibája nem akadályozhatja az újratöltést */ })
+      .then(() => window.location.reload());
   };
 
   /**
@@ -933,14 +946,16 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                     <button
                       autoFocus
                       onClick={handleClearCache}
-                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95"
+                      disabled={clearingCache}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95 disabled:opacity-60"
                     >
                       <Trash2 className="w-4 h-4" />
-                      <span>Igen, törlés</span>
+                      <span>{clearingCache ? 'Törlés folyamatban… (a tár kiürítése)' : 'Igen, törlés'}</span>
                     </button>
                     <button
                       onClick={() => setPendingClearCache(false)}
-                      className="flex-1 py-2.5 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95"
+                      disabled={clearingCache}
+                      className="flex-1 py-2.5 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95 disabled:opacity-60"
                     >
                       Mégse
                     </button>

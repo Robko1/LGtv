@@ -2150,6 +2150,14 @@ export interface RefreshChangeSignal {
   counts: { live: number; vod: number; series: number };
   previousFingerprint: string | null;
   fingerprint: string;
+  /**
+   * Miért kell a megerősítés:
+   *  • 'kategoria-valtozas' – a szolgáltató kategórialistája megváltozott;
+   *  • 'teljes-ellenorzes' – a néző kérte a teljes, elemenkénti összevetést
+   *    (2 percen belüli második Frissítés gombnyomás), ami a nagy listák
+   *    letöltésével jár. Semmilyen nagy letöltés nem indul Igen nélkül.
+   */
+  reason: 'kategoria-valtozas' | 'teljes-ellenorzes';
 }
 
 export interface RefreshOptions {
@@ -2280,9 +2288,27 @@ async function refreshXtreamIncremental(
       counts: quickCheck.counts,
       previousFingerprint: syncState.fingerprint,
       fingerprint: quickFingerprint,
+      reason: 'kategoria-valtozas',
     });
     if (!proceed) {
       logProviderEvent('A szolgáltató kínálata megváltozott, de a letöltést a néző elhalasztotta – semmi nem töltődött le.');
+      return { cancelled: true, check: quickCheck };
+    }
+  }
+
+  if (categoriesLoaded && quickUnchanged && options.forceDeep && options.onChangeDetected) {
+    // A NÉZŐ TELJES ELLENŐRZÉST KÉRT (második gombnyomás). Mielőtt a nagy
+    // indexlisták letöltése elindulna, a felület megerősítést kér – nagy
+    // letöltés SOHA nem indul kifejezett Igen nélkül (2.5.239).
+    onProgress({ phase: 'Teljes ellenőrzés – megerősítésre vár…', percent: 5 });
+    const proceed = await options.onChangeDetected({
+      counts: quickCheck.counts,
+      previousFingerprint: syncState?.fingerprint ?? null,
+      fingerprint: quickFingerprint,
+      reason: 'teljes-ellenorzes',
+    });
+    if (!proceed) {
+      logProviderEvent('A teljes, elemenkénti ellenőrzést a néző mégsem kérte – semmi nem töltődött le.');
       return { cancelled: true, check: quickCheck };
     }
   }

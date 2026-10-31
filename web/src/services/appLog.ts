@@ -137,10 +137,14 @@ export interface ManualLogSnapshot {
  * ezért a formázót egyszer hozzuk létre és újrahasználjuk.
  */
 let stampFormatter: Intl.DateTimeFormat | null = null;
-function dublinFormatter(): Intl.DateTimeFormat {
+function localFormatter(): Intl.DateTimeFormat {
   if (!stampFormatter) {
+    /*
+     * 2.5.239: a napló a TV SAJÁT időzónájában ír (nincs beégetett zóna).
+     * Korábban fixen Europe/Dublin volt, ezért a magyar TV-n minden
+     * időbélyeg 1 órával korábbinak látszott a falióránál.
+     */
     stampFormatter = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Europe/Dublin',
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hourCycle: 'h23',
@@ -149,19 +153,19 @@ function dublinFormatter(): Intl.DateTimeFormat {
   return stampFormatter;
 }
 
-/** A felugró ablakban megjelenő dátum/idő az ír helyi időzónában. */
+/** A felugró ablakban megjelenő dátum/idő a TV saját időzónájában. */
 export function dateTimeText(at: number = Date.now()): string {
-  const parts = dublinFormatter().formatToParts(new Date(at));
+  const parts = localFormatter().formatToParts(new Date(at));
   const value = (type: string) => parts.find((part) => part.type === type)?.value || '00';
   return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
 }
 
-/** A napló minden abszolút időpontját az ír időzónában írjuk ki, explicit UTC-eltolással. */
+/** A napló minden abszolút időpontját a TV saját időzónájában írjuk ki, explicit UTC-eltolással. */
 function dublinTimestamp(at: number = Date.now()): string {
   // A TV rendszeróráját használjuk korrekció nélkül; a relatív idők monotón mérésből jönnek.
   const logAt = at;
   const date = new Date(logAt);
-  const parts = dublinFormatter().formatToParts(date);
+  const parts = localFormatter().formatToParts(date);
   const part = (type: string) => parts.find((item) => item.type === type)?.value || '00';
   const year = part('year');
   const month = part('month');
@@ -977,7 +981,8 @@ export interface MeasurementSnapshot {
 /** Óra:perc:másodperc alak (a TV helyi ideje szerint). */
 export function clockText(at: number = Date.now()): string {
   const date = new Date(at);
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  // 2.5.239: a TV SAJÁT időzónája (nincs beégetett zóna – a magyar TV-n +1 óra eltérést okozott).
+  const parts = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date);
   const value = (type: string) => parts.find((part) => part.type === type)?.value || '00';
   return `${value('hour')}:${value('minute')}:${value('second')}`;
 }
@@ -1024,9 +1029,9 @@ export function resetMeasurements(reason: string = 'kézi frissítés'): Measure
     /* a figyelő még nem indult el */
   }
 
-  appLog(`=== ÚJ MÉRÉS KEZDETE: ${dublinTimestamp(startedAt)} (${clockText(startedAt + 60 * 60 * 1000)}); minden korábbi mért érték nullázva; ok: ${reason} ===`);
+  appLog(`=== ÚJ MÉRÉS KEZDETE: ${dublinTimestamp(startedAt)} (${clockText(startedAt)}); minden korábbi mért érték nullázva; ok: ${reason} ===`);
   appLog(`MÉRÉS NULLÁZÁS ELŐTT [${previous.startedAtText} óta]: naplósorok=${previous.logLines}, hibák=${previous.errors}, hosszú feladatok=${previous.longTasks}`);
-  appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt + 60 * 60 * 1000)}]: számlálók nullázva; ${memorySnapshot()}; ${uiStateSnapshot()}`);
+  appLog(`MÉRÉS ÁLLAPOTA [${clockText(startedAt)}]: számlálók nullázva; ${memorySnapshot()}; ${uiStateSnapshot()}`);
   // A két kezdősor a kézi naplóban megmarad, de nem növeli a mérés számlálóját.
   measurementCounters.logLines = 0;
   measurementCounters.errors = 0;

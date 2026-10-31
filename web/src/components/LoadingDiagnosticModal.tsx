@@ -25,6 +25,12 @@ interface LoadingDiagnosticModalProps {
    */
   changePrompt?: string | null;
   onChangeDecision?: (proceed: boolean) => void;
+  /**
+   * LEÁLLÍTÁS (2.5.239): a jobb felső X gomb. Ha meg van adva, az X a futó
+   * frissítést AZONNAL leállítja és bezárja az ablakot (a mentett tartalom
+   * marad). Ha nincs megadva, az X csak bezárja az ablakot.
+   */
+  onAbort?: () => void;
 }
 
 const formatMs = (value: number) => value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
@@ -37,7 +43,7 @@ const formatBytes = (value: number) => value < 1024 * 1024 ? `${(value / 1024).t
 
 export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
   isOpen, progress, events, error, startedAt, finishedAt, onClose, onRetry, retryInSeconds,
-  changePrompt, onChangeDecision,
+  changePrompt, onChangeDecision, onAbort,
 }) => {
   const [now, setNow] = useState(() => performance.now());
   const completed = !error && (progress?.percent ?? 0) >= 100;
@@ -174,8 +180,24 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
       >
         <div className="absolute inset-0 pointer-events-none opacity-30 bg-[radial-gradient(circle_at_center,transparent_15%,#020208_90%)]" />
         <div className="relative flex flex-col h-full p-4 sm:p-7 lg:p-9">
-          <header className="shrink-0 mb-5 sm:mb-8 border-b border-cyan-950/80 pb-4">
+          <header className="shrink-0 mb-5 sm:mb-8 border-b border-cyan-950/80 pb-4 flex items-center justify-between gap-4">
             <h2 id="loading-diagnostic-title" className="text-xl sm:text-2xl lg:text-3xl font-black tracking-wider">BETÖLTÉSI DIAGNOSZTIKA</h2>
+            {/*
+              X GOMB – LEÁLLÍTÁS ÉS KILÉPÉS (2.5.239). A gomb automatikusan
+              fókuszt kap, így a távirányító OK gombja is ezt nyomja meg:
+              a futó frissítés azonnal leáll, az ablak bezárul, a mentett
+              tartalom marad. (Korábban az OK a háttérben maradt Frissítés
+              gombot nyomta újra, és mindent elölről indított.)
+            */}
+            <button
+              autoFocus
+              onClick={() => (onAbort ? onAbort() : onClose())}
+              aria-label={onAbort ? 'Leállítás és kilépés' : 'Bezárás'}
+              title={onAbort ? 'Leállítás és kilépés' : 'Bezárás'}
+              className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-xl border-2 border-rose-400/70 bg-rose-950/50 text-rose-200 text-2xl sm:text-3xl font-black leading-none flex items-center justify-center hover:bg-rose-900/70 focus:bg-rose-500 focus:text-slate-950 focus:outline-none focus:ring-4 focus:ring-rose-300 transition-all"
+            >
+              ✕
+            </button>
           </header>
 
           <div className="relative grid grid-cols-[minmax(110px,0.7fr)_minmax(0,2fr)] sm:grid-cols-[minmax(150px,0.65fr)_minmax(0,2fr)] lg:grid-cols-[minmax(190px,0.55fr)_minmax(0,2fr)] gap-4 sm:gap-8 lg:gap-12 items-center flex-1 min-h-0">

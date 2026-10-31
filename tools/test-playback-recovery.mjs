@@ -285,7 +285,10 @@ check(/activeView !== 'live' \|\| customStreamUrl/.test(APP)
   && /if \(!epgActive \|\| !epgReady\) return;/.test(CHANNEL_LIST)
   && /const epgActive = isActive && !epgPaused;/.test(CHANNEL_LIST),
   'a rejtett filmnézetben az EPG-előtöltés és az óra nem fut háttérben');
-check(/dublinFormatter\(\)\.formatToParts\(date\)/.test(APPLOG),
+// 2.5.239: a formázó a TV saját időzónáját használja (localFormatter), de
+// továbbra is EGYETLEN, gyorsítótárazott Intl példány.
+check(/localFormatter\(\)\.formatToParts\(date\)/.test(APPLOG)
+  && /stampFormatter = new Intl\.DateTimeFormat/.test(APPLOG),
   'az időbélyeg-formázó gyorsítótárazott (nincs új Intl példány soronként)');
 check(/MIN_FORCE_INTERVAL_MS/.test(APPLOG),
   'a nagy napló szinkron írása összevont (nem minden kritikus sornál ír 1 MB-ot)');

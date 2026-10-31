@@ -871,6 +871,23 @@ async function main() {
         && !requestedActions.includes('get_vod_streams'),
       `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
     );
+    // 5a) A kért teljes ellenőrzés is MEGERŐSÍTÉST vár: „nem” válasznál
+    // semmi nem töltődik le (nagy letöltés sosem indul Igen nélkül).
+    requestedActions.length = 0;
+    let deepReason = '';
+    const deepDeclined = await refreshProviderContent(freshProvider as never, () => {}, () => {}, {
+      incremental: true,
+      forceDeep: true,
+      onChangeDetected: (signal) => { deepReason = signal.reason; return false; },
+    });
+    check(
+      'a kért teljes ellenőrzés megerősítést vár: „nem” válasznál semmi nem töltődik le',
+      'cancelled' in deepDeclined && deepDeclined.cancelled === true
+        && deepReason === 'teljes-ellenorzes'
+        && !requestedActions.includes('get_live_streams')
+        && !requestedActions.includes('get_vod_streams'),
+      `(ok: ${deepReason || 'nincs'}; kérések: ${requestedActions.join(', ') || 'egy sem'})`
+    );
     requestedActions.length = 0;
     const changedMovieResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true, forceDeep: true });
     const changedMovie = 'content' in changedMovieResult

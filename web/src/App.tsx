@@ -5,6 +5,7 @@ import { storageService } from './services/storageService';
 import {
   cancelStoredContentRestore,
   clearContent,
+  clearContentAsync,
   describeStoredContent,
   lastStoredContentReport,
   ImportedContent,
@@ -1665,6 +1666,30 @@ export function App() {
         );
         if (cancelled) return;
         catalogPlanRef.current = plan;
+        /*
+         * ÁRVA KATALÓGUS (2.5.239): van mentett tartalom, de EGYETLEN
+         * szolgáltató sincs elmentve. Ez félbemaradt törlés nyoma (a régi
+         * kód a nagy IndexedDB-törlést nem várta meg az újratöltés előtt).
+         * Ilyenkor a csatornák NEM térhetnek vissza: a maradványt most
+         * kitakarítjuk, és az app üres állapotból indul.
+         */
+        if (
+          plan
+          && providers.length === 0
+          && (plan.bootChannels.length || plan.hasLive || plan.hasVod || plan.hasSeries)
+        ) {
+          appLog('Indulás: mentett katalógus szolgáltató nélkül (félbemaradt törlés maradványa) – a tartós tár kiürítése.');
+          catalogPlanRef.current = null;
+          void clearContentAsync().then(() => appLog('A szolgáltató nélküli katalógus-maradvány törlése befejeződött.'));
+          decided = 'empty';
+          markBootState('empty');
+          bootScreenChannels(0);
+          bootScreenPhase('empty', 'Félbemaradt törlés maradványa eltávolítva – az alkalmazás üresen indul.');
+          setLiveRecoveryNeeded(false);
+          startBackgroundWork(null);
+          setBootProbeDone(true);
+          return;
+        }
         if (!plan || (!plan.bootChannels.length && !plan.hasLive && !plan.hasVod && !plan.hasSeries)) {
           decided = 'empty';
           markBootState('empty');
@@ -2667,6 +2692,20 @@ export function App() {
       : providerOrId;
     if (!provider) return;
     const id = provider.id;
+    /*
+     * DUPLA GOMBNYOMÁS-ŐR (2.5.239): amíg UGYANENNEK a szolgáltatónak a
+     * frissítése fut, az újabb Frissítés gombnyomás NEM indít új futamot.
+     * A régi kód minden nyomásra ELÖLRŐL kezdte az egészet – a gyors
+     * egymás utáni nyomkodás ezért percekig tartó újraindulás-sorozatot
+     * okozott („mintha két parancsot teljesítene”). Ilyenkor a gombnyomás
+     * csak a diagnosztikai ablakot nyitja újra, hogy a futó folyamat
+     * látsszon; leállítani az ablak X gombjával lehet.
+     */
+    if (manual && providerRefreshActiveRef.current && lastRefreshProviderIdRef.current === id) {
+      appLog('Frissítés gomb: már fut ennek a szolgáltatónak a frissítése – új futam nem indul, az ablak újra megnyílik.');
+      setDiagnosticOpen(true);
+      return;
+    }
     const refreshStartedAt = performance.now();
     /*
      * A DIAGNOSZTIKAI ABLAK AZONNAL KINYÍLIK (2.5.165).
@@ -3026,9 +3065,12 @@ export function App() {
                 }
                 refreshChangeResolveRef.current = resolve;
                 setRefreshChangePrompt(
-                  `A szolgáltató kínálata megváltozott (${signal.counts.live} élő / ${signal.counts.vod} film / ` +
-                  `${signal.counts.series} sorozat kategória). Letöltsem a változásokat? Csak a különbség frissül: ` +
-                  'a kedvencek, a sorrend és a törölt csatornák megmaradnak.'
+                  signal.reason === 'teljes-ellenorzes'
+                    ? 'Teljes, elemenkénti ellenőrzést kértél: ez a nagy listák letöltésével jár (akár 1-3 perc). ' +
+                      'Indítsam? Csak a különbség frissül: a kedvencek, a sorrend és a törölt csatornák megmaradnak.'
+                    : `A szolgáltató kínálata megváltozott (${signal.counts.live} élő / ${signal.counts.vod} film / ` +
+                      `${signal.counts.series} sorozat kategória). Letöltsem a változásokat? Csak a különbség frissül: ` +
+                      'a kedvencek, a sorrend és a törölt csatornák megmaradnak.'
                 );
               })
             : undefined,
@@ -3413,6 +3455,27 @@ export function App() {
     setDiagnosticProgress(null);
     setDiagnosticFinishedAt(null);
   }, [cancelDiagnosticFlush, answerRefreshChangePrompt]);
+
+  /*
+   * FRISSÍTÉS LEÁLLÍTÁSA – A DIAGNOSZTIKAI ABLAK X GOMBJA (2.5.239).
+   *
+   * A néző kérése: legyen gomb, amivel a futó frissítés AZONNAL leáll, és az
+   * ablak bezárul. A generáció léptetése minden folyamatban lévő visszahívást
+   * hatástalanít, a hálózati kérések megszakadnak, a mentett (eddigi)
+   * tartalom pedig érintetlenül érvényben marad.
+   */
+  const abortRefreshAndClose = useCallback(() => {
+    refreshGenerationRef.current += 1;
+    answerRefreshChangePrompt(false);
+    cancelNetworkRequests();
+    cancelAutoRetry();
+    retryAttemptsRef.current = 0;
+    providerRefreshActiveRef.current = false;
+    setProviderContentReady(channelsRef.current.length > 0);
+    setLiveListComplete(true);
+    appLog('A néző leállította a frissítést (X gomb) – a letöltés megszakadt, a mentett tartalom változatlan.');
+    closeRefreshDiagnostic();
+  }, [answerRefreshChangePrompt, cancelAutoRetry, closeRefreshDiagnostic]);
 
   const closeLastImportDiagnostic = useCallback(() => {
     setLastImportDiagnosticOpen(false);
@@ -4604,6 +4667,7 @@ export function App() {
         retryInSeconds={retryCountdown}
         changePrompt={refreshChangePrompt}
         onChangeDecision={answerRefreshChangePrompt}
+        onAbort={abortRefreshAndClose}
       />
 
       {refreshLivePromptOpen && createPortal(
