@@ -1914,9 +1914,8 @@ async function refreshXtreamIncremental(
 
   /*
    * GYORS DÖNTÉS a kategórialisták alapján – minden nagy letöltés ELŐTT.
-   * Ha egy kategórialista sem jött meg (a panel nem válaszol), nem
-   * állíthatjuk, hogy „nincs változás”: ilyenkor a teljes út fut tovább,
-   * amely értelmes hibaüzenetet ad.
+   * Ha bármelyik kategórialista nem érhető el, a frissítés hibával leáll;
+   * nem indul helyette nagy lista-letöltés.
    */
   const categoriesLoaded = liveCats !== null && vodCats !== null && seriesCats !== null;
   const quickUnchanged = categoriesLoaded && savedFingerprint === quickFingerprint;
