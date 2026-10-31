@@ -1,15 +1,12 @@
-import { Category, Episode, ProviderPayload, Season, Series } from '../types/iptv';
+import { Category, Episode, Season, Series } from '../types/iptv';
 import { ProviderRef, decodeChannelsForImport, decodeMoviesForImport, decodeSeriesForImport } from './contentStore';
-import { parseEpisodeMetadata, parseSeriesMetadata, parseMovieCatalogMetadata } from './vodMetadata';
+import { parseEpisodeRuntimeMinutes, parseSeriesMetadata, parseMovieCatalogMetadata } from './vodMetadata';
 import { xtreamService, XtreamEpisode, XtreamSeriesInfo } from './xtreamService';
 import { flagFor } from '../utils/flags';
 import { normalizeLogoUrl } from './logoUrl';
 
 export type CatalogRow = Array<string | number>;
 
-function payload(value: unknown): ProviderPayload | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as ProviderPayload : undefined;
-}
 
 /**
  * Gyors, kicsi ujjlenyomat egy nyers lista-elemről (FNV-1a hash).
@@ -67,34 +64,30 @@ export function movieRowFromRaw(
   ];
 }
 
-export function seriesRowFromRaw(
-  raw: Record<string, unknown>,
-  _category: { id: string; name: string },
-): CatalogRow {
+export function seriesRowFromRaw(raw: Record<string, unknown>): CatalogRow {
   const meta = parseSeriesMetadata(raw);
   const backdrops = Array.isArray(raw.backdrop_path) ? raw.backdrop_path : [];
   return [
     String(raw.series_id ?? ''),
     String(raw.name || 'Sorozat').trim(),
-    category.id,
-    category.name,
+    'series-all',
+    'Sorozatok',
     meta.poster || String(raw.cover || ''),
-    meta.rating || 0,
+    0,
     meta.year || 0,
-    meta.plot || '',
+    '',
     0,
     0,
     0,
     meta.durationMinutes || 0,
-    JSON.stringify(meta.audioLanguages || []),
-    JSON.stringify(meta.subtitleLanguages || []),
-    JSON.stringify(meta.audioTracks || []),
-    JSON.stringify(meta.subtitleTracks || []),
+    '[]',
+    '[]',
+    '[]',
+    '[]',
     meta.backdrop || String(backdrops[0] || ''),
-    JSON.stringify(meta.genres || []),
-    meta.director || '',
-    JSON.stringify(meta.cast || []),
-    // providerData helyett csak a kicsi ujjlenyomat (lásd rawItemSignature).
+    '[]',
+    '',
+    '[]',
     '',
     '',
     '[]',
@@ -131,7 +124,7 @@ export const decodeMovieRows = decodeMoviesForImport;
 export const decodeSeriesRows = decodeSeriesForImport;
 export const decodeLiveRows = decodeChannelsForImport;
 
-/** Evadok/reszek teljes megőrzése: a lejátszáshoz URL, az adatlaphoz minden nyers mező. */
+/** Évadok és epizódok: csak a lejátszáshoz és megjelenítéshez szükséges adatok. */
 export function seasonsFromSeriesInfo(
   response: XtreamSeriesInfo,
   series: Series,
@@ -143,25 +136,21 @@ export function seasonsFromSeriesInfo(
     .map((seasonKey) => {
       const rows = Array.isArray(episodesBySeason[seasonKey]) ? episodesBySeason[seasonKey] : [];
       const episodes: Episode[] = rows.map((episode: XtreamEpisode, index: number) => {
-        const metadata = parseEpisodeMetadata(episode);
-        const info = episode.info || {};
+        const containerExtension = String(episode.container_extension || 'mp4');
+        const durationMinutes = parseEpisodeRuntimeMinutes(episode.info || episode);
         return {
           id: `ep-${series.id}-${episode.id ?? index}`,
           episodeNumber: Number(episode.episode_num ?? index + 1),
           seasonNumber: Number(episode.season ?? seasonKey),
           title: String(episode.title || `${index + 1}. rész`),
-          durationMinutes: metadata.durationMinutes || 0,
+          durationMinutes,
           streamUrl: xtreamService.buildSeriesStreamUrl(
             provider.serverUrl || '', provider.username || '', provider.password || '',
-            episode.id ?? '', episode.container_extension || 'mp4',
+            episode.id ?? '', containerExtension,
           ),
-          plot: metadata.plot || String(info.plot || ''),
-          thumbnail: metadata.poster || String(info.movie_image || series.poster || ''),
-          audioTracks: metadata.audioTracks,
-          subtitleTracks: metadata.subtitleTracks,
-          audioLanguages: metadata.audioLanguages,
-          subtitleLanguages: metadata.subtitleLanguages,
-          providerData: payload(episode),
+          containerExtension,
+          plot: '',
+          thumbnail: series.poster || '',
         };
       });
       return {
