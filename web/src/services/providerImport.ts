@@ -1198,6 +1198,8 @@ export async function importXtreamProvider(
     let vodProcessed = 0;
     let bulkUsed = false;
     let bulkFallbackReason = '';
+    // A kategóriaszámláló a try blokkon kívül is kell a végső kategóriaépítéshez.
+    const vodCounts = new Map<string, number>();
 
     // A filmindexet egyetlen bulk-kéréssel kérjük le; nincs kategóriánkénti letöltés.
     try {
@@ -1208,7 +1210,6 @@ export async function importXtreamProvider(
       ]);
       rawVodCategories = vodCategoryList;
       const vodCategoryMap = makeCategoryMap(vodCategoryList);
-      const vodCounts = new Map<string, number>();
       // A sorozatletöltés csak a teljes filmfázis befejezése után indul.
       logImportApiPayload('FILM LISTA', allVod as unknown[]);
       if (Array.isArray(allVod) && allVod.length > 0) {
