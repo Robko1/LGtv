@@ -1,5 +1,5 @@
 /** Célzott, eseményalapú mérések. Nincs hálózati próba vagy folyamatos mintavétel. */
-import { appLog, isVerbosePlaybackLogging, registerLoggingLifecycleHooks } from './appLog';
+import { appLog, isVerbosePlaybackLogging, measurementLogsEnabled, registerLoggingLifecycleHooks } from './appLog';
 import { fsAbort, resetFullscreenPerf } from './fullscreenPerf';
 
 type Trace = {
@@ -29,7 +29,9 @@ const now = () => typeof performance !== 'undefined' && performance.now ? perfor
 const ms = (n: number) => Math.max(0, n).toFixed(1);
 
 function line(label: string, extra = ''): void {
-  if (!isVerbosePlaybackLogging() || !trace) return;
+  // Tisztán mérési sor (2.5.226): csak a fejlesztői mérési naplóban jelenik
+  // meg – a normál hibajavító naplót nem tölti meg és nem lassítja a TV-t.
+  if (!measurementLogsEnabled() || !isVerbosePlaybackLogging() || !trace) return;
   const t = now();
   appLog(`SEBESSÉG #${trace.id}; mód=${trace.mode}; ${label}; teljes=${ms(t - trace.start)} ms; lépésköz=${ms(t - trace.last)} ms${extra ? '; ' + extra : ''}`);
   trace.last = t;
@@ -191,6 +193,9 @@ function keyDown(event: KeyboardEvent): void {
   const at = now();
   lastKey = { at, name };
   const id = ++keySerial;
+  // Mérési sorok (2.5.226): gombonként 2 naplósor az 1-es napló jelentős
+  // részét adta – csak a fejlesztői mérési naplóban jelennek meg.
+  if (!measurementLogsEnabled()) return;
   const delay = event.timeStamp > 0 && at >= event.timeStamp && at - event.timeStamp < 60000 ? `${ms(at - event.timeStamp)} ms` : 'nem mérhető';
   appLog(`TÁVIRÁNYÍTÓ #${id}; gomb=${name}; ismétlés=${event.repeat ? 'igen' : 'nem'}; eseménysor-késés=${delay}; fizikai lenyomás nem mérhető`);
   const currentSession = session;

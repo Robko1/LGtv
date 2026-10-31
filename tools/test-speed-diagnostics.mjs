@@ -10,6 +10,8 @@ const result = await esbuild.build({
     build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: `
       export const appLog = (s) => globalThis.__speedTest.lines.push(s);
       export const isVerbosePlaybackLogging = () => globalThis.__speedTest.enabled;
+      // 2.5.226: a mérési naplót a próba bekapcsolt állapotban ellenőrzi.
+      export const measurementLogsEnabled = () => true;
       export const registerLoggingLifecycleHooks = (h) => { globalThis.__speedTest.hooks = h; };
     ` }));
   }}],

@@ -557,6 +557,29 @@ function redactLogUrls(message: string): string {
   });
 }
 
+/*
+ * MÉRÉSI NAPLÓ KAPCSOLÓ (2.5.226, alapból KI).
+ *
+ * A felhasználó kérése: a napló CSAK a hibajavításhoz szükséges sorokat
+ * tartalmazza. A tisztán mérési sorok (TÁVIRÁNYÍTÓ #, SEBESSÉG #, HOSSZÚ
+ * FELADAT, VOD-DIAG teljes válasz-dumpok, IMPORT-API-DIAG minták) az 1-es
+ * naplóban a sorok és a terjedelem többségét adták, és az előállításuk
+ * (JSON-szövegek építése) a TV-t is lassította. Fejlesztéshez a
+ * localStorage 'iptv_rt_meres_naplo' kulcs '1' értékével visszakapcsolhatók
+ * – felület nincs hozzá, szándékosan.
+ */
+let measurementLogsCache: boolean | null = null;
+export function measurementLogsEnabled(): boolean {
+  if (measurementLogsCache === null) {
+    try {
+      measurementLogsCache = localStorage.getItem('iptv_rt_meres_naplo') === '1';
+    } catch {
+      measurementLogsCache = false;
+    }
+  }
+  return measurementLogsCache;
+}
+
 /** Egy sor hozzáadása a kézzel indított diagnosztikai naplóhoz. */
 export function appLog(message: string): void {
   // A normál tévézés közben nincs diagnosztikai naplózás, nincs localStorage-
@@ -1170,7 +1193,8 @@ export function startRuntimeWatchdog(): void {
           if (now - lastLongTaskAt < 500) continue;
           lastLongTaskAt = now;
           measurementCounters.longTasks += 1;
-          appLog(`HOSSZÚ FELADAT: ${Math.round(entry.duration)} ms (${entry.name || 'ismeretlen'}); az ok a böngészőből nem azonosítható.`);
+          // Mérési sor: csak a fejlesztői mérési naplóban jelenik meg.
+          if (measurementLogsEnabled()) appLog(`HOSSZÚ FELADAT: ${Math.round(entry.duration)} ms (${entry.name || 'ismeretlen'}); az ok a böngészőből nem azonosítható.`);
         }
       });
       observer.observe({ entryTypes: ['longtask'] });
