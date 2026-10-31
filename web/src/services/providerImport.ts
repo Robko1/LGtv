@@ -1044,8 +1044,13 @@ export async function importXtreamProvider(
       for (const stream of liveStreams) {
         if (liveRows.length >= MAX_CHANNELS) break;
         if (!stream || stream.stream_id === undefined || stream.stream_id === null) continue;
-        const isHungarianCategory = hungarianCategoryIdSet.has(String(stream.category_id ?? ''));
-        if (isHungarianCategory !== hungarianOnly) continue;
+        const streamCategoryId = String(stream.category_id ?? '');
+        const streamCategoryName = String(liveCategoryMap.get(streamCategoryId)?.category_name || '');
+        const streamName = String(stream.name || stream.stream_display_name || '');
+        const isHungarianStream = hungarianCategoryIdSet.has(streamCategoryId)
+          || flagFor(streamCategoryName).countryCode === 'HU'
+          || flagFor(streamName).countryCode === 'HU';
+        if (isHungarianStream !== hungarianOnly) continue;
         const liveStreamId = String(stream.stream_id);
         if (seenLiveStreamIds.has(liveStreamId)) continue;
         seenLiveStreamIds.add(liveStreamId);
@@ -1070,7 +1075,7 @@ export async function importXtreamProvider(
     await processLivePass(true);
     if (liveRows.length > 0 && hungarianCategoryIds.length > 0) {
       const hungarianCategories = liveCats.filter((category) =>
-        hungarianCategoryIdSet.has(String(category.category_id))
+        (liveCounts.get(`lc-${category.category_id}`) || 0) > 0
       );
       await onPartial({
         preview: true,
