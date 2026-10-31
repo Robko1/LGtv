@@ -551,6 +551,7 @@ function parseFlatMetadata(record: Record<string, unknown>): ParsedVodMetadata |
  */
 export function parseMovieCatalogMetadata(response: unknown): {
   poster?: string;
+  backdrop?: string;
   year?: number;
   durationMinutes: number;
 } {
@@ -560,10 +561,17 @@ export function parseMovieCatalogMetadata(response: unknown): {
   const poster =
     firstText(info, ['movie_image', 'cover_big', 'cover', 'poster', 'stream_icon', 'image']) ||
     firstText(movieData, ['movie_image', 'cover_big', 'cover', 'poster', 'stream_icon', 'image']);
+  const readBackdrop = (record: Record<string, unknown> | null): string => {
+    const value = firstValue(record, ['backdrop_path', 'backdrop', 'backdrop_url', 'fanart']);
+    if (Array.isArray(value)) return clean(value.find((item) => clean(item)) || '');
+    return clean(value);
+  };
+  const backdrop = readBackdrop(info) || readBackdrop(movieData);
   const year = parseYear(info) || parseYear(movieData);
   const durationMinutes = findDuration(info) || findDuration(movieData);
   return {
     poster: poster || undefined,
+    backdrop: backdrop || undefined,
     year: year || undefined,
     durationMinutes: durationMinutes || 0,
   };
