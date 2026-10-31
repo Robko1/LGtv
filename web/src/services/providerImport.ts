@@ -52,11 +52,73 @@ import {
   loadSeriesAsync,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
-import { parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
+import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
 import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
 import { logVodItemResponse } from './vodProviderDiagnostics';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled } from './net';
+
+
+
+/**
+ * Részletes filmadatok összeolvasztása az importált alaprekorddal.
+ * A részletes API hiányos válasza nem írhatja felül a már ismert adatokat.
+ */
+export function applyMovieMetadata(movie: Movie, metadata: ParsedVodMetadata): Movie {
+  const audioLanguages = metadata.audioLanguages.length
+    ? metadata.audioLanguages
+    : movie.audioLanguages?.length ? movie.audioLanguages : [UNKNOWN_LANGUAGE];
+  const subtitleLanguages = metadata.subtitleLanguages.length
+    ? metadata.subtitleLanguages
+    : movie.subtitleLanguages?.length ? movie.subtitleLanguages : [UNKNOWN_LANGUAGE];
+
+  return {
+    ...movie,
+    durationMinutes: metadata.durationMinutes > 0 ? metadata.durationMinutes : movie.durationMinutes,
+    audioTracks: metadata.audioTracks.length ? metadata.audioTracks : movie.audioTracks || [],
+    subtitleTracks: metadata.subtitleTracks.length ? metadata.subtitleTracks : movie.subtitleTracks || [],
+    audioLanguages,
+    subtitleLanguages,
+    poster: metadata.poster || movie.poster,
+    backdrop: metadata.backdrop || movie.backdrop,
+    plot: metadata.plot || movie.plot,
+    genres: metadata.genres?.length ? metadata.genres : movie.genres,
+    director: metadata.director || movie.director,
+    cast: metadata.cast?.length ? metadata.cast : movie.cast,
+    rating: metadata.rating !== undefined && metadata.rating > 0 ? metadata.rating : movie.rating,
+    year: metadata.year !== undefined && metadata.year > 0 ? metadata.year : movie.year,
+  };
+}
+
+/**
+ * Részletes sorozatadatok összeolvasztása az importált alaprekorddal.
+ * A részletes API hiányos válasza nem írhatja felül a már ismert adatokat.
+ */
+export function applySeriesMetadata(series: Series, metadata: ParsedVodMetadata): Series {
+  const audioLanguages = metadata.audioLanguages.length
+    ? metadata.audioLanguages
+    : series.audioLanguages?.length ? series.audioLanguages : [UNKNOWN_LANGUAGE];
+  const subtitleLanguages = metadata.subtitleLanguages.length
+    ? metadata.subtitleLanguages
+    : series.subtitleLanguages?.length ? series.subtitleLanguages : [UNKNOWN_LANGUAGE];
+
+  return {
+    ...series,
+    durationMinutes: metadata.durationMinutes > 0 ? metadata.durationMinutes : series.durationMinutes,
+    audioTracks: metadata.audioTracks.length ? metadata.audioTracks : series.audioTracks || [],
+    subtitleTracks: metadata.subtitleTracks.length ? metadata.subtitleTracks : series.subtitleTracks || [],
+    audioLanguages,
+    subtitleLanguages,
+    poster: metadata.poster || series.poster,
+    backdrop: metadata.backdrop || series.backdrop,
+    plot: metadata.plot || series.plot,
+    genres: metadata.genres?.length ? metadata.genres : series.genres,
+    director: metadata.director || series.director,
+    cast: metadata.cast?.length ? metadata.cast : series.cast,
+    rating: metadata.rating !== undefined && metadata.rating > 0 ? metadata.rating : series.rating,
+    year: metadata.year !== undefined && metadata.year > 0 ? metadata.year : series.year,
+  };
+}
 
 // webOS TV gyors betöltés detektálás
 export interface ImportProgress {

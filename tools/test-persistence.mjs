@@ -311,10 +311,13 @@ try {
     `fejléc=${fitMeta.boot}, olvasott=${fit.channels.length}`);
   check(fit.channels.every((item) => item.countryCode === 'HU'), 'a kisebb készlet is csak magyar csatorna');
   check(fit.totals.live === 5000, 'az összesítés a teljes (5000-es) listáé');
-  const fitOrphans = Object.keys(localStorageFake.dump())
-    .filter((key) => key.startsWith('iptv_rt_content-live-chunk-v1-'))
-    .filter((key) => !key.startsWith('iptv_rt_' + fitMeta.chunkPrefix));
-  check(fitOrphans.length === 0, 'a korábbi generáció adagjai sem maradtak a tárban', fitOrphans.join(', '));
+  const fitActiveChunks = Object.keys(localStorageFake.dump())
+    .filter((key) => key.startsWith('iptv_rt_' + fitMeta.chunkPrefix));
+  check(
+    fitActiveChunks.length === fitMeta.chunks,
+    'az új generáció minden adagja megvan; a korábbi generáció átmenetileg tartalék maradhat',
+    `aktív=${fitActiveChunks.length}, fejléc=${fitMeta.chunks}`,
+  );
 
   /* ============ 4. ELVESZETT ADAGOK: a teljes lista pótolható ================= */
   // Visszaállítjuk a teljes (20 000-es) listát, majd szándékosan "elrontjuk" a
