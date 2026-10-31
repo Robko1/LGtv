@@ -2173,18 +2173,38 @@ async function refreshXtreamIncremental(
    * dolgozzuk fel újra és nem írjuk újra a tárolóba.
    */
   onProgress({ phase: 'Változások ellenőrzése…', percent: 4 });
+  const catsStartedAt = Date.now();
   const [liveCats, vodCats, seriesCats] = await Promise.all([
     xtreamService.liveCategories(server, user, pass).catch(() => null),
     xtreamService.vodCategories(server, user, pass).catch(() => null),
     xtreamService.seriesCategories(server, user, pass).catch(() => null),
   ]);
+  const catsMs = Date.now() - catsStartedAt;
   const quickFingerprint = rawCatalogFingerprint(liveCats || [], vodCats || [], seriesCats || []);
   const syncState = loadSyncState(provider.id);
 
+  /*
+   * 2.5.233: a frissítés két leglassabb lépése – a mentett katalógus
+   * IndexedDB-beolvasása és a friss indexlisták letöltése – eddig EGYMÁS
+   * UTÁN futott. Mostantól a friss listák letöltése már itt elindul, és a
+   * tárolt katalógus beolvasása alatt a hálózat is dolgozik; a kettő közül
+   * csak a lassabbikat kell kivárni. A kérések száma nem változik
+   * (indexlisták pontosan egyszer töltődnek le).
+   */
+  const indexStartedAt = Date.now();
+  const indexPromise = Promise.all([
+    xtreamService.liveStreams(server, user, pass).catch(() => null),
+    xtreamService.vodStreams(server, user, pass).catch(() => null),
+    xtreamService.seriesList(server, user, pass).catch(() => null),
+    xtreamService.authenticate(server, user, pass).catch(() => null),
+  ]);
+
   onProgress({ phase: 'Mentett katalógus beolvasása…', percent: 6 });
+  const storedStartedAt = Date.now();
   const [storedLive, storedVod, storedSeries] = await Promise.all([
     loadLiveFull(providerRef), loadVodAsync(providerRef), loadSeriesAsync(providerRef),
   ]);
+  const storedMs = Date.now() - storedStartedAt;
   const localLive = loadLive();
   const previous: ImportedContent = {
     provider: providerRef,
@@ -2200,6 +2220,9 @@ async function refreshXtreamIncremental(
     authoritative: true,
   };
   if (!previous.channels.length && !previous.movies.length && !previous.series.length) {
+    // Nincs tárolt katalógus: teljes import fut. A már elindított indexletöltés
+    // eredménye ilyenkor nem kell (ritka eset, egyszeri); a teljes import a
+    // saját, szakaszos letöltőjével dolgozik.
     const result = await importXtreamProvider({ name: provider.name, serverUrl: server, username: user, password: pass }, onProgress, onPartial);
     result.content.provider.id = provider.id;
     result.content.authoritative = true;
@@ -2215,12 +2238,16 @@ async function refreshXtreamIncremental(
       : 'Teljes összevetés indul (kézi frissítés): a szolgáltató kategórialistája megváltozott.'
   );
   onProgress({ phase: 'Összevetés: a friss listák letöltése a változások kereséséhez (a tárolt katalógus megmarad)…', percent: 8 });
-  const [liveRaw, vodRaw, seriesRaw, auth] = await Promise.all([
-    xtreamService.liveStreams(server, user, pass).catch(() => null),
-    xtreamService.vodStreams(server, user, pass).catch(() => null),
-    xtreamService.seriesList(server, user, pass).catch(() => null),
-    xtreamService.authenticate(server, user, pass).catch(() => null),
-  ]);
+  // A letöltés már a tárolt katalógus beolvasása ALATT futott – itt csak bevárjuk.
+  const [liveRaw, vodRaw, seriesRaw, auth] = await indexPromise;
+  const indexMs = Date.now() - indexStartedAt;
+  // Szakaszidők a diagnosztikai naplóba (frissítésenként EGY sor, nem mérési zaj):
+  // ebből látszik, melyik lépés viszi az időt egy lassú TV-s frissítésnél.
+  logProviderEvent(
+    `Frissítés szakaszidői: kategóriák ${catsMs} ms • mentett katalógus beolvasása ${storedMs} ms `
+    + `• friss indexlisták letöltése (a beolvasással párhuzamosan) ${indexMs} ms.`
+  );
+  const mergeStartedAt = Date.now();
   const liveCategoryMap = makeCategoryMap(liveCats || []);
   const vodCategoryMap = makeCategoryMap(vodCats || []);
   const seriesCategoryMap = makeCategoryMap(seriesCats || []);
@@ -2396,13 +2423,14 @@ async function refreshXtreamIncremental(
     // A teljes összevetés IGAZOLTA, hogy a tárolt katalógus hiánytalan:
     // az esetleges „hiányos szakasz” jelölések törlődnek.
     markCatalogSectionsComplete(['live', 'vod', 'series']);
+    logProviderEvent(`Frissítés kész: nincs változás. Elemenkénti összevetés ideje: ${Date.now() - mergeStartedAt} ms.`);
     return { unchanged: true, check: { unchanged: true, fresh: true, ageMs: 0, fingerprint, counts: { live: next.liveCategories.length, vod: next.vodCategories.length, series: next.seriesCategories.length } } };
   }
   await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals, unchangedSections });
   saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
   // A bitre azonosnak igazolt szakaszokról a „hiányos” jelölés is lekerül.
   markCatalogSectionsComplete(unchangedSections);
-  logProviderEvent(`Incrementális frissítés kész: élő +${changes.live.added}/~${changes.live.changed}/-${changes.live.removed}, film +${changes.vod.added}/~${changes.vod.changed}/-${changes.vod.removed}, sorozat +${changes.series.added}/~${changes.series.changed}/-${changes.series.removed}.`);
+  logProviderEvent(`Incrementális frissítés kész: élő +${changes.live.added}/~${changes.live.changed}/-${changes.live.removed}, film +${changes.vod.added}/~${changes.vod.changed}/-${changes.vod.removed}, sorozat +${changes.series.added}/~${changes.series.changed}/-${changes.series.removed}. Összevetés és mentés ideje: ${Date.now() - mergeStartedAt} ms.`);
   return {
     content: next,
     fingerprint,

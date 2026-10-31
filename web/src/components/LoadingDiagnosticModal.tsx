@@ -21,6 +21,11 @@ interface LoadingDiagnosticModalProps {
 }
 
 const formatMs = (value: number) => value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
+/** Futó stopperóra perc:másodperc alakban – nagy terhelésnél sem mutat "beragadt" századokat. */
+const formatElapsedClock = (value: number) => {
+  const totalSeconds = Math.max(0, Math.floor(value / 1000));
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+};
 const formatBytes = (value: number) => value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(2)} MB`;
 
 export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
@@ -37,7 +42,15 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
     // intervallum, amely a háttérben tovább számolna.
     setNow(terminal && finishedAt !== null && finishedAt !== undefined ? finishedAt : performance.now());
     if (terminal) return;
-    const timerId = window.setInterval(() => setNow(performance.now()), 250);
+    /*
+     * 2.5.233: másodpercenként elég frissíteni. A kijelzett érték mindig a
+     * valós órakülönbség (performance.now() - startedAt), ezért ha a TV nagy
+     * terhelés alatt kihagy néhány frissítést, a következő tick azonnal a
+     * HELYES, teljes eltelt időre ugrik – az óra nem "veszít" időt. A korábbi
+     * 250 ms-os újrarajzolás viszont feleslegesen terhelte a TV-t a betöltés
+     * legnehezebb szakaszában.
+     */
+    const timerId = window.setInterval(() => setNow(performance.now()), 1000);
     return () => window.clearInterval(timerId);
   }, [isOpen, terminal, finishedAt]);
 
@@ -135,7 +148,7 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
               <div className="h-3 sm:h-4 rounded-full bg-slate-950 border border-cyan-900/60 overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 transition-all duration-200" style={{ width: `${finalPercent}%` }} />
               </div>
-              <div className="text-base sm:text-xl lg:text-2xl font-mono text-slate-300">ELTELT IDŐ: {formatMs(elapsed)} <span className="mx-2 text-cyan-700">•</span> HÁLÓZATI KÉRÉSEK: {requestCount}</div>
+              <div className="text-base sm:text-xl lg:text-2xl font-mono text-slate-300">ELTELT IDŐ: {formatElapsedClock(elapsed)} <span className="mx-2 text-cyan-700">•</span> HÁLÓZATI KÉRÉSEK: {requestCount}</div>
             </div>
           </div>
 

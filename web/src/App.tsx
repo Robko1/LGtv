@@ -908,6 +908,23 @@ export function App() {
   const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
   const [isSubtitlesModalOpen, setIsSubtitlesModalOpen] = useState(false);
   const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
+  /**
+   * 2.5.233: amíg a néző a betöltési FOLYAMATOT nézi (import közben a
+   * „Folyamat megtekintése” választás), a háttérben NEM indul el élő adás –
+   * minden erőforrás a letöltésé. A kiválasztott csatorna azonosítója
+   * félre van téve, és a betöltő/diagnosztikai ablak bezárásakor indul el.
+   */
+  const holdLivePlaybackRef = useRef(false);
+  const pendingImportChannelIdRef = useRef<string | null>(null);
+  const releaseImportPlaybackHold = useCallback(() => {
+    holdLivePlaybackRef.current = false;
+    const pending = pendingImportChannelIdRef.current;
+    pendingImportChannelIdRef.current = null;
+    if (pending) {
+      activeChannelIdRef.current = pending;
+      setActiveChannelId(pending);
+    }
+  }, []);
   const [editingProvider, setEditingProvider] = useState<ProviderAccount | null>(null);
   const [isQrProvisionOpen, setIsQrProvisionOpen] = useState(false);
   const [isDiagnosticShareOpen, setIsDiagnosticShareOpen] = useState(false);
@@ -2371,10 +2388,13 @@ export function App() {
       || normalizedContent.channels.find((channel) => (channel.countryCode || 'INT').toUpperCase() === defaultCountryCode)
       || normalizedContent.channels[0];
     if (savedStillExists && isEditOfActiveProvider) {
-      setActiveChannelId(savedLastId!);
+      // Betöltés-figyelés alatt (import „Folyamat megtekintése”) nem indul adás.
+      if (holdLivePlaybackRef.current) pendingImportChannelIdRef.current = savedLastId!;
+      else setActiveChannelId(savedLastId!);
       handleUpdateSettings({ activeProviderId: providerId });
     } else if (firstDefaultChannel) {
-      setActiveChannelId(firstDefaultChannel.id);
+      if (holdLivePlaybackRef.current) pendingImportChannelIdRef.current = firstDefaultChannel.id;
+      else setActiveChannelId(firstDefaultChannel.id);
       storageService.rememberLastChannel(firstDefaultChannel.id);
       handleUpdateSettings({ activeProviderId: providerId });
     } else {
@@ -4600,10 +4620,20 @@ export function App() {
       {/* 6. Add Provider / Xtream Codes Modal */}
       <AddPlaylistModal
         isOpen={isAddProviderOpen}
-        onClose={() => setIsAddProviderOpen(false)}
+        onClose={() => {
+          // Az ablak (vagy a diagnosztika) bezárása feloldja a lejátszás-visszatartást.
+          releaseImportPlaybackHold();
+          setIsAddProviderOpen(false);
+        }}
         onBackgroundContinue={() => {
+          // „Csatornák megtekintése”: a félretett csatorna most elindulhat.
+          releaseImportPlaybackHold();
           setIsAddProviderOpen(false);
           setIsSettingsOpen(false);
+        }}
+        onPlaybackHold={(hold) => {
+          if (hold) holdLivePlaybackRef.current = true;
+          else releaseImportPlaybackHold();
         }}
         onAddProvider={handleAddProvider}
         editProvider={editingProvider}
@@ -4659,12 +4689,21 @@ export function App() {
             const firstHungarianChannel = firstPlayableHungarianChannel(orderedChannels);
             if (savedLastChannelExists) {
               if (activeChannelIdRef.current !== savedLastChannelId) {
-                activeChannelIdRef.current = savedLastChannelId!;
-                setActiveChannelId(savedLastChannelId!);
+                // Betöltés-figyelés alatt nem indul adás: a csatorna félretéve.
+                if (holdLivePlaybackRef.current) {
+                  pendingImportChannelIdRef.current = savedLastChannelId!;
+                } else {
+                  activeChannelIdRef.current = savedLastChannelId!;
+                  setActiveChannelId(savedLastChannelId!);
+                }
               }
             } else if (firstHungarianChannel && activeChannelIdRef.current !== firstHungarianChannel.id) {
-              activeChannelIdRef.current = firstHungarianChannel.id;
-              setActiveChannelId(firstHungarianChannel.id);
+              if (holdLivePlaybackRef.current) {
+                pendingImportChannelIdRef.current = firstHungarianChannel.id;
+              } else {
+                activeChannelIdRef.current = firstHungarianChannel.id;
+                setActiveChannelId(firstHungarianChannel.id);
+              }
               handleUpdateSettings({ lastPlayedChannelId: firstHungarianChannel.id });
             }
           }

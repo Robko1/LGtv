@@ -17,6 +17,11 @@ interface AddPlaylistModalProps {
   onDiagnosticUpdate?: (snapshot: { providerId?: string; providerName: string; progress: ImportProgress | null; events: NetworkDiagnosticEvent[]; error: string | null; startedAt: number; finished: boolean; finishedAt?: number | null }) => void;
   onLiveChannelsLoaded?: (partial: PartialContent) => void;
   onBackgroundContinue?: () => void;
+  /**
+   * 2.5.233: import közben a háttérben ne induljon élő adás – minden
+   * erőforrás a letöltésé. true = visszatartás be, false = feloldás (hiba esetén).
+   */
+  onPlaybackHold?: (hold: boolean) => void;
 }
 
 export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
@@ -27,6 +32,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
   onDiagnosticUpdate,
   onLiveChannelsLoaded,
   onBackgroundContinue,
+  onPlaybackHold,
 }) => {
   const [tab, setTab] = useState<'xtream' | 'm3u'>(() => editProvider?.type === 'm3u' ? 'm3u' : 'xtream');
 
@@ -109,6 +115,9 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
 
     const providerName = name.trim() || username.trim();
     setIsLoading(true);
+    // A letöltés alatt a háttérben nem indulhat élő adás (a döntésig, ill.
+    // amíg a néző a folyamatot nézi) – semmi ne lassítsa a betöltést.
+    onPlaybackHold?.(true);
     setStatusMessage(null);
     setProgress({ phase: 'Kapcsolódás…', percent: 2 });
     setDiagnosticOpen(true);
@@ -192,6 +201,8 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
       setNetworkDiagnosticSink(null);
       setDiagnosticFinishedAt(finishedAt);
       const message = error instanceof Error ? error.message : 'Szerver csatlakozási hiba.';
+      // Hibánál a lejátszás-visszatartás feloldása: minden marad a régiben.
+      onPlaybackHold?.(false);
       setDiagnosticError(message);
       setLiveLoadedPromptOpen(false);
       onDiagnosticUpdate?.({ providerName: providerName, progress, events: diagnosticEventsRef.current, error: message, startedAt: diagnosticStartedAtRef.current, finished: true, finishedAt });
@@ -208,6 +219,8 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
     const providerName = name.trim() || (() => { try { return new URL(m3uUrl).hostname; } catch { return 'M3U Playlist'; } })();
 
     setIsLoading(true);
+    // M3U importnál is: letöltés alatt nem indul háttér-adás.
+    onPlaybackHold?.(true);
     setStatusMessage(null);
     setProgress({ phase: 'M3U lista letöltése…', percent: 5 });
     setDiagnosticOpen(true);
@@ -272,6 +285,8 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
       setNetworkDiagnosticSink(null);
       setDiagnosticFinishedAt(finishedAt);
       const message = error instanceof Error ? error.message : 'Nem sikerült letölteni vagy feldolgozni az M3U fájlt.';
+      // Hibánál a lejátszás-visszatartás feloldása.
+      onPlaybackHold?.(false);
       setDiagnosticError(message);
       onDiagnosticUpdate?.({ providerName: providerName, progress, events: diagnosticEventsRef.current, error: message, startedAt: diagnosticStartedAtRef.current, finished: true, finishedAt });
       setStatusMessage({ type: 'error', text: message });
