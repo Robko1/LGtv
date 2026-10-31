@@ -18,6 +18,13 @@ interface LoadingDiagnosticModalProps {
   onClose: () => void;
   onRetry?: () => void;
   retryInSeconds?: number | null;
+  /**
+   * VÁLTOZÁS-MEGERŐSÍTÉS (2.5.237): ha a gyors ellenőrzés változást talált
+   * a szolgáltatónál, ez a szöveg jelenik meg kérdésként, és a letöltés
+   * csak az „Igen” válasz után indul el.
+   */
+  changePrompt?: string | null;
+  onChangeDecision?: (proceed: boolean) => void;
 }
 
 const formatMs = (value: number) => value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
@@ -30,10 +37,15 @@ const formatBytes = (value: number) => value < 1024 * 1024 ? `${(value / 1024).t
 
 export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
   isOpen, progress, events, error, startedAt, finishedAt, onClose, onRetry, retryInSeconds,
+  changePrompt, onChangeDecision,
 }) => {
   const [now, setNow] = useState(() => performance.now());
   const completed = !error && (progress?.percent ?? 0) >= 100;
   const terminal = Boolean(error || completed);
+  const promptActive = Boolean(changePrompt && onChangeDecision && !terminal);
+  // A kérdés két gombja közül a kijelölt (0 = Igen, 1 = Most nem).
+  const [promptChoice, setPromptChoice] = useState(0);
+  useEffect(() => { setPromptChoice(0); }, [changePrompt]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -75,6 +87,9 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const onWindowKeyDown = (event: KeyboardEvent) => {
+      // Aktív változás-kérdésnél a VISSZA nem bezárás, hanem „Most nem” válasz –
+      // azt a kérdés saját kezelője intézi (lent), itt nem nyúlunk hozzá.
+      if (promptActive) return;
       const key = normalizeTvKey(event);
       if (key !== 'Escape' && key !== 'Backspace') return;
       event.preventDefault();
@@ -84,7 +99,44 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
     };
     window.addEventListener('keydown', onWindowKeyDown, true);
     return () => window.removeEventListener('keydown', onWindowKeyDown, true);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, promptActive]);
+
+  /*
+   * A VÁLTOZÁS-KÉRDÉS TÁVIRÁNYÍTÓS KEZELÉSE – ablakszintű, elfogó (capture)
+   * kezelővel, mert a fókusz ilyenkor jellemzően a Beállítások Frissítés
+   * gombján ragadt (lásd a fenti VISSZA-kezelő magyarázatát). Balra/jobbra:
+   * választás, OK: megerősítés, VISSZA: „Most nem”. Minden irány- és OK
+   * gombot elnyelünk, hogy a háttérben lévő felület ne mozduljon.
+   */
+  useEffect(() => {
+    if (!isOpen || !promptActive || !onChangeDecision) return;
+    const onPromptKeyDown = (event: KeyboardEvent) => {
+      const key = normalizeTvKey(event);
+      const swallow = () => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      };
+      if (key === 'ArrowLeft' || key === 'ArrowRight') {
+        swallow();
+        setPromptChoice((choice) => (choice === 0 ? 1 : 0));
+        return;
+      }
+      if (key === 'Enter' || key === ' ') {
+        swallow();
+        onChangeDecision(promptChoice === 0);
+        return;
+      }
+      if (key === 'Escape' || key === 'Backspace') {
+        swallow();
+        onChangeDecision(false);
+        return;
+      }
+      if (key === 'ArrowUp' || key === 'ArrowDown') swallow();
+    };
+    window.addEventListener('keydown', onPromptKeyDown, true);
+    return () => window.removeEventListener('keydown', onPromptKeyDown, true);
+  }, [isOpen, promptActive, onChangeDecision, promptChoice]);
 
   const handleModalKeyDown = (event: React.KeyboardEvent) => {
     const key = normalizeTvKey(event);
@@ -151,6 +203,39 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
               <div className="text-base sm:text-xl lg:text-2xl font-mono text-slate-300">ELTELT IDŐ: {formatElapsedClock(elapsed)} <span className="mx-2 text-cyan-700">•</span> HÁLÓZATI KÉRÉSEK: {requestCount}</div>
             </div>
           </div>
+
+          {promptActive && (
+            /* VÁLTOZÁS A SZOLGÁLTATÓNÁL – a letöltés csak az Igen után indul. */
+            <div className="relative shrink-0 mt-4 sm:mt-6 rounded-2xl border border-amber-400/70 bg-amber-950/40 p-3 sm:p-4 text-amber-100 text-xl sm:text-2xl lg:text-3xl">
+              <b>VÁLTOZÁS A SZOLGÁLTATÓNÁL</b>
+              <div className="mt-1 break-words">{changePrompt}</div>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => onChangeDecision?.(true)}
+                  className={`px-5 py-2 rounded-xl font-black text-xl sm:text-2xl lg:text-3xl tracking-wide transition-all ${
+                    promptChoice === 0
+                      ? 'bg-amber-300 text-slate-950 ring-4 ring-amber-200 scale-105'
+                      : 'bg-amber-900/60 text-amber-200 border border-amber-500/50'
+                  }`}
+                >
+                  IGEN, LETÖLTÉS
+                </button>
+                <button
+                  onClick={() => onChangeDecision?.(false)}
+                  className={`px-5 py-2 rounded-xl font-black text-xl sm:text-2xl lg:text-3xl tracking-wide transition-all ${
+                    promptChoice === 1
+                      ? 'bg-amber-300 text-slate-950 ring-4 ring-amber-200 scale-105'
+                      : 'bg-amber-900/60 text-amber-200 border border-amber-500/50'
+                  }`}
+                >
+                  MOST NEM
+                </button>
+              </div>
+              <div className="mt-2 text-lg sm:text-xl lg:text-2xl text-amber-200/80 leading-snug">
+                Balra/jobbra: választás • OK: megerősítés • VISSZA: most nem
+              </div>
+            </div>
+          )}
 
           {error ? (
             <div className="relative shrink-0 mt-4 sm:mt-6 max-h-[38vh] overflow-y-auto rounded-2xl border border-rose-500/60 bg-rose-950/40 p-3 sm:p-4 flex gap-3 text-rose-200 text-xl sm:text-2xl lg:text-3xl">

@@ -743,31 +743,33 @@ async function main() {
     const savedState = store.loadSyncState(freshProvider.id);
     check('a teljes import elmenti a kategóriák ujjlenyomatát', Boolean(savedState?.fingerprint), String(savedState?.fingerprint));
 
-    // 2) Azonnali újabb frissítés (2.5.227): a kézi Frissítés MINDIG teljes,
-    // elemenkénti összevetést futtat – az indexlisták letöltődnek az
-    // összehasonlításhoz, de változatlan tartalomnál részletkérés
-    // (get_vod_info / get_series_info) NEM indul, és az eredmény
-    // „nincs változás”.
+    // 2) Azonnali újabb frissítés (2.5.237, a 2.5.210 gyors útja): a
+    // kategóriák nem változtak ÉS az utolsó teljes összevetés friss, ezért
+    // a frissítés CSAK a három kategórialistát kéri le – indexlisták és
+    // részletkérések NÉLKÜL –, az eredmény gyors „nincs változás”.
     requestedActions.length = 0;
     const secondResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
     const contentRequests = requestedActions.filter((action) =>
       action === 'get_live_streams' || action === 'get_vod_streams' || action === 'get_series');
     check(
-      'a második frissítés „nincs változás”-t ad',
-      'unchanged' in secondResult && secondResult.unchanged === true,
+      'a második frissítés gyors „nincs változás”-t ad',
+      'unchanged' in secondResult && secondResult.unchanged === true
+        && 'quick' in secondResult && secondResult.quick === true,
       JSON.stringify(Object.keys(secondResult))
     );
     const detailRequests = requestedActions.filter((action) => action === 'get_vod_info' || action === 'get_series_info');
     check(
-      'a kézi frissítés letölti az indexeket az összevetéshez, de részleteket nem kér változatlan tartalomnál',
-      requestedActions.filter((action) => action === 'get_live_streams').length === 1
-        && contentRequests.length === 3
+      'a gyors frissítés csak a kategórialistákat kéri le (indexek és részletek nélkül)',
+      contentRequests.length === 0
         && detailRequests.length === 0
-        && requestedActions.filter((action) => action === 'get_live_categories').length === 1,
+        && requestedActions.filter((action) => action === 'get_live_categories').length === 1
+        && requestedActions.filter((action) => action === 'get_vod_categories').length === 1
+        && requestedActions.filter((action) => action === 'get_series_categories').length === 1,
       `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
     );
 
-    // 3) A kategória megváltozik → az indexek összevetése után frissített kategóriák.
+    // 3) A kategória megváltozik → ELŐSZÖR megerősítő kérdés (2.5.237):
+    // „Most nem” válasznál SEMMI nem töltődik le, az eredmény „elhalasztva”.
     freshFake.setLiveCategoryNames([
       { category_id: '10', category_name: 'Magyarország' },
       { category_id: '11', category_name: 'Németország' },
@@ -778,9 +780,30 @@ async function main() {
       { category_id: '16', category_name: 'Új ország' },
     ]);
     requestedActions.length = 0;
-    const changedResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    let changeSignals = 0;
+    const declinedResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, {
+      incremental: true,
+      onChangeDetected: () => { changeSignals += 1; return false; },
+    });
     check(
-      'kategóriaváltozásnál az indexek alapján frissül a katalógus',
+      'kategóriaváltozásnál a kérdésre adott „nem” válasz elhalasztja a letöltést (semmi nem töltődik le)',
+      'cancelled' in declinedResult && declinedResult.cancelled === true
+        && changeSignals === 1
+        && !requestedActions.includes('get_live_streams')
+        && !requestedActions.includes('get_vod_streams')
+        && !requestedActions.includes('get_series'),
+      `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
+    );
+
+    // 3b) Ugyanez „igen” válasszal → az indexek összevetése után frissített
+    // kategóriák (a különbség-frissítés fut, nem teljes csere).
+    requestedActions.length = 0;
+    const changedResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, {
+      incremental: true,
+      onChangeDetected: () => true,
+    });
+    check(
+      'kategóriaváltozásnál az „igen” válasz után az indexek alapján frissül a katalógus',
       'content' in changedResult
         && requestedActions.includes('get_live_streams')
         && requestedActions.includes('get_vod_streams'),
@@ -788,12 +811,15 @@ async function main() {
     );
 
     /*
-     * 4) RÉGI SZINKRON-IDŐBÉLYEG, VÁLTOZATLAN KATEGÓRIÁK (2.5.227).
+     * 4) RÉGI SZINKRON-IDŐBÉLYEG, VÁLTOZATLAN KATEGÓRIÁK (2.5.237).
      *
-     * Nincs többé időablak: a kézi Frissítés ILYENKOR IS teljes, elemenkénti
-     * összevetést futtat – az indexlisták egyszer letöltődnek a
-     * összehasonlításhoz, de változatlan tartalomnál részletkérés nem indul,
-     * és az összevetés időbélyege elmentődik.
+     * A gyors kilépés CSAK a frissességi ablakon belül érvényes: lejárt
+     * ablaknál a kézi Frissítés teljes, elemenkénti összevetést futtat –
+     * ez fedi le a kategórián BELÜLI (darabszám-) változások vakfoltját.
+     * Az indexlisták egyszer letöltődnek az összehasonlításhoz, de
+     * változatlan tartalomnál részletkérés nem indul, és az összevetés
+     * időbélyege elmentődik. Megerősítő kérdés ilyenkor NINCS (a
+     * kategóriák nem változtak, csak az alapos ellenőrzés esedékes).
      */
     const stateAfterChange = store.loadSyncState(freshProvider.id);
     store.saveSyncState({
@@ -802,12 +828,17 @@ async function main() {
       fullSyncAt: Date.now() - FULL_CHECK_WINDOW_MS - 60_000,
     });
     requestedActions.length = 0;
-    const staleResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    let staleSignals = 0;
+    const staleResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, {
+      incremental: true,
+      onChangeDetected: () => { staleSignals += 1; return false; },
+    });
     const staleState = store.loadSyncState(freshProvider.id);
     check(
-      'régi időbélyegnél is lefut a teljes összevetés (indexek egyszer, részletek nem)',
+      'lejárt időablaknál lefut a teljes összevetés (indexek egyszer, részletek nem, kérdés nélkül)',
       'unchanged' in staleResult
         && staleResult.unchanged === true
+        && staleSignals === 0
         && requestedActions.filter((action) => action === 'get_live_streams').length === 1
         && !requestedActions.includes('get_vod_info')
         && !requestedActions.includes('get_series_info')
@@ -816,19 +847,33 @@ async function main() {
     );
 
     /*
-     * 5) VÁLTOZOTT FILM → FRISS RÉSZLETADAT (2.5.235).
+     * 5) VÁLTOZOTT FILM → FRISS RÉSZLETADAT (2.5.235), forceDeep úttal.
      *
      * Ha egy meglévő film alapadata (ujjlenyomata) megváltozik a
      * szolgáltatónál, a frissítés nem tarthatja meg a RÉGI részletes adatot
      * (elavult poszter/leírás): a változott elemre újra le kell kérni a
      * get_vod_info részleteket, a kereten belül.
+     *
+     * A kategóriák itt NEM változnak és az előző összevetés friss, ezért a
+     * gyors út „nincs változás”-t adna – pont ez a gyors ellenőrzés
+     * vakfoltja. A `forceDeep` (a nézőnél: 2 percen belüli ÚJABB Frissítés
+     * gombnyomás) kikényszeríti a teljes, elemenkénti összevetést.
      */
     freshFake.setVodStreams([
       { name: 'Dűne', stream_id: 501, container_extension: 'mkv', category_id: '20', stream_icon: 'http://logo/dune-v2.jpg', rating: '8.5', added: '1690000000' },
       { name: 'Avatar', stream_id: 502, container_extension: 'mp4', category_id: '20', stream_icon: '', rating: '8.1', added: '1690000000' },
     ]);
     requestedActions.length = 0;
-    const changedMovieResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    const quickBlindResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true });
+    check(
+      'kategórián belüli változást a gyors út nem lát (ismert korlát): gyors „nincs változás” a válasz',
+      'unchanged' in quickBlindResult && quickBlindResult.unchanged === true
+        && 'quick' in quickBlindResult && quickBlindResult.quick === true
+        && !requestedActions.includes('get_vod_streams'),
+      `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
+    );
+    requestedActions.length = 0;
+    const changedMovieResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true, forceDeep: true });
     const changedMovie = 'content' in changedMovieResult
       ? changedMovieResult.content.movies.find((movie: { title: string }) => movie.title === 'Dűne')
       : undefined;
