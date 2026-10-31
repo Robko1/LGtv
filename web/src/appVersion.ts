@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.236';
+export const WEB_VERSION = '2.5.237';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.237',
+    date: '2026-10-31',
+    changes: [
+      'Visszatért a régi (2.5.210-es) GYORS kézi frissítés: a Frissítés gomb először csak a három kategórialistát kéri le (~44 kB, 1-2 mp). Ha a kategóriák nem változtak és az utolsó teljes összevetés 12 órán belüli, a frissítés azonnal kész – a nagy listák le sem töltődnek.',
+      'Változás észlelésekor az alkalmazás RÁKÉRDEZ: „Letöltsem a változásokat?” – a letöltés csak az Igen válasz után indul, és csak a különbséget frissíti (a kedvencek, a sorrend és a törölt csatornák megmaradnak, semmi nem duplázódik).',
+      'A gyors ellenőrzés ismert korlátja, hogy a meglévő kategórián BELÜLI új elemeket (darabszám-változást) nem látja – az Xtream API darabszámot csak a teljes indexlisták letöltésével ad. Ezt két védelem fedi le: 12 óránként a Frissítés teljes, elemenkénti összevetést futtat, és a gyors „nincs változás” után 2 percen belüli ÚJABB gombnyomás azonnal teljes összevetést indít.',
+      'Semmi nem indul magától: minden ellenőrzés és letöltés kizárólag a kézi Frissítés gombnyomásra fut.',
+    ],
+  },
   {
     version: '2.5.236',
     date: '2026-10-31',

@@ -1825,8 +1825,22 @@ export async function importXtreamProvider(
  * alkalmazás magától SOHA nem tölt le semmit. A kategórián belüli
  * változásokat a kézi Frissítés találja meg, amely mostantól minden
  * gombnyomásnál teljes, elemenkénti összevetést futtat.
+ *
+ * 2.5.237: visszatért a 2.5.210-es GYORS kézi frissítés. A gombnyomás
+ * először CSAK a három kategórialistát kéri le (~44 kB, 1-2 másodperc):
+ *
+ *   • azonos kategóriák + friss teljes összevetés → azonnali „nincs
+ *     változás” válasz, indexletöltés nélkül;
+ *   • megváltozott kategóriák → a felület RÁKÉRDEZ, induljon-e a
+ *     különbség-letöltés (a kedvencek és a törlések megmaradnak);
+ *   • azonos kategóriák, de az utolsó teljes összevetés régebbi az
+ *     alábbi ablaknál → teljes, elemenkénti összevetés fut, mert a
+ *     kategória-ujjlenyomat a kategórián BELÜLI új/törölt elemeket
+ *     (darabszám-változást) nem látja. Az Xtream API-ból darabszám
+ *     csak a teljes indexlisták letöltésével nyerhető, ezért ezt a
+ *     vakfoltot ez az időablak fedi le.
  */
-export const FULL_CHECK_WINDOW_MS = 10 * 60 * 1000;
+export const FULL_CHECK_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 /** Egy kategórialista ujjlenyomata (azonosító + név, rendezve). */
 export function catalogFingerprint(categories: Array<{ id: string; name: string }> | undefined): string {
@@ -2118,11 +2132,44 @@ export async function importM3UProvider(
 }
 
 /** Újratöltés a mentett szolgáltatói adatokból. */
-/** A frissítés eredménye: új tartalom, vagy „nem változott semmi”. */
+/** A frissítés eredménye: új tartalom, „nem változott semmi”, vagy elhalasztott letöltés. */
 export type RefreshOutcome =
   | ImportedProvider
   | ImportedContent
-  | { unchanged: true; check: ProviderChangeCheck };
+  | { unchanged: true; quick?: boolean; check: ProviderChangeCheck }
+  | { cancelled: true; check: ProviderChangeCheck };
+
+/** A gyors ellenőrzés által észlelt szolgáltatói változás adatai. */
+export interface RefreshChangeSignal {
+  /** A HÁROM kategórialista darabszámai (nem elem-darabszámok!). */
+  counts: { live: number; vod: number; series: number };
+  previousFingerprint: string | null;
+  fingerprint: string;
+}
+
+export interface RefreshOptions {
+  incremental?: boolean;
+  /**
+   * Igaz érték esetén a gyors kilépés kimarad: mindenképp teljes,
+   * elemenkénti összevetés fut (pl. ha a néző röviddel a „nincs változás”
+   * után ÚJRA megnyomja a Frissítés gombot – ő tudhatja, hogy új tartalom
+   * érkezett egy meglévő kategóriába, amit a gyors ellenőrzés nem lát).
+   */
+  forceDeep?: boolean;
+  /**
+   * Hamis érték jelzi, hogy a felületen most NINCS betöltött katalógus –
+   * ilyenkor a gyors „nincs változás” kilépés tilos, mert üres képernyőt
+   * hagyna (pl. törölt IndexedDB melletti, mentett ujjlenyomattal).
+   */
+  hasLocalContent?: boolean;
+  /**
+   * MEGERŐSÍTÉS VÁLTOZÁSNÁL: ha a gyors ellenőrzés változást talál, ez a
+   * visszahívás dönti el, induljon-e a letöltés. Hamis válasznál az
+   * eredmény `{ cancelled: true }`, és SEMMI nem töltődik le. Ha nincs
+   * megadva, a letöltés kérdés nélkül indul (pl. tesztek, újrapróbálkozás).
+   */
+  onChangeDetected?: (signal: RefreshChangeSignal) => boolean | Promise<boolean>;
+}
 
 export interface CatalogDiff { added: number; changed: number; removed: number; }
 
@@ -2153,6 +2200,7 @@ async function refreshXtreamIncremental(
   provider: ProviderAccount,
   onProgress: ProgressFn,
   onPartial: PartialFn,
+  options: RefreshOptions = {},
 ): Promise<RefreshOutcome> {
   const server = xtreamService.cleanUrl(provider.serverUrl || '');
   const user = (provider.username || '').trim();
@@ -2160,17 +2208,20 @@ async function refreshXtreamIncremental(
   const providerRef: ProviderRef = { id: provider.id, type: 'xtream', serverUrl: server, username: user, password: pass };
 
   /*
-   * KÉZI FRISSÍTÉS = MINDIG VALÓDI ÖSSZEVETÉS (2.5.227).
+   * KÉZI FRISSÍTÉS = ELŐSZÖR GYORS ELLENŐRZÉS (2.5.237, a 2.5.210 nyomán).
    *
-   * A felhasználó döntése: Ő határozza meg, MIKOR fut frissítés – a gomb
-   * megnyomásakor viszont ténylegesen derüljön ki, van-e új csatorna, film
-   * vagy sorozat. A kategória-ujjlenyomat a meglévő kategórián BELÜLI új
-   * elemeket nem látja, ezért a korábbi „gyors kilépés” (változatlan
-   * ujjlenyomatnál pár másodperces visszatérés) és a hozzá tartozó napi
-   * mélyösszevetési ablak (DEEP_COMPARE_WINDOW_MS) kikerült: minden kézi
-   * gombnyomás elemenkénti összevetést futtat. A friss listák letöltése
-   * KIZÁRÓLAG az összehasonlításhoz kell – a változatlan szakaszokat nem
-   * dolgozzuk fel újra és nem írjuk újra a tárolóba.
+   * A gombnyomás először CSAK a három kategórialistát kéri le (~44 kB).
+   * Ha a kategóriák nem változtak ÉS az utolsó teljes, elemenkénti
+   * összevetés a FULL_CHECK_WINDOW_MS ablakon belül volt, a frissítés
+   * másodpercek alatt kész – a nagy indexlisták le sem töltődnek.
+   *
+   * KORLÁT (őszintén): a kategória-ujjlenyomat a meglévő kategórián BELÜLI
+   * új/törölt elemeket – vagyis a darabszám-változást – NEM látja, és az
+   * Xtream API darabszámot sem ad a teljes indexletöltés nélkül. Ezt a
+   * vakfoltot két dolog fedi le: (1) az ablak lejárta után a következő
+   * Frissítés teljes, elemenkénti összevetést futtat; (2) ha a néző a
+   * „nincs változás” után röviddel ÚJRA megnyomja a Frissítés gombot,
+   * a `forceDeep` kapcsolóval azonnal teljes összevetés fut.
    */
   onProgress({ phase: 'Változások ellenőrzése…', percent: 4 });
   const catsStartedAt = Date.now();
@@ -2182,6 +2233,54 @@ async function refreshXtreamIncremental(
   const catsMs = Date.now() - catsStartedAt;
   const quickFingerprint = rawCatalogFingerprint(liveCats || [], vodCats || [], seriesCats || []);
   const syncState = loadSyncState(provider.id);
+
+  /*
+   * GYORS DÖNTÉS a kategórialisták alapján – minden nagy letöltés ELŐTT.
+   * Ha egy kategórialista sem jött meg (a panel nem válaszol), nem
+   * állíthatjuk, hogy „nincs változás”: ilyenkor a teljes út fut tovább,
+   * amely értelmes hibaüzenetet ad.
+   */
+  const categoriesLoaded = (liveCats?.length || 0) + (vodCats?.length || 0) + (seriesCats?.length || 0) > 0;
+  const quickUnchanged = categoriesLoaded
+    && Boolean(syncState?.fingerprint)
+    && syncState?.fingerprint === quickFingerprint;
+  const fullAgeMs = typeof syncState?.fullSyncAt === 'number' && syncState.fullSyncAt > 0
+    ? Math.max(0, Date.now() - syncState.fullSyncAt)
+    : null;
+  const deepCompareDue = fullAgeMs === null || fullAgeMs > FULL_CHECK_WINDOW_MS;
+  const quickCheck: ProviderChangeCheck = {
+    unchanged: quickUnchanged,
+    fresh: !deepCompareDue,
+    ageMs: fullAgeMs,
+    fingerprint: quickFingerprint,
+    counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: seriesCats?.length || 0 },
+  };
+
+  if (quickUnchanged && !deepCompareDue && !options.forceDeep && options.hasLocalContent !== false) {
+    // GYORS KILÉPÉS: a kategóriák azonosak és a teljes összevetés friss –
+    // az indexlisták újratöltése felesleges lenne; a tárolt készlet marad.
+    logProviderEvent(
+      `Gyors frissítés kész ${catsMs} ms alatt: a kategóriák nem változtak, az utolsó teljes `
+      + `összevetés ${Math.round((fullAgeMs || 0) / 60000)} perce volt – az indexlisták nem töltődtek le.`
+    );
+    return { unchanged: true, quick: true, check: quickCheck };
+  }
+
+  if (categoriesLoaded && !quickUnchanged && syncState?.fingerprint && options.onChangeDetected) {
+    // VÁLTOZÁS ÉSZLELVE: a felület megkérdezi a nézőt, induljon-e a
+    // letöltés. Nemleges válasznál SEMMI nem töltődik le, a tárolt
+    // katalógus és a szinkron-állapot érintetlen marad.
+    onProgress({ phase: 'Változás észlelve – megerősítésre vár…', percent: 5 });
+    const proceed = await options.onChangeDetected({
+      counts: quickCheck.counts,
+      previousFingerprint: syncState.fingerprint,
+      fingerprint: quickFingerprint,
+    });
+    if (!proceed) {
+      logProviderEvent('A szolgáltató kínálata megváltozott, de a letöltést a néző elhalasztotta – semmi nem töltődött le.');
+      return { cancelled: true, check: quickCheck };
+    }
+  }
 
   /*
    * 2.5.233: a frissítés két leglassabb lépése – a mentett katalógus
@@ -2466,7 +2565,7 @@ export async function refreshProviderContent(
   provider: ProviderAccount,
   onProgress: ProgressFn = () => {},
   onPartial: PartialFn = () => {},
-  options: { incremental?: boolean } = {}
+  options: RefreshOptions = {}
 ): Promise<RefreshOutcome> {
   if (provider.type === 'xtream') {
     if (!provider.serverUrl || !provider.username || !provider.password) {
@@ -2483,7 +2582,7 @@ export async function refreshProviderContent(
      * a tárolt tartalom marad, a felület pedig megmondja, mi történt.
      */
     if (options.incremental) {
-      return refreshXtreamIncremental(provider, onProgress, onPartial);
+      return refreshXtreamIncremental(provider, onProgress, onPartial, options);
     }
 
     const result = await importXtreamProvider(

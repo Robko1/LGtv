@@ -389,6 +389,21 @@ export function App() {
   const [lastImportDiagnostic, setLastImportDiagnostic] = useState<{ providerId?: string; providerName: string; progress: any; events: NetworkDiagnosticEvent[]; error: string | null; startedAt: number; finished: boolean; finishedAt?: number | null } | null>(null);
   const [lastImportDiagnosticOpen, setLastImportDiagnosticOpen] = useState(false);
   const [refreshLivePromptOpen, setRefreshLivePromptOpen] = useState(false);
+  /*
+   * VÁLTOZÁS-MEGERŐSÍTÉS (2.5.237): a gyors ellenőrzés változást talált a
+   * szolgáltatónál; a diagnosztikai ablak megkérdezi a nézőt, induljon-e a
+   * letöltés. A feloldó a futó frissítés Promise-át engedi tovább (igen/nem).
+   */
+  const [refreshChangePrompt, setRefreshChangePrompt] = useState<string | null>(null);
+  const refreshChangeResolveRef = useRef<((proceed: boolean) => void) | null>(null);
+  /** A legutóbbi gyors „nincs változás” eredmény – a 2 percen belüli ÚJABB gombnyomás teljes összevetést kér. */
+  const lastQuickUnchangedRef = useRef<{ providerId: string; at: number } | null>(null);
+  const answerRefreshChangePrompt = useCallback((proceed: boolean) => {
+    const resolve = refreshChangeResolveRef.current;
+    refreshChangeResolveRef.current = null;
+    setRefreshChangePrompt(null);
+    if (resolve) resolve(proceed);
+  }, []);
   const diagnosticEventsRef = useRef<NetworkDiagnosticEvent[]>([]);
   const refreshLivePromptShownRef = useRef(false);
   /**
@@ -2539,9 +2554,12 @@ export function App() {
   const reportUnchangedRefresh = (
     provider: ProviderAccount,
     check: { counts: { live: number; vod: number; series: number }; ageMs: number | null },
-    startedAt: number
+    startedAt: number,
+    quick = false
   ) => {
     const ageMinutes = Math.round((check.ageMs ?? 0) / 60000);
+    // 12 órás ablaknál a percérték olvashatatlan lenne – óránként kerekítünk.
+    const ageText = ageMinutes >= 120 ? `${Math.round(ageMinutes / 60)} órája` : `${ageMinutes} perce`;
     const snapshot: ImportedContent = {
       provider: {
         id: provider.id,
@@ -2562,10 +2580,13 @@ export function App() {
     const summary = describeCatalogSummary(snapshot);
     const finalProgress = {
       phase: 'Kész – nincs változás',
-      detail:
-        `A szolgáltató katalógusa ellenőrizve (${check.counts.live} élő / ${check.counts.vod} film / ` +
-        `${check.counts.series} sorozat): nem változott, ezért a teljes listák nem ` +
-        `töltődtek le újra (utolsó teljes ellenőrzés: ${ageMinutes} perce). • ${summary.counts}`,
+      detail: quick
+        ? `Gyors ellenőrzés: a kategórialisták (${check.counts.live} élő / ${check.counts.vod} film / ` +
+          `${check.counts.series} sorozat kategória) nem változtak, ezért a nagy listák le sem töltődtek ` +
+          `(utolsó teljes összevetés: ${ageText}). Ha most új tartalmat vársz egy meglévő kategóriában, ` +
+          `nyomd meg ÚJRA a Frissítés gombot 2 percen belül – akkor teljes, elemenkénti összevetés fut. • ${summary.counts}`
+        : `A szolgáltató katalógusa elemenként összevetve (${check.counts.live} élő / ${check.counts.vod} film / ` +
+          `${check.counts.series} sorozat kategória): nem változott, a tárolt készlet érvényes. • ${summary.counts}`,
       percent: 100,
     };
     const doneAt = performance.now();
@@ -2591,6 +2612,44 @@ export function App() {
     setLiveListComplete(true);
     bootScreenPhase('live', 'A szolgáltató listája változatlan – a mentett készlet érvényes.');
     bootScreenDetail(`${finalProgress.detail}`);
+  };
+
+  /*
+   * ELHALASZTOTT LETÖLTÉS (2.5.237): a gyors ellenőrzés változást talált,
+   * de a néző a „Most nem” gombot választotta. SEMMI nem töltődött le,
+   * a tárolt katalógus és a kedvencek változatlanok.
+   */
+  const reportCancelledRefresh = (provider: ProviderAccount, startedAt: number) => {
+    const finalProgress = {
+      phase: 'Kész – a letöltés elhalasztva',
+      detail:
+        'A szolgáltató kínálata megváltozott, de a döntésed szerint a letöltés most nem indult el. ' +
+        'A mentett katalógus változatlanul használható; a Frissítés gombbal bármikor letöltheted a változásokat.',
+      percent: 100,
+    };
+    const doneAt = performance.now();
+    diagnosticFinishedRef.current = true;
+    retryAttemptsRef.current = 0;
+    cancelAutoRetry();
+    setDiagnosticProgress(finalProgress);
+    setDiagnosticFinishedAt(doneAt);
+    setLastImportDiagnostic({
+      providerId: provider.id,
+      providerName: provider.name,
+      progress: finalProgress,
+      events: diagnosticEventsRef.current,
+      error: null,
+      startedAt,
+      finished: true,
+      finishedAt: doneAt,
+    });
+    flushDiagnosticNow();
+    setNetworkDiagnosticSink(null);
+    providerRefreshActiveRef.current = false;
+    setProviderContentReady(true);
+    setLiveListComplete(true);
+    bootScreenPhase('live', 'A letöltés elhalasztva – a mentett készlet érvényes.');
+    bootScreenDetail(finalProgress.detail);
   };
 
   // Refresh Provider: újratölti a csatornákat, filmeket és sorozatokat, közben ugyanaz a diagnosztika jelenik meg., filmeket és sorozatokokat, közben ugyanaz a diagnosztika jelenik meg.
@@ -2665,6 +2724,8 @@ export function App() {
     cancelNetworkRequests();
     resetNetworkBreaker();
     cancelAutoRetry();
+    // Egy korábbi futamból ittragadt változás-kérdés nem várakoztathat senkit.
+    answerRefreshChangePrompt(false);
     if (manual) retryAttemptsRef.current = 0;
     lastRefreshProviderIdRef.current = id;
     providerRefreshActiveRef.current = true;
@@ -2935,13 +2996,43 @@ export function App() {
           setLastImportDiagnostic(() => ({ providerId: id, providerName: provider.name, progress, events: diagnosticEventsRef.current, error: null, startedAt: refreshStartedAt, finished: false }));
         },
         applyPartial,
-        /*
-         * A változásvizsgálat MÁR a függvény elején lefutott (minden
-         * mellékhatás előtt), ezért itt már biztos, hogy a kategóriák
-         * változtak – vagy a vizsgálat nem volt elvégezhető. Újabb
-         * kategórialekérdezés felesleges lenne.
-         */
-        { incremental: provider.type === 'xtream' }
+        {
+          incremental: provider.type === 'xtream',
+          /*
+           * KÉT GOMBNYOMÁS = TELJES ÖSSZEVETÉS: ha a néző röviddel a gyors
+           * „nincs változás” után ÚJRA Frissítést nyom, ő tudhatja, hogy új
+           * tartalom érkezett egy meglévő kategóriába (ezt a gyors
+           * kategória-ellenőrzés nem látja) – ilyenkor a gyors kilépés
+           * kimarad, és elemenkénti összevetés fut.
+           */
+          forceDeep: manual
+            && lastQuickUnchangedRef.current?.providerId === id
+            && Date.now() - (lastQuickUnchangedRef.current?.at || 0) < 2 * 60 * 1000,
+          // Üres felületi katalógusnál a gyors „nincs változás” kilépés tilos.
+          hasLocalContent:
+            channelsRef.current.length + moviesRef.current.length + seriesRef.current.length > 0,
+          /*
+           * VÁLTOZÁS ÉSZLELVE: kézi frissítésnél a letöltés CSAK a néző
+           * igen válasza után indul (a kérdés a diagnosztikai ablakban
+           * jelenik meg). Automatikus újrapróbálkozásnál nincs kérdés –
+           * azt egy korábbi kézi gombnyomás indította, a beleegyezés megvan.
+           */
+          onChangeDetected: manual
+            ? (signal) => new Promise<boolean>((resolve) => {
+                if (refreshGenerationRef.current !== refreshGeneration) {
+                  // Egy újabb frissítés már elindult: a régi futam álljon le letöltés nélkül.
+                  resolve(false);
+                  return;
+                }
+                refreshChangeResolveRef.current = resolve;
+                setRefreshChangePrompt(
+                  `A szolgáltató kínálata megváltozott (${signal.counts.live} élő / ${signal.counts.vod} film / ` +
+                  `${signal.counts.series} sorozat kategória). Letöltsem a változásokat? Csak a különbség frissül: ` +
+                  'a kedvencek, a sorrend és a törölt csatornák megmaradnak.'
+                );
+              })
+            : undefined,
+        }
       );
       if (refreshGenerationRef.current !== refreshGeneration) return;
 
@@ -2949,10 +3040,24 @@ export function App() {
        * NINCS VÁLTOZÁS: a tárolt tartalom marad, semmit nem írunk felül.
        * A felület a VALÓS eredményt mutatja – nem hibát.
        */
-      if ('unchanged' in result && result.unchanged) {
-        reportUnchangedRefresh(provider, result.check, refreshStartedAt);
+      /*
+       * ELHALASZTOTT LETÖLTÉS: a néző a „Most nem” gombot választotta a
+       * változás-kérdésre. Semmi nem töltődött le, a tárolt tartalom marad.
+       */
+      if ('cancelled' in result && result.cancelled) {
+        reportCancelledRefresh(provider, refreshStartedAt);
         return;
       }
+
+      if ('unchanged' in result && result.unchanged) {
+        const quick = 'quick' in result && result.quick === true;
+        // Gyors „nincs változás” után a 2 percen belüli újabb gombnyomás
+        // teljes, elemenkénti összevetést indít (forceDeep).
+        lastQuickUnchangedRef.current = quick ? { providerId: id, at: Date.now() } : null;
+        reportUnchangedRefresh(provider, result.check, refreshStartedAt, quick);
+        return;
+      }
+      lastQuickUnchangedRef.current = null;
 
       const content: ImportedContent =
         'content' in result ? result.content : (result as ImportedContent);
@@ -3296,6 +3401,9 @@ export function App() {
     // A VISSZA csak a diagnosztikai ablakot zárja be; a háttérben már futó
     // tartalomfrissítést nem szakítjuk félbe, viszont annak minden diagnosztikai
     // sinkje, flush-időzítője és további React-frissítése azonnal leáll.
+    // Függőben lévő változás-megerősítésnél a bezárás „most nem” választ jelent,
+    // különben a frissítés örökre várakozna a válaszra.
+    answerRefreshChangePrompt(false);
     diagnosticFinishedRef.current = true;
     cancelDiagnosticFlush();
     setNetworkDiagnosticSink(null);
@@ -3304,7 +3412,7 @@ export function App() {
     setDiagnosticError(null);
     setDiagnosticProgress(null);
     setDiagnosticFinishedAt(null);
-  }, [cancelDiagnosticFlush]);
+  }, [cancelDiagnosticFlush, answerRefreshChangePrompt]);
 
   const closeLastImportDiagnostic = useCallback(() => {
     setLastImportDiagnosticOpen(false);
@@ -4494,6 +4602,8 @@ export function App() {
             : undefined
         }
         retryInSeconds={retryCountdown}
+        changePrompt={refreshChangePrompt}
+        onChangeDecision={answerRefreshChangePrompt}
       />
 
       {refreshLivePromptOpen && createPortal(
