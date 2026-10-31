@@ -36,7 +36,7 @@ export function rawItemSignature(raw: unknown): string {
 /** A lista-válasz minden mezőjét megőrizzük; a normalizált mezők csak gyors megjelenítést adnak. */
 export function movieRowFromRaw(
   raw: Record<string, unknown>,
-  category: { id: string; name: string },
+  _category: { id: string; name: string },
 ): CatalogRow {
   const meta = parseMovieCatalogMetadata(raw);
   return [
