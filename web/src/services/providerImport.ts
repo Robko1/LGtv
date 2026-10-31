@@ -1827,18 +1827,23 @@ export async function importXtreamProvider(
  * gombnyomásnál teljes, elemenkénti összevetést futtat.
  *
  * 2.5.237: visszatért a 2.5.210-es GYORS kézi frissítés. A gombnyomás
- * először CSAK a három kategórialistát kéri le (~44 kB, 1-2 másodperc):
+ * először CSAK a három kategórialistát kéri le (~44 kB, 1-2 másodperc).
  *
- *   • azonos kategóriák + friss teljes összevetés → azonnali „nincs
- *     változás” válasz, indexletöltés nélkül;
+ * 2.5.238: SEMMILYEN időzített, magától induló mélyösszevetés NINCS – a
+ * felhasználó kifejezett kérésére. A gombnyomás után:
+ *
+ *   • azonos kategóriák → azonnali „nincs változás” válasz,
+ *     indexletöltés nélkül – akármikor volt az utolsó teljes összevetés;
  *   • megváltozott kategóriák → a felület RÁKÉRDEZ, induljon-e a
  *     különbség-letöltés (a kedvencek és a törlések megmaradnak);
- *   • azonos kategóriák, de az utolsó teljes összevetés régebbi az
- *     alábbi ablaknál → teljes, elemenkénti összevetés fut, mert a
- *     kategória-ujjlenyomat a kategórián BELÜLI új/törölt elemeket
- *     (darabszám-változást) nem látja. Az Xtream API-ból darabszám
- *     csak a teljes indexlisták letöltésével nyerhető, ezért ezt a
- *     vakfoltot ez az időablak fedi le.
+ *   • teljes, elemenkénti összevetés KIZÁRÓLAG a néző kérésére fut:
+ *     a gyors „nincs változás” után 2 percen belüli ÚJABB gombnyomás
+ *     indítja (forceDeep). Ez fedi le a kategórián BELÜLI változásokat,
+ *     amiket a kategória-ujjlenyomat nem lát (az Xtream API darabszámot
+ *     csak a teljes indexlisták letöltésével ad).
+ *
+ * Az alábbi ablak már CSAK tájékoztató (a ProviderChangeCheck.fresh
+ * mezőjéhez) – semmilyen letöltést nem indít és nem is gátol.
  */
 export const FULL_CHECK_WINDOW_MS = 12 * 60 * 60 * 1000;
 
@@ -2211,17 +2216,16 @@ async function refreshXtreamIncremental(
    * KÉZI FRISSÍTÉS = ELŐSZÖR GYORS ELLENŐRZÉS (2.5.237, a 2.5.210 nyomán).
    *
    * A gombnyomás először CSAK a három kategórialistát kéri le (~44 kB).
-   * Ha a kategóriák nem változtak ÉS az utolsó teljes, elemenkénti
-   * összevetés a FULL_CHECK_WINDOW_MS ablakon belül volt, a frissítés
-   * másodpercek alatt kész – a nagy indexlisták le sem töltődnek.
+   * Ha a kategóriák nem változtak, a frissítés másodpercek alatt kész –
+   * a nagy indexlisták le sem töltődnek. Időzített, magától induló
+   * mélyösszevetés NINCS (2.5.238, a felhasználó kifejezett kérése).
    *
    * KORLÁT (őszintén): a kategória-ujjlenyomat a meglévő kategórián BELÜLI
    * új/törölt elemeket – vagyis a darabszám-változást – NEM látja, és az
-   * Xtream API darabszámot sem ad a teljes indexletöltés nélkül. Ezt a
-   * vakfoltot két dolog fedi le: (1) az ablak lejárta után a következő
-   * Frissítés teljes, elemenkénti összevetést futtat; (2) ha a néző a
-   * „nincs változás” után röviddel ÚJRA megnyomja a Frissítés gombot,
-   * a `forceDeep` kapcsolóval azonnal teljes összevetés fut.
+   * Xtream API darabszámot sem ad a teljes indexletöltés nélkül. A teljes,
+   * elemenkénti összevetést ezért KIZÁRÓLAG a néző indíthatja: a gyors
+   * „nincs változás” után 2 percen belüli ÚJABB Frissítés gombnyomás a
+   * `forceDeep` kapcsolóval teljes összevetést futtat.
    */
   onProgress({ phase: 'Változások ellenőrzése…', percent: 4 });
   const catsStartedAt = Date.now();
@@ -2247,18 +2251,19 @@ async function refreshXtreamIncremental(
   const fullAgeMs = typeof syncState?.fullSyncAt === 'number' && syncState.fullSyncAt > 0
     ? Math.max(0, Date.now() - syncState.fullSyncAt)
     : null;
-  const deepCompareDue = fullAgeMs === null || fullAgeMs > FULL_CHECK_WINDOW_MS;
   const quickCheck: ProviderChangeCheck = {
     unchanged: quickUnchanged,
-    fresh: !deepCompareDue,
+    // Csak tájékoztató mező: letöltést nem indít és nem gátol (2.5.238).
+    fresh: fullAgeMs !== null && fullAgeMs <= FULL_CHECK_WINDOW_MS,
     ageMs: fullAgeMs,
     fingerprint: quickFingerprint,
     counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: seriesCats?.length || 0 },
   };
 
-  if (quickUnchanged && !deepCompareDue && !options.forceDeep && options.hasLocalContent !== false) {
-    // GYORS KILÉPÉS: a kategóriák azonosak és a teljes összevetés friss –
-    // az indexlisták újratöltése felesleges lenne; a tárolt készlet marad.
+  if (quickUnchanged && !options.forceDeep && options.hasLocalContent !== false) {
+    // GYORS KILÉPÉS: a kategóriák azonosak – az indexlisták újratöltése
+    // felesleges lenne; a tárolt készlet marad. Teljes összevetés CSAK a
+    // néző kérésére fut (forceDeep), magától SOHA.
     logProviderEvent(
       `Gyors frissítés kész ${catsMs} ms alatt: a kategóriák nem változtak, az utolsó teljes `
       + `összevetés ${Math.round((fullAgeMs || 0) / 60000)} perce volt – az indexlisták nem töltődtek le.`
