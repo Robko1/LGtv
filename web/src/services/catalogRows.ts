@@ -69,7 +69,7 @@ export function movieRowFromRaw(
 
 export function seriesRowFromRaw(
   raw: Record<string, unknown>,
-  category: { id: string; name: string },
+  _category: { id: string; name: string },
 ): CatalogRow {
   const meta = parseSeriesMetadata(raw);
   const backdrops = Array.isArray(raw.backdrop_path) ? raw.backdrop_path : [];
