@@ -152,9 +152,14 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
         (partial) => {
           if (partial.channels?.length) {
             onLiveChannelsLoaded?.(partial);
-            promptShownRef.current = true;
-            setDiagnosticOpen(true);
-            setLiveLoadedPromptOpen(true);
+            const liveChannelsReady = partial.liveHungarianReady === true
+              || partial.liveComplete === true
+              || partial.preview !== true;
+            if (liveChannelsReady && !promptShownRef.current) {
+              promptShownRef.current = true;
+              setDiagnosticOpen(true);
+              setLiveLoadedPromptOpen(true);
+            }
           }
         }
       );
@@ -494,13 +499,13 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
       {liveLoadedPromptOpen && createPortal(
         <div ref={livePromptRef} role="dialog" aria-modal="true" aria-label="Az élő TV-csatornák betöltve" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setLiveLoadedPromptOpen(false); } }} className="fixed inset-0 flex items-center justify-center p-4 bg-black/75" style={{ zIndex: 2147482000 }}>
           <div className="w-full max-w-lg rounded-2xl border border-cyan-400/50 bg-[#081329] p-6 text-white shadow-2xl">
-            <div className="text-xl font-black text-cyan-200">Az élő TV-csatornák betöltve</div>
-            <p className="mt-3 text-base text-slate-300">A filmek és sorozatok betöltése még folyamatban van. Mit szeretnél?</p>
+            <div className="text-xl font-black text-cyan-200">A magyar TV-csatornák készen állnak</div>
+            <p className="mt-3 text-base text-slate-300">A többi TV-csatorna, a filmek és a sorozatok betöltése a háttérben folytatódik. Mit szeretnél?</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               {/* A FOLYAMATOT nézi: a diagnosztikai ablak NYITVA marad. */}
-              <button onClick={() => { setLiveLoadedPromptOpen(false); setDiagnosticOpen(true); }} className="py-3 rounded-xl border border-cyan-500/60 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-100 font-bold">Folyamat megtekintése</button>
+              <button onClick={() => { setLiveLoadedPromptOpen(false); setDiagnosticOpen(true); }} className="py-3 rounded-xl border border-cyan-500/60 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-100 font-bold">Nézem tovább a folyamatot</button>
               {/* A CSATORNÁKAT nézi: minden ablak bezárul, a főoldal látszik. */}
-              <button data-tv-default="" onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">Csatornák megtekintése</button>
+              <button data-tv-default="" onClick={() => { setLiveLoadedPromptOpen(false); closeDiagnostic(onBackgroundContinue || onClose); }} className="py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black">TV nézése</button>
             </div>
           </div>
         </div>, document.body)}
