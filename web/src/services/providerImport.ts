@@ -102,15 +102,11 @@ export interface PartialContent {
    */
   unchangedSections?: Array<'live' | 'vod' | 'series'>;
   /**
-   * AZ ÉLŐ LISTA ELKÉSZÜLT.
-   *
-   * Az élő szakasz a teljes csatornalistát egyszerre tölti le, de amíg a filmek
-   * és sorozatok készülnek, a részleges tartalom továbbra is `preview: true`.
-   * Ezért külön jelző kell: a felület CSAK ekkor dönthet a nézett csatornáról.
-   * Az első 1500 csatornás előnézetnél a jelző hamarabb NEM lehet igaz – a
-   * hiányos listából választott csatorna a betöltés végére másra váltana, vagy
-   * (ha az első adagban nincs magyar adó) egy külföldi csatornát indítana.
+   * A magyar kategóriák feldolgozása elkészült, a magyar csatornák már
+   * megjeleníthetők és nézhetők, miközben a többi élő csatorna feldolgozása fut.
    */
+  liveHungarianReady?: boolean;
+  /** A teljes élő csatornalista feldolgozása elkészült. */
   liveComplete?: boolean;
   channels?: Channel[];
   liveCategories?: Category[];
@@ -214,12 +210,6 @@ const PROGRESS_UPDATE_EVERY = 500;
  * macrotaszkot (MessageChannel), ami a festésnek is elég, de nem vár.
  */
 const UI_YIELD_EVERY = 1200;
-
-/**
- * Ennyi csatorna feldolgozása után jelenik meg az első használható adag.
- * 1500 csatorna már bőven elég a nézéshez, és a feldolgozása gyors.
- */
-const FIRST_BATCH_CHANNELS = 1500;
 
 /**
  * Azonnali „lélegzés” a főszálnak.
@@ -1048,48 +1038,53 @@ export async function importXtreamProvider(
     liveStreamCount = liveStreamTotal;
     const liveProcessTotal = Math.min(liveStreamTotal, MAX_CHANNELS);
     let liveProcessed = 0;
+    const hungarianCategoryIdSet = new Set(hungarianCategoryIds.map((id) => String(id)));
 
-    for (const stream of liveStreams) {
-      if (liveRows.length >= MAX_CHANNELS) break;
-      if (!stream || stream.stream_id === undefined || stream.stream_id === null) continue;
-      const liveStreamId = String(stream.stream_id);
-      if (seenLiveStreamIds.has(liveStreamId)) continue;
-      seenLiveStreamIds.add(liveStreamId);
-      const category = resolveCategory(liveCategoryMap, stream.category_id, 'lc-');
-      const catId = category.id;
-      liveCounts.set(catId, (liveCounts.get(catId) || 0) + 1);
-      liveRows.push(liveRowFromRaw(stream as unknown as Record<string, unknown>, category, liveRows.length, provider));
-      liveProcessed++;
+    const processLivePass = async (hungarianOnly: boolean): Promise<void> => {
+      for (const stream of liveStreams) {
+        if (liveRows.length >= MAX_CHANNELS) break;
+        if (!stream || stream.stream_id === undefined || stream.stream_id === null) continue;
+        const isHungarianCategory = hungarianCategoryIdSet.has(String(stream.category_id ?? ''));
+        if (isHungarianCategory !== hungarianOnly) continue;
+        const liveStreamId = String(stream.stream_id);
+        if (seenLiveStreamIds.has(liveStreamId)) continue;
+        seenLiveStreamIds.add(liveStreamId);
+        const category = resolveCategory(liveCategoryMap, stream.category_id, 'lc-');
+        const catId = category.id;
+        liveCounts.set(catId, (liveCounts.get(catId) || 0) + 1);
+        liveRows.push(liveRowFromRaw(stream as unknown as Record<string, unknown>, category, liveRows.length, provider));
+        liveProcessed++;
 
-      /*
-       * ELSŐ HASZNÁLHATÓ ADAG.
-       *
-       * A csatornalista feldolgozása 20 000 csatornánál másodpercekig tart,
-       * és eddig a néző csak a folyamatjelzőt látta. Most az első 1500
-       * csatorna feldolgozása után AZONNAL megjelenik egy előnézet: a TV
-       * már nézhető, miközben a többi csatorna, majd a filmek és sorozatok
-       * a háttérben tovább töltődnek. Az előnézetet a felület nem menti
-       * (preview: true), és a végleges, teljes lista felülírja – nem
-       * maradhat hiányos lista.
-       */
-      if (liveProcessed === FIRST_BATCH_CHANNELS) {
-        await onPartial({
-          preview: true,
-          channels: decodeChannelsForImport(liveRows.slice(), provider),
-          liveCategories: buildCategories(liveCats, 'lc-', 'live', liveCounts),
-          totals: { live: liveRows.length },
-        });
+        if (liveProcessed % PROGRESS_UPDATE_EVERY === 0 || liveProcessed === liveProcessTotal) {
+          onProgress({
+            phase: hungarianOnly ? 'Magyar TV-csatornák feldolgozása…' : 'A többi TV-csatorna feldolgozása…',
+            detail: liveProcessed + '/' + Math.max(liveProcessTotal, 1) + ' csatorna',
+            percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 32),
+          });
+        }
+        if (liveProcessed % UI_YIELD_EVERY === 0) await yieldToUi();
       }
+    };
 
-      if (liveProcessed % PROGRESS_UPDATE_EVERY === 0 || liveProcessed === liveProcessTotal) {
-        onProgress({
-          phase: 'Élő csatornák feldolgozása…',
-          detail: liveProcessed + '/' + Math.max(liveProcessTotal, 1) + ' csatorna',
-          percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 32),
-        });
-      }
-      if (liveProcessed % UI_YIELD_EVERY === 0) await yieldToUi();
+    // 1. Először kizárólag a magyar kategóriák csatornáit dolgozzuk fel.
+    await processLivePass(true);
+    if (liveRows.length > 0 && hungarianCategoryIds.length > 0) {
+      const hungarianCategories = liveCats.filter((category) =>
+        hungarianCategoryIdSet.has(String(category.category_id))
+      );
+      await onPartial({
+        preview: true,
+        liveHungarianReady: true,
+        channels: decodeChannelsForImport(liveRows.slice(), provider),
+        liveCategories: buildCategories(hungarianCategories, 'lc-', 'live', liveCounts),
+        totals: { live: liveRows.length },
+      });
+      logProviderEvent(`Magyar TV-k készen: ${liveRows.length} csatorna; a többi ${Math.max(0, liveProcessTotal - liveProcessed)} csatorna feldolgozása folytatódik.`);
     }
+
+    // 2. Ezután az összes többi kategória csatornáját is feldolgozzuk.
+    // A végső lista a magyar csatornákkal kezdődik, de egyetlen csatorna sem marad ki.
+    await processLivePass(false);
 
     // A már feldolgozott nyers API-objektumokat engedjük el, mielőtt a teljes
     // megjelenítési lista létrejön: ez csökkenti a memória csúcsterhelését.
