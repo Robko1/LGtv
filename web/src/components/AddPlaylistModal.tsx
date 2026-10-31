@@ -162,8 +162,12 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
                 || partial.preview !== true);
             if (liveChannelsReady && !promptShownRef.current) {
               promptShownRef.current = true;
-              setDiagnosticOpen(true);
-              setLiveLoadedPromptOpen(true);
+              // A szülő előbb kirajzolja a magyar főoldalt; csak utána fedjük
+              // le a választóablakkal.
+              window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+                setDiagnosticOpen(true);
+                setLiveLoadedPromptOpen(true);
+              }));
             }
           }
         }
@@ -202,8 +206,10 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
       );
       if (hasPlayableHungarianChannel && !promptShownRef.current) {
         promptShownRef.current = true;
-        setDiagnosticOpen(true);
-        setLiveLoadedPromptOpen(true);
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+          setDiagnosticOpen(true);
+          setLiveLoadedPromptOpen(true);
+        }));
       }
       onDiagnosticUpdate?.({ providerId: provider.id, providerName: provider.name, progress: finalProgress, events: diagnosticEventsRef.current, error: null, startedAt: diagnosticStartedAtRef.current, finished: true, finishedAt });
       setNetworkDiagnosticSink(null);
