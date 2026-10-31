@@ -2,7 +2,7 @@ import { AppSettings, FavoriteFolder, ProviderAccount, WatchHistoryItem } from '
 import { clearFormatMemory } from './liveFormatMemory';
 import { clearTvDoctorMemory } from './tvDoctor';
 import { clearTvDoctorCloudQueue } from './tvDoctorCloud';
-import { clearContent } from './contentStore';
+import { clearContentAsync } from './contentStore';
 import { INITIAL_SETTINGS } from '../data/mockData';
 
 /*
@@ -312,9 +312,13 @@ export const storageService = {
     }
   },
 
-  /** Gyorsítótár és minden mentett beállítás törlése (Menü → hibakeresés). */
-  clearCache(): void {
-    clearContent();
+  /**
+   * Gyorsítótár és minden mentett beállítás törlése (Menü → hibakeresés).
+   * A visszaadott Promise az IndexedDB-ben lévő nagy listák törlésének
+   * TÉNYLEGES végét jelzi – újratöltés előtt meg kell várni (2.5.239).
+   */
+  async clearCacheAsync(): Promise<void> {
+    const contentCleared = clearContentAsync();
     // A csatornánkénti formátum-emlékezet is a gyorsítótár része: törlés után
     // minden csatorna a beállított alapformátummal indul.
     clearFormatMemory();
@@ -340,5 +344,12 @@ export const storageService = {
         /* nem kritikus */
       }
     }
+    // A nagy listák IndexedDB-törlésének tényleges vége.
+    await contentCleared;
+  },
+
+  /** Régi hívók: azonnali (nem megvárt) törlés – új kódban a clearCacheAsync kell. */
+  clearCache(): void {
+    void this.clearCacheAsync();
   },
 };

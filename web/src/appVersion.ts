@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.238';
+export const WEB_VERSION = '2.5.239';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,18 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.239',
+    date: '2026-10-31',
+    changes: [
+      'Teljes törlés javítva: az „Összes lista és tesztcsatorna törlése” mostantól MEGVÁRJA a tartós tár (IndexedDB) tényleges kiürülését, és csak utána tölti újra az appot – eddig a lassú TV-n a csatornák „visszajöttek”, miközben a szolgáltató már eltűnt.',
+      'Árva katalógus önjavítás: ha induláskor van mentett csatornakészlet, de egyetlen szolgáltató sincs (félbemaradt törlés nyoma), az app kitakarítja a maradványt és üresen indul – nem tölti vissza a törölt listát.',
+      'Új X gomb a betöltési ablak jobb felső sarkában: azonnal LEÁLLÍTJA a futó frissítést és bezárja az ablakot (a mentett tartalom marad). A gomb fókuszt kap, így az OK gomb is ezt nyomja – nem indítja újra a frissítést.',
+      'Dupla gombnyomás-őr: amíg egy szolgáltató frissítése fut, az újabb Frissítés gombnyomás nem indítja elölről az egészet, csak újra megnyitja a folyamat ablakát.',
+      'A kért teljes, elemenkénti ellenőrzés (2 percen belüli második Frissítés) is megerősítést kér indulás előtt – nagy letöltés soha nem indul Igen nélkül.',
+      'Kézi napló időbélyeg javítva: a napló mostantól a TV saját időzónájában ír (eddig fixen ír idő szerint, ezért 1 órával eltért a faliórától).',
+    ],
+  },
   {
     version: '2.5.238',
     date: '2026-10-31',

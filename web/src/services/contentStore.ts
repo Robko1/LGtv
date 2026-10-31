@@ -2747,7 +2747,16 @@ export async function loadSeriesAsync(
   return result;
 }
 
-export function clearContent(): void {
+/**
+ * TELJES TARTALOMTÖRLÉS – MEGVÁRHATÓ VÁLTOZAT (2.5.239).
+ *
+ * A gyors (localStorage) kulcsok azonnal törlődnek, az IndexedDB-ben lévő
+ * nagy listák törlését pedig a visszaadott Promise jelzi. A hívónak ezt MEG
+ * KELL VÁRNIA, mielőtt újratölti az alkalmazást: a korábbi „elindítjuk és
+ * azonnal reload” miatt a lassú TV-n a csatornák a törlés után is
+ * visszajöttek (a törlés sosem ért a végére).
+ */
+export async function clearContentAsync(): Promise<void> {
   const liveKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
   const vodKeys = readChunkKeys(VOD_META_KEY, VOD_CHUNK_PREFIX);
   const seriesKeys = readChunkKeys(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
@@ -2766,8 +2775,18 @@ export function clearContent(): void {
   cachedCatalogState = null;
   extrasCache.clear();
   decodedCache.clear();
-  // A film- és sorozatlista az IndexedDB-ben van: azt is törölni kell.
-  void contentChunkStore().then((store) => store?.clear());
+  // A film- és sorozatlista az IndexedDB-ben van: azt is törölni kell – MEGVÁRVA.
+  try {
+    const store = await contentChunkStore();
+    if (store) await store.clear();
+  } catch {
+    /* ha a tár nem nyitható meg, nincs mit törölni benne */
+  }
+}
+
+export function clearContent(): void {
+  // Régi hívók: a gyors kulcsok azonnal törlődnek, az IndexedDB a háttérben.
+  void clearContentAsync();
 }
 
 /* ------------------------------------------- EGYETLEN INDÍTÁSI VISSZATÖLTÉS */
