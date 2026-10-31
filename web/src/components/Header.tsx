@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Film, Tv, Layers, Clock, Settings, X } from 'lucide-react';
+import { Tv, Clock, X } from 'lucide-react';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
+// A felhasználó által kiválasztott ikonok a takaróképről (2.5.229):
+// filmtekercs+csapó (Mozi), rendezői szék (Sorozatok), 3D fogaskerék (Menü).
+import { MENU_GEAR_ICON_DATA_URL, MOZI_ICON_DATA_URL, SOROZAT_ICON_DATA_URL } from '../generatedMenuIcons';
 
 interface HeaderProps {
   /** A piros gombbal kapcsolható főoldali tükrözés állapota. */
@@ -120,7 +123,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             title="Menü"
             aria-label="Menü"
           >
-            <Settings className={`w-8 h-8 shrink-0 ${accentText}`} />
+            <img src={MENU_GEAR_ICON_DATA_URL} alt="" aria-hidden="true" className="w-8 h-8 shrink-0 object-contain pointer-events-none select-none" />
             <span>Menü</span>
           </button>
         )}
@@ -136,7 +139,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
           }`}
         >
-          <Layers className={`w-8 h-8 md:w-10 md:h-10 ${accentText}`} />
+          <img src={SOROZAT_ICON_DATA_URL} alt="" aria-hidden="true" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain pointer-events-none select-none" />
           <span>Sorozatok</span>
         </button>
 
@@ -151,7 +154,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
           }`}
         >
-          <Film className={`w-8 h-8 md:w-10 md:h-10 ${accentText}`} />
+          <img src={MOZI_ICON_DATA_URL} alt="" aria-hidden="true" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain pointer-events-none select-none" />
           <span>Mozi</span>
         </button>
 
