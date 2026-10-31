@@ -4944,7 +4944,7 @@ export function App() {
             setLiveListComplete(partial.liveComplete === true || partial.preview !== true);
             // A magyar részlista már nézhető, de a teljes TV-lista még készül.
             // Más részleges (nem teljes) csatornafrissítésből nem választunk.
-            if (partial.preview && partial.liveHungarianReady !== true) {
+            if (partial.preview && partial.liveHungarianReady !== true && partial.liveComplete !== true) {
               if (partial.totals) setTotalCounts((previous) => ({ live: partial.totals?.live ?? previous.live, vod: partial.totals?.vod ?? previous.vod, series: partial.totals?.series ?? previous.series }));
               return;
             }
