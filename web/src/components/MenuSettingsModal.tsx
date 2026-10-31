@@ -687,14 +687,18 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             data-tv-tabid="lists"
             onKeyDown={(event) => handleTabDpad(event, 'lists')}
             onClick={() => setActiveTab('lists')}
-            className={`flex-1 min-w-[96px] py-2 px-2.5 rounded-xl text-sm font-black transition-all flex flex-col items-center justify-center gap-1.5 ${
+            className={`flex-1 min-w-[96px] h-24 px-2.5 pt-1 pb-1.5 rounded-xl text-sm font-black transition-all flex flex-col items-center ${
               activeTab === 'lists'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
             }`}
           >
-            <img src={LISTAK_ICON_DATA_URL} alt="" aria-hidden="true" className="w-14 h-14 object-contain pointer-events-none select-none" />
-            <span className="truncate">Listák</span>
+            {/* 2.5.236: nagyobb ikon (a doboz mérete rögzítve változatlan),
+                a felirat a doboz legaljára került. Háttér itt nem kell. */}
+            <span aria-hidden="true" className="flex-1 min-h-0 w-full flex items-center justify-center pointer-events-none select-none">
+              <img src={LISTAK_ICON_DATA_URL} alt="" className="h-full w-auto max-w-full object-contain" />
+            </span>
+            <span className="truncate leading-tight">Listák</span>
           </button>
 
           <button
@@ -702,28 +706,32 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             data-tv-tabid="favorites"
             onKeyDown={(event) => handleTabDpad(event, 'favorites')}
             onClick={() => setActiveTab('favorites')}
-            className={`flex-1 min-w-[96px] py-2 px-2.5 rounded-xl text-sm font-black transition-all flex flex-col items-center justify-center gap-1.5 ${
+            className={`flex-1 min-w-[96px] h-24 px-2.5 pt-1 pb-1.5 rounded-xl text-sm font-black transition-all flex flex-col items-center ${
               activeTab === 'favorites'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
             }`}
           >
-            <img src={KEDVENCEK_ICON_DATA_URL} alt="" aria-hidden="true" className="w-14 h-14 object-contain pointer-events-none select-none" />
-            <span className="truncate">Kedvencek</span>
+            <span aria-hidden="true" className="flex-1 min-h-0 w-full flex items-center justify-center pointer-events-none select-none">
+              <img src={KEDVENCEK_ICON_DATA_URL} alt="" className="h-full w-auto max-w-full object-contain" />
+            </span>
+            <span className="truncate leading-tight">Kedvencek</span>
           </button>
 
           <button
             data-tv-tabid="system"
             onKeyDown={(event) => handleTabDpad(event, 'system')}
             onClick={() => setActiveTab('system')}
-            className={`flex-1 min-w-[96px] py-2 px-2.5 rounded-xl text-sm font-black transition-all flex flex-col items-center justify-center gap-1.5 ${
+            className={`flex-1 min-w-[96px] h-24 px-2.5 pt-1 pb-1.5 rounded-xl text-sm font-black transition-all flex flex-col items-center ${
               activeTab === 'system'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
             }`}
           >
-            <img src={MENU_GEAR_ICON_DATA_URL} alt="" aria-hidden="true" className="w-14 h-14 object-contain pointer-events-none select-none" />
-            <span className="truncate">Rendszer</span>
+            <span aria-hidden="true" className="flex-1 min-h-0 w-full flex items-center justify-center pointer-events-none select-none">
+              <img src={MENU_GEAR_ICON_DATA_URL} alt="" className="h-full w-auto max-w-full object-contain" />
+            </span>
+            <span className="truncate leading-tight">Rendszer</span>
           </button>
         </div>
 

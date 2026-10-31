@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.235';
+export const WEB_VERSION = '2.5.236';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,17 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.236',
+    date: '2026-10-31',
+    changes: [
+      'A fejléc TV / Menü / Sorozatok / Mozi gombjain az ikon a doboz tetejétől az aljáig ér, és világos háttérkorongot kapott, hogy a sötét ikonrajz jól kivehető legyen (a dobozok mérete változatlan).',
+      'A Menü & Beállítások három fülén (Listák, Kedvencek, Rendszer) nagyobb az ikon, a felirat a doboz legaljára került – a fülek mérete változatlan, háttér ott nincs.',
+      'A Mr Bean mappaikon kék képhátterét oldalra kiterjesztettük, így a kép az egész dobozt kitölti (nem maradnak üres sávok), mint a HBO Max és UK ikonoknál.',
+      'Filmkártya játékidő-javítás: a „2 perc” hiba megszűnt – a kettőspontos idő (pl. 02:14) és a percet tartalmazó duration_secs mező is helyesen értelmeződik, és a hihető játékidő elsőbbséget kap a hibás kulcsok apró értékeivel szemben.',
+      'A Mozi/Sorozat kártyán a MAGYAR hang mindig elöl jelenik meg, ha a szolgáltató adataiban szerepel; ismert hangnyelv híján „Angol” a felirat – lejátszás közben derül ki a valódi hangsávlista.',
+    ],
+  },
   {
     version: '2.5.235',
     date: '2026-10-31',

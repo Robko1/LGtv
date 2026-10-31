@@ -5,7 +5,7 @@ import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
 import { Star, Sparkles, Filter, ChevronDown, Tv, Mic2, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { formatRuntime, joinLanguages } from '../utils/vodDisplay';
+import { cardAudioLabel, formatRuntime, joinLanguages } from '../utils/vodDisplay';
 
 interface SeriesViewProps {
   series: Series[];
@@ -330,17 +330,18 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                     )}
                   </div>
                   {/* Audió balra, jól olvasható feliratnyelvek jobbra – ugyanabban a sorban. */}
-                  {(joinLanguages(ser.audioLanguages) || joinLanguages(ser.subtitleLanguages)) && (
-                    <div className="mt-1 flex min-h-6 items-center justify-between gap-2 text-xs sm:text-sm font-semibold">
-                      <span className="flex min-w-0 flex-1 items-center gap-1 text-rose-200">
-                        <Mic2 className="h-4 w-4 shrink-0 text-rose-300" />
-                        <span className="truncate">{joinLanguages(ser.audioLanguages) || '—'}</span>
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-right text-slate-100">
-                        {joinLanguages(ser.subtitleLanguages) || '—'}
-                      </span>
-                    </div>
-                  )}
+                  {/* 2.5.236: a magyar hang mindig elöl; ismert nyelv híján „Angol” a
+                      legvalószínűbb alapértelmezés (a sor ezért mindig látszik) –
+                      pontosan úgy, ahogy a Mozi kártyán. */}
+                  <div className="mt-1 flex min-h-6 items-center justify-between gap-2 text-xs sm:text-sm font-semibold">
+                    <span className="flex min-w-0 flex-1 items-center gap-1 text-rose-200">
+                      <Mic2 className="h-4 w-4 shrink-0 text-rose-300" />
+                      <span className="truncate">{cardAudioLabel(ser.audioLanguages)}</span>
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-right text-slate-100">
+                      {joinLanguages(ser.subtitleLanguages) || '—'}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
