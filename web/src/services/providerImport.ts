@@ -1192,18 +1192,14 @@ export async function importXtreamProvider(
     onProgress({ phase: 'Filmek betöltése…', percent: 45 });
     // A filmeket nem a szolgáltató kategórialistája alapján csoportosítjuk.
     // Egyetlen általános „Filmek” csoport készül, ezért nincs kategórialekérés.
-    const vodCategories: XtreamCategory[] = [];
-    let vodCategoryMap = makeCategoryMap([]);
     const decodedMovies: Movie[] = [];
     let lastVodPartialAt = 0;
-    const vodCounts = new Map<string, number>();
     const seenMovieIds = new Set<string>();
     let vodProcessed = 0;
     let bulkUsed = false;
     let bulkFallbackReason = '';
 
-    // Próbáljuk meg egyben – ez a leggyorsabb út. Ha a panel ezt a végpontot
-    // nem támogatja, a kategóriánkénti ág ugyanebben a menetben következik.
+    // A filmindexet egyetlen bulk-kéréssel kérjük le; nincs kategóriánkénti letöltés.
     try {
       onProgress({ phase: 'Filmek letöltése egyben…', detail: 'Gyorsított mód (1 kérés)', percent: 48 });
       const allVod = await providerRequest(
@@ -1265,7 +1261,6 @@ export async function importXtreamProvider(
           onProgress({ phase: 'Filmek feldolgozva egyben', detail: `${decodedMovies.length} film`, percent: 70 });
         } else {
           bulkFallbackReason = 'a bulk-válaszban nem volt használható film';
-          vodCounts.clear();
           seenMovieIds.clear();
           vodProcessed = 0;
         }
@@ -1275,17 +1270,15 @@ export async function importXtreamProvider(
     } catch (bulkError) {
       const detail = safeErrorDetail(bulkError);
       bulkFallbackReason = detail;
-      console.warn('Filmek egyben nem sikerült, visszaesés kategóriákra:', bulkError);
-      // Ha a bulk feldolgozás közben történt hiba, a kategória-fallback ne
-      // dolgozza fel újra a már részben látott elemeket.
+      console.warn('Filmek egyben nem sikerült:', bulkError);
+      // Hibánál elvetjük a félkész listát; nem indítunk kategóriánkénti újralekérést.
       decodedMovies.length = 0;
-      vodCounts.clear();
       seenMovieIds.clear();
       vodProcessed = 0;
     }
 
     if (!bulkUsed && bulkFallbackReason) {
-      notes.push('A filmek egyben letöltése nem sikerült, ezért kategóriánként töltődtek le.');
+      notes.push('A filmek egyben történő letöltése nem sikerült.');
       logPhase(`Filmek bulk hiba; ok=${bulkFallbackReason}`);
     }
 
