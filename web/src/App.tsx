@@ -399,8 +399,6 @@ export function App() {
    */
   const [refreshChangePrompt, setRefreshChangePrompt] = useState<string | null>(null);
   const refreshChangeResolveRef = useRef<((proceed: boolean) => void) | null>(null);
-  /** A legutóbbi gyors „nincs változás” eredmény – a 2 percen belüli ÚJABB gombnyomás teljes összevetést kér. */
-  const lastQuickUnchangedRef = useRef<{ providerId: string; at: number } | null>(null);
   const answerRefreshChangePrompt = useCallback((proceed: boolean) => {
     const resolve = refreshChangeResolveRef.current;
     refreshChangeResolveRef.current = null;
@@ -3099,19 +3097,6 @@ export function App() {
           // Új QR-es Xtream szolgáltatónál közvetlen teljes import indul: nincs helyi katalógus-ellenőrzés.
           incremental: provider.type === 'xtream' && !directImport,
           /*
-           * KÉT GOMBNYOMÁS = TELJES ÖSSZEVETÉS: ha a néző röviddel a gyors
-           * „nincs változás” után ÚJRA Frissítést nyom, ő tudhatja, hogy új
-           * tartalom érkezett egy meglévő kategóriába (ezt a gyors
-           * kategória-ellenőrzés nem látja) – ilyenkor a gyors kilépés
-           * kimarad, és elemenkénti összevetés fut.
-           */
-          forceDeep: manual
-            && lastQuickUnchangedRef.current?.providerId === id
-            && Date.now() - (lastQuickUnchangedRef.current?.at || 0) < 2 * 60 * 1000,
-          // Üres felületi katalógusnál a gyors „nincs változás” kilépés tilos.
-          hasLocalContent:
-            channelsRef.current.length + moviesRef.current.length + seriesRef.current.length > 0,
-          /*
            * VÁLTOZÁS ÉSZLELVE: kézi frissítésnél a letöltés CSAK a néző
            * igen válasza után indul (a kérdés a diagnosztikai ablakban
            * jelenik meg). Automatikus újrapróbálkozásnál nincs kérdés –
@@ -3126,12 +3111,9 @@ export function App() {
                 }
                 refreshChangeResolveRef.current = resolve;
                 setRefreshChangePrompt(
-                  signal.reason === 'teljes-ellenorzes'
-                    ? 'Teljes, elemenkénti ellenőrzést kértél: ez a nagy listák letöltésével jár (akár 1-3 perc). ' +
-                      'Indítsam? Csak a különbség frissül: a kedvencek, a sorrend és a törölt csatornák megmaradnak.'
-                    : `A szolgáltató kínálata megváltozott (${signal.counts.live} élő / ${signal.counts.vod} film / ` +
-                      `${signal.counts.series} sorozat kategória). Letöltsem a változásokat? Csak a különbség frissül: ` +
-                      'a kedvencek, a sorrend és a törölt csatornák megmaradnak.'
+`A szolgáltató kategóriái megváltoztak (${signal.counts.live} élő / ${signal.counts.vod} film / ` +
+                    `${signal.counts.series} sorozat kategória). Letöltsem a változásokat? Csak a különbség frissül: ` +
+                    'a kedvencek, a sorrend és a törölt csatornák megmaradnak.'
                 );
               })
             : undefined,
@@ -3154,13 +3136,9 @@ export function App() {
 
       if ('unchanged' in result && result.unchanged) {
         const quick = 'quick' in result && result.quick === true;
-        // Gyors „nincs változás” után a 2 percen belüli újabb gombnyomás
-        // teljes, elemenkénti összevetést indít (forceDeep).
-        lastQuickUnchangedRef.current = quick ? { providerId: id, at: Date.now() } : null;
         reportUnchangedRefresh(provider, result.check, refreshStartedAt, quick);
         return;
       }
-      lastQuickUnchangedRef.current = null;
 
       const content: ImportedContent =
         'content' in result ? result.content : (result as ImportedContent);
