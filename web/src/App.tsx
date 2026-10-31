@@ -2617,8 +2617,7 @@ export function App() {
       detail: quick
         ? `Gyors ellenőrzés: a kategórialisták (${check.counts.live} élő / ${check.counts.vod} film / ` +
           `${check.counts.series} sorozat kategória) nem változtak, ezért a nagy listák le sem töltődtek ` +
-          `(utolsó teljes összevetés: ${ageText}). Ha most új tartalmat vársz egy meglévő kategóriában, ` +
-          `. • ${summary.counts}`
+          `(utolsó teljes összevetés: ${ageText}). • ${summary.counts}`
         : `A szolgáltató katalógusa elemenként összevetve (${check.counts.live} élő / ${check.counts.vod} film / ` +
           `${check.counts.series} sorozat kategória): nem változott, a tárolt készlet érvényes. • ${summary.counts}`,
       percent: 100,
