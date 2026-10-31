@@ -1,6 +1,6 @@
 import { Category, Episode, ProviderPayload, Season, Series } from '../types/iptv';
 import { ProviderRef, decodeChannelsForImport, decodeMoviesForImport, decodeSeriesForImport } from './contentStore';
-import { parseEpisodeMetadata, parseSeriesMetadata, parseVodMetadata } from './vodMetadata';
+import { parseEpisodeMetadata, parseSeriesMetadata, parseMovieCatalogMetadata } from './vodMetadata';
 import { xtreamService, XtreamEpisode, XtreamSeriesInfo } from './xtreamService';
 import { flagFor } from '../utils/flags';
 import { normalizeLogoUrl } from './logoUrl';
@@ -38,27 +38,27 @@ export function movieRowFromRaw(
   raw: Record<string, unknown>,
   category: { id: string; name: string },
 ): CatalogRow {
-  const meta = parseVodMetadata(raw);
+  const meta = parseMovieCatalogMetadata(raw);
   return [
     String(raw.stream_id ?? ''),
     String(raw.name || 'Film').trim(),
     category.id,
     category.name,
     meta.poster || String(raw.stream_icon || ''),
-    meta.rating || 0,
+    0, // értékelés nem szükséges a filmkatalógus importjához
     meta.year || 0,
     String(raw.container_extension || 'mp4'),
-    meta.plot || '',
+    '', // tartalom/leírás nem szükséges
     0,
     meta.durationMinutes || 0,
-    JSON.stringify(meta.audioLanguages || []),
-    JSON.stringify(meta.subtitleLanguages || []),
-    JSON.stringify(meta.audioTracks || []),
-    JSON.stringify(meta.subtitleTracks || []),
-    meta.backdrop || '',
-    JSON.stringify(meta.genres || []),
-    meta.director || '',
-    JSON.stringify(meta.cast || []),
+    '[]', // hangsávok csak külön, lejátszáskor kérhetők
+    '[]', // feliratok csak külön, lejátszáskor kérhetők
+    '[]',
+    '[]',
+    '', // háttérkép nem szükséges
+    '[]', // műfaj nem szükséges
+    '', // rendező nem szükséges
+    '[]', // szereplők nem szükséges
     // providerData NEM kerül minden elemre: a részletes nyers adat a
     // megnyitáskor/előreolvasáskor letöltött detailProviderData-ban él.
     '',
