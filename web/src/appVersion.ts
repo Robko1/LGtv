@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.227';
+export const WEB_VERSION = '2.5.228';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,17 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.228',
+    date: '2026-10-31',
+    changes: [
+      'A kézzel törölt csatornák tartós jegyzékbe kerülnek: a Frissítés gomb (és az újraindítás) többé nem hozza vissza őket. A jegyzék a lista újbóli hozzáadásakor ürül.',
+      'A kézi csatornasorrend frissítéskor is megmarad (a meglévő csatornák a felhasználó sorrendjében, az újak a lista végén).',
+      'Az alkalmazás mindig élő TV nézettel és az utoljára nézett csatornával indul – akkor is, ha kilépéskor a Mozi vagy a Sorozatok nézet volt nyitva. Ha az utolsó adó nem volt az induló magyar készletben, a teljes lista megérkezésekor magától visszaáll (ha a néző közben nem váltott).',
+      'Szakaszolt indulás: előbb a főoldal (magyar induló készlet + utolsó csatorna), a felfedés után a teljes élő lista, majd a Mozi és a Sorozat 25-25 plakátjának előmelegítése, végül a műsorújság – egyszerre csak egy nagy munka fut.',
+      'Mozi/Sorozat rács: kilépéskor a nézet az elejére áll vissza, és csak az első 25 poszter marad a memóriában; film/epizód indításakor a böngészési pozíció visszatéréskor megmarad. Görgetésnél az adag 15. poszterénél már töltődik a következő 25.',
+    ],
+  },
   {
     version: '2.5.227',
     date: '2026-10-31',
