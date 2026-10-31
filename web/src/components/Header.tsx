@@ -50,6 +50,40 @@ const HeaderComponent: React.FC<HeaderProps> = ({
   };
   const accentText = accentTextClass[liveAccent];
 
+  /*
+   * 2.5.240: A FEJLÉC-IKONOK A HAT SZÍNGOMB (1–6) SZÍNÉT VESZIK FEL.
+   *
+   * A felhasználó kérése: a TV / Menü / Sorozatok / Mozi ikon is váltson
+   * színt a távirányító 1–6 gombjával (ugyanazok a színek, mint az óránál),
+   * és a 2.5.236-os világos háttérkorong tűnjön el az ikonok mögül.
+   *
+   * Megvalósítás: CSS-szűrőlánc (grayscale → sepia → hue-rotate) színezi át
+   * magát a PNG ikonrajzot. A 3D árnyalatok és részletek MEGMARADNAK (nem
+   * sziluett!), csak a színviláguk áll át a kiemelőszínre. Előnézeten
+   * ellenőrzött paraméterek mind a hat színre.
+   */
+  const accentIconFilter: Record<NonNullable<HeaderProps['liveAccent']>, string> = {
+    yellow: 'grayscale(1) sepia(1) saturate(3) hue-rotate(-8deg) brightness(1.35)',
+    red: 'grayscale(1) sepia(1) saturate(5) hue-rotate(-45deg) brightness(1.25)',
+    blue: 'grayscale(1) sepia(1) saturate(3) hue-rotate(180deg) brightness(1.35)',
+    pink: 'grayscale(1) sepia(1) saturate(3) hue-rotate(290deg) brightness(1.35)',
+    green: 'grayscale(1) sepia(1) saturate(3) hue-rotate(75deg) brightness(1.25)',
+    white: 'grayscale(1) brightness(1.6)',
+  };
+  const accentIcon = (dataUrl: string) => (
+    <span
+      aria-hidden="true"
+      className="h-[calc(100%-2px)] aspect-square shrink-0 flex items-center justify-center pointer-events-none select-none"
+    >
+      <img
+        src={dataUrl}
+        alt=""
+        className="w-[94%] h-[94%] object-contain"
+        style={{ filter: accentIconFilter[liveAccent] }}
+      />
+    </span>
+  );
+
   // Az óra a beállított eltolással számol (a webOS néha UTC-t ad vissza a
   // helyi idő helyett). Csak a kijelzett percérték változásakor rajzolunk.
   const offset = normalizeClockOffset(clockOffsetHours);
@@ -102,12 +136,8 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             aria-label="TV"
             title="TV"
           >
-            {/* 2.5.236: az ikon a doboz tetejétől az aljáig ér, és világos
-                háttérkorongot kap, hogy a sötét ikonrajz jól kivehető legyen
-                (a doboz mérete változatlan). */}
-            <span aria-hidden="true" className="h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b from-slate-100 via-slate-300 to-slate-400 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none">
-              <img src={TV_ICON_DATA_URL} alt="" className="w-[94%] h-[94%] object-contain" />
-            </span>
+            {/* 2.5.240: háttérkorong nélkül; az ikon a hat színgomb színét veszi fel. */}
+            {accentIcon(TV_ICON_DATA_URL)}
             <span>TV</span>
           </button>
         )}
@@ -128,10 +158,8 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             title="Menü"
             aria-label="Menü"
           >
-            {/* 2.5.236: nagyobb ikon világos háttérkoronggal (doboz mérete változatlan). */}
-            <span aria-hidden="true" className="h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b from-slate-100 via-slate-300 to-slate-400 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none">
-              <img src={MENU_GEAR_ICON_DATA_URL} alt="" className="w-[94%] h-[94%] object-contain" />
-            </span>
+            {/* 2.5.240: háttérkorong nélkül; az ikon a hat színgomb színét veszi fel. */}
+            {accentIcon(MENU_GEAR_ICON_DATA_URL)}
             <span>Menü</span>
           </button>
         )}
@@ -147,10 +175,8 @@ const HeaderComponent: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-cyan-300'
           }`}
         >
-          {/* 2.5.236: nagyobb ikon világos háttérkoronggal (doboz mérete változatlan). */}
-          <span aria-hidden="true" className="h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b from-slate-100 via-slate-300 to-slate-400 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none">
-            <img src={SOROZAT_ICON_DATA_URL} alt="" className="w-[94%] h-[94%] object-contain" />
-          </span>
+          {/* 2.5.240: háttérkorong nélkül; az ikon a hat színgomb színét veszi fel. */}
+          {accentIcon(SOROZAT_ICON_DATA_URL)}
           <span>Sorozatok</span>
         </button>
 
@@ -165,10 +191,8 @@ const HeaderComponent: React.FC<HeaderProps> = ({
               : 'bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] md:hover:bg-[#1a2d5a] hover:text-amber-300'
           }`}
         >
-          {/* 2.5.236: nagyobb ikon világos háttérkoronggal (doboz mérete változatlan). */}
-          <span aria-hidden="true" className="h-[calc(100%-2px)] aspect-square shrink-0 rounded-full bg-gradient-to-b from-slate-100 via-slate-300 to-slate-400 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_1px_3px_rgba(0,0,0,0.45)] flex items-center justify-center pointer-events-none select-none">
-            <img src={MOZI_ICON_DATA_URL} alt="" className="w-[94%] h-[94%] object-contain" />
-          </span>
+          {/* 2.5.240: háttérkorong nélkül; az ikon a hat színgomb színét veszi fel. */}
+          {accentIcon(MOZI_ICON_DATA_URL)}
           <span>Mozi</span>
         </button>
 

@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.239';
+export const WEB_VERSION = '2.5.240';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.240',
+    date: '2026-10-31',
+    changes: [
+      'A fejléc TV / Menü / Sorozatok / Mozi ikonjai mostantól együtt színeződnek a távirányító 1–6 színgombjával (ugyanaz a hat szín, mint az óránál) – az ikonrajz részletei és árnyalatai megmaradnak.',
+      'Az ikonok mögül a világos háttérkorong eltűnt – nincs többé fehér háttér a fejléc ikonjai mögött.',
+    ],
+  },
   {
     version: '2.5.239',
     date: '2026-10-31',
