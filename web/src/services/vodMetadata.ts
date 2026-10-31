@@ -544,6 +544,31 @@ function parseFlatMetadata(record: Record<string, unknown>): ParsedVodMetadata |
   };
 }
 
+/**
+ * A filmkatalógus importja csak a megjelenítéshez és lejátszáshoz szükséges
+ * mezőket olvassa ki. A részletes adatlap/audio/felirat metaadatok nem részei
+ * a kezdeti filmimportnak.
+ */
+export function parseMovieCatalogMetadata(response: unknown): {
+  poster?: string;
+  year?: number;
+  durationMinutes: number;
+} {
+  const root = asRecord(response);
+  const info = asRecord(root?.info) || root;
+  const movieData = asRecord(root?.movie_data);
+  const poster =
+    firstText(info, ['movie_image', 'cover_big', 'cover', 'poster', 'stream_icon', 'image']) ||
+    firstText(movieData, ['movie_image', 'cover_big', 'cover', 'poster', 'stream_icon', 'image']);
+  const year = parseYear(info) || parseYear(movieData);
+  const durationMinutes = findDuration(info) || findDuration(movieData);
+  return {
+    poster: poster || undefined,
+    year: year || undefined,
+    durationMinutes: durationMinutes || 0,
+  };
+}
+
 /** A get_vod_info válaszának normalizált, UI- és tárolóbarát metaadata. */
 export function parseVodMetadata(response: unknown): ParsedVodMetadata {
   const root = asRecord(response);
