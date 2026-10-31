@@ -607,6 +607,7 @@ jobs:
           echo "OK: a privát célrepó elérhető, írási jogosultság rendben."
 
           CURRENT_VERSION="$(python3 -c 'import json; print(json.load(open("webos/appinfo.json"))["version"])')"
+          RELEASE_TITLE="TV $CURRENT_VERSION"
           EXPECTED_TAG="v$CURRENT_VERSION"
           [[ "$RELEASE_TAG" == "$EXPECTED_TAG" ]] || {
             echo "HIBA: RELEASE_TAG=$RELEASE_TAG, de az alkalmazás verziója $CURRENT_VERSION; elvárt: $EXPECTED_TAG." >&2
