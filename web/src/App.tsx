@@ -2943,8 +2943,10 @@ export function App() {
          * A betöltőképernyő 5/7 lépése AKKOR kész, amikor a szolgáltató ÉLŐ
          * listája ténylegesen megérkezett – nem előbb, és nem időzítőre.
          */
-        if ((liveComplete || partial.liveHungarianReady === true) && partial.channels.length > 0) {
-          bootScreenPhase('live', partial.liveHungarianReady ? `${orderedVisibleChannels.length} magyar TV-csatorna készen áll (${provider.name}).` : `${orderedVisibleChannels.length} élő csatorna betöltve (${provider.name}).`);
+        if (liveComplete && partial.channels.length > 0) {
+          bootScreenPhase('live', `${orderedVisibleChannels.length} élő csatorna betöltve (${provider.name}).`);
+        } else if (partial.liveHungarianReady === true && partial.channels.length > 0) {
+          bootScreenDetail(`${orderedVisibleChannels.length} magyar TV-csatorna készen áll (${provider.name}); a többi csatorna feldolgozása folytatódik.`);
         }
         keepOrMoveActiveChannel(orderedVisibleChannels, false, { allowSwitch: liveComplete || partial.liveHungarianReady === true });
       }
