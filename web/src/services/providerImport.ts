@@ -50,7 +50,6 @@ import {
   loadLive,
   loadVodAsync,
   loadSeriesAsync,
-  storedCatalogSectionsPresent,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
@@ -1822,11 +1821,10 @@ export async function importXtreamProvider(
  *   • a kategóriák azonosak  → a mentett tartalom marad, nincs letöltés;
  *   • a kategóriák változtak → teljes letöltés indul.
  *
- * A kategóriákon BELÜLI változást (pl. új film egy meglévő kategóriában)
- * ettől függetlenül a 12 órás háttér-ellenőrzés (CATALOG_TTL_MS) fedezi fel,
- * amely induláskor egyszer, csendesen lefut, és változás esetén magától
- * frissít. Így nem veszik el tartalom, de a Frissítés gomb nem húz le
- * feleslegesen több tíz MB-ot.
+ * 2.5.227: háttér-ellenőrzés NINCS többé – a felhasználó kérésére az
+ * alkalmazás magától SOHA nem tölt le semmit. A kategórián belüli
+ * változásokat a kézi Frissítés találja meg, amely mostantól minden
+ * gombnyomásnál teljes, elemenkénti összevetést futtat.
  */
 export const FULL_CHECK_WINDOW_MS = 10 * 60 * 1000;
 
@@ -2140,15 +2138,12 @@ function emptyDiff(): CatalogDiff { return { added: 0, changed: 0, removed: 0 };
  */
 const MAX_REFRESH_DETAILS = 20;
 
-/**
- * Milyen gyakran fusson le a TELJES, elemenkénti összevetés (2.5.224)?
- *
- * A kategória-ujjlenyomat a kategóriák hozzáadását/átnevezését azonnal jelzi,
- * de a meglévő kategórián BELÜLI új filmet nem. Ezért a kézi frissítés
- * naponta egyszer akkor is lefuttatja a teljes összevetést, ha a kategóriák
- * nem változtak – minden további gombnyomás pár másodperc alatt végez.
+/*
+ * 2.5.227: a napi mélyösszevetési ablak (DEEP_COMPARE_WINDOW_MS) és a
+ * hozzá tartozó gyors kilépés MEGSZŰNT – a felhasználó kifejezett kérésére
+ * semmilyen időzítéshez kötött viselkedés nincs: minden kézi Frissítés
+ * teljes, elemenkénti összevetést futtat.
  */
-export const DEEP_COMPARE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Xtream különbség-frissítés: a könnyű indexlisták összevetése után csak az új vagy
@@ -2165,19 +2160,17 @@ async function refreshXtreamIncremental(
   const providerRef: ProviderRef = { id: provider.id, type: 'xtream', serverUrl: server, username: user, password: pass };
 
   /*
-   * GYORS ELLENŐRZÉS LEGELŐRE (2.5.224, átrendezve 2.5.226-ban).
+   * KÉZI FRISSÍTÉS = MINDIG VALÓDI ÖSSZEVETÉS (2.5.227).
    *
-   * A felhasználó panasza (18-as TV-napló): a Frissítés gomb egy már letöltött
-   * listánál is az ÖSSZES nagy listát (élő+film+sorozat, több tíz MB) újra
-   * letöltötte, ami percekig tartott és fagyásokat okozott. Előbb CSAK a
-   * három kis kategórialista (~44 kB) jön le: ha az ujjlenyomatuk azonos a
-   * legutóbbi teljes összevetésével, ÉS az nem régebbi a napi ablaknál, a
-   * frissítés pár másodperc alatt, letöltés nélkül végez.
-   *
-   * 2.5.226: korábban a gyors ellenőrzés ELŐTT beolvastuk a teljes mentett
-   * katalógust (hideg tárolónál a TV-n közel 1 perc dekódolás!) – pedig a
-   * „nincs változás” válaszhoz elég a három fejléc megléte. A nagy listák
-   * beolvasása mostantól CSAK akkor fut, ha tényleg összevetés következik.
+   * A felhasználó döntése: Ő határozza meg, MIKOR fut frissítés – a gomb
+   * megnyomásakor viszont ténylegesen derüljön ki, van-e új csatorna, film
+   * vagy sorozat. A kategória-ujjlenyomat a meglévő kategórián BELÜLI új
+   * elemeket nem látja, ezért a korábbi „gyors kilépés” (változatlan
+   * ujjlenyomatnál pár másodperces visszatérés) és a hozzá tartozó napi
+   * mélyösszevetési ablak (DEEP_COMPARE_WINDOW_MS) kikerült: minden kézi
+   * gombnyomás elemenkénti összevetést futtat. A friss listák letöltése
+   * KIZÁRÓLAG az összehasonlításhoz kell – a változatlan szakaszokat nem
+   * dolgozzuk fel újra és nem írjuk újra a tárolóba.
    */
   onProgress({ phase: 'Változások ellenőrzése…', percent: 4 });
   const [liveCats, vodCats, seriesCats] = await Promise.all([
@@ -2187,35 +2180,6 @@ async function refreshXtreamIncremental(
   ]);
   const quickFingerprint = rawCatalogFingerprint(liveCats || [], vodCats || [], seriesCats || []);
   const syncState = loadSyncState(provider.id);
-  const anyCatsLoaded = (liveCats?.length || 0) + (vodCats?.length || 0) + (seriesCats?.length || 0) > 0;
-  const deepAgeMs = syncState && syncState.fullSyncAt > 0 ? Math.max(0, Date.now() - syncState.fullSyncAt) : null;
-  if (
-    anyCatsLoaded
-    && syncState
-    && syncState.fingerprint === quickFingerprint
-    && deepAgeMs !== null
-    && deepAgeMs <= DEEP_COMPARE_WINDOW_MS
-    // A fejlécek megléte garantálja, hogy a „nincs változás” mögött valóban
-    // ott a teljes tárolt katalógus – különben gyógyító összevetés kell.
-    && (await storedCatalogSectionsPresent(provider.id))
-  ) {
-    const ageMinutes = Math.round(deepAgeMs / 60000);
-    logProviderEvent(
-      `Gyors frissítés: a kategória-ujjlenyomat változatlan (${liveCats?.length || 0}/${vodCats?.length || 0}/${seriesCats?.length || 0} kategória), `
-      + `az utolsó teljes összevetés ${ageMinutes} perce volt – a nagy listák letöltése és a tárolt katalógus újraolvasása kimarad.`
-    );
-    onProgress({ phase: 'Nincs változás a szolgáltatónál.', percent: 100 });
-    return {
-      unchanged: true,
-      check: {
-        unchanged: true,
-        fresh: true,
-        ageMs: deepAgeMs,
-        fingerprint: quickFingerprint,
-        counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: seriesCats?.length || 0 },
-      },
-    };
-  }
 
   onProgress({ phase: 'Mentett katalógus beolvasása…', percent: 6 });
   const [storedLive, storedVod, storedSeries] = await Promise.all([
@@ -2242,14 +2206,13 @@ async function refreshXtreamIncremental(
     return result;
   }
 
-  // Változott a kategórialista, vagy letelt a napi ablak: jöhet a teljes,
-  // elemenkénti összevetés – a letöltés okát a napló rögzíti. A letöltés
-  // CSAK az összehasonlításhoz kell: a változatlan szakaszokat nem dolgozzuk
-  // fel és nem mentjük újra.
+  // Kézi frissítés: teljes, elemenkénti összevetés. A letöltés CSAK az
+  // összehasonlításhoz kell – a változatlan szakaszokat nem dolgozzuk fel
+  // és nem írjuk újra a tárolóba.
   logProviderEvent(
     syncState && syncState.fingerprint === quickFingerprint
-      ? `Teljes összevetés indul: az utolsó alapos ellenőrzés ${deepAgeMs === null ? 'ismeretlen ideje' : Math.round(deepAgeMs / 3600000) + ' órája'} volt (napi egyszeri alapos összevetés).`
-      : 'Teljes összevetés indul: a szolgáltató kategórialistája megváltozott.'
+      ? 'Teljes összevetés indul (kézi frissítés): a kategóriák nem változtak, az elemenkénti ellenőrzés új filmet/sorozatot/csatornát keres.'
+      : 'Teljes összevetés indul (kézi frissítés): a szolgáltató kategórialistája megváltozott.'
   );
   onProgress({ phase: 'Összevetés: a friss listák letöltése a változások kereséséhez (a tárolt katalógus megmarad)…', percent: 8 });
   const [liveRaw, vodRaw, seriesRaw, auth] = await Promise.all([
