@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { FavoriteFolder } from '../types/iptv';
 import { FolderPlus, Check, Shuffle } from 'lucide-react';
+// Kép alapú mappaikonok (Mr Bean, HBO Max): nagy kép, automatikus név.
+import { FOLDER_IMAGE_ICONS, getFolderImageIcon } from '../folderImageIcons';
 
 interface ChannelOrderModalProps {
   isOpen: boolean;
@@ -46,6 +48,9 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
   const folderNameInputRef = useRef<HTMLInputElement>(null);
   const [selectedFolderId, setSelectedFolderId] = useState('');
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  // Kiválasztott kép alapú ikon (pl. 'img:mrbean'); ilyenkor nincs névmező,
+  // mert a kép magáért beszél – a mappa automatikus nevet kap.
+  const [selectedImageToken, setSelectedImageToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -53,9 +58,15 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
     const existingFolder = folders.find((folder) => folder.channelIds.includes(channelToFavoriteId || ''));
     setSelectedFolderId(existingFolder?.id || folders[0]?.id || '');
     setNewFolderName('');
+    setSelectedImageToken(null);
     const timer = window.setTimeout(() => folderNameInputRef.current?.focus(), 80);
     return () => window.clearTimeout(timer);
   }, [isOpen, channelToFavoriteId, folders]);
+  // Egy kép ikonos mappából csak egy lehet: a már létrehozottak nem választhatók újra.
+  const availableImageIcons = useMemo(
+    () => FOLDER_IMAGE_ICONS.filter((item) => !folders.some((folder) => folder.icon === item.token)),
+    [folders]
+  );
   const availableIcons = useMemo(() => {
     const used = new Set(folders.map((folder) => folder.icon).filter(Boolean));
     const unused = FOLDER_ICONS.filter((icon) => !used.has(icon));
@@ -68,17 +79,20 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
 
   const handleCreateFolder = (e: React.FormEvent) => {
     e.preventDefault();
-    const name = newFolderName.trim();
+    // Kép ikonos mappa: a név automatikus (a kép magáért beszél), nem írható.
+    const imageIcon = selectedImageToken ? getFolderImageIcon(selectedImageToken) : null;
+    const name = imageIcon ? imageIcon.name : newFolderName.trim();
     if (!name) return;
 
     const newFolder: FavoriteFolder = {
       id: `folder-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name,
-      icon: selectedIcon,
+      icon: imageIcon ? imageIcon.token : selectedIcon,
       channelIds: channelToFavoriteId ? [channelToFavoriteId] : [],
     };
     onSaveFolders([...folders, newFolder]);
     setNewFolderName('');
+    setSelectedImageToken(null);
     setIconOffset(0);
     onClose();
   };
@@ -107,19 +121,27 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
           <div className="p-4 space-y-3">
             <p className="text-sm text-slate-300">Melyik mappába kerüljön ez a csatorna?</p>
             <div className="max-h-64 overflow-y-auto space-y-2">
-              {folders.map((folder) => (
-                <button
-                  key={folder.id}
-                  type="button"
-                  onClick={() => setSelectedFolderId(folder.id)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left ${selectedFolderId === folder.id ? 'bg-amber-400/15 border-amber-400 text-white' : 'bg-[#0b1836] border-cyan-900/50 text-slate-200'}`}
-                >
-                  <span className="text-xl">{folder.icon || '📁'}</span>
-                  <span className="flex-1 min-w-0 truncate font-bold text-sm">{folder.name}</span>
-                  <span className="text-xs text-slate-400">{folder.channelIds.length} csatorna</span>
-                  {selectedFolderId === folder.id && <Check className="w-4 h-4 text-amber-300" />}
-                </button>
-              ))}
+              {folders.map((folder) => {
+                // Kép ikonos mappánál (Mr Bean, HBO Max) a kép jelenik meg emoji helyett.
+                const imageIcon = getFolderImageIcon(folder.icon);
+                return (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => setSelectedFolderId(folder.id)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left ${selectedFolderId === folder.id ? 'bg-amber-400/15 border-amber-400 text-white' : 'bg-[#0b1836] border-cyan-900/50 text-slate-200'}`}
+                  >
+                    {imageIcon ? (
+                      <img src={imageIcon.dataUrl} alt={imageIcon.name} className="w-12 h-12 rounded-lg object-cover pointer-events-none select-none" />
+                    ) : (
+                      <span className="text-xl">{folder.icon || '📁'}</span>
+                    )}
+                    <span className="flex-1 min-w-0 truncate font-bold text-sm">{folder.name}</span>
+                    <span className="text-xs text-slate-400">{folder.channelIds.length} csatorna</span>
+                    {selectedFolderId === folder.id && <Check className="w-4 h-4 text-amber-300" />}
+                  </button>
+                );
+              })}
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={() => setIsCreatingFolder(true)} className="flex-1 py-3 rounded-xl bg-[#102448] text-cyan-200 border border-cyan-800/60 font-bold text-sm">Új mappa</button>
@@ -128,6 +150,39 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
           </div>
         ) : (
         <form onSubmit={handleCreateFolder} className="p-4 space-y-4">
+          {/* Kép ikonos mappák (Mr Bean, HBO Max): nagy, egyforma képek, név nélkül –
+              a kép magáért beszél. Mindegyikből csak egy mappa hozható létre. */}
+          {availableImageIcons.length > 0 && (
+            <div className="rounded-2xl bg-[#0b1836] border border-cyan-950 p-4">
+              <p className="text-sm font-bold text-white mb-1">Kép ikonos mappa</p>
+              <p className="text-xs text-slate-400 mb-3">Válassz képet – ehhez nem kell nevet írni, a kép magáért beszél.</p>
+              <div className="flex items-center gap-3 flex-wrap">
+                {availableImageIcons.map((item) => {
+                  const isPicked = selectedImageToken === item.token;
+                  return (
+                    <button
+                      key={item.token}
+                      type="button"
+                      onClick={() => setSelectedImageToken(isPicked ? null : item.token)}
+                      title={item.name}
+                      aria-label={item.name}
+                      aria-pressed={isPicked}
+                      className={`relative p-0 rounded-2xl overflow-hidden border-2 transition-colors ${isPicked ? 'border-amber-400 ring-2 ring-amber-400/70' : 'border-cyan-800/70 hover:border-cyan-500'}`}
+                    >
+                      <img src={item.dataUrl} alt={item.name} className="w-24 h-24 object-cover pointer-events-none select-none block" />
+                      {isPicked && (
+                        <span className="absolute top-1 right-1 w-6 h-6 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center">
+                          <Check className="w-4 h-4 stroke-[3]" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {!selectedImageToken && (
           <div>
             <label htmlFor="favorite-folder-name" className="block text-xs font-bold text-slate-300 mb-2">Mappa neve</label>
             <input
@@ -140,11 +195,12 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
               placeholder="Pl. Foci, Filmek, Gyerekek..."
               autoFocus
               maxLength={60}
-              required
               className="w-full bg-[#070e1e] border border-cyan-800 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-cyan-400"
             />
           </div>
+          )}
 
+          {!selectedImageToken && (
           <div className="rounded-2xl bg-[#0b1836] border border-cyan-950 p-4 flex items-center gap-3">
             <div className="w-14 h-14 rounded-2xl bg-amber-400/15 border border-amber-400/40 flex items-center justify-center text-3xl">{selectedIcon}</div>
             <div className="flex-1 min-w-0">
@@ -155,10 +211,11 @@ export const ChannelOrderModal: React.FC<ChannelOrderModalProps> = ({
               <Shuffle className="w-4 h-4" />
             </button>
           </div>
+          )}
 
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-200 font-bold text-sm">Mégse</button>
-            <button type="submit" disabled={!newFolderName.trim()} className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-black text-sm flex items-center justify-center gap-2">
+            <button type="submit" disabled={!selectedImageToken && !newFolderName.trim()} className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-black text-sm flex items-center justify-center gap-2">
               <Check className="w-4 h-4" /> Létrehozás
             </button>
           </div>
