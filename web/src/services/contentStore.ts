@@ -105,8 +105,8 @@ const SERIES_GENERATION_PREFIX = 'content-series-chunk-v2-';
  */
 const LIVE_FULL_META_KEY = 'content-live-full-meta';
 const LIVE_FULL_GENERATION_PREFIX = 'content-live-full-v1-';
-/** Az induló készlet felső korlátja a localStorage-ban (kb. 2500 csatorna). */
-const LIVE_BOOT_BUDGET = 500000;
+/** Az induló készlet becsült méretkerete a localStorage-ban. */
+const LIVE_BOOT_BUDGET = 350000;
 /**
  * Hány adagot olvasunk be az IndexedDB-ből a hideg indításhoz (400 csatorna /
  * adag). Három adag ≈ 1200 csatorna – bőven elég az első képkockához, és a TV-n
