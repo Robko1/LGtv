@@ -42,7 +42,7 @@ const LogoImage: React.FC<Props> = ({ url = '', name, retryKey }) => {
 
   const saveCachedLogo = async (loadedUrl: string) => {
     try {
-      if (!loadedUrl || !('caches' in window) || !/^https?:\\/\\//i.test(loadedUrl)) return;
+      if (!loadedUrl || !('caches' in window) || !/^https?:\/\//i.test(loadedUrl)) return;
       const cache = await window.caches.open('iptv-channel-logos-v1');
       if (await cache.match(loadedUrl)) return;
       // Csak akkor mentjük saját gyorsítótárba, ha a szolgáltató engedi a CORS-os olvasást.
