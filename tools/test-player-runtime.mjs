@@ -148,6 +148,9 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
   virtualConsole: vc,
   beforeParse(window) {
     window.__IPTV_DIRECT_LIVE_ZAP_TEST__ = false; // a régi recovery/fallback regressziós tesztjeihez
+    // 2.5.226: a SEBESSÉG-sorok mérési naplóvá váltak (alapból KI) – a próba
+    // fejlesztői módban, bekapcsolt mérési naplóval ellenőrzi őket.
+    try { window.localStorage.setItem('iptv_rt_meres_naplo', '1'); } catch { /* nem elérhető */ }
     const spy = { play: 0, pause: 0, load: 0, setIsPlaying: [], onEnded: 0 };
     window.__MEDIA_SPY__ = spy;
     const proto = window.HTMLMediaElement.prototype;

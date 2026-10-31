@@ -145,8 +145,60 @@ function rememberDecoded<T>(providerId: string, kind: 'vod' | 'series', key: str
   decodedCache.set(key, value);
 }
 
+/*
+ * GYORS LÉLEGZÉS (2.5.226): a webOS a setTimeout(0)-t videólejátszás közben
+ * akár 10-30 ms-ra is nyújtja. A 103 ezres filmlista mentése/visszatöltése
+ * 206 adagban fut, adagonkénti lélegzéssel – setTimeout-tal ez önmagában
+ * több másodperc TISZTA VÁRAKOZÁS volt (az 1-es naplóban: mentés 68,9 mp,
+ * visszatöltés 57 mp). A MessageChannel üzenete az eseményhurok következő
+ * körében fut, nyújtás nélkül, de a billentyű- és festési események ugyanúgy
+ * sorra kerülnek közte. Időnként (240 ms) továbbra is setTimeout-tal
+ * lélegzünk, hogy a felhalmozott időzítők (zap-őr, folyamatjelző) is
+ * biztosan lefussanak.
+ */
+let storageYieldPorts: { send: MessagePort } | null | undefined;
+const storageYieldQueue: Array<() => void> = [];
+let lastTimerYieldAt = 0;
 function yieldToStorage(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  const now = Date.now();
+  if (storageYieldPorts === undefined) {
+    try {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => { storageYieldQueue.shift()?.(); };
+      // Node-teszt alatt a nyitott port életben tartaná a folyamatot a
+      // tesztek végeztével is – a böngészőben az unref nem létezik, nem árt.
+      (channel.port1 as MessagePort & { unref?: () => void }).unref?.();
+      (channel.port2 as MessagePort & { unref?: () => void }).unref?.();
+      storageYieldPorts = { send: channel.port2 };
+    } catch {
+      storageYieldPorts = null;
+    }
+  }
+  if (!storageYieldPorts || now - lastTimerYieldAt > 240) {
+    lastTimerYieldAt = now;
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  const ports = storageYieldPorts;
+  return new Promise((resolve) => {
+    /*
+     * Biztonsági háló: az unref-elt port üzenete Node-teszt alatt elveszhet,
+     * ha semmi más nem tartja életben az eseményhurkot. A ref-elt időzítő
+     * garantálja a továbblépést; a böngészőben szinte mindig az üzenet ér
+     * oda előbb, és az időzítőt azonnal töröljük – a setTimeout-nyújtás így
+     * nem lassít.
+     */
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      resolve();
+    };
+    storageYieldQueue.push(finish);
+    timer = setTimeout(finish, 4);
+    ports.send.postMessage(0);
+  });
 }
 
 /**
@@ -1589,14 +1641,26 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
     return await store.putMany(batch);
   };
 
+  /*
+   * ÁTLAPOLT ÍRÁS (2.5.226): az IndexedDB-tranzakció a háttérben fut,
+   * közben a főszál már a KÖVETKEZŐ adagokat kódolja. Korábban a kódolás
+   * megvárta minden köteg kiírását – az 1-es TV-naplóban a filmmentés így
+   * 68,9 mp-re nyúlt. Egyszerre legfeljebb egy írás fut (a következő flush
+   * bevárja az előzőt), így a memóriacsúcs sem nő.
+   */
+  let pendingWrite: Promise<boolean> | null = null;
   try {
     let batch: ChunkEntry[] = [];
     let approxBytes = 0;
     const flush = async (): Promise<void> => {
       if (!batch.length) return;
-      if (!(await writeBatch(batch))) throw new Error('IndexedDB kötegelt írás sikertelen');
-      writtenKeys.push(...batch.map((entry) => entry.key));
+      const toWrite = batch;
       batch = [];
+      if (pendingWrite && !(await pendingWrite)) throw new Error('IndexedDB kötegelt írás sikertelen');
+      pendingWrite = writeBatch(toWrite).then((ok) => {
+        if (ok) writtenKeys.push(...toWrite.map((entry) => entry.key));
+        return ok;
+      });
       // A főszálat a kötegek között visszaadjuk: a lejátszás nem akad meg.
       await yieldToStorage();
     };
@@ -1614,6 +1678,7 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       else await yieldToStorage();
     }
     await flush();
+    if (pendingWrite && !(await pendingWrite)) throw new Error('IndexedDB kötegelt írás sikertelen');
 
     /*
      * ELLENŐRZÖTT MENTÉS (2.5.222).
@@ -1668,6 +1733,8 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       + `~${(approxBytes / 1024 / 1024).toFixed(1)} MB, ${Date.now() - startedAt} ms.`
     );
   } catch (error) {
+    // A még futó háttérírást bevárjuk, hogy a takarítás ne hagyjon árvát.
+    try { if (pendingWrite) await pendingWrite; } catch { /* a hibás írás is írt kulcsokat törlünk */ }
     await store.removeMany(writtenKeys);
     appLogError(`${options.label} tartós mentése nem sikerült`, error);
     appLog(`Tároló: a korábbi, mentett ${options.label} változatlanul érvényben marad.`);
@@ -2134,8 +2201,12 @@ export async function loadLiveFull(
   if (!storedProvider) return null;
   const channels: Channel[] = [];
   let missingChunks = 0;
+  // ELŐREOLVASÁS (2.5.226): a következő adag IndexedDB-olvasása már a
+  // mostani adag dekódolása ALATT fut – az olvasás és a feldolgozás átlapolódik.
+  let nextChunk = chunked.readChunk(0);
   for (let index = 0; index < chunked.meta.chunks; index++) {
-    const rows = await chunked.readChunk(index);
+    const rows = await nextChunk;
+    if (index + 1 < chunked.meta.chunks) nextChunk = chunked.readChunk(index + 1);
     if (rows.length === 0) missingChunks++;
     for (const channel of decodeChannels(rows, storedProvider)) channels.push(channel);
     onProgress?.(channels.length);
@@ -2473,8 +2544,13 @@ export async function loadVodAsync(
       let offset = 0;
       let partialSent = false;
       let missingChunks = 0;
+      // ELŐREOLVASÁS (2.5.226): a következő adag már a dekódolás alatt töltődik
+      // az IndexedDB-ből – az 1-es naplóban a 206 adagos, tisztán soros
+      // visszatöltés 57 mp volt, ennek jelentős része olvasásra várakozás.
+      let nextChunk = chunked.readChunk(0);
       for (let index = 0; index < chunked.meta.chunks; index++) {
-        const rows = await chunked.readChunk(index);
+        const rows = await nextChunk;
+        if (index + 1 < chunked.meta.chunks) nextChunk = chunked.readChunk(index + 1);
         if (rows.length === 0) missingChunks++;
         for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
         offset += rows.length;
@@ -2598,8 +2674,11 @@ export async function loadSeriesAsync(
       let offset = 0;
       let partialSent = false;
       let missingChunks = 0;
+      // ELŐREOLVASÁS (2.5.226): lásd a filmlista betöltőjét.
+      let nextChunk = chunked.readChunk(0);
       for (let index = 0; index < chunked.meta.chunks; index++) {
-        const rows = await chunked.readChunk(index);
+        const rows = await nextChunk;
+        if (index + 1 < chunked.meta.chunks) nextChunk = chunked.readChunk(index + 1);
         if (rows.length === 0) missingChunks++;
         for (const item of decodeSeries(rows, provider, offset)) series.push(item);
         offset += rows.length;
@@ -2738,6 +2817,40 @@ async function hasStoredList(store: ChunkStore | null, metaKey: string, localMet
   if (backend.get(localMetaKey) || backend.get(legacyKey)) return true;
   if (!store) return false;
   try { return Boolean(await readIdbChunks(store, metaKey)); } catch { return false; }
+}
+
+/**
+ * OLCSÓ SZAKASZ-MEGLÉT ELLENŐRZÉS (2.5.226) – a Frissítés gyors útjához.
+ *
+ * Csak a három fejlécet olvassa (3 kis IndexedDB-olvasás), a több tíz MB-os
+ * listákat NEM dekódolja. Így a „nincs változás” eset a tárolt katalógus
+ * beolvasása nélkül, pár másodperc alatt lezárható – de hiányzó vagy másik
+ * szolgáltatóhoz tartozó szakasznál a hívó tudja, hogy gyógyító teljes
+ * összevetés kell.
+ */
+export async function storedCatalogSectionsPresent(providerId: string): Promise<boolean> {
+  try {
+    const store = await contentChunkStore();
+    if (!store) {
+      // Tartós tár nélkül a localStorage-os (kis) listák léte számít.
+      const [live, vod, series] = await Promise.all([
+        hasStoredList(null, LIVE_FULL_META_KEY, LIVE_META_KEY, LIVE_KEY),
+        hasStoredList(null, VOD_META_KEY, VOD_META_KEY, VOD_KEY),
+        hasStoredList(null, SERIES_META_KEY, SERIES_META_KEY, SERIES_KEY),
+      ]);
+      return live && vod && series;
+    }
+    const [liveMeta, vodMeta, seriesMeta] = await Promise.all([
+      readIdbChunks(store, LIVE_FULL_META_KEY),
+      readIdbChunks(store, VOD_META_KEY),
+      readIdbChunks(store, SERIES_META_KEY),
+    ]);
+    const matches = (meta: { meta: ChunkMeta } | null): boolean =>
+      Boolean(meta && meta.meta.chunks > 0 && (!meta.meta.provider || meta.meta.provider.id === providerId));
+    return matches(liveMeta) && matches(vodMeta) && matches(seriesMeta);
+  } catch {
+    return false;
+  }
 }
 
 /** Egyetlen, gyors tároló-felmérés: mi van meg, és mennyi. */

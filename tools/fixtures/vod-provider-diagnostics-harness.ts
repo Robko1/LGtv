@@ -14,6 +14,13 @@ import {
 } from '../../web/src/services/vodProviderDiagnostics';
 import type { Category, Movie, Series } from '../../web/src/types/iptv';
 
+/*
+ * 2.5.226: a VOD-DIAG tisztán MÉRÉSI napló lett (alapból KI, hogy a TV-s
+ * hibajavító naplót ne töltse meg). A próba a fejlesztői kapcsolóval,
+ * bekapcsolt mérési naplóval ellenőrzi a működését.
+ */
+try { localStorage.setItem('iptv_rt_meres_naplo', '1'); } catch { /* jsdom nélkül nem fut */ }
+
 const SERVER = 'http://panel.example.tv:8080';
 const USER = 'titkosuser';
 const PASS = 'titkosjelszo';

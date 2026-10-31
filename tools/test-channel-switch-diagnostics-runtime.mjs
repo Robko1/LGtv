@@ -40,6 +40,9 @@ const vc = new VirtualConsole(); vc.on('jsdomError', e => { if (!/navigation|Not
 const dom = new JSDOM('<!doctype html><html><body class="webos-tv"><div id="root"></div></body></html>',
   {url:'http://localhost/',runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,beforeParse(window) {
     window.__IPTV_DIRECT_LIVE_ZAP_TEST__ = false; // a régi diagnosztikai/fallback útvonal tesztje
+    // 2.5.226: a SEBESSÉG/TÁVIRÁNYÍTÓ sorok mérési naplóvá váltak (alapból
+    // KI) – a próba fejlesztői módban, bekapcsolt mérési naplóval fut.
+    try { window.localStorage.setItem('iptv_rt_meres_naplo', '1'); } catch { /* nem elérhető */ }
     const proto = window.HTMLMediaElement.prototype;
     Object.defineProperty(proto,'paused',{configurable:true,get(){return this.__paused ?? true;}});
     Object.defineProperty(proto,'currentSrc',{configurable:true,get(){return this.getAttribute('src') || '';}});

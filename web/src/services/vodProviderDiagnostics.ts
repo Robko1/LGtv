@@ -23,7 +23,7 @@
  *     hosztot írjuk ki.
  */
 import { Category, Movie, Series } from '../types/iptv';
-import { appLog, manualLogSnapshot, registerLoggingLifecycleHooks } from './appLog';
+import { appLog, manualLogSnapshot, measurementLogsEnabled, registerLoggingLifecycleHooks } from './appLog';
 import { parseSeriesMetadata, parseVodMetadata } from './vodMetadata';
 import { xtreamService } from './xtreamService';
 import { visibleLanguages } from '../utils/vodDisplay';
@@ -96,6 +96,14 @@ let detachLifecycle: (() => void) | null = null;
 /* ───────────────────────────── segédfüggvények ───────────────────────────── */
 
 function loggingActive(): boolean {
+  /*
+   * 2.5.226: a VOD-DIAG kizárólag MÉRÉSI napló (teljes szolgáltatói válaszok,
+   * ffprobe-mezők, automatikus próbakérések). Az 1-es TV-naplóban ezek a
+   * dumpok adták a terjedelem nagy részét, az automatikus próbák pedig
+   * felesleges hálózati kéréseket indítottak import közben. Alapból KI;
+   * fejlesztéshez az 'iptv_rt_meres_naplo'='1' kulccsal kapcsolható vissza.
+   */
+  if (!measurementLogsEnabled()) return false;
   try {
     return manualLogSnapshot().enabled;
   } catch {
