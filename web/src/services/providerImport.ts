@@ -1929,7 +1929,7 @@ async function refreshXtreamIncremental(
     fresh: fullAgeMs !== null && fullAgeMs <= FULL_CHECK_WINDOW_MS,
     ageMs: fullAgeMs,
     fingerprint: quickFingerprint,
-    counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: 0 },
+    counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: seriesCats?.length || 0 },
   };
 
   if (!categoriesLoaded) {
