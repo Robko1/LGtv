@@ -8,6 +8,7 @@ import { importM3UProvider, importXtreamProvider, ImportProgress } from '../serv
 import { setNetworkDiagnosticSink, NetworkDiagnosticEvent } from '../services/net';
 import LoadingDiagnosticModal from './LoadingDiagnosticModal';
 import { Server, Link, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { isHungarianChannel, isPlayableChannel } from '../utils/channelSelection';
 
 interface AddPlaylistModalProps {
   isOpen: boolean;
@@ -152,9 +153,13 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
         (partial) => {
           if (partial.channels?.length) {
             onLiveChannelsLoaded?.(partial);
-            const liveChannelsReady = partial.liveHungarianReady === true
-              || partial.liveComplete === true
-              || partial.preview !== true;
+            const hasPlayableHungarianChannel = partial.channels.some(
+              (channel) => isHungarianChannel(channel) && isPlayableChannel(channel)
+            );
+            const liveChannelsReady = hasPlayableHungarianChannel
+              && (partial.liveHungarianReady === true
+                || partial.liveComplete === true
+                || partial.preview !== true);
             if (liveChannelsReady && !promptShownRef.current) {
               promptShownRef.current = true;
               setDiagnosticOpen(true);
@@ -192,7 +197,10 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
       /* 2.5.137: a kérdéses ablak NEM tűnhet el automatikusan. Ha a részleges
          callback nem jött volna (gyors bulk import), a végén akkor is megkérdezzük:
          folyamat vagy csatornák. A diagnosztika is NYITVA marad a döntésig. */
-      if (!promptShownRef.current) {
+      const hasPlayableHungarianChannel = content.channels.some(
+        (channel) => isHungarianChannel(channel) && isPlayableChannel(channel)
+      );
+      if (hasPlayableHungarianChannel && !promptShownRef.current) {
         promptShownRef.current = true;
         setDiagnosticOpen(true);
         setLiveLoadedPromptOpen(true);
