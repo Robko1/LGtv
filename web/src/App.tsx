@@ -2526,7 +2526,7 @@ export function App() {
         // A provider mentése után automatikusan induljon a teljes listaimport.
         // 2.5.137: az első, felhasználó által kezdeményezett import NEM csendes:
         // megjelenik a betöltési diagnosztika ÉS a kérdéses ablak is.
-        void handleRefreshProvider(newProvider, true);
+        void handleRefreshProvider(newProvider, true, false, payload.type === 'xtream');
       } else if (payload.type === 'm3u') {
         const newProvider = {
           id: 'qr_' + Date.now(),
@@ -2707,7 +2707,7 @@ export function App() {
   // a több tízezer film letöltését. A részleges szakaszok csak előnézetként
   // jelennek meg; a teljes, metaadattal kiegészített snapshot egyszer kerül
   // tartósan mentésre az import végén.
-  const handleRefreshProvider = async (providerOrId: string | ProviderAccount, manual = true, silent = false) => {
+  const handleRefreshProvider = async (providerOrId: string | ProviderAccount, manual = true, silent = false, directImport = false) => {
     // QR-es hozzáadás után a React providers állapota ebben a renderben még régi lehet.
     // Az átadott ProviderAccount ezért közvetlenül használható, nem veszhet el az első import.
     const provider = typeof providerOrId === 'string'
@@ -3089,7 +3089,8 @@ export function App() {
         },
         applyPartial,
         {
-          incremental: provider.type === 'xtream',
+          // Új QR-es Xtream szolgáltatónál közvetlen teljes import indul: nincs helyi katalógus-ellenőrzés.
+          incremental: provider.type === 'xtream' && !directImport,
           /*
            * KÉT GOMBNYOMÁS = TELJES ÖSSZEVETÉS: ha a néző röviddel a gyors
            * „nincs változás” után ÚJRA Frissítést nyom, ő tudhatja, hogy új
