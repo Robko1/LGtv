@@ -33,14 +33,14 @@ export function rawItemSignature(raw: unknown): string {
 /** A lista-válasz minden mezőjét megőrizzük; a normalizált mezők csak gyors megjelenítést adnak. */
 export function movieRowFromRaw(
   raw: Record<string, unknown>,
-  _category: { id: string; name: string },
+  category: { id: string; name: string },
 ): CatalogRow {
   const meta = parseMovieCatalogMetadata(raw);
   return [
     String(raw.stream_id ?? ''),
     String(raw.name || 'Film').trim(),
-    'vod-all',
-    'Filmek',
+    category.id,
+    category.name,
     meta.poster || String(raw.stream_icon || ''),
     0, // értékelés nem szükséges a filmkatalógus importjához
     meta.year || 0,
@@ -64,14 +64,14 @@ export function movieRowFromRaw(
   ];
 }
 
-export function seriesRowFromRaw(raw: Record<string, unknown>): CatalogRow {
+export function seriesRowFromRaw(raw: Record<string, unknown>, category: { id: string; name: string } = { id: 'sc-other', name: 'Egyéb' }): CatalogRow {
   const meta = parseSeriesMetadata(raw);
   const backdrops = Array.isArray(raw.backdrop_path) ? raw.backdrop_path : [];
   return [
     String(raw.series_id ?? ''),
     String(raw.name || 'Sorozat').trim(),
-    'series-all',
-    'Sorozatok',
+    category.id,
+    category.name,
     meta.poster || String(raw.cover || ''),
     0,
     meta.year || 0,
