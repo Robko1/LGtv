@@ -1223,9 +1223,7 @@ export async function importXtreamProvider(
         () => xtreamService.vodStreams(server, user, pass),
         'Filmek egyben'
       );
-      // A filmválasz már itt van: a sorozatlista letöltése MOST indul, a
-      // filmek feldolgozásával párhuzamosan (a hálózat nem marad tétlen).
-      startSeriesPrefetch();
+      // A sorozatletöltés csak a teljes filmfázis befejezése után indul.
       logImportApiPayload('FILM LISTA', allVod as unknown[]);
       await vodCategoriesPromise;
       vodCategoryMap = makeCategoryMap(vodCategories);
@@ -2319,10 +2317,12 @@ async function refreshXtreamIncremental(
         result.push(merged);
         if (!old) {
           diff.added += 1;
-          // Csak az első néhány ÚJ elem kap azonnali részletes metaadatot;
-          // a többit a böngészés közbeni előreolvasás tölti fel.
-          if (detailTargets.length < MAX_REFRESH_DETAILS) detailTargets.push({ index: result.length - 1, item: merged });
-          else skippedDetails += 1;
+          // Csak sorozatoknál kell külön részletes adat az évadokhoz.
+          if (label === 'sorozat' && detailTargets.length < MAX_REFRESH_DETAILS) {
+            detailTargets.push({ index: result.length - 1, item: merged });
+          } else if (label === 'sorozat') {
+            skippedDetails += 1;
+          }
         } else if (old.providerSig) {
           diff.changed += 1;
           /*
@@ -2334,7 +2334,7 @@ async function refreshXtreamIncremental(
            * részletes adatot ELDOBJUK, így a böngészés közbeni előreolvasás
            * tölti újra frissen (elavult adat nem marad a katalógusban).
            */
-          if (label === 'film' || label === 'sorozat') {
+          if (label === 'sorozat') {
             if (detailTargets.length < MAX_REFRESH_DETAILS) {
               detailTargets.push({ index: result.length - 1, item: merged });
             } else {
