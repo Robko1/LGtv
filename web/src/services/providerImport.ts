@@ -1075,7 +1075,7 @@ export async function importXtreamProvider(
           onProgress({
             phase: hungarianOnly ? 'Magyar TV-csatornák feldolgozása…' : 'A többi TV-csatorna feldolgozása…',
             detail: liveProcessed + '/' + Math.max(liveProcessTotal, 1) + ' csatorna',
-            percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 32),
+            percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 22),
           });
         }
         if (liveProcessed % UI_YIELD_EVERY === 0) await yieldToUi();
@@ -1087,7 +1087,7 @@ export async function importXtreamProvider(
     onProgress({
       phase: 'Magyar TV-csatornák készen',
       detail: `${liveProcessed.toLocaleString('hu-HU')} magyar csatorna; a teljes lista feldolgozása folytatódik`,
-      percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 32),
+      percent: 18 + Math.round((liveProcessed / Math.max(liveProcessTotal, 1)) * 22),
     });
     if (liveRows.length > 0) {
       const hungarianCategories = liveCats.filter((category) =>
