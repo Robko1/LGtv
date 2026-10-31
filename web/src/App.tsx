@@ -4895,6 +4895,30 @@ export function App() {
         editProvider={editingProvider}
         onDiagnosticUpdate={(snapshot) => setLastImportDiagnostic(snapshot)}
         onLiveChannelsLoaded={(partial) => {
+          // A magyar lista megjelenésekor a szolgáltatót is aktiváljuk,
+          // hogy a „TV nézése” gomb már a háttérimport befejezése előtt
+          // valóban a használható főoldalra vigyen.
+          if (partial.provider && partial.providerName) {
+            const provisionalProvider: ProviderAccount = {
+              id: partial.provider.id,
+              name: partial.providerName,
+              type: partial.provider.type,
+              serverUrl: partial.provider.serverUrl,
+              username: partial.provider.username,
+              password: partial.provider.password,
+              isActive: true,
+              status: 'active',
+              channelsCount: partial.totals?.live ?? partial.channels?.length ?? 0,
+              moviesCount: 0,
+              seriesCount: 0,
+              lastUpdated: new Date().toISOString().slice(0, 10).replace(/-/g, '. ') + '.',
+              expireDate: 'Korlátlan',
+              maxConnections: 0,
+            };
+            activeProviderRef.current = provisionalProvider;
+            setActiveProvider(provisionalProvider);
+            setProviderContentReady(true);
+          }
           if (partial.channels) {
             const incomingCountries = buildCountryCategories(partial.channels);
             const hungaryCategoryId = findHungaryCategoryId(incomingCountries) || 'all';
