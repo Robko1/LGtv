@@ -878,8 +878,7 @@ function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
     let ok = write(chunkKey, { rows }, { allowShrink: false });
     if (!ok) {
       // Helyfelszabadítás: a film/sorozat adagok eldobhatók, az élő lista nem.
-      const freed = evictLowerPriorityChunks();
-      if (freed > 0) ok = write(chunkKey, { rows }, { allowShrink: false });
+      // Nem törlünk más katalógusadatot azért, hogy az induló készlet beférjen.
     }
     /*
      * CSONKÍTOTT ADAGOT SOHA nem írunk ki: a félig mentett adag a fejlécben
@@ -901,17 +900,11 @@ function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
     boot: boot.length,
     full: content.channels.length,
   };
-  if (!write(LIVE_META_KEY, meta)) {
-    // A fejléc az utolsó, ami kell: ha nem fér el, a film/sorozat adagok
-    // felszabadításával még megpróbáljuk – fejléc nélkül a lista nem olvasható.
-    evictLowerPriorityChunks();
-  }
+  // Ha a fejléc nem fér el, a mentés meghiúsul; más adatot nem törlünk.
   if (!write(LIVE_META_KEY, meta)) return abort('a fejléc nem fért be');
   for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
 
-  // CSAK MOST töröljük a korábbi generációt (és a régi egykulcsos tárat).
-  backend.remove(LIVE_KEY);
-  for (const key of previousKeys) backend.remove(key);
+  // Sikeres mentés után nem törlünk korábbi adatokat.
   appLog(`Élő csatornák induló készlete elmentve: ${boot.length} csatorna (teljes lista: ${content.channels.length}).`);
   return true;
 }
@@ -1024,15 +1017,8 @@ export async function saveLiveContentAsync(content: ImportedContent): Promise<vo
     appLogError('Élő csatornák induló készletének mentése', error);
   }
   const savedFull = await saveLiveFullToIdb(content, channels);
-  if (savedFull !== 'unavailable' || channels.length <= boot.length) return;
-  appLog('Élő csatornák: IndexedDB nélkül a teljes lista a localStorage-ba megy (a kvóthoz igazítva).');
-  try {
-    // Ilyenkor nincs nagy kvótájú tár: a lehető LEGNAGYOBB készletet mentjük
-    // a localStorage-ba (magyar csatornák elöl), és ha nem fér be, a
-    // `saveLiveBootWithRetry` kisebb, de ÉP készlettel próbálkozik újra.
-    saveLiveBootWithRetry(content, channels, liveCharsEstimate(channels) + 1, false);
-  } catch (error) {
-    appLogError('Élő csatornák mentése (localStorage)', error);
+  if (savedFull === 'unavailable') {
+    appLog('Élő csatornák: IndexedDB nem érhető el; csak a magyar induló készlet marad a localStorage-ban.');
   }
 }
 
@@ -1522,9 +1508,7 @@ async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
   }
   for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
 
-  // A régi adagok és a régi, egykulcsos változat többé nem hivatkozott.
-  backend.remove(options.legacyKey);
-  for (const key of previousKeys) backend.remove(key);
+  // Sikeres mentés után nincs utólagos takarítás.
   if (stoppedAt > 0 && storedChunks < chunkCount) {
     appLog(
       `TÁROLÓ FIGYELEM: ${options.label} – a tároló a ${stoppedAt + 1}/${chunkCount}. adagnál megtelt, ` +
@@ -1764,14 +1748,7 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
     return false;
   }
 
-  // CSAK a sikeres fejléc után: a régi generációk már nem kellenek.
-  try {
-    const keys = await store.keys();
-    const stale = keys.filter((key) =>
-      key.startsWith(options.generationPrefix) && !key.startsWith(generationPrefix));
-    if (stale.length) await store.removeMany(stale);
-    await store.remove(options.legacyKey);
-  } catch { /* a takarítás hibája nem veszélyezteti a friss mentést */ }
+  // Sikeres mentés után nem törlünk korábbi generációkat vagy legacy adatot.
   return true;
 }
 
@@ -1867,22 +1844,11 @@ async function saveChunkedAuto(options: ChunkedSaveOptions, retryAttempt = 0): P
       () => saveChunkedAuto(options, retryAttempt + 1));
     return;
   }
-  // Csak akkor használjuk a localStorage-t, ha EGYÁLTALÁN nincs IndexedDB.
-  if (options.total > LOCAL_FALLBACK_MAX_ROWS) {
-    appLog(
-      `TÁROLÓ FIGYELEM: ${options.label} (${options.total} elem) nem fér a rendelkezésre álló tárba; `
-      + 'a korábbi mentett lista marad, nincs félkész átírás.'
-    );
-    return;
-  }
-  if (backend.name === 'memory') {
-    // Őszinte állapot: ez NEM tartós mentés. Az adat a bezárásig él.
-    appLog(
-      `TÁROLÓ FIGYELEM: ${options.label} CSAK A MEMÓRIÁBAN tárolható ezen a készüléken; `
-      + 'az alkalmazás bezárásakor elveszik, és a következő indulás újratölti.'
-    );
-  }
-  await saveChunked(options);
+  // Film- és sorozatlista soha nem kerülhet localStorage-ba.
+  appLog(
+    `TÁROLÓ FIGYELEM: ${options.label} nem menthető, mert az IndexedDB nem érhető el; `
+    + 'a localStorage csak a magyar induló TV-készletet és a beállításokat tárolja.'
+  );
 }
 
 /** Adagok olvasása IndexedDB-ből (ha van ott érvényes lista). */
