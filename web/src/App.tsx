@@ -3,10 +3,7 @@ import { createPortal } from 'react-dom';
 import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Series, WatchHistoryItem } from './types/iptv';
 import { storageService } from './services/storageService';
 import {
-  CATALOG_TTL_MS,
   cancelStoredContentRestore,
-  catalogIncompleteSections,
-  catalogNeedsCheck,
   clearContent,
   describeStoredContent,
   lastStoredContentReport,
@@ -18,7 +15,6 @@ import {
   needsLiveCacheCompaction,
   compactLiveCacheIfNeeded,
   ProviderRef,
-  readCatalogStateSync,
   restoreStoredContent,
   saveCatalogExtras,
   saveContent,
@@ -45,7 +41,6 @@ import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/chann
 import { displayChannelPositions } from './utils/displayChannelOrder';
 import { createFullscreenSync } from './utils/fullscreenSync';
 import {
-  checkProviderChanges,
   describeCatalogSummary,
   loadAllLiveChannels,
   loadLiveChannelsForCategories,
@@ -1201,7 +1196,8 @@ export function App() {
    * időzítő, nincs dupla olvasás, nincs felugró ablak.
    */
   const [bootProbeDone, setBootProbeDone] = useState(() => bootChannels.length > 0);
-  const [catalogPlanReady, setCatalogPlanReady] = useState(false);
+  // 2.5.227: a catalogPlanReady állapotot csak a törölt háttér-ellenőrzés
+  // olvasta – a felmérés terve a catalogPlanRef-ben továbbra is elérhető.
   const catalogPlanRef = useRef<StoredCatalogPlan | null>(null);
   const bootProbeStartedRef = useRef(false);
   const restoreRunningRef = useRef(false);
@@ -1522,7 +1518,6 @@ export function App() {
         );
         if (cancelled) return;
         catalogPlanRef.current = plan;
-        setCatalogPlanReady(true);
         if (!plan || (!plan.bootChannels.length && !plan.hasLive && !plan.hasVod && !plan.hasSeries)) {
           decided = 'empty';
           markBootState('empty');
@@ -3109,91 +3104,37 @@ export function App() {
   autoRestoreProviderRef.current = providers;
   useEffect(() => {
     /*
-     * A LETÖLTÉS AZ UTOLSÓ LEHETŐSÉG.
+     * NINCS AUTOMATIKUS ÚJRATÖLTÉS (2.5.227) – A FELHASZNÁLÓ KIFEJEZETT KÉRÉSE.
      *
-     * Előbb a hideg indítás tároló-próbája fut le (localStorage → IndexedDB).
-     * Csak akkor indul a szolgáltatótól jövő újratöltés, ha az is azt
-     * állapította meg, hogy egyik tárolóban sincs használható lista.
+     * Korábban: ha a tároló-próba egyik tárolóban sem talált használható
+     * listát, a program MAGÁTÓL letöltötte a katalógust a szolgáltatótól.
+     * A felhasználó döntése szerint letöltés kizárólag a Frissítés gomb
+     * kézi megnyomására indulhat – ezért itt csak naplózunk, és a felület
+     * jelzi, hogy a Frissítés gombbal tölthető le a lista.
      */
     if (!bootProbeDone) return undefined;
     if (!liveRecoveryNeeded) return undefined;
     const list = autoRestoreProviderRef.current;
     const candidate = list.find((provider) => provider.isActive) || list[0];
     if (!candidate) return undefined;
-    const timer = window.setTimeout(() => {
-      if (autoRestoreStartedRef.current) return;
+    if (!autoRestoreStartedRef.current) {
       autoRestoreStartedRef.current = true;
-      appLog(`Nincs használható mentett lista – automatikus helyreállítás indul: ${candidate.name}.`);
-      // Nincs 2,5 mp várakozás: azonnal indul, és NEM nyit felugró ablakot.
-      void refreshRef.current(candidate, false, true);
-    }, 0);
-    return () => window.clearTimeout(timer);
+      appLog('Nincs használható mentett lista. Automatikus letöltés NEM indul – '
+        + 'a lista a Menü → Frissítés gombbal tölthető le, amikor a néző kéri.');
+    }
+    return undefined;
   }, [liveRecoveryNeeded, bootProbeDone]);
 
   /*
-   * STALE-WHILE-REVALIDATE – a referencia xtream-catalog.ts elve.
+   * NINCS HÁTTÉR-ELLENŐRZÉS (2.5.227) – A FELHASZNÁLÓ KIFEJEZETT KÉRÉSE.
    *
-   * A mentett katalógust AZONNAL, ellenőrzés nélkül kiszolgáljuk. A
-   * frissességet csak a TTL lejárta után, EGYETLEN olcsó (~44 kB)
-   * kategória-kéréssel vizsgáljuk, az első képkockától számított 45 mp
-   * múlva, teljesen hangtalanul. Ha nem változott semmi, CSAK a
-   * frissességi bélyeget írjuk újra – nem a 25 MB-nyi listát.
+   * Korábban az indulás után 45 másodperccel egy automatikus kategória-
+   * ellenőrzés futott, és ha változást vagy hiányos szakaszt talált, magától
+   * elindította a csendes frissítést (letöltéssel). A felhasználó döntése:
+   * SEMMILYEN letöltés nem indulhat automatikusan – sem induláskor, sem
+   * napi/heti ütemezéssel. Frissítés KIZÁRÓLAG a Frissítés gomb kézi
+   * megnyomására történik; addig az app csak a TV tárolójából dolgozik.
    */
-  const backgroundCheckStartedRef = useRef(false);
-  useEffect(() => {
-    if (!catalogPlanReady || backgroundCheckStartedRef.current) return undefined;
-    const plan = catalogPlanRef.current;
-    // A friss (nem az induláskor lefényképezett) állapotot nézzük: a tartós
-    // visszatöltés közben derülhet ki, hogy egy szakasz hiányos.
-    if (!plan || !catalogNeedsCheck(readCatalogStateSync() || plan.state)) return undefined;
-    const account = providers.find((item) => item.id === plan.provider.id)
-      || providers.find((item) => item.isActive) || providers[0];
-    if (!account || account.type !== 'xtream' || !account.serverUrl
-      || !account.username || !account.password) return undefined;
-    backgroundCheckStartedRef.current = true;
-    const ttlHours = Math.round(CATALOG_TTL_MS / (60 * 60 * 1000));
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const check = await checkProviderChanges({
-            serverUrl: account.serverUrl!,
-            username: account.username!,
-            password: account.password!,
-            fingerprint: plan.state?.fingerprint || undefined,
-            lastFullSyncAt: plan.savedAt || undefined,
-          });
-          /*
-           * HIÁNYOS SZAKASZ GYÓGYÍTÁSA (2.5.222): ha a tartós tárból hiányzik
-           * adat (félbeszakadt mentés, webOS-takarítás), akkor a „kategóriák
-           * nem változtak” válasz NEM elég – a csendes inkrementális
-           * frissítés visszapótolja a hiányzó elemeket, és újra elmenti a
-           * szakaszt. Változatlan + hiánytalan tárolónál továbbra sincs
-           * újratöltés.
-           */
-          const incomplete = catalogIncompleteSections(readCatalogStateSync() || plan.state);
-          if (check.unchanged && incomplete.length === 0) {
-            markCatalogChecked();
-            appLog(
-              `Háttér-ellenőrzés (${ttlHours} órás frissességi ablak): a kategóriák nem változtak `
-              + `(${check.counts.live}/${check.counts.vod}/${check.counts.series}); a teljes listák nem töltődnek újra.`
-            );
-          } else if (check.unchanged) {
-            appLog(
-              `Háttér-ellenőrzés: a tartós tárban hiányos szakasz van (${incomplete.join(', ')}) – `
-              + 'csendes gyógyító frissítés indul, felugró ablak nélkül.'
-            );
-            void refreshRef.current(account, false, true);
-          } else {
-            appLog('Háttér-ellenőrzés: a katalógus változott – csendes frissítés indul, felugró ablak nélkül.');
-            void refreshRef.current(account, false, true);
-          }
-        } catch (error) {
-          appLogError('Háttér-ellenőrzés', error);
-        }
-      })();
-    }, 45000);
-    return () => window.clearTimeout(timer);
-  }, [catalogPlanReady, providers]);
 
   const closeRefreshDiagnostic = useCallback(() => {
     // A VISSZA csak a diagnosztikai ablakot zárja be; a háttérben már futó
