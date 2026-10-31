@@ -1479,18 +1479,16 @@ export async function importXtreamProvider(
  * 2.5.237: visszatért a 2.5.210-es GYORS kézi frissítés. A gombnyomás
  * először CSAK a három kategórialistát kéri le (~44 kB, 1-2 másodperc).
  *
- * 2.5.238: SEMMILYEN időzített, magától induló mélyösszevetés NINCS – a
- * felhasználó kifejezett kérésére. A gombnyomás után:
+ * 2.5.238: MINDEN gombnyomás ugyanazt az egyszeri gyors ellenőrzést végzi:
  *
  *   • azonos kategóriák → azonnali „nincs változás” válasz,
- *     indexletöltés nélkül – akármikor volt az utolsó teljes összevetés;
+ *     indexletöltés nélkül;
  *   • megváltozott kategóriák → a felület RÁKÉRDEZ, induljon-e a
  *     különbség-letöltés (a kedvencek és a törlések megmaradnak);
- *   • teljes, elemenkénti összevetés KIZÁRÓLAG a néző kérésére fut:
- *     a gyors „nincs változás” után 2 percen belüli ÚJABB gombnyomás
- *     indítja (forceDeep). Ez fedi le a kategórián BELÜLI változásokat,
- *     amiket a kategória-ujjlenyomat nem lát (az Xtream API darabszámot
- *     csak a teljes indexlisták letöltésével ad).
+ *   • nincs második gombnyomásra induló teljes ellenőrzés.
+ *
+ * A kategórialisták lekérése sikertelensége esetén a program hibát jelez,
+ * és nem indít helyette teljes katalógusletöltést.
  *
  * Az alábbi ablak már CSAK tájékoztató (a ProviderChangeCheck.fresh
  * mezőjéhez) – semmilyen letöltést nem indít és nem is gátol.
@@ -1910,6 +1908,9 @@ async function refreshXtreamIncremental(
   const catsMs = Date.now() - catsStartedAt;
   const quickFingerprint = rawCatalogFingerprint(liveCats || [], vodCats || [], seriesCats || []);
   const syncState = loadSyncState(provider.id);
+  // Régebbi mentésnél hiányozhat a külön szinkronállapot; ilyenkor a
+  // tartósan elmentett kategóriákból számoljuk ki az összehasonlítás alapját.
+  const savedFingerprint = syncState?.fingerprint || providerFingerprint(previous);
 
   /*
    * GYORS DÖNTÉS a kategórialisták alapján – minden nagy letöltés ELŐTT.
@@ -1918,9 +1919,7 @@ async function refreshXtreamIncremental(
    * amely értelmes hibaüzenetet ad.
    */
   const categoriesLoaded = liveCats !== null && vodCats !== null && seriesCats !== null;
-  const quickUnchanged = categoriesLoaded
-    && Boolean(syncState?.fingerprint)
-    && syncState?.fingerprint === quickFingerprint;
+  const quickUnchanged = categoriesLoaded && savedFingerprint === quickFingerprint;
   const fullAgeMs = typeof syncState?.fullSyncAt === 'number' && syncState.fullSyncAt > 0
     ? Math.max(0, Date.now() - syncState.fullSyncAt)
     : null;
@@ -1949,14 +1948,14 @@ async function refreshXtreamIncremental(
     return { unchanged: true, quick: true, check: quickCheck };
   }
 
-  if (categoriesLoaded && !quickUnchanged && syncState?.fingerprint && options.onChangeDetected) {
+  if (categoriesLoaded && !quickUnchanged && options.onChangeDetected) {
     // VÁLTOZÁS ÉSZLELVE: a felület megkérdezi a nézőt, induljon-e a
     // letöltés. Nemleges válasznál SEMMI nem töltődik le, a tárolt
     // katalógus és a szinkron-állapot érintetlen marad.
     onProgress({ phase: 'Változás észlelve – megerősítésre vár…', percent: 5 });
     const proceed = await options.onChangeDetected({
       counts: quickCheck.counts,
-      previousFingerprint: syncState.fingerprint,
+      previousFingerprint: savedFingerprint,
       fingerprint: quickFingerprint,
       reason: 'kategoria-valtozas',
     });
