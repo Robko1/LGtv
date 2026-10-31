@@ -4948,7 +4948,11 @@ export function App() {
               if (partial.totals) setTotalCounts((previous) => ({ live: partial.totals?.live ?? previous.live, vod: partial.totals?.vod ?? previous.vod, series: partial.totals?.series ?? previous.series }));
               return;
             }
-            setLiveListComplete(true);
+            // A magyar részlista nem jelenti a teljes TV-lista végét.
+            // A teljes állapotot csak a liveComplete jelzés állítja be.
+            if (partial.liveComplete === true || partial.preview !== true) {
+              setLiveListComplete(true);
+            }
             const savedLastChannelId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
             const savedLastChannelExists = Boolean(savedLastChannelId && orderedChannels.some(
               (channel) => channel.id === savedLastChannelId && isHungarianChannel(channel)
