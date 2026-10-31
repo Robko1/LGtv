@@ -69,7 +69,30 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
      * legnehezebb szakaszában.
      */
     const timerId = window.setInterval(() => setNow(performance.now()), 1000);
-    return () => window.clearInterval(timerId);
+    /*
+     * 2.5.241: AZ ÓRA IDŐZÍTŐ-FOJTÁS ALATT IS JÁR.
+     *
+     * A 2026-10-31-i TV-naplók szerint a webOS a hosszú, gombnyomás nélküli
+     * letöltés alatt az időzítőket 60 másodpercenként egyszer engedte futni –
+     * a néző ezt úgy látta, hogy az „ELTELT IDŐ” lefagyott. A
+     * requestAnimationFrame-et a fojtás nem érinti, amíg a képernyő látszik:
+     * másodpercenként egyszer innen is frissítjük az órát (a kijelzett érték
+     * mindig a valós órakülönbség, ezért sosem „veszít” időt).
+     */
+    let rafId = 0;
+    let lastRafPaint = 0;
+    const rafTick = (time: number) => {
+      if (time - lastRafPaint >= 1000) {
+        lastRafPaint = time;
+        setNow(performance.now());
+      }
+      rafId = window.requestAnimationFrame(rafTick);
+    };
+    rafId = window.requestAnimationFrame(rafTick);
+    return () => {
+      window.clearInterval(timerId);
+      window.cancelAnimationFrame(rafId);
+    };
   }, [isOpen, terminal, finishedAt]);
 
   useEffect(() => {
@@ -194,7 +217,8 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
               onClick={() => (onAbort ? onAbort() : onClose())}
               aria-label={onAbort ? 'Leállítás és kilépés' : 'Bezárás'}
               title={onAbort ? 'Leállítás és kilépés' : 'Bezárás'}
-              className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-xl border-2 border-rose-400/70 bg-rose-950/50 text-rose-200 text-2xl sm:text-3xl font-black leading-none flex items-center justify-center hover:bg-rose-900/70 focus:bg-rose-500 focus:text-slate-950 focus:outline-none focus:ring-4 focus:ring-rose-300 transition-all"
+              /* 2.5.241: a néző kérésére az X sima FEHÉR, nem piros. */
+              className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-xl border-2 border-white/70 bg-slate-800/60 text-white text-2xl sm:text-3xl font-black leading-none flex items-center justify-center hover:bg-slate-700/70 focus:bg-white focus:text-slate-950 focus:outline-none focus:ring-4 focus:ring-white/80 transition-all"
             >
               ✕
             </button>

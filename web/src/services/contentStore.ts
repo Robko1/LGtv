@@ -152,15 +152,13 @@ function rememberDecoded<T>(providerId: string, kind: 'vod' | 'series', key: str
  * több másodperc TISZTA VÁRAKOZÁS volt (az 1-es naplóban: mentés 68,9 mp,
  * visszatöltés 57 mp). A MessageChannel üzenete az eseményhurok következő
  * körében fut, nyújtás nélkül, de a billentyű- és festési események ugyanúgy
- * sorra kerülnek közte. Időnként (240 ms) továbbra is setTimeout-tal
- * lélegzünk, hogy a felhalmozott időzítők (zap-őr, folyamatjelző) is
- * biztosan lefussanak.
+ * sorra kerülnek közte. (A korábbi, 240 ms-onkénti kötelező setTimeout-
+ * lélegzés a 2.5.241-ben megszűnt – az időzítő-fojtás alatt adagonként
+ * 60 mp-es várakozássá vált, lásd a yieldToStorage megjegyzését.)
  */
 let storageYieldPorts: { send: MessagePort } | null | undefined;
 const storageYieldQueue: Array<() => void> = [];
-let lastTimerYieldAt = 0;
 function yieldToStorage(): Promise<void> {
-  const now = Date.now();
   if (storageYieldPorts === undefined) {
     try {
       const channel = new MessageChannel();
@@ -174,8 +172,22 @@ function yieldToStorage(): Promise<void> {
       storageYieldPorts = null;
     }
   }
-  if (!storageYieldPorts || now - lastTimerYieldAt > 240) {
-    lastTimerYieldAt = now;
+  if (!storageYieldPorts) {
+    /*
+     * 2.5.241: a 240 ms-onkénti KÖTELEZŐ setTimeout-lélegzés MEGSZŰNT.
+     *
+     * A 2026-10-31-i TV-naplók bizonyítéka: a fő szál PONTOSAN 60 000 ms-os
+     * periódusokban éledt csak fel (12:55:45 → 12:56:45 → 12:57:45 …) – ez a
+     * Chromium „intensive timer throttling” aláírása, amikor a webOS a
+     * lapot rejtettnek/tétlennek ítéli (pl. képernyővédő a több perces,
+     * gombnyomás nélküli letöltés alatt). Ilyenkor MINDEN setTimeout akár
+     * 60 másodpercet vár – a 206 adagos filmmentés a 240 ms-os szabály
+     * miatt adagonként ebbe a csapdába futott, és a frissítés ÖRÖKRE
+     * beragadt 98%-nál. A MessageChannel-üzenetet a fojtás nem érinti,
+     * és a köztes macrotaszkok során a böngésző a billentyű-, festési és
+     * időzítő-feladatokat ugyanúgy sorra veszi – a külön időzítő-lélegzés
+     * ezért felesleges volt, a fojtás alatt pedig végzetes.
+     */
     return new Promise((resolve) => setTimeout(resolve, 0));
   }
   const ports = storageYieldPorts;
@@ -2756,7 +2768,35 @@ export async function loadSeriesAsync(
  * azonnal reload” miatt a lassú TV-n a csatornák a törlés után is
  * visszajöttek (a törlés sosem ért a végére).
  */
+/*
+ * TÖRLÉS-JELZŐ (2.5.241).
+ *
+ * A 2.5.239-es „árva katalógus” őr eddig abból következtetett félbemaradt
+ * törlésre, hogy a szolgáltatólista üres, de mentett tartalom van. Ez
+ * VESZÉLYES volt: ha a localStorage olvasása egyetlen indításkor
+ * átmenetileg hibázott (webOS-en előfordul), a szolgáltatók „eltűntek”, és
+ * az őr a teljes, több tíz MB-os katalógust kitörölte – a néző ezt úgy
+ * látta, hogy a Frissítés gomb MEGINT az egész listát tölti le.
+ *
+ * Mostantól a törlés kezdetekor kifejezett jelző kerül a tárba, és csak a
+ * sikeres befejezéskor tűnik el. Az őr KIZÁRÓLAG e jelző megléte esetén
+ * takaríthat – jelző nélkül a mentett tartalomhoz nem nyúl.
+ */
+const DELETE_PENDING_KEY = 'iptv-rt-torles-folyamatban';
+
+/** Igaz, ha egy korábbi teljes törlés elindult, de nem fejeződött be. */
+export function hasPendingDeleteMarker(): boolean {
+  try {
+    return localStorage.getItem(DELETE_PENDING_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export async function clearContentAsync(): Promise<void> {
+  try {
+    localStorage.setItem(DELETE_PENDING_KEY, String(Date.now()));
+  } catch { /* jelző nélkül is törlünk; az őr ilyenkor óvatos marad */ }
   const liveKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
   const vodKeys = readChunkKeys(VOD_META_KEY, VOD_CHUNK_PREFIX);
   const seriesKeys = readChunkKeys(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
@@ -2782,6 +2822,10 @@ export async function clearContentAsync(): Promise<void> {
   } catch {
     /* ha a tár nem nyitható meg, nincs mit törölni benne */
   }
+  // A törlés TÉNYLEGESEN végigfutott: a jelző csak most tűnhet el.
+  try {
+    localStorage.removeItem(DELETE_PENDING_KEY);
+  } catch { /* nem kritikus */ }
 }
 
 export function clearContent(): void {

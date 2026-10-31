@@ -253,7 +253,13 @@ if (yieldPorts) {
   (yieldPorts.send as MessagePort & { unref?: () => void }).unref?.();
 }
 
-function yieldToUi(): Promise<void> {
+/*
+ * 2.5.241: exportálva – az App.tsx részadag-feldolgozása korábban nyers
+ * `setTimeout(0)`-lal lélegzett, amit a webOS időzítő-fojtása akár 60
+ * másodpercre nyújtott (a 6%-nál/98%-nál „beragadt” frissítés egyik oka).
+ * A MessageChannel-üzenetet a fojtás nem érinti.
+ */
+export function yieldToUi(): Promise<void> {
   return new Promise<void>((resolve) => {
     const ports = yieldPorts;
     if (!ports) {
