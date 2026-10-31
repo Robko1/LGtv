@@ -1917,7 +1917,7 @@ async function refreshXtreamIncremental(
    * állíthatjuk, hogy „nincs változás”: ilyenkor a teljes út fut tovább,
    * amely értelmes hibaüzenetet ad.
    */
-  const categoriesLoaded = (liveCats?.length || 0) + (vodCats?.length || 0) + (seriesCats?.length || 0) > 0;
+  const categoriesLoaded = liveCats !== null && vodCats !== null && seriesCats !== null;
   const quickUnchanged = categoriesLoaded
     && Boolean(syncState?.fingerprint)
     && syncState?.fingerprint === quickFingerprint;
