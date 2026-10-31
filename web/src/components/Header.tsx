@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Tv, Clock, X } from 'lucide-react';
+import { Clock, X } from 'lucide-react';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 // A felhasználó által kiválasztott ikonok a takaróképről (2.5.229):
 // filmtekercs+csapó (Mozi), rendezői szék (Sorozatok), 3D fogaskerék (Menü).
-import { MENU_GEAR_ICON_DATA_URL, MOZI_ICON_DATA_URL, SOROZAT_ICON_DATA_URL } from '../generatedMenuIcons';
+import { MENU_GEAR_ICON_DATA_URL, MOZI_ICON_DATA_URL, SOROZAT_ICON_DATA_URL, TV_ICON_DATA_URL } from '../generatedMenuIcons';
 
 interface HeaderProps {
   /** A piros gombbal kapcsolható főoldali tükrözés állapota. */
@@ -102,7 +102,8 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             aria-label="TV"
             title="TV"
           >
-            <Tv className="w-8 h-8 md:w-10 md:h-10 text-cyan-400" />
+            {/* 2.5.234: a beküldött ezüst TV-ikon (kör alak) a lucide Tv helyett. */}
+            <img src={TV_ICON_DATA_URL} alt="" aria-hidden="true" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain pointer-events-none select-none" />
             <span>TV</span>
           </button>
         )}

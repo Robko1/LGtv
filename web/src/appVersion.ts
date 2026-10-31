@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.233';
+export const WEB_VERSION = '2.5.234';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.234',
+    date: '2026-10-31',
+    changes: [
+      'A főoldali „TV” gomb a beküldött ezüst, kerek TV-ikont kapta (körformára kivágva, háttér nélkül).',
+      'A takaróképen a „TV CSATORNÁK” feletti régi rajzolt tévé helyére is ugyanez az ezüst TV-ikon került.',
+    ],
+  },
   {
     version: '2.5.233',
     date: '2026-10-31',
