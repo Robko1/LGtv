@@ -42,8 +42,8 @@ export function movieRowFromRaw(
   return [
     String(raw.stream_id ?? ''),
     String(raw.name || 'Film').trim(),
-    category.id,
-    category.name,
+    'vod-all',
+    'Filmek',
     meta.poster || String(raw.stream_icon || ''),
     0, // értékelés nem szükséges a filmkatalógus importjához
     meta.year || 0,
@@ -55,7 +55,7 @@ export function movieRowFromRaw(
     '[]', // feliratok csak külön, lejátszáskor kérhetők
     '[]',
     '[]',
-    '', // háttérkép nem szükséges
+    meta.backdrop || '', // háttérkép
     '[]', // műfaj nem szükséges
     '', // rendező nem szükséges
     '[]', // szereplők nem szükséges
