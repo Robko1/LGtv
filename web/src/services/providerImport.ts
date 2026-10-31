@@ -1471,10 +1471,9 @@ export async function importXtreamProvider(
  *   • a kategóriák azonosak  → a mentett tartalom marad, nincs letöltés;
  *   • a kategóriák változtak → teljes letöltés indul.
  *
- * 2.5.227: háttér-ellenőrzés NINCS többé – a felhasználó kérésére az
- * alkalmazás magától SOHA nem tölt le semmit. A kategórián belüli
- * változásokat a kézi Frissítés találja meg, amely mostantól minden
- * gombnyomásnál teljes, elemenkénti összevetést futtat.
+ * 2.5.227: háttér-ellenőrzés nincs; automatikus tartalomletöltés nem indul.
+ * A korábbi teljes elemenkénti kézi ellenőrzést a 2.5.237/2.5.238-as
+ * gyors, kategórialista-alapú ellenőrzés váltotta fel.
  *
  * 2.5.237: visszatért a 2.5.210-es GYORS kézi frissítés. A gombnyomás
  * először CSAK a három kategórialistát kéri le (~44 kB, 1-2 másodperc).
@@ -1828,10 +1827,9 @@ function emptyDiff(): CatalogDiff { return { added: 0, changed: 0, removed: 0 };
 const MAX_REFRESH_DETAILS = 20;
 
 /*
- * 2.5.227: a napi mélyösszevetési ablak (DEEP_COMPARE_WINDOW_MS) és a
- * hozzá tartozó gyors kilépés MEGSZŰNT – a felhasználó kifejezett kérésére
- * semmilyen időzítéshez kötött viselkedés nincs: minden kézi Frissítés
- * teljes, elemenkénti összevetést futtat.
+ * A korábbi időzített mélyellenőrzés megszűnt. Minden kézi Frissítés
+ * először ugyanazt a három Xtream kategórialista-ellenőrzést végzi;
+ * változatlan kategóriáknál nem tölti le a nagy indexlistákat.
  */
 
 /**
