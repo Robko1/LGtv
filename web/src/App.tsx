@@ -2943,10 +2943,9 @@ export function App() {
         bootScreenChannels(orderedVisibleChannels.length);
         bootScreenDetail(`${orderedVisibleChannels.length} csatorna a felületen · ${provider.name}`);
         /*
-         * Csatornaváltás CSAK a TELJES élő lista után, és akkor is csak akkor,
-         * ha a nézett csatorna valóban nincs benne. Előnézetből (első 1500
-         * csatorna) nem döntünk: a hiányos listából választott csatorna a
-         * betöltés végén másikra váltana, vagy egy külföldi adót indítana.
+         * Első importnál a kész magyar csatornalista már használható:
+         * ilyenkor kiválasztható az első magyar adó. A teljes lista későbbi
+         * megérkezésekor csak akkor váltunk, ha a jelenlegi csatorna hiányzik.
          */
         const liveComplete = partial.liveComplete === true || partial.preview !== true;
         if (liveComplete) {
@@ -2957,10 +2956,10 @@ export function App() {
          * A betöltőképernyő 5/7 lépése AKKOR kész, amikor a szolgáltató ÉLŐ
          * listája ténylegesen megérkezett – nem előbb, és nem időzítőre.
          */
-        if (liveComplete && partial.channels.length > 0) {
-          bootScreenPhase('live', `${orderedVisibleChannels.length} élő csatorna betöltve (${provider.name}).`);
+        if ((liveComplete || partial.liveHungarianReady === true) && partial.channels.length > 0) {
+          bootScreenPhase('live', partial.liveHungarianReady ? `${orderedVisibleChannels.length} magyar TV-csatorna készen áll (${provider.name}).` : `${orderedVisibleChannels.length} élő csatorna betöltve (${provider.name}).`);
         }
-        keepOrMoveActiveChannel(orderedVisibleChannels, false, { allowSwitch: liveComplete });
+        keepOrMoveActiveChannel(orderedVisibleChannels, false, { allowSwitch: liveComplete || partial.liveHungarianReady === true });
       }
       if (partial.liveCategories) {
         draft.liveCategories = partial.liveCategories;
@@ -3018,7 +3017,7 @@ export function App() {
        * Így a kérdés nem takarja el a feldolgozást, és a TV-nézés gomb már
        * a használható magyar csatornalistára visz.
        */
-      if (liveSectionCompleted && manual && !silent && !refreshLivePromptShownRef.current) {
+      if ((partial.liveHungarianReady === true || liveSectionCompleted) && manual && !silent && !refreshLivePromptShownRef.current) {
         await new Promise<void>((resolve) => {
           window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
         });
@@ -3035,9 +3034,8 @@ export function App() {
         }
       }
 
-      // ELŐNÉZET (a teljes lista még töltődik): csak megjelenítés, hogy a
-      // néző azonnal választhasson csatornát. Félkész listát NEM mentünk a
-      // tárolóba – így nem maradhat hiányos adat a TV-n.
+      // A magyar részlista csak a felületen jelenik meg; nem mentjük teljes
+      // katalógusként. A teljes élő lista feldolgozásakor történik a mentés.
       if (partial.durable || !partial.preview) {
         /*
          * A TÁROLÁS HIBÁJA NEM BETÖLTÉSI HIBA – de a mentésnek MOST kell
