@@ -617,38 +617,39 @@ export function parseVodMetadata(response: unknown): ParsedVodMetadata {
   };
 }
 
-/** Sorozat-plakát metaadata: az info és az első epizód adatai együtt számítanak. */
+/** A sorozatimport kizárólag a kért katalógusmezőket olvassa ki. */
 export function parseSeriesMetadata(response: unknown): ParsedVodMetadata {
   const root = asRecord(response);
-  if (root) {
-    // A bulk sorozatlista elemei is laposak (a backdrop_path URL-lista marad);
-    // a gyors út az info/episodes kulcsoknál magától a teljes útra esik vissza.
-    const fast = parseFlatMetadata(root);
-    if (fast) return fast;
-  }
-  const info = root?.info ?? response;
+  const info = asRecord(root?.info) || root;
   const episodes = asRecord(root?.episodes);
-  const firstSeason = episodes ? Object.values(episodes).find((value) => Array.isArray(value) && value.length > 0) as unknown[] | undefined : undefined;
+  const firstSeason = episodes
+    ? Object.values(episodes).find((value) => Array.isArray(value) && value.length > 0) as unknown[] | undefined
+    : undefined;
   const firstEpisode = firstSeason?.[0];
-  const fromInfo = parseCommon(info);
-  const fromEpisode = parseCommon(firstEpisode);
-  const audio = fromInfo.audioTracks?.length ? fromInfo : fromEpisode;
-  const subtitles = fromInfo.subtitleTracks?.length ? fromInfo : fromEpisode;
+  const backdropValue = firstValue(info, ['backdrop_path', 'backdrop', 'backdrop_url', 'fanart']);
+  const backdrop = Array.isArray(backdropValue)
+    ? clean(backdropValue.find((item) => clean(item)) || '')
+    : clean(backdropValue);
   return {
-    durationMinutes: fromInfo.durationMinutes || fromEpisode.durationMinutes || 0,
-    audioTracks: audio.audioTracks || [],
-    subtitleTracks: subtitles.subtitleTracks || [],
-    audioLanguages: audio.audioLanguages?.length ? audio.audioLanguages : [UNKNOWN_LANGUAGE],
-    subtitleLanguages: subtitles.subtitleLanguages?.length ? subtitles.subtitleLanguages : [UNKNOWN_LANGUAGE],
-    poster: fromInfo.poster || undefined,
-    backdrop: fromInfo.backdrop || undefined,
-    plot: fromInfo.plot || undefined,
-    genres: fromInfo.genres || [],
-    director: fromInfo.director || undefined,
-    cast: fromInfo.cast || [],
-    rating: fromInfo.rating || undefined,
-    year: fromInfo.year || undefined,
+    durationMinutes: findDuration(info) || findDuration(firstEpisode),
+    audioTracks: [],
+    subtitleTracks: [],
+    audioLanguages: [],
+    subtitleLanguages: [],
+    poster: firstText(info, ['movie_image', 'cover_big', 'cover', 'poster', 'stream_icon', 'image']) || undefined,
+    backdrop: backdrop || undefined,
+    plot: undefined,
+    genres: [],
+    director: undefined,
+    cast: [],
+    rating: undefined,
+    year: parseYear(info) || undefined,
   };
+}
+
+/** Epizód játékideje: kizárólag a futásidőt olvassuk ki, leírást és sávokat nem. */
+export function parseEpisodeRuntimeMinutes(episode: unknown): number {
+  return findDuration(episode);
 }
 
 /** Epizód-részletekhez ugyanaz a hiányzóadat-fallback tartozik, mint a plakáthoz. */
