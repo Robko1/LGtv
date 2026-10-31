@@ -152,6 +152,7 @@ export interface Series {
 
 export interface Episode {
   id: string;
+  episodeId?: number | string;
   episodeNumber: number;
   seasonNumber: number;
   title: string;
