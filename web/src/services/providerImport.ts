@@ -1800,31 +1800,12 @@ export interface RefreshChangeSignal {
   counts: { live: number; vod: number; series: number };
   previousFingerprint: string | null;
   fingerprint: string;
-  /**
-   * Miért kell a megerősítés:
-   *  • 'kategoria-valtozas' – a szolgáltató kategórialistája megváltozott;
-   *  • 'teljes-ellenorzes' – a néző kérte a teljes, elemenkénti összevetést
-   *    (2 percen belüli második Frissítés gombnyomás), ami a nagy listák
-   *    letöltésével jár. Semmilyen nagy letöltés nem indul Igen nélkül.
-   */
-  reason: 'kategoria-valtozas' | 'teljes-ellenorzes';
+  /** A szolgáltató kategórialistája megváltozott. */
+  reason: 'kategoria-valtozas';
 }
 
 export interface RefreshOptions {
   incremental?: boolean;
-  /**
-   * Igaz érték esetén a gyors kilépés kimarad: mindenképp teljes,
-   * elemenkénti összevetés fut (pl. ha a néző röviddel a „nincs változás”
-   * után ÚJRA megnyomja a Frissítés gombot – ő tudhatja, hogy új tartalom
-   * érkezett egy meglévő kategóriába, amit a gyors ellenőrzés nem lát).
-   */
-  forceDeep?: boolean;
-  /**
-   * Hamis érték jelzi, hogy a felületen most NINCS betöltött katalógus –
-   * ilyenkor a gyors „nincs változás” kilépés tilos, mert üres képernyőt
-   * hagyna (pl. törölt IndexedDB melletti, mentett ujjlenyomattal).
-   */
-  hasLocalContent?: boolean;
   /**
    * MEGERŐSÍTÉS VÁLTOZÁSNÁL: ha a gyors ellenőrzés változást talál, ez a
    * visszahívás dönti el, induljon-e a letöltés. Hamis válasznál az
@@ -1952,10 +1933,15 @@ async function refreshXtreamIncremental(
     counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: 0 },
   };
 
-  if (quickUnchanged && !options.forceDeep && options.hasLocalContent !== false) {
-    // GYORS KILÉPÉS: a kategóriák azonosak – az indexlisták újratöltése
-    // felesleges lenne; a tárolt készlet marad. Teljes összevetés CSAK a
-    // néző kérésére fut (forceDeep), magától SOHA.
+  if (!categoriesLoaded) {
+    // Mindhárom kategórialista szükséges. Hálózati hiba esetén nem indul
+    // helyette rejtett, teljes katalógusletöltés.
+    throw new Error('A szolgáltató kategórialistái nem érhetők el. A frissítés most nem indult el.');
+  }
+
+  if (quickUnchanged) {
+    // A kategóriák nem változtak: nincs indexlista-letöltés.
+    // Minden Frissítés gombnyomás ugyanezt a gyors ellenőrzést végzi.
     logProviderEvent(
       `Gyors frissítés kész ${catsMs} ms alatt: a kategóriák nem változtak, az utolsó teljes `
       + `összevetés ${Math.round((fullAgeMs || 0) / 60000)} perce volt – az indexlisták nem töltődtek le.`
@@ -1980,24 +1966,7 @@ async function refreshXtreamIncremental(
     }
   }
 
-  if (categoriesLoaded && quickUnchanged && options.forceDeep && options.onChangeDetected) {
-    // A NÉZŐ TELJES ELLENŐRZÉST KÉRT (második gombnyomás). Mielőtt a nagy
-    // indexlisták letöltése elindulna, a felület megerősítést kér – nagy
-    // letöltés SOHA nem indul kifejezett Igen nélkül (2.5.239).
-    onProgress({ phase: 'Teljes ellenőrzés – megerősítésre vár…', percent: 5 });
-    const proceed = await options.onChangeDetected({
-      counts: quickCheck.counts,
-      previousFingerprint: syncState?.fingerprint ?? null,
-      fingerprint: quickFingerprint,
-      reason: 'teljes-ellenorzes',
-    });
-    if (!proceed) {
-      logProviderEvent('A teljes, elemenkénti ellenőrzést a néző mégsem kérte – semmi nem töltődött le.');
-      return { cancelled: true, check: quickCheck };
-    }
-  }
-
-  /*
+remove forced deep flow  /*
    * Meglévő katalógusnál a tárolt adatok már fent beolvasásra kerültek.
    * A friss indexlisták letöltése most párhuzamosan futhat a kategória-
    * ellenőrzés utáni további feldolgozással.
