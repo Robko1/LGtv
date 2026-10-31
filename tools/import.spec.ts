@@ -364,17 +364,15 @@ async function main() {
   const bulkFallback = await importXtreamProvider(
     { name: 'Bulk fallback', serverUrl: `http://127.0.0.1:${bulkFallbackFake.port}`, username: 'teszt', password: 'titok' }
   );
-  check('bulk-hiba mellett a kategória-fallback filmeket ad', bulkFallback.content.movies.length === 2, `(${bulkFallback.content.movies.length})`);
-  check('bulk-hiba mellett a kategória-fallback sorozatot ad', bulkFallback.content.series.length === 1, `(${bulkFallback.content.series.length})`);
-  /*
-   * A bulk-hiba utáni kategóriánkénti letöltés TARTALÉK-ÚT: ha sikerül, a
-   * tartalom teljes – ezért megjegyzés, nem figyelmeztetés. A felület ilyenkor
-   * nem mutat „részleges” állapotot egy sikeres betöltésre.
-   */
   check(
-    'a bulk-hiba megjegyzésként (nem figyelmeztetésként) jelenik meg',
-    (bulkFallback.content.notes ?? []).some((note) => /kategóriánként/i.test(note))
-      && !(bulkFallback.content.warnings ?? []).some((warning) => /bulk-letöltése/i.test(warning)),
+    'bulk-hiba esetén nem indul újabb, kategóriánkénti teljes letöltés',
+    bulkFallback.content.movies.length === 0 && bulkFallback.content.series.length === 0,
+    `(film: ${bulkFallback.content.movies.length}, sorozat: ${bulkFallback.content.series.length})`
+  );
+  check(
+    'a sikertelen bulk-letöltés látható figyelmeztetést ad',
+    (bulkFallback.content.warnings ?? []).some((warning) => /kategóriánkénti lekérés nincs bekapcsolva/i.test(warning))
+      && (bulkFallback.content.notes ?? []).some((note) => /egyben történő letöltése nem sikerült/i.test(note)),
     JSON.stringify({ notes: bulkFallback.content.notes, warnings: bulkFallback.content.warnings })
   );
   bulkFallbackFake.server.close();
@@ -871,41 +869,21 @@ async function main() {
         && !requestedActions.includes('get_vod_streams'),
       `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
     );
-    // 5a) A kért teljes ellenőrzés is MEGERŐSÍTÉST vár: „nem” válasznál
-    // semmi nem töltődik le (nagy letöltés sosem indul Igen nélkül).
+    // A kézi Frissítésnek nincs második, rejtett „mélyellenőrzési” útja.
+    // A forceDeep jelző nem indíthat teljes index- vagy részletletöltést.
     requestedActions.length = 0;
-    let deepReason = '';
-    const deepDeclined = await refreshProviderContent(freshProvider as never, () => {}, () => {}, {
-      incremental: true,
-      forceDeep: true,
-      onChangeDetected: (signal) => { deepReason = signal.reason; return false; },
-    });
+    const repeatedQuickResult = await refreshProviderContent(
+      freshProvider as never, () => {}, () => {}, { incremental: true, forceDeep: true } as never
+    );
     check(
-      'a kért teljes ellenőrzés megerősítést vár: „nem” válasznál semmi nem töltődik le',
-      'cancelled' in deepDeclined && deepDeclined.cancelled === true
-        && deepReason === 'teljes-ellenorzes'
+      'minden Frissítés ugyanazt a gyors kategóriaellenőrzést végzi',
+      'unchanged' in repeatedQuickResult && repeatedQuickResult.unchanged === true
+        && 'quick' in repeatedQuickResult && repeatedQuickResult.quick === true
         && !requestedActions.includes('get_live_streams')
-        && !requestedActions.includes('get_vod_streams'),
-      `(ok: ${deepReason || 'nincs'}; kérések: ${requestedActions.join(', ') || 'egy sem'})`
-    );
-    requestedActions.length = 0;
-    const changedMovieResult = await refreshProviderContent(freshProvider as never, () => {}, () => {}, { incremental: true, forceDeep: true });
-    const changedMovie = 'content' in changedMovieResult
-      ? changedMovieResult.content.movies.find((movie: { title: string }) => movie.title === 'Dűne')
-      : undefined;
-    check(
-      'változott film: friss részletkérés fut (get_vod_info a módosult elemre)',
-      'content' in changedMovieResult
-        && requestedActions.filter((action) => action === 'get_vod_info').length === 1
-        && !requestedActions.includes('get_series_info'),
-      `(kérések: ${requestedActions.join(', ') || 'egy sem'})`
-    );
-    check(
-      'változott film: a részletes poszter/leírás is frissül (nem marad elavult adat)',
-      Boolean(changedMovie)
-        && (changedMovie as { poster?: string } | undefined)?.poster === 'http://logo/detail-501.jpg'
-        && Boolean((changedMovie as { detailProviderData?: unknown } | undefined)?.detailProviderData),
-      JSON.stringify({ poster: (changedMovie as { poster?: string } | undefined)?.poster })
+        && !requestedActions.includes('get_vod_streams')
+        && !requestedActions.includes('get_series')
+        && !requestedActions.includes('get_vod_info'),
+      `(kérések: ${requestedActions.join(', ') || 'csak kategóriák'})`
     );
 
     await new Promise<void>((resolve) => freshFake.server.close(() => resolve()));
