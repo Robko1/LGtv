@@ -2318,6 +2318,25 @@ async function refreshXtreamIncremental(
           else skippedDetails += 1;
         } else if (old.providerSig) {
           diff.changed += 1;
+          /*
+           * VÁLTOZOTT elem (2.5.235): az alapadat frissült, de a korábban
+           * letárolt részletes adat (detailProviderData, sorozatnál az
+           * évadok) a RÉGI állapotot őrizte – elavult poszter/leírás/évadok
+           * maradtak a tárban. Mostantól a megváltozott film/sorozat is kap
+           * friss részletkérést a kereten belül; a kereten túl a régi
+           * részletes adatot ELDOBJUK, így a böngészés közbeni előreolvasás
+           * tölti újra frissen (elavult adat nem marad a katalógusban).
+           */
+          if (label === 'film' || label === 'sorozat') {
+            if (detailTargets.length < MAX_REFRESH_DETAILS) {
+              detailTargets.push({ index: result.length - 1, item: merged });
+            } else {
+              const slim = merged as unknown as { detailProviderData?: unknown; seasons?: unknown };
+              slim.detailProviderData = undefined;
+              if (label === 'sorozat') slim.seasons = undefined;
+              skippedDetails += 1;
+            }
+          }
         } else {
           // Régi tárolási formátum (még ujjlenyomat nélkül): egyszeri,
           // helyi átállás – NEM szolgáltatói változás és NEM részletkérés.
@@ -2355,7 +2374,7 @@ async function refreshXtreamIncremental(
     }
     if (skippedDetails > 0) {
       logProviderEvent(
-        `${label}: ${skippedDetails} új elem részletes metaadata böngészés közben töltődik majd be `
+        `${label}: ${skippedDetails} új/változott elem részletes metaadata böngészés közben töltődik majd be `
         + `(a frissítés nem indít elemenkénti kérésözönt).`
       );
     }

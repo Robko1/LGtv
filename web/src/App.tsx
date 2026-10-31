@@ -702,6 +702,21 @@ export function App() {
        * megérkezik (liveComplete).
        */
       if (options.allowSwitch === false && !isHungarianChannel(fallback)) return;
+      /*
+       * 2.5.235: AMÍG A NÉZŐ A BETÖLTÉSI FOLYAMATOT NÉZI, ITT SEM INDULHAT
+       * ADÁS. Az 1-es TV-napló szerint az első import alatt a nézett
+       * csatorna eltűnt az új listából, és ez az ág a visszatartást
+       * megkerülve AZONNAL elindította az új adót – a HLS-lejátszás pedig a
+       * teljes letöltés alatt 4–10 mp-es főszál-leállásokat okozott (a 3:10
+       * perces első betöltés egyik fő oka). A kiválasztott csatorna
+       * félretéve indul el a betöltő ablak bezárásakor.
+       */
+      if (holdLivePlaybackRef.current) {
+        pendingImportChannelIdRef.current = fallback.id;
+        if (remember) storageService.rememberLastChannel(fallback.id);
+        appLog(`A nézett csatorna (${watchedId || 'nincs'}) nincs az új listában; átállás félretéve a betöltés végéig: ${fallback.name}.`);
+        return;
+      }
       activeChannelIdRef.current = fallback.id;
       setActiveChannelId(fallback.id);
       if (remember) storageService.rememberLastChannel(fallback.id);

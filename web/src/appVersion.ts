@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.234';
+export const WEB_VERSION = '2.5.235';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.235',
+    date: '2026-10-31',
+    changes: [
+      'TV Doktor ikon javítva: az állapotgyűrű a doktor alakja MÖGÉ került (nem vágja el a fejét/vállát), és az ikon belső margót kapott, így hiánytalanul elfér a főoldali sor és a teljes képernyős sarok helyén.',
+      'Frissítés: a MEGVÁLTOZOTT film/sorozat mostantól friss részletes adatot is kap (poszter, leírás, évadok) – eddig a régi, elavult részletadat maradt a tárban; a kereten túli változott elemeknél az elavult részletadat törlődik, és böngészés közben töltődik újra frissen.',
+      'Első betöltés gyorsítása: az 1-es TV-napló szerint a letöltés alatt a háttérben elindult az élő adás (a nézett csatorna eltűnésekor az átállás megkerülte a visszatartást), és a HLS-lejátszás 4–10 mp-es főszál-leállásokat okozott. Mostantól a betöltés-figyelés alatt az átállás is félre van téve, az adás csak a betöltő bezárásakor indul.',
+    ],
+  },
   {
     version: '2.5.234',
     date: '2026-10-31',
