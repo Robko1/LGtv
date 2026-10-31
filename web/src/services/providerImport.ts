@@ -1189,23 +1189,10 @@ export async function importXtreamProvider(
   const phaseStartedAt = performance.now();
   logProviderPhaseStart('filmek', 'először a bulk (egyben) végpont, hiba esetén kategóriánként');
   try {
-    onProgress({ phase: 'Film kategóriák letöltése…', percent: 45 });
-    let vodCategories: XtreamCategory[] = [];
-    // A kategórialista és a bulk filmindex egymással párhuzamosan kérhető le.
-    const vodCategoriesPromise = (async () => {
-      try {
-        vodCategories = await providerRequest(
-          () => xtreamService.vodCategories(server, user, pass),
-          'Film kategóriák'
-        );
-        rawVodCategories = vodCategories;
-      } catch (categoryError) {
-        if (isNetworkRequestCancelled(categoryError)) throw categoryError;
-        const detail = safeErrorDetail(categoryError);
-        warnings.push(`A film kategórialistája nem tölthető le (${detail}); a filmek bulk-végpontja és az „Egyéb” kategória következik.`);
-        logPhase(`Film kategóriák hiba; ok=${detail}`);
-      }
-    })();
+    onProgress({ phase: 'Filmek betöltése…', percent: 45 });
+    // A filmeket nem a szolgáltató kategórialistája alapján csoportosítjuk.
+    // Egyetlen általános „Filmek” csoport készül, ezért nincs kategórialekérés.
+    const vodCategories: XtreamCategory[] = [];
     let vodCategoryMap = makeCategoryMap([]);
     const decodedMovies: Movie[] = [];
     let lastVodPartialAt = 0;
@@ -1225,8 +1212,6 @@ export async function importXtreamProvider(
       );
       // A sorozatletöltés csak a teljes filmfázis befejezése után indul.
       logImportApiPayload('FILM LISTA', allVod as unknown[]);
-      await vodCategoriesPromise;
-      vodCategoryMap = makeCategoryMap(vodCategories);
       if (Array.isArray(allVod) && allVod.length > 0) {
         /*
          * A feldolgozás eleve MAX_MOVIES elemnél megáll, ezért egy ennél
@@ -1256,10 +1241,7 @@ export async function importXtreamProvider(
           const movieStreamId = String(movie.stream_id);
           if (seenMovieIds.has(movieStreamId)) continue;
           seenMovieIds.add(movieStreamId);
-          const category = resolveCategory(vodCategoryMap, movie.category_id, 'vc-');
-          const catId = category.id;
-          vodCounts.set(catId, (vodCounts.get(catId) || 0) + 1);
-          rows.push(movieRowFromRaw(movie as unknown as Record<string, unknown>, category));
+          rows.push(movieRowFromRaw(movie as unknown as Record<string, unknown>, { id: 'vod-all', name: 'Filmek' }));
           vodProcessed++;
           if (vodProcessed % PROGRESS_UPDATE_EVERY === 0) {
             onProgress({
@@ -1308,85 +1290,17 @@ export async function importXtreamProvider(
     }
 
     if (!bulkUsed) {
-      if (vodCategories.length === 0) {
-        warnings.push('A filmek kategória-fallbackje nem indítható, mert a szolgáltató nem adott használható kategórialistát; tényleges film-darabszám=0.');
-      }
-      // Kategóriánkénti betöltés – most 2 concurrent, és incremental onPartial
-      const vodResult = await loadCategoryFiltered(
-        vodCategories,
-        (categoryId) => xtreamService.vodStreams(server, user, pass, categoryId),
-        {
-          logLabel: 'film kategória',
-          onProgress: (done, total) => {
-            onProgress({
-              phase: 'Filmek letöltése…',
-              detail: done + '/' + total + ' film kategória',
-              percent: 45 + Math.round((done / Math.max(total, 1)) * 20),
-            });
-          },
-          shouldStop: (collected) => collected >= MAX_MOVIES,
-          onItems: async (batch: XtreamVodStream[]) => {
-            const rows: Array<Array<string | number>> = [];
-            for (const movie of batch) {
-              if (decodedMovies.length + rows.length >= MAX_MOVIES) break;
-              if (!movie || movie.stream_id === undefined || movie.stream_id === null) continue;
-              const movieStreamId = String(movie.stream_id);
-              if (seenMovieIds.has(movieStreamId)) continue;
-              seenMovieIds.add(movieStreamId);
-              const category = resolveCategory(vodCategoryMap, movie.category_id, 'vc-');
-              const catId = category.id;
-                  vodCounts.set(catId, (vodCounts.get(catId) || 0) + 1);
-              rows.push(movieRowFromRaw(movie as unknown as Record<string, unknown>, category));
-              vodProcessed++;
-              if (vodProcessed % PROGRESS_UPDATE_EVERY === 0) {
-                onProgress({
-                  phase: 'Filmek feldolgozása…',
-                  detail: vodProcessed + ' film feldolgozva',
-                  percent: 65 + Math.round((vodProcessed / MAX_MOVIES) * 5),
-                });
-              }
-              if (vodProcessed % UI_YIELD_EVERY === 0) await yieldToUi();
-            }
-            if (rows.length) {
-              for (const movie of decodeMoviesForImport(rows, provider, decodedMovies.length)) {
-                decodedMovies.push(movie);
-              }
-              rows.length = 0;
-              /* 2.5.137: 5000 elemenként (és nem 2000-enként) adjuk át a
-                 részlistát. A `.slice()` egy 100 ezres tömbről és az azt
-                 követő teljes App-újrarajzolás okozta az akadozást. */
-              if (decodedMovies.length - lastVodPartialAt >= 5000) {
-                lastVodPartialAt = decodedMovies.length;
-                const partialCats = buildCategories(vodCategories, 'vc-', 'movie', vodCounts);
-                await onPartial({ preview: true, movies: decodedMovies.slice(), vodCategories: partialCats, totals: { vod: decodedMovies.length } });
-                await yieldToUi();
-              }
-            }
-          },
-        }
-      );
-      if (vodResult.aborted) warnings.push(describeAbort('filmek'));
-      const vodWarning = vodResult.aborted
-        ? null
-        : describeFailures('film', vodResult.failedCategoryIds, vodCategories.length);
-      if (vodWarning) warnings.push(vodWarning);
-      if (vodResult.truncated) {
-        notes.push(
-          'A filmek listája a biztonsági korlát miatt az első ' + MAX_MOVIES.toLocaleString('hu-HU') + ' elemet tartalmazza.'
-        );
-      }
-      // A kategóriaválaszok nyers darabszáma tartalmazhat hibás/duplikált sort;
-      // a UI és a provider-kártya ugyanazt a sikeresen dekódolt listát használja.
+      warnings.push('A szolgáltató egyben lekérhető film-listája nem adott használható adatot; kategóriánkénti lekérés nincs bekapcsolva.');
     }
 
     onProgress({ phase: 'Filmek feldolgozása…', percent: 86 });
     movies = decodedMovies;
-    vodCats = buildCategories(vodCategories, 'vc-', 'movie', vodCounts);
+    vodCats = movies.length ? [{ id: 'vod-all', name: 'Filmek', flag: '🎬', channelCount: movies.length, subCategoryCount: 0, type: 'movie' }] : [];
 
     await onPartial({ preview: true, durable: true, movies, vodCategories: vodCats, totals: { vod: movies.length } });
     logProviderPhaseEnd(
       'filmek',
-      `${movies.length} film, ${vodCats.length} kategória (út=${bulkUsed ? 'bulk (1 kérés)' : 'kategóriánként'})`,
+      `${movies.length} film, egy általános csoport (út=${bulkUsed ? 'bulk (1 kérés)' : 'bulk sikertelen'})`,
       performance.now() - phaseStartedAt
     );
   } catch (error) {
