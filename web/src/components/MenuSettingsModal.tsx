@@ -1,5 +1,8 @@
 import { ChannelLogo } from './ChannelLogo';
 import { APP_ICON_DATA_URL } from '../generatedIcon';
+// A Beállítások füleinek nagy ikonjai: fogaskerék a takaróképről,
+// szív és jel-pajzs a felhasználó által beküldött képekből (2.5.230).
+import { KEDVENCEK_ICON_DATA_URL, LISTAK_ICON_DATA_URL, MENU_GEAR_ICON_DATA_URL } from '../generatedMenuIcons';
 import { TvDoctorIcon } from './TvDoctorIcon';
 import { SupabasePairingModal } from './SupabasePairingModal';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -674,7 +677,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               VISSZA gombbal vagy a háttérre kattintva. */}
         </div>
 
-        {/* 4 Navigation Tabs Pills */}
+        {/* 3 fül – nagy, egyforma ikonokkal (a felhasználó képeiből), alattuk a felirat (2.5.230) */}
         <div data-tv-tabs="" className="px-3 py-2 bg-[#081329] border-b border-cyan-950/60 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
 
 
@@ -682,13 +685,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             data-tv-tabid="lists"
             onKeyDown={(event) => handleTabDpad(event, 'lists')}
             onClick={() => setActiveTab('lists')}
-            className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
+            className={`flex-1 min-w-[96px] py-2 px-2.5 rounded-xl text-sm font-black transition-all flex flex-col items-center justify-center gap-1.5 ${
               activeTab === 'lists'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
             }`}
           >
-            Listák
+            <img src={LISTAK_ICON_DATA_URL} alt="" aria-hidden="true" className="w-14 h-14 object-contain pointer-events-none select-none" />
+            <span className="truncate">Listák</span>
           </button>
 
           <button
@@ -696,26 +700,28 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
             data-tv-tabid="favorites"
             onKeyDown={(event) => handleTabDpad(event, 'favorites')}
             onClick={() => setActiveTab('favorites')}
-            className={`flex-1 min-w-[85px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
+            className={`flex-1 min-w-[96px] py-2 px-2.5 rounded-xl text-sm font-black transition-all flex flex-col items-center justify-center gap-1.5 ${
               activeTab === 'favorites'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
             }`}
           >
-            Kedvencek
+            <img src={KEDVENCEK_ICON_DATA_URL} alt="" aria-hidden="true" className="w-14 h-14 object-contain pointer-events-none select-none" />
+            <span className="truncate">Kedvencek</span>
           </button>
 
           <button
             data-tv-tabid="system"
             onKeyDown={(event) => handleTabDpad(event, 'system')}
             onClick={() => setActiveTab('system')}
-            className={`flex-1 min-w-[80px] py-2 px-2.5 rounded-xl text-sm font-black transition-all text-center truncate ${
+            className={`flex-1 min-w-[96px] py-2 px-2.5 rounded-xl text-sm font-black transition-all flex flex-col items-center justify-center gap-1.5 ${
               activeTab === 'system'
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
                 : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
             }`}
           >
-            Rendszer
+            <img src={MENU_GEAR_ICON_DATA_URL} alt="" aria-hidden="true" className="w-14 h-14 object-contain pointer-events-none select-none" />
+            <span className="truncate">Rendszer</span>
           </button>
         </div>
 
