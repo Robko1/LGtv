@@ -40,6 +40,20 @@ const LogoImage: React.FC<Props> = ({ url = '', name, retryKey }) => {
     };
   }, [cachedSource]);
 
+  const saveCachedLogo = async (loadedUrl: string) => {
+    try {
+      if (!loadedUrl || !('caches' in window) || !/^https?:\\/\\//i.test(loadedUrl)) return;
+      const cache = await window.caches.open('iptv-channel-logos-v1');
+      if (await cache.match(loadedUrl)) return;
+      // Csak akkor mentjük saját gyorsítótárba, ha a szolgáltató engedi a CORS-os olvasást.
+      // A normál <img> megjelenítés ettől függetlenül működik CORS nélküli szervereknél is.
+      const response = await fetch(loadedUrl, { mode: 'cors' });
+      if (response.ok && response.type !== 'opaque') await cache.put(loadedUrl, response.clone());
+    } catch {
+      // A gyorsítótár mentési hibája nem akadályozhatja a csatornalogó megjelenítését.
+    }
+  };
+
   const loadCachedLogo = async (failedUrl: string) => {
     try {
       if (!('caches' in window)) return;
@@ -72,6 +86,7 @@ const LogoImage: React.FC<Props> = ({ url = '', name, retryKey }) => {
       // és akkora memóriát jelentett, hogy a rendszer leállította a beágyazott böngészőt.
       loading="lazy"
       decoding="async"
+      onLoad={() => { void saveCachedLogo(source); }}
       onError={() => {
         // HTTP → HTTPS → eredeti HTTP; csak ezután próbáljuk a mentett logót.
         if (schemeAttempt === 0 && /^http:\/\//i.test(source)) {
