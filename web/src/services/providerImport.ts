@@ -851,7 +851,6 @@ export async function importXtreamProvider(
    */
   let rawLiveCategories: XtreamCategory[] = [];
   let rawVodCategories: XtreamCategory[] = [];
-  let rawSeriesCategories: XtreamCategory[] = [];
   let liveStreamCount = 0;
 
   if (channelLoadMode === 'm3u') {
@@ -1314,198 +1313,54 @@ export async function importXtreamProvider(
   let series: Series[] = [];
   let seriesCats: Category[] = [];
   const loadSeriesPhase = async (): Promise<void> => {
-  const phaseStartedAt = performance.now();
-  logProviderPhaseStart('sorozatok', 'először a bulk (egyben) végpont, hiba esetén kategóriánként');
-  try {
-    onProgress({ phase: 'Sorozat kategóriák letöltése…', percent: 74 });
-    let seriesCategories: XtreamCategory[] = [];
-    const seriesCategoriesPromise = (async () => {
-      try {
-        seriesCategories = await providerRequest(
-          () => xtreamService.seriesCategories(server, user, pass),
-          'Sorozat kategóriák'
-        );
-        rawSeriesCategories = seriesCategories;
-      } catch (categoryError) {
-        if (isNetworkRequestCancelled(categoryError)) throw categoryError;
-        const detail = safeErrorDetail(categoryError);
-        warnings.push(`A sorozat kategórialistája nem tölthető le (${detail}); a sorozatok bulk-végpontja és az „Egyéb” kategória következik.`);
-        logPhase(`Sorozat kategóriák hiba; ok=${detail}`);
-      }
-    })();
-    let seriesCategoryMap = makeCategoryMap([]);
-    const decodedSeries: Series[] = [];
-    let lastSeriesPartialAt = 0;
-    const seriesCounts = new Map<string, number>();
-    const seenSeriesIds = new Set<string>();
-    let seriesProcessed = 0;
-    let bulkSeriesUsed = false;
-    let bulkSeriesFallbackReason = '';
-
+    const phaseStartedAt = performance.now();
+    logProviderPhaseStart('sorozatok', 'egyetlen bulk lista, szolgáltatói kategóriák nélkül');
     try {
       onProgress({ phase: 'Sorozatok letöltése egyben…', detail: 'Gyorsított mód (1 kérés)', percent: 76 });
-      // Ha a filmek szakasza már elindította az előtöltést, azt várjuk be;
-      // különben most indul a kérés (pl. kategória-fallback után).
       startSeriesPrefetch();
       const prefetched = await seriesListPrefetch!;
       if (!prefetched.ok) throw prefetched.error;
       const allSeries = prefetched.value;
       logImportApiPayload('SOROZAT LISTA', allSeries as unknown[]);
-      await seriesCategoriesPromise;
-      seriesCategoryMap = makeCategoryMap(seriesCategories);
-      if (Array.isArray(allSeries) && allSeries.length > 0) {
-        // Ugyanaz, mint a filmeknél: a már letöltött nagy válasz nem kerül
-        // a kukába, ezért nem indul kategóriánkénti újratöltés.
-        if (allSeries.length > MAX_SERIES) {
-          notes.push(
-            `A szolgáltató ${allSeries.length.toLocaleString('hu-HU')} sorozatot adott vissza egyetlen válaszként; ` +
-            `a beépített korlát miatt az első ${MAX_SERIES.toLocaleString('hu-HU')} elemet dolgozzuk fel ` +
-            `(a letöltött lista többi részét nem töltjük le újra kategóriánként).`
-          );
-          logProviderEvent(
-            `[sorozatok egyben] a válasz ${allSeries.length} elemű; a feldolgozás ${MAX_SERIES} elemnél megáll, ` +
-            `nincs kategóriánkénti újratöltés`
-          );
+      const decodedSeries: Series[] = [];
+      const seenSeriesIds = new Set<string>();
+      const rows: Array<Array<string | number>> = [];
+      const total = Array.isArray(allSeries) ? Math.min(allSeries.length, MAX_SERIES) : 0;
+      for (const item of allSeries || []) {
+        if (decodedSeries.length + rows.length >= MAX_SERIES) break;
+        if (!item || item.series_id === undefined || item.series_id === null) continue;
+        const seriesId = String(item.series_id);
+        if (seenSeriesIds.has(seriesId)) continue;
+        seenSeriesIds.add(seriesId);
+        rows.push(seriesRowFromRaw(item as unknown as Record<string, unknown>));
+        if ((decodedSeries.length + rows.length) % PROGRESS_UPDATE_EVERY === 0) {
+          const processed = decodedSeries.length + rows.length;
+          onProgress({ phase: 'Sorozatok feldolgozása…', detail: processed + ' sorozat feldolgozva', percent: 78 + Math.round((processed / Math.max(total, 1)) * 16) });
         }
-        const rows: Array<Array<string | number>> = [];
-        for (const item of allSeries) {
-          if (decodedSeries.length + rows.length >= MAX_SERIES) break;
-          if (!item || item.series_id === undefined || item.series_id === null) continue;
-          const seriesId = String(item.series_id);
-          if (seenSeriesIds.has(seriesId)) continue;
-          seenSeriesIds.add(seriesId);
-          const category = resolveCategory(seriesCategoryMap, item.category_id, 'sc-');
-          const catId = category.id;
-          seriesCounts.set(catId, (seriesCounts.get(catId) || 0) + 1);
-          rows.push(seriesRowFromRaw(item as unknown as Record<string, unknown>, category));
-          seriesProcessed++;
-          if (seriesProcessed % PROGRESS_UPDATE_EVERY === 0) {
-            onProgress({
-              phase: 'Sorozatok feldolgozása…',
-              detail: seriesProcessed + ' sorozat feldolgozva (gyors)',
-              percent: 78 + Math.round((seriesProcessed / Math.max(allSeries.length, 1)) * 12),
-            });
-          }
-          if (rows.length >= UI_YIELD_EVERY) {
-            for (const item of decodeSeriesForImport(rows, provider, 0)) decodedSeries.push(item);
-            rows.length = 0;
-            await yieldToUi();
-          }
+        if (rows.length >= UI_YIELD_EVERY) {
+          decodedSeries.push(...decodeSeriesForImport(rows, provider, decodedSeries.length));
+          rows.length = 0;
+          await yieldToUi();
         }
-        if (rows.length) {
-          for (const item of decodeSeriesForImport(rows, provider, 0)) decodedSeries.push(item);
-        }
-        bulkSeriesUsed = decodedSeries.length > 0;
-        if (bulkSeriesUsed) {
-          onProgress({ phase: 'Sorozatok feldolgozva egyben', detail: `${decodedSeries.length} sorozat`, percent: 90 });
-        } else {
-          bulkSeriesFallbackReason = 'a bulk-válaszban nem volt használható sorozat';
-          seriesCounts.clear();
-          seenSeriesIds.clear();
-          seriesProcessed = 0;
-        }
-      } else {
-        bulkSeriesFallbackReason = 'a bulk-végpont üres választ adott';
       }
-    } catch (bulkError) {
-      const detail = safeErrorDetail(bulkError);
-      bulkSeriesFallbackReason = detail;
-      console.warn('Sorozatok egyben nem sikerült, visszaesés kategóriákra:', bulkError);
-      decodedSeries.length = 0;
-      seriesCounts.clear();
-      seenSeriesIds.clear();
-      seriesProcessed = 0;
-    }
-
-    if (!bulkSeriesUsed && bulkSeriesFallbackReason) {
-      notes.push('A sorozatok egyben letöltése nem sikerült, ezért kategóriánként töltődtek le.');
-      logPhase(`Sorozatok bulk hiba; ok=${bulkSeriesFallbackReason}`);
-    }
-
-    if (!bulkSeriesUsed) {
-      if (seriesCategories.length === 0) {
-        warnings.push('A sorozatok kategória-fallbackje nem indítható, mert a szolgáltató nem adott használható kategórialistát; tényleges sorozat-darabszám=0.');
+      if (rows.length) decodedSeries.push(...decodeSeriesForImport(rows, provider, decodedSeries.length));
+      if (Array.isArray(allSeries) && allSeries.length > MAX_SERIES) {
+        notes.push(`A szolgáltató ${allSeries.length.toLocaleString('hu-HU')} sorozatot adott vissza; a beépített korlát miatt az első ${MAX_SERIES.toLocaleString('hu-HU')} elemet dolgozzuk fel.`);
       }
-      const seriesResult = await loadCategoryFiltered(
-        seriesCategories,
-        (categoryId) => xtreamService.seriesList(server, user, pass, categoryId),
-        {
-          logLabel: 'sorozat kategória',
-          onProgress: (done, total) => {
-            onProgress({
-              phase: 'Sorozatok letöltése…',
-              detail: done + '/' + total + ' sorozat kategória',
-              percent: 74 + Math.round((done / Math.max(total, 1)) * 18),
-            });
-          },
-          shouldStop: (collected) => collected >= MAX_SERIES,
-          onItems: async (batch: XtreamSeriesItem[]) => {
-            const rows: Array<Array<string | number>> = [];
-            for (const item of batch) {
-              if (decodedSeries.length + rows.length >= MAX_SERIES) break;
-              if (!item || item.series_id === undefined || item.series_id === null) continue;
-              const seriesId = String(item.series_id);
-              if (seenSeriesIds.has(seriesId)) continue;
-              seenSeriesIds.add(seriesId);
-              const category = resolveCategory(seriesCategoryMap, item.category_id, 'sc-');
-              const catId = category.id;
-                  seriesCounts.set(catId, (seriesCounts.get(catId) || 0) + 1);
-              rows.push(seriesRowFromRaw(item as unknown as Record<string, unknown>, category));
-              seriesProcessed++;
-              if (seriesProcessed % PROGRESS_UPDATE_EVERY === 0) {
-                onProgress({
-                  phase: 'Sorozatok feldolgozása…',
-                  detail: seriesProcessed + ' sorozat feldolgozva',
-                  percent: 90 + Math.round((seriesProcessed / MAX_SERIES) * 4),
-                });
-              }
-              if (seriesProcessed % UI_YIELD_EVERY === 0) await yieldToUi();
-            }
-            if (rows.length) {
-              for (const item of decodeSeriesForImport(rows, provider, decodedSeries.length)) {
-                decodedSeries.push(item);
-              }
-              rows.length = 0;
-              if (decodedSeries.length - lastSeriesPartialAt >= 5000) {
-                lastSeriesPartialAt = decodedSeries.length;
-                const partialCats = buildCategories(seriesCategories, 'sc-', 'series', seriesCounts);
-                await onPartial({ preview: true, series: decodedSeries.slice(), seriesCategories: partialCats, totals: { series: decodedSeries.length } });
-                await yieldToUi();
-              }
-            }
-          },
-        }
-      );
-      if (seriesResult.aborted) warnings.push(describeAbort('sorozatok'));
-      const seriesWarning = seriesResult.aborted
-        ? null
-        : describeFailures('sorozat', seriesResult.failedCategoryIds, seriesCategories.length);
-      if (seriesWarning) warnings.push(seriesWarning);
-      if (seriesResult.truncated) {
-        notes.push(
-          'A sorozatok listája a biztonsági korlát miatt az első ' + MAX_SERIES.toLocaleString('hu-HU') + ' elemet tartalmazza.'
-        );
-      }
+      if (!decodedSeries.length) warnings.push('A szolgáltató sorozatlistája üres vagy nem tartalmaz használható sorozatokat.');
+      onProgress({ phase: 'Sorozatok feldolgozva', detail: `${decodedSeries.length} sorozat`, percent: 96 });
+      series = decodedSeries;
+      seriesCats = series.length ? [{ id: 'series-all', name: 'Sorozatok', flag: '📺', channelCount: series.length, subCategoryCount: 0, type: 'series' }] : [];
+      await onPartial({ preview: true, durable: true, series, seriesCategories: seriesCats, totals: { series: series.length } });
+      logProviderPhaseEnd('sorozatok', `${series.length} sorozat, 1 általános csoport (út=bulk)`, performance.now() - phaseStartedAt);
+    } catch (error) {
+      if (isNetworkRequestCancelled(error)) throw error;
+      const detail = safeErrorDetail(error);
+      console.warn('A sorozatok letöltése nem sikerült:', error);
+      warnings.push(`A sorozatok listája nem töltődött le: ${detail}`);
+      logPhase(`Sorozatok import hiba; ok=${detail.slice(0, 240)}`);
+      logProviderEvent(`FÁZIS [sorozatok] MEGSZAKADT – ${detail}; eltelt ${(performance.now() - phaseStartedAt) / 1000 | 0} s`);
     }
-
-    onProgress({ phase: 'Sorozatok feldolgozása…', percent: 96 });
-    series = decodedSeries;
-    seriesCats = buildCategories(seriesCategories, 'sc-', 'series', seriesCounts);
-
-    await onPartial({ preview: true, durable: true, series, seriesCategories: seriesCats, totals: { series: series.length } });
-    logProviderPhaseEnd(
-      'sorozatok',
-      `${series.length} sorozat, ${seriesCats.length} kategória (út=${bulkSeriesUsed ? 'bulk (1 kérés)' : 'kategóriánként'})`,
-      performance.now() - phaseStartedAt
-    );
-  } catch (error) {
-    if (isNetworkRequestCancelled(error)) throw error;
-    const detail = safeErrorDetail(error);
-    console.warn('A sorozatok letöltése nem sikerült:', error);
-    warnings.push(`A sorozatok listája nem töltődött le: ${detail}`);
-    logPhase(`Sorozatok import hiba; ok=${detail.slice(0, 240)}`);
-    logProviderEvent(`FÁZIS [sorozatok] MEGSZAKADT – ${detail}; eltelt ${(performance.now() - phaseStartedAt) / 1000 | 0} s`);
-  }
   };
 
   /*
@@ -1576,7 +1431,7 @@ export async function importXtreamProvider(
 
   return {
     content,
-    fingerprint: rawCatalogFingerprint(rawLiveCategories, rawVodCategories, rawSeriesCategories),
+    fingerprint: rawCatalogFingerprint(rawLiveCategories, rawVodCategories, []),
     user: {
       expireDate,
       maxConnections: parseInt(String(info?.max_connections || '1'), 10) || 1,
@@ -1697,12 +1552,11 @@ export async function checkProviderChanges(input: {
   const server = xtreamService.cleanUrl(input.serverUrl);
   const user = input.username.trim();
   const pass = input.password.trim();
-  const [liveCats, vodCats, seriesCats] = await Promise.all([
+  const [liveCats, vodCats] = await Promise.all([
     xtreamService.liveCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
     xtreamService.vodCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
-    xtreamService.seriesCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
   ]);
-  const fingerprint = rawCatalogFingerprint(liveCats, vodCats, seriesCats);
+  const fingerprint = rawCatalogFingerprint(liveCats, vodCats, []);
   const ageMs = typeof input.lastFullSyncAt === 'number' && input.lastFullSyncAt > 0
     ? Math.max(0, Date.now() - input.lastFullSyncAt)
     : null;
@@ -1711,7 +1565,7 @@ export async function checkProviderChanges(input: {
    * állíthatjuk, hogy „nincs változás”: olyankor a teljes import úgyis
    * értelmes hibaüzenetet ad.
    */
-  const anyLoaded = liveCats.length + vodCats.length + seriesCats.length > 0;
+  const anyLoaded = liveCats.length + vodCats.length > 0;
   const unchanged = Boolean(
     anyLoaded
     && typeof input.fingerprint === 'string'
@@ -1722,7 +1576,7 @@ export async function checkProviderChanges(input: {
     fresh: ageMs !== null && ageMs <= FULL_CHECK_WINDOW_MS,
     ageMs,
     fingerprint,
-    counts: { live: liveCats.length, vod: vodCats.length, series: seriesCats.length },
+    counts: { live: liveCats.length, vod: vodCats.length, series: 0 },
   };
 }
 
@@ -2052,13 +1906,12 @@ async function refreshXtreamIncremental(
    */
   onProgress({ phase: 'Változások ellenőrzése…', percent: 4 });
   const catsStartedAt = Date.now();
-  const [liveCats, vodCats, seriesCats] = await Promise.all([
+  const [liveCats, vodCats] = await Promise.all([
     xtreamService.liveCategories(server, user, pass).catch(() => null),
     xtreamService.vodCategories(server, user, pass).catch(() => null),
-    xtreamService.seriesCategories(server, user, pass).catch(() => null),
   ]);
   const catsMs = Date.now() - catsStartedAt;
-  const quickFingerprint = rawCatalogFingerprint(liveCats || [], vodCats || [], seriesCats || []);
+  const quickFingerprint = rawCatalogFingerprint(liveCats || [], vodCats || [], []);
   const syncState = loadSyncState(provider.id);
 
   /*
@@ -2067,7 +1920,7 @@ async function refreshXtreamIncremental(
    * állíthatjuk, hogy „nincs változás”: ilyenkor a teljes út fut tovább,
    * amely értelmes hibaüzenetet ad.
    */
-  const categoriesLoaded = (liveCats?.length || 0) + (vodCats?.length || 0) + (seriesCats?.length || 0) > 0;
+  const categoriesLoaded = (liveCats?.length || 0) + (vodCats?.length || 0) > 0;
   const quickUnchanged = categoriesLoaded
     && Boolean(syncState?.fingerprint)
     && syncState?.fingerprint === quickFingerprint;
@@ -2080,7 +1933,7 @@ async function refreshXtreamIncremental(
     fresh: fullAgeMs !== null && fullAgeMs <= FULL_CHECK_WINDOW_MS,
     ageMs: fullAgeMs,
     fingerprint: quickFingerprint,
-    counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: seriesCats?.length || 0 },
+    counts: { live: liveCats?.length || 0, vod: vodCats?.length || 0, series: 0 },
   };
 
   if (quickUnchanged && !options.forceDeep && options.hasLocalContent !== false) {
@@ -2162,7 +2015,6 @@ async function refreshXtreamIncremental(
   const mergeStartedAt = Date.now();
   const liveCategoryMap = makeCategoryMap(liveCats || []);
   const vodCategoryMap = makeCategoryMap(vodCats || []);
-  const seriesCategoryMap = makeCategoryMap(seriesCats || []);
   const warnings: string[] = [];
   const changes = { live: emptyDiff(), vod: emptyDiff(), series: emptyDiff() };
   const next: ImportedContent = { ...previous, savedAt: new Date().toISOString(), warnings, authoritative: true };
@@ -2312,7 +2164,7 @@ async function refreshXtreamIncremental(
   const seriesMerge = await mergeSection(
     seriesRaw as Array<Record<string, unknown>> | null, previous.series,
     (raw) => String(raw.series_id ?? ''),
-    (raw) => decodeSeriesForImport([seriesRowFromRaw(raw, resolveCategory(seriesCategoryMap, raw.category_id as string | number | undefined, 'sc-'))], providerRef)[0],
+    (raw) => decodeSeriesForImport([seriesRowFromRaw(raw)], providerRef)[0],
     changes.series, 'sorozat',
     (fresh, old) => ({ ...fresh, isFavorite: old.isFavorite, detailProviderData: old.detailProviderData, seasons: old.seasons }),
   );
@@ -2327,10 +2179,10 @@ async function refreshXtreamIncremental(
   };
   next.liveCategories = liveCats ? buildCategories(liveCats, 'lc-', 'live', countMap(next.channels)) : previous.liveCategories;
   next.vodCategories = vodCats ? categoryCounts(next.movies, buildCategories(vodCats, 'vc-', 'movie', new Map()), 'movie') : previous.vodCategories;
-  next.seriesCategories = seriesCats ? categoryCounts(next.series, buildCategories(seriesCats, 'sc-', 'series', new Map()), 'series') : previous.seriesCategories;
+  next.seriesCategories = next.series.length ? [{ id: 'series-all', name: 'Sorozatok', flag: '📺', channelCount: next.series.length, subCategoryCount: 0, type: 'series' }] : [];
   next.totals = { live: next.channels.length, vod: next.movies.length, series: next.series.length };
-  const fingerprint = (liveCats && vodCats && seriesCats)
-    ? rawCatalogFingerprint(liveCats, vodCats, seriesCats)
+  const fingerprint = (liveCats && vodCats)
+    ? rawCatalogFingerprint(liveCats, vodCats, [])
     : providerFingerprint({ liveCategories: next.liveCategories, vodCategories: next.vodCategories, seriesCategories: next.seriesCategories });
   const categoryChanged = fingerprint !== loadSyncState(provider.id)?.fingerprint;
   const totalChanges = changes.live.added + changes.live.changed + changes.live.removed + changes.vod.added + changes.vod.changed + changes.vod.removed + changes.series.added + changes.series.changed + changes.series.removed;
@@ -2357,7 +2209,7 @@ async function refreshXtreamIncremental(
     // az esetleges „hiányos szakasz” jelölések törlődnek.
     markCatalogSectionsComplete(['live', 'vod', 'series']);
     logProviderEvent(`Frissítés kész: nincs változás. Elemenkénti összevetés ideje: ${Date.now() - mergeStartedAt} ms.`);
-    return { unchanged: true, check: { unchanged: true, fresh: true, ageMs: 0, fingerprint, counts: { live: next.liveCategories.length, vod: next.vodCategories.length, series: next.seriesCategories.length } } };
+    return { unchanged: true, check: { unchanged: true, fresh: true, ageMs: 0, fingerprint, counts: { live: next.liveCategories.length, vod: next.vodCategories.length, series: 0 } } };
   }
   await onPartial({ durable: true, authoritative: true, channels: next.channels, liveCategories: next.liveCategories, movies: next.movies, vodCategories: next.vodCategories, series: next.series, seriesCategories: next.seriesCategories, totals: next.totals, unchangedSections });
   saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
