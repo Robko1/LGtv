@@ -2891,6 +2891,90 @@ export async function storedCatalogSectionsPresent(providerId: string): Promise<
   }
 }
 
+/**
+ * OLCSÓ SZAKASZ-MEGLÉT, szakaszonként – a Frissítés gyors útjához.
+ *
+ * Ugyanaz, mint a `storedCatalogSectionsPresent`, csak nem „mindhárom kell”,
+ * hanem szakaszonként jelzi, hogy van-e mentett lista. Csak a kis meta-
+ * fejléceket olvassa (localStorage kulcs vagy IndexedDB metarekord), a több
+ * tízezer soros listát NEM dekódolja – így eldönthető a teljes katalógus
+ * visszatöltése nélkül, hogy egyáltalán van-e már letöltött katalógus.
+ */
+export interface StoredCatalogPresence {
+  live: boolean;
+  vod: boolean;
+  series: boolean;
+}
+
+export async function storedCatalogPresence(providerId: string): Promise<StoredCatalogPresence> {
+  const empty: StoredCatalogPresence = { live: false, vod: false, series: false };
+  const read = async (idbKey: string, localKey: string, legacyKey: string): Promise<boolean> => {
+    if (backend.get(localKey) || backend.get(legacyKey)) return true;
+    try {
+      const store = await contentChunkStore();
+      if (!store) return false;
+      const chunked = await readIdbChunks(store, idbKey);
+      return Boolean(chunked && chunked.meta.chunks > 0 && (!chunked.meta.provider || chunked.meta.provider.id === providerId));
+    } catch {
+      return false;
+    }
+  };
+  try {
+    const [live, vod, series] = await Promise.all([
+      read(LIVE_FULL_META_KEY, LIVE_META_KEY, LIVE_KEY),
+      read(VOD_META_KEY, VOD_META_KEY, VOD_KEY),
+      read(SERIES_META_KEY, SERIES_META_KEY, SERIES_KEY),
+    ]);
+    return { live, vod, series };
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * OLCSÓ mentett kategóriák – csak a meta-fejlécek `cats` mezőjét olvassa
+ * (localStorage, ha ott nincs, akkor az IndexedDB metarekordját), elemeket
+ * NEM dekódol. A gyors frissítés-ellenőrzés ujjlenyomatához kell, amikor a
+ * külön szinkronállapot (sync-state) még hiányzik, de a katalógus megvan.
+ */
+export async function readStoredCategories(providerId: string): Promise<{
+  liveCategories: Category[];
+  vodCategories: Category[];
+  seriesCategories: Category[];
+}> {
+  const readCats = async (idbKey: string, localKey: string, type: 'live' | 'movie' | 'series'): Promise<Category[]> => {
+    const localRaw = backend.get(localKey);
+    if (localRaw) {
+      try {
+        const meta = JSON.parse(localRaw) as ChunkMeta;
+        if (Array.isArray(meta.cats) && meta.cats.length && (!meta.provider || meta.provider.id === providerId)) {
+          return decodeCategories(meta.cats, type);
+        }
+      } catch { /* sérült fejléc → IndexedDB felé */ }
+    }
+    try {
+      const store = await contentChunkStore();
+      if (!store) return [];
+      const chunked = await readIdbChunks(store, idbKey);
+      if (chunked && Array.isArray(chunked.meta.cats) && chunked.meta.cats.length
+        && (!chunked.meta.provider || chunked.meta.provider.id === providerId)) {
+        return decodeCategories(chunked.meta.cats, type);
+      }
+    } catch { /* nem kritikus */ }
+    return [];
+  };
+  try {
+    const [liveCategories, vodCategories, seriesCategories] = await Promise.all([
+      readCats(LIVE_FULL_META_KEY, LIVE_META_KEY, 'live'),
+      readCats(VOD_META_KEY, VOD_META_KEY, 'movie'),
+      readCats(SERIES_META_KEY, SERIES_META_KEY, 'series'),
+    ]);
+    return { liveCategories, vodCategories, seriesCategories };
+  } catch {
+    return { liveCategories: [], vodCategories: [], seriesCategories: [] };
+  }
+}
+
 /** Egyetlen, gyors tároló-felmérés: mi van meg, és mennyi. */
 export async function inspectStoredCatalogs(): Promise<StoredCatalogPlan | null> {
   const state = await readCatalogState();

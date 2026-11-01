@@ -50,6 +50,9 @@ import {
   loadLive,
   loadVodAsync,
   loadSeriesAsync,
+  readCatalogStateSync,
+  storedCatalogPresence,
+  readStoredCategories,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
@@ -1917,38 +1920,38 @@ async function refreshXtreamIncremental(
   const providerRef: ProviderRef = { id: provider.id, type: 'xtream', serverUrl: server, username: user, password: pass };
 
   /*
+   * OLCSÓ ELLENŐRZÉS ELŐSZÖR.
+   *
+   * Korábban itt ELŐSZÖR a TELJES mentett katalógust olvastuk vissza az
+   * IndexedDB-ből (loadLiveFull + loadVodAsync + loadSeriesAsync – több tízezer
+   * elem teljes visszafejtése, lassú TV-n másodpercekbe telik), és csak UTÁNA
+   * futott le a gyors, három kategórialistás ellenőrzés. „Már letöltöttem
+   * egyszer, csak frissítek” esetén tehát az ellenőrzés előtt feleslegesen
+   * végigfutott a teljes lista betöltése – pedig „nincs változás” válasznál
+   * arra egyáltalán nem volt szükség.
+   *
+   * Most először csak olcsó, fejléc-szintű ellenőrzést végzünk (van-e mentett
+   * katalógus, és mi az elmentett kategória-ujjlenyomat – mindkettő a kis
+   * meta-fejlécekből/localStorage-ból, teljes lista nélkül), aztán kérjük le a
+   * három kategórialistát. A nagy mentett katalógus CSAK akkor töltődik be, ha
+   * a kategóriák tényleg megváltoztak (vagy nincs elmentett ujjlenyomat) és
+   * tényleg össze kell vetni – és akkor is párhuzamosan indul vele az
+   * indexlisták letöltése.
+   *
    * ELSŐ IMPORT: ha még nincs mentett katalógus, ne induljon előtte
    * kategória- vagy indexlista-ellenőrzés. A hitelesítő adatok megadása után
    * közvetlenül a teljes import következik.
-   *
-   * Meglévő katalógusnál megmarad a gyors kategóriaellenőrzés és az
-   * inkrementális összevetés.
    */
   onProgress({ phase: 'Mentett katalógus ellenőrzése…', percent: 2 });
-  const storedStartedAt = Date.now();
-  const [storedLive, storedVod, storedSeries] = await Promise.all([
-    loadLiveFull(providerRef), loadVodAsync(providerRef), loadSeriesAsync(providerRef),
-  ]);
-  const storedMs = Date.now() - storedStartedAt;
   const localLive = loadLive();
-  const previous: ImportedContent = {
-    provider: providerRef,
-    savedAt: new Date().toISOString(),
-    channels: storedLive?.channels || (localLive.provider?.id === provider.id ? localLive.channels : []),
-    movies: storedVod.movies,
-    series: storedSeries.series,
-    liveCategories: storedLive?.categories || (localLive.provider?.id === provider.id ? localLive.categories : []),
-    vodCategories: storedVod.categories,
-    seriesCategories: storedSeries.categories,
-    totals: {
-      live: storedLive?.channels.length || (localLive.provider?.id === provider.id ? localLive.channels.length : 0),
-      vod: storedVod.movies.length,
-      series: storedSeries.series.length,
-    },
-    warnings: [],
-    authoritative: true,
-  };
-  if (!previous.channels.length && !previous.movies.length && !previous.series.length) {
+  const catalogState = readCatalogStateSync();
+  const presence = await storedCatalogPresence(provider.id);
+  const hasStoredCatalog = Boolean(
+    presence.live || presence.vod || presence.series
+    || (catalogState && (catalogState.counts.live > 0 || catalogState.counts.vod > 0 || catalogState.counts.series > 0))
+    || (localLive.provider?.id === provider.id && (localLive.channels.length > 0 || (localLive.totals?.live || 0) > 0))
+  );
+  if (!hasStoredCatalog) {
     logProviderEvent('Nincs mentett katalógus: az első teljes import azonnal elindul, előzetes frissítési lekérések nélkül.');
     const result = await importXtreamProvider(
       { name: provider.name, serverUrl: server, username: user, password: pass },
@@ -1962,22 +1965,30 @@ async function refreshXtreamIncremental(
 
   /*
    * Meglévő katalógusnál a kézi frissítés először csak a három
-   * kategórialistát ellenőrzi. Ha nincs kategóriaváltozás, a nagy indexek
-   * letöltése elmarad.
+   * kategórialistát ellenőrzi. Ha nincs kategóriaváltozás, sem a nagy indexek,
+   * sem a teljes mentett katalógus nem töltődik be.
    */
   onProgress({ phase: 'Változások ellenőrzése…', percent: 4 });
   const catsStartedAt = Date.now();
-  const [liveCats, vodCats, seriesCats] = await Promise.all([
+  const [liveCats, vodCats, seriesCats, storedCats] = await Promise.all([
     xtreamService.liveCategories(server, user, pass).catch(() => null),
     xtreamService.vodCategories(server, user, pass).catch(() => null),
     xtreamService.seriesCategories(server, user, pass).catch(() => null),
+    // Csak a kategória-fejléceket olvassa (kis meta), teljes listát nem.
+    readStoredCategories(provider.id).catch(() => null),
   ]);
   const catsMs = Date.now() - catsStartedAt;
   const quickFingerprint = rawCatalogFingerprint(liveCats || [], vodCats || [], seriesCats || []);
   const syncState = loadSyncState(provider.id);
-  // Régebbi mentésnél hiányozhat a külön szinkronállapot; ilyenkor a
-  // tartósan elmentett kategóriákból számoljuk ki az összehasonlítás alapját.
-  const savedFingerprint = syncState?.fingerprint || providerFingerprint(previous);
+  // Régebbi mentésnél hiányozhat a külön szinkronállapot; ilyenkor a kis
+  // katalógus-állapot bélyege, végső esetben a mentett kategória-fejlécek
+  // ujjlenyomata az összehasonlítás alapja – mindegyik olcsó, teljes listát
+  // egyik sem olvas be.
+  const savedFingerprint = syncState?.fingerprint
+    || catalogState?.fingerprint
+    || (storedCats && (storedCats.liveCategories.length || storedCats.vodCategories.length || storedCats.seriesCategories.length)
+      ? providerFingerprint(storedCats)
+      : '');
 
   /*
    * GYORS DÖNTÉS a kategórialisták alapján – minden nagy letöltés ELŐTT.
@@ -2031,19 +2042,11 @@ async function refreshXtreamIncremental(
     }
   }
 
-/*
-   * Meglévő katalógusnál a tárolt adatok már fent beolvasásra kerültek.
-   * A friss indexlisták letöltése most párhuzamosan futhat a kategória-
-   * ellenőrzés utáni további feldolgozással.
+  /*
+   * VÁLTOZÁS JÓVÁHAGYVA (vagy nincs elmentett ujjlenyomat): CSAK MOST töltjük
+   * be a teljes mentett katalógust az összevetéshez – és vele PÁRHUZAMOSAN
+   * indul a friss indexlisták letöltése, hogy egymásra ne kelljen várniuk.
    */
-  const indexStartedAt = Date.now();
-  const indexPromise = Promise.all([
-    xtreamService.liveStreams(server, user, pass).catch(() => null),
-    xtreamService.vodStreams(server, user, pass).catch(() => null),
-    xtreamService.seriesList(server, user, pass).catch(() => null),
-    xtreamService.authenticate(server, user, pass).catch(() => null),
-  ]);
-
   // Jóváhagyott kategóriaváltozás után az indexlistákból megkeressük
   // az eltéréseket. A változatlan elemeket nem dolgozzuk fel és nem írjuk
   // újra a tárolóba; ez nem teljes újraimport.
@@ -2052,9 +2055,22 @@ async function refreshXtreamIncremental(
       ? 'A jóváhagyott frissítés eltéréseket keres a szolgáltató listáiban.'
       : 'A kategóriaváltozás jóváhagyva: az alkalmazás megkeresi a tartalmi különbségeket.'
   );
+  onProgress({ phase: 'Mentett katalógus beolvasása…', percent: 6 });
+  const storedStartedAt = Date.now();
+  const storedPromise = Promise.all([
+    loadLiveFull(providerRef), loadVodAsync(providerRef), loadSeriesAsync(providerRef),
+  ]);
   onProgress({ phase: 'A jóváhagyott változások lekérése…', percent: 8 });
-  // A letöltés már a tárolt katalógus beolvasása ALATT futott – itt csak bevárjuk.
-  const [liveRaw, vodRaw, seriesRaw, auth] = await indexPromise;
+  const indexStartedAt = Date.now();
+  const indexPromise = Promise.all([
+    xtreamService.liveStreams(server, user, pass).catch(() => null),
+    xtreamService.vodStreams(server, user, pass).catch(() => null),
+    xtreamService.seriesList(server, user, pass).catch(() => null),
+    xtreamService.authenticate(server, user, pass).catch(() => null),
+  ]);
+  // A letöltés a tárolt katalógus beolvasása ALATT fut – itt csak bevárjuk mindkettőt.
+  const [[storedLive, storedVod, storedSeries], [liveRaw, vodRaw, seriesRaw, auth]] = await Promise.all([storedPromise, indexPromise]);
+  const storedMs = Date.now() - storedStartedAt;
   const indexMs = Date.now() - indexStartedAt;
   // Szakaszidők a diagnosztikai naplóba (frissítésenként EGY sor, nem mérési zaj):
   // ebből látszik, melyik lépés viszi az időt egy lassú TV-s frissítésnél.
@@ -2062,6 +2078,23 @@ async function refreshXtreamIncremental(
     `Frissítés szakaszidői: kategóriák ${catsMs} ms • mentett katalógus beolvasása ${storedMs} ms `
     + `• friss indexlisták letöltése (a beolvasással párhuzamosan) ${indexMs} ms.`
   );
+  const previous: ImportedContent = {
+    provider: providerRef,
+    savedAt: new Date().toISOString(),
+    channels: storedLive?.channels || (localLive.provider?.id === provider.id ? localLive.channels : []),
+    movies: storedVod.movies,
+    series: storedSeries.series,
+    liveCategories: storedLive?.categories || (localLive.provider?.id === provider.id ? localLive.categories : []),
+    vodCategories: storedVod.categories,
+    seriesCategories: storedSeries.categories,
+    totals: {
+      live: storedLive?.channels.length || (localLive.provider?.id === provider.id ? localLive.channels.length : 0),
+      vod: storedVod.movies.length,
+      series: storedSeries.series.length,
+    },
+    warnings: [],
+    authoritative: true,
+  };
   const mergeStartedAt = Date.now();
   const liveCategoryMap = makeCategoryMap(liveCats || []);
   const vodCategoryMap = makeCategoryMap(vodCats || []);

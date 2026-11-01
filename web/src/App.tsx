@@ -4810,10 +4810,17 @@ export function App() {
         onProviderReceived={handleQrProviderReceived}
       />
 
-      <DiagnosticShareModal
-        isOpen={isDiagnosticShareOpen}
-        onClose={() => setIsDiagnosticShareOpen(false)}
-      />
+      {/*
+        Csak akkor szereljük fel, amikor nyitva van: így a sárga gomb
+        lenyomásakor az ABLAK ELSŐ KÉPE már teljes – a useState-initializerek
+        ekkor futnak, és nem egy korábbi állapot frissül utólag, „darabokban”.
+      */}
+      {isDiagnosticShareOpen && (
+        <DiagnosticShareModal
+          isOpen={isDiagnosticShareOpen}
+          onClose={() => setIsDiagnosticShareOpen(false)}
+        />
+      )}
 
       {/* 4. EPG Guide Modal */}
       <EpgGuideModal
