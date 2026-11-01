@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.251';
+export const WEB_VERSION = '2.5.252';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.251',
+    version: '2.5.252',
     date: '2026-11-01',
     changes: [
       'Magyar csatornalogók a #5 kézi napló (2026-11-01 19:00) alapján: a saját HU logótár (huChannelLogos) mostantól a tv-logo/tv-logos publikus GitHub-gyűjtemény közvetlen URL-jeivel van feltöltve (M1/M2/M4/M5, Duna, RTL-csoport, TV2-csoport, Hír TV, AMC, Dikh TV stb.), és magyar csatornánál az ELSŐ logóhiba után rögtön ezeket próbáljuk – a szolgáltatói picons szerver (103.176.90.x) több magyar logónál beragad, a régi láncban a saját logó csak a legvégén jött. A keresés a „[HU]” előtag nélkül is működik.',
