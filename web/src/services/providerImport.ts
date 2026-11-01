@@ -54,7 +54,7 @@ import {
   storedCatalogPresence,
   readStoredCategories,
 } from './contentStore';
-import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem } from './xtreamService';
+import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
 import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
 import { storageService } from './storageService';
@@ -274,6 +274,14 @@ const PROGRESS_UPDATE_EVERY = 500;
  * macrotaszkot (MessageChannel), ami a festésnek is elég, de nem vár.
  */
 const UI_YIELD_EVERY = 1200;
+/*
+ * A film/sorozat feldolgozás nagyobb kötegekben lélegzik (2.5.244): 1200 helyett
+ * 4800 soronként egy yield, és csak 2000-szoronként progress – a 150 ezres
+ * listánál ez ~30 yield és ~75 progress helyett korábbi ~125/300 helyett, ami
+ * a TV-n több másodpercet takarít meg a feldolgozási szakaszból.
+ */
+const VOD_YIELD_EVERY = 4800;
+const VOD_PROGRESS_EVERY = 2000;
 
 /**
  * Azonnali „lélegzés” a főszálnak.
@@ -750,6 +758,54 @@ export async function importXtreamProvider(
    * auth-hiba legfeljebb az opcionális fiókadatokat hagyja üresen.
    */
 
+  /*
+   * KORAI ELŐTÖLTÉS (2.5.244): a film- és sorozatlisták letöltése NEM várja meg
+   * az élő csatornák feldolgozását. A kategórialisták kicsik, ezért már az
+   * élő kategóriák után elindulnak; a nagy film-bulk kérés pedig közvetlenül
+   * az élő lista letöltése után, így a (hosszú) élő-feldolgozás ALATT már
+   * töltődik. A feldolgozás továbbra is SOROS (a két nagy JSON párhuzamos
+   * feldolgozása memória-csúcsot okozna a TV-n) – csak a hálózati várakozás
+   * laposodik el, az import teljes ideje jelentősen rövidül.
+   */
+  type Result<T> = { ok: true; value: T } | { ok: false; error: unknown };
+  const wrap = <T>(promise: Promise<T>): Promise<Result<T>> =>
+    promise.then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error })
+    );
+  let seriesListPrefetch: Promise<Result<XtreamSeriesItem[]>> | null = null;
+  const startSeriesPrefetch = (): void => {
+    if (seriesListPrefetch) return;
+    seriesListPrefetch = wrap(providerRequest(
+      () => xtreamService.seriesList(server, user, pass),
+      'Sorozatok egyben'
+    ));
+  };
+  let vodBulkPrefetch: Promise<Result<XtreamVodStream[]>> | null = null;
+  const startVodBulkPrefetch = (): void => {
+    if (vodBulkPrefetch) return;
+    vodBulkPrefetch = wrap(providerRequest(
+      () => xtreamService.vodStreams(server, user, pass),
+      'Filmek egyben'
+    ));
+  };
+  let vodCatsPrefetch: Promise<Result<XtreamCategory[]>> | null = null;
+  const startVodCatsPrefetch = (): void => {
+    if (vodCatsPrefetch) return;
+    vodCatsPrefetch = wrap(providerRequest(
+      () => xtreamService.vodCategories(server, user, pass),
+      'Film kategóriák'
+    ));
+  };
+  let seriesCatsPrefetch: Promise<Result<XtreamCategory[]>> | null = null;
+  const startSeriesCatsPrefetch = (): void => {
+    if (seriesCatsPrefetch) return;
+    seriesCatsPrefetch = wrap(providerRequest(
+      () => xtreamService.seriesCategories(server, user, pass),
+      'Sorozat kategóriák'
+    ));
+  };
+
   onProgress({ phase: 'Csatornák letöltése…', percent: 6 });
 
   const provider: ProviderRef = {
@@ -820,7 +876,13 @@ export async function importXtreamProvider(
       const catId = `lc-${slug}`;
       categoryNames.set(slug, categoryName);
       counts.set(catId, (counts.get(catId) || 0) + 1);
-      const info = flagFor(categoryName || name);
+      const catInfo = flagFor(categoryName || name);
+      const nameInfo = flagFor(name);
+      // 2.5.244: magyar kategóriában lévő, de egyértelműen más országot jelölő
+      // csatornanév a saját országába kerül (nem marad bent a Magyarországban).
+      const info = catInfo.countryCode === 'HU' && nameInfo.countryCode !== 'INT' && nameInfo.countryCode !== 'HU'
+        ? nameInfo
+        : catInfo;
       rows.push([
         channel.num ?? rows.length + 1,
         name,
@@ -899,6 +961,20 @@ export async function importXtreamProvider(
     const hungarianCategoryIds = pickCategoryIdsByCountry(liveCats, 'HU');
 
     /*
+     * KORAI ELŐTÖLTÉS INDÍTÁSA (csak ha a kategórialista tényleg jött, azaz a
+     * szerver válaszol): a kis kategórialisták és a sorozat-bulk már itt, az
+     * élő csatornalista letöltésével párhuzamosan indul – így a hálózati idejük
+     * az élő letöltése/feldolgozása alatt rejtve telik el. Elérhetetlen
+     * szervernél (üres kategórialista) NEM indulnak plusz kérések: a betöltő
+     * továbbra is kevés kéréssel, gyorsan áll le.
+     */
+    if (liveCats.length > 0) {
+      startSeriesPrefetch();
+      startVodCatsPrefetch();
+      startSeriesCatsPrefetch();
+    }
+
+    /*
      * DIAGNOSZTIKA: A KATEGÓRIANEVEK.
      *
      * Az 5-ös TV-napló (2.5.113) mutatta a problémát:
@@ -923,9 +999,27 @@ export async function importXtreamProvider(
       .map((category) => String(category.category_name || '').trim())
       .filter((name) => name !== '')
       .slice(0, 12);
+    /*
+     * 2.5.244: a vegyes („DE | HU” alakú) kategóriák most a legkorábbi országjel
+     * alapján sorolódnak be – itt naplózzuk, mely HU-jelölésű nevek kerültek
+     * mégis MÁS országhoz, hogy a kézi naplóban ellenőrizhető legyen, mi
+     * került ki a Magyarország csoportból.
+     */
+    const huTokenOtherCountry = liveCats
+      .filter((category) => {
+        const name = String(category.category_name || '');
+        return /\bhu\b|magyar|hungary|hungarian/i.test(name)
+          && flagFor(name).countryCode !== 'HU';
+      })
+      .map((category) => {
+        const name = String(category.category_name || '').trim();
+        return `${name}->${flagFor(name).countryCode}`;
+      })
+      .slice(0, 8);
     logProviderEvent(
       `Élő kategóriák nevei: összes=${liveCats.length}, magyar=${hungarianCategoryIds.length}` +
       (matchedNames.length > 0 ? `; magyar nevek: ${matchedNames.join(' | ')}` : '') +
+      (huTokenOtherCountry.length > 0 ? `; HU-jelölésű, de más országba sorolt: ${huTokenOtherCountry.join(' | ')}` : '') +
       (otherNames.length > 0 ? `; minta a többiből: ${otherNames.join(' | ')}` : '')
     );
 
@@ -968,6 +1062,22 @@ export async function importXtreamProvider(
       () => xtreamService.liveStreams(server, user, pass),
       'Élő csatornalista'
     ));
+    /*
+     * KORAI ELŐTÖLTÉS: a nagy film-bulk kérés már MOST indul, és az élő lista
+     * feldolgozása (ami több tízezer csatornánál másodpercekig tart) alatt
+     * rejtve töltődik – a film-szakasz így nem vár a letöltésre.
+     */
+    startVodBulkPrefetch();
+    /*
+     * CSATORNALOGÓ-DIAGNOSZTIKA (kézi naplóba): a logók NEM külön kérésben
+     * érkeznek, hanem minden csatorna stream_icon mezőjében, az élő lista
+     * válaszában. Itt naplózzuk, hány nyers elemhez jött logó a szolgáltatótól.
+     */
+    const rawWithLogo = liveStreams.filter((stream) => String(stream.stream_icon || '').trim() !== '').length;
+    logProviderEvent(
+      `Csatornalogók a szolgáltatótól (stream_icon mező az élő listában, külön kérés nélkül): ` +
+      `${rawWithLogo}/${liveStreams.length} csatornához érkezett logócím.`
+    );
     logImportApiPayload('ÉLŐ CSATORNALISTA', liveStreams as unknown[]);
     const liveCategoryMap = makeCategoryMap(liveCats);
     const liveRows: Array<Array<string | number>> = [];
@@ -997,12 +1107,24 @@ export async function importXtreamProvider(
         const catId = category.id;
         liveCounts.set(catId, (liveCounts.get(catId) || 0) + 1);
         const row = liveRowFromRaw(stream as unknown as Record<string, unknown>, category, liveRows.length, provider);
-        // Ha a kategória nem országos, de maga a csatornanév magyar jelölést
-        // tartalmaz, a rekord országkódját is HU-ra állítjuk. Ezt használja
-        // a főoldal magyar csatorna-felismerése.
-        if (flagFor(streamName).countryCode === 'HU') {
+        /*
+         * A CSATORNANÉV IS SZÁMÍT (2.5.244):
+         *  - Ha a név magyar jelölést tartalmaz, a rekord HU lesz – ezt használja
+         *    a főoldal magyar csatorna-felismerése (korábbi viselkedés).
+         *  - Ha a KATEGÓRIA magyar, de a csatornanév egyértelműen MÁS országot
+         *    jelöl (pl. „ZDF DE” a „[HU] HUNGARIA” kategóriában), a név nyer:
+         *    az ilyen csatorna nem jelenik meg a főoldali Magyarország
+         *    csoportban. (A kategórianevekhez hasonlóan a névben is a korábbi
+         *    jelölés dönt – lásd flagFor.)
+         */
+        const nameInfo = flagFor(streamName);
+        const categoryCode = String(row[7] || '');
+        if (nameInfo.countryCode === 'HU') {
           row[6] = '🇭🇺';
           row[7] = 'HU';
+        } else if (categoryCode === 'HU' && nameInfo.countryCode !== 'INT') {
+          row[6] = nameInfo.flag;
+          row[7] = nameInfo.countryCode;
         }
         liveRows.push(row);
         liveProcessed++;
@@ -1052,6 +1174,32 @@ export async function importXtreamProvider(
     liveStreamCount = liveChannels.length;
     liveRows.length = 0;
     liveCategories = buildCategories(liveCats, 'lc-', 'live', liveCounts);
+    /*
+     * CSATORNALOGÓ-DIAGNOSZTIKA 2: a dekódolt csatornákból hány kapott
+     * ténylegesen logót (row[2] → channel.logo, ez mentődik a tárolóba is),
+     * és ezek abszolút URL-ek-e (a relatívakat a decode már a szolgáltató
+     * szerverére oldja fel). Hiányzó logónál névminta a naplóba.
+     */
+    {
+      let withLogo = 0;
+      let absoluteLogo = 0;
+      const missingSamples: string[] = [];
+      for (const channel of liveChannels) {
+        const logo = (channel.logo || '').trim();
+        if (logo) {
+          withLogo += 1;
+          if (/^https?:\/\//i.test(logo)) absoluteLogo += 1;
+        } else if (missingSamples.length < 8) {
+          missingSamples.push(channel.name);
+        }
+      }
+      const pct = liveChannels.length ? Math.round((withLogo / liveChannels.length) * 100) : 0;
+      logProviderEvent(
+        `Csatornalogók feldolgozva: ${withLogo}/${liveChannels.length} csatorna (${pct}%) kapott logót, ` +
+        `abszolút URL: ${absoluteLogo}; a logó a tároló 3. oszlopába (row[2] → channel.logo) kerül. ` +
+        (missingSamples.length ? `logó nélküli minta: ${missingSamples.join(' | ')}` : 'minden csatornának van logója.')
+      );
+    }
   }
   const liveReadyMs = Math.round(performance.now() - startedAt);
   logProviderPhaseEnd(
@@ -1093,27 +1241,10 @@ export async function importXtreamProvider(
   let vodCats: Category[] = [];
 
   /*
-   * A SOROZATLISTA ELŐTÖLTÉSE (2.5.222).
-   *
-   * A film-bulk válasz megérkezése UTÁN a hálózat eddig tétlen volt, amíg a
-   * 100 ezres filmlista feldolgozása futott – a sorozatok letöltése csak ez
-   * után indult. Most a sorozat-bulk kérés már a filmek feldolgozása ALATT
-   * elindul, így a sorozat-szakasz kezdetére a válasz (vagy annak nagy
-   * része) már megérkezett: az import teljes ideje érezhetően rövidebb.
+   * A SOROZAT- ÉS FILMLISTÁK ELŐTÖLTÉSE már az élő szakasz elején elindul
+   * (lásd a KORAI ELŐTÖLTÉS blokkot az import elején) – itt már csak a
+   * felhasználás helye.
    */
-  let seriesListPrefetch:
-    | Promise<{ ok: true; value: XtreamSeriesItem[] } | { ok: false; error: unknown }>
-    | null = null;
-  const startSeriesPrefetch = (): void => {
-    if (seriesListPrefetch) return;
-    seriesListPrefetch = providerRequest(
-      () => xtreamService.seriesList(server, user, pass),
-      'Sorozatok egyben'
-    ).then(
-      (value) => ({ ok: true as const, value }),
-      (error: unknown) => ({ ok: false as const, error })
-    );
-  };
 
   /* webOS MEGJEGYZÉS: korábban itt egy "gyors mód" volt, ami a TV-n csak az
    * élő csatornákat töltötte be, a filmeket/sorozatokat pedig egy soha meg
@@ -1139,13 +1270,19 @@ export async function importXtreamProvider(
     // A filmindexet egyetlen bulk-kéréssel kérjük le; nincs kategóriánkénti letöltés.
     try {
       onProgress({ phase: 'Filmek letöltése egyben…', detail: 'Gyorsított mód (1 kérés)', percent: 48 });
-      const [allVod, vodCategoryList] = await Promise.all([
-        providerRequest(() => xtreamService.vodStreams(server, user, pass), 'Filmek egyben'),
-        providerRequest(() => xtreamService.vodCategories(server, user, pass), 'Film kategóriák').catch((error) => {
-          warnings.push(`A film kategórialistája nem töltődött le: ${safeErrorDetail(error)}`);
-          return [] as XtreamCategory[];
-        }),
-      ]);
+      /*
+       * A két kérés már az élő szakasz alatt elindult (KORAI ELŐTÖLTÉS) – itt
+       * csak megvárjuk az eredményt; ha mégsem indult volna, most indul.
+       */
+      startVodBulkPrefetch();
+      startVodCatsPrefetch();
+      const [allVodResult, vodCatsResult] = await Promise.all([vodBulkPrefetch!, vodCatsPrefetch!]);
+      if (!vodCatsResult.ok) {
+        warnings.push(`A film kategórialistája nem töltődött le: ${safeErrorDetail(vodCatsResult.error)}`);
+      }
+      const vodCategoryList = vodCatsResult.ok ? vodCatsResult.value : ([] as XtreamCategory[]);
+      if (!allVodResult.ok) throw allVodResult.error;
+      const allVod = allVodResult.value;
       rawVodCategories = vodCategoryList;
       const vodCategoryMap = makeCategoryMap(vodCategoryList);
       // A sorozatletöltés csak a teljes filmfázis befejezése után indul.
@@ -1183,14 +1320,14 @@ export async function importXtreamProvider(
           vodCounts.set(category.id, (vodCounts.get(category.id) || 0) + 1);
           rows.push(movieRowFromRaw(movie as unknown as Record<string, unknown>, category));
           vodProcessed++;
-          if (vodProcessed % PROGRESS_UPDATE_EVERY === 0) {
+          if (vodProcessed % VOD_PROGRESS_EVERY === 0) {
             onProgress({
               phase: 'Filmek feldolgozása…',
               detail: vodProcessed + ' film feldolgozva (gyors)',
               percent: 50 + Math.round((vodProcessed / Math.max(allVod.length, 1)) * 20),
             });
           }
-          if (rows.length >= UI_YIELD_EVERY) {
+          if (rows.length >= VOD_YIELD_EVERY) {
             for (const movie of decodeMoviesForImport(rows, provider, 0)) decodedMovies.push(movie);
             rows.length = 0;
             await yieldToUi();
@@ -1262,16 +1399,19 @@ export async function importXtreamProvider(
     logProviderPhaseStart('sorozatok', 'egyetlen bulk lista, szolgáltatói kategóriák nélkül');
     try {
       onProgress({ phase: 'Sorozatok letöltése egyben…', detail: 'Gyorsított mód (1 kérés)', percent: 76 });
+      /*
+       * A sorozat-bulk és a sorozat-kategóriák kérése már az élő szakasz elején
+       * elindult (KORAI ELŐTÖLTÉS) – itt csak az eredményt várjuk meg.
+       */
       startSeriesPrefetch();
-      const prefetched = await seriesListPrefetch!;
-      if (!prefetched.ok) throw prefetched.error;
-      const [allSeries, seriesCategoryList] = await Promise.all([
-        Promise.resolve(prefetched.value),
-        providerRequest(() => xtreamService.seriesCategories(server, user, pass), 'Sorozat kategóriák').catch((error) => {
-          warnings.push(`A sorozat kategórialistája nem töltődött le: ${safeErrorDetail(error)}`);
-          return [] as XtreamCategory[];
-        }),
-      ]);
+      startSeriesCatsPrefetch();
+      const [seriesResult, seriesCatsResult] = await Promise.all([seriesListPrefetch!, seriesCatsPrefetch!]);
+      if (!seriesCatsResult.ok) {
+        warnings.push(`A sorozat kategórialistája nem töltődött le: ${safeErrorDetail(seriesCatsResult.error)}`);
+      }
+      const seriesCategoryList = seriesCatsResult.ok ? seriesCatsResult.value : ([] as XtreamCategory[]);
+      if (!seriesResult.ok) throw seriesResult.error;
+      const allSeries = seriesResult.value;
       rawSeriesCategories = seriesCategoryList;
       const seriesCategoryMap = makeCategoryMap(seriesCategoryList);
       const seriesCounts = new Map<string, number>();
@@ -1289,11 +1429,11 @@ export async function importXtreamProvider(
         const category = resolveCategory(seriesCategoryMap, item.category_id, 'sc-');
         seriesCounts.set(category.id, (seriesCounts.get(category.id) || 0) + 1);
         rows.push(seriesRowFromRaw(item as unknown as Record<string, unknown>, category));
-        if ((decodedSeries.length + rows.length) % PROGRESS_UPDATE_EVERY === 0) {
+        if ((decodedSeries.length + rows.length) % VOD_PROGRESS_EVERY === 0) {
           const processed = decodedSeries.length + rows.length;
           onProgress({ phase: 'Sorozatok feldolgozása…', detail: processed + ' sorozat feldolgozva', percent: 78 + Math.round((processed / Math.max(total, 1)) * 16) });
         }
-        if (rows.length >= UI_YIELD_EVERY) {
+        if (rows.length >= VOD_YIELD_EVERY) {
           decodedSeries.push(...decodeSeriesForImport(rows, provider, decodedSeries.length));
           rows.length = 0;
           await yieldToUi();

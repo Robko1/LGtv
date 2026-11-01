@@ -10,7 +10,6 @@ import {
   lastStoredContentReport,
   ImportedContent,
   inspectStoredCatalogs,
-  loadCatalogPreview,
   loadLive,
   markCatalogChecked,
   needsLiveCacheCompaction,
@@ -1377,35 +1376,38 @@ export function App() {
          * legyen üres a teljes visszatöltés 30 másodperce alatt. A teljes
          * lista utána `onVod`/`onSeries` útján írja felül.
          */
+        /*
+         * 2.5.244: NINCS RÉSZLEGES MEGJELENÍTÉS. A felhasználó kérése szerint
+         * a Mozi/Sorozat nézet nem töltődik be „szaggatva” (adagokban), hanem
+         * EGYBEN jelenik meg a teljes lista, amint a visszatöltés véget ért.
+         * Ezért a részleges értesítéseket csak naplózzuk, állapotot nem írunk.
+         */
         onVodPartial: (partial) => {
           if (providerRefreshActiveRef.current) return;
           if (!partial.movies.length) return;
-          setMovies((current) => (current.length >= partial.movies.length ? current : partial.movies));
-          if (partial.categories.length) {
-            setVodCategories((current) => (sameCategories(current, partial.categories) ? current : partial.categories));
-          }
-          appLog(`Első filmadag a felületen: ${partial.movies.length} (a többi a háttérben töltődik).`);
+          appLog(`Film visszatöltés folyamatban: ${partial.movies.length} az első adagból (a teljes lista egyben jelenik meg a végén).`);
         },
         onSeriesPartial: (partial) => {
           if (providerRefreshActiveRef.current) return;
           if (!partial.series.length) return;
-          setSeries((current) => (current.length >= partial.series.length ? current : partial.series));
-          if (partial.categories.length) {
-            setSeriesCategories((current) => (sameCategories(current, partial.categories) ? current : partial.categories));
-          }
-          appLog(`Első sorozatadag a felületen: ${partial.series.length} (a többi a háttérben töltődik).`);
+          appLog(`Sorozat visszatöltés folyamatban: ${partial.series.length} az első adagból (a teljes lista egyben jelenik meg a végén).`);
         },
         onVod: (vod) => {
           if (providerRefreshActiveRef.current) return;
-          setMovies(vod.movies);
-          if (vod.categories.length) setVodCategories(vod.categories);
-          appLog(`Filmek a felületen: ${vod.movies.length} (letöltés nélkül).`);
+          // Egyetlen, megszakítható commit: a teljes filmlista egyszerre kerül a felületre.
+          startTransition(() => {
+            setMovies(vod.movies);
+            if (vod.categories.length) setVodCategories(vod.categories);
+          });
+          appLog(`Filmek a felületen EGYBEN: ${vod.movies.length} (letöltés nélkül).`);
         },
         onSeries: (ser) => {
           if (providerRefreshActiveRef.current) return;
-          setSeries(ser.series);
-          if (ser.categories.length) setSeriesCategories(ser.categories);
-          appLog(`Sorozatok a felületen: ${ser.series.length} (letöltés nélkül).`);
+          startTransition(() => {
+            setSeries(ser.series);
+            if (ser.categories.length) setSeriesCategories(ser.categories);
+          });
+          appLog(`Sorozatok a felületen EGYBEN: ${ser.series.length} (letöltés nélkül).`);
         },
       }, { scope });
     } finally {
@@ -1431,21 +1433,10 @@ export function App() {
     const plan = catalogPlanRef.current;
     if (!plan) return;
     /*
-     * AZONNALI ELŐNÉZET A MENÜ MEGNYOMÁSAKOR (2.5.165).
-     *
-     * Ha a felületen még nincs egyetlen film/sorozat sem, az első adagból
-     * 20-20 tételt AZONNAL kirakunk (poszterrel együtt), hogy a rács ne
-     * legyen üres. A teljes visszatöltés utána, a háttérben fut – a kérés
-     * pedig sorba áll, ha épp más visszatöltés megy.
+     * 2.5.244: NINCS 25 elemes azonnali előnézet. A nézet a „betöltés
+     * folyamatban” állapotot mutatja, amíg a TELJES mentett lista vissza nem
+     * töltődött, és akkor EGYBEN, szaggatás nélkül jelenik meg minden.
      */
-    if ((view === 'movies' && moviesRef.current.length === 0) || (view === 'series' && seriesRef.current.length === 0)) {
-      void loadCatalogPreview(plan.provider, 25)
-        .then((preview) => {
-          if (preview.movies.length) setMovies((current) => (current.length ? current : preview.movies));
-          if (preview.series.length) setSeries((current) => (current.length ? current : preview.series));
-        })
-        .catch(() => { /* a teljes lista jön helyette */ });
-    }
     void runRestore(plan, view);
   }, [runRestore]);
 
@@ -1762,27 +1753,10 @@ export function App() {
         setLiveRecoveryNeeded(false);
         setBootProbeDone(true);
         /*
-         * INDULÓ ELŐNÉZET: 25 FILM ÉS 25 SOROZAT (2.5.165, 25-re emelve 2.5.228).
-         *
-         * A felhasználó kérése: induláskor legfeljebb 25 film és 25 sorozat
-         * plakátja legyen kész, hogy a Mozi/Sorozat menü megnyitásakor már
-         * ott legyenek. Ez az előnézet a tartós tár ELSŐ adagját olvassa ki
-         * (500 film / 500 sorozat), abból 25-25-öt tesz a felületre – a TV-n
-         * néhány száz ms. A plakátKÉPEK előtöltése külön, az élő lista
-         * visszatöltése UTÁN fut (warmUpVodPosters), hogy ne versenyezzen az
-         * indulással. A teljes lista csak a menü megnyitásakor töltődik be.
+         * 2.5.244: NINCS induló 25 elemes előnézet. A Mozi/Sorozat nézet a
+         * megnyitásakor tölti vissza a TELJES mentett listát, és azt EGYBEN
+         * jeleníti meg – nincs részleges, „szaggatott” állapot.
          */
-        void loadCatalogPreview(plan.provider, 25)
-          .then((preview) => {
-            if (cancelled) return;
-            if (preview.movies.length) {
-              setMovies((current) => (current.length ? current : preview.movies));
-            }
-            if (preview.series.length) {
-              setSeries((current) => (current.length ? current : preview.series));
-            }
-          })
-          .catch(() => { /* az előnézet kimaradhat, a teljes lista jön helyette */ });
         /*
          * A TELJES LISTA A MEGJELENÉS UTÁN TÖLTŐDIK BE – NEM A TAKARÓKÉP ALATT.
          *
@@ -2416,7 +2390,16 @@ export function App() {
     setSeries(normalizedContent.series);
     setSeriesCategories(normalizedContent.seriesCategories);
     setTotalCounts(normalizedContent.totals);
-    appLog(`Új lista mentése: ${normalizedContent.channels.length} csatorna,`
+    /*
+     * CSATORNALOGÓ-ELLENŐRZÉS mentéskor (kézi naplóba): a csatornák logója a
+     * sor 3. oszlopában (row[2]) mentődik – itt látjuk, hánynak van érvényes,
+     * abszolút logócíme a mentett katalógusban.
+     */
+    let savedWithLogo = 0;
+    for (const channel of normalizedContent.channels) {
+      if ((channel.logo || '').trim()) savedWithLogo += 1;
+    }
+    appLog(`Új lista mentése: ${normalizedContent.channels.length} csatorna (ebből logóval: ${savedWithLogo}),`
       + ` ${normalizedContent.movies.length} film, ${normalizedContent.series.length} sorozat.`);
     void saveContent(normalizedContent).catch((error) => {
       console.error('A tartalom mentése nem sikerült:', error);

@@ -2018,9 +2018,11 @@ export async function loadLiveFull(
     if (rows.length === 0) missingChunks++;
     for (const channel of decodeChannels(rows, storedProvider)) channels.push(channel);
     onProgress?.(channels.length);
-    // 2.5.143: MINDEN adag után lélegzés. A 19-es naplóban 17 adag olvasása
+    // 2.5.143: minden adag után lélegzés. A 19-es naplóban 17 adag olvasása
     // 3,6 mp-re fagyasztotta a főszálat; így a festés közben folyamatosan fut.
-    await yieldToStorage();
+    // 2.5.244: elég 4 adagonként lélegezni – a visszatöltés így ~4x gyorsabb,
+    // a felület közben továbbra is válaszol (a lista csak a végén kerül ki).
+    if ((index + 1) % 4 === 0 || index + 1 === chunked.meta.chunks) await yieldToStorage();
   }
   // Fejléc kontra valóság (2.5.222): hiányzó adagnál a meglévő rész megy a
   // felületre, de a szakasz hiányosnak jelölődik – a háttér-frissítés pótolja.
@@ -2035,9 +2037,16 @@ export async function loadLiveFull(
     vod: chunked.meta.totals?.vod || 0,
     series: chunked.meta.totals?.series || 0,
   };
+  /*
+   * CSATORNALOGÓ-ELLENŐRZÉS visszatöltéskor (kézi naplóba): a mentett sorok
+   * 3. oszlopa (row[2]) a logó – itt látjuk, hány csatorna kapta vissza
+   * ténylegesen a szolgáltatói logóját a tárolóból.
+   */
+  let restoredWithLogo = 0;
+  for (const channel of channels) if ((channel.logo || '').trim()) restoredWithLogo += 1;
   appLog(
     `Teljes élő csatornalista betöltve (IndexedDB): ${channels.length} csatorna, `
-    + `${chunked.meta.chunks} adag.`
+    + `${chunked.meta.chunks} adag, ebből logóval: ${restoredWithLogo}.`
   );
   return {
     channels,
@@ -2371,7 +2380,8 @@ export async function loadVodAsync(
         // MINDEN adag után lélegzés (2.5.165): 500 film dekódolása a TV-n
         // ~25–40 ms. Négy adagonként (100+ ms) a csatornaváltás időzítői
         // (100 ms-os újrapróba, 2 mp-es zap-őr) láthatóan késtek.
-        await yieldToStorage();
+        // 2.5.244: 4 adagonként elég lélegezni – a visszatöltés így ~4x gyorsabb.
+        if ((index + 1) % 4 === 0 || index + 1 === chunked.meta.chunks) await yieldToStorage();
       }
       /*
        * ÚJRAINDÍTÁS UTÁNI ELLENŐRZÉS (2.5.222): a fejléc ígéretét a
@@ -2416,7 +2426,8 @@ export async function loadVodAsync(
     offset += rows.length;
     onProgress?.(offset, meta.chunks * CHUNK_SIZE);
     // Minden adag után lélegzés: a felület közben kirajzolódik és válaszol.
-    await yieldToStorage();
+    // 2.5.244: 4 adagonként elég lélegezni.
+    if ((index + 1) % 4 === 0 || index + 1 === meta.chunks) await yieldToStorage();
   }
   const categories = readChunkedCategories(VOD_META_KEY, 'movie');
   appLog(`Filmlista betöltve: ${movies.length} film, ${meta.chunks} adag`
@@ -2498,7 +2509,8 @@ export async function loadSeriesAsync(
         // MINDEN adag után lélegzés (2.5.165): 500 film dekódolása a TV-n
         // ~25–40 ms. Négy adagonként (100+ ms) a csatornaváltás időzítői
         // (100 ms-os újrapróba, 2 mp-es zap-őr) láthatóan késtek.
-        await yieldToStorage();
+        // 2.5.244: 4 adagonként elég lélegezni.
+        if ((index + 1) % 4 === 0 || index + 1 === chunked.meta.chunks) await yieldToStorage();
       }
       // Fejléc kontra valóság: hiányzó adagnál a szakasz hiányosnak jelölődik.
       const expectedSeries = Number(chunked.meta.totals?.series) || 0;

@@ -44,6 +44,19 @@ const RULES: Array<{ test: RegExp; info: FlagInfo }> = [
 const INTERNATIONAL: FlagInfo = { flag: '📺', country: 'Nemzetközi', countryCode: 'INT' };
 
 /*
+ * ORSZÁGKÓD A NÉV ELEJÉN/VÉGÉN (2.5.244).
+ *
+ * A panelek gyakran így nevezik el a kategóriákat: „DE | HU”, „[HU] HUNGARIA”,
+ * „AT-HU”, „Sport HU”. A kétbetűs ISO kódokat csak NAGYBETŰsen, elválasztó
+ * után/ előtt fogadjuk el (így a „4K UHD” vagy „NO1” nem kód), és a
+ * kategórianévben ELŐBB szereplő kód nyer („DE | HU” → DE, nem HU).
+ */
+const CODE_BY_ID: Record<string, FlagInfo> = {};
+for (const rule of RULES) CODE_BY_ID[rule.info.countryCode] = rule.info;
+const LEADING_CODE = /^\[?\s*([A-Z]{2})\s*\]?[\s\-|:/.–]/;
+const TRAILING_CODE = /[\s\-|:/.–]\[?\s*([A-Z]{2})\s*\]?$/;
+
+/*
  * EREDMÉNY-GYORSÍTÓTÁR (2.5.147).
  *
  * A 20 190 élő csatorna visszatöltésekor a `flagFor()` csatornánként végigfutott
@@ -59,9 +72,41 @@ export function flagFor(value: string): FlagInfo {
   const text = (value || '').trim();
   const cached = cache.get(text);
   if (cached) return cached;
+  /*
+   * A LEGKORÁBBI TALÁLAT NYER (2.5.244).
+   *
+   * Korábban az első szabály nyert, így egy vegyes nevű kategória (pl.
+   * „DE | HU”, „USA | HU”) a magyar szabály miatt HU-ba került, és a benne
+   * lévő külföldi csatornák a főoldalon a Magyarország csoportban jelentek
+   * meg. Most minden szabályt kiértékelünk, és az az ország nyer, amelyiknek
+   * a jelölése ELŐBB szerepel a névben („[HU] HUNGARIA” → HU, „DE | HU” → DE).
+   * Egyenlő pozíciónál a szabálylista sorrendje dönt (ties → korábbi szabály).
+   */
   let info = INTERNATIONAL;
+  let bestIndex = Number.POSITIVE_INFINITY;
   for (const rule of RULES) {
-    if (rule.test.test(text)) { info = rule.info; break; }
+    const match = rule.test.exec(text);
+    if (match && match.index < bestIndex) {
+      bestIndex = match.index;
+      info = rule.info;
+    }
+  }
+  /* A név eleji/végi nagybetűs országkód is versenyez a találatok közt. */
+  const leadCode = LEADING_CODE.exec(text);
+  if (leadCode) {
+    const codeInfo = CODE_BY_ID[leadCode[1]];
+    if (codeInfo && 0 < bestIndex) {
+      bestIndex = 0;
+      info = codeInfo;
+    }
+  }
+  const trailCode = TRAILING_CODE.exec(text);
+  if (trailCode) {
+    const codeInfo = CODE_BY_ID[trailCode[1]];
+    if (codeInfo && trailCode.index < bestIndex) {
+      bestIndex = trailCode.index;
+      info = codeInfo;
+    }
   }
   if (cache.size >= CACHE_LIMIT) cache.clear();
   cache.set(text, info);
