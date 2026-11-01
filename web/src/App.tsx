@@ -28,6 +28,7 @@ import {
   hasPendingDeleteMarker,
 } from './services/contentStore';
 import { appLog, appLogError, logPhase } from './services/appLog';
+import { persistHuLogoOverrides } from './services/huChannelLogos';
 import {
   bootScreenChannels,
   bootScreenDetail,
@@ -2347,6 +2348,22 @@ export function App() {
    * (év, játékidő, plakát, évadok) visszaírása a listába – így a kártya és a
    * következő megnyitások is már teljes adattal jelennek meg.
    */
+  /*
+   * 2.5.257 (#8 visszajelzés): a HU csatornák saját logó-URL-jei a
+   * csatornalistával együtt induláskor egyszer, tartósan a localStorage-ba
+   * kerülnek (mint maguk a csatornák) – újraindítás után innen, azonnal,
+   * hálózati kérés nélkül töltődnek a logók.
+   */
+  const huLogoPersistedForRef = useRef(0);
+  useEffect(() => {
+    if (!channels.length || huLogoPersistedForRef.current === channels.length) return;
+    huLogoPersistedForRef.current = channels.length;
+    try {
+      const count = persistHuLogoOverrides(channels);
+      if (count) appLog(`HU logók véglegesítve a helyi tárolóban (iptv_rt_hu_logos_v1): ${count} leképezés.`);
+    } catch { /* nem kritikus */ }
+  }, [channels]);
+
   const handleVodItemEnriched = useCallback((kind: 'movies' | 'series', item: Movie | Series) => {
     if (kind === 'movies') {
       const movie = item as Movie;
@@ -4447,7 +4464,10 @@ export function App() {
         data-view-pane="live"
         data-live-accent={liveAccent}
         data-view-hidden={activeView === 'live' ? undefined : ''}
-        className="absolute inset-0 flex flex-col min-h-0 bg-[#080d1a]"
+        /* 2.5.257 (#8): film/sorozat lejátszásakor az EGÉSZ élő nézet
+           (nem csak az oldalsáv) fekete – így nem üt el a sötétkék főoldal
+           a fekete takarás mellől. */
+        className={`absolute inset-0 flex flex-col min-h-0 ${customStreamUrl ? 'bg-black' : 'bg-[#080d1a]'}`}
         style={paneStyle(activeView === 'live')}
       >
 

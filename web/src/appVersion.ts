@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.256';
+export const WEB_VERSION = '2.5.257';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.257',
+    date: '2026-11-01',
+    changes: [
+      'HU csatornalogók gyorsítása (#8): a saját magyar logók képei a localStorage-ban is tartósan élnek (data-URL, kulcs: iptv_rt_hu_logo_img_v1) – újraindítás után rögtön, hálózati kérés és „újrarendeződés” nélkül jelennek meg, és a logó-URL-leképezések induláskor egyszer véglegesítve szintén a localStorage-ba kerülnek (iptv_rt_hu_logos_v1), mint a csatornák; a letöltéskori extra fetch a HU logóknál megszűnt (egy kérés elég, abból mentünk).',
+      'Film/sorozat lejátszásakor az egész élő nézet fekete (nem csak az oldalsáv) – a sötétkék főoldal többé nem üt el a fekete takarás mellől (#8).',
+      'Mozi posztereken játékidő (#8): az import-háttér előmelegítése most már akkor is lekéri az első 25 film részletes adatait, ha az év a címből is kiolvasható (korábban ilyenkor egyetlen film sem került be, így a „perc” sehol nem jelent meg); ráadásul görgetés közben a látható filmadag hiányzó játékideje is háttérben pótlódik (adagonként max. 25 kérés, 2 párhuzamosan, tartósan elmentve), így a posztereken mindenhol ott a „NN perc”, ahol a szolgáltató tudja.',
+    ],
+  },
   {
     version: '2.5.256',
     date: '2026-11-01',

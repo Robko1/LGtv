@@ -1546,13 +1546,16 @@ export async function importXtreamProvider(
       seriesBackground = async (): Promise<void> => {
         const episodesStartedAt = performance.now();
         /*
-         * 2.5.249: az első 25 film metaadata (év, játékidő, poszter) – a bulk
-         * filmlista gyakran nem tartalmazza ezeket, ezért a kártyákon nem
-         * jelent meg. Háttérben, legfeljebb 25 get_vod_info kérés, és az eredmény
-         * tartósan elmentődik (extras) – újraindítás után már onnan jön.
+         * 2.5.249/2.5.257: az első 25 film metaadata (év, játékidő, poszter) –
+         * a bulk filmlista gyakran nem tartalmazza ezeket, ezért a kártyákon
+         * nem jelent meg. Háttérben, legfeljebb 25 get_vod_info kérés, és az
+         * eredmény tartósan elmentődik (extras) – újraindítás után már onnan jön.
+         * 2.5.257 (#8): a szűrőből kikerült az „!movie.year” – az év a címből
+         * is kiolvasható (yearFromTitle), ezért korábban szinte egyetlen film
+         * sem került be, és a játékidő sehol nem jelent meg a kártyákon.
          */
         const moviePrewarm = movies.slice(0, 25).filter(
-          (movie) => !movie.year && !movie.durationMinutes && !movie.detailProviderData && movie.streamId !== undefined,
+          (movie) => !movie.durationMinutes && !movie.detailProviderData && movie.streamId !== undefined,
         );
         for (const movie of moviePrewarm) {
           try {

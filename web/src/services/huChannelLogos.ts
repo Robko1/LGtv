@@ -194,6 +194,103 @@ export function setHuChannelLogoOverride(name: string, url: string): void {
   } catch { /* a TV kvótája esetén a memóriában marad */ }
 }
 
+/* ------------------------------------------------------------------
+ * 2.5.257 (#8 visszajelzés): a HU logók KÉPEI is tartósan, helyben
+ * (localStorage, data-URL-ként) élnek – nem csak az URL-leképezés. Így
+ * újraindítás után a logók rögtön, hálózati kérés és „átrendeződés” nélkül
+ * jelennek meg, ugyanúgy helyben, mint a csatornák induláskor.
+ * ------------------------------------------------------------------ */
+const HU_LOGO_IMG_KEY = 'iptv_rt_hu_logo_img_v1';
+/* A localStorage kvótája korlátos: összesen legfeljebb ~3 MB képi adat. */
+const HU_LOGO_IMG_MAX_CHARS = 3_000_000;
+
+let imgCache: Record<string, string> | null = null;
+
+function readImgCache(): Record<string, string> {
+  if (imgCache) return imgCache;
+  const parsed: Record<string, string> = {};
+  try {
+    const raw = localStorage.getItem(HU_LOGO_IMG_KEY);
+    if (raw) {
+      const value = JSON.parse(raw);
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        for (const [key, dataUrl] of Object.entries(value)) {
+          if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) parsed[String(key)] = dataUrl;
+        }
+      }
+    }
+  } catch { /* sérült tároló esetén csak üres gyorsítótár */ }
+  imgCache = parsed;
+  return parsed;
+}
+
+/** Elmentett (data-URL) kép egy HU logó-URL-hez – újraindítás után azonnal. */
+export function getHuLogoCachedImage(url: string): string | undefined {
+  if (!url) return undefined;
+  return readImgCache()[url];
+}
+
+/** Egy letöltött logókép tartós mentése data-URL-ként (kvótabarátan). */
+export async function saveHuLogoCachedImage(url: string, blob: Blob): Promise<void> {
+  try {
+    if (!url || !blob || !blob.size || blob.size > 400_000) return;
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('FileReader hiba'));
+      reader.readAsDataURL(blob);
+    });
+    if (!dataUrl.startsWith('data:image/')) return;
+    const cache = readImgCache();
+    if (cache[url] === dataUrl) return;
+    cache[url] = dataUrl;
+    try {
+      const serialized = JSON.stringify(cache);
+      if (serialized.length > HU_LOGO_IMG_MAX_CHARS) return; // tele a kvóta
+      localStorage.setItem(HU_LOGO_IMG_KEY, serialized);
+      imgCache = cache;
+    } catch { /* tele a kvóta: a kép ekkor csak a CacheStorage-ban él */ }
+  } catch { /* a mentési hiba nem akadályozhatja a megjelenítést */ }
+}
+
+/** Letölti és tartósan (data-URL-ként) elmenti egy HU logó képét. */
+export async function cacheHuLogoDataUrl(url: string): Promise<void> {
+  try {
+    if (!/^https?:\/\//i.test(url)) return;
+    const response = await fetch(url, { mode: 'cors' });
+    if (!response.ok || response.type === 'opaque') return;
+    await saveHuLogoCachedImage(url, await response.blob());
+  } catch { /* a háttértároló mentése nem kritikus */ }
+}
+
+/**
+ * 2.5.257: induláskor a feloldható HU logó-URL-eket EGYBEN véglegesítjük a
+ * helyi tárolóban (iptv_rt_hu_logos_v1) – így a leképezés újraindítás után
+ * azonnal, hálózat és keresés nélkül a localStorage-ból jön, mint a
+ * csatornák. Visszaadja, hány új leképezést írtunk.
+ */
+export function persistHuLogoOverrides(channels: Array<{ name: string; countryCode?: string }>): number {
+  if (!Array.isArray(channels) || !channels.length) return 0;
+  const overrides = { ...readOverrides() };
+  let count = 0;
+  for (const channel of channels) {
+    if (!channel || (channel.countryCode || '').toUpperCase() !== 'HU') continue;
+    const logo = getHuChannelLogo(channel.name);
+    const key = normalizeChannelName(channel.name);
+    if (logo && key && overrides[key] !== logo) {
+      overrides[key] = logo;
+      count += 1;
+    }
+  }
+  if (count) {
+    overridesCache = overrides;
+    try {
+      localStorage.setItem(LOCAL_OVERRIDES_KEY, JSON.stringify(overrides));
+    } catch { /* kvóta esetén a memóriában marad */ }
+  }
+  return count;
+}
+
 /** Van-e saját (beépített vagy helyi) logó ehhez a magyar csatornához? */
 export function hasHuChannelLogo(name: string): boolean {
   return Boolean(getHuChannelLogo(name));
