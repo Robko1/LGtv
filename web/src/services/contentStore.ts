@@ -17,6 +17,7 @@ import { Category, Channel, Movie, Season, Series } from '../types/iptv';
 import { flagFor } from '../utils/flags';
 import { xtreamService } from './xtreamService';
 import { appLog, appLogError, logMemory } from './appLog';
+import { logMissingHuLogos } from './huChannelLogos';
 import {
   ChunkStore, ChunkEntry, IDB_BATCH_SIZE, ensureDurableStorage,
   onIdbStoreReset, openIdbStore, storageBudgetBytes,
@@ -2048,6 +2049,10 @@ export async function loadLiveFull(
     `Teljes élő csatornalista betöltve (IndexedDB): ${channels.length} csatorna, `
     + `${chunked.meta.chunks} adag, ebből logóval: ${restoredWithLogo}.`
   );
+  // 2.5.245: LOGÓ-HIÁNY jelentés visszatöltéskor is – kézi naplózásnál pontosan
+  // látszik, mely HU csatornához nincs sem szolgáltatói (row[2]), sem saját
+  // tárolós logó; ezek kerülnek majd a letöltött saját logók közé.
+  logMissingHuLogos(channels, 'visszatöltés-élő');
   return {
     channels,
     categories: decodeCategories(chunked.meta.cats, 'live'),

@@ -115,9 +115,13 @@ test('4. a csatornalista a teljes képernyő alatt szüneteltet, és a jelzésre
   const epg = LIST.slice(LIST.indexOf('const epgActive'), LIST.indexOf('const handleListKeyDown'));
   assert.ok((epg.match(/if \(!epgActive/g) || []).length >= 2, 'mindkét EPG-effekt szünetel');
   // A szüneteltetés NEM dobja el a már kiszámolt műsort (nincs üres EPG a visszatéréskor).
-  assert.match(LIST, /if \(!isActive \|\| !activeProvider \|\| activeProvider\.type !== 'xtream'\) \{\s*setLocalEpg\(\{\}\);/);
+  // 2.5.245: az elrejtett főoldal (Mozi/Sorozat nézet, csak display:none) szintén
+  // NEM törölheti az adatot – különben visszatéréskor a lista szaggatva töltődne.
+  // Törölni csak akkor szabad, ha nincs Xtream szolgáltató (ott érvénytelen az adat).
+  assert.match(LIST, /if \(!activeProvider \|\| activeProvider\.type !== 'xtream'\) \{\s*setLocalEpg\(\{\}\);/);
+  assert.match(LIST, /if \(!isActive\) return;/);
   assert.match(LIST, /if \(!epgActive \|\| !epgReady\) return;/,
-    'teljes képernyőn az EPG-adat megmarad, csak a munka áll meg');
+    'teljes képernyőn és rejtett főoldalon az EPG-adat megmarad, csak a munka áll meg (2.5.245)');
 });
 
 test('a teljes képernyős OSD a lejátszó commitjával együtt eltűnik', () => {

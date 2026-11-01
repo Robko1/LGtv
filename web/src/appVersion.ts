@@ -8,9 +8,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 export const WEB_VERSION_HISTORY = [
   {
     version: '2.5.245',
-    date: '2026-10-31',
+    date: '2026-11-01',
     changes: [
       'A fejléc TV / Menü / Sorozatok / Mozi ikonjai mögötti korong mostantól a távirányító 1–6 színgombjának megfelelő színű (sárga / piros / kék / rózsaszín / zöld / fehér) – az ikonrajz az eredeti maradt, csak a korábban fehér háttérkorong váltja a színét.',
+      'Visszatérés a Mozi/Sorozat nézetből a főoldalra: a csatornalista mostantól AZONNAL, EGYBEN jelenik meg (villámgyors), nem töltődik vissza szaggatva – az EPG-adat rejtett nézetben is megmarad.',
+      'Első letöltés finomabb időmérése a kézi naplóban: IMPORT-FÁZIS sorok szakaszonként (élő/filmek/sorozatok) külön letöltési és feldolgozási idővel; a változás-összevetés ujjlenyomata (rawItemSignature) mostantól mezővetítésből számol, nem teljes JSON-ból (gyorsabb nagy filmkatalógusnál).',
+      'Csatornalogó-diagnosztika a kézi naplóban szűretlen prefixekkel (CSATORNALOGÓ, KATEGÓRIA): látszik, hogy a szolgáltató küld-e logót a HU csatornákhoz (stream_icon), és hova kerül a tárolóban.',
+      'LOGÓ-HIÁNY jelentés kézi naplózásnál: pontosan felsorolja, mely magyar (HU) csatornákhoz nincs megjeleníthető logó; új saját magyar logótár (huChannelLogos), amelyből CSAK HU csatornák kapnak logót, ha a szolgáltatónak nincs.',
+      'Teljes képernyőn a TV Doctor panelen kívül nincs többé fekete háttér: a lejátszó konténer, poszter, videó és töltő réteg átlátszó teljes képernyőn (a hibaüzenet félig áttetsző sötét marad az olvashatóságért).',
     ],
   },
   {
