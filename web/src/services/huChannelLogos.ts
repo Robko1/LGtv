@@ -33,16 +33,78 @@ export function normalizeChannelName(name: string): string {
 }
 
 /*
- * IDE kerülnek a letöltött magyar logók (kulcs = normalizeChannelName(név),
- * érték = abszolút logócím). Példa:
+ * A magyar logók publikus gyűjteménye (tv-logo/tv-logos GitHub-tár,
+ * countries/hungary mappa) – közvetlenül raw GitHub URL-ként tölthetők le,
+ * így a TV-n nincs szükség külön letöltő lépésre.
  *
- *   'm1 hd': 'https://example.hu/logos/m1-hd.png',
- *
- * A felhasználó ide másolhatja be a letöltött képek URL-jeit; a localStorage
- * felülírás (iptv_rt_hu_logos_v1) ugyanerre a kulcsra működik, build nélkül is.
+ * Kulcs = normalizeChannelName(csatornanév) a „hu” előtag NÉLKÜL (a keresés
+ * a teljes és az előtag nélküli változatot is próbálja, lásd getHuChannelLogo).
+ * A localStorage felülírás (iptv_rt_hu_logos_v1) build nélkül is működik.
  */
+const TV_LOGOS_HU = 'https://raw.githubusercontent.com/tv-logo/tv-logos/master/countries/hungary/';
+
 export const HU_CHANNEL_LOGOS: Record<string, string> = {
-  // ide jönnek a letöltött magyar csatornalogók
+  // MTVA / közszolgálati
+  'm1': `${TV_LOGOS_HU}m1-hu.png`,
+  'm1 hd': `${TV_LOGOS_HU}m1-hu.png`,
+  'm1 uhd': `${TV_LOGOS_HU}m1-hu.png`,
+  'm2': `${TV_LOGOS_HU}m2-hu.png`,
+  'm2 hd': `${TV_LOGOS_HU}m2-hu.png`,
+  'm2 uhd': `${TV_LOGOS_HU}m2-hu.png`,
+  'm2 petofi': `${TV_LOGOS_HU}m2-petofi-hu.png`,
+  'm4 sport': `${TV_LOGOS_HU}m4-sport-hu.png`,
+  'm4 sport plus': `${TV_LOGOS_HU}m4-sport-plus-hu.png`,
+  'm4 uhd': `${TV_LOGOS_HU}m4-sport-hu.png`,
+  'm5': `${TV_LOGOS_HU}m5-hu.png`,
+  'm5 hd': `${TV_LOGOS_HU}m5-hu.png`,
+  'm5 uhd': `${TV_LOGOS_HU}m5-hu.png`,
+  'duna': `${TV_LOGOS_HU}duna-hu.png`,
+  'duna world': `${TV_LOGOS_HU}duna-world-hu.png`,
+  // RTL-csoport
+  'rtl': `${TV_LOGOS_HU}rtl-hu.png`,
+  'rtl klub': `${TV_LOGOS_HU}rtl-hu.png`,
+  'rtl klub hd': `${TV_LOGOS_HU}rtl-hu.png`,
+  'rtl klub uhd': `${TV_LOGOS_HU}rtl-hu.png`,
+  'rtl gold': `${TV_LOGOS_HU}rtl-gold-hu.png`,
+  'rtl ii': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
+  'rtl ii hd': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
+  'rtl ii uhd': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
+  'rtl ketto': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
+  'rtl ketto hd': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
+  'rtl2': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
+  'rtl 3': `${TV_LOGOS_HU}rtl-harom-hu.png`,
+  'rtl harom': `${TV_LOGOS_HU}rtl-harom-hu.png`,
+  // TV2-csoport
+  'tv2': `${TV_LOGOS_HU}tv2-hu.png`,
+  'tv2 comedy': `${TV_LOGOS_HU}tv2-comedy-hu.png`,
+  'tv2 kids': `${TV_LOGOS_HU}tv2-kids-hu.png`,
+  'tv2 klub': `${TV_LOGOS_HU}tv2-klub-hu.png`,
+  'tv2 sef': `${TV_LOGOS_HU}tv2-sef-hu.png`,
+  'tv2 sport': `${TV_LOGOS_HU}tv2-sport-hu.png`,
+  'tv2 sport plus': `${TV_LOGOS_HU}tv2-sport-plus-hu.png`,
+  'tv2 super': `${TV_LOGOS_HU}tv2-super-hu.png`,
+  // egyéb gyakori magyar csatornák
+  'atv': `${TV_LOGOS_HU}atv-hu.png`,
+  'atv extra': `${TV_LOGOS_HU}atv-extra-hu.png`,
+  'hir tv': `${TV_LOGOS_HU}hir-tv-hu.png`,
+  'amc': `${TV_LOGOS_HU}amc-hu.png`,
+  'dikh tv': `${TV_LOGOS_HU}dikh-tv-hu.png`,
+  'dikh tv hd': `${TV_LOGOS_HU}dikh-tv-hu.png`,
+  'fix tv': `${TV_LOGOS_HU}fix-hu.png`,
+  'cool tv': `${TV_LOGOS_HU}cool-tv-hu.png`,
+  'hbo': `${TV_LOGOS_HU}hbo-hu.png`,
+  'hbo2': `${TV_LOGOS_HU}hbo2-hu.png`,
+  'hbo3': `${TV_LOGOS_HU}hbo3-hu.png`,
+  'spektrum': `${TV_LOGOS_HU}spektrum-hu.png`,
+  'spektrum home': `${TV_LOGOS_HU}spektrum-home-hu.png`,
+  'film plus': `${TV_LOGOS_HU}film-plus-hu.png`,
+  'mozi plus': `${TV_LOGOS_HU}mozi-plus-hu.png`,
+  'story4': `${TV_LOGOS_HU}story4-hu.png`,
+  'viasat3': `${TV_LOGOS_HU}viasat3-hu.png`,
+  'd1 tv': `${TV_LOGOS_HU}d1-hu.png`,
+  'minimax': `${TV_LOGOS_HU}minimax-hu.png`,
+  'tv paprika': `${TV_LOGOS_HU}tv-paprika-hu.png`,
+  'cool': `${TV_LOGOS_HU}cool-tv-hu.png`,
 };
 
 const LOCAL_OVERRIDES_KEY = 'iptv_rt_hu_logos_v1';
@@ -87,7 +149,15 @@ export function getHuChannelLogo(name: string): string | undefined {
   const key = normalizeChannelName(name);
   if (!key) return undefined;
   const overrides = readOverrides();
-  return overrides[key] || HU_CHANNEL_LOGOS[key] || undefined;
+  const direct = overrides[key] || HU_CHANNEL_LOGOS[key];
+  if (direct) return direct;
+  /*
+   * 2.5.251: a „[HU] ” / „HU - ” előtag nélkül is keresünk, így a táblában
+   * elég a természetes név („[HU] M1 UHD” → „hu m1 uhd” → „m1 uhd”).
+   */
+  const stripped = key.replace(/^hu\s+/, '');
+  if (stripped && stripped !== key) return overrides[stripped] || HU_CHANNEL_LOGOS[stripped] || undefined;
+  return undefined;
 }
 
 /**

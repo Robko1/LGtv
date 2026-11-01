@@ -1301,6 +1301,14 @@ export function App() {
    */
   const runRestoreRef = useRef<((plan?: StoredCatalogPlan | null, scope?: 'all' | 'live' | 'vod' | 'movies' | 'series') => Promise<void>) | null>(null);
   const restoreQueuedRef = useRef<Array<{ plan: StoredCatalogPlan; scope: 'all' | 'live' | 'vod' | 'movies' | 'series' }>>([]);
+  /*
+   * 2.5.251 (#5 napló): a boot-háttérmunka (teljes visszatöltés + VOD +
+   * plakát-előmelegítés + műsorújság) EGYSZER induljon. Ha az indulás üres
+   * tárolót látott és emiatt automatikus frissítés futott, a frissítés vége
+   * után pótoljuk (lásd a befejező ágban).
+   */
+  const bootBackgroundStartedRef = useRef(false);
+  const backgroundWorkTimersRef = useRef<{ guideTimer: number; safetyTimer: number; refreshTimer: number; restoreTimer: number } | undefined>(undefined);
 
   const runRestore = useCallback(async (
     plan?: StoredCatalogPlan | null,
@@ -1428,13 +1436,28 @@ export function App() {
    */
   const ensureVodLoaded = useCallback((view: 'movies' | 'series') => {
     const plan = catalogPlanRef.current;
-    if (!plan) return;
+    if (plan) {
+      /*
+       * 2.5.244: NINCS 25 elemes azonnali előnézet. A nézet a „betöltés
+       * folyamatban” állapotot mutatja, amíg a TELJES mentett lista vissza nem
+       * töltődött, és akkor EGYBEN, szaggatás nélkül jelenik meg minden.
+       */
+      void runRestore(plan, view);
+      return;
+    }
     /*
-     * 2.5.244: NINCS 25 elemes azonnali előnézet. A nézet a „betöltés
-     * folyamatban” állapotot mutatja, amíg a TELJES mentett lista vissza nem
-     * töltődött, és akkor EGYBEN, szaggatás nélkül jelenik meg minden.
+     * 2.5.251 (#5 napló): ha a boot-próba még nem állított be katalógus-tervet
+     * (pl. induláskori automatikus frissítés után), most ellenőrizzük a
+     * tárolót, és abból töltünk vissza – különben a Mozi/Sorozat nézet a
+     * „betöltés folyamatban” képen ragadna (0 / 103020).
      */
-    void runRestore(plan, view);
+    void inspectStoredCatalogs()
+      .then((freshPlan) => {
+        if (!freshPlan) return;
+        catalogPlanRef.current = freshPlan;
+        void runRestore(freshPlan, view);
+      })
+      .catch(() => { /* a naplóban már ott az ok */ });
   }, [runRestore]);
 
   /**
@@ -1774,6 +1797,9 @@ export function App() {
          */
         // 2.5.140-es menet: a teljes élő lista AZONNAL, a takarókép alatt.
         backgroundWork = startBackgroundWork(plan);
+        // 2.5.251: jegyezzük, hogy a háttérmunka már elindult (lásd a frissítés végét).
+        bootBackgroundStartedRef.current = true;
+        backgroundWorkTimersRef.current = backgroundWork;
       } catch (error) {
         appLogError('Indulás a tartós tárból', error);
         decided = 'empty';
@@ -1816,11 +1842,12 @@ export function App() {
     return () => {
       cancelled = true;
       window.clearTimeout(sweepTimer);
-      if (backgroundWork) {
-        window.clearTimeout(backgroundWork.guideTimer);
-        window.clearTimeout(backgroundWork.safetyTimer);
-        window.clearTimeout(backgroundWork.restoreTimer);
-        window.clearInterval(backgroundWork.refreshTimer);
+      const timers = backgroundWorkTimersRef.current || backgroundWork;
+      if (timers) {
+        window.clearTimeout(timers.guideTimer);
+        window.clearTimeout(timers.safetyTimer);
+        window.clearTimeout(timers.restoreTimer);
+        window.clearInterval(timers.refreshTimer);
       }
     };
   }, [runRestore, startBackgroundWork, markLiveReady]);
@@ -2080,6 +2107,12 @@ export function App() {
   const paneStyle = useCallback((isActive: boolean): React.CSSProperties => ({
     zIndex: isActive ? 20 : 0,
     pointerEvents: isActive ? 'auto' : 'none',
+    /*
+     * 2.5.251: minden pane saját, NEM átlátszó háttérrel rendelkezik
+     * (bg a pane diveken) – így az aktív pane teljesen elfedi a rejtettet:
+     * film indításakor nem látszik át a főoldal/mozi OSD a lejátszó alatt
+     * (#5 képernyőkép: főoldal + induló film + mozi poszterek egyszerre).
+     */
   }), []);
 
   // Switch Active Channel
@@ -3362,6 +3395,25 @@ export function App() {
       providerRefreshActiveRef.current = false;
       bootScreenPhase('live', `${summary.counts}`);
       bootScreenDetail(`${summary.counts}${summary.extra ? ` • ${summary.extra}` : ''}`);
+      /*
+       * 2.5.251 (#5 napló): ha az indulás üres tárolót látott és emiatt
+       * automatikus frissítés futott, a boot-háttérmunka (teljes élő lista
+       * visszatöltése + Mozi/Sorozat visszatöltés + első 25-25 plakát
+       * előmelegítése + műsorújság) még NEM indult el. Ezt most, közvetlenül a
+       * frissítés vége után pótoljuk – így újraindítás után a Mozi/Sorozat menü
+       * már a tárolóból, várakozás nélkül nyílik (a képernyőképen még
+       * „0 / 103020 betöltés folyamatban” látszott).
+       */
+      if (!bootBackgroundStartedRef.current) {
+        bootBackgroundStartedRef.current = true;
+        void inspectStoredCatalogs()
+          .then((freshPlan) => {
+            if (!freshPlan) return;
+            catalogPlanRef.current = freshPlan;
+            backgroundWorkTimersRef.current = startBackgroundWork(freshPlan);
+          })
+          .catch(() => { /* a naplóban már ott az ok */ });
+      }
     } catch (error) {
       // Egy új frissítés vagy a felhasználó megszakítása a régi importot is
       // leállíthatja. Ez nem felhasználói hiba, és a régi async hívás nem
@@ -4369,7 +4421,7 @@ export function App() {
         data-view-pane="live"
         data-live-accent={liveAccent}
         data-view-hidden={activeView === 'live' ? undefined : ''}
-        className="absolute inset-0 flex flex-col min-h-0"
+        className="absolute inset-0 flex flex-col min-h-0 bg-[#080d1a]"
         style={paneStyle(activeView === 'live')}
       >
 
@@ -4612,7 +4664,7 @@ export function App() {
         <div
           data-view-pane="movies"
           data-view-hidden={activeView === 'movies' ? undefined : ''}
-          className="absolute inset-0 flex flex-col min-h-0 bg-[#070e1e]"
+          className="absolute inset-0 flex flex-col min-h-0 bg-[#080d1a]"
           style={paneStyle(activeView === 'movies')}
         >
           <MoviesView
@@ -4636,7 +4688,7 @@ export function App() {
         <div
           data-view-pane="series"
           data-view-hidden={activeView === 'series' ? undefined : ''}
-          className="absolute inset-0 flex flex-col min-h-0 bg-[#070e1e]"
+          className="absolute inset-0 flex flex-col min-h-0 bg-[#080d1a]"
           style={paneStyle(activeView === 'series')}
         >
           <SeriesView

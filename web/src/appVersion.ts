@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.250';
+export const WEB_VERSION = '2.5.251';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.251',
+    date: '2026-11-01',
+    changes: [
+      'Magyar csatornalogók a #5 kézi napló (2026-11-01 19:00) alapján: a saját HU logótár (huChannelLogos) mostantól a tv-logo/tv-logos publikus GitHub-gyűjtemény közvetlen URL-jeivel van feltöltve (M1/M2/M4/M5, Duna, RTL-csoport, TV2-csoport, Hír TV, AMC, Dikh TV stb.), és magyar csatornánál az ELSŐ logóhiba után rögtön ezeket próbáljuk – a szolgáltatói picons szerver (103.176.90.x) több magyar logónál beragad, a régi láncban a saját logó csak a legvégén jött. A keresés a „[HU]” előtag nélkül is működik.',
+      'Rétegezés (#5 képernyőképek): minden nézet-pane saját nem átlátszó háttérrel rendelkezik, így film indításakor és az OSD-ben nem látszik át a rejtett Mozi/Sorozat pane (korábban a főoldal + induló film + mozi poszterek egyszerre látszottak).',
+      'Újraindítás utáni azonnali Mozi/Sorozat (#5 napló): ha az indulás üres tárolót látott és emiatt automatikus frissítés futott, a háttér-visszatöltés (élő + VOD + első 25-25 plakát előmelegítése + műsorújság) most a frissítés vége után is elindul; a Mozi/Sorozat megnyitása pedig akkor is a tárolóból tölt, ha még nincs terv betöltve (korábban „0 / 103020 – betöltés folyamatban” ragadt be).',
+      'VOD adatlap fejléc (#5 képernyőkép): a bal oldali poszter kisebb és középre/lejjebb került, így fent nem lóg ki a háttér fölé, és a bezáró X gomb nem takarja.',
+    ],
+  },
   {
     version: '2.5.250',
     date: '2026-11-01',
