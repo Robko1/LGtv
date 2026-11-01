@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Clock, Play, X } from 'lucide-react';
 import { Episode, Movie, Series } from '../types/iptv';
+import type { ProviderRef } from '../services/contentStore';
+import { enrichVodItemOnOpen } from '../services/vodEnrich';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 import { formatRuntime } from '../utils/vodDisplay';
 import { normalizeTvKey } from '../utils/tvKeys';
@@ -16,6 +18,13 @@ interface Props {
   onToggleFavorite: () => void;
   onPlayMovie?: (movie: Movie) => void;
   onPlayEpisode?: (series: Series, episode: Episode) => void;
+  /*
+   * 2.5.249: ha az elemnél hiányzik az év/játékidő (vagy sorozatnál az
+   * évadlista), megnyitáskor EGYETLEN részletes kérés megy ki, és az eredmény
+   * itt helyben és a listában is megjelenik (év + játékidő a fejlécben).
+   */
+  provider?: ProviderRef | null;
+  onItemEnriched?: (item: VodItem) => void;
 }
 
 /**
@@ -31,12 +40,40 @@ interface Props {
  *    kiválasztott évad epizódjai látszanak. Az epizód dobozában: epizód címe,
  *    évad- és epizódszám, jobb oldalt nagy kék LEJÁTSZÁS gomb.
  *
- *  Az adatlap KIZÁRÓLAG a már elmentett (IndexedDB) adatokból épül fel –
- *  megnyitása nem indít szolgáltatói kérést.
+ *  Az adatlap alapból KIZÁRÓLAG a már elmentett (IndexedDB) adatokból épül
+ *  fel – megnyitása nem indít szolgáltatói kérést.
+ *  2.5.249 KIVÉTEL: ha az elemnél az év ÉS a játékidő is hiányzik (vagy
+ *  sorozatnál üres az évadlista), egyetlen get_vod_info/get_series_info kérés
+ *  pótolja őket (lásd enrichVodItemOnOpen); teljes adatoknál továbbra sincs
+ *  kérés, és az eredmény tartósan elmentődik.
  */
-export const VodDetailSheet: React.FC<Props> = ({ kind, item, onClose, onPlayMovie, onPlayEpisode }) => {
-  const { modalRef: panelRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(true, onClose, [item.id]);
-  const [seasonNumber, setSeasonNumber] = useState<number>(() => (item as Series).seasons?.[0]?.seasonNumber || 1);
+export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose, onPlayMovie, onPlayEpisode, provider, onItemEnriched }) => {
+  const { modalRef: panelRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(true, onClose, [itemProp.id]);
+  /*
+   * 2.5.249: megnyitáskori dúsítás – a „item” változó a dúsított elemet is
+   * láthatja, így a fejlécben (év, játékidő) és a háttérképen azonnal megjelenik.
+   */
+  const [enrichedItem, setEnrichedItem] = useState<VodItem | null>(null);
+  const item = (enrichedItem || itemProp) as VodItem;
+  const [seasonNumber, setSeasonNumber] = useState<number>(() => (itemProp as Series).seasons?.[0]?.seasonNumber || 1);
+  useEffect(() => {
+    setEnrichedItem(null);
+    if (!provider || provider.type !== 'xtream') return;
+    // Csak valódi hiánynál kérdezünk le – teljes adatoknál nincs kérés.
+    const missingMeta = itemProp.year === 0 && (itemProp.durationMinutes ?? 0) === 0 && !itemProp.detailProviderData;
+    const missingSeasons = kind === 'series' && (itemProp as Series).seasons.length === 0;
+    if (!missingMeta && !missingSeasons) return;
+    let cancelled = false;
+    void enrichVodItemOnOpen(kind, itemProp, provider)
+      .then((enriched) => {
+        if (cancelled || !enriched) return;
+        setEnrichedItem(enriched);
+        onItemEnriched?.(enriched);
+      })
+      .catch(() => { /* a naplóban már ott az ok; az adatlap nyitva marad */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, itemProp.id, provider?.id, provider?.serverUrl]);
   const series = kind === 'series' ? item as Series : null;
   const movie = kind === 'movie' ? item as Movie : null;
   const season = series?.seasons.find((s) => s.seasonNumber === seasonNumber) || series?.seasons[0];

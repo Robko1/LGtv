@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { APP_ICON_SMALL_DATA_URL } from '../generatedIcon';
 import { normalizeLogoUrl } from '../services/logoUrl';
 import { getHuChannelLogo } from '../services/huChannelLogos';
@@ -38,6 +38,12 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
   // 2.5.245: a saját HU tárolós logót csak EGYSZER próbáljuk (különben a
   // szolgáltatói URL és a saját logó között végtelen újrapróbálkozás lenne).
   const [huTried, setHuTried] = useState(false);
+  // 2.5.249: "beragadt" logókérés – ha a kép se nem töltődik be, se nem hibázik
+  // (a picons szerver elfogadja a kapcsolatot, de nem válaszol), a #4 napló
+  // szerint a hely örökre üres maradt, és a tartalék lánc (séma → HU tároló →
+  // gyorsítótár → app-ikon) soha nem indult el. Időzítővel ez pótoljuk.
+  const settledRef = useRef(false);
+  const advanceFailureRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     setSource(url);
@@ -62,6 +68,16 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
       if (cachedSource.startsWith('blob:')) URL.revokeObjectURL(cachedSource);
     };
   }, [cachedSource]);
+
+  // 2.5.249: watchdog – 8 mp után, ha még nincs onLoad/onError, sikertelennek vesszük.
+  useEffect(() => {
+    settledRef.current = false;
+    if (!source) return;
+    const timer = window.setTimeout(() => {
+      if (!settledRef.current) advanceFailureRef.current();
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [source, attempt]);
 
   const saveCachedLogo = async (loadedUrl: string) => {
     try {
@@ -93,6 +109,34 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
     }
   };
 
+  const advanceFailure = (): void => {
+    // HTTP → HTTPS → eredeti HTTP; csak ezután próbáljuk a mentett logót.
+    if (schemeAttempt === 0 && /^http:\/\//i.test(source)) {
+      setSchemeAttempt(1);
+      setSource(source.replace(/^http:\/\//i, 'https://'));
+    } else if (schemeAttempt === 1 && /^https:\/\//i.test(source) && /^http:\/\//i.test(url)) {
+      setSchemeAttempt(2);
+      setSource(url);
+    } else if (huLogo && !huTried && source !== huLogo) {
+      // 2.5.245: a szolgáltatói logó nem töltődött be – magyar csatornánál
+      // a saját tároló (huChannelLogos) próbálkozik tovább (csak egyszer).
+      setHuTried(true);
+      setSchemeAttempt(0);
+      setSource(huLogo);
+    } else if (cachedSource) {
+      setCachedSource('');
+      setFailed(true);
+    } else {
+      setFailed(true);
+      if (logoFailLogCount < 25) {
+        logoFailLogCount += 1;
+        appLog(`CSATORNALOGÓ-HIBA: „${name}” – a logó végleg nem tölthető be, ezt próbálta: ${url}`);
+      }
+      void loadCachedLogo(source);
+    }
+  };
+  advanceFailureRef.current = advanceFailure;
+
   if (!url || (failed && !cachedSource)) {
     // Beégetett app-ikon tartalékként (keresés felugrókban is), megfelelő méretre kicsinyítve.
     return <img src={APP_ICON_SMALL_DATA_URL} width={20} height={20} className="w-5 h-5 rounded object-contain opacity-80" alt="" aria-label={`A(z) ${name} logója nem érhető el`} />;
@@ -109,33 +153,8 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
       // és akkora memóriát jelentett, hogy a rendszer leállította a beágyazott böngészőt.
       loading="lazy"
       decoding="async"
-      onLoad={() => { void saveCachedLogo(source); }}
-      onError={() => {
-        // HTTP → HTTPS → eredeti HTTP; csak ezután próbáljuk a mentett logót.
-        if (schemeAttempt === 0 && /^http:\/\//i.test(source)) {
-          setSchemeAttempt(1);
-          setSource(source.replace(/^http:\/\//i, 'https://'));
-        } else if (schemeAttempt === 1 && /^https:\/\//i.test(source) && /^http:\/\//i.test(url)) {
-          setSchemeAttempt(2);
-          setSource(url);
-        } else if (huLogo && !huTried && source !== huLogo) {
-          // 2.5.245: a szolgáltatói logó nem töltődött be – magyar csatornánál
-          // a saját tároló (huChannelLogos) próbálkozik tovább (csak egyszer).
-          setHuTried(true);
-          setSchemeAttempt(0);
-          setSource(huLogo);
-        } else if (cachedSource) {
-          setCachedSource('');
-          setFailed(true);
-        } else {
-          setFailed(true);
-          if (logoFailLogCount < 25) {
-            logoFailLogCount += 1;
-            appLog(`CSATORNALOGÓ-HIBA: „${name}” – a logó végleg nem tölthető be, ezt próbálta: ${url}`);
-          }
-          void loadCachedLogo(source);
-        }
-      }}
+      onLoad={() => { settledRef.current = true; void saveCachedLogo(source); }}
+      onError={() => { settledRef.current = true; advanceFailure(); }}
     />
   );
 };

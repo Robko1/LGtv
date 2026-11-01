@@ -544,6 +544,73 @@ function parseFlatMetadata(record: Record<string, unknown>): ParsedVodMetadata |
   };
 }
 
+/*
+ * 2.5.249: LAPOS bulk-elemek (get_vod_streams / get_series) EGYETLEN menetes
+ * feldolgozása. A #4 kézi napló szerint a filmfeldolgozás 103 ezer filmnél
+ * 65 mp volt a TV-n – ennek legnagyobb része a mezőnkénti többszörös
+ * bejárás (firstValue × kulcslista, rekurzív findDuration) volt. Lapos, csak
+ * primitívekből álló rekordnál egyetlen Object.entries kör elég, az eredmény
+ * bitre azonos (a kulcsok sorrendje és prioritása ugyanaz marad).
+ */
+const FLAT_POSTER_KEYS = new Set(['movie_image', 'cover_big', 'cover', 'poster', 'stream_icon', 'image']);
+const FLAT_BACKDROP_KEYS = new Set(['backdrop_path', 'backdrop', 'backdrop_url', 'fanart']);
+const FLAT_YEAR_KEYS = new Set(['releasedate', 'release_date', 'year', 'release_year']);
+const FLAT_SEC_DURATION_RE = /duration_secs?|duration_seconds?|runtime_seconds?/;
+const FLAT_PLAIN_DURATION_KEYS = ['duration_minutes', 'episode_run_time', 'duration', 'runtime', 'length'];
+const FLAT_PLAIN_DURATION_INDEX = new Map(FLAT_PLAIN_DURATION_KEYS.map((key, index) => [key, index]));
+
+function isFlatRecord(root: Record<string, unknown>): boolean {
+  for (const value of Object.values(root)) {
+    if (value && typeof value === 'object') {
+      if (!Array.isArray(value)) return false;
+      for (const item of value) if (item && typeof item === 'object') return false;
+    }
+  }
+  return true;
+}
+
+/** Lapos rekord: poszter, háttérkép, év, játékidő egy menetben (bitre azonos a mély út eredményével). */
+function parseFlatCatalogFields(root: Record<string, unknown>): {
+  poster: string; backdrop: string; year: number; durationMinutes: number;
+} {
+  let poster = '';
+  let backdrop = '';
+  let yearText = '';
+  let secPlausible = 0;
+  let secSmall = 0;
+  const plainCandidates: unknown[] = [undefined, undefined, undefined, undefined, undefined];
+  let plainSmall = 0;
+  for (const [key, value] of Object.entries(root)) {
+    const lower = key.toLowerCase();
+    if (!poster && FLAT_POSTER_KEYS.has(lower)) { const c = clean(value); if (c) poster = c; }
+    if (!backdrop && FLAT_BACKDROP_KEYS.has(lower)) {
+      const v = Array.isArray(value) ? clean(value.find((item) => clean(item)) || '') : clean(value);
+      if (v) backdrop = v;
+    }
+    if (!yearText && FLAT_YEAR_KEYS.has(lower)) { const c = clean(value); if (c) yearText = c; }
+    if (FLAT_SEC_DURATION_RE.test(lower)) {
+      const parsed = durationMinutesFromValue(value, key);
+      if (parsed >= PLAUSIBLE_RUNTIME_MINUTES) { if (!secPlausible) secPlausible = parsed; }
+      else if (parsed > 0 && !secSmall) secSmall = parsed;
+    }
+    const durationIndex = FLAT_PLAIN_DURATION_INDEX.get(lower);
+    if (durationIndex !== undefined && plainCandidates[durationIndex] === undefined && clean(value) !== '') {
+      plainCandidates[durationIndex] = value;
+    }
+  }
+  let durationMinutes = secPlausible;
+  if (!durationMinutes) {
+    for (let index = 0; index < FLAT_PLAIN_DURATION_KEYS.length && !durationMinutes; index++) {
+      const parsed = durationMinutesFromValue(plainCandidates[index], FLAT_PLAIN_DURATION_KEYS[index]);
+      if (parsed >= PLAUSIBLE_RUNTIME_MINUTES) durationMinutes = parsed;
+      else if (parsed > 0 && !plainSmall) plainSmall = parsed;
+    }
+  }
+  if (!durationMinutes) durationMinutes = secSmall || plainSmall;
+  const year = Number((yearText.match(/\d{4}/) || [0])[0]) || 0;
+  return { poster, backdrop, year, durationMinutes };
+}
+
 /**
  * A filmkatalógus importja csak a megjelenítéshez és lejátszáshoz szükséges
  * mezőket olvassa ki. A részletes adatlap/audio/felirat metaadatok nem részei
@@ -556,6 +623,16 @@ export function parseMovieCatalogMetadata(response: unknown): {
   durationMinutes: number;
 } {
   const root = asRecord(response);
+  // 2.5.249: lapos bulk-elem gyors út (lásd parseFlatCatalogFields).
+  if (root && !asRecord(root.info) && !asRecord(root.movie_data) && isFlatRecord(root)) {
+    const flat = parseFlatCatalogFields(root);
+    return {
+      poster: flat.poster || undefined,
+      backdrop: flat.backdrop || undefined,
+      year: flat.year || undefined,
+      durationMinutes: flat.durationMinutes,
+    };
+  }
   const info = asRecord(root?.info) || root;
   const movieData = asRecord(root?.movie_data);
   const poster =
@@ -620,6 +697,25 @@ export function parseVodMetadata(response: unknown): ParsedVodMetadata {
 /** A sorozatimport kizárólag a kért katalógusmezőket olvassa ki. */
 export function parseSeriesMetadata(response: unknown): ParsedVodMetadata {
   const root = asRecord(response);
+  // 2.5.249: lapos bulk-elem (get_series) gyors út.
+  if (root && !asRecord(root.info) && !asRecord(root.episodes) && isFlatRecord(root)) {
+    const flat = parseFlatCatalogFields(root);
+    return {
+      durationMinutes: flat.durationMinutes,
+      audioTracks: [],
+      subtitleTracks: [],
+      audioLanguages: [],
+      subtitleLanguages: [],
+      poster: flat.poster || undefined,
+      backdrop: flat.backdrop || undefined,
+      plot: undefined,
+      genres: [],
+      director: undefined,
+      cast: [],
+      rating: undefined,
+      year: flat.year || undefined,
+    };
+  }
   const info = asRecord(root?.info) || root;
   const episodes = asRecord(root?.episodes);
   const firstSeason = episodes

@@ -18,6 +18,8 @@ interface MoviesViewProps {
   onToggleFavoriteMovie: (movieId: string) => void;
   isActive: boolean;
   activeProvider?: ProviderRef | null;
+  /* 2.5.249: az adatlap megnyitásakor dúsított film visszaadása a listához. */
+  onVodItemEnriched?: (item: Movie) => void;
 }
 
 /* Függőleges, ötoszlopos rács; a poszterek 25-ös adagokban jelennek meg. */
@@ -43,6 +45,8 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   onSelectedCategoryChange,
   isActive,
   onToggleFavoriteMovie,
+  activeProvider,
+  onVodItemEnriched,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   // A rács csak a megjelenített adag kártyáit tartalmazza.
@@ -331,6 +335,8 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
           isFavorite={Boolean(selectedMovie.isFavorite)}
           onClose={() => setSelectedMovieId(null)}
           onToggleFavorite={() => onToggleFavoriteMovie(selectedMovie.id)}
+          provider={activeProvider ?? null}
+          onItemEnriched={(enriched) => onVodItemEnriched?.(enriched as Movie)}
           onPlayMovie={(mov) => {
             movieReturnSnapshot = { scrollTop: movieGridRef.current?.scrollTop ?? 0, visibleCount };
             setSelectedMovieId(null);
