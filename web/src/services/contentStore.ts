@@ -397,6 +397,9 @@ function encodeOptionalJson(value: unknown): string {
 
 function decodeOptionalJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string' || !value) return fallback;
+  // 2.5.247: GYORS ÚT – a tárolt sorok döntő többségében '[]' áll; azt nem
+  // parse-oljuk újra (103 ezer filmnél 600 ezer felesleges JSON.parse volt).
+  if (value === '[]') return [] as unknown as T;
   try { return JSON.parse(value) as T; } catch { return fallback; }
 }
 
@@ -487,6 +490,12 @@ function decodeChannels(rows: Row[], provider: ProviderRef): Channel[] {
   return out;
 }
 
+/* 2.5.247: üres tömb gyors kódolása – '[]' stringify nélkül (#3 napló: a filmmentés
+   52,6 mp volt, ennek jelentős része a soronkénti 6-7 JSON.stringify volt). */
+function encodeJsonArrayFast(value: unknown[] | undefined | null): string {
+  return value && value.length ? encodeOptionalJson(value) : '[]';
+}
+
 function encodeMovies(movies: Movie[]): Row[] {
   return movies.map((m) => {
     const row: Row = [
@@ -511,14 +520,14 @@ function encodeMovies(movies: Movie[]): Row[] {
     if (hasVodMetadata) {
       row.push(
         m.durationMinutes || 0,
-        encodeOptionalJson(m.audioLanguages || []),
-        encodeOptionalJson(m.subtitleLanguages || []),
-        encodeOptionalJson(m.audioTracks || []),
-        encodeOptionalJson(m.subtitleTracks || []),
+        encodeJsonArrayFast(m.audioLanguages),
+        encodeJsonArrayFast(m.subtitleLanguages),
+        encodeJsonArrayFast(m.audioTracks),
+        encodeJsonArrayFast(m.subtitleTracks),
         m.backdrop || '',
-        encodeOptionalJson(m.genres || []),
+        encodeJsonArrayFast(m.genres),
         m.director || '',
-        encodeOptionalJson(m.cast || []),
+        encodeJsonArrayFast(m.cast),
         encodeOptionalJson(m.providerData),
         encodeOptionalJson(m.detailProviderData),
         m.providerSig || '',
@@ -593,17 +602,17 @@ function encodeSeries(series: Series[]): Row[] {
     if (hasSeriesMetadata) {
       row.push(
         s.durationMinutes || 0,
-        encodeOptionalJson(s.audioLanguages || []),
-        encodeOptionalJson(s.subtitleLanguages || []),
-        encodeOptionalJson(s.audioTracks || []),
-        encodeOptionalJson(s.subtitleTracks || []),
+        encodeJsonArrayFast(s.audioLanguages),
+        encodeJsonArrayFast(s.subtitleLanguages),
+        encodeJsonArrayFast(s.audioTracks),
+        encodeJsonArrayFast(s.subtitleTracks),
         s.backdrop || '',
-        encodeOptionalJson(s.genres || []),
+        encodeJsonArrayFast(s.genres),
         s.director || '',
-        encodeOptionalJson(s.cast || []),
+        encodeJsonArrayFast(s.cast),
         encodeOptionalJson(s.providerData),
         encodeOptionalJson(s.detailProviderData),
-        encodeOptionalJson(s.seasons || []),
+        encodeJsonArrayFast(s.seasons),
         s.providerSig || '',
       );
     }
@@ -1607,7 +1616,19 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
    * 68,9 mp-re nyúlt. Egyszerre legfeljebb egy írás fut (a következő flush
    * bevárja az előzőt), így a memóriacsúcs sem nő.
    */
-  let pendingWrite: Promise<boolean> | null = null;
+  /*
+   * 2.5.247: MÉLYEBB ÍRÁSI CSŐVEZETÉK – akár 4 köteg írása is futhat egyszerre
+   * a háttérben, így a következő adag kódolása (JSON.stringify) átfedésben fut
+   * az IndexedDB írásával. A #3 kézi naplóban (2026-11-01) a filmmentés önmagában
+   * 52,6 mp volt egy írásmélységgel; a kódolás és az írás így nem adódik össze.
+   * A 4-es plafon a memóriacsúcsot is korlátozza.
+   */
+  const pendingWrites: Promise<boolean>[] = [];
+  const settleWrites = async (): Promise<void> => {
+    if (!pendingWrites.length) return;
+    const results = await Promise.all(pendingWrites.splice(0, pendingWrites.length));
+    if (results.some((ok) => !ok)) throw new Error('IndexedDB kötegelt írás sikertelen');
+  };
   try {
     let batch: ChunkEntry[] = [];
     let approxBytes = 0;
@@ -1615,11 +1636,11 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       if (!batch.length) return;
       const toWrite = batch;
       batch = [];
-      if (pendingWrite && !(await pendingWrite)) throw new Error('IndexedDB kötegelt írás sikertelen');
-      pendingWrite = writeBatch(toWrite).then((ok) => {
+      while (pendingWrites.length >= 4) await settleWrites();
+      pendingWrites.push(writeBatch(toWrite).then((ok) => {
         if (ok) writtenKeys.push(...toWrite.map((entry) => entry.key));
         return ok;
-      });
+      }));
       // A főszálat a kötegek között visszaadjuk: a lejátszás nem akad meg.
       await yieldToStorage();
     };
@@ -1637,7 +1658,7 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       else await yieldToStorage();
     }
     await flush();
-    if (pendingWrite && !(await pendingWrite)) throw new Error('IndexedDB kötegelt írás sikertelen');
+    await settleWrites();
 
     /*
      * ELLENŐRZÖTT MENTÉS (2.5.222).
@@ -1693,8 +1714,8 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       + `~${(approxBytes / 1024 / 1024).toFixed(1)} MB, ${Date.now() - startedAt} ms.`
     );
   } catch (error) {
-    // A még futó háttérírást bevárjuk, hogy a takarítás ne hagyjon árvát.
-    try { if (pendingWrite) await pendingWrite; } catch { /* a hibás írás is írt kulcsokat törlünk */ }
+    // A még futó háttérírásokat bevárjuk, hogy a takarítás ne hagyjon árvát.
+    try { await settleWrites(); } catch { /* a hibás írás is írt kulcsokat törlünk */ }
     await store.removeMany(writtenKeys);
     appLogError(`${options.label} tartós mentése nem sikerült`, error);
     appLog(`Tároló: a korábbi, mentett ${options.label} változatlanul érvényben marad.`);

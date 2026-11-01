@@ -54,6 +54,7 @@ import {
   readCatalogStateSync,
   storedCatalogPresence,
   readStoredCategories,
+  saveCatalogExtras,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { ParsedVodMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
@@ -282,10 +283,10 @@ const UI_YIELD_EVERY = 1200;
  * (2026-11-01) azonban azt mutatta, hogy a gyenge TV-n egy 4800 soros köteg
  * ~5–8 mp-ig BLOKKOLJA a főszálat (13× „LEÁLLÁS 3,4–8,2 s” a filmszakasz
  * alatt, 12:18:50–12:19:53 között). A yield itt MessageChannel-alapú, tehát
- * olcsó – 1200-szoronként (mint az élő listánál) a blokk ~1–2 mp lesz,
+ * olcsó – 600-szoronként (mint az élő listánál) a blokk ~1–2 mp lesz,
  * összesen alig lassabb, de a felület közben válaszol.
  */
-const VOD_YIELD_EVERY = 1200;
+const VOD_YIELD_EVERY = 600;
 const VOD_PROGRESS_EVERY = 2000;
 
 /**
@@ -357,6 +358,14 @@ export interface ImportedProvider {
     status: string;
   };
   changes?: { live: CatalogDiff; vod: CatalogDiff; series: CatalogDiff };
+  /**
+   * 2.5.247: HÁTTÉR dúsítás – a sorozatok évad/epizód lekérése
+   * (get_series_info sorozatonként). NEM az import része: a hívó az import
+   * visszatérése UTÁN indítja (`void result.background()`), mert a #3 kézi
+   * napló szerint 25 ezer külön kérés blokkolta az importot (a betöltés „5 percig
+   * töltött"). A függvény visszatéréséig a seasons mezők fokozatosan töltődnek.
+   */
+  background?: () => Promise<void>;
 }
 
 function makeCategoryMap(categories: XtreamCategory[]): Map<string, XtreamCategory> {
@@ -1460,6 +1469,9 @@ export async function importXtreamProvider(
 
   let series: Series[] = [];
   let seriesCats: Category[] = [];
+  // 2.5.247: a sorozat-évadok háttér-dúsítása (lásd a loadSeriesPhase blokkot);
+  // a loadSeriesPhase tölti fel, az import végén a visszatérési objektumra kerül.
+  let seriesBackground: (() => Promise<void>) | null = null;
   const loadSeriesPhase = async (): Promise<void> => {
     const phaseStartedAt = performance.now();
     logProviderPhaseStart('sorozatok', 'egyetlen bulk lista, szolgáltatói kategóriák nélkül');
@@ -1519,18 +1531,26 @@ export async function importXtreamProvider(
       }
       if (!decodedSeries.length) warnings.push('A szolgáltató sorozatlistája üres vagy nem tartalmaz használható sorozatokat.');
       /*
-       * 2.5.245: ELSŐ LETÖLTÉS – évadok és epizódok is kellenek (megjelenítéshez
-       * és lejátszáshoz), ezért minden sorozathoz külön get_series_info megy
-       * (ütemezve, a net.ts korlátjával), és az eredmény a sorba mentődik
-       * (encodeSeries → seasons oszlop). Később már csak az IndexedDB-ből jön.
+       * 2.5.245/2.5.247: ELSŐ LETÖLTÉS – évadok és epizódok is kellenek
+       * (megjelenítéshez és lejátszáshoz), ezért minden sorozathoz külön
+       * get_series_info megy (ütemezve, a net.ts korlátjával).
+       *
+       * 2.5.247 – HÁTTÉRBE KERÜLT: a #3 kézi napló (2026-11-01) szerint a
+       * 25 042 sorozatonkénti kérés miatt az import ÓRÁKIG nem ért véget,
+       * a betöltőképernyő „5 percig töltött”. Ezért ez a blokk NEM várja meg
+       * a válaszokat: csak előállítja a háttér-feladatot, amelyet a hívó az
+       * import visszatérése után indít. A kész évadok 500-asával tartósan is
+       * mentődnek (saveCatalogExtras; visszatöltéskor applyCatalogExtras
+       * teszi vissza őket), így újraindítás után sincs új letöltés.
        */
-      {
+      seriesBackground = async (): Promise<void> => {
         const episodesStartedAt = performance.now();
         const total = decodedSeries.length;
         let infoDone = 0;
         let infoFailed = 0;
         let episodeTotal = 0;
         let infoCursor = 0;
+        let extrasSaved = 0;
         const infoWorker = async (): Promise<void> => {
           while (infoCursor < total) {
             const target = decodedSeries[infoCursor++];
@@ -1549,15 +1569,21 @@ export async function importXtreamProvider(
             }
             infoDone += 1;
             if (infoDone % 500 === 0) {
-              onProgress({ phase: 'Évadok és epizódok letöltése…', detail: `${infoDone}/${total} sorozat`, percent: 90 + Math.round((infoDone / Math.max(total, 1)) * 8) });
-              appLog(`IMPORT-FÁZIS [sorozatok-évadok] ${infoDone}/${total} sorozat kész (${infoFailed} hiba), eltelt ${Math.round(performance.now() - episodesStartedAt)} ms.`);
+              appLog(`IMPORT-FÁZIS [sorozatok-évadok-háttér] ${infoDone}/${total} sorozat kész (${infoFailed} hiba), eltelt ${Math.round(performance.now() - episodesStartedAt)} ms.`);
+              // Csak az újonnan kész sorozatokat mentjük – a teljes extras
+              // újraírása 25 ezer elemnél túl nagy JSON lenne.
+              await saveCatalogExtras(provider.id, [], decodedSeries.slice(extrasSaved, infoDone));
+              extrasSaved = infoDone;
+              await yieldToUi();
             }
-            if (infoDone % VOD_YIELD_EVERY === 0) await yieldToUi();
           }
         };
         await Promise.all([infoWorker(), infoWorker()]);
-        appLog(`IMPORT-FÁZIS [sorozatok-évadok] ÖSSZESEN: ${total} sorozat, ${episodeTotal} epizód mentve, ${infoFailed} hiba, ${Math.round(performance.now() - episodesStartedAt)} ms – később már nincs új letöltés.`);
-      }
+        if (extrasSaved < decodedSeries.length) {
+          await saveCatalogExtras(provider.id, [], decodedSeries.slice(extrasSaved));
+        }
+        appLog(`IMPORT-FÁZIS [sorozatok-évadok-háttér] ÖSSZESEN: ${total} sorozat, ${episodeTotal} epizód mentve, ${infoFailed} hiba, ${Math.round(performance.now() - episodesStartedAt)} ms – háttérben futott, az import már régen visszatért.`);
+      };
       onProgress({ phase: 'Sorozatok feldolgozva', detail: `${decodedSeries.length} sorozat`, percent: 96 });
       series = decodedSeries;
       seriesCats = series.length ? buildCategories(rawSeriesCategories, 'sc-', 'series', seriesCounts) : [];
@@ -1646,6 +1672,8 @@ export async function importXtreamProvider(
 
   return {
     content,
+    // 2.5.247: a sorozat-évadok háttér-dúsítása – a hívó indítja el az import után.
+    background: seriesBackground ?? undefined,
     fingerprint: rawCatalogFingerprint(rawLiveCategories, rawVodCategories, rawSeriesCategories),
     user: {
       expireDate,
