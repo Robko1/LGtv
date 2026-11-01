@@ -1,12 +1,11 @@
 import { Category, Episode, Season, Series } from '../types/iptv';
-import { ProviderRef, decodeChannelsForImport, decodeMoviesForImport, decodeSeriesForImport } from './contentStore';
+import { ProviderRef } from './contentStore';
 import { parseEpisodeRuntimeMinutes, parseSeriesMetadata, parseMovieCatalogMetadata } from './vodMetadata';
 import { xtreamService, XtreamEpisode, XtreamSeriesInfo } from './xtreamService';
 import { flagFor } from '../utils/flags';
 import { normalizeLogoUrl } from './logoUrl';
 
 export type CatalogRow = Array<string | number>;
-
 
 /**
  * Gyors, kicsi ujjlenyomat egy nyers lista-elemről (FNV-1a hash).
@@ -119,10 +118,6 @@ export function liveRowFromRaw(
     rawItemSignature(raw),
   ];
 }
-
-export const decodeMovieRows = decodeMoviesForImport;
-export const decodeSeriesRows = decodeSeriesForImport;
-export const decodeLiveRows = decodeChannelsForImport;
 
 /** Évadok és epizódok: csak a lejátszáshoz és megjelenítéshez szükséges adatok. */
 export function seasonsFromSeriesInfo(

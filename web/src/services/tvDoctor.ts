@@ -49,8 +49,6 @@ export const MAX_INTERVENTIONS_PER_MINUTE = 8;
 export const DOCTOR_VERIFY_STABLE_MS = 2200;
 export const DEAD_CHANNEL_COOLDOWN_MS = 3 * 60 * 1000;
 export const EPG_DISABLED_TTL_MS = 12 * 60 * 60 * 1000;
-export const MAX_EPG_ASSIST_PER_WINDOW = 2;
-export const EPG_ASSIST_WINDOW_MS = 10 * 60 * 1000;
 const STORE_PERSIST_DEBOUNCE_MS = 220;
 
 /** Szigorú biztonsági határok a pufferbeállításokhoz (soha nem nőhet korlátlanul). */
@@ -347,22 +345,6 @@ export interface DoctorDiagnosticPlugin {
   }) => Record<string, string | number | boolean>;
 }
 
-export interface DoctorRepairPlugin {
-  id: string;
-  priority: number;
-  propose: (context: {
-    channel?: Channel | null;
-    trigger: DoctorTriggerReason;
-    step: number;
-    currentFormat: LiveFormat;
-    currentBufferProfile: DoctorBufferProfileId;
-    tsUrl: string;
-    hlsUrl: string;
-    hasAlternateFormat: boolean;
-    record: ChannelDoctorRecord | null;
-  }) => Partial<DoctorRepairProposal> | null;
-}
-
 interface DoctorStoreData {
   v: 1;
   byKey: Record<string, ChannelDoctorRecord>;
@@ -413,9 +395,7 @@ export interface TvDoctorOperationHealth {
 const MAX_RECENT_LOGS = 80;
 const recentDoctorLogs: DoctorLogEntry[] = [];
 const diagnosticPlugins: DoctorDiagnosticPlugin[] = [];
-const repairPlugins: DoctorRepairPlugin[] = [];
 const interventionTimestampsByChannel = new Map<string, number[]>();
-const epgAssistTimestamps: number[] = [];
 const statusListeners: Array<() => void> = [];
 
 let memoryCache: DoctorStoreData | null = null;
@@ -767,12 +747,6 @@ export function nextSafeBufferProfile(current: DoctorBufferProfileId): DoctorBuf
   if (idx < 0) return 'balanced';
   if (idx >= DOCTOR_BUFFER_ORDER.length - 1) return DOCTOR_BUFFER_ORDER[DOCTOR_BUFFER_ORDER.length - 1];
   return DOCTOR_BUFFER_ORDER[idx + 1];
-}
-
-export function prevFasterBufferProfile(current: DoctorBufferProfileId): DoctorBufferProfileId {
-  const idx = DOCTOR_BUFFER_ORDER.indexOf(current);
-  if (idx <= 0) return 'instant';
-  return DOCTOR_BUFFER_ORDER[idx - 1];
 }
 
 function getStorage(storage?: Storage | null): Storage | null {
@@ -1140,7 +1114,6 @@ export function clearTvDoctorMemory(storage?: Storage | null): void {
   memoryCache = createEmptyStore();
   memoryCacheSerializedChars = 0;
   interventionTimestampsByChannel.clear();
-  epgAssistTimestamps.length = 0;
   recentDoctorLogs.length = 0;
   opHealth.lastStorageError = null;
   resetTvDoctorOperationCounters();
@@ -1355,20 +1328,6 @@ export function isChannelHandledByDoctor(
 ): boolean {
   const rec = getChannelDoctorRecord(channel, storage);
   return isDoctorRecordHandled(rec);
-}
-
-/**
- * Igaz, ha a csatorna a legutóbbi többlépcsős vizsgálat alapján valóban
- * nem működik (halott stream), és még a védőablakon belül van.
- */
-export function isChannelMarkedDead(
-  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
-  now = Date.now(),
-  storage?: Storage | null,
-): boolean {
-  const rec = getChannelDoctorRecord(channel, storage);
-  if (!rec || !rec.deadUntil) return false;
-  return rec.deadUntil > now;
 }
 
 export function getVodDoctorRecord(
@@ -2322,44 +2281,6 @@ export function planDoctorRepairStep(params: {
   markIntervention(channelKey);
   opHealth.repairsAttemptedCount += 1;
 
-  // Regisztrált bővítmények (pluginek) megkérdezése prioritási sorrendben:
-  const sortedPlugins = [...repairPlugins].sort((a, b) => b.priority - a.priority);
-  for (const plugin of sortedPlugins) {
-    try {
-      const custom = plugin.propose({
-        channel,
-        trigger,
-        step,
-        currentFormat,
-        currentBufferProfile,
-        tsUrl,
-        hlsUrl,
-        hasAlternateFormat,
-        record,
-      });
-      if (custom && custom.nextFormat && custom.nextUrl && custom.nextBufferProfile) {
-        const cfg = getDoctorBufferConfig(custom.nextBufferProfile);
-        return {
-          step,
-          maxSteps: effectiveMaxSteps,
-          strategyId: custom.strategyId || plugin.id,
-          description: custom.description || `bővítmény javítás (${plugin.id})`,
-          nextFormat: custom.nextFormat,
-          nextUrl: custom.nextUrl,
-          nextBufferProfile: cfg.id,
-          nextBufferTiming: custom.nextBufferTiming ? clampBufferTiming(custom.nextBufferTiming) : cfg,
-          delayMs: custom.delayMs ?? 120,
-          useFallbackUrl: Boolean(custom.useFallbackUrl),
-          forceCleanReset: Boolean(custom.forceCleanReset ?? true),
-          stopRetrying: false,
-          exhausted: false,
-        };
-      }
-    } catch {
-      /* ignore plugin error */
-    }
-  }
-
   const isStallTrigger = trigger === 'playback_stall' || trigger === 'buffer_stall';
   let strategyId = 'same_format_fast_reset';
   let description = 'gyors dekóder-frissítés az aktuális módban';
@@ -2521,178 +2442,6 @@ export function planDoctorRepairStep(params: {
   };
 }
 
-/* ============================================================================
- * EPG ELLENŐRZÉS, AKTÍV BETÖLTÉS-SEGÍTÉS ÉS CSATORNÁNKÉNTI LEKAPCSOLÁS
- * ============================================================================
- *  - Ha egy csatornához igazoltan nincs EPG (üres rövid/egyszerű EPG + betöltött
- *    műsorújságban sem szerepel, vagy ismételten 0 műsort ad a panel), a TV Doktor
- *    lekapcsolja annál a csatornánál az EPG-keresést (`shouldSkipChannelEpg === true`).
- *  - Ha maga az EPG nem töltődik be, a TV Doktor korlátozott számban (max 2x / 10 perc)
- *    aktívan segíti az EPG és az XMLTV műsorújság újratöltését.
- */
-
-export function shouldSkipChannelEpg(
-  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
-  storage?: Storage | null,
-): boolean {
-  if (!channel) return false;
-  const store = readStore(storage);
-  const key = (channel.id && store.epgIdIndex[channel.id]) || normalizeChannelDoctorKey(channel);
-  const rec = store.epgByKey[key];
-  if (!rec || rec.state !== 'disabled') return false;
-  if (Date.now() - rec.updatedAt >= EPG_DISABLED_TTL_MS) {
-    return false;
-  }
-  return true;
-}
-
-export function recordDoctorEpgChannelResult(params: {
-  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null;
-  hasEntries: boolean;
-  guideLoaded?: boolean;
-  providerHasAnyEpg?: boolean;
-  storage?: Storage | null;
-}): ChannelEpgDoctorRecord | null {
-  const { channel, hasEntries, guideLoaded = false, providerHasAnyEpg = false, storage } = params;
-  if (!channel) return null;
-  const key = normalizeChannelDoctorKey(channel);
-  if (!key || key === 'unknown-channel' || key.startsWith('vod:')) return null;
-
-  const store = readStore(storage);
-  const existing = (channel.id && store.epgIdIndex[channel.id]
-    ? store.epgByKey[store.epgIdIndex[channel.id]]
-    : null) || store.epgByKey[key];
-  const now = Date.now();
-
-  if (hasEntries) {
-    if (existing && existing.state === 'ok' && now - existing.updatedAt < 10 * 60 * 1000) {
-      return existing;
-    }
-    const updated: ChannelEpgDoctorRecord = {
-      channelKey: key,
-      channelId: channel.id,
-      channelName: String(channel.name || channel.id || key).slice(0, 140),
-      state: 'ok',
-      emptyChecks: 0,
-      updatedAt: now,
-    };
-    store.epgByKey[key] = updated;
-    if (channel.id) store.epgIdIndex[channel.id] = key;
-    writeStore(store, storage);
-    return updated;
-  }
-
-  const nextEmpty = (existing?.emptyChecks || 0) + 1;
-  // Lekapcsoljuk az EPG-keresést ennél a csatornánál, ha:
-  //  - a teljes műsorújság (XMLTV) már betöltődött ÉS a rövid+egyszerű EPG is üres erre a csatornára, VAGY
-  //  - a szolgáltató más csatornákon ad EPG-t, de ennél a csatornánál már 2x üres volt, VAGY
-  //  - 3 külön ellenőrzés után sincs semmilyen EPG adat a csatornához.
-  const shouldDisable =
-    (guideLoaded && nextEmpty >= 1) ||
-    (providerHasAnyEpg && nextEmpty >= 2) ||
-    nextEmpty >= 3;
-
-  const wasAlreadyDisabled = existing?.state === 'disabled' && now - existing.updatedAt < EPG_DISABLED_TTL_MS;
-  const updated: ChannelEpgDoctorRecord = {
-    channelKey: key,
-    channelId: channel.id,
-    channelName: String(channel.name || channel.id || key).slice(0, 140),
-    state: shouldDisable ? 'disabled' : 'empty',
-    emptyChecks: nextEmpty,
-    updatedAt: now,
-  };
-  store.epgByKey[key] = updated;
-  if (channel.id) store.epgIdIndex[channel.id] = key;
-
-  if (shouldDisable && !wasAlreadyDisabled) {
-    opHealth.epgDisabledCount += 1;
-    logDoctor(
-      'info',
-      channel,
-      'EPG lekapcsolva: a csatornához nincs műsorújság – többé nem keresünk hozzá EPG-t.',
-      'learning',
-      storage,
-    );
-  } else {
-    writeStore(store, storage);
-  }
-
-  return updated;
-}
-
-export function requestDoctorEpgAssistance(params: {
-  providerName?: string;
-  reason: string;
-  now?: number;
-  storage?: Storage | null;
-}): { allowed: boolean; attempt: number } {
-  const { providerName, reason, now = Date.now(), storage } = params;
-  const windowStart = now - EPG_ASSIST_WINDOW_MS;
-  while (epgAssistTimestamps.length > 0 && epgAssistTimestamps[0] < windowStart) {
-    epgAssistTimestamps.shift();
-  }
-  if (epgAssistTimestamps.length >= MAX_EPG_ASSIST_PER_WINDOW) {
-    return { allowed: false, attempt: epgAssistTimestamps.length };
-  }
-
-  epgAssistTimestamps.push(now);
-  const attempt = epgAssistTimestamps.length;
-  opHealth.epgAssistsCount += 1;
-
-  const store = readStore(storage);
-  store.epgAssistCount = (store.epgAssistCount || 0) + 1;
-  store.epgLastAssistAt = now;
-
-  const targetChannel = {
-    id: 'epg-system',
-    name: providerName ? `EPG • ${providerName}` : 'EPG Műsorújság',
-    countryCode: undefined,
-  };
-
-  logDoctor(
-    'warn',
-    targetChannel,
-    `EPG-ellenőrzés aktiválódott: ${reason}`,
-    'activation',
-    storage,
-  );
-  logDoctor(
-    'repair',
-    targetChannel,
-    `EPG betöltés segítése [${attempt}/${MAX_EPG_ASSIST_PER_WINDOW}]: műsorújság és tartalék EPG újratöltése indítva`,
-    'assistance',
-    storage,
-  );
-
-  return { allowed: true, attempt };
-}
-
-export function recordDoctorEpgRecovered(params: {
-  providerName?: string;
-  channelCount: number;
-  source: 'xmltv' | 'short_epg';
-  storage?: Storage | null;
-}): void {
-  const { providerName, channelCount, source, storage } = params;
-  if (channelCount <= 0) return;
-  const store = readStore(storage);
-  const now = Date.now();
-  // Csak akkor naplózunk külön EPG-helyreállítást, ha előtte volt EPG-segítés vagy még nem volt rögzítve.
-  const hadAssist = store.epgLastAssistAt !== null && (store.epgLastRecoveredAt === null || store.epgLastRecoveredAt < store.epgLastAssistAt);
-  store.epgLastRecoveredAt = now;
-  if (hadAssist) {
-    logDoctor(
-      'verified',
-      { id: 'epg-system', name: providerName ? `EPG • ${providerName}` : 'EPG Műsorújság', countryCode: undefined },
-      `EPG sikeresen helyreállítva (${source === 'xmltv' ? 'teljes műsorújság' : 'tartalék csatorna-EPG'}): ${channelCount} csatorna műsora elérhető.`,
-      'assistance',
-      storage,
-    );
-  } else {
-    writeStore(store, storage);
-  }
-}
-
 /**
  * Központi (Supabase) profilok összefésülése a helyi tanuló memóriával.
  */
@@ -2825,16 +2574,6 @@ export function registerDoctorDiagnosticPlugin(plugin: DoctorDiagnosticPlugin): 
   return () => {
     const pos = diagnosticPlugins.findIndex((p) => p.id === plugin.id);
     if (pos >= 0) diagnosticPlugins.splice(pos, 1);
-  };
-}
-
-export function registerDoctorRepairPlugin(plugin: DoctorRepairPlugin): () => void {
-  const idx = repairPlugins.findIndex((p) => p.id === plugin.id);
-  if (idx >= 0) repairPlugins.splice(idx, 1);
-  repairPlugins.push(plugin);
-  return () => {
-    const pos = repairPlugins.findIndex((p) => p.id === plugin.id);
-    if (pos >= 0) repairPlugins.splice(pos, 1);
   };
 }
 

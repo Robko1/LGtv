@@ -374,7 +374,6 @@ function isNumeric(value: string | number): boolean {
   return /^\d+$/.test(String(value));
 }
 
-
 function encodeOptionalJson(value: unknown): string {
   if (value === undefined || value === null) return '';
   try { return JSON.stringify(value); } catch { return ''; }
@@ -755,35 +754,6 @@ function describeStorageUsage(): string {
   }
 }
 
-/**
- * A film- és sorozatadagok eldobása, hogy az élő csatornalista elférjen.
- *
- * Az élő lista a legfontosabb: ez látszik azonnal az indulásnál, és enélkül a
- * néző nem tud tévézni. A filmek és a sorozatok a szolgáltatótól bármikor
- * újratölthetők (IndexedDB-be mennek), ezért ha kell, ezek adják a helyet.
- */
-function evictLowerPriorityChunks(): number {
-  let removed = 0;
-  try {
-    for (const key of backend.keys()) {
-      if (activeGenerations.has(key)) continue;
-      if (
-        key.startsWith(VOD_CHUNK_PREFIX) || key.startsWith(SERIES_CHUNK_PREFIX)
-        || key === VOD_META_KEY || key === SERIES_META_KEY
-      ) {
-        backend.remove(key);
-        removed += 1;
-      }
-    }
-  } catch {
-    /* a takarítás hibája nem akadályozhatja a mentést */
-  }
-  if (removed > 0) {
-    appLog(`Tároló: ${removed} film/sorozat adag törölve, hogy az élő csatornalista elférjen.`);
-  }
-  return removed;
-}
-
 /** Magyar csatorna? A mentési sorrendhez és az induló készlethez. */
 function isHungarianForSave(channel: Channel): boolean {
   return (channel.countryCode || '').toUpperCase() === 'HU'
@@ -813,13 +783,6 @@ function hungarianFirstForSave(channels: Channel[]): Channel[] {
 function channelSaveEstimate(channel: Channel): number {
   return (channel.name?.length || 0) + (channel.streamUrl?.length || 0)
     + (channel.logo?.length || 0) + (channel.categoryName?.length || 0) + 120;
-}
-
-/** A lista becsült mentett mérete karakterben. */
-function liveCharsEstimate(channels: Channel[]): number {
-  let chars = 0;
-  for (const channel of channels) chars += channelSaveEstimate(channel);
-  return chars;
 }
 
 function liveBootSubset(
@@ -1378,148 +1341,6 @@ interface ChunkedSaveOptions {
   provider?: ProviderRef;
   savedAt?: string;
   liveTotal?: number;
-}
-
-/**
- * Nagy lista mentése adagokban.
- *
- * Előbb minden adag kiíródik, és csak a végén vált aktívvá az új lista
- * (meta). Egy megszakadt mentés így nem hagy hiányos listát: ilyenkor a
- * korábbi, teljes lista marad érvényben.
- */
-async function saveChunked(options: ChunkedSaveOptions): Promise<void> {
-  const chunkCount = Math.ceil(options.total / CHUNK_SIZE);
-  const generationPrefix = options.generationPrefix + Date.now() + '-' + (++writeSequence) + '-';
-  const previousKeys = readChunkKeys(options.metaKey, options.legacyPrefix);
-  for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
-
-  let storedChunks = 0;
-  let storedRows = 0;
-  let stoppedAt = 0;
-  try {
-    for (let index = 0; index < chunkCount; index++) {
-      const rows = options.chunkRows(index);
-      const chunkKey = generationPrefix + index;
-      let outcome = writeMeasured(chunkKey, { rows });
-      if (!outcome.ok) {
-        /*
-         * A tároló megtelt – és a helyet éppen az ELŐZŐ generáció adagjai
-         * foglalják. Ilyenkor fokozatosan szabadítjuk fel őket: ezek az adagok
-         * amúgy is cserélődnek, a régi listát pedig éppen most írjuk újra.
-         *
-         * Enélkül egy megtelt tárolónál az új mentés már az ELSŐ adagnál
-         * elhasalna, ezért a frissítés SOHA nem sikerülne – pontosan ezt
-         * csinálta a 2.5.110-es build („újraindítom, újra és újra, akkor
-         * sem sikerült”).
-         */
-        for (let extra = index; !outcome.ok && extra < previousKeys.length; extra += 1) {
-          const staleKey = previousKeys[extra];
-          if (!staleKey) continue;
-          backend.remove(staleKey);
-          outcome = writeMeasured(chunkKey, { rows });
-        }
-        if (!outcome.ok) {
-          stoppedAt = index;
-          break;
-        }
-      }
-      storedChunks = index + 1;
-      storedRows += outcome.rows;
-      /*
-       * AZ ELŐZŐ GENERÁCIÓ AZONOS SORSZÁMÚ ADAGJÁT CSAK MOST TÖRÖLJÜK.
-       *
-       * Korábban a régi adagok csak a TELJES, sikeres mentés után törlődtek,
-       * ezért a mentés alatt a lista KÉT példányban volt bent a tárolóban.
-       * A TV kicsi localStorage-kvótája ennek a felét sem bírta: a 2.5.110-es
-       * napló szerint az élő lista a 16/51., a filmlista a 16/100. adagnál
-       * elfogyott, a mentés teljesen elhasalt, és MINDEN indításkor újra le
-       * kellett tölteni a 6,6 + 40,4 + 29,2 MB-ot – ezért volt rettenetes az
-       * első indulás. Így a csúcshasználat ~1 teljes lista + 1 új adag.
-       *
-       * A törlés szándékosan az ÚJ adag sikeres írása UTÁN van: ha az írás
-       * elhasal, a régi lista sértetlen marad.
-       */
-      const previousKey = previousKeys[index];
-      if (previousKey) backend.remove(previousKey);
-      /*
-       * MINDEN adag után lélegzés. A korábbi „két adagonként” a 2.5.110-es
-       * naplóban 4566 ms-os főszál-leállást eredményezett (HOSSZÚ FELADAT:
-       * 3025 ms), azaz a mentés alatt a felület és a lejátszás megakadt.
-       */
-      await yieldToStorage();
-    }
-
-    if (chunkCount > 0 && storedChunks === 0) {
-      throw new Error(
-        `${options.label}: egyetlen adag sem menthető el – a tároló megtelt ` +
-        `(${chunkCount} adag, ${options.total} elem).`
-      );
-    }
-
-    /*
-     * RÉSZLEGES MENTÉS IS ÉRVÉNYES MENTÉS.
-     *
-     * Ha a tároló elfogy, korábban az EGÉSZ mentés elhasalt, és a korábbi
-     * (vagy üres) cache maradt – így a lista soha nem került a tárolóba, és
-     * minden indítás 76 MB letöltéssel kezdődött. Most annyi adagot tartunk
-     * meg, amennyi befért, és a fejléc is ennyit jegyez: a következő indulás
-     * a mentett listával azonnal indul, és a napló megmondja, mi maradt ki.
-     */
-    /*
-     * A FEJLÉCNEK MINDIG MARADJON HELY.
-     *
-     * A 3-as számú TV-napló (2.5.111) pontosan ezt mutatta: a tároló
-     * `foglaltság=67 kulcs / 5060 kB`, azaz a ~5 MB-os kvóta teljesen
-     * megtelt, és bár 16 adag sikeresen belement, maga a FEJLÉC már nem
-     * fért el:
-     *
-     *   TÁROLÓ HIBA: content-vod-meta mentése végleg sikertelen; méret=5469
-     *   Filmlista mentése sikertelen → a lista fejléce nem menthető el
-     *
-     * Fejléc nélkül viszont a 16 beírt adag HIÁBA van bent: a betöltő a
-     * fejlécből tudná meg, hány adagot olvasson. Ilyenkor addig engedjük
-     * vissza a legutolsó adagokat, amíg a fejléc belefér – így a mentés
-     * kisebb, de TELJES és használható lesz.
-     */
-    const writeMeta = (chunks: number) => write(options.metaKey, {
-      v: 1,
-      totals: options.totals,
-      cats: options.cats,
-      chunks,
-      chunkPrefix: generationPrefix,
-    } satisfies ChunkMeta);
-    let metaOk = writeMeta(storedChunks);
-    while (!metaOk && storedChunks > 1) {
-      storedChunks -= 1;
-      backend.remove(generationPrefix + storedChunks);
-      metaOk = writeMeta(storedChunks);
-    }
-    if (!metaOk) {
-      throw new Error(`${options.label}: a lista fejléce nem menthető el – a tároló megtelt.`);
-    }
-  } catch (error) {
-    for (let index = 0; index < chunkCount; index++) {
-      backend.remove(generationPrefix + index);
-      activeGenerations.delete(generationPrefix + index);
-    }
-    appLogError(`${options.label} mentése sikertelen`, error);
-    throw error;
-  }
-  for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
-
-  // Sikeres mentés után nincs utólagos takarítás.
-  if (stoppedAt > 0 && storedChunks < chunkCount) {
-    appLog(
-      `TÁROLÓ FIGYELEM: ${options.label} – a tároló a ${stoppedAt + 1}/${chunkCount}. adagnál megtelt, ` +
-      `ezért ${storedChunks} adag (${storedRows} elem) került mentésre a ${options.total} elemből. ` +
-      `A lista így is használható és a következő indulásnál azonnal betöltődik; ` +
-      `a kimaradt rész a szolgáltatótól érkezik, ha újra frissítesz. Foglaltság=${describeStorageUsage()}.`
-    );
-  } else {
-    appLog(
-      `${options.label} elmentve: ${storedRows} elem, ${storedChunks} adag, tároló=${backend.name}`
-    );
-  }
 }
 
 /** A korábbi adagok kulcsainak összegyűjtése (törléshez). */
@@ -2858,44 +2679,10 @@ async function hasStoredList(store: ChunkStore | null, metaKey: string, localMet
 }
 
 /**
- * OLCSÓ SZAKASZ-MEGLÉT ELLENŐRZÉS (2.5.226) – a Frissítés gyors útjához.
- *
- * Csak a három fejlécet olvassa (3 kis IndexedDB-olvasás), a több tíz MB-os
- * listákat NEM dekódolja. Így a „nincs változás” eset a tárolt katalógus
- * beolvasása nélkül, pár másodperc alatt lezárható – de hiányzó vagy másik
- * szolgáltatóhoz tartozó szakasznál a hívó tudja, hogy gyógyító teljes
- * összevetés kell.
- */
-export async function storedCatalogSectionsPresent(providerId: string): Promise<boolean> {
-  try {
-    const store = await contentChunkStore();
-    if (!store) {
-      // Tartós tár nélkül a localStorage-os (kis) listák léte számít.
-      const [live, vod, series] = await Promise.all([
-        hasStoredList(null, LIVE_FULL_META_KEY, LIVE_META_KEY, LIVE_KEY),
-        hasStoredList(null, VOD_META_KEY, VOD_META_KEY, VOD_KEY),
-        hasStoredList(null, SERIES_META_KEY, SERIES_META_KEY, SERIES_KEY),
-      ]);
-      return live && vod && series;
-    }
-    const [liveMeta, vodMeta, seriesMeta] = await Promise.all([
-      readIdbChunks(store, LIVE_FULL_META_KEY),
-      readIdbChunks(store, VOD_META_KEY),
-      readIdbChunks(store, SERIES_META_KEY),
-    ]);
-    const matches = (meta: { meta: ChunkMeta } | null): boolean =>
-      Boolean(meta && meta.meta.chunks > 0 && (!meta.meta.provider || meta.meta.provider.id === providerId));
-    return matches(liveMeta) && matches(vodMeta) && matches(seriesMeta);
-  } catch {
-    return false;
-  }
-}
-
-/**
  * OLCSÓ SZAKASZ-MEGLÉT, szakaszonként – a Frissítés gyors útjához.
  *
- * Ugyanaz, mint a `storedCatalogSectionsPresent`, csak nem „mindhárom kell”,
- * hanem szakaszonként jelzi, hogy van-e mentett lista. Csak a kis meta-
+ * Nem „mindhárom kell”, hanem szakaszonként jelzi, hogy van-e mentett lista.
+ * Csak a kis meta-
  * fejléceket olvassa (localStorage kulcs vagy IndexedDB metarekord), a több
  * tízezer soros listát NEM dekódolja – így eldönthető a teljes katalógus
  * visszatöltése nélkül, hogy egyáltalán van-e már letöltött katalógus.

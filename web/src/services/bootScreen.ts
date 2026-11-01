@@ -281,22 +281,3 @@ export function bootScreenComplete(): void {
   }
 }
 
-/** Csak a tesztek/diagnosztika számára: a híd jelenlegi, valós állapota. */
-export function bootScreenSnapshot(): BootScreenReport {
-  return snapshot();
-}
-
-/** Teszt-környezethez: a modul állapotának alaphelyzetbe állítása. */
-export function resetBootScreenForTests(): void {
-  startedAt = 0;
-  percent = 0;
-  phase = '';
-  step = '';
-  detail = '';
-  channels = null;
-  bytesTotal = null;
-  bytesPerSecond = null;
-  etaSeconds = null;
-  version = '';
-  finished = false;
-}
