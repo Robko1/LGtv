@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.254';
+export const WEB_VERSION = '2.5.256';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.255',
+    version: '2.5.256',
     date: '2026-11-01',
     changes: [
       'Magyar csatornalogók (#7 képernyőkép + #8-as napló, 21:37): a saját HU logótár (tv-logo/tv-logos) minden URL-je mostantól .png-re végződik – eddig a generált ~100 bejegyzés kiterjesztés nélkül hivatkozott, ezért 404-et kapott és app-ikon esett vissza (csak az 5 kézi aliasz működött). Ugyanitt új név-aliaszok a #8 napló 107 HU csatornáiból (AXN Black/White/CE, Cool, Arena 4, Story 4, Fishing & Hunting, Ozone Network, Spieler/Spieler2, Viasat Nature/History).',
