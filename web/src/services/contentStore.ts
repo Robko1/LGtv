@@ -81,6 +81,19 @@ const SERIES_META_KEY = 'content-series-meta';
  * több kulcs keletkezik, nem számít.
  */
 const CHUNK_SIZE = 500;
+/*
+ * 2.5.245: a FILM- és SOROZAT-mentés saját, nagyobb adagmérete (#2 napló,
+ * 2026-11-01: 102 999 film mentése 206 adagban 37,3 s volt – adagonként ~181 ms,
+ * és a sok kör/tranzakció overhead is számít). 2000 sor/adag = 52 adag,
+ * ~4x kevesebb kör. Az élő lista marad 500-nál: visszatöltéskor a kisebb adag
+ * egyenletesebben érkezik (lásd a CHUNK_SIZE fenti megjegyzését).
+ */
+const VOD_STORE_CHUNK_SIZE = 2000;
+
+/** Egy mentett szakasz adagmérete a fejlécből (régi fejléc esetén CHUNK_SIZE). */
+function metaChunkSize(meta: { chunkSize?: number }): number {
+  return meta.chunkSize && meta.chunkSize > 0 ? meta.chunkSize : CHUNK_SIZE;
+}
 const LIVE_CHUNK_PREFIX = 'content-live-chunk-';
 const LIVE_GENERATION_PREFIX = 'content-live-chunk-v1-';
 const VOD_CHUNK_PREFIX = 'content-vod-chunk-';
@@ -309,6 +322,8 @@ interface ChunkMeta {
   /** A mentés ideje (ms) – a gyorsítótár frissességéhez (stale-while-revalidate). */
   savedAtMs?: number;
   liveTotal?: number;
+  /** 2.5.245: az adag mérete ennél a mentésnél (hiányában CHUNK_SIZE). */
+  chunkSize?: number;
 }
 
 /* --------------------------------------------------------------- backendek */
@@ -1010,7 +1025,7 @@ export async function compactLiveCacheIfNeeded(content: ImportedContent): Promis
     if (store) {
       try {
         const chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
-        const idbTotal = chunked ? (Number(chunked.meta.liveTotal) || chunked.meta.chunks * CHUNK_SIZE) : 0;
+        const idbTotal = chunked ? (Number(chunked.meta.liveTotal) || chunked.meta.chunks * metaChunkSize(chunked.meta)) : 0;
         idbHasFull = idbTotal >= content.channels.length;
       } catch { /* az IndexedDB hibájánál a teljes mentés a biztonságos út */ }
     }
@@ -1342,6 +1357,8 @@ interface ChunkedSaveOptions {
   provider?: ProviderRef;
   savedAt?: string;
   liveTotal?: number;
+  /** 2.5.245: egy adag sorainak száma (hiányában CHUNK_SIZE=500). */
+  chunkSize?: number;
 }
 
 /** A korábbi adagok kulcsainak összegyűjtése (törléshez). */
@@ -1440,13 +1457,14 @@ async function pruneIdbGenerations(store: ChunkStore, keepPrefixes: string[]): P
  *   • a mentés MINDEN lépése naplózva van, így a TV-n is látszik, hol tart.
  */
 async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions): Promise<boolean> {
-  const chunkCount = Math.ceil(options.total / CHUNK_SIZE);
+  const chunkSize = options.chunkSize && options.chunkSize > 0 ? options.chunkSize : CHUNK_SIZE;
+  const chunkCount = Math.ceil(options.total / chunkSize);
   if (chunkCount === 0) {
     // Üres lista: a fejléc akkor is íródjon ki, hogy a régi, már nem érvényes
     // listát ne szolgáljuk ki. Nincs félkész adag, nincs félrevezető hibanapló.
     const emptyMeta: ChunkMeta = {
       v: 1, totals: options.totals, cats: options.cats, chunks: 0,
-      chunkPrefix: '', savedAtMs: Date.now(),
+      chunkPrefix: '', savedAtMs: Date.now(), chunkSize,
     };
     return await store.putMany([{ key: options.metaKey, value: JSON.stringify(emptyMeta) }]);
   }
@@ -1544,6 +1562,7 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       ...(options.provider ? { provider: options.provider } : {}),
       ...(options.savedAt ? { savedAt: options.savedAt } : {}),
       ...(options.liveTotal !== undefined ? { liveTotal: options.liveTotal } : {}),
+      chunkSize,
     };
     // FEJLÉC UTOLSÓKÉNT: ettől a pillanattól él az új lista. Ha bármelyik
     // fenti lépés meghiúsult, ide nem jutunk el, és a régi lista érvényes marad.
@@ -1747,7 +1766,8 @@ export function saveSeriesContent(content: ImportedContent): Promise<void> {
     legacyPrefix: SERIES_CHUNK_PREFIX,
     generationPrefix: SERIES_GENERATION_PREFIX,
     total: content.series.length,
-    chunkRows: (index) => encodeSeries(content.series.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE)),
+    chunkSize: VOD_STORE_CHUNK_SIZE,
+    chunkRows: (index) => encodeSeries(content.series.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
     totals: { series: content.totals.series },
     cats: encodeCategories(content.seriesCategories),
     label: 'Sorozatlista',
@@ -1768,7 +1788,8 @@ export function saveVodContent(content: ImportedContent): Promise<void> {
     legacyPrefix: VOD_CHUNK_PREFIX,
     generationPrefix: VOD_GENERATION_PREFIX,
     total: content.movies.length,
-    chunkRows: (index) => encodeMovies(content.movies.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE)),
+    chunkSize: VOD_STORE_CHUNK_SIZE,
+    chunkRows: (index) => encodeMovies(content.movies.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
     totals: { vod: content.totals.vod },
     cats: encodeCategories(content.vodCategories),
     label: 'Filmlista',
@@ -1785,13 +1806,27 @@ export async function saveContent(content: ImportedContent): Promise<void> {
   // Előbb engedjük kirajzolódni a felületet, csak utána induljon a mentés.
   await yieldToStorage();
   logMemory('mentés előtt');
+  /*
+   * 2.5.245: IMPORT-FÁZIS a tartós mentéshez is (#2 napló, 2026-11-01: a film-
+   * lista mentése önmagában 37,3 s, a sorozaté 10,7 s volt – ezek külön
+   * látszanak mostantól a kézi naplóban, szűretlen prefixszel).
+   */
+  const saveAllStartedAt = performance.now();
+  appLog(`IMPORT-FÁZIS [mentés] indul: élő=${content.channels.length}, filmek=${content.movies.length}, sorozatok=${content.series.length}.`);
   // A mentések között szünetet tartunk, hogy a menü és a lejátszás ne álljon meg.
+  const liveSaveAt = performance.now();
   await saveLiveContentAsync(content);
+  appLog(`IMPORT-FÁZIS [mentés-élő] kész: ${Math.round(performance.now() - liveSaveAt)} ms (${content.channels.length} csatorna).`);
   await yieldToStorage();
+  const vodSaveAt = performance.now();
   await saveVodContent(content);
+  appLog(`IMPORT-FÁZIS [mentés-filmek] kész: ${Math.round(performance.now() - vodSaveAt)} ms (${content.movies.length} film).`);
   await yieldToStorage();
+  const seriesSaveAt = performance.now();
   await saveSeriesContent(content);
+  appLog(`IMPORT-FÁZIS [mentés-sorozatok] kész: ${Math.round(performance.now() - seriesSaveAt)} ms (${content.series.length} sorozat).`);
   await saveCatalogExtras(content.provider.id, content.movies, content.series);
+  appLog(`IMPORT-FÁZIS [mentés] ÖSSZESEN: ${Math.round(performance.now() - saveAllStartedAt)} ms.`);
   logMemory('mentés után');
 }
 
@@ -1801,6 +1836,8 @@ interface ChunkedReadResult {
   /** Igaz, ha adagolt (meta) tárolóból olvastunk. */
   chunked: boolean;
   chunks: number;
+  /** 2.5.245: az adag mérete (becslésekhez; hiányában CHUNK_SIZE). */
+  chunkSize?: number;
   /** A hiányzó adagok sorszámai. */
   missing: number[];
   /** Adagonkénti feldolgozás: a nyers adag a visszatérés után felszabadul. */
@@ -1816,6 +1853,7 @@ function openChunked(metaKey: string, legacyPrefix: string): ChunkedReadResult |
     return {
       chunked: true,
       chunks: Number(meta.chunks) || 0,
+      chunkSize: meta.chunkSize,
       missing: [],
       readChunk: (index) => {
         const chunkRaw = backend.get(prefix + index);
@@ -2193,11 +2231,11 @@ export async function describeStoredContent(): Promise<StorageReport> {
     const store = await contentChunkStore();
     if (store) {
       const live = await readIdbChunks(store, LIVE_FULL_META_KEY);
-      if (live) report.liveIdb = live.meta.liveTotal || live.meta.chunks * CHUNK_SIZE;
+      if (live) report.liveIdb = live.meta.liveTotal || live.meta.chunks * metaChunkSize(live.meta);
       const vod = await readIdbChunks(store, VOD_META_KEY);
-      if (vod) report.vodIdb = vod.meta.totals?.vod || vod.meta.chunks * CHUNK_SIZE;
+      if (vod) report.vodIdb = vod.meta.totals?.vod || vod.meta.chunks * metaChunkSize(vod.meta);
       const series = await readIdbChunks(store, SERIES_META_KEY);
-      if (series) report.seriesIdb = series.meta.totals?.series || series.meta.chunks * CHUNK_SIZE;
+      if (series) report.seriesIdb = series.meta.totals?.series || series.meta.chunks * metaChunkSize(series.meta);
     }
   } catch {
     /* az IndexedDB hibája nem akadályozhatja az indulást */
@@ -2376,7 +2414,7 @@ export async function loadVodAsync(
         if (rows.length === 0) missingChunks++;
         for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
         offset += rows.length;
-        onProgress?.(offset, chunked.meta.chunks * CHUNK_SIZE);
+        onProgress?.(offset, chunked.meta.chunks * metaChunkSize(chunked.meta));
         // Az ELSŐ adag után azonnal láthatóvá tesszük, amit már tudunk.
         if (!partialSent && movies.length > 0) {
           partialSent = true;
@@ -2429,7 +2467,7 @@ export async function loadVodAsync(
     if (rows.length === 0) missing++;
     for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
     offset += rows.length;
-    onProgress?.(offset, meta.chunks * CHUNK_SIZE);
+    onProgress?.(offset, meta.chunks * metaChunkSize(meta));
     // Minden adag után lélegzés: a felület közben kirajzolódik és válaszol.
     // 2.5.244: 4 adagonként elég lélegezni.
     if ((index + 1) % 4 === 0 || index + 1 === meta.chunks) await yieldToStorage();
@@ -2506,7 +2544,7 @@ export async function loadSeriesAsync(
         if (rows.length === 0) missingChunks++;
         for (const item of decodeSeries(rows, provider, offset)) series.push(item);
         offset += rows.length;
-        onProgress?.(offset, chunked.meta.chunks * CHUNK_SIZE);
+        onProgress?.(offset, chunked.meta.chunks * metaChunkSize(chunked.meta));
         if (!partialSent && series.length > 0) {
           partialSent = true;
           try { onPartial?.({ series: series.slice(), categories: decodeCategories(chunked.meta.cats, 'series') }); } catch { /* nem állítja meg a betöltést */ }
@@ -2552,7 +2590,7 @@ export async function loadSeriesAsync(
     if (rows.length === 0) missing++;
     for (const item of decodeSeries(rows, provider, offset)) series.push(item);
     offset += rows.length;
-    onProgress?.(offset, meta.chunks * CHUNK_SIZE);
+    onProgress?.(offset, meta.chunks * metaChunkSize(meta));
     await yieldToStorage();
   }
   const categories = readChunkedCategories(SERIES_META_KEY, 'series');

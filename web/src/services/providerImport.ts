@@ -276,12 +276,16 @@ const PROGRESS_UPDATE_EVERY = 500;
  */
 const UI_YIELD_EVERY = 1200;
 /*
- * A film/sorozat feldolgozás nagyobb kötegekben lélegzik (2.5.244): 1200 helyett
- * 4800 soronként egy yield, és csak 2000-szoronként progress – a 150 ezres
- * listánál ez ~30 yield és ~75 progress helyett korábbi ~125/300 helyett, ami
- * a TV-n több másodpercet takarít meg a feldolgozási szakaszból.
+ * A film/sorozat feldolgozás kötegeinek mérete (sor/yield).
+ *
+ * 2.5.244-ben ez 4800 volt, hogy kevesebb yield legyen – a #2 kézi napló
+ * (2026-11-01) azonban azt mutatta, hogy a gyenge TV-n egy 4800 soros köteg
+ * ~5–8 mp-ig BLOKKOLJA a főszálat (13× „LEÁLLÁS 3,4–8,2 s” a filmszakasz
+ * alatt, 12:18:50–12:19:53 között). A yield itt MessageChannel-alapú, tehát
+ * olcsó – 1200-szoronként (mint az élő listánál) a blokk ~1–2 mp lesz,
+ * összesen alig lassabb, de a felület közben válaszol.
  */
-const VOD_YIELD_EVERY = 4800;
+const VOD_YIELD_EVERY = 1200;
 const VOD_PROGRESS_EVERY = 2000;
 
 /**
@@ -1983,6 +1987,10 @@ async function refreshXtreamIncremental(
    * közvetlenül a teljes import következik.
    */
   onProgress({ phase: 'Mentett katalógus ellenőrzése…', percent: 2 });
+  // 2.5.245: szűretlen prefix – a #2 naplóban (2026-11-01) 38 mp-es „lyuk” volt
+  // az indulás és az import között, mert a SZOLGÁLTató-sorok kiszűrődtek.
+  const checkStartedAt = performance.now();
+  appLog('BETÖLTÉS [ellenőrzés] mentett katalógus keresése indul…');
   const localLive = loadLive();
   const catalogState = readCatalogStateSync();
   const presence = await storedCatalogPresence(provider.id);
@@ -1993,6 +2001,7 @@ async function refreshXtreamIncremental(
   );
   if (!hasStoredCatalog) {
     logProviderEvent('Nincs mentett katalógus: az első teljes import azonnal elindul, előzetes frissítési lekérések nélkül.');
+    appLog(`BETÖLTÉS [első import] nincs mentett katalógus (ellenőrzés: ${Math.round(performance.now() - checkStartedAt)} ms) – teljes import indul.`);
     const result = await importXtreamProvider(
       { name: provider.name, serverUrl: server, username: user, password: pass },
       onProgress,
