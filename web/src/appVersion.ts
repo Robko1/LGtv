@@ -16,6 +16,7 @@ export const WEB_VERSION_HISTORY = [
       'Csatornalogó-diagnosztika a kézi naplóban szűretlen prefixekkel (CSATORNALOGÓ, KATEGÓRIA): látszik, hogy a szolgáltató küld-e logót a HU csatornákhoz (stream_icon), és hova kerül a tárolóban.',
       'LOGÓ-HIÁNY jelentés kézi naplózásnál: pontosan felsorolja, mely magyar (HU) csatornákhoz nincs megjeleníthető logó; új saját magyar logótár (huChannelLogos), amelyből CSAK HU csatornák kapnak logót, ha a szolgáltatónak nincs.',
       'Teljes képernyőn a TV Doctor panelen kívül nincs többé fekete háttér: a lejátszó konténer, poszter, videó és töltő réteg átlátszó teljes képernyőn (a hibaüzenet félig áttetsző sötét marad az olvashatóságért).',
+      'Első letöltés gyorsítása a #2 kézi napló (2026-11-01) alapján: a filmek/sorozatok feldolgozása 4800 helyett 1200 soronként lélegzik (a naplóban 13× 3,4–8,2 mp-es főszál-leállás volt a filmszakaszban), a film/sorozat tartós mentése 500 helyett 2000 soros adagokba íródik (206 adag/37,3 mp helyett ~52 adag), és a mentési szakaszok külön IMPORT-FÁZIS sorokkal mérhetők (mentés-élő/filmek/sorozatok).',
     ],
   },
   {
