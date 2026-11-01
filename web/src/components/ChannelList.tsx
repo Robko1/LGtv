@@ -362,13 +362,19 @@ const ChannelListView: React.FC<ChannelListProps> = ({
      * A teljes képernyő csak SZÜNETELTETI az EPG-munkát: a már kiszámolt
      * műsoradatot NEM dobjuk el, különben a visszatéréskor egy pillanatra
      * üres EPG-sorok látszanának (ez volt a látható „újrarajzolás”).
-     * A tárolt adatot csak akkor töröljük, ha a lista tényleg más nézetbe
-     * kerül (nem élő TV) vagy nincs szolgáltató.
+     *
+     * 2.5.245: a Mozi/Sorozat nézetbe átlépés (a főoldali lista csak
+     * display:none lesz) szintén NEM törölheti az EPG-t – különben
+     * visszatéréskor minden sor újra „EPG betöltése…” felirattal indulna,
+     * és a lista adagokban (400 ms-os kötegekben) töltődne vissza =
+     * „szaggatva”. Az adatot csak akkor töröljük, ha nincs szolgáltató,
+     * vagy nem Xtream – ekkor tényleg érvénytelen.
      */
-    if (!isActive || !activeProvider || activeProvider.type !== 'xtream') {
+    if (!activeProvider || activeProvider.type !== 'xtream') {
       setLocalEpg({});
       return;
     }
+    if (!isActive) return; // csak elrejtett főoldal: az EPG-adat megmarad, visszatéréskor azonnal látszik
     // Új szolgáltatónál újra kiderül, hogy van-e rövid EPG.
     if (shortEpgProviderRef.current !== activeProvider.id) {
       shortEpgProviderRef.current = activeProvider.id;
@@ -1331,7 +1337,8 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         {/* A retryKey NEM a csatorna objektum: az EPG-frissítéskor
                           új objektum jön, ami feleslegesen újraindította a logó
                           betöltését minden sorban. Az egyedi azonosító stabil. */}
-                      <ChannelLogo url={ch.logo} name={ch.name} retryKey={ch.id} />
+                      {/* 2.5.245: countryCode átadása – csak HU csatornánál próbál a ChannelLogo saját tárolós (magyar) logót is. */}
+                      <ChannelLogo url={ch.logo} name={ch.name} retryKey={ch.id} countryCode={ch.countryCode} />
                       </div>
 
                       {/* Channel name, current EPG and real-time progress */}

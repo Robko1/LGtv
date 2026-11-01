@@ -1,33 +1,50 @@
 import React, { useEffect, useState } from 'react';
 import { APP_ICON_SMALL_DATA_URL } from '../generatedIcon';
 import { normalizeLogoUrl } from '../services/logoUrl';
+import { getHuChannelLogo } from '../services/huChannelLogos';
 
 /** retryKey: bármilyen stabil érték (pl. csatorna-azonosító) – változására újratölt. */
-interface Props { url?: string; name: string; retryKey?: unknown }
+interface Props { url?: string; name: string; retryKey?: unknown; countryCode?: string }
 
-/** A szolgáltatói logót közvetlenül tölti be, majd sikertelenségnél a gyorsítótárból próbálja visszaolvasni. */
-export const ChannelLogo: React.FC<Props> = ({ url, name, retryKey }) => {
+/*
+ * A szolgáltatói logót közvetlenül tölti be, majd sikertelenségnél a
+ * gyorsítótárból próbálja visszaolvasni.
+ *
+ * 2.5.245: magyar (HU) csatornánál a SAJÁT tárolóból (huChannelLogos) is
+ * kaphat logót – először akkor, ha a szolgáltatónak egyáltalán nincs
+ * stream_icon-ja, végső esetként pedig akkor is, ha a szolgáltatói logó
+ * betöltése sikertelen. CSAK countryCode==='HU' esetén – más ország
+ * csatornája soha nem kap magyar tárolós logót.
+ */
+export const ChannelLogo: React.FC<Props> = ({ url, name, retryKey, countryCode }) => {
   const normalizedUrl = normalizeLogoUrl(url);
-  return <LogoImage key={normalizedUrl} url={normalizedUrl} name={name} retryKey={retryKey} />;
+  const huLogo = countryCode === 'HU' ? normalizeLogoUrl(getHuChannelLogo(name)) : '';
+  const effectiveUrl = normalizedUrl || huLogo;
+  return <LogoImage key={effectiveUrl} url={effectiveUrl} name={name} retryKey={retryKey} huLogo={huLogo} />;
 };
 
-const LogoImage: React.FC<Props> = ({ url = '', name, retryKey }) => {
+const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retryKey, huLogo = '' }) => {
   const [source, setSource] = useState(url);
   const [failed, setFailed] = useState(false);
   const [cachedSource, setCachedSource] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [schemeAttempt, setSchemeAttempt] = useState(0);
+  // 2.5.245: a saját HU tárolós logót csak EGYSZER próbáljuk (különben a
+  // szolgáltatói URL és a saját logó között végtelen újrapróbálkozás lenne).
+  const [huTried, setHuTried] = useState(false);
 
   useEffect(() => {
     setSource(url);
     setFailed(false);
     setCachedSource('');
     setSchemeAttempt(0);
+    setHuTried(false);
     const retry = () => {
       setSource(url);
       setFailed(false);
       setCachedSource('');
       setSchemeAttempt(0);
+      setHuTried(false);
       setAttempt((value) => value + 1);
     };
     window.addEventListener('online', retry);
@@ -95,6 +112,12 @@ const LogoImage: React.FC<Props> = ({ url = '', name, retryKey }) => {
         } else if (schemeAttempt === 1 && /^https:\/\//i.test(source) && /^http:\/\//i.test(url)) {
           setSchemeAttempt(2);
           setSource(url);
+        } else if (huLogo && !huTried && source !== huLogo) {
+          // 2.5.245: a szolgáltatói logó nem töltődött be – magyar csatornánál
+          // a saját tároló (huChannelLogos) próbálkozik tovább (csak egyszer).
+          setHuTried(true);
+          setSchemeAttempt(0);
+          setSource(huLogo);
         } else if (cachedSource) {
           setCachedSource('');
           setFailed(true);

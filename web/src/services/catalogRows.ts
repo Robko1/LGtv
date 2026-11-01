@@ -19,15 +19,57 @@ export type CatalogRow = Array<string | number>;
  * objektum – elég ez a néhány bájtos ujjlenyomat.
  */
 export function rawItemSignature(raw: unknown): string {
-  let text = '';
-  try { text = JSON.stringify(raw) || ''; } catch { text = ''; }
+  /*
+   * 2.5.245 – GYORSÍTÁS: korábban itt a TELJES nyers objektumot
+   * JSON.stringify-oltuk (150 000 filmnél ez elemenként több KB string +
+   * teljes bejárás = az első import egyik leglassabb lépése). Most csak a
+   * változás-összevetéshez releváns mezőket olvassuk ki közvetlenül, és
+   * FNV-1a hash-sel ujjlenyomatot képezünk belőlük – a hosszú szöveges mezők
+   * (plot, leírás, szereplők) helyett csak a hosszukat keverjük be (O(1)).
+   * A tárolt formátum (string) változatlan; a képlet egyszeri megváltozása
+   * miatt a következő frissítés egyszer minden elemet „megváltozottnak” lát,
+   * de a különbség-számláló felső határa ezt korlátozza.
+   */
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   let hash = 2166136261;
-  for (let index = 0; index < text.length; index++) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
+  for (let index = 0; index < SIGNATURE_SHORT_KEYS.length; index++) {
+    const key = SIGNATURE_SHORT_KEYS[index];
+    if (key in record) {
+      const value = String(record[key]);
+      for (let i = 0; i < value.length; i++) {
+        hash ^= value.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      hash ^= 59; // mezőelválasztó
+      hash = Math.imul(hash, 16777619);
+    }
   }
-  return `${(hash >>> 0).toString(36)}:${text.length}`;
+  for (let index = 0; index < SIGNATURE_LONG_KEYS.length; index++) {
+    const value = record[SIGNATURE_LONG_KEYS[index]];
+    if (typeof value === 'string' && value) {
+      const len = String(value.length);
+      for (let i = 0; i < len.length; i++) {
+        hash ^= len.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      hash ^= 59;
+      hash = Math.imul(hash, 16777619);
+    }
+  }
+  return (hash >>> 0).toString(36);
 }
+
+/** Ujjlenyomathoz használt rövid mezők (értékük számít). */
+const SIGNATURE_SHORT_KEYS = [
+  'stream_id', 'series_id', 'name', 'category_id', 'category_name', 'category_ids',
+  'stream_icon', 'stream_type', 'container_extension', 'poster', 'cover', 'cover_image',
+  'backdrop_path', 'rating', 'rating_5based', 'year', 'release_date', 'releaseDate',
+  'added', 'last_modified', 'tmdb_id', 'youtube_trailer', 'episode_run_time',
+  'duration_secs', 'bitrate', 'group_title', 'custom_sid', 'epg_channel_id', 'num',
+];
+
+/** Hosszú szöveges mezők: csak a hosszuk számít az ujjlenyomatba (O(1)). */
+const SIGNATURE_LONG_KEYS = ['plot', 'description', 'cast', 'director', 'crew', 'actors', 'genre', 'info', 'about', 'notes'];
 
 /** A lista-válasz minden mezőjét megőrizzük; a normalizált mezők csak gyors megjelenítést adnak. */
 export function movieRowFromRaw(

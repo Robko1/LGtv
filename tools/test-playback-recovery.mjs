@@ -247,10 +247,16 @@ check(/switchInProgressRef\.current\) return;/.test(PLAYER),
  * betöltés felirat háttere FEKETE (korábban világoskék/türkiz volt). A réteg
  * továbbra is csak a „még nincs képkocka” ágban jelenik meg, tehát a már
  * futó adást nem takarja el.
+ * 2.5.245: TELJES KÉPERNYŐN viszont a töltő réteg (és a konténer, poszter,
+ * videó elem) ÁTLÁTSZÓ – teljes képernyőn a TV Doctor panelen kívül ne
+ * legyen fekete háttér.
  */
 check(/currentStreamHasFrame \? \(/.test(PLAYER) && /data-playback-loading=""/.test(PLAYER)
-  && /bg-black z-10 pointer-events-none/.test(PLAYER),
-  'a töltő réteg csak képkocka előtt jelenik meg, és FEKETE (2.5.165)');
+  && /\$\{isFullscreen \? 'bg-transparent' : 'bg-black'\} z-10 pointer-events-none/.test(PLAYER),
+  'a töltő réteg csak képkocka előtt jelenik meg; főoldalon FEKETE (2.5.165), teljes képernyőn átlátszó (2.5.245)');
+check(/\$\{nativeHandoff \|\| isFullscreen \? 'bg-transparent' : 'bg-black'\}/.test(PLAYER)
+  && (PLAYER.match(/\$\{isFullscreen \? 'bg-transparent' : 'bg-black'\}/g) || []).length >= 2,
+  'teljes képernyőn a lejátszó konténer, poszter- és videó-háttere átlátszó (2.5.245)');
 check(!/bg-\[#0b1c24\]|bg-\[#0d2630\]/.test(PLAYER),
   'a lejátszó dobozán nincs többé világoskék (türkiz) háttér');
 check(/data-playback-status/.test(PLAYER)
@@ -281,10 +287,11 @@ check(/PERSIST_DELAY_MS = 5000/.test(APPLOG)
   'a diagnosztikai napló összevontan ment és nem soronként végzi a lejárat-ellenőrzést');
 check(/activeView !== 'live' \|\| customStreamUrl/.test(APP)
   && /isActive=\{activeView === 'live'/.test(APP)
-  && /if \(!isActive \|\| !activeProvider \|\| activeProvider\.type !== 'xtream'\) \{/.test(CHANNEL_LIST)
+  && /if \(!activeProvider \|\| activeProvider\.type !== 'xtream'\) \{\s*setLocalEpg\(\{\}\);/.test(CHANNEL_LIST)
+  && /if \(!isActive\) return;/.test(CHANNEL_LIST)
   && /if \(!epgActive \|\| !epgReady\) return;/.test(CHANNEL_LIST)
   && /const epgActive = isActive && !epgPaused;/.test(CHANNEL_LIST),
-  'a rejtett filmnézetben az EPG-előtöltés és az óra nem fut háttérben');
+  'a rejtett filmnézetben az EPG-munka nem fut háttérben, de az adat megmarad – visszatéréskor villámgyorsan, szaggatás nélkül (2.5.245)');
 // 2.5.239: a formázó a TV saját időzónáját használja (localFormatter), de
 // továbbra is EGYETLEN, gyorsítótárazott Intl példány.
 check(/localFormatter\(\)\.formatToParts\(date\)/.test(APPLOG)

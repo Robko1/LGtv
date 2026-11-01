@@ -91,7 +91,7 @@ export const FullscreenLiveOsd: React.FC<{
         <div className="flex min-w-0 items-center gap-3">
           <span className={`flex h-14 w-14 shrink-0 items-center justify-center text-4xl font-black leading-none tabular-nums ${accentTextClass[liveAccent]}`}>{displayNumber ?? channel.num}</span>
           <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-black/30">
-            <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
+            <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} countryCode={channel.countryCode} />
           </div>
           <span className="max-w-[55vw] truncate text-xl font-semibold drop-shadow-lg">{channel.name}</span>
         </div>
@@ -224,7 +224,7 @@ export const ChannelControls: React.FC<ChannelControlsProps> = ({
       <div className={`relative flex w-full items-center shrink-0 ${compactMainOsd ? 'h-20 min-h-20 max-h-20 gap-2 px-1 pt-0' : 'gap-3 px-2'}`}>
         {compactMainOsd && <div className="shrink-0 w-10 h-full flex items-center justify-center text-cyan-300 text-3xl font-black tracking-tight leading-none">{displayNumber ?? '—'}</div>}
         <div className={`relative shrink-0 rounded-xl bg-[#0e1e3e] border border-cyan-700/70 p-1.5 flex items-center justify-center overflow-hidden shadow-inner ${compactMainOsd ? 'w-24 h-20' : 'w-20 h-16 sm:w-24 sm:h-20'}`}>
-          <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} />
+          <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel} countryCode={channel.countryCode} />
           {!compactMainOsd && <span className="absolute -top-0.5 -left-0.5 rounded-br-md bg-[#0e1d3b] px-1.5 py-0.5 text-sm sm:text-base text-cyan-300 font-black tracking-wide leading-none">{displayNumber ?? '—'}</span>}
         </div>
         <div className={`min-w-0 flex-1 h-full flex flex-col justify-center text-center ${compactMainOsd ? 'px-1 gap-1' : 'text-left gap-1'}`}>

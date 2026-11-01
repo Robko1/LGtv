@@ -1079,7 +1079,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                                 className="flex items-center gap-2 rounded-xl p-2 border transition-colors bg-[#09152b] border-slate-700"
                               >
                                 <div className="w-9 h-7 rounded-md bg-black/20 border border-slate-700 p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
-                                  <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel.id} />
+                                  <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel.id} countryCode={channel.countryCode} />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="text-xs font-bold text-slate-100 truncate">{channel.name}</div>
