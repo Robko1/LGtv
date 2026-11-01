@@ -6,6 +6,7 @@ import { enrichVodItemOnOpen } from '../services/vodEnrich';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 import { formatRuntime } from '../utils/vodDisplay';
 import { normalizeTvKey } from '../utils/tvKeys';
+import { yearFromTitle } from '../services/catalogRows';
 import { PosterImage } from './PosterImage';
 
 type VodItem = Movie | Series;
@@ -25,6 +26,12 @@ interface Props {
    */
   provider?: ProviderRef | null;
   onItemEnriched?: (item: VodItem) => void;
+  /*
+   * 2.5.255 (#7): a hívó (Mozi/Sorozat nézet) ide adja a saját ref-jét, hogy
+   * megnyitáskor a fókusz rögtön a kék LEJÁTSZÁS (data-dialog-primary) gombra
+   * kerüljön, ne a bezáró X-en maradjon.
+   */
+  dialogRef?: React.Ref<HTMLDivElement>;
 }
 
 /**
@@ -47,8 +54,15 @@ interface Props {
  *  pótolja őket (lásd enrichVodItemOnOpen); teljes adatoknál továbbra sincs
  *  kérés, és az eredmény tartósan elmentődik.
  */
-export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose, onPlayMovie, onPlayEpisode, provider, onItemEnriched }) => {
+export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose, onPlayMovie, onPlayEpisode, provider, onItemEnriched, dialogRef }) => {
   const { modalRef: panelRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(true, onClose, [itemProp.id]);
+  /* 2.5.255: a belső és a külső (hívó) ref egyszerre töltődik. */
+  const setPanelRef = (el: HTMLDivElement | null) => {
+    (panelRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    if (!dialogRef) return;
+    if (typeof dialogRef === "function") dialogRef(el);
+    else (dialogRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+  };
   /*
    * 2.5.249: megnyitáskori dúsítás – a „item” változó a dúsított elemet is
    * láthatja, így a fejlécben (év, játékidő) és a háttérképen azonnal megjelenik.
@@ -98,15 +112,15 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose,
   };
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-3 md:p-6" onClick={handleBackdropClick}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4 md:p-10" onClick={handleBackdropClick}>
       <div
-        ref={panelRef}
+        ref={setPanelRef}
         role="dialog"
         aria-modal="true"
         aria-label={`${item.title} adatlap`}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleDetailKeyDown}
-        className="relative flex h-[94vh] w-full max-w-[1600px] flex-col overflow-hidden rounded-3xl border border-cyan-700/50 shadow-2xl"
+        className="relative flex h-[84vh] w-full max-w-[1120px] flex-col overflow-hidden rounded-3xl border border-cyan-700/50 shadow-2xl"
       >
         {/* Háttérkép: kitölti a teljes adatlapot, nagy méretben (tartós tárolóból vagy URL-ről). */}
         <PosterImage
@@ -118,8 +132,10 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose,
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/45 to-black/60" />
 
-        <button type="button" onClick={onClose} aria-label="Adatlap bezárása" className="absolute right-4 top-4 z-20 rounded-full bg-black/70 p-3 text-white border border-white/20 hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
-          <X className="h-6 w-6" />
+        {/* 2.5.255: kisebb, jól látható X a doboz saját sarkában (a kisebb
+            doboz miatt nincs többé a képernyő szélére tolva/takarva). */}
+        <button type="button" onClick={onClose} aria-label="Adatlap bezárása" className="absolute right-3 top-3 z-20 rounded-full bg-black/60 p-2.5 text-white border border-white/30 hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
+          <X className="h-5 w-5" />
         </button>
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
@@ -137,7 +153,7 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose,
             <div className="min-w-0 flex-1 pb-1">
               <h2 className="truncate text-3xl md:text-5xl xl:text-6xl font-black leading-tight text-white drop-shadow-lg">{item.title}</h2>
               <div className="mt-3 flex flex-wrap items-center gap-4 text-lg md:text-2xl font-bold">
-                {item.year > 0 && <span className="text-amber-300">{item.year}</span>}
+                {(() => { const y = item.year > 0 ? item.year : yearFromTitle(item.title); return y > 0 ? <span className="text-amber-300">{y}</span> : null; })()}
                 {formatRuntime(item.durationMinutes) && (
                   <span className="flex items-center gap-1.5 text-cyan-200">
                     <Clock className="h-5 w-5 shrink-0" />

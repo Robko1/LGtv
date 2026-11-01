@@ -334,6 +334,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
         <VodDetailSheet
           kind="series"
           item={selectedSeries}
+          dialogRef={detailDialogRef}
           isFavorite={Boolean(selectedSeries.isFavorite)}
           onClose={() => setSelectedSeriesId('')}
           onToggleFavorite={() => onToggleFavoriteSeries(selectedSeries.id)}

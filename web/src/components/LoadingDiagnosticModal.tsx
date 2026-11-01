@@ -217,8 +217,10 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
               onClick={() => (onAbort ? onAbort() : onClose())}
               aria-label={onAbort ? 'Leállítás és kilépés' : 'Bezárás'}
               title={onAbort ? 'Leállítás és kilépés' : 'Bezárás'}
-              /* 2.5.241: a néző kérésére az X sima FEHÉR, nem piros. */
-              className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-xl border-2 border-white/70 bg-slate-800/60 text-white text-2xl sm:text-3xl font-black leading-none flex items-center justify-center hover:bg-slate-700/70 focus:bg-white focus:text-slate-950 focus:outline-none focus:ring-4 focus:ring-white/80 transition-all"
+              /* 2.5.241: a néző kérésére az X sima FEHÉR, nem piros.
+               * 2.5.255 (#7 képernyőkép): KIJELÖLVE sincs fehér háttér –
+               * csak a sima fehér ✕ látszik (vékony fehér körvonalon). */
+              className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-xl border-2 border-white/70 bg-slate-800/60 text-white text-2xl sm:text-3xl font-black leading-none flex items-center justify-center hover:bg-slate-700/70 focus:bg-transparent focus:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 transition-all"
             >
               ✕
             </button>

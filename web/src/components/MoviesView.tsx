@@ -6,6 +6,7 @@ import { VodDetailSheet } from './VodDetailSheet';
 import { Sparkles, Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatRuntime } from '../utils/vodDisplay';
+import { yearFromTitle } from '../services/catalogRows';
 
 interface MoviesViewProps {
   movies: Movie[];
@@ -312,7 +313,8 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                       Év balra, játékidő jobbra – egyetlen vízszintes sorban. */}
                   <div className="mt-1 flex min-h-6 items-center justify-between gap-2">
                     <span className="min-w-0 truncate text-base sm:text-lg font-bold text-amber-300">
-                      {mov.year > 0 ? mov.year : ''}
+                      {/* 2.5.255 (#7): év akkor is látszik, ha csak a címből olvasható ki. */}
+                      {mov.year > 0 ? mov.year : yearFromTitle(mov.title) || ''}
                     </span>
                     {formatRuntime(mov.durationMinutes) && (
                       <span className="flex min-w-0 items-center justify-end gap-1 truncate text-sm sm:text-base font-bold text-cyan-200">
@@ -332,6 +334,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
         <VodDetailSheet
           kind="movie"
           item={selectedMovie}
+          dialogRef={detailDialogRef}
           isFavorite={Boolean(selectedMovie.isFavorite)}
           onClose={() => setSelectedMovieId(null)}
           onToggleFavorite={() => onToggleFavoriteMovie(selectedMovie.id)}
