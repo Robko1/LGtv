@@ -7,6 +7,7 @@ import { Sparkles, Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatRuntime } from '../utils/vodDisplay';
 import { yearFromTitle } from '../services/catalogRows';
+import { enrichMovieDurationsInBackground } from '../services/vodEnrich';
 
 interface MoviesViewProps {
   movies: Movie[];
@@ -185,6 +186,25 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     const frame = window.requestAnimationFrame(() => { void worker(); void worker(); void worker(); });
     return () => { cancelled = true; window.cancelAnimationFrame(frame); };
   }, [isActive, visibleMovies]);
+
+  /*
+   * 2.5.257 (#8): a látható filmadagból hiányzó JÁTÉKIDŐ háttérben pótlódik
+   * (legfeljebb 25 kérés adagonként, 2 párhuzamosan), az eredmény tartósan
+   * elmentődik és a kártyára kerül – így görgetés közben minden posteren
+   * ott a „NN perc”. Minden film csak egyszer kérdezhető le (halmaz).
+   */
+  const durationRequestedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isActive || !activeProvider || activeProvider.type !== 'xtream') return;
+    const missing = visibleMovies.filter(
+      (m) => m.streamId !== undefined && !m.durationMinutes && !m.detailProviderData && !durationRequestedRef.current.has(m.id),
+    );
+    if (!missing.length) return;
+    const requested = durationRequestedRef.current;
+    if (requested.size > 5000) requested.clear();
+    for (const m of missing) requested.add(m.id);
+    void enrichMovieDurationsInBackground(activeProvider, missing, (enriched) => onVodItemEnriched?.(enriched));
+  }, [isActive, visibleMovies, activeProvider, onVodItemEnriched]);
 
 
   return (

@@ -65,3 +65,45 @@ export async function enrichVodItemOnOpen(
     return null;
   }
 }
+
+/*
+ * 2.5.257 (#8 visszajelzés): a MOZI rács éppen látható kártyáihoz háttérben,
+ * kis párhuzamossággal (2) lekérjük a hiányzó játékidőt (get_vod_info), és az
+ * eredményt egyrészt tartósan elmentjük (saveCatalogExtras), másrészt
+ * visszaadjuk – így görgetés közben a posztereken megjelenik a „NN perc”.
+ * Import közben továbbra is csak az első 25 film előmelegszik
+ * (lásd providerImport moviePrewarm) – itt csak a tényleg látható adag.
+ */
+export async function enrichMovieDurationsInBackground(
+  provider: ProviderRef,
+  movies: Movie[],
+  onEach?: (movie: Movie) => void,
+): Promise<void> {
+  if (!provider || provider.type !== 'xtream' || !provider.serverUrl) return;
+  const server = xtreamService.cleanUrl(provider.serverUrl);
+  const user = (provider.username || '').trim();
+  const pass = (provider.password || '').trim();
+  if (!server || !user) return;
+  const targets = (Array.isArray(movies) ? movies : [])
+    .filter((movie) => movie.streamId !== undefined && !movie.durationMinutes && !movie.detailProviderData)
+    .slice(0, 25);
+  if (!targets.length) return;
+  let cursor = 0;
+  const pending: Movie[] = [];
+  const worker = async (): Promise<void> => {
+    while (cursor < targets.length) {
+      const movie = targets[cursor++];
+      try {
+        const detail = await xtreamService.vodInfo(server, user, pass, movie.streamId as number);
+        const merged = applyMovieMetadata(movie, parseVodMetadata(detail));
+        if (merged.durationMinutes > 0 || merged.year > 0) {
+          pending.push(merged);
+          onEach?.(merged);
+          if (pending.length >= 10) await saveCatalogExtras(provider.id, pending.splice(0, pending.length), []);
+        }
+      } catch { /* egy sikertelen kérés nem állítja le a többit */ }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  if (pending.length) await saveCatalogExtras(provider.id, pending, []);
+}

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { APP_ICON_SMALL_DATA_URL } from '../generatedIcon';
 import { normalizeLogoUrl } from '../services/logoUrl';
-import { getHuChannelLogo } from '../services/huChannelLogos';
+import { getHuChannelLogo, getHuLogoCachedImage, cacheHuLogoDataUrl } from '../services/huChannelLogos';
 import { appLog } from '../services/appLog';
 
 /* 2.5.247: végleges logóbetöltési hiba naplózása (korlátosan) – a #3 napló még
@@ -50,13 +50,20 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
   const advanceFailureRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    setSource(url);
+    /*
+     * 2.5.257 (#8): ha a saját HU logó képe már a helyi tárolóban
+     * (localStorage, data-URL) van, azt használjuk – újraindítás után így
+     * rögtön, hálózati kérés és átrendeződés nélkül jelenik meg a logó.
+     * Nem-HU csatornánál (huLogo üres) az út változatlan.
+     */
+    const huCached = huLogo ? getHuLogoCachedImage(url) : undefined;
+    setSource(huCached || url);
     setFailed(false);
     setCachedSource('');
     setSchemeAttempt(0);
     setHuTried(false);
     const retry = () => {
-      setSource(url);
+      setSource(huCached || url);
       setFailed(false);
       setCachedSource('');
       setSchemeAttempt(0);
@@ -65,7 +72,7 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
     };
     window.addEventListener('online', retry);
     return () => window.removeEventListener('online', retry);
-  }, [url, retryKey]);
+  }, [url, retryKey, huLogo]);
 
   useEffect(() => {
     return () => {
@@ -173,7 +180,13 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
       // és akkora memóriát jelentett, hogy a rendszer leállította a beágyazott böngészőt.
       loading="lazy"
       decoding="async"
-      onLoad={() => { settledRef.current = true; void saveCachedLogo(source); }}
+      // 2.5.257: saját HU logónál a képet egyszer letöltve data-URL-ként is
+      // elmentjük a localStorage-ba (nem-HU úton változatlan a CacheStorage).
+      onLoad={() => {
+        settledRef.current = true;
+        if (huLogo) void cacheHuLogoDataUrl(source);
+        else void saveCachedLogo(source);
+      }}
       onError={() => { settledRef.current = true; advanceFailure(); }}
     />
   );
