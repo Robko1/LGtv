@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.252';
+export const WEB_VERSION = '2.5.253';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,18 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.253',
+    date: '2026-11-01',
+    changes: [
+      'Magyar csatornalogók (#6 képernyőképek): HU csatornánál mostantól CSAK a saját logót használjuk és a szolgáltatói logót egyáltalán nem kérjük le (a picons szerver beragadása miatt a főoldalon várakozás/lassulás volt); a HU_CHANNEL_LOGOS tábla a tv-logo/tv-logos gyűjtemény összes magyar logójára ki van töltve (100+ csatorna), a keresés „[HU]” előtag és HD/UHD/TV utótag nélkül is működik; ha nincs saját logó, rögtön app-ikon, hálózati kérés nélkül. A kézi napló most kiírja az összes magyar csatorna nevét és kulcsát (HU CSATORNANEVEK), hogy a hiányzó logók könnyen pótolhatók legyenek.',
+      'Film/sorozat lejátszásakor (nem teljes képernyőn) a csatornalista helyén fekete takarás jelenik meg – nem a főoldal (#6 képernyőkép); a lista közben rejtve marad a DOM-ban, visszatéréskor minden megmarad.',
+      'Újraindítás után a Mozi/Sorozat első adaga (500-500 elem) rögtön megjelenik visszatöltéskor – poszterek és darabszám azonnal, nem kell megvárni a teljes listát; a teljes lista továbbra is a végén, egyben érkezik.',
+      'Filmkártyák: ha a bulk lista nem küld évet, a cím végéről olvassuk ki („… (2019)” → 2019), így több kártyán jelenik meg az évszám.',
+      'VOD adatlap (mozi ÉS sorozat közös, egy helyen): a fejléc tartalma függőlegesen középre kerül, a kis poszter nincs a bal felső sarokban és az X nem takarja (#6 képernyőkép).',
+      'TV Doktor ablak teljes képernyőn: a fekete háttér átlátszóvá vált, mögötte a lejátszó látszik.',
+    ],
+  },
   {
     version: '2.5.252',
     date: '2026-11-01',

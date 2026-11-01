@@ -71,6 +71,16 @@ const SIGNATURE_SHORT_KEYS = [
 /** Hosszú szöveges mezők: csak a hosszuk számít az ujjlenyomatba (O(1)). */
 const SIGNATURE_LONG_KEYS = ['plot', 'description', 'cast', 'director', 'crew', 'actors', 'genre', 'info', 'about', 'notes'];
 
+/*
+ * 2.5.253 (#6): ha a bulk lista nem küld year mezőt, az évet a címből is
+ * kiolvassuk („NF - The Irishman (2019)” → 2019), így a kártyán több filmnél
+ * is megjelenik az évszám.
+ */
+function yearFromTitle(name: string): number {
+  const match = name.match(/\((1[89]\d{2}|20\d{2})\)\s*$/);
+  return match ? Number(match[1]) : 0;
+}
+
 /** A lista-válasz minden mezőjét megőrizzük; a normalizált mezők csak gyors megjelenítést adnak. */
 export function movieRowFromRaw(
   raw: Record<string, unknown>,
@@ -84,7 +94,7 @@ export function movieRowFromRaw(
     category.name,
     meta.poster || String(raw.stream_icon || ''),
     0, // értékelés nem szükséges a filmkatalógus importjához
-    meta.year || 0,
+    meta.year || yearFromTitle(String(raw.name || '')),
     String(raw.container_extension || 'mp4'),
     '', // tartalom/leírás nem szükséges
     0,
@@ -115,7 +125,7 @@ export function seriesRowFromRaw(raw: Record<string, unknown>, category: { id: s
     category.name,
     meta.poster || String(raw.cover || ''),
     0,
-    meta.year || 0,
+    meta.year || yearFromTitle(String(raw.name || '')),
     '',
     0,
     0,

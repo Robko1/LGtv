@@ -39,6 +39,8 @@ interface TvDoctorStatusModalProps {
   onClose: () => void;
   settings: AppSettings;
   activeChannel?: Channel | null;
+  /* 2.5.253: teljes képernyőn a háttér átlátszó legyen (a lejátszó látszódjon). */
+  isFullscreen?: boolean;
 }
 
 /**
@@ -158,6 +160,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
   onClose,
   settings,
   activeChannel,
+  isFullscreen = false,
 }) => {
   const [, setUiTick] = useState(0);
   const [resetFeedback, setResetFeedback] = useState(false);
@@ -503,7 +506,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       aria-modal="true"
       aria-label="TV Doktor állapot és napló"
       style={{ zIndex: TV_DOCTOR_MODAL_Z_INDEX }}
-      className="fixed inset-0 flex items-center justify-center bg-black/88 p-3 sm:p-5 select-none"
+      className={`fixed inset-0 flex items-center justify-center p-3 sm:p-5 select-none ${isFullscreen ? 'bg-transparent' : 'bg-black/88'}`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

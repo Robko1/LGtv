@@ -44,67 +44,106 @@ export function normalizeChannelName(name: string): string {
 const TV_LOGOS_HU = 'https://raw.githubusercontent.com/tv-logo/tv-logos/master/countries/hungary/';
 
 export const HU_CHANNEL_LOGOS: Record<string, string> = {
-  // MTVA / közszolgálati
-  'm1': `${TV_LOGOS_HU}m1-hu.png`,
-  'm1 hd': `${TV_LOGOS_HU}m1-hu.png`,
-  'm1 uhd': `${TV_LOGOS_HU}m1-hu.png`,
-  'm2': `${TV_LOGOS_HU}m2-hu.png`,
-  'm2 hd': `${TV_LOGOS_HU}m2-hu.png`,
-  'm2 uhd': `${TV_LOGOS_HU}m2-hu.png`,
-  'm2 petofi': `${TV_LOGOS_HU}m2-petofi-hu.png`,
-  'm4 sport': `${TV_LOGOS_HU}m4-sport-hu.png`,
-  'm4 sport plus': `${TV_LOGOS_HU}m4-sport-plus-hu.png`,
-  'm4 uhd': `${TV_LOGOS_HU}m4-sport-hu.png`,
-  'm5': `${TV_LOGOS_HU}m5-hu.png`,
-  'm5 hd': `${TV_LOGOS_HU}m5-hu.png`,
-  'm5 uhd': `${TV_LOGOS_HU}m5-hu.png`,
-  'duna': `${TV_LOGOS_HU}duna-hu.png`,
-  'duna world': `${TV_LOGOS_HU}duna-world-hu.png`,
-  // RTL-csoport
-  'rtl': `${TV_LOGOS_HU}rtl-hu.png`,
+  '9tv': `${TV_LOGOS_HU}9tv-hu`,
+  'amc': `${TV_LOGOS_HU}amc-hu`,
+  'arena4': `${TV_LOGOS_HU}arena4-hu`,
+  'atv extra': `${TV_LOGOS_HU}atv-extra-hu`,
+  'atv': `${TV_LOGOS_HU}atv-hu`,
+  'axn': `${TV_LOGOS_HU}axn-hu`,
+  'balkanika music television': `${TV_LOGOS_HU}balkanika-music-television-hu`,
+  'cinemax': `${TV_LOGOS_HU}cinemax-hu`,
+  'cinemax2': `${TV_LOGOS_HU}cinemax2-hu`,
+  'comedy central family': `${TV_LOGOS_HU}comedy-central-family-hu`,
+  'cool tv': `${TV_LOGOS_HU}cool-tv-hu`,
+  'd1': `${TV_LOGOS_HU}d1-hu`,
+  'da vinci': `${TV_LOGOS_HU}da-vinci-hu`,
+  'dikh tv': `${TV_LOGOS_HU}dikh-tv-hu`,
+  'duna': `${TV_LOGOS_HU}duna-hu`,
+  'duna world': `${TV_LOGOS_HU}duna-world-hu`,
+  'epic drama': `${TV_LOGOS_HU}epic-drama-hu`,
+  'estv': `${TV_LOGOS_HU}estv-hu`,
+  'fem3': `${TV_LOGOS_HU}fem3-hu`,
+  'film cafe': `${TV_LOGOS_HU}film-cafe-hu`,
+  'film plus': `${TV_LOGOS_HU}film-plus-hu`,
+  'film4': `${TV_LOGOS_HU}film4-hu`,
+  'filmbox extra': `${TV_LOGOS_HU}filmbox-extra-hu`,
+  'filmbox family': `${TV_LOGOS_HU}filmbox-family-hu`,
+  'filmbox': `${TV_LOGOS_HU}filmbox-hu`,
+  'filmbox premium': `${TV_LOGOS_HU}filmbox-premium-hu`,
+  'filmbox stars': `${TV_LOGOS_HU}filmbox-stars-hu`,
+  'fix': `${TV_LOGOS_HU}fix-hu`,
+  'galaxy4': `${TV_LOGOS_HU}galaxy4-hu`,
+  'game toon': `${TV_LOGOS_HU}game-toon-hu`,
+  'hbo': `${TV_LOGOS_HU}hbo-hu`,
+  'hbo2': `${TV_LOGOS_HU}hbo2-hu`,
+  'hbo3': `${TV_LOGOS_HU}hbo3-hu`,
+  'hir tv': `${TV_LOGOS_HU}hir-tv-hu`,
+  'izaura tv': `${TV_LOGOS_HU}izaura-tv-hu`,
+  'jocky tv': `${TV_LOGOS_HU}jocky-tv-hu`,
+  'life tv': `${TV_LOGOS_HU}life-tv-hu`,
+  'm1': `${TV_LOGOS_HU}m1-hu`,
+  'm2': `${TV_LOGOS_HU}m2-hu`,
+  'm2 petofi': `${TV_LOGOS_HU}m2-petofi-hu`,
+  'm4 sport': `${TV_LOGOS_HU}m4-sport-hu`,
+  'm4 sport plus': `${TV_LOGOS_HU}m4-sport-plus-hu`,
+  'm5': `${TV_LOGOS_HU}m5-hu`,
+  'magyar mozi tv': `${TV_LOGOS_HU}magyar-mozi-tv-hu`,
+  'match4': `${TV_LOGOS_HU}match4-hu`,
+  'max4': `${TV_LOGOS_HU}max4-hu`,
+  'mezzo': `${TV_LOGOS_HU}mezzo-hu`,
+  'minimax': `${TV_LOGOS_HU}minimax-hu`,
+  'movies 24': `${TV_LOGOS_HU}movies-24-hu`,
+  'mozi plus': `${TV_LOGOS_HU}mozi-plus-hu`,
+  'moziverzum': `${TV_LOGOS_HU}moziverzum-hu`,
+  'music plus': `${TV_LOGOS_HU}music-plus-hu`,
+  'muzsika tv': `${TV_LOGOS_HU}muzsika-tv-hu`,
+  'ozone tv': `${TV_LOGOS_HU}ozone-tv-hu`,
+  'paramount network': `${TV_LOGOS_HU}paramount-network-hu`,
+  'prime': `${TV_LOGOS_HU}prime-hu`,
+  'rakosmente tv': `${TV_LOGOS_HU}rakosmente-tv-hu`,
+  'rtl gold': `${TV_LOGOS_HU}rtl-gold-hu`,
+  'rtl harom': `${TV_LOGOS_HU}rtl-harom-hu`,
+  'rtl': `${TV_LOGOS_HU}rtl-hu`,
+  'rtl ketto': `${TV_LOGOS_HU}rtl-ketto-hu`,
+  'slager tv': `${TV_LOGOS_HU}slager-tv-hu`,
+  'sorozat plus': `${TV_LOGOS_HU}sorozat-plus-hu`,
+  'spektrum home': `${TV_LOGOS_HU}spektrum-home-hu`,
+  'spektrum': `${TV_LOGOS_HU}spektrum-hu`,
+  'spiler 1': `${TV_LOGOS_HU}spiler-1-hu`,
+  'spiler 2': `${TV_LOGOS_HU}spiler-2-hu`,
+  'spiler extra': `${TV_LOGOS_HU}spiler-extra-hu`,
+  'sport1': `${TV_LOGOS_HU}sport1-hu`,
+  'sport2': `${TV_LOGOS_HU}sport2-hu`,
+  'sport3': `${TV_LOGOS_HU}sport3-hu`,
+  'story4': `${TV_LOGOS_HU}story4-hu`,
+  'super one': `${TV_LOGOS_HU}super-one-hu`,
+  'the fishing and hunting channel': `${TV_LOGOS_HU}the-fishing-and-hunting-channel-hu`,
+  'travelxp': `${TV_LOGOS_HU}travelxp-hu`,
+  'tv paprika': `${TV_LOGOS_HU}tv-paprika-hu`,
+  'tv10': `${TV_LOGOS_HU}tv10-hu`,
+  'tv2 comedy': `${TV_LOGOS_HU}tv2-comedy-hu`,
+  'tv2': `${TV_LOGOS_HU}tv2-hu`,
+  'tv2 kids': `${TV_LOGOS_HU}tv2-kids-hu`,
+  'tv2 klub': `${TV_LOGOS_HU}tv2-klub-hu`,
+  'tv2 sef': `${TV_LOGOS_HU}tv2-sef-hu`,
+  'tv2 sport': `${TV_LOGOS_HU}tv2-sport-hu`,
+  'tv2 sport plus': `${TV_LOGOS_HU}tv2-sport-plus-hu`,
+  'tv2 super': `${TV_LOGOS_HU}tv2-super-hu`,
+  'tv4': `${TV_LOGOS_HU}tv4-hu`,
+  'ujbuda tv': `${TV_LOGOS_HU}ujbuda-tv-hu`,
+  'viasat explore': `${TV_LOGOS_HU}viasat-explore-hu`,
+  'viasat film': `${TV_LOGOS_HU}viasat-film-hu`,
+  'viasat history': `${TV_LOGOS_HU}viasat-history-hu`,
+  'viasat nature': `${TV_LOGOS_HU}viasat-nature-hu`,
+  'viasat2': `${TV_LOGOS_HU}viasat2-hu`,
+  'viasat3': `${TV_LOGOS_HU}viasat3-hu`,
+  'viasat6': `${TV_LOGOS_HU}viasat6-hu`,
+  'vixen': `${TV_LOGOS_HU}vixen-hu`,
+  'zenebutik': `${TV_LOGOS_HU}zenebutik-hu`,
   'rtl klub': `${TV_LOGOS_HU}rtl-hu.png`,
-  'rtl klub hd': `${TV_LOGOS_HU}rtl-hu.png`,
-  'rtl klub uhd': `${TV_LOGOS_HU}rtl-hu.png`,
-  'rtl gold': `${TV_LOGOS_HU}rtl-gold-hu.png`,
   'rtl ii': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
-  'rtl ii hd': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
-  'rtl ii uhd': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
-  'rtl ketto': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
-  'rtl ketto hd': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
   'rtl2': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
   'rtl 3': `${TV_LOGOS_HU}rtl-harom-hu.png`,
-  'rtl harom': `${TV_LOGOS_HU}rtl-harom-hu.png`,
-  // TV2-csoport
-  'tv2': `${TV_LOGOS_HU}tv2-hu.png`,
-  'tv2 comedy': `${TV_LOGOS_HU}tv2-comedy-hu.png`,
-  'tv2 kids': `${TV_LOGOS_HU}tv2-kids-hu.png`,
-  'tv2 klub': `${TV_LOGOS_HU}tv2-klub-hu.png`,
-  'tv2 sef': `${TV_LOGOS_HU}tv2-sef-hu.png`,
-  'tv2 sport': `${TV_LOGOS_HU}tv2-sport-hu.png`,
-  'tv2 sport plus': `${TV_LOGOS_HU}tv2-sport-plus-hu.png`,
-  'tv2 super': `${TV_LOGOS_HU}tv2-super-hu.png`,
-  // egyéb gyakori magyar csatornák
-  'atv': `${TV_LOGOS_HU}atv-hu.png`,
-  'atv extra': `${TV_LOGOS_HU}atv-extra-hu.png`,
-  'hir tv': `${TV_LOGOS_HU}hir-tv-hu.png`,
-  'amc': `${TV_LOGOS_HU}amc-hu.png`,
-  'dikh tv': `${TV_LOGOS_HU}dikh-tv-hu.png`,
-  'dikh tv hd': `${TV_LOGOS_HU}dikh-tv-hu.png`,
-  'fix tv': `${TV_LOGOS_HU}fix-hu.png`,
-  'cool tv': `${TV_LOGOS_HU}cool-tv-hu.png`,
-  'hbo': `${TV_LOGOS_HU}hbo-hu.png`,
-  'hbo2': `${TV_LOGOS_HU}hbo2-hu.png`,
-  'hbo3': `${TV_LOGOS_HU}hbo3-hu.png`,
-  'spektrum': `${TV_LOGOS_HU}spektrum-hu.png`,
-  'spektrum home': `${TV_LOGOS_HU}spektrum-home-hu.png`,
-  'film plus': `${TV_LOGOS_HU}film-plus-hu.png`,
-  'mozi plus': `${TV_LOGOS_HU}mozi-plus-hu.png`,
-  'story4': `${TV_LOGOS_HU}story4-hu.png`,
-  'viasat3': `${TV_LOGOS_HU}viasat3-hu.png`,
-  'd1 tv': `${TV_LOGOS_HU}d1-hu.png`,
-  'minimax': `${TV_LOGOS_HU}minimax-hu.png`,
-  'tv paprika': `${TV_LOGOS_HU}tv-paprika-hu.png`,
-  'cool': `${TV_LOGOS_HU}cool-tv-hu.png`,
 };
 
 const LOCAL_OVERRIDES_KEY = 'iptv_rt_hu_logos_v1';
@@ -144,19 +183,44 @@ export function hasHuChannelLogo(name: string): boolean {
   return Boolean(getHuChannelLogo(name));
 }
 
+/*
+ * 2.5.253: a keresési kulcsjelöltek – először a teljes normalizált név,
+ * majd a „hu” előtag, majd a végéről levágott minősítő utótagok nélkül
+ * („[HU] M1 UHD” → „hu m1 uhd” → „m1 uhd” → „m1”), így a táblában elég
+ * a rövid természetes név is.
+ */
+function logoKeyCandidates(key: string): string[] {
+  const out: string[] = [];
+  const push = (value: string): void => { if (value && !out.includes(value)) out.push(value); };
+  push(key);
+  let current = key.replace(/^hu\s+/, '');
+  push(current);
+  const suffixes = ['uhd', 'fhd', 'hd', 'sd', 'tv', 'channel'];
+  let changed = true;
+  while (changed && current) {
+    changed = false;
+    for (const suffix of suffixes) {
+      const re = new RegExp(`\\s+${suffix}$`);
+      if (re.test(current)) {
+        current = current.replace(re, '');
+        push(current);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 /** Saját magyar csatornalogó keresése név alapján (csak HU csatornákhoz használandó). */
 export function getHuChannelLogo(name: string): string | undefined {
   const key = normalizeChannelName(name);
   if (!key) return undefined;
   const overrides = readOverrides();
-  const direct = overrides[key] || HU_CHANNEL_LOGOS[key];
-  if (direct) return direct;
-  /*
-   * 2.5.251: a „[HU] ” / „HU - ” előtag nélkül is keresünk, így a táblában
-   * elég a természetes név („[HU] M1 UHD” → „hu m1 uhd” → „m1 uhd”).
-   */
-  const stripped = key.replace(/^hu\s+/, '');
-  if (stripped && stripped !== key) return overrides[stripped] || HU_CHANNEL_LOGOS[stripped] || undefined;
+  for (const candidate of logoKeyCandidates(key)) {
+    const found = overrides[candidate] || HU_CHANNEL_LOGOS[candidate];
+    if (found) return found;
+  }
   return undefined;
 }
 
@@ -191,6 +255,20 @@ export function logMissingHuLogos(channels: Array<{ name: string; categoryName?:
     }
   }
   if (!huTotal) return;
+  /*
+   * 2.5.253 (#6): a kézi naplóba kiírjuk AZ ÖSSZES magyar csatorna nevét és
+   * normalizált kulcsát is – ez alapján tölthető fel a saját logótár
+   * (HU_CHANNEL_LOGOS / iptv_rt_hu_logos_v1), így induláskor a magyar logók
+   * már helyben vannak, internetes kérés nélkül.
+   */
+  const allNames: string[] = [];
+  for (const channel of channels) {
+    if ((channel.countryCode || '').toUpperCase() !== 'HU') continue;
+    if (allNames.length < 150) allNames.push(`${channel.name} => ${normalizeChannelName(channel.name)}`);
+  }
+  if (allNames.length) {
+    appLog(`HU CSATORNANEVEK [${context}] (${allNames.length} db, saját logótárhoz): ${allNames.join(' | ')}`);
+  }
   appLog(
     `LOGÓ-HIÁNY [${context}]: HU csatornák összesen=${huTotal}, szolgáltatói logóval=${huWithProviderLogo}, ` +
     `saját tárolóból=${huWithCustomLogo}, HIÁNYZÓ=${huTotal - huWithProviderLogo - huWithCustomLogo}.`
