@@ -4639,7 +4639,7 @@ export function App() {
               újraépítéssel és a sárga kijelölés/görgetés is megmarad. */}
           <div
               data-live-sidebar=""
-              className={`flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 ${customStreamUrl && !isVideoFullscreen ? 'bg-black' : 'bg-[#070e1e]'}`}
+              className={`flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 ${customStreamUrl ? 'bg-black' : 'bg-[#070e1e]'}`}
               /*
                * TELJES KÉPERNYŐ: az oldalsáv NEM tűnik el (nincs visibility
                * kapcsolás). A lejátszó doboza `fixed`, teljes kijelzős és
@@ -4652,12 +4652,14 @@ export function App() {
               aria-hidden={isVideoFullscreen || customStreamUrl ? true : undefined}
             >
               {/*
-               * 2.5.253 (#6 képernyőkép): film/sorozat lejátszásakor (nem
-               * teljes képernyőn) a lista helyén FEKETE takarás látszik, nem
-               * a főoldal. A ChannelList közben rejtve marad a DOM-ban, így
-               * a visszatéréskor a görgetés és a kijelölés is megmarad.
+               * 2.5.253/#6 + 2.5.255 (#7 képernyőkép: 205120): film/sorozat
+               * lejátszásakor – teljes képernyőn IS (a webOS kis lejátszó
+               * ilyenkor nem fedi a teljes kijelzőt) – a lista helyén FEKETE
+               * takarás látszik, nem a főoldal. A ChannelList közben rejtve
+               * marad a DOM-ban, így a visszatéréskor a görgetés és a
+               * kijelölés is megmarad.
                */}
-              <div className={customStreamUrl && !isVideoFullscreen ? 'invisible flex min-h-0 flex-1 flex-col' : 'contents'}>
+              <div className={customStreamUrl ? 'invisible flex min-h-0 flex-1 flex-col' : 'contents'}>
               <ChannelList
                 channels={filteredChannels}
                 activeProvider={activeProvider}

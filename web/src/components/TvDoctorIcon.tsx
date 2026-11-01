@@ -200,11 +200,10 @@ export const TvDoctorFullscreenHud: React.FC<TvDoctorFullscreenHudProps> = ({
           data-doctor-color={handled && doctorEnabled ? 'green' : 'neutral'}
           data-doctor-active={activeStatus ? 'true' : 'false'}
           aria-hidden="true"
-          className={`box-border flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-black/65 p-0.5 pointer-events-none ${
-            handled && doctorEnabled
-              ? 'border border-emerald-400/60 shadow-[0_4px_16px_rgba(16,185,129,0.42)]'
-              : 'border border-slate-500/35 shadow-[0_4px_14px_rgba(0,0,0,0.55)]'
-          }`}
+          /* 2.5.255 (#7 képernyőkép, 203635): a néző kérése – a doktorikon
+             mögött NINCS háttér/korong/keret, csak maga a 3D ikon látszik
+             (a data-* jelzők változatlanok, a tesztek ezekre épülnek). */
+          className="box-border flex h-14 w-14 shrink-0 items-center justify-center p-0.5 pointer-events-none bg-transparent"
         >
           <TvDoctorIcon
             handled={handled && doctorEnabled}

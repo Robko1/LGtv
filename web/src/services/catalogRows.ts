@@ -76,7 +76,7 @@ const SIGNATURE_LONG_KEYS = ['plot', 'description', 'cast', 'director', 'crew', 
  * kiolvassuk („NF - The Irishman (2019)” → 2019), így a kártyán több filmnél
  * is megjelenik az évszám.
  */
-function yearFromTitle(name: string): number {
+export function yearFromTitle(name: string): number {
   const match = name.match(/\((1[89]\d{2}|20\d{2})\)\s*$/);
   return match ? Number(match[1]) : 0;
 }

@@ -7,6 +7,18 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
+    version: '2.5.255',
+    date: '2026-11-01',
+    changes: [
+      'Magyar csatornalogók (#7 képernyőkép + #8-as napló, 21:37): a saját HU logótár (tv-logo/tv-logos) minden URL-je mostantól .png-re végződik – eddig a generált ~100 bejegyzés kiterjesztés nélkül hivatkozott, ezért 404-et kapott és app-ikon esett vissza (csak az 5 kézi aliasz működött). Ugyanitt új név-aliaszok a #8 napló 107 HU csatornáiból (AXN Black/White/CE, Cool, Arena 4, Story 4, Fishing & Hunting, Ozone Network, Spieler/Spieler2, Viasat Nature/History).',
+      'Mozi kártyák és adatlap: az évszám akkor is megjelenik, ha csak a címből olvasható ki („… (2024)”); a játékidő továbbra is mindenhol ott, ahol ismert (kártya + fejléc).',
+      'Film/sorozat indításakor a csatornalista helyén teljes képernyőn IS fekete takarás látszik – a webOS kis lejátszó ilyenkor nem fedi a teljes kijelzőt, ezért korábban a főablak látszott át (#7 képernyőkép, 205120).',
+      'Betöltési diagnosztika ablak jobb felső X gombja kijelölve többé nem fehér hátterű – csak a sima fehér ✕ látszik.',
+      'TV Doktor ikon teljes képernyőn (óra előtt): a sötét korong/háttér és a keret megszűnt, csak maga a 3D ikon látszik (#7 képernyőkép, 203635).',
+      'VOD adatlap (mozi ÉS sorozat közös): a doboz kisebb és középre kerül, így a jobb felső X nem kerül a kijelző szélére és nem takaródik; megnyitáskor a fókusz rögtön a kék LEJÁTSZÁS gombon van, nem az X-en (#7 képernyőképek, 203048/203209).',
+    ],
+  },
+  {
     version: '2.5.254',
     date: '2026-11-01',
     changes: [
