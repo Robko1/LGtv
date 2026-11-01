@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.247';
+export const WEB_VERSION = '2.5.248';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.247',
+    version: '2.5.248',
     date: '2026-11-01',
     changes: [
       'Első letöltés gyorsítása a #3 kézi napló (2026-11-01 18:37) alapján: a 25 ezres sorozatonkénti get_series_info (évadok) többé NEM blokkolja az importot – háttérben fut, miután a csatornalista már a felületen van (a naplóban ez a fázis órákig futott, a betöltés „5 percig töltött”); a kész évadok 500-asával tartósan mentődnek, újraindítás után sincs újra letöltés.',
