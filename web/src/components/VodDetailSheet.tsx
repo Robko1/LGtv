@@ -125,11 +125,12 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose,
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           {/*
             Fejléc: bal kisebb poszter, jobb cím + év + játékidő (+ LEJÁTSZÁS filmnél).
-            2.5.251 (#5 képernyőkép): a fejléc középre igazítva, a poszter
-            kisebb és lejjebb van – így nem lóg a háttér fölé fent, és a bezáró
-            X gomb nem takarja.
+            2.5.251/2.5.253 (#5/#6 képernyőképek): a fejléc tartalma függőlegesen
+            KÖZÉPRE kerül (my-auto), a poszter kisebb – így nincs a bal felső
+            sarokban, nem lóg a háttér fölé, és a bezáró X gomb nem takarja.
+            (Mozi és Sorozat közös adatlap: ez az EGYETLEN hely, ahol kell állítani.)
           */}
-          <div className="flex items-center gap-5 p-5 pt-14 md:gap-8 md:p-8 md:pt-16">
+          <div className="my-auto flex items-center gap-5 p-5 pt-14 md:gap-8 md:p-8 md:pt-16">
             <div className="h-[20vh] md:h-[28vh] aspect-[2/3] shrink-0 overflow-hidden rounded-2xl border-2 border-cyan-400/50 shadow-2xl bg-slate-900">
               <PosterImage src={item.poster} title={item.title} kind={kind === 'movie' ? 'movie' : 'tv'} className="h-full w-full object-cover" />
             </div>

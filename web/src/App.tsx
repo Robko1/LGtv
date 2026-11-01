@@ -1326,6 +1326,9 @@ export function App() {
     }
     restoreRunningRef.current = true;
     appLog(`Mentett katalógus visszatöltése indul (tároló: ${target.provider.id}, szakasz: ${scope}).`);
+    // 2.5.253: az első visszatöltési adag rögtön kint legyen (lásd onVodPartial).
+    let vodFirstPainted = false;
+    let seriesFirstPainted = false;
     try {
       await restoreStoredContent(target, {
         onStage: (stage) => logPhase(stage),
@@ -1390,11 +1393,34 @@ export function App() {
         onVodPartial: (partial) => {
           if (providerRefreshActiveRef.current) return;
           if (!partial.movies.length) return;
+          /*
+           * 2.5.253 (#6): újraindítás után az ELSŐ adag (500 film) rögtön a
+           * felületre kerül – így a poszterek és a darabszám azonnal látszik,
+           * nem kell megvárni a teljes 103 ezres visszatöltést. A TELJES lista
+           * továbbra is a végén, EGYBEN írja felül (onVod).
+           */
+          if (!vodFirstPainted) {
+            vodFirstPainted = true;
+            startTransition(() => {
+              setMovies(partial.movies);
+              if (partial.categories.length) setVodCategories(partial.categories);
+            });
+            appLog(`Filmek első adaga már a felületen: ${partial.movies.length} film (a teljes lista a végén, egyben érkezik).`);
+          }
           appLog(`Film visszatöltés folyamatban: ${partial.movies.length} az első adagból (a teljes lista egyben jelenik meg a végén).`);
         },
         onSeriesPartial: (partial) => {
           if (providerRefreshActiveRef.current) return;
           if (!partial.series.length) return;
+          // 2.5.253: mint a filmeknél – az első adag rögtön megjelenik.
+          if (!seriesFirstPainted) {
+            seriesFirstPainted = true;
+            startTransition(() => {
+              setSeries(partial.series);
+              if (partial.categories.length) setSeriesCategories(partial.categories);
+            });
+            appLog(`Sorozatok első adaga már a felületen: ${partial.series.length} sorozat (a teljes lista a végén, egyben érkezik).`);
+          }
           appLog(`Sorozat visszatöltés folyamatban: ${partial.series.length} az első adagból (a teljes lista egyben jelenik meg a végén).`);
         },
         onVod: (vod) => {
@@ -4613,7 +4639,7 @@ export function App() {
               újraépítéssel és a sárga kijelölés/görgetés is megmarad. */}
           <div
               data-live-sidebar=""
-              className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 bg-[#070e1e]"
+              className={`flex-1 md:flex-none md:w-[380px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] flex flex-col overflow-hidden min-h-0 ${customStreamUrl && !isVideoFullscreen ? 'bg-black' : 'bg-[#070e1e]'}`}
               /*
                * TELJES KÉPERNYŐ: az oldalsáv NEM tűnik el (nincs visibility
                * kapcsolás). A lejátszó doboza `fixed`, teljes kijelzős és
@@ -4625,6 +4651,13 @@ export function App() {
               data-view-hidden={isVideoFullscreen || customStreamUrl ? '' : undefined}
               aria-hidden={isVideoFullscreen || customStreamUrl ? true : undefined}
             >
+              {/*
+               * 2.5.253 (#6 képernyőkép): film/sorozat lejátszásakor (nem
+               * teljes képernyőn) a lista helyén FEKETE takarás látszik, nem
+               * a főoldal. A ChannelList közben rejtve marad a DOM-ban, így
+               * a visszatéréskor a görgetés és a kijelölés is megmarad.
+               */}
+              <div className={customStreamUrl && !isVideoFullscreen ? 'invisible flex min-h-0 flex-1 flex-col' : 'contents'}>
               <ChannelList
                 channels={filteredChannels}
                 activeProvider={activeProvider}
@@ -4654,6 +4687,7 @@ export function App() {
                  */
                 isActive={activeView === 'live' && !customStreamUrl}
               />
+              </div>
             </div>
         </div>
       </div>
@@ -5026,6 +5060,7 @@ export function App() {
         onClose={() => setIsTvDoctorModalOpen(false)}
         settings={settings}
         activeChannel={activeChannel}
+        isFullscreen={isVideoFullscreen}
       />
     </div>
   );

@@ -17,15 +17,19 @@ interface Props { url?: string; name: string; retryKey?: unknown; countryCode?: 
  * gyorsítótárból próbálja visszaolvasni.
  *
  * 2.5.245: magyar (HU) csatornánál a SAJÁT tárolóból (huChannelLogos) is
- * kaphat logót – először akkor, ha a szolgáltatónak egyáltalán nincs
- * stream_icon-ja, végső esetként pedig akkor is, ha a szolgáltatói logó
- * betöltése sikertelen. CSAK countryCode==='HU' esetén – más ország
- * csatornája soha nem kap magyar tárolós logót.
+ * kaphat logót. CSAK countryCode==='HU' esetén – más ország csatornája
+ * soha nem kap magyar tárolós logót.
+ *
+ * 2.5.253 (#6 képernyőképek): magyar csatornánál a SAJÁT logót használjuk,
+ * és a szolgáltatói logót EGYÁLTALÁN NEM kérjük le – a picons szerver a
+ * magyar logóknál beragad (8 mp-es watchdog után sem érkezik válasz), ami a
+ * főoldalon várakozást és lassulást okozott. Ha nincs saját logó, rögtön az
+ * app-ikon jelenik meg, hálózati kérés és várakozás nélkül.
  */
 export const ChannelLogo: React.FC<Props> = ({ url, name, retryKey, countryCode }) => {
   const normalizedUrl = normalizeLogoUrl(url);
   const huLogo = countryCode === 'HU' ? normalizeLogoUrl(getHuChannelLogo(name)) : '';
-  const effectiveUrl = normalizedUrl || huLogo;
+  const effectiveUrl = countryCode === 'HU' ? (huLogo || '') : (normalizedUrl || huLogo);
   return <LogoImage key={effectiveUrl} url={effectiveUrl} name={name} retryKey={retryKey} huLogo={huLogo} />;
 };
 
@@ -119,9 +123,13 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
      */
     if (huLogo && !huTried) {
       setHuTried(true);
-      setSchemeAttempt(0);
-      setSource(huLogo);
-      return;
+      if (source !== huLogo) {
+        setSchemeAttempt(0);
+        setSource(huLogo);
+        return;
+      }
+      // 2.5.253: már a saját logón vagyunk (HU mód) – ha az is beragad, a
+      // következő lépések (séma/fail) döntsenek, ne ragadjunk itt.
     }
     // Szolgáltatói URL sémaváltása: http → https → eredeti http.
     if (schemeAttempt === 0 && /^http:\/\//i.test(url)) {
