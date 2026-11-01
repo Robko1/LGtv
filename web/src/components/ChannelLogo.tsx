@@ -2,6 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { APP_ICON_SMALL_DATA_URL } from '../generatedIcon';
 import { normalizeLogoUrl } from '../services/logoUrl';
 import { getHuChannelLogo } from '../services/huChannelLogos';
+import { appLog } from '../services/appLog';
+
+/* 2.5.247: végleges logóbetöltési hiba naplózása (korlátosan) – a #3 napló még
+   csak azt mutatta, hogy a tárolóban MEGVAN a logó; a képernyőn mégsem jelent
+   meg. A következő kézi naplóból látszik majd, mely címek hibáznak. */
+let logoFailLogCount = 0;
 
 /** retryKey: bármilyen stabil érték (pl. csatorna-azonosító) – változására újratölt. */
 interface Props { url?: string; name: string; retryKey?: unknown; countryCode?: string }
@@ -123,6 +129,10 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
           setFailed(true);
         } else {
           setFailed(true);
+          if (logoFailLogCount < 25) {
+            logoFailLogCount += 1;
+            appLog(`CSATORNALOGÓ-HIBA: „${name}” – a logó végleg nem tölthető be, ezt próbálta: ${url}`);
+          }
           void loadCachedLogo(source);
         }
       }}

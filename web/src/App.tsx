@@ -3129,6 +3129,16 @@ export function App() {
       const content: ImportedContent =
         'content' in result ? result.content : (result as ImportedContent);
 
+      /*
+       * 2.5.247: a sorozatok évad/epizód-dúsítása (sorozatonkénti
+       * get_series_info) HÁTTÉRBEN indul, miután az import visszatért –
+       * a #3 kézi naplóban ez a 25 ezres különkérés-sorozat blokkolta az
+       * importot, ezért „töltött 5 percet” a csatornalista.
+       */
+      if ('background' in result && typeof result.background === 'function') {
+        void result.background().catch(() => { /* a háttér-dúsítás hibája nem kritikus */ });
+      }
+
       // Xtream API-fiókadatok: a lejárat és a kapcsolatkorlát az auth válaszból jön.
       // QR-rel hozzáadott szolgáltatónál is felülírjuk az induló N/A értékeket.
       if ('user' in result && result.user) {

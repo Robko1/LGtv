@@ -172,6 +172,8 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
           }
         }
       );
+      // 2.5.247: évadok/epizódok háttérben, az import visszatérése után indul.
+      void result.background?.().catch(() => { /* nem kritikus */ });
       const content = result.content;
 
       const provider: ProviderAccount = {
