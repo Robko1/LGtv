@@ -55,12 +55,12 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   const [error, setError] = useState('');
   const [sentRecord, setSentRecord] = useState<DiagnosticLogRecord | null>(null);
   /**
-   * 2.5.241: a szerveri lista frissítése LÁTHATÓ állapot. Az ablak nyitáskor
-   * azonnal a helyben tárolt (utolsó ismert) ötös listát mutatja; a Supabase
-   * Edge Function hidegindítása miatt a szerveri frissítés több másodperc is
-   * lehet – eddig ez úgy nézett ki, mintha a lista „darabokban” töltődne be.
+   * A szerveri lista frissítése látható állapot. Az ablak nyitásakor mindig
+   * indul szerveri frissítés, ezért az induló érték igaz: az első kép már
+   * egyszerre tartalmazza a helyi listát ÉS a frissítési jelzést – nincs
+   * „üres lista → töltés… → sorok” lépcsőzetes felépülés.
    */
-  const [historyRefreshing, setHistoryRefreshing] = useState(false);
+  const [historyRefreshing, setHistoryRefreshing] = useState(true);
   const [doctorDiagEnabled, setDoctorDiagEnabled] = useState<boolean>(() => isTvDoctorDiagLoggingEnabled());
   const [, setDoctorRefreshTick] = useState(0);
   const { modalRef, handleKeyDown } = useTvModalNavigation(isOpen, onClose);
@@ -86,7 +86,22 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
     // pillanatában látszik; a szerveri frissítés állapota külön jelzést kap.
     setHistoryRefreshing(true);
     void listDiagnosticLogHistory()
-      .then((records) => setHistory(records))
+      .then((records) => {
+        /*
+         * A szerverről érkező lista és a helyi EGYESÍTÉSE – nem cseréje.
+         * A már látható sorok így helyben maradnak (a React kulcs alapján
+         * nem rajzolja újra őket), és csak valóban új bejegyzés egészíti ki
+         * a listát: az ablak tartalma nem „áll össze darabokban”, amikor a
+         * (hidegindítás miatt több másodperces) szerveri válasz megérkezik.
+         */
+        setHistory((previous) => {
+          if (!records.length) return previous;
+          const known = new Set(previous.map((item) => `${item.logNumber}-${item.createdAt}`));
+          const merged = [...records.filter((item) => !known.has(`${item.logNumber}-${item.createdAt}`)), ...previous];
+          merged.sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+          return merged.slice(0, 5);
+        });
+      })
       .catch(() => { /* a helyi ötös lista offline is látható marad */ })
       .then(() => setHistoryRefreshing(false));
   }, [isOpen]);
