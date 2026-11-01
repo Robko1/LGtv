@@ -54,14 +54,11 @@ import {
   storedCatalogPresence,
   readStoredCategories,
 } from './contentStore';
-import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
+import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem } from './xtreamService';
 import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
 import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
-import { logVodItemResponse } from './vodProviderDiagnostics';
 import { storageService } from './storageService';
-import { isNetworkRequestCancelled } from './net';
-
-
+import { isNetworkRequestCancelled, sleep } from './net';
 
 /**
  * Részletes filmadatok összeolvasztása az importált alaprekorddal.
@@ -259,7 +256,6 @@ function logImportApiPayload(label: string, rows: unknown[]): void {
   samples.forEach((sample, index) => appLog(`IMPORT-API-DIAG [${label}] minta ${index + 1}: ${sample}`));
 }
 
-
 /**
  * A felületfrissítéseket ritkítjuk: a sok callback lassíthatja a böngészőfelület-t.
  * Korábban 250/100 volt, ami 40k filmnél 160 progress + 400 yield = ~100s összidőből 86s feldolgozás.
@@ -371,12 +367,6 @@ function findCategory(categoryMap: Map<string, XtreamCategory>, id: string | num
 const RETRY_MAX_ATTEMPTS = 2;
 /** Első újrapróbálkozás előtti várakozás (ehhez jön egy kis véletlen szórás). */
 const RETRY_BASE_DELAY_MS = 800;
-/** Ennyi egymás utáni sikertelen kategória után leáll a betöltés. */
-const MAX_CONSECUTIVE_FAILURES = 4;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
 
 /** A diagnosztikai naplóban csak a szolgáltató hostja jelenhet meg. */
 function diagnosticServerLabel(serverUrl: string): string {
@@ -505,124 +495,6 @@ export interface CategoryLoadResult<T> {
   aborted: boolean;
 }
 
-/**
- * Kategóriánkénti letöltés – most 2 concurrent kéréssel (korábban szigorúan sorban).
- * A teszt alapján 23 VOD kategória 15.5s hálózat + 86s feldolgozás = 102s volt.
- * 2 concurrent + 80ms gap + bulk gyorsítás + ritkább yield 500/500 kb 40-50% gyorsulás,
- * miközben a router terhelése továbbra is minimális (2 kapcsolat) és a circuit breaker
- * (4 hiba után 60s cooldown) véd a túlterheléstől.
- */
-async function loadCategoryFiltered<T>(
-  categories: XtreamCategory[],
-  loadCategory: (categoryId: string) => Promise<T[]>,
-  options: {
-    onProgress?: (done: number, total: number) => void;
-    shouldStop?: (collected: number) => boolean;
-    /** Opcionális adagfeldolgozás: ne kelljen minden nyers választ memóriában tartani. */
-    onItems?: (rows: T[]) => void | Promise<void>;
-    /** A kézi naplóban megjelenő szakasznév (pl. „film kategória”). */
-    logLabel?: string;
-  } = {}
-): Promise<CategoryLoadResult<T>> {
-  const items: T[] = [];
-  const failedCategoryIds: string[] = [];
-  const safeCategories = Array.isArray(categories) ? categories : [];
-  const usable = safeCategories.filter(
-    (category) => category?.category_id !== undefined && category?.category_id !== null
-  );
-
-  let done = 0;
-  let collected = 0;
-  let truncated = false;
-  let aborted = false;
-  let consecutiveFailures = 0;
-  let nextIndex = 0;
-  const CONCURRENCY = 2; // kímélő, de gyorsabb mint 1
-
-  // Ha a limitet elérjük, leállunk
-  const shouldStop = () => options.shouldStop && options.shouldStop(collected);
-
-  async function worker(): Promise<void> {
-    while (true) {
-      if (aborted || truncated) break;
-      if (shouldStop()) {
-        truncated = true;
-        break;
-      }
-      const currentIndex = nextIndex++;
-      if (currentIndex >= usable.length) break;
-      const category = usable[currentIndex];
-      let cancelled = false;
-      try {
-        const rows = await providerRequest(
-          () => loadCategory(String(category.category_id)),
-          `Kategória (${category.category_name || category.category_id})`
-        );
-        collected += rows.length;
-        if (options.onItems) {
-          await options.onItems(rows);
-        } else {
-          for (const row of rows) items.push(row);
-        }
-        consecutiveFailures = 0;
-      } catch (error) {
-        if (isNetworkRequestCancelled(error)) {
-          cancelled = true;
-          throw error;
-        }
-        failedCategoryIds.push(String(category.category_id));
-        consecutiveFailures++;
-        console.warn('Kategória betöltése sikertelen:', category.category_id, error);
-        // A kézi napló pontosan megmutatja, MELYIK kategória és MIÉRT nem jött
-        // be – e nélkül a TV-n csak egy hiányos Mozi/Sorozat nézet látszik.
-        logProviderEvent(
-          `${options.logLabel || 'kategória'} „${category.category_name || category.category_id}” ` +
-          `(azonosító=${category.category_id}) nem töltődött le: ${safeErrorDetail(error)} ` +
-          `[${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES} egymás utáni hiba]`
-        );
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          aborted = true;
-          logProviderEvent(
-            `${options.logLabel || 'kategória'} betöltése LEÁLLT: ${consecutiveFailures} egymás utáni hiba; ` +
-            `eddigi elemszám=${collected}, hátralévő kategória=${Math.max(0, usable.length - done)}`
-          );
-          break;
-        }
-      } finally {
-        if (!cancelled) {
-          done++;
-          options.onProgress?.(done, usable.length);
-        }
-      }
-    }
-  }
-
-  // Indítjuk a worker-öket
-  const workers = Array.from({ length: Math.min(CONCURRENCY, usable.length) }, () => worker());
-  await Promise.all(workers);
-
-  return { items, collected, failedCategoryIds, truncated, aborted };
-}
-
-function describeAbort(label: string): string {
-  return (
-    `A ${label} betöltését leállítottuk, mert a szolgáltató szervere nem válaszol ezen a hálózaton. ` +
-    `Ellenőrizd az internetkapcsolatot (Wi-Fi), majd nyomd meg újra a Frissítést – addig a korábban ` +
-    `letöltött lista marad érvényben.`
-  );
-}
-
-function describeFailures(label: string, failed: string[], total: number): string | null {
-  if (failed.length === 0) return null;
-  if (failed.length >= total) {
-    throw new Error(
-      `A ${label} egyetlen kategóriája sem töltődött le. Valószínűleg a szolgáltató ` +
-        `elutasítja a kéréseket (túl sok kapcsolat vagy átmeneti hiba). Próbáld újra később.`
-    );
-  }
-  return `A ${label} ${failed.length}/${total} kategóriája nem töltődött le (a szolgáltató átmenetileg elutasította). Frissítsd újra.`;
-}
-
 function resolveCategory(
   categoryMap: Map<string, XtreamCategory>,
   id: string | number | undefined,
@@ -674,7 +546,6 @@ function buildCategories(
   }
   return list;
 }
-
 
 /* --------------------------------------------------------------- Xtream */
 
@@ -1258,7 +1129,6 @@ export async function importXtreamProvider(
     // A filmeket nem a szolgáltató kategórialistája alapján csoportosítjuk.
     // Egyetlen általános „Filmek” csoport készül, ezért nincs kategórialekérés.
     const decodedMovies: Movie[] = [];
-    let lastVodPartialAt = 0;
     const seenMovieIds = new Set<string>();
     let vodProcessed = 0;
     let bulkUsed = false;
@@ -1621,49 +1491,6 @@ export interface ProviderChangeCheck {
   counts: { live: number; vod: number; series: number };
 }
 
-/**
- * OLCSÓ VÁLTOZÁSVIZSGÁLAT: csak a három kategórialistát kéri le.
- * A tartalmat nem tölti le – ezért kerül alig egy másodpercbe.
- */
-export async function checkProviderChanges(input: {
-  serverUrl: string;
-  username: string;
-  password: string;
-  fingerprint?: string;
-  lastFullSyncAt?: number | null;
-}): Promise<ProviderChangeCheck> {
-  const server = xtreamService.cleanUrl(input.serverUrl);
-  const user = input.username.trim();
-  const pass = input.password.trim();
-  const [liveCats, vodCats, seriesCats] = await Promise.all([
-    xtreamService.liveCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
-    xtreamService.vodCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
-    xtreamService.seriesCategories(server, user, pass).catch(() => [] as XtreamCategory[]),
-  ]);
-  const fingerprint = rawCatalogFingerprint(liveCats, vodCats, seriesCats);
-  const ageMs = typeof input.lastFullSyncAt === 'number' && input.lastFullSyncAt > 0
-    ? Math.max(0, Date.now() - input.lastFullSyncAt)
-    : null;
-  /*
-   * Ha egy kategórialista sem jött meg (a panel nem válaszol), NEM
-   * állíthatjuk, hogy „nincs változás”: olyankor a teljes import úgyis
-   * értelmes hibaüzenetet ad.
-   */
-  const anyLoaded = liveCats.length + vodCats.length + seriesCats.length > 0;
-  const unchanged = Boolean(
-    anyLoaded
-    && typeof input.fingerprint === 'string'
-    && input.fingerprint === fingerprint
-  );
-  return {
-    unchanged,
-    fresh: ageMs !== null && ageMs <= FULL_CHECK_WINDOW_MS,
-    ageMs,
-    fingerprint,
-    counts: { live: liveCats.length, vod: vodCats.length, series: seriesCats.length },
-  };
-}
-
 /** Egy lista változásai. */
 export interface CatalogDiff {
   added: number;
@@ -1883,8 +1710,6 @@ export interface RefreshOptions {
    */
   onChangeDetected?: (signal: RefreshChangeSignal) => boolean | Promise<boolean>;
 }
-
-export interface CatalogDiff { added: number; changed: number; removed: number; }
 
 function emptyDiff(): CatalogDiff { return { added: 0, changed: 0, removed: 0 }; }
 

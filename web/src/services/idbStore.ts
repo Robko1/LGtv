@@ -98,16 +98,6 @@ function invalidate(generation?: number): void {
   }
 }
 
-/** Csak a teszteknek: a megnyitás újrapróbálhatóvá tétele. */
-export function resetIdbStoreForTests(scale = 1): void {
-  timeoutScale = scale;
-  openGeneration++;
-  dbPromise = null;
-  storePromise = null;
-  durablePromise = null;
-  resetListeners.clear();
-}
-
 function storageManager(): any {
   try {
     return typeof navigator !== 'undefined' ? (navigator as any).storage || null : null;

@@ -25,7 +25,7 @@
  * naplózásnál nulla plusz munka és nulla plusz memória (a normál tévézés
  * változatlan). A naplózás a tesztidőszakban csak a napló elküldésekor áll le.
  */
-import { appLog, manualLogSnapshot, registerLoggingLifecycleHooks } from './appLog';
+import { appLog, manualLogSnapshot } from './appLog';
 
 interface BootMark {
   /** Mikor történt (Date.now(), abszolút). */
@@ -759,18 +759,6 @@ function logSummary(): void {
 }
 
 /* ────────────────────────── indítás és leállítás ───────────────────────── */
-
-/**
- * A naplózás életciklusához csatlakozás. A figyelők akkor indulnak, amikor a
- * naplózás elindul (a tesztidőszakban ez az IPK indítása), és akkor állnak le,
- * amikor a naplózás leáll (a napló elküldése után).
- */
-export function attachStartupDiagnostics(): void {
-  registerLoggingLifecycleHooks({
-    onStart: () => startStartupDiagnostics(),
-    onStop: () => stopStartupDiagnostics(),
-  });
-}
 
 export function startStartupDiagnostics(): void {
   if (running) return;

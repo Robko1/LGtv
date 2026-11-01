@@ -98,43 +98,6 @@ export function clearEpgCache(): void {
   simpleEpgBrokenLogged = false;
 }
 
-/**
- * A TV Doktor EPG-segítéséhez: csak az üres (0 műsoros) gyorsítótár-elemeket
- * törli, így a már működő csatornák műsora nem tűnik el újratöltéskor sem.
- */
-export function clearEmptyShortEpgCache(provider?: ProviderRef | null): void {
-  const prefix = provider ? `${provider.id}|` : '';
-  cache.forEach((value, key) => {
-    if (value.entries.length === 0 && (!prefix || key.startsWith(prefix))) {
-      cache.delete(key);
-    }
-  });
-}
-
-/** Igaz, ha a gyorsítótárban friss (még le nem járt) lekérdezés van – akkor is, ha üres [] volt. */
-export function hasRecentShortEpgCheck(
-  provider: ProviderRef | null,
-  streamId: number | string,
-  limit = 6,
-): boolean {
-  if (!provider) return false;
-  const hit = cache.get(epgCacheKey(provider, streamId) + `|${limit}`);
-  return Boolean(hit && Date.now() - hit.at < CACHE_TTL_MS);
-}
-
-/** Igaz, ha ehhez a szolgáltatóhoz legalább 1 csatornán már érkezett valódi rövid/egyszerű EPG adat. */
-export function hasProviderAnyShortEpg(provider: ProviderRef | null): boolean {
-  if (!provider) return false;
-  const prefix = `${provider.id}|`;
-  let found = false;
-  cache.forEach((value, key) => {
-    if (!found && key.startsWith(prefix) && value.entries.length > 0) {
-      found = true;
-    }
-  });
-  return found;
-}
-
 /** A már letöltött EPG-adatot lejárattól függetlenül is kiolvassuk,
  * hogy a csatornasáv műsorcíme az idő múlásával automatikusan továbbléphessen. */
 export function getCachedShortEpg(

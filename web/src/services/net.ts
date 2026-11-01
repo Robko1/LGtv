@@ -94,7 +94,8 @@ let lastRequestAt = 0;
 // engedné ki, ezért a „minimális szünet” valójában nem érvényesülne.
 let pacingTail: Promise<void> = Promise.resolve();
 
-function sleep(ms: number): Promise<void> {
+/** Közös várakozó helper (net és import ütemezéshez). */
+export function sleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 

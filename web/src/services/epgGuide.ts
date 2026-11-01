@@ -112,14 +112,6 @@ let statCap = 0;
 let statKept = 0;
 const guideUpdateListeners: Array<() => void> = [];
 
-export function subscribeGuideUpdates(listener: () => void): () => void {
-  guideUpdateListeners.push(listener);
-  return () => {
-    const pos = guideUpdateListeners.indexOf(listener);
-    if (pos >= 0) guideUpdateListeners.splice(pos, 1);
-  };
-}
-
 function notifyGuideListeners(): void {
   for (let i = 0; i < guideUpdateListeners.length; i += 1) {
     try {
