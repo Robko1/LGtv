@@ -18,6 +18,8 @@ interface SeriesViewProps {
   onToggleFavoriteSeries: (seriesId: string) => void;
   isActive: boolean;
   activeProvider?: ProviderRef | null;
+  /* 2.5.249: az adatlap megnyitásakor dúsított sorozat visszaadása a listához. */
+  onVodItemEnriched?: (item: Series) => void;
 }
 
 /* Függőleges, ötoszlopos rács; a poszterek 25-ös adagokban jelennek meg. */
@@ -43,6 +45,8 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
   isActive,
+  activeProvider,
+  onVodItemEnriched,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
@@ -333,6 +337,8 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
           isFavorite={Boolean(selectedSeries.isFavorite)}
           onClose={() => setSelectedSeriesId('')}
           onToggleFavorite={() => onToggleFavoriteSeries(selectedSeries.id)}
+          provider={activeProvider ?? null}
+          onItemEnriched={(enriched) => onVodItemEnriched?.(enriched as Series)}
           onPlayEpisode={(ser, ep) => {
             seriesReturnSnapshot = { scrollTop: seriesGridRef.current?.scrollTop ?? 0, visibleCount };
             setSelectedSeriesId('');

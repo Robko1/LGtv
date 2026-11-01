@@ -1454,9 +1454,10 @@ export function App() {
    *     a 20 190 csatornát a tartós tárba (az a fölösleges 5 MB-os újraírás
    *     is a fő szálat fogta).
    *
-   * A 127 766 film/sorozat továbbra is csak a Mozi/Sorozat menü megnyitásakor
-   * töltődik be, a műsorújság (XMLTV) pedig csak a lista után – a két nagy
-   * munka nem versenyez egymással.
+   * A film/sorozat lista 2.5.249-től már INDULÁSKOR, a főoldal után a
+   * háttérben visszatöltődik (és az első 25-25 plakát előmelegszik), így a
+   * Mozi/Sorozat menü megnyitása nem vár; a műsorújság (XMLTV) pedig továbbra
+   * is csak ezután töltődik – a nagy munkák nem versenyeznek egymással.
    */
   const guideStatusSafe = useCallback((): { channels: number } => {
     try { return guideStatus(); } catch { return { channels: 0 }; }
@@ -1550,15 +1551,22 @@ export function App() {
         .finally(() => {
           markLiveReady();
           /*
-           * SZAKASZOLT INDULÁS (2.5.228): előbb a főoldal (élő lista) készül
-           * el teljesen, utána a háttérben a Mozi, majd a Sorozat plakátjai
-           * melegednek elő (25-25 kép, egyesével, sorban), végül a
-           * műsorújság. Így egyszerre csak egy nagyobb munka fut, a TV nem
-           * fagy, és a Mozi/Sorozat menü megnyitásakor a plakátok már ott
-           * vannak.
+           * SZAKASZOLT INDULÁS (2.5.228, 2.5.249): előbb a főoldal (élő
+           * lista) készül el teljesen, majd a MOZI+SOROZAT lista is
+           * visszatöltődik a tartós tárból (moviesRef/seriesRef ekkor már
+           * töltve), és csak UTÁNA melegednek elő az első 25-25 plakát
+           * képei – korábban az előmelegítés üres listán futott, így a
+           * képeket csak a menü megnyitásakor töltötte a rendszer. Végül a
+           * műsorújság. Így egyszerre csak egy nagyobb munka fut, és a
+           * Mozi/Sorozat menü megnyitásakor már minden (lista + plakátok) ott
+           * van, egyetlen várakozás nélkül.
            */
-          void warmUpVodPosters();
-          scheduleGuide();
+          void runRestore(plan, 'vod')
+            .catch(() => { /* a naplóban már ott a valódi ok */ })
+            .finally(() => {
+              void warmUpVodPosters();
+              scheduleGuide();
+            });
         });
     };
     const revealNow = (): boolean => {
@@ -2055,19 +2063,23 @@ export function App() {
   }, []);
 
   /**
-   * A rejtett nézetek stílusa: a láthatóságot kapcsoljuk (nem unmountolunk),
-   * így a görgetési pozíció, a keresés és a kategória is megmarad. A rejtett
-   * nézet nem kap egeret és a távirányítós kijelölő sem lép rá
-   * (data-view-hidden, lásd webos.js).
+   * A rejtett nézetek stílusa: a pane-ek MINDIG ki vannak rajzolva (nem
+   * unmountolunk és display:none sincs), csak egymás fölé rétegződnek –
+   * így a görgetési pozíció, a keresés és a kategória is megmarad.
+   *
+   * 2.5.249: KORÁBBAN display:none volt. A nézetváltáskor (TV gomb a
+   * Mozi/Sorozat nézetből, vagy film indítása) a teljes panelt újra kellett
+   * komponálni – a felhasználó szerint a főoldal ilyenkor „darabokból állt
+   * össze”, film indításakor pedig előbb az EGÉSZ főoldal újrarajzolódott.
+   * Most nincs layout-újraszámítás: a váltás EGY lépésben, csak a
+   * rétegsorrend (zIndex) és a pointer események változnak. A rejtett pane
+   * nem kap pointer eseményt, a távirányítós kijelölő pedig továbbra is
+   * tiltja (data-view-hidden, lásd webos.js); a pane-ek maguk nem átlátszók
+   * (saját háttérszín), így a rejtett nézet nem „ég bele” a képbe.
    */
   const paneStyle = useCallback((isActive: boolean): React.CSSProperties => ({
-    // A rejtett nézetet TELJESEN kivesszük a kirajzolásból (display:none).
-    // A `visibility: hidden` a TV kompozítorán maradék (beégett) képkockákat
-    // hagyott: a Mozi/Sorozat nézet hátterében ott maradtak az előző
-    // csatornalista logói. A display:none a React-állapotot NEM dobja el
-    // (a komponens mountolva marad), ezért a váltás továbbra is azonnali –
-    // a görgetési pozíciót pedig a paneScrollStore állítja vissza.
-    display: isActive ? undefined : 'none',
+    zIndex: isActive ? 20 : 0,
+    pointerEvents: isActive ? 'auto' : 'none',
   }), []);
 
   // Switch Active Channel
@@ -2269,6 +2281,21 @@ export function App() {
       m.id === movieId ? { ...m, isFavorite: !m.isFavorite } : m
     ));
     dirtyRef.current = true;
+  }, []);
+
+  /*
+   * 2.5.249: az adatlap megnyitásakor háttérben dúsított film/sorozat
+   * (év, játékidő, plakát, évadok) visszaírása a listába – így a kártya és a
+   * következő megnyitások is már teljes adattal jelennek meg.
+   */
+  const handleVodItemEnriched = useCallback((kind: 'movies' | 'series', item: Movie | Series) => {
+    if (kind === 'movies') {
+      const movie = item as Movie;
+      setMovies((current) => current.map((m) => (m.id === movie.id ? movie : m)));
+    } else {
+      const series = item as Series;
+      setSeries((current) => current.map((s) => (s.id === series.id ? series : s)));
+    }
   }, []);
 
   // Toggle Favorite for Series
@@ -2832,10 +2859,13 @@ export function App() {
     /** Melyik szakasz került MÁR a tartós tárba az import közben. */
     const durableSaved = { live: false, vod: false, series: false };
     /*
-     * A tartós mentések a háttérben futnak: a film-lista ~25 mp-es IndexedDB
-     * írása a sorozatfázis letöltésével PÁRHUZAMOSAN történik, nem előtte.
-     * A 100% kimondása előtt viszont MINDET bevárjuk (Promise.all), így a
-     * „kész” állapot továbbra is csak ténylegesen eltárolt adatra vonatkozik.
+     * A tartós mentések a háttérben futnak: a film-lista IndexedDB írása a
+     * sorozatfázis letöltésével PÁRHUZAMOSAN történik, nem előtte.
+     * 2.5.249: a befejező ág már NEM várja meg őket (Promise.all nélkül
+     * megy tovább) – a #4 napló szerint a „film TARTÓSAN mentve” várakozás
+     * EGYMAGA 50 mp volt a TV-n, és ez késleltette a kész jelzést. A darabolt
+     * mentés önmagában összeomlásbiztos (a meta csak az utolsó adag után
+     * íródik), ezért biztonsággal háttérben hagyható.
      */
     const pendingDurableSaves: Promise<void>[] = [];
 
@@ -3276,11 +3306,19 @@ export function App() {
       // hogy egy régebbi importút (M3U, hiba utáni részleges eredmény) se
       // maradjon mentés nélkül.
       if (!durableSaved.live) saveLiveContentSafely(contentForStorage);
-      if (!durableSaved.vod) await saveVodContentSafely(contentForStorage);
-      if (!durableSaved.series) await saveSeriesContentSafely(contentForStorage);
-      // A háttérben indított film-/sorozatmentések bevárása: a „kész” jelzés
-      // csak akkor jöhet, ha tényleg minden szakasz a tartós tárban van.
-      await Promise.all(pendingDurableSaves);
+      /*
+       * 2.5.249: a hiányzó VOD/sorozat szakaszokat itt INDÍTJUK, de NEM
+       * várjuk meg – a 100% és a kész jelzés nem blokkolódik a 20+ MB-os
+       * IndexedDB íráson (a #4 naplóban ez 50 mp + 14 mp volt). A háttérben
+       * futó mentések eredményét csak naplózzuk; darabolt írásnál a meta
+       * úgyis csak az utolsó adag után kerül a tárba, így bezárás esetén
+       * konzisztens állapot marad.
+       */
+      if (!durableSaved.vod) { durableSaved.vod = true; pendingDurableSaves.push(saveVodContentSafely(contentForStorage)); }
+      if (!durableSaved.series) { durableSaved.series = true; pendingDurableSaves.push(saveSeriesContentSafely(contentForStorage)); }
+      void Promise.all(pendingDurableSaves)
+        .then(() => appLog('TARTÓS mentések (film/sorozat) a háttérben befejeződtek – minden szakasz a tartós tárban.'))
+        .catch((error) => appLog(`TARTÓS mentési hiba a háttérben: ${error instanceof Error ? error.message : String(error)}`));
       // A 20 részletes VOD-metaadat külön, néhány kB-os rekordba kerül:
       // visszatöltéskor a megfelelő filmekre/sorozatokra ráolvassuk.
       await saveCatalogExtras(id, contentForStorage.movies.filter((item) => item.detailProviderData), contentForStorage.series.filter((item) => item.detailProviderData || item.seasons.length > 0));
@@ -4574,7 +4612,7 @@ export function App() {
         <div
           data-view-pane="movies"
           data-view-hidden={activeView === 'movies' ? undefined : ''}
-          className="absolute inset-0 flex flex-col min-h-0"
+          className="absolute inset-0 flex flex-col min-h-0 bg-[#070e1e]"
           style={paneStyle(activeView === 'movies')}
         >
           <MoviesView
@@ -4588,6 +4626,7 @@ export function App() {
             onToggleFavoriteMovie={handleToggleFavoriteMovie}
             isActive={activeView === 'movies'}
             activeProvider={activeProvider}
+            onVodItemEnriched={(item) => handleVodItemEnriched('movies', item)}
           />
         </div>
       )}
@@ -4597,7 +4636,7 @@ export function App() {
         <div
           data-view-pane="series"
           data-view-hidden={activeView === 'series' ? undefined : ''}
-          className="absolute inset-0 flex flex-col min-h-0"
+          className="absolute inset-0 flex flex-col min-h-0 bg-[#070e1e]"
           style={paneStyle(activeView === 'series')}
         >
           <SeriesView
@@ -4611,6 +4650,7 @@ export function App() {
             onToggleFavoriteSeries={handleToggleFavoriteSeries}
             isActive={activeView === 'series'}
             activeProvider={activeProvider}
+            onVodItemEnriched={(item) => handleVodItemEnriched('series', item)}
           />
         </div>
       )}

@@ -57,7 +57,7 @@ import {
   saveCatalogExtras,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
-import { ParsedVodMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
+import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
 import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled, sleep } from './net';
@@ -1545,6 +1545,28 @@ export async function importXtreamProvider(
        */
       seriesBackground = async (): Promise<void> => {
         const episodesStartedAt = performance.now();
+        /*
+         * 2.5.249: az első 25 film metaadata (év, játékidő, poszter) – a bulk
+         * filmlista gyakran nem tartalmazza ezeket, ezért a kártyákon nem
+         * jelent meg. Háttérben, legfeljebb 25 get_vod_info kérés, és az eredmény
+         * tartósan elmentődik (extras) – újraindítás után már onnan jön.
+         */
+        const moviePrewarm = movies.slice(0, 25).filter(
+          (movie) => !movie.year && !movie.durationMinutes && !movie.detailProviderData && movie.streamId !== undefined,
+        );
+        for (const movie of moviePrewarm) {
+          try {
+            const detail = await providerRequest(
+              () => xtreamService.vodInfo(server, user, pass, movie.streamId as number),
+              `Film metaadat (${movie.title.slice(0, 40)})`,
+            );
+            Object.assign(movie, applyMovieMetadata(movie, parseVodMetadata(detail)));
+          } catch { /* a kártya megmarad év/játékidő nélkül, később adatlapnál pótoljuk */ }
+        }
+        if (moviePrewarm.length) {
+          await saveCatalogExtras(provider.id, movies.slice(0, 25), []);
+          appLog(`IMPORT-FÁZIS [film-meta-háttér] az első 25 film közül ${moviePrewarm.length} kapott részletes metaadatot (év/játékidő), elmentve.`);
+        }
         const total = decodedSeries.length;
         let infoDone = 0;
         let infoFailed = 0;
@@ -1564,6 +1586,13 @@ export async function importXtreamProvider(
               target.seasonsCount = seasons.length;
               target.episodesCount = seasons.reduce((sum, season) => sum + season.episodes.length, 0);
               episodeTotal += target.episodesCount;
+              // 2.5.249: a részletes válaszból az év/játékidő/poszter is átkerül
+              // a kártyára (a bulk sorozatlista ezt gyakran nem küldi).
+              const seriesMeta = parseSeriesMetadata(detail);
+              if (!target.year && seriesMeta.year) target.year = seriesMeta.year;
+              if (!target.durationMinutes && seriesMeta.durationMinutes) target.durationMinutes = seriesMeta.durationMinutes;
+              if (!target.poster && seriesMeta.poster) target.poster = seriesMeta.poster;
+              if (!target.backdrop && seriesMeta.backdrop) target.backdrop = seriesMeta.backdrop;
             } catch {
               infoFailed += 1;
             }

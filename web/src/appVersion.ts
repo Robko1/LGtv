@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.248';
+export const WEB_VERSION = '2.5.249';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,17 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.249',
+    date: '2026-11-01',
+    changes: [
+      'Indulás és filmfeldolgozás gyorsítása a #4 kézi napló (2026-11-01 18:09) alapján: a lapos bulk film/sorozat sorok feldolgozása egyetlen menetben fut (a #4 naplóban 103 ezer film feldolgozása 65,5 mp volt a TV-n); a befejező „kész” jelzés többé nem várja meg a háttérben futó tartós film/sorozat mentéseket (a naplóban ez önmagában 50 mp + 14 mp volt) – a darabolt mentés így is összeomlásbiztos; induláskor a főoldal után a Mozi+Sorozat lista is visszatöltődik, és az első 25-25 plakát előmelegszik a tároló gyorsítótárából, így a menük megnyitása nem vár.',
+      'Magyar csatornalogók: „beragadt” logókérés (a szerver kapcsol, de nem válaszol) 8 mp után sikertelennek számít, és továbbfut a tartalék láncon (séma → saját HU logótár → gyorsítótár → app-ikon) – a #4 naplóban 2 magyar csatorna (DIKH TV HD, HIT TV) logója maradt örökre üresen.',
+      'Év és játékidő mindenhol: a filmkártyákon és az adatlap fejlécén a bulk listából hiányzó év/játékidő pótlódik – import közben az első 25 film és minden sorozat részletes adata háttérben, adatlap-megnyitáskor pedig csak valódi hiánynál egyetlen kérés (az eredmény tartósan elmentődik, következő megnyitásnál már nincs kérés).',
+      'Nézetváltás: a pane-ek nem display:none-nal rejtődnek, hanem mindig ki vannak rajzolva és csak rétegződnek – a TV gomb lenyomásakor a főoldal EGYBEN áll össze (nem darabokból), és film indításakor sem rajzolódik újra az egész főoldal.',
+      'IPK újraindítás után az alkalmazás továbbra is az utoljára nézett magyar csatornával, a TV (élő) nézetben indul.',
+    ],
+  },
   {
     version: '2.5.248',
     date: '2026-11-01',
