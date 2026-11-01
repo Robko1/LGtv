@@ -1292,6 +1292,119 @@ export async function saveCatalogExtras(providerId: string, movies: Movie[], ser
   } catch { /* a részletes metaadat nem kritikus */ }
 }
 
+/* ------------------------------------------------------------------
+ * 2.5.245: VOD képek (poszterek, háttérképek) TARTÓS tárolása.
+ *
+ * A képeket NEM külön adatbázisba vagy CacheStorage-ba tesszük: ugyanabba
+ * a meglévő IndexedDB-be ('iptv_rt_content' / 'chunks'), ahová a katalógus
+ * is – csak saját kulcsokkal ('content-img-…'). A kulcs az URL-ből képzett
+ * ujjlenyomat, így azonosítótól függetlenül, egyértelműen visszatalálható.
+ * ------------------------------------------------------------------ */
+const CONTENT_IMG_PREFIX = 'content-img-';
+
+function imageKeyForUrl(url: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < url.length; i++) {
+    hash ^= url.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${CONTENT_IMG_PREFIX}${(hash >>> 0).toString(36)}-${url.length}`;
+}
+
+/** Egy letöltött kép mentése a tartós tárba (Blob). */
+export async function saveContentImageUrl(url: string, blob: Blob): Promise<void> {
+  try {
+    if (!/^https?:\/\//i.test(url) || !blob || !blob.size) return;
+    const store = await contentChunkStore();
+    if (!store) return;
+    await store.put(imageKeyForUrl(url), blob);
+  } catch { /* a képtár írásának hibája nem kritikus */ }
+}
+
+/** Mentett kép visszaolvasása Blobként; ha nincs, null. */
+export async function loadContentImageUrl(url: string): Promise<Blob | null> {
+  try {
+    if (!/^https?:\/\//i.test(url)) return null;
+    const store = await contentChunkStore();
+    if (!store || !store.getRaw) return null;
+    const value = await store.getRaw(imageKeyForUrl(url));
+    return value instanceof Blob && value.size > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Van-e már tartósan elmentve ez a kép? */
+export async function hasContentImageUrl(url: string): Promise<boolean> {
+  return (await loadContentImageUrl(url)) !== null;
+}
+
+/**
+ * Az első letöltés után a poszterek és háttérképek tartós letöltése az
+ * IndexedDB-be, hogy később (újraindítás után is) ne kelljen újra
+ * letölteni őket. Háttérben fut, újraindítható (a már mentetteket kihagyja),
+ * korlátozott párhuzamossággal. A képek nem a szolgáltatói API-t terhelik
+ * (általában külön CDN), ezért itt nem a net.ts API-korlát érvényes.
+ */
+export async function prefetchContentImages(
+  items: Array<{ poster?: string; backdrop?: string }>,
+  label: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    for (const url of [item.poster, item.backdrop]) {
+      const clean = typeof url === 'string' ? url.trim() : '';
+      if (clean && /^https?:\/\//i.test(clean) && !seen.has(clean)) {
+        seen.add(clean);
+        urls.push(clean);
+      }
+    }
+  }
+  if (!urls.length) return;
+  const startedAt = performance.now();
+  appLog(`IMPORT-FÁZIS [képek-${label}] indul: ${urls.length} kép tartós letöltése az IndexedDB-be.`);
+  let done = 0;
+  let stored = 0;
+  let failed = 0;
+  const CONCURRENCY = 4;
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < urls.length) {
+      const url = urls[cursor++];
+      try {
+        if (await hasContentImageUrl(url)) { done += 1; continue; }
+        const response = await fetch(url, { mode: 'cors' });
+        if (response.ok && response.type !== 'opaque') {
+          const blob = await response.blob();
+          if (blob.size > 0) {
+            await saveContentImageUrl(url, blob);
+            stored += 1;
+          }
+        } else {
+          failed += 1;
+        }
+      } catch {
+        failed += 1;
+      }
+      done += 1;
+      if (done % 500 === 0) {
+        onProgress?.(done, urls.length);
+        appLog(`IMPORT-FÁZIS [képek-${label}] ${done}/${urls.length} kép átnézve (tartósan elmentve: ${stored}, sikertelen: ${failed}).`);
+      }
+      // kis szünet a képszerver felé
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()].slice(0, CONCURRENCY));
+  onProgress?.(done, urls.length);
+  appLog(
+    `IMPORT-FÁZIS [képek-${label}] kész: ${done} kép, ebből újonnan elmentve ${stored}, sikertelen ${failed}, ` +
+    `${Math.round(performance.now() - startedAt)} ms alatt. Később ezek már csak az IndexedDB-ből jönnek.`
+  );
+}
+
 export async function loadCatalogExtras(providerId: string): Promise<Extras> {
   const cached = extrasCache.get(providerId);
   if (cached) return cached;

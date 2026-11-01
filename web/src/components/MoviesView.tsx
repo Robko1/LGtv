@@ -3,9 +3,9 @@ import { Category, Movie } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
-import { Star, Play, Sparkles, Filter, ChevronDown, Mic2, Clock } from 'lucide-react';
+import { Sparkles, Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { cardAudioLabel, formatRuntime, joinLanguages } from '../utils/vodDisplay';
+import { formatRuntime } from '../utils/vodDisplay';
 
 interface MoviesViewProps {
   movies: Movie[];
@@ -18,8 +18,6 @@ interface MoviesViewProps {
   onToggleFavoriteMovie: (movieId: string) => void;
   isActive: boolean;
   activeProvider?: ProviderRef | null;
-  /** Böngészés közbeni, adatlap-megnyitástól független előreolvasás. */
-  onPrefetchMetadata?: (items: Movie[]) => void;
 }
 
 /* Függőleges, ötoszlopos rács; a poszterek 25-ös adagokban jelennek meg. */
@@ -44,7 +42,6 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
   isActive,
-  onPrefetchMetadata,
   onToggleFavoriteMovie,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
@@ -165,16 +162,6 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     }
     wasActiveRef.current = isActive;
   }, [isActive]);
-
-  // Az adatlap csak mentett adatot használ. A látható környezet előreolvasása
-  // böngészés közben fut, nem a poszter megnyitásakor vagy lejátszáskor.
-  useEffect(() => {
-    if (!isActive || selectedMovie || !onPrefetchMetadata) return;
-    const pending = filteredMovies.slice(0, visibleCount + PAGE_SIZE).filter((item) => !item.detailProviderData);
-    if (!pending.length) return;
-    const timer = window.setTimeout(() => onPrefetchMetadata(pending), 350);
-    return () => window.clearTimeout(timer);
-  }, [isActive, selectedMovie, filteredMovies, visibleCount, onPrefetchMetadata]);
 
   const visibleMovies = useMemo(() => filteredMovies.slice(0, visibleCount), [filteredMovies, visibleCount]);
 
@@ -312,9 +299,8 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                 } }}
                 className="group relative h-fit self-start bg-[#0b162f] rounded-2xl border border-cyan-950/70 overflow-hidden cursor-pointer hover:border-cyan-400/80 transition-all duration-200 shadow-lg flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
+                  {/* 2.5.245: a listán KIZÁRÓLAG a poszter látszik (csillag/értékelés nélkül). */}
                   <PosterImage src={mov.poster} title={mov.title} kind="movie" localOnly alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/40 text-amber-300 font-black text-[11px] flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span>{mov.rating}</span></div>
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="w-12 h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Play className="w-5 h-5 fill-current ml-0.5" /></div></div>
                 </div>
                 <div className="p-3">
                   <h3 className="text-white font-black text-lg sm:text-xl truncate">{mov.title}</h3>
@@ -330,18 +316,6 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                         <span className="truncate">{formatRuntime(mov.durationMinutes)}</span>
                       </span>
                     )}
-                  </div>
-                  {/* Audió balra, jól olvasható feliratnyelvek jobbra – ugyanabban a sorban.
-                      2.5.236: a magyar hang mindig elöl; ismert nyelv híján „Angol” a
-                      legvalószínűbb alapértelmezés (a sor ezért mindig látszik). */}
-                  <div className="mt-1 flex min-h-6 items-center justify-between gap-2 text-xs sm:text-sm font-semibold">
-                    <span className="flex min-w-0 flex-1 items-center gap-1 text-rose-200">
-                      <Mic2 className="h-4 w-4 shrink-0 text-rose-300" />
-                      <span className="truncate">{cardAudioLabel(mov.audioLanguages)}</span>
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-right text-slate-100">
-                      {joinLanguages(mov.subtitleLanguages) || '—'}
-                    </span>
                   </div>
                 </div>
               </div>

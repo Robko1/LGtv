@@ -56,7 +56,7 @@ import {
   readStoredCategories,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
-import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
+import { ParsedVodMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
 import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled, sleep } from './net';
@@ -1518,6 +1518,46 @@ export async function importXtreamProvider(
         notes.push(`A szolgáltató ${allSeries.length.toLocaleString('hu-HU')} sorozatot adott vissza; a beépített korlát miatt az első ${MAX_SERIES.toLocaleString('hu-HU')} elemet dolgozzuk fel.`);
       }
       if (!decodedSeries.length) warnings.push('A szolgáltató sorozatlistája üres vagy nem tartalmaz használható sorozatokat.');
+      /*
+       * 2.5.245: ELSŐ LETÖLTÉS – évadok és epizódok is kellenek (megjelenítéshez
+       * és lejátszáshoz), ezért minden sorozathoz külön get_series_info megy
+       * (ütemezve, a net.ts korlátjával), és az eredmény a sorba mentődik
+       * (encodeSeries → seasons oszlop). Később már csak az IndexedDB-ből jön.
+       */
+      {
+        const episodesStartedAt = performance.now();
+        const total = decodedSeries.length;
+        let infoDone = 0;
+        let infoFailed = 0;
+        let episodeTotal = 0;
+        let infoCursor = 0;
+        const infoWorker = async (): Promise<void> => {
+          while (infoCursor < total) {
+            const target = decodedSeries[infoCursor++];
+            try {
+              const detail = await providerRequest(
+                () => xtreamService.seriesInfo(server, user, pass, target.seriesId ?? target.id),
+                `Sorozat évadok (${target.title.slice(0, 40)})`,
+              );
+              const seasons = seasonsFromSeriesInfo(detail, target, provider);
+              target.seasons = seasons;
+              target.seasonsCount = seasons.length;
+              target.episodesCount = seasons.reduce((sum, season) => sum + season.episodes.length, 0);
+              episodeTotal += target.episodesCount;
+            } catch {
+              infoFailed += 1;
+            }
+            infoDone += 1;
+            if (infoDone % 500 === 0) {
+              onProgress({ phase: 'Évadok és epizódok letöltése…', detail: `${infoDone}/${total} sorozat`, percent: 90 + Math.round((infoDone / Math.max(total, 1)) * 8) });
+              appLog(`IMPORT-FÁZIS [sorozatok-évadok] ${infoDone}/${total} sorozat kész (${infoFailed} hiba), eltelt ${Math.round(performance.now() - episodesStartedAt)} ms.`);
+            }
+            if (infoDone % VOD_YIELD_EVERY === 0) await yieldToUi();
+          }
+        };
+        await Promise.all([infoWorker(), infoWorker()]);
+        appLog(`IMPORT-FÁZIS [sorozatok-évadok] ÖSSZESEN: ${total} sorozat, ${episodeTotal} epizód mentve, ${infoFailed} hiba, ${Math.round(performance.now() - episodesStartedAt)} ms – később már nincs új letöltés.`);
+      }
       onProgress({ phase: 'Sorozatok feldolgozva', detail: `${decodedSeries.length} sorozat`, percent: 96 });
       series = decodedSeries;
       seriesCats = series.length ? buildCategories(rawSeriesCategories, 'sc-', 'series', seriesCounts) : [];
@@ -2254,9 +2294,9 @@ async function refreshXtreamIncremental(
         const target = detailTargets[cursor++];
         try {
           if (label === 'film') {
-            const movie = target.item as unknown as Movie;
-            const detail = await xtreamService.vodInfo(server, user, pass, movie.streamId ?? movie.id);
-            result[target.index] = { ...applyMovieMetadata(movie, parseVodMetadata(detail)), detailProviderData: detail as unknown as Movie['detailProviderData'] } as unknown as T;
+            // 2.5.245: a film adatlapja kizárólag a listában tárolt adatokból áll,
+            // ezért változáskor sem kérünk get_vod_info részletet – felesleges lekérés.
+            result[target.index] = target.item;
           } else if (label === 'sorozat') {
             const series = target.item as unknown as Series;
             const detail = await xtreamService.seriesInfo(server, user, pass, series.seriesId ?? series.id);

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { loadContentImageUrl, saveContentImageUrl } from '../services/contentStore';
 
 type PosterKind = 'movie' | 'tv';
 
@@ -23,6 +24,29 @@ try {
   // A szolgáltatói poszterek működéséhez nem szükséges a helyi tárhely.
 }
 
+/*
+ * 2.5.245: a poszter/háttérkép először a TARTÓS IndexedDB-tárból jön
+ * (contentStore képtár), és csak ha onnan nincs, töltődik a szolgáltatói
+ * URL-ről – ekkor viszont azonnal el is mentjük oda, hogy legközelebb már
+ * ne kelljen újra letölteni. Így minden megjelenítés a már elmentett
+ * adatokból dolgozik.
+ */
+async function mirrorImageToStore(url: string): Promise<void> {
+  try {
+    if (!/^https?:\/\//i.test(url)) return;
+    if (await loadContentImageUrl(url)) return;
+    // Csak akkor mentünk, ha a szerver engedi a CORS-os olvasást; a sima
+    // <img> megjelenítés ettől függetlenül működik CORS nélkül is.
+    const response = await fetch(url, { mode: 'cors' });
+    if (response.ok && response.type !== 'opaque') {
+      const blob = await response.blob();
+      if (blob.size > 0) await saveContentImageUrl(url, blob);
+    }
+  } catch {
+    // A mentés hibája nem akadályozhatja a megjelenítést.
+  }
+}
+
 /** A szolgáltatói poszter előtöltése; külső keresést vagy API-hívást nem végez. */
 export async function preloadPosterImage(
   src: string | null | undefined,
@@ -32,6 +56,9 @@ export async function preloadPosterImage(
 ): Promise<void> {
   const imageUrl = typeof src === 'string' ? src.trim() : '';
   if (!imageUrl) return;
+
+  // 2.5.245: ha már tartósan el van mentve, egyáltalán nincs hálózati kérés.
+  if (await loadContentImageUrl(imageUrl)) return;
 
   await new Promise<void>((resolve) => {
     const image = new Image();
@@ -49,16 +76,39 @@ export async function preloadPosterImage(
     image.src = imageUrl;
     if (image.complete) finish();
   });
+  // Betöltés után tartósan is elmentjük (háttérben, nem blokkol).
+  void mirrorImageToStore(imageUrl);
 }
 
 export const PosterImage: React.FC<PosterImageProps> = ({ src, title, className = '', alt }) => {
   const providerSrc = typeof src === 'string' ? src.trim() : '';
+  const [localUrl, setLocalUrl] = useState('');
+
+  // 2.5.245: először a tartós tárból próbáljuk (blob URL), aztán a szolgáltatói URL.
+  useEffect(() => {
+    let cancelled = false;
+    setLocalUrl('');
+    if (!providerSrc) return;
+    void loadContentImageUrl(providerSrc).then((blob) => {
+      if (cancelled || !blob) return;
+      try {
+        setLocalUrl(URL.createObjectURL(blob));
+      } catch { /* jsdom/öreg böngésző: marad a szolgáltatói URL */ }
+    });
+    return () => { cancelled = true; };
+  }, [providerSrc]);
+
+  useEffect(() => () => {
+    if (localUrl.startsWith('blob:')) URL.revokeObjectURL(localUrl);
+  }, [localUrl]);
+
   return (
     <img
-      src={providerSrc || FALLBACK_POSTER}
+      src={localUrl || providerSrc || FALLBACK_POSTER}
       alt={alt || title}
       className={className}
       loading="lazy"
+      onLoad={() => { if (providerSrc) void mirrorImageToStore(providerSrc); }}
       onError={(event) => {
         event.currentTarget.onerror = null;
         event.currentTarget.src = FALLBACK_POSTER;

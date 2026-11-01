@@ -39,20 +39,42 @@ try {
   await until(() => doc.querySelector('#series [data-poster-index]'), 'series card');
   await wait(450);
   assert.deepEqual(w.__providerCalls, [], 'a nézet megnyitása nem kér szolgáltatói adatot');
+  // 2.5.245: a listakártya csak posztert + címet + év/játékidő sort mutat (nincs csillag/értékelés).
+  const movieCard = doc.querySelector('#movies [data-poster-index]');
+  assert.ok(movieCard && movieCard.textContent.includes('Teszt film') && movieCard.textContent.includes('2024'), 'a kártyán cím és év látszik');
+  assert.ok(movieCard && !movieCard.querySelector('.fill-amber-400'), 'a kártyán nincs csillag/értékelés jelvény');
   doc.querySelector('#movies [data-poster-index]').click();
   await until(() => doc.querySelector('[role="dialog"]'), 'movie sheet');
-  assert.ok(doc.body.textContent.includes('DETAIL-MARAD'), 'a mentett részletes mező megjelenik');
-  assert.ok(doc.body.textContent.includes('LISTA-MARAD'), 'a mentett listamező megjelenik');
+  // 2.5.245: az adatlap a DIALOG szövege szerint csak mentett alapadatokat mutat
+  // (cím, év, játékidő, LEJÁTSZÁS) – a nyers szolgáltatói mezők NEM jelennek meg.
+  const movieDialog = doc.querySelector('[role="dialog"]');
+  const movieText = movieDialog.textContent;
+  assert.ok(movieText.includes('Teszt film') && movieText.includes('2024') && movieText.includes('100 perc'), 'film adatlap: cím, év, játékidő megjelenik');
+  assert.ok(/lejátszás/i.test(movieText) && movieDialog.querySelector('[data-dialog-primary]'), 'film adatlap: nagy kék LEJÁTSZÁS gomb (első fókusz)');
+  assert.ok(!movieText.includes('DETAIL-MARAD') && !movieText.includes('LISTA-MARAD'), 'az adatlap NEM jelenít meg nyers szolgáltatói mezőket');
   doc.querySelector('[aria-label="Adatlap bezárása"]').click();
   await wait(50);
   doc.querySelector('#series [data-poster-index]').click();
-  await until(() => doc.body.textContent.includes('SERIES-DETAIL'), 'series sheet');
-  assert.ok(doc.body.textContent.includes('SERIES-MARAD'), 'a sorozat listamezője megjelenik');
+  await until(() => doc.querySelector('[role="dialog"]'), 'series sheet');
+  const seriesDialog = doc.querySelector('[role="dialog"]');
+  const seriesText = seriesDialog.textContent;
+  assert.ok(seriesText.includes('Teszt sorozat') && seriesText.includes('1. évad') && seriesText.includes('Pilot') && seriesText.includes('S01E01'), 'sorozat adatlap: cím, évad, epizód, SxxEyy megjelenik');
+  assert.ok(/lejátszás/i.test(seriesText), 'epizód dobozban LEJÁTSZÁS gomb');
+  assert.ok(!seriesText.includes('SERIES-DETAIL') && !seriesText.includes('SERIES-MARAD'), 'a sorozat adatlap sem jelenít meg nyers mezőket');
   assert.deepEqual(w.__providerCalls, [], 'az adatlap megnyitása nem indít vodInfo/seriesInfo/fetch kérést');
   const playerSource = readFileSync(resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
   assert.ok(!/resolveVodSubtitles\s*\(/.test(playerSource), 'a lejátszó nem indít automatikus szolgáltatói feliratkeresést');
   assert.ok(!/xtreamService\.vodInfo|xtreamService\.seriesInfo/.test(readFileSync(resolve('web/src/components/MoviesView.tsx'), 'utf8')), 'a Mozi nézet nem kér adatot');
   assert.ok(!/xtreamService\.vodInfo|xtreamService\.seriesInfo/.test(readFileSync(resolve('web/src/components/SeriesView.tsx'), 'utf8')), 'a Sorozatok nézet nem kér adatot');
+  // 2.5.245: böngészés közben sincs előreolvasás, és az App sem köti be prefetch-et.
+  assert.ok(!/onPrefetchMetadata/.test(readFileSync(resolve('web/src/components/MoviesView.tsx'), 'utf8'))
+    && !/onPrefetchMetadata/.test(readFileSync(resolve('web/src/components/SeriesView.tsx'), 'utf8')), 'a nézetek nem kérnek előreolvasást böngészés közben');
+  assert.ok(!/onPrefetchMetadata=\{/.test(readFileSync(resolve('web/src/App.tsx'), 'utf8')), 'az App nem köt be böngészésközbeni előreolvasást');
+  // 2.5.245: képek tartós tárolása ugyanabban az IndexedDB-ben (content-img- kulcsok).
+  const contentStoreSource = readFileSync(resolve('web/src/services/contentStore.ts'), 'utf8');
+  assert.ok(/content-img-/.test(contentStoreSource) && /export async function prefetchContentImages/.test(contentStoreSource), 'a poszter/háttérkép letöltés azonos IDB-t használ (content-img-)');
+  const idbSource = readFileSync(resolve('web/src/services/idbStore.ts'), 'utf8');
+  assert.ok(/value: string \| Blob/.test(idbSource) && /getRaw/.test(idbSource), 'az idbStore Blob tárolást is támogat (ugyanaz a chunks store)');
   console.log('OK – VOD adatlap: csak mentett adat, nulla új szolgáltatói kérés');
 } finally {
   w.roots.forEach((root) => root.unmount());
