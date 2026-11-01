@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.253';
+export const WEB_VERSION = '2.5.254';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.253',
+    version: '2.5.254',
     date: '2026-11-01',
     changes: [
       'Magyar csatornalogók (#6 képernyőképek): HU csatornánál mostantól CSAK a saját logót használjuk és a szolgáltatói logót egyáltalán nem kérjük le (a picons szerver beragadása miatt a főoldalon várakozás/lassulás volt); a HU_CHANNEL_LOGOS tábla a tv-logo/tv-logos gyűjtemény összes magyar logójára ki van töltve (100+ csatorna), a keresés „[HU]” előtag és HD/UHD/TV utótag nélkül is működik; ha nincs saját logó, rögtön app-ikon, hálózati kérés nélkül. A kézi napló most kiírja az összes magyar csatorna nevét és kulcsát (HU CSATORNANEVEK), hogy a hiányzó logók könnyen pótolhatók legyenek.',
