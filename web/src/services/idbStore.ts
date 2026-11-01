@@ -46,17 +46,21 @@ export const IDB_BATCH_SIZE = 12;
 
 export interface ChunkEntry {
   key: string;
-  value: string;
+  /* 2.5.245: string (JSON) VAGY Blob (letöltött poszter/háttérkép) – ugyanabban
+     a 'chunks' object store-ban, külön kulcsokkal. */
+  value: string | Blob;
 }
 
 /** Aszinkron kulcs-érték tár (IndexedDB). */
 export interface ChunkStore {
   /** A naplóban megjelenő név. */
   name: string;
-  put(key: string, value: string): Promise<boolean>;
+  put(key: string, value: string | Blob): Promise<boolean>;
   /** Több bejegyzés EGY tranzakcióban. A fejlécet mindig UTOLSÓKÉNT kell adni. */
   putMany(entries: ChunkEntry[]): Promise<boolean>;
   get(key: string): Promise<string>;
+  /** 2.5.245: nyers érték (string VAGY Blob) – képek visszaolvasásához. */
+  getRaw?(key: string): Promise<string | Blob | undefined>;
   remove(key: string): Promise<void>;
   removeMany(keys: string[]): Promise<void>;
   keys(): Promise<string[]>;
@@ -329,6 +333,12 @@ function createStore(): ChunkStore {
         run<string | undefined>('readonly', (store) => store.get(key))
           .then((value) => (typeof value === 'string' ? value : '')),
         '',
+      );
+    },
+    async getRaw(key) {
+      return await swallow(
+        run<string | Blob | undefined>('readonly', (store) => store.get(key)),
+        undefined,
       );
     },
     async remove(key) {

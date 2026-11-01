@@ -188,7 +188,8 @@ export function seasonsFromSeriesInfo(
           ),
           containerExtension,
           plot: '',
-          thumbnail: series.poster || '',
+          // 2.5.245: az epizód saját képe (ha a szolgáltató adja), különben a sorozat posztere.
+          thumbnail: String(episode.movie_image || episode.stream_icon || episode.thumbnail || '') || series.poster || '',
         };
       });
       return {
