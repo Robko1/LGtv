@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.249';
+export const WEB_VERSION = '2.5.250';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.249',
+    version: '2.5.250',
     date: '2026-11-01',
     changes: [
       'Indulás és filmfeldolgozás gyorsítása a #4 kézi napló (2026-11-01 18:09) alapján: a lapos bulk film/sorozat sorok feldolgozása egyetlen menetben fut (a #4 naplóban 103 ezer film feldolgozása 65,5 mp volt a TV-n); a befejező „kész” jelzés többé nem várja meg a háttérben futó tartós film/sorozat mentéseket (a naplóban ez önmagában 50 mp + 14 mp volt) – a darabolt mentés így is összeomlásbiztos; induláskor a főoldal után a Mozi+Sorozat lista is visszatöltődik, és az első 25-25 plakát előmelegszik a tároló gyorsítótárából, így a menük megnyitása nem vár.',
