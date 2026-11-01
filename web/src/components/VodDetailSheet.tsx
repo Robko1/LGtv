@@ -123,9 +123,14 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose,
         </button>
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-          {/* Fejléc: bal kisebb poszter, jobb cím + év + játékidő (+ LEJÁTSZÁS filmnél). */}
-          <div className="flex items-end gap-5 p-5 md:gap-8 md:p-8">
-            <div className="h-[28vh] md:h-[38vh] aspect-[2/3] shrink-0 overflow-hidden rounded-2xl border-2 border-cyan-400/50 shadow-2xl bg-slate-900">
+          {/*
+            Fejléc: bal kisebb poszter, jobb cím + év + játékidő (+ LEJÁTSZÁS filmnél).
+            2.5.251 (#5 képernyőkép): a fejléc középre igazítva, a poszter
+            kisebb és lejjebb van – így nem lóg a háttér fölé fent, és a bezáró
+            X gomb nem takarja.
+          */}
+          <div className="flex items-center gap-5 p-5 pt-14 md:gap-8 md:p-8 md:pt-16">
+            <div className="h-[20vh] md:h-[28vh] aspect-[2/3] shrink-0 overflow-hidden rounded-2xl border-2 border-cyan-400/50 shadow-2xl bg-slate-900">
               <PosterImage src={item.poster} title={item.title} kind={kind === 'movie' ? 'movie' : 'tv'} className="h-full w-full object-cover" />
             </div>
             <div className="min-w-0 flex-1 pb-1">

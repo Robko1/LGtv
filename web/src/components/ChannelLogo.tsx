@@ -110,30 +110,42 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
   };
 
   const advanceFailure = (): void => {
-    // HTTP → HTTPS → eredeti HTTP; csak ezután próbáljuk a mentett logót.
-    if (schemeAttempt === 0 && /^http:\/\//i.test(source)) {
-      setSchemeAttempt(1);
-      setSource(source.replace(/^http:\/\//i, 'https://'));
-    } else if (schemeAttempt === 1 && /^https:\/\//i.test(source) && /^http:\/\//i.test(url)) {
-      setSchemeAttempt(2);
-      setSource(url);
-    } else if (huLogo && !huTried && source !== huLogo) {
-      // 2.5.245: a szolgáltatói logó nem töltődött be – magyar csatornánál
-      // a saját tároló (huChannelLogos) próbálkozik tovább (csak egyszer).
+    /*
+     * 2.5.251 (#5 napló): magyar csatornánál, ha a SAJÁT tárolónkban (lásd
+     * huChannelLogos) van logó, az ELSŐ hiba után rögtön azt próbáljuk – a
+     * szolgáltatói picons szerver (103.176.90.x) több magyar logónál beragad
+     * (a #5 naplóban 13 HU csatorna), és a séma-újrapróbálkozás csak tovább
+     * késleltetné a megjelenést. A saját logó csak egyszer próbálkozik.
+     */
+    if (huLogo && !huTried) {
       setHuTried(true);
       setSchemeAttempt(0);
       setSource(huLogo);
-    } else if (cachedSource) {
+      return;
+    }
+    // Szolgáltatói URL sémaváltása: http → https → eredeti http.
+    if (schemeAttempt === 0 && /^http:\/\//i.test(url)) {
+      setSchemeAttempt(1);
+      setSource(url.replace(/^http:\/\//i, 'https://'));
+      return;
+    }
+    if (schemeAttempt === 1 && /^http:\/\//i.test(url)) {
+      setSchemeAttempt(2);
+      setSource(url);
+      return;
+    }
+    if (cachedSource) {
       setCachedSource('');
       setFailed(true);
-    } else {
-      setFailed(true);
-      if (logoFailLogCount < 25) {
-        logoFailLogCount += 1;
-        appLog(`CSATORNALOGÓ-HIBA: „${name}” – a logó végleg nem tölthető be, ezt próbálta: ${url}`);
-      }
-      void loadCachedLogo(source);
+      return;
     }
+    setFailed(true);
+    if (logoFailLogCount < 25) {
+      logoFailLogCount += 1;
+      appLog(`CSATORNALOGÓ-HIBA: „${name}” – a logó végleg nem tölthető be, ezt próbálta: ${url}`);
+    }
+    // A gyorsítótárban az EREDETI szolgáltatói URL alatt keressük a képet.
+    void loadCachedLogo(url);
   };
   advanceFailureRef.current = advanceFailure;
 
