@@ -1169,7 +1169,7 @@ import {
   getTvDoctorCloudStatus,
   resetTvDoctorAllToZero,
 } from './web/src/services/tvDoctorCloud.ts';
-import { getAppLogText, manualLogSnapshot } from './web/src/services/appLog.ts';
+import { getAppLogText, manualLogSnapshot, manualTvDoctorLogSnapshot } from './web/src/services/appLog.ts';
 
 attachTvDoctorDiagnostics();
 
@@ -1251,6 +1251,7 @@ function TestApp({ initialMode }) {
     resetTvDoctorAllToZero,
     getAppLogText,
     manualLogSnapshot,
+    manualTvDoctorLogSnapshot,
   };
   if (initialMode === 'doctorModal') {
     return React.createElement(TvDoctorStatusModal, {
@@ -1386,6 +1387,7 @@ vc.on('jsdomError', () => {});
 const playedUrls = [];
 let mockCloudMode = 'ok';
 const sentDiagnosticPayloads = [];
+const sentTvDoctorPayloads = [];
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
   url: 'https://tv.local/',
@@ -1395,6 +1397,30 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
   beforeParse(window) {
     window.fetch = async (url, init) => {
       const urlStr = String(url);
+      // 2.5.264: a külön TV DR napló funkció (tv-doctor-log) – ezt előbb kell
+      // ellenőrizni, mert a tv-doctor szöveg is benne van az URL-ben.
+      if (urlStr.includes('/functions/v1/tv-doctor-log')) {
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        if (body.action === 'send') {
+          sentTvDoctorPayloads.push(body);
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              logNumber: body.logNumber,
+              startedAt: body.startedAt,
+              createdAt: '2026-10-29T19:31:00.000Z',
+              kind: 'tv-doctor',
+              charCount: body.charCount,
+              lineCount: body.lineCount,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, records: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (urlStr.includes('/functions/v1/tv-doctor')) {
         const body = init?.body ? JSON.parse(String(init.body)) : {};
         if (body.action === 'pair_request') {
@@ -1767,15 +1793,23 @@ try {
   const diagDocToggle = doc.querySelector('[data-diagnostic-tv-doctor-toggle]');
   const diagStartBtn = doc.querySelector('[data-diagnostic-toggle]');
   const diagSendBtn = doc.querySelector('[data-diagnostic-send]');
+  const diagDocSendBtn = doc.querySelector('[data-diagnostic-tv-doctor-send]');
   check(
-    Boolean(diagDocToggle) && diagDocToggle.getAttribute('aria-checked') === 'true',
-    'a Kézi hibakeresési napló ablakban megjelenik az aktív TV Doktor működés- és elakadás-naplózás kapcsoló',
+    Boolean(diagDocToggle) && diagDocToggle.getAttribute('aria-checked') === 'false' && Boolean(diagDocSendBtn),
+    'a Kézi hibakeresési napló ablakban külön TV DR kapcsoló és külön TV DR küldő gomb jelenik meg (alapból kikapcsolva)',
   );
 
-  // Elindítjuk a kézi naplózást, szimulálunk TV Doktor működést és egy elakadást/lassulást, majd elküldjük Supabase-re:
+  // 2.5.264: előbb a TV DR napló külön bekapcsolása (a nagy napló nélkül is működik), majd a nagy napló indítása:
+  diagDocToggle.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await wait(50);
+  check(
+    diagDocToggle.getAttribute('aria-checked') === 'true',
+    'a TV DR kapcsoló bekapcsolja a külön TV Doktor naplózást (nagy napló nélkül is)',
+  );
   diagStartBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
   await wait(50);
 
+  // Szimulálunk TV Doktor működést és egy elakadást/lassulást:
   window.__DOCTOR_UI__.recordDoctorOpTiming('selectChannelLaunchPlan', 48, '[HU] M2 UHD');
   window.__DOCTOR_UI__.evaluateSmartFreeze({
     prevSnapshot: { currentTime: 10, decodedFrames: 250, bufferedEnd: 10.1 },
@@ -1799,21 +1833,47 @@ try {
   });
   await wait(40);
 
+  // Először a TV DR naplót küldjük el a saját (tv-doctor-log) funkcióra:
+  diagDocSendBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await wait(150);
+
+  const sentDoctorPayload = sentTvDoctorPayloads[0];
+  check(
+    Boolean(sentDoctorPayload) &&
+      typeof sentDoctorPayload.logText === 'string' &&
+      sentDoctorPayload.kind === 'tv-doctor' &&
+      sentDoctorPayload.logText.includes('TV DOKTOR ÁLLAPOTKÉP') &&
+      sentDoctorPayload.logText.includes('TV DOKTOR MEMÓRIA:') &&
+      sentDoctorPayload.logText.includes('TV DOKTOR SUPABASE HIBA RÉSZLETEK:') &&
+      sentDoctorPayload.logText.includes('TV DOKTOR ELAKADÁS / LASSULÁS: művelet=selectChannelLaunchPlan') &&
+      sentDoctorPayload.logText.includes('TV DOKTOR ELAKADÁS ÉSZLELVE:') &&
+      sentDoctorPayload.logText.includes('TV DOKTOR NAPLÓ ÖSSZESÍTÉS:') &&
+      sentDoctorPayload.logText.includes('WEBOS TV DOKTOR NAPLÓ #') &&
+      window.__DOCTOR_UI__.manualTvDoctorLogSnapshot().charCount === 0 &&
+      window.__DOCTOR_UI__.manualLogSnapshot().charCount > 0,
+    'a TV DR napló a külön tv-doctor-log funkcióra megy, benne a TV Doktor állapot/memória/Supabase/elakadás sorok, sikeres küldés után leáll és nullázódik, a nagy napló pedig még fut',
+  );
+
+  // A nagy naplóba NEM kerülhet TV Doktor adat, és a nagy napló a saját funkciójára megy:
   diagSendBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
-  await wait(120);
+  await wait(150);
 
   const sentPayload = sentDiagnosticPayloads[0];
   check(
     Boolean(sentPayload) &&
       typeof sentPayload.logText === 'string' &&
-      sentPayload.logText.includes('TV DOKTOR ÁLLAPOTKÉP') &&
-      sentPayload.logText.includes('TV DOKTOR MEMÓRIA:') &&
-      sentPayload.logText.includes('TV DOKTOR SUPABASE HIBA RÉSZLETEK:') &&
-      sentPayload.logText.includes('TV DOKTOR ELAKADÁS / LASSULÁS: művelet=selectChannelLaunchPlan') &&
-      sentPayload.logText.includes('TV DOKTOR ELAKADÁS ÉSZLELVE:') &&
-      sentPayload.logText.includes('TV DOKTOR NAPLÓ ÖSSZESÍTÉS:') &&
+      !sentPayload.logText.includes('TV DOKTOR') &&
+      sentPayload.logText.includes('[NAGY NAPLÓ]') &&
+      (sentPayload.kind === 'system' || sentPayload.kind === undefined) &&
       window.__DOCTOR_UI__.manualLogSnapshot().charCount === 0,
-    'a kézi hibanapló rögzíti a TV Doktor állapotát, memóriáját, Supabase hibáját és elakadásait, majd a meglévő küldővel hibátlanul elküldi és felszabadítja a RAM-ot',
+    'a nagy napló a meglévő tv-diagnostic-share funkcióra megy, TV Doktor adat NINCS benne, sikeres küldés után felszabadítja a RAM-ot',
+  );
+
+  // A történetben a fajta címke is látszik mindkét naplónál:
+  const kindBadges = Array.from(doc.querySelectorAll('[data-diagnostic-history-kind]')).map((el) => el.textContent);
+  check(
+    kindBadges.includes('TV DR') && kindBadges.includes('NAGY NAPLÓ'),
+    'az elküldött naplók listájában a sorszám mellett a fajta is látszik (TV DR / NAGY NAPLÓ)',
   );
 
   // 3.3 VideoPlayer integráció: tanult HLS profil előválasztása vs. kikapcsolt TV Doktor

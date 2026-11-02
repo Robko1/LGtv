@@ -1,14 +1,31 @@
-const API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-diagnostic-share';
+/*
+ * Két külön diagnosztikai napló küldése (2.5.264):
+ *   - 'system'   → nagy (rendszer) napló  → tv-diagnostic-share funkció,
+ *   - 'tv-doctor' → csak TV Doktor napló  → tv-doctor-log funkció (külön tábla).
+ * A két naplónak külön helyi előzménye van, és a küldött rekordban is szerepel
+ * a fajta (kind), hogy a szerveren (és a felületen) egyértelmű legyen, melyik
+ * napló érkezett be.
+ */
+export type DiagnosticLogKind = 'system' | 'tv-doctor';
+
+const API_URLS: Record<DiagnosticLogKind, string> = {
+  system: 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-diagnostic-share',
+  'tv-doctor': 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor-log',
+};
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
-const LOCAL_HISTORY_KEY = 'iptv_rt_diagnostic_history_v1';
+const LOCAL_HISTORY_KEYS: Record<DiagnosticLogKind, string> = {
+  system: 'iptv_rt_diagnostic_history_v1',
+  'tv-doctor': 'iptv_rt_tv_doctor_history_v1',
+};
 const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_TRANSIENT_RETRIES = 2;
 
-/** A kézi napló Supabase-re küldött, QR nélküli rekordja. */
+/** A TV-ről küldött napló Supabase-re mentett rekordja (fajtával együtt). */
 export interface DiagnosticLogRecord {
   logNumber: number;
   startedAt: string;
   createdAt: string;
+  kind?: DiagnosticLogKind;
   charCount?: number;
   lineCount?: number;
 }
@@ -37,7 +54,7 @@ function errorText(value: unknown): string {
  * sorszám/kezdési idő párt használjuk, így a szerver idempotensen kezeli, ha
  * az első kérés valójában már elment, csak a válasz veszett el.
  */
-async function request(body: Record<string, unknown>): Promise<any> {
+async function request(kind: DiagnosticLogKind, body: Record<string, unknown>): Promise<any> {
   let lastError: DiagnosticRequestError | null = null;
 
   for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
@@ -49,7 +66,7 @@ async function request(body: Record<string, unknown>): Promise<any> {
       : null;
 
     try {
-      const response = await fetch(API_URL, {
+      const response = await fetch(API_URLS[kind], {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -88,7 +105,11 @@ async function request(body: Record<string, unknown>): Promise<any> {
   throw lastError || new Error('A hibakeresési szolgáltatás nem válaszolt.');
 }
 
-function normaliseRecord(value: any): DiagnosticLogRecord | null {
+function normaliseKind(value: unknown): DiagnosticLogKind {
+  return value === 'tv-doctor' ? 'tv-doctor' : 'system';
+}
+
+function normaliseRecord(value: any, fallbackKind: DiagnosticLogKind): DiagnosticLogRecord | null {
   const logNumber = Number(value?.logNumber ?? value?.log_number);
   if (!Number.isFinite(logNumber) || logNumber <= 0) return null;
   const startedAt = String(value?.startedAt ?? value?.started_at ?? value?.createdAt ?? value?.created_at ?? '');
@@ -97,40 +118,48 @@ function normaliseRecord(value: any): DiagnosticLogRecord | null {
     logNumber: Math.floor(logNumber),
     startedAt,
     createdAt,
+    kind: normaliseKind(value?.kind ?? value?.log_kind ?? fallbackKind),
     charCount: Number.isFinite(Number(value?.charCount ?? value?.char_count)) ? Number(value.charCount ?? value.char_count) : undefined,
     lineCount: Number.isFinite(Number(value?.lineCount ?? value?.line_count)) ? Number(value.lineCount ?? value.line_count) : undefined,
   };
 }
 
-function readLocalHistory(): DiagnosticLogRecord[] {
+function readLocalHistory(kind: DiagnosticLogKind): DiagnosticLogRecord[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEYS[kind]) || '[]');
     if (!Array.isArray(parsed)) return [];
-    return parsed.map(normaliseRecord).filter((item): item is DiagnosticLogRecord => Boolean(item)).slice(0, 5);
+    return parsed.map((item) => normaliseRecord(item, kind)).filter((item): item is DiagnosticLogRecord => Boolean(item)).slice(0, 5);
   } catch {
     return [];
   }
 }
 
-export function getLocalDiagnosticHistory(): DiagnosticLogRecord[] {
-  return readLocalHistory();
+export function getLocalDiagnosticHistory(kind: DiagnosticLogKind = 'system'): DiagnosticLogRecord[] {
+  return readLocalHistory(kind);
 }
 
 export function rememberDiagnosticLog(record: DiagnosticLogRecord): void {
-  const next = [record, ...readLocalHistory().filter((item) => item.logNumber !== record.logNumber)].slice(0, 5);
-  try { localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(next)); } catch { /* a TV tárhelyhibája nem akadályozhatja a küldést */ }
+  const kind = normaliseKind(record.kind);
+  const next = [record, ...readLocalHistory(kind).filter((item) => item.logNumber !== record.logNumber)].slice(0, 5);
+  try { localStorage.setItem(LOCAL_HISTORY_KEYS[kind], JSON.stringify(next)); } catch { /* a TV tárhelyhibája nem akadályozhatja a küldést */ }
 }
 
-/** A kézi napló teljes tartalmának elküldése – nem készül token, URL vagy QR-kód. */
+/**
+ * Egy napló teljes tartalmának elküldése a saját funkciójára – nem készül
+ * token, URL vagy QR-kód. A `kind` dönti el, melyik funkció/tábla kapja:
+ * 'system' → tv-diagnostic-share, 'tv-doctor' → tv-doctor-log.
+ */
 export async function sendDiagnosticLog(
   logNumber: number,
   startedAt: number,
   logText: string,
   charCount?: number,
   lineCount?: number,
+  kind: DiagnosticLogKind = 'system',
 ): Promise<DiagnosticLogRecord> {
-  const result = await request({
+  const result = await request(kind, {
     action: 'send',
+    kind,
     logNumber,
     startedAt: new Date(startedAt).toISOString(),
     // A szerver ezt a párt használja idempotencia-kulcsként is: ha a TV a
@@ -139,17 +168,32 @@ export async function sendDiagnosticLog(
     charCount,
     lineCount,
   });
-  const record = normaliseRecord(result?.record || result);
+  const record = normaliseRecord(result?.record || result, kind);
   if (!result?.ok || !record) throw new Error('A Supabase nem igazolta vissza a napló mentését.');
   rememberDiagnosticLog(record);
   return record;
 }
 
-/** Az utolsó öt napló azonosítója és ideje; tartalmat nem töltünk vissza a TV-re. */
-export async function listDiagnosticLogHistory(): Promise<DiagnosticLogRecord[]> {
-  const result = await request({ action: 'history' });
+/** Kényelmi hívás kifejezetten a TV Doktor naplóhoz. */
+export async function sendTvDoctorLog(
+  logNumber: number,
+  startedAt: number,
+  logText: string,
+  charCount?: number,
+  lineCount?: number,
+): Promise<DiagnosticLogRecord> {
+  return sendDiagnosticLog(logNumber, startedAt, logText, charCount, lineCount, 'tv-doctor');
+}
+
+/** Az utolsó öt napló azonosítója és ideje egy adott fajtából; tartalom nem jön vissza. */
+export async function listDiagnosticLogHistory(kind: DiagnosticLogKind = 'system'): Promise<DiagnosticLogRecord[]> {
+  const result = await request(kind, { action: 'history' });
   const rows: unknown[] = Array.isArray(result?.records) ? result.records : [];
-  const records = rows.map((row) => normaliseRecord(row)).filter((item): item is DiagnosticLogRecord => Boolean(item)).slice(0, 5);
+  const records = rows.map((row) => normaliseRecord(row, kind)).filter((item): item is DiagnosticLogRecord => Boolean(item)).slice(0, 5);
   for (const record of records) rememberDiagnosticLog(record);
   return records;
+}
+
+export async function listTvDoctorLogHistory(): Promise<DiagnosticLogRecord[]> {
+  return listDiagnosticLogHistory('tv-doctor');
 }

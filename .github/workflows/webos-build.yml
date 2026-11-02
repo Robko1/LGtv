@@ -156,6 +156,16 @@ jobs:
           print("OK: a jóváhagyott kis és nagy ikon használatra előkészítve.")
           PY
 
+      - name: 5a2. Beépített HU logók tömörítése (kisebb IPK)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 2.5.264: a web/src/generatedHuLogos.ts data-URL logói max. 128 px-es,
+          # max. 128 színű palettás PNG-k legyenek, így a bundle (és vele az ipk)
+          # kisebb. Ha minden kép már megfelel, a script gyorsellenőrzés után
+          # érintetlenül hagyja a fájlt, tehát a build nem lassul.
+          python3 tools/optimize-embedded-logos.py web/src/generatedHuLogos.ts --max-px 128 --colors 128
+
       - name: 5b. Alkalmazás-regressziós tesztek
         shell: bash
         env:
