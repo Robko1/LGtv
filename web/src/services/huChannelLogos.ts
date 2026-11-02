@@ -131,6 +131,12 @@ export const HU_CHANNEL_LOGOS: Record<string, string> = {
   'sport3': huLogo('sport3-hu'),
   'story4': huLogo('story4-hu'),
   'super one': huLogo('super-one-hu'),
+  // 2.5.266 (#13-as napló): a „[HU] SUPER TV 2” eddig csak a picons URL-t kapta
+  // (a TV-ről nem érhető el) – most beépített logója is van.
+  'super tv 2': huLogo('ext-super-tv-2'),
+  'super tv2': huLogo('ext-super-tv-2'),
+  'supertv2': huLogo('ext-super-tv-2'),
+  'hu super tv 2': huLogo('ext-super-tv-2'),
   'the fishing and hunting channel': huLogo('the-fishing-and-hunting-channel-hu'),
   'travelxp': huLogo('travelxp-hu'),
   'tv paprika': huLogo('tv-paprika-hu'),

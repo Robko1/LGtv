@@ -478,7 +478,9 @@ const ChannelListView: React.FC<ChannelListProps> = ({
             shortEpgEmptyRef.current += 1;
             if (shortEpgEmptyRef.current >= 3 && !shortEpgUnavailableRef.current) {
               shortEpgUnavailableRef.current = true;
-              appLog('EPG: a szolgáltató rövid EPG végpontja üres választ ad – a további kérések elmaradnak, a műsort a teljes műsorújságból töltjük.');
+              // 2.5.266 (#13): EPG-ÁLLAPOT előtag, hogy a kézi napló mérési szűrője
+              // („EPG:” kezdetű sorok eldobása) ezt a fontos verdiktet NE dobja el.
+              appLog('EPG-ÁLLAPOT: a szolgáltató rövid EPG végpontja üres választ ad – a további kérések elmaradnak, a műsort a teljes műsorújságból töltjük.');
             }
           }
         } catch (error) {
