@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.265';
+export const WEB_VERSION = '2.5.266';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.265',
+    version: '2.5.266',
     date: '2026-11-02',
     changes: [
       'HU csatornalogók (#12): a 7 logó nélküli magyar csatorna (ATV Spirit, HIT TV, APOSTOL TV, PAX TV, TV 1000, ERDÉLY TV, M4/UHD) beépített data-URL logót kapott (Hungary-Picons GitHub-tár, Wikimedia Commons, hivatalos oldalak; max. 128 px, 128 szín) – a provider picons szerverei a TV-ről nem elérhetők, így csak beépítve működnek; név-aliaszok a HU_CHANNEL_LOGOS táblában.',
