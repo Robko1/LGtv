@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.269';
+export const WEB_VERSION = '2.5.270';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.269',
+    version: '2.5.270',
     date: '2026-11-02',
     changes: [
       'EPG (#2-es kérés): CSAK a magyar csatornák kapnak EPG-t, semmi másra – a nyilvános EPG láncból a 3 globális (összes országos, 128 MB-os) fájl kikerült, csak a kis magyar HU fájlok maradtak (epgshare01 epg_ripper_HU1, iptv-org mediaklikk.hu + tvmusor.hu, iptv-epg.org epg-hu), így a letöltés és a tartós tároló is kicsi; a per-csatornás get_simple_data_table tartalék is csak [HU] csatornákra fut (countryCode=HU).',
