@@ -42,6 +42,17 @@ import { normalizeTvKey } from '../utils/tvKeys';
 import { WEB_VERSION } from '../appVersion';
 import { checkLatestWebOSRelease, type WebOSReleaseInfo } from '../services/webosUpdateService';
 
+/**
+ * 2.5.266 (#13-as napló): a Listák fül látható provider-dobozai DOM-sorrendben.
+ * A fel/le nyilak innen járják be az összes szolgáltatói listát, és csak az
+ * utolsó után ugranak a „teljes törlés” gombra.
+ */
+function visibleListBoxes(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  return Array.from(root.querySelectorAll<HTMLElement>('[data-tv-box]'))
+    .filter((el) => el.getClientRects().length > 0 && el.offsetParent !== null);
+}
+
 interface MenuSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -470,7 +481,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         e.preventDefault();
         e.stopPropagation();
         if (key === 'ArrowUp') {
-          modalRef.current?.querySelector<HTMLElement>('[data-tv-box]')?.focus({ preventScroll: true } as any);
+          // 2.5.266 (#13): több szolgáltató esetén a törlés gombról felfelé az
+          // UTOLSÓ provider-doboz kapja a fókuszt (nem az első).
+          const boxes = visibleListBoxes(modalRef.current);
+          const lastBox = boxes[boxes.length - 1];
+          (lastBox || modalRef.current?.querySelector<HTMLElement>('[data-tv-box]'))?.focus({ preventScroll: true } as any);
         }
         return;
       }
@@ -514,11 +529,34 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           return;
         }
         if (key === 'ArrowUp') {
-          modalRef.current?.querySelector<HTMLElement>('[data-tv-list-action="phone"]')?.focus({ preventScroll: true } as any);
+          // 2.5.266 (#13-as napló): több szolgáltató esetén felfelé az ELŐZŐ
+          // provider-doboz kapja a fókuszt; csak az első dobozról megy tovább
+          // a fejléc „Telefonról” gombjára.
+          const boxes = visibleListBoxes(modalRef.current);
+          const boxIndex = boxes.indexOf(box);
+          const prevBox = boxIndex > 0 ? boxes[boxIndex - 1] : null;
+          if (prevBox) {
+            prevBox.focus({ preventScroll: true } as any);
+            prevBox.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          } else {
+            modalRef.current?.querySelector<HTMLElement>('[data-tv-list-action="phone"]')?.focus({ preventScroll: true } as any);
+          }
           return;
         }
         if (key === 'ArrowDown') {
-          modalRef.current?.querySelector<HTMLElement>('[data-tv-clear-all]')?.focus({ preventScroll: true } as any);
+          // 2.5.266 (#13-as napló): lefelé a KÖVETKEZŐ provider-doboz kapja a
+          // fókuszt (korábban az elsőről rögtön a „teljes törlés” gombra ugrott,
+          // így a köztes szolgáltatói listákat átugorta); csak az utolsó doboz
+          // után ugrik a törlés gombra.
+          const boxes = visibleListBoxes(modalRef.current);
+          const boxIndex = boxes.indexOf(box);
+          const nextBox = boxIndex >= 0 && boxIndex < boxes.length - 1 ? boxes[boxIndex + 1] : null;
+          if (nextBox) {
+            nextBox.focus({ preventScroll: true } as any);
+            nextBox.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          } else {
+            modalRef.current?.querySelector<HTMLElement>('[data-tv-clear-all]')?.focus({ preventScroll: true } as any);
+          }
           return;
         }
         // A teljes Provider dobozon balra/jobbra nem történik semmi.

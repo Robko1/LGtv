@@ -146,7 +146,21 @@ const LogoImage: React.FC<Props & { huLogo?: string; fallbackUrl?: string; cache
     settledRef.current = false;
     if (!source) return;
     const timer = window.setTimeout(() => {
-      if (!settledRef.current) advanceFailureRef.current();
+      if (settledRef.current) return;
+      /*
+       * 2.5.266 (#13-as napló): HELYI (data:/blob:) forrásnál a watchdog NEM
+       * minősíthet hibásnak. A #13-as naplóban egy 3 mp-es főszál-leállás alatt
+       * a még töltődő beépített (bundle-beli) logók egy csapásra „végleg nem
+       * tölthető be" lettek (CARTOONITO, TV PAPRIKA, TV2 COMEDY/SEF/UHD/KIDS,
+       * VIASAT 3/6…), pedig a PNG-k hibátlanok – a betöltés eseménye csak nem
+       * ért oda időben. Ilyenkor csak lezárjuk a várakozást, a képet hagyjuk
+       * betöltődni; valódi hibánál az onError továbbra is advanceFailure-t hív.
+       */
+      if (source.startsWith('data:') || source.startsWith('blob:')) {
+        settledRef.current = true;
+        return;
+      }
+      advanceFailureRef.current();
     }, 8000);
     return () => window.clearTimeout(timer);
   }, [source, attempt]);

@@ -92,6 +92,15 @@ let nameToId = new Map<string, string>();
 let loadedAt = 0;
 let loadedProviderId = '';
 let loading: Promise<void> | null = null;
+/*
+ * 2.5.266 (#13-as napló): ha egy letöltés 0 csatornát hozott (a panel üres
+ * XMLTV-t küld), nem rohanunk rá újra perceken belül – a #13-as naplóban a
+ * kétszeres indulás után még egy teljes kör lefutott, és a sok kérés miatt a
+ * panel 429-cel (Too Many Requests) válaszolt. A 30 perces időzítő így is
+ * frissít később, csak a felesleges ismétléseket vágjuk le.
+ */
+let lastEmptyGuideAt = 0;
+const EMPTY_GUIDE_COOLDOWN_MS = 5 * 60 * 1000;
 let lastError = '';
 let lastBytes = 0;
 let lastProgrammes = 0;
@@ -995,6 +1004,30 @@ export async function ensureGuide(provider: {
     appLog(`EPG-ÁLLAPOT: a megszakító nyitva van (${Math.ceil(breakerRemainingMs() / 1000)} mp) – a műsorújság később töltődik be.`);
     return;
   }
+  /*
+   * 2.5.266 (#13-as napló): üres végeredmény utáni hűtés – lásd a deklarációnál.
+   */
+  if (lastEmptyGuideAt && loadedProviderId === provider.id && index.size === 0
+      && Date.now() - lastEmptyGuideAt < EMPTY_GUIDE_COOLDOWN_MS) {
+    appLog(
+      `EPG-ÁLLAPOT: az utolsó műsorújság üres volt (${Math.round((Date.now() - lastEmptyGuideAt) / 1000)} mp-e) `
+      + `– a ${Math.round(EMPTY_GUIDE_COOLDOWN_MS / 60000)} perces hűtés még tart, most nem töltünk újra.`
+    );
+    return;
+  }
+  /*
+   * 2.5.266 (#13-as napló): a `loading` zárat SZINKRONAN, még az első await
+   * (tartós tár visszatöltése) ELŐTT állítjuk be. A #13-as naplóban két
+   * scheduleGuide hívás 17 ms különbséggel kétszer indította el ugyanazt a
+   * letöltést (a második index.clear()-je kidobta az első részleges eredményét,
+   * a duplázott kérések miatt a panel 429-cel válaszolt).
+   */
+  let releaseLoading!: () => void;
+  loading = new Promise<void>((resolve) => { releaseLoading = resolve; });
+  const finishLoading = (): void => {
+    loading = null;
+    releaseLoading();
+  };
 
   const startedAt = Date.now();
   index.clear();
@@ -1022,7 +1055,8 @@ export async function ensureGuide(provider: {
    * sárga csík már a főoldal megjelenésekor ott van, a frissítés pedig a
    * háttérben, észrevétlenül fut.
    */
-  const restored = skipRestore ? false : await restorePersistedGuide(provider.id);
+  // 2.5.266 (#13): a visszatöltés hibája ne akassza ki a zárat örökre.
+  const restored = skipRestore ? false : await restorePersistedGuide(provider.id).catch(() => false as const);
   skipRestore = false;
   if (restored) {
     loadedAt = restored.savedAt;
@@ -1042,7 +1076,11 @@ export async function ensureGuide(provider: {
      */
     const thick = restored.channels > 0
       && restored.programmes >= restored.channels * USABLE_PROGRAMMES_PER_CHANNEL;
-    if (restored.complete && thick && Date.now() - restored.savedAt < GUIDE_TTL_MS) return;
+    if (restored.complete && thick && Date.now() - restored.savedAt < GUIDE_TTL_MS) {
+      // 2.5.266 (#13): a szinkron zárat minden kilépésnél el kell engedni.
+      finishLoading();
+      return;
+    }
     appLog(
       'EPG-ÁLLAPOT: a mentett műsorújság '
       + `${!restored.complete ? 'részleges' : (!thick ? 'túl kevés műsort tartalmaz' : 'lejárt')} `
@@ -1061,7 +1099,7 @@ export async function ensureGuide(provider: {
    * csak onnan töltünk (lásd a channels===0 ágat lejjebb).
    */
   const primaryDownload = isM3u ? Promise.resolve() : download(provider);
-  loading = primaryDownload
+  await primaryDownload
     .then(async () => {
       loadedAt = Date.now();
       loadedProviderId = provider.id;
@@ -1120,6 +1158,8 @@ export async function ensureGuide(provider: {
           appLog('EPG-ÁLLAPOT: sem url-tvg, sem jelölt XMLTV útvonal nem adott műsorújságot – marad a per-csatornás get_simple_data_table tartalék.');
         }
       }
+      // 2.5.266 (#13): üres végeredmény – jegyezzük fel a hűtési időhöz.
+      if (index.size === 0) lastEmptyGuideAt = Date.now();
     })
     .catch((error) => {
       lastError = error instanceof Error ? error.message : String(error);
@@ -1140,10 +1180,8 @@ export async function ensureGuide(provider: {
       // de RÉSZLEGES jelöléssel, hogy a következő indulás frissítsen.
       if (index.size > 0) void persistGuide(provider.id, false);
     })
-    .finally(() => {
-      loading = null;
-    });
-  return loading;
+    // 2.5.266 (#13): a zárat a lánc végén (siker és hiba után is) elengedjük.
+    .finally(finishLoading);
 }
 
 /** A csatorna XMLTV-azonosítója: `epg_channel_id`, majd név-egyeztetés. */
@@ -1273,6 +1311,7 @@ export function clearGuide(): void {
   buffer = '';
   loadedAt = 0;
   loadedProviderId = '';
+  lastEmptyGuideAt = 0; // 2.5.266 (#13)
   lastProgrammes = 0;
   lastSkipped = 0;
   lastBytes = 0;
