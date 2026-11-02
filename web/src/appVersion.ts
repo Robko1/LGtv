@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.272';
+export const WEB_VERSION = '2.5.273';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.272',
+    version: '2.5.273',
     date: '2026-11-02',
     changes: [
       'EPG (#3-as napló): a #3-as napló szerint a 2.5.269-es javítás működik (üres xmltv.php után a részleges visszatöltés ellenére is lefutnak a nyilvános HU újságok: epgshare01 HU1 +159 csatorna, magyar adók 90/107, majd iptv-epg.org epg-hu +122 csatorna, összesen 95/107 magyar adónak lett műsora) – de az iptv-org.github.io/epg/guides/hu/… két fájl HTTP 404-et adott, ezért kikerültek a láncból, helyettük az iptv-org magyar lista alapján naponta kétszer frissülő aldork04.github.io/lgtv-epg/guide.xml került be (GitHub Pages, sima XML).',
