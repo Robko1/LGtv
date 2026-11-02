@@ -36,7 +36,7 @@ import {
   bootScreenProviderProgress,
   bootScreenTransfer,
 } from './services/bootScreen';
-import { fsPerf, fsStep } from './services/fullscreenPerf';
+import { fsNow, fsPerf, fsStep } from './services/fullscreenPerf';
 import { speedChannelCommit, speedSelect } from './services/speedDiagnostics';
 import { configureTvDoctorCloud } from './services/tvDoctorCloud';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
@@ -544,6 +544,10 @@ export function App() {
    * állítjuk vissza; a Mozi/Sorozat nézet csak kézi váltásra nyílik meg.
    */
   const [activeView, setActiveView] = useState<'live' | 'movies' | 'series'>('live');
+  /* 2.5.273 (#5-ös kérés): nézetváltás-időmérés a kézi naplóhoz. */
+  const viewSwitchT0Ref = useRef(0);
+  const viewSwitchReadyLoggedRef = useRef(false);
+  const lastFsSwitchAtRef = useRef(0);
   /**
    * Már MEGNYITOTT nézetek.
    *
@@ -2099,6 +2103,19 @@ export function App() {
   }, [activeView, restorePaneScroll]);
 
   const handleViewChange = useCallback((view: 'live' | 'movies' | 'series') => {
+    /*
+     * 2.5.273 (#5-ös kérés): minden nézetváltást (TV ↔ Mozi ↔ Sorozatok) időmérővel
+     * naplózunk, és a lista megjelenését is – így a következő kézi naplóból pontosan
+     * látszik, mi lassítja a váltást, és mik futnak közben a háttérben.
+     */
+    const t0 = fsNow();
+    viewSwitchT0Ref.current = t0;
+    viewSwitchReadyLoggedRef.current = false;
+    appLog(
+      `NÉZETVÁLTÁS indul: ${activeView} → ${view} | háttér: epg=${guideStatus().channels} csatorna, `
+      + `provider-frissítés=${providerRefreshActiveRef.current ? 'FUT' : 'nem'}, rejtett-ablak=${typeof document !== 'undefined' && document.hidden}, `
+      + `teljes-képernyő=${isVideoFullscreen}, csatornalista=${channelsRef.current.length} db`
+    );
     // A görgetést a váltás ELŐTT mentjük (a display:none után már 0 lenne).
     capturePaneScroll(activeView);
     setVisitedViews((previous) => (previous[view] ? previous : { ...previous, [view]: true }));
@@ -2148,7 +2165,28 @@ export function App() {
   useEffect(() => {
     if (activeView === 'movies' || activeView === 'series') inspectVodSection(activeView);
     if (activeView !== 'live') logVodOverview();
+    /*
+     * 2.5.273 (#5-ös kérés): a nézetváltás „kész” időpontja – meddig tartott,
+     * amíg a lista valóban megjelent (Mozi/Sorozatok lassúságának mérése).
+     */
+    const t0 = viewSwitchT0Ref.current;
+    if (t0 && !viewSwitchReadyLoggedRef.current) {
+      const count = activeView === 'movies' ? movies.length : activeView === 'series' ? series.length : channelsRef.current.length;
+      if (count > 0) {
+        viewSwitchReadyLoggedRef.current = true;
+        appLog(`NÉZETVÁLTÁS kész: ${activeView} – lista=${count} db, váltás óta eltelt=${Math.round(fsNow() - t0)} ms`);
+      }
+    }
   }, [activeView, movies.length, series.length]);
+
+  /* 2.5.273 (#5-ös kérés): teljes képernyő be/ki váltások időköze a naplóban. */
+  useEffect(() => {
+    const now = fsNow();
+    if (lastFsSwitchAtRef.current > 0) {
+      appLog(`TELJES KÉPERNYŐ ${isVideoFullscreen ? 'BE' : 'KI'} – az előző váltás óta eltelt=${Math.round(now - lastFsSwitchAtRef.current)} ms`);
+    }
+    lastFsSwitchAtRef.current = now;
+  }, [isVideoFullscreen]);
 
   // A nézetek propjai STABILAK (a React.memo így tudja kihagyni az
   // újrarajzolást, amikor csak a lejátszó teljes képernyős állapota változik).
