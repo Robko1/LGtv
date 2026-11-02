@@ -1,0 +1,225 @@
+name: Tisztítás
+
+# Kizárólag kézzel indítható. A Git-előzményekben maradt buildmaradványokat keresi.
+# Az aktuális alkalmazásforrás, képek és szükséges fájlok megmaradnak.
+# Az IPK-kiadások külön a Robko1/Ipk repóban vannak; ahhoz nem nyúl.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  cleanup:
+    name: Teljes Git-előzmény és Actions takarítás
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Minden ág és tag előzményeinek letöltése
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Biztonságos buildmaradványok eltávolítása minden Git-előzményből
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Detached HEAD mellett minden távoli ágat helyi refs/heads alá töltünk,
+          # hogy a git-filter-repo az összes ágat és taget ténylegesen át tudja írni.
+          ORIGINAL_MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+          git checkout --detach "$ORIGINAL_MAIN_SHA"
+          git fetch origin --prune --tags '+refs/heads/*:refs/heads/*'
+          git checkout -B main "$ORIGINAL_MAIN_SHA"
+
+          TREE_BEFORE="$(git rev-parse main^{tree})"
+
+          # Minden letöltött ág és tag előzményeit vizsgáljuk, nem csak a main ágat.
+          python3 - <<'PY' > /tmp/generated-history-paths.txt
+          import subprocess
+          import sys
+
+          raw = subprocess.check_output(
+              ["git", "rev-list", "--objects", "--all"],
+              text=True, errors="replace"
+          )
+          generated_dirs = {
+              "build", "dist", "node_modules", "__pycache__",
+              ".pytest_cache", ".mypy_cache"
+          }
+          generated_suffixes = (
+              ".ipk", ".apk", ".aab", ".log", ".pyc",
+              ".class", ".o", ".obj"
+          )
+          paths = set()
+          large = []
+
+          for line in raw.splitlines():
+              parts = line.split(" ", 1)
+              if len(parts) != 2:
+                  continue
+              path = parts[1]
+              components = path.split("/")
+              name = components[-1].lower()
+
+              if name.endswith(generated_suffixes) or any(
+                  part.lower() in generated_dirs for part in components[:-1]
+              ):
+                  paths.add(path)
+
+              # A nagy, de nem egyértelműen generált fájlokat csak jelentjük.
+              # Így működő képek, ikonok, források és alkalmazásfájlok nem törlődnek.
+              try:
+                  oid = parts[0]
+                  size = int(subprocess.check_output(
+                      ["git", "cat-file", "-s", oid], text=True
+                  ).strip())
+                  if size >= 10 * 1024 * 1024 and path not in paths:
+                      large.append((size, path))
+              except Exception:
+                  pass
+
+          for path in sorted(paths):
+              print(path)
+
+          print(f"Eltávolítható történeti útvonalak: {len(paths)}", file=sys.stderr)
+          for size, path in sorted(large, reverse=True):
+              print(f"NAGY FÁJL – megőrizve ({size // 1024 // 1024} MB): {path}", file=sys.stderr)
+          PY
+
+          mapfile -t GENERATED_PATHS < /tmp/generated-history-paths.txt
+          if (( ${#GENERATED_PATHS[@]} > 0 )); then
+            python3 -m pip install --quiet git-filter-repo
+            FILTER_ARGS=(--force --invert-paths)
+            for path in "${GENERATED_PATHS[@]}"; do
+              FILTER_ARGS+=(--path "$path")
+            done
+            git filter-repo "${FILTER_ARGS[@]}"
+          else
+            echo "Nem találtam biztonságosan törölhető buildmaradványt."
+          fi
+
+          # A main aktuális fájltartalmának változatlanságát ellenőrizzük.
+          TREE_AFTER="$(git rev-parse main^{tree})"
+          if [[ "$TREE_BEFORE" != "$TREE_AFTER" ]]; then
+            echo "HIBA: a main aktuális fájltartalma megváltozott; a push leáll."
+            exit 1
+          fi
+
+          # A szűrés után ellenőrizzük, hogy a törlendő útvonalak sehol nem maradtak.
+          for path in "${GENERATED_PATHS[@]}"; do
+            if git rev-list --objects --all | grep -F " $path" >/dev/null; then
+              echo "HIBA: történeti fájl maradt: $path"
+              exit 1
+            fi
+          done
+
+          FINAL_COUNT="$(git rev-list --first-parent --count main)"
+          if (( FINAL_COUNT > 100 )); then
+            CUTOFF_SHA="$(git rev-list --first-parent main | sed -n '100p')"
+            FILTER_BRANCH_SQUELCH_WARNING=1 CUTOFF_SHA="$CUTOFF_SHA" git filter-branch --force --parent-filter '
+              if [ "$GIT_COMMIT" = "$CUTOFF_SHA" ]; then :; else cat; fi
+            ' -- main
+            git update-ref -d refs/original/refs/heads/main 2>/dev/null || true
+          fi
+
+          git reflog expire --expire=now --all
+          git gc --prune=now
+          FINAL_COUNT="$(git rev-list --first-parent --count main)"
+          TREE_FINAL="$(git rev-parse main^{tree})"
+          if (( FINAL_COUNT > 100 )) || [[ "$TREE_BEFORE" != "$TREE_FINAL" ]]; then
+            echo "HIBA: az ellenőrzés nem sikerült; nincs push."
+            exit 1
+          fi
+
+          # A Git-előzményeket az összes ágon és tagen frissítjük.
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
+          git push --force origin --all
+          git push --force origin --tags
+          echo "OK: a jelenlegi main fájltartalma változatlan; a tisztítás az előzményekre korlátozódott."
+
+      - name: Régi Actions-futások takarítása
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          current_id = int(os.environ["CURRENT_RUN_ID"])
+          base = f"https://api.github.com/repos/{repo}"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def api(url, method="GET"):
+              req = urllib.request.Request(url, headers=headers, method=method)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read()
+                  return json.loads(raw) if raw else {}
+
+          def runs(url):
+              result, page = [], 1
+              while True:
+                  data = api(f"{url}?per_page=100&page={page}")
+                  batch = data.get("workflow_runs", [])
+                  result.extend(batch)
+                  if len(batch) < 100:
+                      return result
+                  page += 1
+
+          builds = runs(f"{base}/actions/workflows/webos-build.yml/runs")
+          builds = [
+              r for r in builds
+              if r.get("status") == "completed" and r.get("conclusion") == "success"
+          ]
+          builds.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+          keep = {int(r["id"]) for r in builds[:5]}
+          print(f"Az utolsó {len(keep)} sikeres IPK-build megtartása.")
+
+          removed = skipped_running = 0
+          for run in runs(f"{base}/actions/runs"):
+              rid = int(run["id"])
+              if rid == current_id or rid in keep:
+                  continue
+              if run.get("status") != "completed":
+                  skipped_running += 1
+                  continue
+              try:
+                  api(f"{base}/actions/runs/{rid}", method="DELETE")
+                  removed += 1
+              except Exception as exc:
+                  print(f"Nem sikerült törölni a(z) {rid} futást: {exc}")
+
+          print(f"Kész. Törölt futások: {removed}; futó futások kihagyva: {skipped_running}.")
+          PY
+
+      - name: Összefoglaló
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## LGtv mélytisztítás"
+            echo "- Kizárólag kézi indítású workflow."
+            echo "- Minden letöltött ág és tag Git-előzményeit átvizsgálja."
+            echo "- Csak egyértelmű buildmaradványokat távolít el."
+            echo "- A nagy, nem egyértelmű fájlokat csak felsorolja, nem törli."
+            echo "- A jelenlegi main fájltartalmát ellenőrzi, és eltérés esetén nem pushol."
+            echo "- A működő képek, ikonok, forráskódok és alkalmazásfájlok megmaradnak."
+            echo "- Az utolsó 5 sikeres IPK-build Actions-futása megmarad."
+            echo "- A külön Robko1/Ipk repóhoz nem nyúl."
+          } >> "$GITHUB_STEP_SUMMARY"

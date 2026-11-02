@@ -1,0 +1,835 @@
+name: IPK építés
+
+# Kizárólag TV IPK build; minden forrás a jelenlegi repóból származik.
+# Kézi indítás (workflow_dispatch), automatikus futás nincs.
+# Kimenet: kizárólag a privát Robko1/Ipk repóban jön létre Release, verziócímke és IPK.
+# A teljes forrásdiagnosztika és IPK-ellenőrzés ebben a workflow-ban fut.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iptv-webos-build
+  cancel-in-progress: false
+
+env:
+  IPK_FILE_NAME: 'IPTV-RT.ipk'
+  RELEASE_TITLE: 'TV'
+
+jobs:
+  webos-epites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 1. Forrás letöltése (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 3. Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          # A web/ függőségei a legnagyobbak (vite, react, babel, esbuild) –
+          # a gyorsítótár nélkül minden build újra letöltötte őket (~1 perc).
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: 3. Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: 4. Kézi diagnosztika – szükséges forrásfájlok
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s web/package.json
+          test -s web/index.html
+          test -s webos/appinfo.json
+          test -s webos/webos.js
+          echo "OK: a szükséges web és webOS fájlok megvannak."
+
+      - name: 5. Függőségek telepítése
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          # npm ci: gyorsabb és determinisztikus (a lockfile-ból telepít);
+          # a setup-node npm-gyorsítótára így ténylegesen hasznosul.
+          npm ci --prefix web --no-audit --no-fund
+          pip install Pillow --break-system-packages -q || pip install Pillow -q
+          # A feltöltött splash-screen.png marad az egyetlen kezdőkép.
+          # Automatikus átméretezés 1920x1080-ra, majd adaptív palettás PNG-
+          # tömörítés. A cél szigorúan 699 KiB, nem 700 KiB; a legjobb olyan
+          # színmélységet választjuk, amely ezt a határt teljesíti.
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import io
+          path = Path("webos/splash-screen.png")
+          if not path.is_file() or path.stat().st_size == 0:
+              raise SystemExit("HIBA: hiányzik a feltöltött webos/splash-screen.png.")
+          # GYORSÍTÁS: ha a repóban lévő splash már megfelel minden
+          # követelménynek (1920x1080, palettás PNG, 699 KiB alatt), akkor az
+          # újratömörítés (~30-60 mp) teljesen kihagyható. Új, nyers kép
+          # feltöltésekor az optimalizálás automatikusan újra lefut.
+          limit = 699 * 1024
+          try:
+              with Image.open(path) as existing:
+                  if (existing.size == (1920, 1080) and existing.mode == "P"
+                          and path.stat().st_size < limit):
+                      print(f"OK: a splash már optimalizált ({path.stat().st_size} byte, palettás, 1920x1080) – újratömörítés kihagyva.")
+                      raise SystemExit(0)
+          except SystemExit:
+              raise
+          except Exception as error:
+              print(f"Figyelmeztetés: a meglévő splash gyors ellenőrzése nem sikerült ({error}); teljes optimalizálás következik.")
+          with Image.open(path) as original:
+              original.load()
+              source = original.convert("RGB")
+          if source.size != (1920, 1080):
+              print(f"Automatikus splash-méretezés: {source.size} -> 1920x1080.")
+              source = source.resize((1920, 1080), Image.Resampling.LANCZOS)
+          limit = 699 * 1024
+          best = None
+          # Először a jobb minőségű 256 színt próbáljuk, majd fokozatosan
+          # csökkentjük a színpalettát, amíg biztosan 699 KiB alá nem ér.
+          for colors in (256, 224, 192, 160, 128, 112, 96, 80, 64, 48, 32):
+              reduced = source.quantize(
+                  colors=colors,
+                  method=Image.Quantize.MEDIANCUT,
+                  dither=Image.Dither.FLOYDSTEINBERG,
+              )
+              buffer = io.BytesIO()
+              reduced.save(buffer, format="PNG", optimize=True, compress_level=9)
+              data = buffer.getvalue()
+              print(f"Splash optimalizálás: {colors} szín -> {len(data)} byte.")
+              if len(data) < limit:
+                  best = data
+                  print(f"OK: cél teljesült: {len(data)} byte / {limit - 1} byte alatt.")
+                  break
+          if best is None:
+              raise SystemExit("HIBA: a splash PNG 32 színnel sem fér be 699 KiB alá.")
+          path.write_bytes(best)
+          with Image.open(path) as check:
+              if check.size != (1920, 1080) or check.mode != "P":
+                  raise SystemExit(f"HIBA: hibás optimalizált splash: {check.size}, {check.mode}.")
+          if path.stat().st_size >= limit:
+              raise SystemExit(f"HIBA: a splash elérte vagy túllépte a 699 KiB-os határt: {path.stat().st_size} byte.")
+          print(f"VÉGEREDMÉNY: 1920x1080 palettás PNG, {path.stat().st_size} byte (699 KiB alatt).")
+          PY
+          # A jóváhagyott, átlátszó és lekerekített ikonokat használjuk;
+          # a build ne generálja őket újra a régi gyökér ikonkep.png-ből.
+          python3 - << 'PY'
+          from pathlib import Path
+          from PIL import Image
+          import base64, io
+          small = Path("webos/icon-rt2.png")
+          large = Path("webos/largeIcon-rt2.png")
+          for path in (small, large):
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"HIBA: hiányzik vagy üres az új ikon: {path}")
+          small_img = Image.open(small).convert("RGBA")
+          large_img = Image.open(large).convert("RGBA")
+          Path("webos/assets").mkdir(parents=True, exist_ok=True)
+          # A webes felület az ikonokat beégetett adat URL-ként használja;
+          # külön, nem hivatkozott public/ikonkep.png nem kerül a buildbe.
+          def icon_b64(img, px):
+              thumb = img.resize((px, px), Image.Resampling.LANCZOS)
+              buffer = io.BytesIO()
+              thumb.save(buffer, format="PNG", optimize=True)
+              return base64.b64encode(buffer.getvalue()).decode("ascii")
+          Path("web/src/generatedIcon.ts").write_text(
+              '// Beégetett ikonok a jóváhagyott webos ikonfájlokból.\n'
+              '// Az átlátszó háttér és a lekerekített szélek megmaradnak.\n'
+              'export const APP_ICON_DATA_URL = "data:image/png;base64,' + icon_b64(large_img, 128) + '";\n'
+              'export const APP_ICON_SMALL_DATA_URL = "data:image/png;base64,' + icon_b64(small_img, 32) + '";\n',
+              encoding="utf-8"
+          )
+          print("OK: a jóváhagyott kis és nagy ikon használatra előkészítve.")
+          PY
+
+      - name: 5a2. Beépített HU logók tömörítése (kisebb IPK)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 2.5.264: a web/src/generatedHuLogos.ts data-URL logói max. 128 px-es,
+          # max. 128 színű palettás PNG-k legyenek, így a bundle (és vele az ipk)
+          # kisebb. Ha minden kép már megfelel, a script gyorsellenőrzés után
+          # érintetlenül hagyja a fájlt, tehát a build nem lassul.
+          python3 tools/optimize-embedded-logos.py web/src/generatedHuLogos.ts --max-px 128 --colors 128
+
+      - name: 5b. Alkalmazás-regressziós tesztek
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          # Csak az alkalmazás működéséhez tartozó regressziós tesztek futnak.
+          # Nincs külön HTML indítóképernyő vagy animációs reveal-teszt.
+          #
+          # HIBA-VISSZACSATOLÁS (2.5.235): ha a tesztek elbuknak, a kimenet
+          # vége felkerül a futás összefoglalójába ÉS commit-kommentbe is –
+          # így a javítás a PONTOS hibát látja, nem kell találgatni. Egy
+          # elbukott futás után EGYSZER újrafutnak a tesztek, hogy a
+          # futtatógép átmeneti hibái (leállított runner, időzítési
+          # ingadozás) ne állítsák le feleslegesen az IPK építést. Valódi
+          # hibánál a második futás is elbukik, és a build megáll.
+          run_tests() { npm test 2>&1 | tee "$1"; return "${PIPESTATUS[0]}"; }
+          report() {
+            {
+              echo "## 5b. tesztlépés hibakimenete (${2}. kísérlet, utolsó 120 sor)"
+              echo '```'
+              tail -n 120 "$1"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            BODY="$(printf 'IPK építés – 5b. tesztlépés hibája (run %s, %s. kísérlet, utolsó 100 sor):\n\n```\n%s\n```' "$GITHUB_RUN_ID" "$2" "$(tail -n 100 "$1")")"
+            gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$BODY" >/dev/null 2>&1 || echo "Figyelem: a hibakimenet commit-kommentje nem jött létre."
+          }
+          if run_tests /tmp/tesztnaplo-1.log; then
+            echo "OK: a tesztek első futásra sikeresek."
+            exit 0
+          fi
+          report /tmp/tesztnaplo-1.log 1
+          echo "A tesztek elbuktak – egyszeri újrafuttatás az átmeneti környezeti hibák kiszűrésére…"
+          if run_tests /tmp/tesztnaplo-2.log; then
+            echo "OK: a tesztek a második futásra sikeresek (az első hiba átmeneti volt; kimenete a futás összefoglalójában és commit-kommentben)."
+            exit 0
+          fi
+          report /tmp/tesztnaplo-2.log 2
+          echo "HIBA: a tesztek kétszer egymás után elbuktak – ez valódi hiba, az építés leáll." >&2
+          exit 1
+
+      - name: 5c. Verzió automatikus emelése és mentése (csak sikeres tesztek után)
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_KEY_ID: ${{ secrets.RELEASE_GPG_KEY_ID }}
+          RELEASE_SSH_PRIVATE_KEY: ${{ secrets.RELEASE_SSH_PRIVATE_KEY }}
+          RELEASE_COMMIT_NAME: ${{ secrets.RELEASE_COMMIT_NAME }}
+          RELEASE_COMMIT_EMAIL: ${{ secrets.RELEASE_COMMIT_EMAIL }}
+        run: |
+          set -euo pipefail
+          # Minden kézi IPK-build új patch verziót kap. A verziót a main ágra
+          # is visszamentjük, hogy a következő build ne ugyanarról a régi számról induljon.
+          CURRENT="$(python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          src = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
+          m = re.search(r"WEB_VERSION\s*=\s*'([0-9]+)\.([0-9]+)\.([0-9]+)'", src)
+          if not m:
+              raise SystemExit("HIBA: nem olvasható a WEB_VERSION.")
+          print(".".join(m.groups()))
+          PY
+          )"
+          PUBLISHED="$(tr -d '\r\n' < version.txt)"
+          NEXT="$(python3 - "$CURRENT" "$PUBLISHED" <<'PY'
+          import re, sys
+          def parse(value):
+              if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value):
+                  raise SystemExit(f"HIBA: érvénytelen verziószám: {value!r}")
+              return tuple(map(int, value.split(".")))
+          current, published = parse(sys.argv[1]), parse(sys.argv[2])
+          if current > published:
+              # Egy korábbi sikertelen közzététel után ugyanazt a verziót
+              # próbáljuk újra, nem ugrunk a következő számra.
+              result = current
+          else:
+              base = max(current, published)
+              result = (base[0], base[1], base[2] + 1)
+          print(".".join(map(str, result)))
+          PY
+          )"
+          export CURRENT NEXT
+          if [[ "$NEXT" == "$CURRENT" ]]; then
+            MANIFEST_CURRENT="$(python3 -c 'import json; print(json.load(open("webos/appinfo.json")).get("version", ""))')"
+            if [[ "$MANIFEST_CURRENT" != "$CURRENT" ]]; then
+              # Kézi WEB_VERSION-emelés után az appinfo.json lemaradhat – ez
+              # NEM hiba: a webes verzió az egyetlen igazságforrás, ezért itt
+              # szinkronizáljuk, és a build megy tovább. (Korábban ez a lépés
+              # hibával leállította az egész IPK-építést.)
+              echo "appinfo.json szinkron a webes verzióhoz: $MANIFEST_CURRENT -> $CURRENT"
+              python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path("webos/appinfo.json")
+          manifest = json.loads(p.read_text(encoding="utf-8"))
+          manifest["version"] = os.environ["CURRENT"]
+          p.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+            fi
+            echo "VERSION=$NEXT" >> "$GITHUB_ENV"
+            echo "RELEASE_TAG=v$NEXT" >> "$GITHUB_ENV"
+            echo "SIGNED_COMMIT=0" >> "$GITHUB_ENV"
+            echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+            echo "OK: a v$NEXT verzió még nincs publikálva; ugyanazt a verziót próbáljuk újra, nem emelünk feleslegesen." 
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          old, new = os.environ["CURRENT"], os.environ["NEXT"]
+          p = Path("web/src/appVersion.ts")
+          src = p.read_text(encoding="utf-8")
+          src, count = re.subn(r"(WEB_VERSION\s*=\s*')[^']+(')", r"\g<1>" + new + r"\2", src, count=1)
+          if count != 1:
+              raise SystemExit("HIBA: WEB_VERSION frissítése nem sikerült.")
+          # A verziótörténet legelső bejegyzése az aktuális kiadás.
+          src, count = re.subn(r"(version:\s*')[^']+(')", r"\g<1>" + new + r"\2", src, count=1)
+          if count != 1:
+              raise SystemExit("HIBA: verziótörténet frissítése nem sikerült.")
+          p.write_text(src, encoding="utf-8")
+          manifest_path = Path("webos/appinfo.json")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          # EGYETLEN igazságforrás a web/src/appVersion.ts WEB_VERSION-je.
+          # Ha valaki kézzel emelte a webes verziót és az appinfo.json nem
+          # követte, itt szinkronizáljuk (korábban ez a buildet is megállította).
+          if manifest.get("version") != old:
+              print(f"appinfo.json szinkron a webes verzióhoz: {manifest.get('version')} -> {old}")
+              manifest["version"] = old
+          manifest["version"] = new
+          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(f"Verzió emelve: {old} -> {new}")
+          PY
+          echo "VERSION=$NEXT" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$NEXT" >> "$GITHUB_ENV"
+          if [[ -n "${RELEASE_GPG_PRIVATE_KEY:-}" ]]; then
+            # A GitHub „Verified” commithez a kulcs nyilvános részének már a
+            # GitHub-fiókhoz kell tartoznia. A privát kulcs csak Actions secret,
+            # fájlba és naplóba nem kerül.
+            [[ -n "${RELEASE_GPG_KEY_ID:-}" && -n "${RELEASE_COMMIT_EMAIL:-}" ]] || {
+              echo "HIBA: RELEASE_GPG_KEY_ID és RELEASE_COMMIT_EMAIL is kell az aláírt commithez." >&2
+              exit 1
+            }
+            printf '%s\n' "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import >/dev/null
+            git config user.name "${RELEASE_COMMIT_NAME:-Robko1 release bot}"
+            git config user.email "$RELEASE_COMMIT_EMAIL"
+            git config user.signingkey "$RELEASE_GPG_KEY_ID"
+            git config commit.gpgsign true
+            git config gpg.program gpg
+            git add web/src/appVersion.ts webos/appinfo.json
+            git commit -S -m "chore: bump webOS IPK version to v$NEXT"
+            echo "SIGNED_COMMIT=1" >> "$GITHUB_ENV"
+          elif [[ -n "${RELEASE_SSH_PRIVATE_KEY:-}" ]]; then
+            # GitHub az SSH-aláíró kulcsot is Verifiedként kezeli, ha annak
+            # publikus része előzőleg a fiók SSH signing keys listájában van.
+            [[ -n "${RELEASE_COMMIT_EMAIL:-}" ]] || {
+              echo "HIBA: RELEASE_COMMIT_EMAIL is kell az aláírt SSH commithoz." >&2
+              exit 1
+            }
+            SIGNING_KEY_FILE="$RUNNER_TEMP/release-signing-key"
+            printf '%s\n' "$RELEASE_SSH_PRIVATE_KEY" > "$SIGNING_KEY_FILE"
+            chmod 600 "$SIGNING_KEY_FILE"
+            git config user.name "${RELEASE_COMMIT_NAME:-Robko1 release bot}"
+            git config user.email "$RELEASE_COMMIT_EMAIL"
+            git config gpg.format ssh
+            git config user.signingkey "$SIGNING_KEY_FILE"
+            git config commit.gpgsign true
+            git add web/src/appVersion.ts webos/appinfo.json
+            git commit -S -m "chore: bump webOS IPK version to v$NEXT"
+            echo "SIGNED_COMMIT=1" >> "$GITHUB_ENV"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add web/src/appVersion.ts webos/appinfo.json
+            git commit -m "chore: bump webOS IPK version to v$NEXT"
+            echo "SIGNED_COMMIT=0" >> "$GITHUB_ENV"
+          fi
+          # A build közben generált, verziócommiton kívüli fájlok (például
+          # webos/webos.js) ne akadályozzák a rebase-t. Csak ideiglenesen stash,
+          # a push után visszaállítjuk őket. Force push továbbra sincs.
+          STASHED=0
+          if ! git diff --quiet || ! git diff --cached --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+            git stash push --include-untracked -m "workflow-generated changes before version push"
+            STASHED=1
+          fi
+
+          # A build közben a main ágra érkező más commitokat is meg kell tartani.
+          # A saját verziócommitot mindig a legfrissebb main tetejére rebase-eljük.
+          # Push-elutasítás esetén újra fetch + rebase következik; force push tilos.
+          PUSHED=0
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if ! git rebase origin/main; then
+              # Ha egy másik, közben lefutott kiadási folyamat pontosan ugyanazt
+              # a verzióemelést már feltette a main ágra, a két azonos módosítás
+              # konfliktusba kerülhet. Ilyenkor nem kell újra emelni vagy leállni:
+              # ellenőrizzük, hogy mindkét verziófájl pontosan a saját NEXT értékünk.
+              git rebase --abort || true
+              git fetch origin main
+              REMOTE_WEB_VERSION="$(git show origin/main:web/src/appVersion.ts | python3 -c 'import re,sys; s=sys.stdin.read(); m=re.search(r"WEB_VERSION\s*=\s*\x27([0-9]+\.[0-9]+\.[0-9]+)\x27",s); print(m.group(1) if m else "")')"
+              REMOTE_MANIFEST_VERSION="$(git show origin/main:webos/appinfo.json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version", ""))')"
+              if [[ "$REMOTE_WEB_VERSION" == "$NEXT" && "$REMOTE_MANIFEST_VERSION" == "$NEXT" ]]; then
+                echo "OK: a v$NEXT verzióemelés már megvan a friss main ágon; a meglévő commitot használjuk."
+                git reset --hard origin/main
+              else
+                echo "HIBA: valódi verzióütközés történt. A main ágat nem írjuk felül." >&2
+                echo "Saját buildverzió: $NEXT; távoli WEB_VERSION: $REMOTE_WEB_VERSION; távoli appinfo: $REMOTE_MANIFEST_VERSION." >&2
+                exit 1
+              fi
+            fi
+            if git push origin HEAD:main; then
+              PUSHED=1
+              break
+            fi
+            echo "A main időközben ismét frissült; újrapróbálás ($attempt/5)."
+            sleep 2
+          done
+          if [[ "$PUSHED" != "1" ]]; then
+            echo "HIBA: öt próbálkozás után sem sikerült biztonságosan frissíteni a main ágat." >&2
+            exit 1
+          fi
+
+          if [[ "$STASHED" == "1" ]]; then
+            if ! git stash pop; then
+              echo "HIBA: a verziócommit sikeresen felkerült a main ágra, de a generált fájlok visszaállítása ütközött." >&2
+              exit 1
+            fi
+          fi
+          echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: 6. Kézi diagnosztika – forrás, webOS frissítő és csomagoló
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'https://raw.githubusercontent.com/Robko1/LGtv/main/version.txt' web/src/services/webosUpdateService.ts
+          grep -Fq 'normalizeKey' webos/webos.js
+          grep -Fq 'focusSpatially' webos/webos.js
+          grep -Fq 'KEYCODE_TO_KEY' webos/webos.js
+          grep -Fq 'makeKeyEvent' webos/webos.js
+          # ES5 szintaxis őrzés: régebbi LG webOS (Chrome 38-53) elhasal a modern szintaxison
+          if grep -nE '=>|`|catch \{|catch\{|^[[:space:]]*(let|const) |[;{(=] ?(let|const) ' webos/webos.js; then
+            echo "HIBA: modern JS szintaxis került a webos.js-be - régebbi LG TV-ken a távirányító-kezelő nem töltődne be." >&2
+            exit 1
+          fi
+          if grep -RniE 'IPTVNative|Android|WebView|\.apk' web/src web/index.html; then
+            echo "HIBA: más platformra utaló kód maradt a webOS forrásban." >&2
+            exit 1
+          fi
+          # 2.5.0-tól NINCS induló videó a programban: egyetlen videófájl sem
+          # lehet az assetek között (kisebb IPK, azonnali főoldal).
+          if find webos/assets -type f | grep -Ei '\.(mp4|webm|mov)$'; then
+            echo "HIBA: videó van a webOS assetek között, pedig 2.5.0-tól nincs induló videó." >&2
+            exit 1
+          fi
+          test -s webos/splash-screen.png
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          splash = Path("webos/splash-screen.png")
+          img = Image.open(splash)
+          if img.size != (1920, 1080):
+              raise SystemExit(f"HIBA: az automatikus átméretezés után is hibás az indítókép mérete: {img.size}.")
+          # Az indítókép 1920x1080-as palettás PNG, szigorúan 699 KiB alatt.
+          if splash.stat().st_size >= 699 * 1024:
+              raise SystemExit("HIBA: az indítókép nem kisebb 699 KiB-nál.")
+          if img.mode != "P":
+              raise SystemExit(f"HIBA: az indítókép módja {img.mode}, várt palettás PNG (P).")
+          print(f"OK: webOS natív indítókép {img.size}, {splash.stat().st_size} byte.")
+          PY
+          bash -n tools/build-webos.sh
+          node --check webos/webos.js
+          python3 -m py_compile webos/tools/build-ipk.py
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          manifest = json.loads(Path("webos/appinfo.json").read_text(encoding="utf-8"))
+          version_source = Path("web/src/appVersion.ts").read_text(encoding="utf-8")
+          match = re.search(r"WEB_VERSION\s*=\s*'([^']+)'", version_source)
+          if not match:
+              raise SystemExit("WEB_VERSION nem található")
+          if manifest.get("version") != match.group(1):
+              raise SystemExit(f"Verzióeltérés: appinfo.json={manifest.get('version')} / WEB_VERSION={match.group(1)}")
+          # A TV saját indítóképe a webOS natív splash PNG
+          # (ugyanaz a kép, ugyanazokból a forrásértékekből), a rendszer forgó
+          # fogaskereke pedig ne jelenjen meg a kép előtt.
+          if manifest.get("splashBackground") != "splash-screen.png":
+              raise SystemExit("HIBA: a webOS manifest nem a splash-screen.png indítóképet használja.")
+          if manifest.get("spinnerOnLaunch") is not False:
+              raise SystemExit("HIBA: a webOS manifest-ben a spinnerOnLaunch nincs kikapcsolva.")
+          from PIL import Image, ImageStat
+          splash_png = Path("webos/splash-screen.png")
+          if not splash_png.is_file():
+              raise SystemExit("HIBA: hiányzik a webos/splash-screen.png indítókép.")
+          splash_raw = Image.open(splash_png)
+          if splash_raw.size != (1920, 1080):
+              raise SystemExit(f"HIBA: az automatikus átméretezés után is hibás az indítókép mérete: {splash_raw.size}.")
+          if splash_png.stat().st_size >= 699 * 1024 or splash_raw.mode != "P":
+              raise SystemExit(f"HIBA: splash PNG követelmény sérült: {splash_png.stat().st_size} byte, {splash_raw.mode}.")
+          splash_img = splash_raw.convert("RGB")
+          mean = ImageStat.Stat(splash_img).mean
+          if all(channel > 250 for channel in mean):
+              raise SystemExit("HIBA: az indítókép tiszta fehér - ez fehér villanást okozna.")
+          print(f"LG webOS verziók egyeznek: {match.group(1)}; indítókép = a betöltőképernyő háttere, spinner nélkül.")
+          PY
+          echo "OK: webOS-frissítő, platformtisztaság, shell szintaxis, IPK-csomagoló és verziók ellenőrizve."
+
+      - name: 7. Webes felület fordítása webOS-re
+        working-directory: web
+        env:
+          VITE_WEBOS: 'true'
+          VITE_WEBOS_FAST_LOAD: 'true'
+          VITE_WEBOS_SMALL_PLAYER: 'true'
+        run: npm run build
+
+      - name: 8. Kézi diagnosztika – HTML és webOS konfiguráció
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE=build/web/index.html
+          test -s "$FILE"
+          python3 -m json.tool webos/appinfo.json >/dev/null
+          grep -Fq 'id="root"' "$FILE"
+          test -s webos/webos.js
+          echo "HTML méret: $(wc -c < "$FILE") byte"
+          echo "OK: a HTML build és az appinfo.json ellenőrzése sikeres."
+
+      - name: 9. webOS IPK építése
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x tools/build-webos.sh webos/tools/build-ipk.py
+          # 2.5.0: nincs induló videó; csak a logó képkockája kerül a csomagba
+          # indítóképként (webos/splash-screen.png, lásd tools/build-webos.sh).
+          VERSION="$VERSION" bash tools/build-webos.sh
+          ls -lh webos/*.ipk
+          test -s "webos/$IPK_FILE_NAME"
+
+      - name: 10. IPK ellenőrzése
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPK="webos/$IPK_FILE_NAME"
+          ar t "$IPK"
+          # FONTOS: a data.tar.gz-t ELŐBB fájlba mentjük, és csak utána greppelünk.
+          # Korábban a listát csövön keresztül szűrtük `grep -q`-val: a grep az
+          # első találatnál kilép, ilyenkor az `ar`/`tar` SIGPIPE-pal (141) áll
+          # le, a `set -o pipefail` pedig emiatt akkor is elhasalt, amikor a
+          # csomagban minden rendben volt (ez okozta a 2.4.4 CI-hibáját).
+          rm -rf /tmp/ipk-check
+          mkdir -p /tmp/ipk-check
+          ar p "$IPK" data.tar.gz > /tmp/ipk-data.tar.gz
+          test -s /tmp/ipk-data.tar.gz
+          tar tzf /tmp/ipk-data.tar.gz > /tmp/ipk-files.txt
+          echo "IPK tartalma:"
+          cat /tmp/ipk-files.txt
+          grep -E "appinfo.json|index.html|icon-rt2.png" /tmp/ipk-files.txt
+          # Indítókép (a logó képkockája) KELL, videó viszont NEM lehet a csomagban.
+          if ! grep -qx '\./usr/palm/applications/hu\.rt\.iptv\.webos/splash-screen\.png' /tmp/ipk-files.txt; then
+            echo "HIBA: a logó indítókép (splash-screen.png) hiányzik az IPK-ból." >&2
+            exit 1
+          fi
+          if grep -Ei '\.(mp4|webm|mov)$' /tmp/ipk-files.txt; then
+            echo "HIBA: videó került az IPK-ba, pedig 2.5.0-tól nincs induló videó." >&2
+            exit 1
+          fi
+          tar xzf /tmp/ipk-data.tar.gz -C /tmp/ipk-check \
+            ./usr/palm/applications/hu.rt.iptv.webos/index.html \
+            ./usr/palm/applications/hu.rt.iptv.webos/appinfo.json \
+            ./usr/palm/applications/hu.rt.iptv.webos/splash-screen.png
+          cmp -s build/webos/index.html /tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/index.html || {
+            echo "HIBA: az IPK index.html fájlja nem egyezik a mostani builddel." >&2
+            exit 1
+          }
+          cmp -s build/webos/splash-screen.png /tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos/splash-screen.png || {
+            echo "HIBA: az IPK-ba került indítókép nem egyezik a mostani builddel." >&2
+            exit 1
+          }
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          base = Path("/tmp/ipk-check/usr/palm/applications/hu.rt.iptv.webos")
+          packaged = json.loads((base / "appinfo.json").read_text())
+          if packaged.get("version") != os.environ.get("VERSION"):
+              raise SystemExit(f"HIBA: csomagolt app verziója: {packaged.get('version')}, várt: {os.environ.get('VERSION')}")
+          if packaged.get("splashBackground") != "splash-screen.png":
+              raise SystemExit("HIBA: a csomagolt appinfo.json nem a fekete indítóképet használja.")
+          if packaged.get("spinnerOnLaunch") is not False:
+              raise SystemExit("HIBA: a csomagolt appinfo.json-ben a spinnerOnLaunch nincs kikapcsolva.")
+          splash = base / "splash-screen.png"
+          if not splash.is_file():
+              raise SystemExit("HIBA: hiányzik a csomagból a splash-screen.png.")
+          if (base / "assets" / "intro.mp4").exists():
+              raise SystemExit("HIBA: az induló videó (assets/intro.mp4) még benne van a csomagban.")
+          html = (base / "index.html").read_text()
+          if 'id="root"' not in html:
+              raise SystemExit("HIBA: a csomagolt index.html hiányos vagy nem production build.")
+          # A fejlesztői belépő (`<script type="module" src="/src/main.tsx">`) nem
+          # maradhat a csomagban: a Chrome<61 TV-motorokon az app el sem indulna.
+          #
+          # Korábban ez sima szövegrészlet-keresés volt (a `/src/main.tsx`
+          # előfordulását nézte bárhol a HTML-ben), ezért egy olyan
+          # FORRÁSKOMMENT is megbuktatta a kiadást, amely csak MEGEMLÍTETTE a
+          # fájlnevet – a webos.js beégetve kerül az index.html-be, és pont ez
+          # állította le a 2.5.108-as buildet. Most a valódi script-hivatkozást
+          # keressük; egy komment vagy egy szöveg nem számít annak.
+          if re.search(r'<script[^>]*\ssrc=["\'][^"\']*/src/main\.tsx', html):
+              raise SystemExit("HIBA: a csomagolt index.html a fejlesztői belépőt tartalmazza (nem production build).")
+          if re.search(r'<script[^>]*\ssrc=["\']/src/', html):
+              raise SystemExit("HIBA: a csomagolt index.html fejlesztői /src/ hivatkozást tartalmaz (nem production build).")
+          if "TV · FEKVŐ 1920 × 1080" in html:
+              raise SystemExit("HIBA: régi, fölösleges indítófelirat maradt.")
+          # A csomagban csak a webOS natív PNG maradhat; saját HTML-es indító
+          # képernyő, takaróréteg vagy reveal-vezérlés nem lehet benne.
+          if 'id="tv-curtain"' in html or 'id="boot-screen"' in html or "__IPTV_REVEAL__" in html:
+            raise SystemExit("HIBA: egyedi HTML-es indítóképernyő/reveal kód maradt a csomagban.")
+          # Nincs induló videó.
+          if "assets/intro.mp4" in html or "intro-boot.js" in html:
+            raise SystemExit("HIBA: induló videó maradt a csomagolt HTML-ben.")
+          # 2.5.158: a betöltőképernyő háttere CSS színátmenet – nincs
+          # splash-bg.jpg, és ha mégis bekerülne, azt hibának vesszük.
+          ipk_files = Path("/tmp/ipk-files.txt").read_text()
+          if "/splash-bg.jpg" in ipk_files:
+              raise SystemExit("HIBA: felesleges splash-bg.jpg került a csomagba.")
+          # A HTML kicsi maradt, a JS/CSS és a platform indítókép KÜLÖN fájl.
+          for needed in ("/app.js", "/app.css", "/splash-screen.png"):
+              if needed not in ipk_files:
+                  raise SystemExit(f"HIBA: hiányzik a {needed} fájl az IPK-ból – a HTML nem tudja betölteni.")
+          if len(html) > 200_000:
+              raise SystemExit(f"HIBA: a csomagolt index.html {len(html)} byte – újra több másodperc a first-paint.")
+
+          if "focusSpatially" not in html or "normalizeKey" not in html:
+              raise SystemExit("HIBA: a távirányító-kezelő nem került bele a csomagolt HTML-be.")
+          import re as re_mod
+          if re_mod.search(r'<script[^>]*type="module"', html):
+              raise SystemExit("HIBA: module script maradt a csomagban - a Chrome<61 TV-motorokon (webOS 3.x/4.0) az app el sem indulna!")
+          if "IPTV-ES5-APP" not in html or "IPTV-ES5-POLYFILLS" not in html:
+              raise SystemExit("HIBA: az ES5-re fordított app vagy a polyfill blokk hiányzik a csomagolt HTML-ből.")
+          print(f"OK: HTML {len(html)} byte, nincs saját animált indítóképernyő, verzió {packaged.get('version')}.")
+          PY
+          echo "OK: IPK tartalma rendben"
+
+      - name: 11. Diagnosztikai eredmények mentése
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webos-build-diagnosis
+          path: |
+            build/web/index.html
+            webos/appinfo.json
+            webos/webos.js
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 12. Új IPK közzététele a privát repóban
+        env:
+          GH_TOKEN: ${{ secrets.IPK_REPO_TOKEN }}
+          IPK_REPO_TOKEN: ${{ secrets.IPK_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${IPK_REPO_TOKEN:-}" ]]; then
+            echo "HIBA: az IPK_REPO_TOKEN secret hiányzik vagy üres az LGtv repóban." >&2
+            exit 1
+          fi
+          export GH_TOKEN="$IPK_REPO_TOKEN"
+
+          # Először ellenőrizzük a privát célrepó elérését és az írási jogot.
+          # Régi kiadások migrációja nem része az új buildnek, és nem blokkolhatja.
+          HTTP_CODE="$(gh api -i repos/Robko1/Ipk 2>/dev/null | awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}')"
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "HIBA: az IPK_REPO_TOKEN nem tudja elérni a Robko1/Ipk repót (HTTP: ${HTTP_CODE:-ismeretlen}). Ellenőrizd a token repository-hozzáférését." >&2
+            exit 1
+          fi
+          REPO_INFO="$(gh api repos/Robko1/Ipk)"
+          CAN_PUSH="$(printf '%s' "$REPO_INFO" | python3 -c 'import json,sys; print(str(bool(json.load(sys.stdin).get("permissions",{}).get("push"))).lower())')"
+          if [[ "$CAN_PUSH" != "true" ]]; then
+            echo "HIBA: a token látja a Robko1/Ipk repót, de nincs írási (push) jogosultsága. Adj Contents: Read and write hozzáférést." >&2
+            exit 1
+          fi
+          echo "OK: a privát célrepó elérhető, írási jogosultság rendben."
+
+          CURRENT_VERSION="$(python3 -c 'import json; print(json.load(open("webos/appinfo.json"))["version"])')"
+          RELEASE_TITLE="TV $CURRENT_VERSION"
+          EXPECTED_TAG="v$CURRENT_VERSION"
+          [[ "$RELEASE_TAG" == "$EXPECTED_TAG" ]] || {
+            echo "HIBA: RELEASE_TAG=$RELEASE_TAG, de az alkalmazás verziója $CURRENT_VERSION; elvárt: $EXPECTED_TAG." >&2
+            exit 1
+          }
+
+          # A privát Ipk repó külön Git-történetű, kezdetben üres lehet.
+          # Előbb biztosítunk benne egy saját kezdő commitot, mert GitHub nem
+          # enged refet létrehozni üres repóban (HTTP 422), idegen LGtv SHA-val sem.
+          PRIVATE_BRANCH="$(gh api repos/Robko1/Ipk --jq '.default_branch')"
+          [[ -n "$PRIVATE_BRANCH" && "$PRIVATE_BRANCH" != "null" ]] || {
+            echo "HIBA: a privát Ipk repó alapága nem olvasható." >&2
+            exit 1
+          }
+          if ! PRIVATE_SHA="$(gh api "repos/Robko1/Ipk/git/ref/heads/$PRIVATE_BRANCH" --jq '.object.sha' 2>/dev/null)"; then
+            echo "A privát Ipk repó még üres; létrehozzuk az első README commitot."
+            README_B64="$(printf '%s\\n' 'Privát LG webOS IPK kiadások. A telepítőcsomagok a Releases oldalon találhatók.' | base64 -w 0)"
+            gh api --method PUT repos/Robko1/Ipk/contents/README.md \
+              -f "message=chore: initialize private IPK release repository" \
+              -f "content=$README_B64" \
+              -f "branch=$PRIVATE_BRANCH" >/dev/null
+            PRIVATE_SHA="$(gh api "repos/Robko1/Ipk/git/ref/heads/$PRIVATE_BRANCH" --jq '.object.sha')"
+          fi
+          [[ -n "$PRIVATE_SHA" && "$PRIVATE_SHA" != "null" ]] || {
+            echo "HIBA: a privát Ipk repó kezdő commitja nem olvasható." >&2
+            exit 1
+          }
+
+          # A Release hozza létre a címkét. Ha egy korábbi félbeszakadt futás
+          # csak címkét hagyott maga után Release nélkül, azt előbb eltávolítjuk.
+          # Így nem marad hibás, Release nélküli verziótag.
+
+          BUILD_DATETIME="$(TZ=Europe/Dublin date '+%Y-%m-%d %H:%M %Z (Írország)')"
+          LOCAL_SHA="$(sha256sum "webos/$IPK_FILE_NAME" | awk '{print $1}')"
+
+          # Az előző privát IPK-kiadás adatait még az új feltöltés előtt mentjük.
+          PREVIOUS_TAG=""
+          PREVIOUS_PUBLISHED=""
+          PREVIOUS_UPLOAD=""
+          PREVIOUS_TAG="$(gh release list --repo Robko1/Ipk --limit 100 --json tagName --jq "[.[] | select(.tagName != \"$RELEASE_TAG\")][0].tagName // empty")"
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            PREVIOUS_DATA="$(gh release view "$PREVIOUS_TAG" --repo Robko1/Ipk --json publishedAt,assets)"
+            PREVIOUS_PUBLISHED="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("publishedAt") or "")')"
+            PREVIOUS_UPLOAD="$(printf '%s' "$PREVIOUS_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name","").lower().endswith(".ipk")), {}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
+          fi
+
+          if ! gh release view "$RELEASE_TAG" --repo Robko1/Ipk >/dev/null 2>&1; then
+            # A korábbi futás létrehozhatott tag-et Release nélkül. Takarítsuk
+            # el a magányos taget, hogy a Release létrehozása tiszta legyen.
+            if gh api "repos/Robko1/Ipk/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+              gh api --method DELETE "repos/Robko1/Ipk/git/refs/tags/$RELEASE_TAG" >/dev/null
+            fi
+            CREATED=0
+            for ATTEMPT in 1 2 3; do
+              if gh release create "$RELEASE_TAG" --repo Robko1/Ipk --target "$PRIVATE_SHA" --title "$RELEASE_TITLE" --notes "TV privát IPK kiadás."; then
+                CREATED=1
+                break
+              fi
+              echo "Figyelmeztetés: a privát Release létrehozása sikertelen ($ATTEMPT/3), újrapróbálom." >&2
+              sleep $((ATTEMPT * 3))
+              if gh release view "$RELEASE_TAG" --repo Robko1/Ipk >/dev/null 2>&1; then
+                CREATED=1
+                break
+              fi
+            done
+            [[ "$CREATED" == "1" ]] || {
+              echo "HIBA: a privát Release három próbálkozás után sem jött létre." >&2
+              exit 1
+            }
+          fi
+          gh release upload "$RELEASE_TAG" "webos/$IPK_FILE_NAME" --repo Robko1/Ipk --clobber
+
+          ASSET_COUNT="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets --jq '.assets | length')"
+          [[ "$ASSET_COUNT" == "1" ]] || {
+            echo "HIBA: a privát Release-ben $ASSET_COUNT fájl van; pontosan 1 IPK kell." >&2
+            exit 1
+          }
+          ASSET_NAME="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets --jq '.assets[0].name')"
+          [[ "$ASSET_NAME" == *.ipk ]] || {
+            echo "HIBA: a privát Release egyetlen fájlja nem IPK: $ASSET_NAME" >&2
+            exit 1
+          }
+
+          VERIFY_DIR="$(mktemp -d)"
+          gh release download "$RELEASE_TAG" --repo Robko1/Ipk --pattern "$ASSET_NAME" --dir "$VERIFY_DIR" --clobber
+          DOWNLOADED_IPK="$VERIFY_DIR/$ASSET_NAME"
+          [[ -f "$DOWNLOADED_IPK" ]] || {
+            echo "HIBA: a feltöltött IPK ($ASSET_NAME) nem tölthető vissza a privát Release-ből." >&2
+            exit 1
+          }
+          TARGET_SHA="$(sha256sum "$DOWNLOADED_IPK" | awk '{print $1}')"
+          [[ "$TARGET_SHA" == "$LOCAL_SHA" ]] || {
+            echo "HIBA: a privát Release-ből visszatöltött IPK SHA-256 értéke eltér a buildelt fájltól. Helyi: $LOCAL_SHA; letöltött: $TARGET_SHA." >&2
+            exit 1
+          }
+
+          # A feltöltés tényleges GitHub-időpontját olvassuk vissza az IPK assetből.
+          CURRENT_DATA="$(gh release view "$RELEASE_TAG" --repo Robko1/Ipk --json assets)"
+          CURRENT_UPLOAD="$(printf '%s' "$CURRENT_DATA" | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next((x for x in d.get("assets",[]) if x.get("name","").lower().endswith(".ipk")), {}); print(a.get("updatedAt") or a.get("createdAt") or "")')"
+          export BUILD_DATETIME CURRENT_UPLOAD PREVIOUS_TAG PREVIOUS_PUBLISHED PREVIOUS_UPLOAD CURRENT_VERSION
+          NOTES="$(python3 - <<'PY'
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          zone = ZoneInfo("Europe/Dublin")
+          def fmt(value):
+              if not value:
+                  return "Nem áll rendelkezésre"
+              dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(zone)
+              return dt.strftime("%Y-%m-%d %H:%M %Z (Írország)")
+          lines = [
+              f"Legutóbbi build készítése: {os.environ['BUILD_DATETIME']}",
+              f"Letölthető IPK legutóbbi feltöltése/frissítése: {fmt(os.environ.get('CURRENT_UPLOAD', ''))}",
+              f"Most feltöltött alkalmazás verziója: {os.environ['CURRENT_VERSION']}",
+          ]
+          if os.environ.get("PREVIOUS_TAG"):
+              previous_version = os.environ["PREVIOUS_TAG"].removeprefix("v")
+              lines += [
+                  "",
+                  f"Előző IPK verziója: {previous_version}",
+                  f"Előző IPK feltöltésének dátuma és ideje: {fmt(os.environ.get('PREVIOUS_UPLOAD', '') or os.environ.get('PREVIOUS_PUBLISHED', ''))}",
+              ]
+          else:
+              lines += ["", "Előző IPK verziója: Nincs korábbi kiadás."]
+          print("\n".join(lines))
+          PY
+          )"
+          gh release edit "$RELEASE_TAG" --repo Robko1/Ipk --title "$RELEASE_TITLE" --notes "$NOTES"
+
+          # Csak a verziószám kerül a publikus LGtv repóba. Az IPK és a privát
+          # Release adatai továbbra is kizárólag a Robko1/Ipk repóban maradnak.
+          if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            echo "HIBA: a publikus verziófájl frissítéséhez hiányzik a GITHUB_TOKEN." >&2
+            exit 1
+          fi
+          PUBLIC_FILE_API="https://api.github.com/repos/Robko1/LGtv/contents/version.txt"
+          PUBLIC_FILE_STATE="$(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "$PUBLIC_FILE_API" || true)"
+          PUBLIC_FILE_SHA="$(printf '%s' "$PUBLIC_FILE_STATE" | python3 -c 'import json,sys; d=json.load(sys.stdin) if sys.stdin.readable() else {}; print(d.get("sha", ""))' 2>/dev/null || true)"
+          VERSION_B64="$(printf '%s' "$CURRENT_VERSION" | base64 -w 0)"
+          python3 - "$CURRENT_VERSION" "$PUBLIC_FILE_SHA" "$VERSION_B64" <<'PY' > /tmp/public-version-payload.json
+          import json, sys
+          version, sha, content = sys.argv[1:]
+          payload = {
+              "message": "chore: publish latest public version number",
+              "content": content,
+          }
+          if sha:
+              payload["sha"] = sha
+          print(json.dumps(payload))
+          PY
+          curl -fsS -X PUT "$PUBLIC_FILE_API" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/public-version-payload.json >/dev/null
+          PUBLIC_VERSION_CHECK="$(curl -fsS -H "Cache-Control: no-cache" "https://raw.githubusercontent.com/Robko1/LGtv/main/version.txt" | tr -d '\r\n')"
+          [[ "$PUBLIC_VERSION_CHECK" == "$CURRENT_VERSION" ]] || {
+            echo "HIBA: a publikus verziófájl ellenőrzése nem egyezik: $PUBLIC_VERSION_CHECK / $CURRENT_VERSION." >&2
+            exit 1
+          }
+          echo "OK: a publikus version.txt kizárólag ezt a verziószámot tartalmazza: $CURRENT_VERSION."
+
+          # A publikus Robko1/LGtv repóban NEM hozunk létre Release-t vagy verziócímkét.
+          # Minden kiadási tag és IPK kizárólag a privát Robko1/Ipk repóba kerül.
+
+          echo "OK: az IPK v$CURRENT_VERSION kizárólag a privát Robko1/Ipk Release-be került; SHA-256 egyezik."
+      - name: 13. Összefoglaló
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## LG webOS IPK építés és diagnosztika"
+            echo "- Indítás: kizárólag kézzel (workflow_dispatch)."
+            echo "- Ellenőrzés: forrásfájlok, HTML build, webOS-frissítő, távirányító-kezelés, platformtisztaság, indítókép, verziók és szintaxis."
+            echo "- IPK: csomagtartalom, HTML, verzió, ES5/polyfill, távirányító-kezelés és SHA-256 ellenőrzése."
+            echo "- Kimenet: Release, verziótag és IPK kizárólag a privát Robko1/Ipk repóban; a publikus LGtv repóban nincs Release vagy verziótag."
+            if [[ "${SIGNED_COMMIT:-0}" == "1" ]]; then
+              echo "- Commit/tag: a beállított GPG- vagy SSH-kulccsal aláírva (GitHub Verified csak a fiókhoz hozzáadott publikus kulccsal jelenik meg)."
+            else
+              echo "- Commit/tag: nincs GPG/SSH-kulcs beállítva; a RELEASE_* signing secret-ek nélkül a GitHub Verified jelzés nem garantálható."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
