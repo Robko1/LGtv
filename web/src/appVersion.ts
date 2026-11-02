@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.257';
+export const WEB_VERSION = '2.5.258';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.257',
+    version: '2.5.258',
     date: '2026-11-01',
     changes: [
       'HU csatornalogók gyorsítása (#8): a saját magyar logók képei a localStorage-ban is tartósan élnek (data-URL, kulcs: iptv_rt_hu_logo_img_v1) – újraindítás után rögtön, hálózati kérés és „újrarendeződés” nélkül jelennek meg, és a logó-URL-leképezések induláskor egyszer véglegesítve szintén a localStorage-ba kerülnek (iptv_rt_hu_logos_v1), mint a csatornák; a letöltéskori extra fetch a HU logóknál megszűnt (egy kérés elég, abból mentünk).',
