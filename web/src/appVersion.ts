@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.273';
+export const WEB_VERSION = '2.5.274';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.273',
+    version: '2.5.274',
     date: '2026-11-02',
     changes: [
       'EPG (#5-ös napló): a visszatöltött műsorújság „frissnek” minősítése mostantól azt is ellenőrzi, hogy a magyar adók tényleg kapnak-e műsort – a #5-ös naplóban a memóriában lévő 1039 csatornás mentés „friss” volt, mégis csak 89/107 magyar adónak jutott műsor (nem a HU-forrásokból jött), ezért most ilyenkor frissítünk, és a nyilvános HU újságok (epgshare01 HU1, aldork04 lgtv-epg, iptv-epg.org epg-hu) is lefutnak; a naplóban külön sor jelzi: „a visszatöltött újság csak X/Y magyar adót fed le”. Ugyanez a feltétel a letöltés utáni tartalékláncra is rákerült (ha a magyar lefedettség alacsony marad, a nyilvános HU lánc akkor is próbálkozik).',
