@@ -1,8 +1,8 @@
 name: Tisztítás
 
-# Kizárólag kézzel indítható. A Git-előzményekben maradt buildmaradványokat keresi.
-# Az aktuális alkalmazásforrás, képek és szükséges fájlok megmaradnak.
-# Az IPK-kiadások külön a Robko1/Ipk repóban vannak; ahhoz nem nyúl.
+# Kizárólag kézzel indítható. A jelenlegi fájlállapotot megtartja,
+# és minden korábbi Git-commitot leválaszt róla.
+# A működő forráskódot, képeket és az IPK-repót nem módosítja.
 
 on:
   workflow_dispatch:
@@ -13,137 +13,66 @@ permissions:
 
 jobs:
   cleanup:
-    name: Teljes Git-előzmény és Actions takarítás
+    name: Régi Git-előzmények törlése
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
-      - name: Minden ág és tag előzményeinek letöltése
+      - name: Aktuális main letöltése
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Biztonságos buildmaradványok eltávolítása minden Git-előzményből
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPOSITORY: ${{ github.repository }}
+      - name: Csak a jelenlegi állapot megtartása
         shell: bash
         run: |
           set -euo pipefail
-          # Detached HEAD mellett minden távoli ágat helyi refs/heads alá töltünk,
-          # hogy a git-filter-repo az összes ágat és taget ténylegesen át tudja írni.
-          ORIGINAL_MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
-          git checkout --detach "$ORIGINAL_MAIN_SHA"
-          git fetch origin --prune --tags '+refs/heads/*:refs/heads/*'
-          git checkout -B main "$ORIGINAL_MAIN_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          TREE_BEFORE="$(git rev-parse main^{tree})"
+          TREE_BEFORE="$(git rev-parse HEAD^{tree})"
 
-          # Minden letöltött ág és tag előzményeit vizsgáljuk, nem csak a main ágat.
-          python3 - <<'PY' > /tmp/generated-history-paths.txt
-          import subprocess
-          import sys
+          # Új, szülőcommit nélküli történetet készítünk ugyanazzal a fájltartalommal.
+          git checkout --orphan clean-current-state
+          git add -A
+          TREE_AFTER="$(git write-tree)"
 
-          raw = subprocess.check_output(
-              ["git", "rev-list", "--objects", "--all"],
-              text=True, errors="replace"
-          )
-          generated_dirs = {
-              "build", "dist", "node_modules", "__pycache__",
-              ".pytest_cache", ".mypy_cache"
-          }
-          generated_suffixes = (
-              ".ipk", ".apk", ".aab", ".log", ".pyc",
-              ".class", ".o", ".obj"
-          )
-          paths = set()
-          large = []
-
-          for line in raw.splitlines():
-              parts = line.split(" ", 1)
-              if len(parts) != 2:
-                  continue
-              path = parts[1]
-              components = path.split("/")
-              name = components[-1].lower()
-
-              if name.endswith(generated_suffixes) or any(
-                  part.lower() in generated_dirs for part in components[:-1]
-              ):
-                  paths.add(path)
-
-              # A nagy, de nem egyértelműen generált fájlokat csak jelentjük.
-              # Így működő képek, ikonok, források és alkalmazásfájlok nem törlődnek.
-              try:
-                  oid = parts[0]
-                  size = int(subprocess.check_output(
-                      ["git", "cat-file", "-s", oid], text=True
-                  ).strip())
-                  if size >= 10 * 1024 * 1024 and path not in paths:
-                      large.append((size, path))
-              except Exception:
-                  pass
-
-          for path in sorted(paths):
-              print(path)
-
-          print(f"Eltávolítható történeti útvonalak: {len(paths)}", file=sys.stderr)
-          for size, path in sorted(large, reverse=True):
-              print(f"NAGY FÁJL – megőrizve ({size // 1024 // 1024} MB): {path}", file=sys.stderr)
-          PY
-
-          mapfile -t GENERATED_PATHS < /tmp/generated-history-paths.txt
-          if (( ${#GENERATED_PATHS[@]} > 0 )); then
-            python3 -m pip install --quiet git-filter-repo
-            FILTER_ARGS=(--force --invert-paths)
-            for path in "${GENERATED_PATHS[@]}"; do
-              FILTER_ARGS+=(--path "$path")
-            done
-            git filter-repo "${FILTER_ARGS[@]}"
-          else
-            echo "Nem találtam biztonságosan törölhető buildmaradványt."
-          fi
-
-          # A main aktuális fájltartalmának változatlanságát ellenőrizzük.
-          TREE_AFTER="$(git rev-parse main^{tree})"
           if [[ "$TREE_BEFORE" != "$TREE_AFTER" ]]; then
-            echo "HIBA: a main aktuális fájltartalma megváltozott; a push leáll."
+            echo "HIBA: a fájltartalom eltérne; a törlés leáll."
             exit 1
           fi
 
-          # A szűrés után ellenőrizzük, hogy a törlendő útvonalak sehol nem maradtak.
-          for path in "${GENERATED_PATHS[@]}"; do
-            if git rev-list --objects --all | grep -F " $path" >/dev/null; then
-              echo "HIBA: történeti fájl maradt: $path"
-              exit 1
+          git commit --allow-empty -m "Keep only current source snapshot"
+          NEW_SHA="$(git rev-parse HEAD)"
+          PARENT_COUNT="$(git rev-list --parents -n 1 HEAD | wc -w)"
+
+          if [[ "$PARENT_COUNT" -ne 1 ]]; then
+            echo "HIBA: az új commitnak nem lehet szülőcommitja."
+            exit 1
+          fi
+
+          git push --force origin HEAD:refs/heads/main
+
+          # A main kivételével minden további távoli ág törlése.
+          while read -r ref; do
+            branch="${ref#refs/heads/}"
+            if [[ "$branch" != "main" ]]; then
+              git push origin --delete "$branch"
             fi
-          done
+          done < <(git ls-remote --heads origin | awk '{print $2}')
 
-          FINAL_COUNT="$(git rev-list --first-parent --count main)"
-          if (( FINAL_COUNT > 100 )); then
-            CUTOFF_SHA="$(git rev-list --first-parent main | sed -n '100p')"
-            FILTER_BRANCH_SQUELCH_WARNING=1 CUTOFF_SHA="$CUTOFF_SHA" git filter-branch --force --parent-filter '
-              if [ "$GIT_COMMIT" = "$CUTOFF_SHA" ]; then :; else cat; fi
-            ' -- main
-            git update-ref -d refs/original/refs/heads/main 2>/dev/null || true
-          fi
+          # A régi verziókat rögzítő tagek törlése is.
+          while read -r ref; do
+            tag="${ref#refs/tags/}"
+            tag="${tag%^{}}"
+            [[ -z "$tag" ]] && continue
+            git push origin --delete "refs/tags/$tag" || true
+          done < <(git ls-remote --tags origin | awk '{print $2}' | sort -u)
 
-          git reflog expire --expire=now --all
-          git gc --prune=now
-          FINAL_COUNT="$(git rev-list --first-parent --count main)"
-          TREE_FINAL="$(git rev-parse main^{tree})"
-          if (( FINAL_COUNT > 100 )) || [[ "$TREE_BEFORE" != "$TREE_FINAL" ]]; then
-            echo "HIBA: az ellenőrzés nem sikerült; nincs push."
-            exit 1
-          fi
-
-          # A Git-előzményeket az összes ágon és tagen frissítjük.
-          git remote remove origin 2>/dev/null || true
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
-          git push --force origin --all
-          git push --force origin --tags
-          echo "OK: a jelenlegi main fájltartalma változatlan; a tisztítás az előzményekre korlátozódott."
+          echo "Új main commit: $NEW_SHA"
+          echo "A fájltartalom változatlan: $TREE_BEFORE"
+          echo "A main egyetlen, szülő nélküli commitot tartalmaz."
 
       - name: Régi Actions-futások takarítása
         env:
@@ -213,13 +142,11 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## LGtv mélytisztítás"
-            echo "- Kizárólag kézi indítású workflow."
-            echo "- Minden letöltött ág és tag Git-előzményeit átvizsgálja."
-            echo "- Csak egyértelmű buildmaradványokat távolít el."
-            echo "- A nagy, nem egyértelmű fájlokat csak felsorolja, nem törli."
-            echo "- A jelenlegi main fájltartalmát ellenőrzi, és eltérés esetén nem pushol."
-            echo "- A működő képek, ikonok, forráskódok és alkalmazásfájlok megmaradnak."
+            echo "## LGtv tisztítás"
+            echo "- Kizárólag kézzel indítható."
+            echo "- A main jelenlegi fájltartalma változatlan marad."
+            echo "- A régi commit-előzmények törlődnek; egyetlen új kezdőcommit marad."
+            echo "- A main kivételével a többi ág és minden régi tag törlődik."
             echo "- Az utolsó 5 sikeres IPK-build Actions-futása megmarad."
             echo "- A külön Robko1/Ipk repóhoz nem nyúl."
           } >> "$GITHUB_STEP_SUMMARY"
