@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.268';
+export const WEB_VERSION = '2.5.269';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.268',
+    version: '2.5.269',
     date: '2026-11-02',
     changes: [
       'EPG (#1-es napló): a nyilvános EPG újságok közül az epgshare01 ALL_SOURCES működött a TV-ről is (HTTP 200, ~200 MB-os .gz, a 128 MB-os plafonig olvasva 1658 csatorna/20 584 műsor), de abból a magyar adóknak csak 17/107 lett meg – ezért mostantól a globális fájl után MINDIG végigmegyünk a kis magyar (HU) fájlokon is (epgshare01 HU1, iptv-org mediaklikk.hu + tvmusor.hu, iptv-epg.org HU) és hozzáadjuk őket az indexhez, hogy a magyar adók teljesen le legyenek fedve; minden forrás külön naplózva előtte/utána csatornaszámmal („melyik újság mit adott”).',
