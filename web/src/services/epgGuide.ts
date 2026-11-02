@@ -33,6 +33,7 @@ import { appLog, appLogError } from './appLog';
 import type { ProviderRef } from './contentStore';
 import { breakerOpen, breakerRemainingMs } from './net';
 import { EpgNowNext, getCachedShortEpg, loadSimpleEpg, nowNextFromEpg, streamIdFor } from './epgService';
+import { getHuEpgId } from './huEpgIds';
 import { openIdbStore } from './idbStore';
 import { xtreamService } from './xtreamService';
 
@@ -448,15 +449,11 @@ const PUBLIC_GUIDES_ENABLED = typeof window !== 'undefined';
 const PUBLIC_GUIDE_URLS: Array<{
   url: string;
   label: string;
-  /** 'global' = összes ország egy fájlban; 'hu' = csak magyar csatornák. */
+  /** 2.5.269 (#2): csak 'hu' – csak magyar csatornákra töltünk nyilvános EPG-t. */
   scope: 'global' | 'hu';
   limits: { maxBytes: number; maxMs: number };
 }> = [
-  // összes ország egy nagy fájlban (lassú, de teljes)
-  { url: 'https://epgshare01.online/epgshare01/epg_ripper_ALL_SOURCES1.xml.gz', label: 'epgshare01 ALL_SOURCES (összes ország)', scope: 'global', limits: { maxBytes: 128 * 1024 * 1024, maxMs: 4 * 60 * 1000 } },
-  { url: 'https://epg.pw/xmltv/epg.xml.gz', label: 'epg.pw globális', scope: 'global', limits: { maxBytes: 128 * 1024 * 1024, maxMs: 4 * 60 * 1000 } },
-  { url: 'https://epg.cdn.loc.cc/xml', label: 'epg.cdn.loc.cc globális (sima xml)', scope: 'global', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
-  // magyar csatornák külön (kicsi, gyors, teljes HU lefedettség)
+  // magyar csatornák külön (kicsi, gyors, kis tároló, teljes HU lefedettség)
   { url: 'https://epgshare01.online/epgshare01/epg_ripper_HU1.xml.gz', label: 'epgshare01 HU (magyar)', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
   { url: 'https://iptv-org.github.io/epg/guides/hu/mediaklikk.hu.epg.xml.gz', label: 'iptv-org HU mediaklikk (állami adók)', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
   { url: 'https://iptv-org.github.io/epg/guides/hu/tvmusor.hu.epg.xml.gz', label: 'iptv-org HU tvmusor.hu', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
@@ -825,6 +822,9 @@ const GUIDE_IDB_PREFIX = 'epg-guide-v1-';
 const GUIDE_IDB_MAX_CHARS = 6 * 1024 * 1024;
 /** Ha `clearGuide()` volt, a következő letöltés ne a régi mentésből induljon. */
 let skipRestore = false;
+/* 2.5.269 (#2): true, ha az induláskor visszatöltött újság RÉSZLEGES volt –
+   ilyenkor a per-csatornás tartalék is futhat (lásd ensureChannelsEpg). */
+let restoredPartial = false;
 
 interface PersistedGuideMeta {
   providerId: string;
@@ -1124,6 +1124,7 @@ export async function ensureGuide(provider: {
     lastProgrammes = restored.programmes;
     lastBytes = restored.bytes;
     statKept = statKept || restored.programmes;
+    restoredPartial = !restored.complete;
     appLog(
       `EPG-ÁLLAPOT: a műsorújság a tartós tárból betöltve – ${restored.channels} csatorna, `
       + `${restored.programmes} műsor (mentve: ${new Date(restored.savedAt).toLocaleTimeString('hu-HU')}` +
@@ -1158,24 +1159,33 @@ export async function ensureGuide(provider: {
    * forrást keresünk (url-tvg a listában, majd jelölt XMLTV útvonalak), és
    * csak onnan töltünk (lásd a channels===0 ágat lejjebb).
    */
+  /*
+   * 2.5.269 (#2-es napló): a visszatöltött (esetleg RÉSZLEGES) újság az indexben
+   * marad a letöltés alatt is – ezért a „üres-e a szolgáltató újságja?” kérdést
+   * NEM az index.size alapján döntjük el (az a #2-es naplóban 1658-at mutatott
+   * a visszatöltésből, pedig a letöltés üres volt, így a tartalék lánc soha nem
+   * futott le), hanem hogy a LETÖLTÉS mennyi ÚJ műsort adott hozzá.
+   */
+  const statKeptBase = statKept;
   const primaryDownload = isM3u ? Promise.resolve() : download(provider);
   await primaryDownload
     .then(async () => {
       loadedAt = Date.now();
       loadedProviderId = provider.id;
       let channels = index.size;
+      const ujMűsor = statKept - statKeptBase;
       const partial = abortReason ? ` (részleges: ${abortReason})` : '';
       appLog(
         `EPG-ÁLLAPOT: műsorújság betöltve ${((Date.now() - startedAt) / 1000).toFixed(1)} mp alatt – `
-        + `${channels} csatorna, ${statKept} megtartott műsor `
+        + `${channels} csatorna, ${statKept} megtartott műsor (ebből ÚJONNAN ${ujMűsor}) `
         + `(a ${lastProgrammes} feldolgozott blokkból ${lastSkipped} időablakon kívüli, `
         + `${statInvalidDate} érvénytelen időpont, ${statNoTitle} cím nélküli, `
         + `${statCap} korlát miatt kihagyott), ${(lastBytes / 1024).toFixed(0)} KB${partial}.`
       );
       appLog(`IMPORT-API-DIAG [EPG XMLTV] letöltés kész: ${channels} csatorna, ${statKept} megtartott műsor, ${lastProgrammes} feldolgozott blokk, ${(lastBytes / 1024).toFixed(0)} KB; mezők: channel-id/display-name, programme start/stop/title/desc (a ténylegesen beolvasott XML-elemek alapján).`);
       if (channels > 0) void persistGuide(provider.id, !abortReason);
-      if (channels === 0) {
-        appLog('EPG-ÁLLAPOT: a szolgáltató műsorújságja üres – a felület a rövid EPG-t használja tartalékként.');
+      if (channels === 0 || ujMűsor === 0) {
+        appLog(`EPG-ÁLLAPOT: a szolgáltató műsorújságja nem adott ÚJ műsort (index=${channels}, újonnan=${ujMűsor}) – url-tvg / jelölt útvonalak / nyilvános HU újság próbája következik.`);
         /*
          * 2.5.261 (#10-es napló): az xmltv.php üres 200-at adott – megpróbáljuk
          * az M3U lista (get.php) fejlécében hirdetett url-tvg címet. Ha ott van
@@ -1219,20 +1229,18 @@ export async function ensureGuide(provider: {
          * 2.5.267 (#14-es kérés): NYILVÁNOS EPG ÚJSÁG – ha a szolgáltató saját
          * műsorújsága és minden jelölt panel-útvonal üres volt (a #13-as napló:
          * LOWEND panel üres <tv></tv>), innen töltünk egy mindig elérhető
-         * nyilvános XMLTV forrást. Sorrend: először az ÖSSZES ORSZÁG (globális
-         * fájl), aztán a MAGYAR (HU) külön fájlok. Az első műsort adó forrás
-         * után leállunk; minden próba naplózva. Tesztkörnyezetben kikapcsolva.
+         * nyilvános XMLTV forrást. Tesztkörnyezetben kikapcsolva.
+         * 2.5.269 (#2-es kérés): CSAK kis magyar (HU) fájlok – semmilyen
+         * globális (minden országos) fájl nem töltődik le, így a tároló és
+         * a letöltési idő is kicsi marad.
          */
         if (!guideSourceUrl && PUBLIC_GUIDES_ENABLED) {
-          appLog('EPG-ÁLLAPOT: a panel minden útvonala üres – nyilvános EPG újságok próbája indul (először összes ország, aztán magyar külön).');
+          appLog('EPG-ÁLLAPOT: a panel minden útvonala üres – nyilvános MAGYAR (HU) EPG újságok próbája indul.');
           /*
-           * 2.5.268 (#1-es napló): a globális fájlból csak részleges adat jön
-           * (128 MB-os plafon), és abból a magyar adóknak csak töredéke szerepel
-           * (107-ből 17). Ezért a globális forrás után MINDIG végigmegyünk a
-           * kis magyar (HU) fájlokon is, és hozzáadjuk őket az indexhez – így a
-           * magyar adók teljesen le lesznek fedve. Minden forrás külön
-           * naplózva (előtte/utána csatornaszám), hogy látszódjon, melyik újság
-           * mit adott.
+           * 2.5.268–2.5.269: minden HU forrást végigpróbálunk, mindegyik
+           * hozzátehet a magyar adókhoz az indexhez. Minden forrás külön
+           * naplózva (előtte/utána csatornaszám + magyar találat), hogy
+           * látszódjon, melyik újság mit adott.
            */
           const tryPublicGuide = async (candidate: (typeof PUBLIC_GUIDE_URLS)[number]): Promise<void> => {
             const before = index.size;
@@ -1246,20 +1254,22 @@ export async function ensureGuide(provider: {
               await download(provider, candidate.url, candidate.label, candidate.limits);
             } catch { /* a download már naplózta a valódi okot */ }
             channels = index.size;
+            /* 2.5.269 (#2): forrásonként külön: hány MAGYAR adó kapott eddig műsort. */
+            const hu = huProbeCoverage();
             appLog(
               `EPG-ÁLLAPOT: nyilvános EPG (${candidate.label}) – ${before} → ${index.size} csatorna (+${index.size - before}), `
               + `${statKept} megtartott műsor, ${(lastBytes / 1024).toFixed(0)} KB`
-              + `${abortReason ? ` (részleges: ${abortReason})` : ''}.`
+              + `${abortReason ? ` (részleges: ${abortReason})` : ''}`
+              + `; magyar adók műsorral eddig: ${hu.hit}/${hu.total}.`
             );
           };
-          // globális források: az első műsort adó után elég (részleges is jó)
+          /*
+           * 2.5.269 (#2-es kérés): CSAK kis magyar (HU) fájlok – egyenként
+           * végigmegyünk, mindegyik hozzátehet a magyar adókhoz. Minden forrás
+           * külön naplózva (előtte/utána csatornaszám + magyar találat), hogy
+           * látszódjon, melyik újság mit adott.
+           */
           for (const candidate of PUBLIC_GUIDE_URLS) {
-            if (candidate.scope !== 'global' || index.size > 0) continue;
-            await tryPublicGuide(candidate);
-          }
-          // magyar külön fájlok: mindet próbáljuk, mindegyik hozzátehet a HU-hoz
-          for (const candidate of PUBLIC_GUIDE_URLS) {
-            if (candidate.scope !== 'hu') continue;
             await tryPublicGuide(candidate);
           }
           if (index.size > 0) {
@@ -1332,6 +1342,14 @@ function guideKeyFor(channel: { epgChannelId?: string | null; name?: string }): 
     const spilerVariant = nameKey.replace(/spieler/g, 'spiler');
     if (spilerVariant !== nameKey) candidates.push(spilerVariant);
   }
+  /*
+   * 2.5.269 (#2-es napló): a beépített HU EPG azonosítótábla (huEpgIds.ts,
+   * ugyanaz a logika, mint a csatornalogóknál): a magyar csatorna neve alapján
+   * közvetlenül a nyilvános újság (.hu végű) azonosítójára képezünk – akkor is
+   * működik, ha az újság display-name-je másképp írja a csatornát.
+   */
+  const huEpgId = channel.name ? getHuEpgId(channel.name) : undefined;
+  if (huEpgId) candidates.push(huEpgId.toLowerCase());
   // először közvetlenül az indexben, aztán a display-name → id leképezésen
   for (const candidate of candidates) {
     if (index.has(candidate)) return candidate;
@@ -1451,12 +1469,33 @@ export function guideStatus(): {
  * betöltött újságban (külön a magyar [HU] csatornák), hogy a naplóból
  * pontosan látszódjon, hány magyar adóra van újság.
  */
+/*
+ * 2.5.269 (#2-es napló): a magyar csatornák „szondája" – a nyilvános EPG
+ * forrásoknál minden forrás után naplózzuk, hány magyar adónak lett műsora.
+ */
+let huProbeChannels: Array<{ name?: string; epgChannelId?: string | null }> = [];
+
+export function setGuideHuProbe(
+  channels: Array<{ name?: string; epgChannelId?: string | null; countryCode?: string }>,
+): void {
+  huProbeChannels = (Array.isArray(channels) ? channels : [])
+    .filter((ch) => (ch.countryCode || '').toUpperCase() === 'HU');
+}
+
+function huProbeCoverage(): { hit: number; total: number } {
+  let hit = 0;
+  for (const ch of huProbeChannels) if (guideKeyFor(ch)) hit += 1;
+  return { hit, total: huProbeChannels.length };
+}
+
 export function guideChannelCoverage(
   channels: Array<{ name?: string; epgChannelId?: string | null; countryCode?: string }>,
-): { total: number; withGuide: number; huTotal: number; huWithGuide: number } {
+  huMissingMax = 30,
+): { total: number; withGuide: number; huTotal: number; huWithGuide: number; huMissing: string[] } {
   let withGuide = 0;
   let huTotal = 0;
   let huWithGuide = 0;
+  const huMissing: string[] = [];
   for (const channel of Array.isArray(channels) ? channels : []) {
     const isHu = (channel.countryCode || '').toUpperCase() === 'HU';
     const hit = Boolean(guideKeyFor(channel));
@@ -1464,9 +1503,12 @@ export function guideChannelCoverage(
     if (isHu) {
       huTotal += 1;
       if (hit) huWithGuide += 1;
+      /* 2.5.269 (#2): a még műsor nélküli magyar adók nevei – hogy a
+         huEpgIds táblát ki lehessen egészíteni (max huMissingMax név). */
+      else if (huMissing.length < huMissingMax && channel.name) huMissing.push(channel.name);
     }
   }
-  return { total: Array.isArray(channels) ? channels.length : 0, withGuide, huTotal, huWithGuide };
+  return { total: Array.isArray(channels) ? channels.length : 0, withGuide, huTotal, huWithGuide, huMissing };
 }
 
 /**
@@ -1501,7 +1543,7 @@ export function clearGuide(): void {
  */
 export async function ensureChannelsEpg(
   provider: ProviderRef,
-  channels: Array<{ name?: string; epgChannelId?: string | null; streamId?: number; streamUrl?: string }>,
+  channels: Array<{ name?: string; epgChannelId?: string | null; streamId?: number; streamUrl?: string; countryCode?: string }>,
   max = 250,
 ): Promise<number> {
   if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) {
@@ -1509,8 +1551,19 @@ export async function ensureChannelsEpg(
     appLog(`EPG-ÁLLAPOT: per-csatornás EPG (get_simple_data_table) kihagyva – provider típus=${provider?.type || 'nincs'} (csak xtream providerhez létezik ez a végpont).`);
     return 0;
   }
-  if (index.size > 0 || loading) return 0; // már van teljes műsorújság vagy épp töltődik
-  const targets = (Array.isArray(channels) ? channels : []).filter((ch) => streamIdFor(ch)).slice(0, max);
+  if (loading) return 0; // épp töltődik a teljes műsorújság
+  /*
+   * 2.5.269 (#2-es napló): teljes újság már van – csak akkor kérünk per-csatornás
+   * EPG-t, ha az csak RÉSZLEGES visszatöltésből áll (üres xmltv.php után).
+   */
+  if (index.size > 0 && !restoredPartial) return 0;
+  /*
+   * 2.5.269 (#2-es kérés): CSAK a magyar ([HU]) csatornák kapnak EPG-t – semmi
+   * másra nem kérünk a paneltől műsort.
+   */
+  const targets = (Array.isArray(channels) ? channels : [])
+    .filter((ch) => (ch.countryCode || '').toUpperCase() === 'HU' && streamIdFor(ch))
+    .slice(0, max);
   if (!targets.length) return 0;
   appLog(`EPG-ÁLLAPOT: a teljes XMLTV üres – per-csatornás get_simple_data_table háttér indul (${targets.length} csatornára).`);
   let cursor = 0;
