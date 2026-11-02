@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.266';
+export const WEB_VERSION = '2.5.267';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.266',
+    version: '2.5.267',
     date: '2026-11-02',
     changes: [
       'HU csatornalogó (#13): SUPER TV 2 beépített data-URL logót kapott (ext-super-tv-2; forrás: Wikimedia Commons File:Super TV2 logo.png, public domain; 128 px, palettás) + név-aliaszok („super tv 2”, „super tv2”, „supertv2”, „hu super tv 2”) – a #13-as naplóban ez volt az egyetlen magyar csatorna beépített logó nélkül, a picons URL-jét a TV nem éri el.',
