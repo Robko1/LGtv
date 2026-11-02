@@ -77,6 +77,43 @@ function toTimestamp(value: string | number | undefined, fallback: string | unde
   return Number.isFinite(parsed) ? Math.round(parsed / 1000) : 0;
 }
 
+/** A végpont nyers epg_listings elemeinek közös leképezése EpgEntry-re. */
+function mapEpgItems(items: Array<{
+  id?: string | number;
+  title?: string;
+  description?: string;
+  start?: string;
+  end?: string;
+  start_timestamp?: number | string;
+  stop_timestamp?: number | string;
+  now_playing?: number;
+}>): EpgEntry[] {
+  return items.map((item, index) => ({
+    id: String(item.id ?? index),
+    title: decodeBase64(item.title) || 'Névtelen műsor',
+    description: decodeBase64(item.description) || '',
+    start: toTimestamp(item.start_timestamp, item.start),
+    end: toTimestamp(item.stop_timestamp, item.end),
+    nowPlaying: Number(item.now_playing) === 1 ? 1 : 0,
+  }));
+}
+
+/**
+ * 2.5.259 (#9): CSAK a get_simple_data_table végpont (teljes nap egy
+ * csatornára) – akkor használjuk, ha a teljes XMLTV üres ezen a panelen,
+ * hogy a látható csatornákhoz per-csatornásan mégis legyen műsor.
+ */
+export async function loadSimpleEpg(
+  provider: ProviderRef | null,
+  streamId: number | string,
+): Promise<EpgEntry[]> {
+  if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) {
+    return [];
+  }
+  const items = await xtreamService.simpleEpg(provider.serverUrl, provider.username, provider.password, streamId);
+  return mapEpgItems(items);
+}
+
 export function epgCacheKey(provider: ProviderRef, streamId: number | string): string {
   // A cache különüljön el szolgáltatónként és felhasználónként is: azonos szerveren
   // több IPTV-fiók eltérő EPG-t adhat. Frissítés/import előtt az App üríti a cache-t.
@@ -158,8 +195,10 @@ export async function loadShortEpg(
         );
         if (items.length && !simpleEpgWorksLogged) {
           simpleEpgWorksLogged = true;
+          // 2.5.259: EPG-ÁLLAPOT előtag, hogy a kézi napló mérési szűrője
+          // („EPG:” kezdetű sorok eldobása) ezt a fontos verdiktet NE dobja el.
           appLog(
-            `EPG: a rövid EPG végpont üres, a get_simple_data_table végpont adja a műsort `
+            `EPG-ÁLLAPOT: a rövid EPG végpont üres, a get_simple_data_table végpont adja a műsort `
             + `(első csatorna: ${items.length} műsor) – ezt használjuk a látható csatornákra.`
           );
         }
@@ -167,21 +206,14 @@ export async function loadShortEpg(
         if (!simpleEpgBrokenLogged) {
           simpleEpgBrokenLogged = true;
           appLog(
-            `EPG: a get_simple_data_table végpont sem ad adatot – `
+            `EPG-ÁLLAPOT: a get_simple_data_table végpont sem ad adatot – `
             + `${error instanceof Error ? error.message : String(error)}; marad a teljes műsorújság (XMLTV).`
           );
         }
       }
     }
 
-    const entries: EpgEntry[] = items.map((item, index) => ({
-      id: String(item.id ?? index),
-      title: decodeBase64(item.title) || 'Névtelen műsor',
-      description: decodeBase64(item.description) || '',
-      start: toTimestamp(item.start_timestamp, item.start),
-      end: toTimestamp(item.stop_timestamp, item.end),
-      nowPlaying: Number(item.now_playing) === 1 ? 1 : 0,
-    }));
+    const entries: EpgEntry[] = mapEpgItems(items);
 
     cache.set(key, { at: Date.now(), entries });
     trimCache();

@@ -54,7 +54,7 @@ import {
 } from './services/providerImport';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
-import { channelNowNext, clearGuide, ensureGuide, guideStatus, guideUpcoming } from './services/epgGuide';
+import { channelNowNext, clearGuide, ensureChannelsEpg, ensureGuide, guideStatus, guideUpcoming } from './services/epgGuide';
 import { xtreamService } from './services/xtreamService';
 import {
   attachVodProviderDiagnostics,
@@ -1588,7 +1588,21 @@ export function App() {
         void ensureGuide(plan.provider)
           .then(() => {
             const status = guideStatusSafe();
-            if (status.channels > 0) setEpgRevision((revision) => revision + 1);
+            if (status.channels > 0) {
+              setEpgRevision((revision) => revision + 1);
+            } else {
+              /*
+               * 2.5.259 (#9): ha a teljes XMLTV üres volt ezen a panelen
+               * (#8 napló: 0 bájt), per-csatornás get_simple_data_table
+               * háttérrel töltjük az első 250 csatorna (élén a magyarok)
+               * műsorát – különben egyáltalán nem jelenne meg EPG.
+               */
+              void ensureChannelsEpg(plan.provider, channelsRef.current, 250)
+                .then((filled) => {
+                  if (filled > 0) setEpgRevision((revision) => revision + 1);
+                })
+                .catch(() => { /* a naplóban már ott az ok */ });
+            }
           })
           .catch(() => { /* a naplóban már ott a valódi ok */ });
       }, 2500);

@@ -32,7 +32,7 @@
 import { appLog, appLogError } from './appLog';
 import type { ProviderRef } from './contentStore';
 import { breakerOpen, breakerRemainingMs } from './net';
-import { EpgNowNext, getCachedShortEpg, nowNextFromEpg, streamIdFor } from './epgService';
+import { EpgNowNext, getCachedShortEpg, loadSimpleEpg, nowNextFromEpg, streamIdFor } from './epgService';
 import { openIdbStore } from './idbStore';
 import { xtreamService } from './xtreamService';
 
@@ -228,7 +228,7 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
     // belépési adatot, csak a dátum-attribútumot).
     if (statInvalidDate <= 3) {
       appLog(
-        `EPG: érvénytelen időpont a műsorújságban – kezdés=„${String(info.start || '').slice(0, 32)}”, `
+        `EPG-ÁLLAPOT: érvénytelen időpont a műsorújságban – kezdés=„${String(info.start || '').slice(0, 32)}”, `
         + `vég=„${String(info.stop || '').slice(0, 32)}” (ezt a műsort kihagyjuk).`
       );
     }
@@ -461,6 +461,15 @@ async function download(provider: { serverUrl?: string; username?: string; passw
       credentials: 'omit',
       cache: 'no-store',
     });
+    /*
+     * 2.5.259 (#9): a válasz státusza és fejlécei is a naplóba – így a
+     * következő kézi naplóból pontosan látszik, hogy a panel mit válaszol
+     * az xmltv.php címre (üres 200, átirányítás, 401 stb.).
+     */
+    appLog(
+      `EPG-ÁLLAPOT: xmltv.php válasz – HTTP ${response.status}, content-type=${response.headers.get('content-type') || '?'}, `
+      + `content-length=${response.headers.get('content-length') || '?'}, átirányítva=${response.redirected ? 'igen' : 'nem'}.`
+    );
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -488,7 +497,7 @@ async function download(provider: { serverUrl?: string; username?: string; passw
       if (bytes > MAX_BYTES) {
         try { await reader.cancel(); } catch { /* már lezárult */ }
         abortReason = `a műsorújság nagyobb, mint ${Math.round(MAX_BYTES / 1048576)} MB`;
-        appLog(`EPG: ${abortReason} – a további részt nem olvassuk, a MÁR beolvasott rész használható.`);
+        appLog(`EPG-ÁLLAPOT: ${abortReason} – a további részt nem olvassuk, a MÁR beolvasott rész használható.`);
         break;
       }
       await feedWithBreath(decoder.decode(value, { stream: true }));
@@ -503,7 +512,7 @@ async function download(provider: { serverUrl?: string; username?: string; passw
         lastLoggedBytes = bytes;
         notifyGuideListeners();
         appLog(
-          `EPG: műsorújság olvasása – ${(bytes / 1048576).toFixed(0)} MB, `
+          `EPG-ÁLLAPOT: műsorújság olvasása – ${(bytes / 1048576).toFixed(0)} MB, `
           + `${index.size} csatorna, ${lastProgrammes} műsor a keresett időablakban.`
         );
       }
@@ -635,7 +644,7 @@ async function persistGuide(providerId: string, complete: boolean): Promise<void
     // A fejléc MINDIG utolsóként íródik: félkész mentést soha nem olvasunk be.
     await store.put(guideMetaKey(providerId), JSON.stringify(meta));
     appLog(
-      `EPG: a műsorújság elmentve a tartós tárba (${meta.channels} csatorna, `
+      `EPG-ÁLLAPOT: a műsorújság elmentve a tartós tárba (${meta.channels} csatorna, `
       + `${meta.programmes} műsor, ${nameToId.size} név-azonosító, ${chunks} adag${complete ? '' : ', RÉSZLEGES'}); a következő `
       + `${complete ? 'indulás ebből indul' : 'indulás ezt ismét frissíti'}.`
     );
@@ -752,7 +761,7 @@ export async function ensureGuide(provider: {
   if (fresh) return;
   if (loading) return loading;
   if (breakerOpen()) {
-    appLog(`EPG: a megszakító nyitva van (${Math.ceil(breakerRemainingMs() / 1000)} mp) – a műsorújság később töltődik be.`);
+    appLog(`EPG-ÁLLAPOT: a megszakító nyitva van (${Math.ceil(breakerRemainingMs() / 1000)} mp) – a műsorújság később töltődik be.`);
     return;
   }
 
@@ -791,7 +800,7 @@ export async function ensureGuide(provider: {
     lastBytes = restored.bytes;
     statKept = statKept || restored.programmes;
     appLog(
-      `EPG: a műsorújság a tartós tárból betöltve – ${restored.channels} csatorna, `
+      `EPG-ÁLLAPOT: a műsorújság a tartós tárból betöltve – ${restored.channels} csatorna, `
       + `${restored.programmes} műsor (mentve: ${new Date(restored.savedAt).toLocaleTimeString('hu-HU')}` +
       `${restored.complete ? '' : ', RÉSZLEGES'}).`
     );
@@ -804,13 +813,13 @@ export async function ensureGuide(provider: {
       && restored.programmes >= restored.channels * USABLE_PROGRAMMES_PER_CHANNEL;
     if (restored.complete && thick && Date.now() - restored.savedAt < GUIDE_TTL_MS) return;
     appLog(
-      'EPG: a mentett műsorújság '
+      'EPG-ÁLLAPOT: a mentett műsorújság '
       + `${!restored.complete ? 'részleges' : (!thick ? 'túl kevés műsort tartalmaz' : 'lejárt')} `
       + '– a háttérben frissítjük, a már látható műsorok addig is megmaradnak.'
     );
   }
 
-  appLog('EPG: a teljes műsorújság (XMLTV) letöltése indul – a rövid EPG végpont ezen a panelen üres választ ad.');
+  appLog('EPG-ÁLLAPOT: a teljes műsorújság (XMLTV) letöltése indul – a rövid EPG végpont ezen a panelen üres választ ad.');
 
   loading = download(provider)
     .then(() => {
@@ -819,7 +828,7 @@ export async function ensureGuide(provider: {
       const channels = index.size;
       const partial = abortReason ? ` (részleges: ${abortReason})` : '';
       appLog(
-        `EPG: műsorújság betöltve ${((Date.now() - startedAt) / 1000).toFixed(1)} mp alatt – `
+        `EPG-ÁLLAPOT: műsorújság betöltve ${((Date.now() - startedAt) / 1000).toFixed(1)} mp alatt – `
         + `${channels} csatorna, ${statKept} megtartott műsor `
         + `(a ${lastProgrammes} feldolgozott blokkból ${lastSkipped} időablakon kívüli, `
         + `${statInvalidDate} érvénytelen időpont, ${statNoTitle} cím nélküli, `
@@ -828,7 +837,7 @@ export async function ensureGuide(provider: {
       appLog(`IMPORT-API-DIAG [EPG XMLTV] letöltés kész: ${channels} csatorna, ${statKept} megtartott műsor, ${lastProgrammes} feldolgozott blokk, ${(lastBytes / 1024).toFixed(0)} KB; mezők: channel-id/display-name, programme start/stop/title/desc (a ténylegesen beolvasott XML-elemek alapján).`);
       if (channels > 0) void persistGuide(provider.id, !abortReason);
       if (channels === 0) {
-        appLog('EPG: a szolgáltató műsorújságja üres – a felület a rövid EPG-t használja tartalékként.');
+        appLog('EPG-ÁLLAPOT: a szolgáltató műsorújságja üres – a felület a rövid EPG-t használja tartalékként.');
       }
     })
     .catch((error) => {
@@ -841,7 +850,7 @@ export async function ensureGuide(provider: {
        */
       if (aborted) {
         appLog(
-          `EPG: a műsorújság letöltése megszakadt – ${abortReason || 'a böngésző szakította meg'}; `
+          `EPG-ÁLLAPOT: a műsorújság letöltése megszakadt – ${abortReason || 'a böngésző szakította meg'}; `
           + `a már beolvasott rész: ${index.size} csatorna, ${lastBytes ? (lastBytes / 1048576).toFixed(1) + ' MB' : 'nincs adat'}.`
         );
       }
@@ -988,4 +997,62 @@ export function clearGuide(): void {
   lastBytes = 0;
   skipRestore = true;
   void clearPersistedGuide();
+}
+
+/*
+ * 2.5.259 (#9): PER-CSATORNÁS EPG HÁTTÉR (get_simple_data_table).
+ *
+ * A #8 napló szerint ezen a panelen a teljes XMLTV letöltés ÜRES (0 bájt,
+ * 0 csatorna), ezért a műsorújság egyáltalán nem jelent meg. Ha a nagy
+ * XMLTV üres, itt az első N csatornára (a lista eleje = magyar csatornák)
+ * külön-külön kérjük le a műsort, 2 munkással, 80 ms késleltetéssel – az
+ * eredmény ugyanabba az indexbe és tartós tárba kerül, mint az XMLTV-é,
+ * így a sárga csík és az EPG ablak is működik.
+ */
+export async function ensureChannelsEpg(
+  provider: ProviderRef,
+  channels: Array<{ name?: string; epgChannelId?: string | null; streamId?: number; streamUrl?: string }>,
+  max = 250,
+): Promise<number> {
+  if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) return 0;
+  if (index.size > 0 || loading) return 0; // már van teljes műsorújság vagy épp töltődik
+  const targets = (Array.isArray(channels) ? channels : []).filter((ch) => streamIdFor(ch)).slice(0, max);
+  if (!targets.length) return 0;
+  appLog(`EPG-ÁLLAPOT: a teljes XMLTV üres – per-csatornás get_simple_data_table háttér indul (${targets.length} csatornára).`);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < targets.length) {
+      const channel = targets[cursor++];
+      const streamId = streamIdFor(channel);
+      if (!streamId) continue;
+      try {
+        const entries = await loadSimpleEpg(provider, streamId);
+        const key = guideKeyFor(channel) || normalizeName(channel.name || '');
+        if (key && entries.length) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          const list = entries
+            .filter((entry) => entry.title && entry.end > nowSec - KEEP_BEFORE_SEC && entry.start <= nowSec + KEEP_AFTER_SEC)
+            .map((entry) => ({ s: entry.start, e: entry.end, t: entry.title }))
+            .sort((a, b) => a.s - b.s)
+            .slice(0, KEEP_ENTRIES_PER_CHANNEL);
+          if (list.length) index.set(key, list);
+        }
+      } catch { /* egy csatorna hibája nem állítja le a többit */ }
+      if (cursor % 50 === 0) {
+        appLog(`EPG-ÁLLAPOT: get_simple_data_table háttér: ${cursor}/${targets.length} csatorna kész, eddig ${index.size} kapott műsort.`);
+        if (index.size > 0) {
+          await persistGuide(provider.id, false);
+          notifyGuideListeners();
+        }
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  if (index.size > 0) {
+    await persistGuide(provider.id, true);
+    notifyGuideListeners();
+  }
+  appLog(`EPG-ÁLLAPOT: get_simple_data_table háttér KÉSZ: ${index.size} csatorna kapott műsort (${targets.length} kérés).`);
+  return index.size;
 }

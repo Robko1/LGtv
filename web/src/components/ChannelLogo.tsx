@@ -28,12 +28,31 @@ interface Props { url?: string; name: string; retryKey?: unknown; countryCode?: 
  */
 export const ChannelLogo: React.FC<Props> = ({ url, name, retryKey, countryCode }) => {
   const normalizedUrl = normalizeLogoUrl(url);
-  const huLogo = countryCode === 'HU' ? normalizeLogoUrl(getHuChannelLogo(name)) : '';
-  const effectiveUrl = countryCode === 'HU' ? (huLogo || '') : (normalizedUrl || huLogo);
-  return <LogoImage key={effectiveUrl} url={effectiveUrl} name={name} retryKey={retryKey} huLogo={huLogo} />;
+  const isHu = countryCode === 'HU';
+  const huLogo = isHu ? normalizeLogoUrl(getHuChannelLogo(name)) : '';
+  /*
+   * 2.5.259 (#9): magyar csatornánál ELSŐ a saját logó; ha nincs saját
+   * (a #8 napló szerint mind a 107 HU csatornának van szolgáltatói logója,
+   * csak kb. 80-nak van saját), akkor a szolgáltatói logót használjuk –
+   * így nem marad app-ikon a "többi" csatornán. HU képeknél a letöltött
+   * kép data-URL-ként a helyi tárolóba is kerül, újraindítás után azonnal
+   * onnan töltődik. Nem-HU csatornánál az út változatlan.
+   */
+  const effectiveUrl = isHu ? (huLogo || normalizedUrl) : (normalizedUrl || huLogo);
+  return (
+    <LogoImage
+      key={effectiveUrl}
+      url={effectiveUrl}
+      name={name}
+      retryKey={retryKey}
+      huLogo={huLogo}
+      fallbackUrl={isHu ? normalizedUrl : ''}
+      cacheable={isHu}
+    />
+  );
 };
 
-const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retryKey, huLogo = '' }) => {
+const LogoImage: React.FC<Props & { huLogo?: string; fallbackUrl?: string; cacheable?: boolean }> = ({ url = '', name, retryKey, huLogo = '', fallbackUrl = '', cacheable = false }) => {
   const [source, setSource] = useState(url);
   const [failed, setFailed] = useState(false);
   const [cachedSource, setCachedSource] = useState('');
@@ -56,7 +75,7 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
      * rögtön, hálózati kérés és átrendeződés nélkül jelenik meg a logó.
      * Nem-HU csatornánál (huLogo üres) az út változatlan.
      */
-    const huCached = huLogo ? getHuLogoCachedImage(url) : undefined;
+    const huCached = cacheable ? getHuLogoCachedImage(url) : undefined;
     setSource(huCached || url);
     setFailed(false);
     setCachedSource('');
@@ -138,6 +157,17 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
       // 2.5.253: már a saját logón vagyunk (HU mód) – ha az is beragad, a
       // következő lépések (séma/fail) döntsenek, ne ragadjunk itt.
     }
+    /*
+     * 2.5.259 (#9): ha a SAJÁT HU logó végleg hibás, még a szolgáltatói
+     * logót (fallbackUrl) is megpróbáljuk – így a saját logó nélküli magyar
+     * csatornákhoz is kerül kép. Nem-HU módban fallbackUrl üres, az út
+     * változatlan.
+     */
+    if (huLogo && huTried && fallbackUrl && source !== fallbackUrl && /^https?:\/\//i.test(fallbackUrl)) {
+      setSchemeAttempt(0);
+      setSource(fallbackUrl);
+      return;
+    }
     // Szolgáltatói URL sémaváltása: http → https → eredeti http.
     if (schemeAttempt === 0 && /^http:\/\//i.test(url)) {
       setSchemeAttempt(1);
@@ -180,11 +210,12 @@ const LogoImage: React.FC<Props & { huLogo?: string }> = ({ url = '', name, retr
       // és akkora memóriát jelentett, hogy a rendszer leállította a beágyazott böngészőt.
       loading="lazy"
       decoding="async"
-      // 2.5.257: saját HU logónál a képet egyszer letöltve data-URL-ként is
-      // elmentjük a localStorage-ba (nem-HU úton változatlan a CacheStorage).
+      // 2.5.257/2.5.259: HU csatornánál (saját VAGY szolgáltatói logó) a képet
+      // egyszer letöltve data-URL-ként is elmentjük a localStorage-ba (nem-HU
+      // úton változatlan a CacheStorage).
       onLoad={() => {
         settledRef.current = true;
-        if (huLogo) void cacheHuLogoDataUrl(source);
+        if (cacheable) void cacheHuLogoDataUrl(source);
         else void saveCachedLogo(source);
       }}
       onError={() => { settledRef.current = true; advanceFailure(); }}
