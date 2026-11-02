@@ -448,17 +448,19 @@ const PUBLIC_GUIDES_ENABLED = typeof window !== 'undefined';
 const PUBLIC_GUIDE_URLS: Array<{
   url: string;
   label: string;
+  /** 'global' = összes ország egy fájlban; 'hu' = csak magyar csatornák. */
+  scope: 'global' | 'hu';
   limits: { maxBytes: number; maxMs: number };
 }> = [
   // összes ország egy nagy fájlban (lassú, de teljes)
-  { url: 'https://epgshare01.online/epgshare01/epg_ripper_ALL_SOURCES1.xml.gz', label: 'epgshare01 ALL_SOURCES (összes ország)', limits: { maxBytes: 128 * 1024 * 1024, maxMs: 4 * 60 * 1000 } },
-  { url: 'https://epg.pw/xmltv/epg.xml.gz', label: 'epg.pw globális', limits: { maxBytes: 128 * 1024 * 1024, maxMs: 4 * 60 * 1000 } },
-  // magyar csatornák külön (kicsi, gyors)
-  { url: 'https://epgshare01.online/epgshare01/epg_ripper_HU1.xml.gz', label: 'epgshare01 HU (magyar)', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
-  { url: 'https://iptv-org.github.io/epg/guides/hu/mediaklikk.hu.epg.xml.gz', label: 'iptv-org HU mediaklikk (állami adók)', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
-  { url: 'https://iptv-org.github.io/epg/guides/hu/tvmusor.hu.epg.xml.gz', label: 'iptv-org HU tvmusor.hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
-  { url: 'https://iptv-epg.org/files/epg-hu.xml.gz', label: 'iptv-epg.org HU', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
-  { url: 'https://epg.cdn.loc.cc/xml', label: 'epg.cdn.loc.cc globális (sima xml)', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  { url: 'https://epgshare01.online/epgshare01/epg_ripper_ALL_SOURCES1.xml.gz', label: 'epgshare01 ALL_SOURCES (összes ország)', scope: 'global', limits: { maxBytes: 128 * 1024 * 1024, maxMs: 4 * 60 * 1000 } },
+  { url: 'https://epg.pw/xmltv/epg.xml.gz', label: 'epg.pw globális', scope: 'global', limits: { maxBytes: 128 * 1024 * 1024, maxMs: 4 * 60 * 1000 } },
+  { url: 'https://epg.cdn.loc.cc/xml', label: 'epg.cdn.loc.cc globális (sima xml)', scope: 'global', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  // magyar csatornák külön (kicsi, gyors, teljes HU lefedettség)
+  { url: 'https://epgshare01.online/epgshare01/epg_ripper_HU1.xml.gz', label: 'epgshare01 HU (magyar)', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  { url: 'https://iptv-org.github.io/epg/guides/hu/mediaklikk.hu.epg.xml.gz', label: 'iptv-org HU mediaklikk (állami adók)', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  { url: 'https://iptv-org.github.io/epg/guides/hu/tvmusor.hu.epg.xml.gz', label: 'iptv-org HU tvmusor.hu', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  { url: 'https://iptv-epg.org/files/epg-hu.xml.gz', label: 'iptv-epg.org HU', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
 ];
 
 /* ─────────────────────────────── letöltés ──────────────────────────────── */
@@ -1222,9 +1224,18 @@ export async function ensureGuide(provider: {
          * után leállunk; minden próba naplózva. Tesztkörnyezetben kikapcsolva.
          */
         if (!guideSourceUrl && PUBLIC_GUIDES_ENABLED) {
-          appLog('EPG-ÁLLAPOT: a panel minden útvonala üres – nyilvános EPG újságok próbája indul (először összes ország, aztán magyar).');
-          for (const candidate of PUBLIC_GUIDE_URLS) {
-            if (index.size > 0) break;
+          appLog('EPG-ÁLLAPOT: a panel minden útvonala üres – nyilvános EPG újságok próbája indul (először összes ország, aztán magyar külön).');
+          /*
+           * 2.5.268 (#1-es napló): a globális fájlból csak részleges adat jön
+           * (128 MB-os plafon), és abból a magyar adóknak csak töredéke szerepel
+           * (107-ből 17). Ezért a globális forrás után MINDIG végigmegyünk a
+           * kis magyar (HU) fájlokon is, és hozzáadjuk őket az indexhez – így a
+           * magyar adók teljesen le lesznek fedve. Minden forrás külön
+           * naplózva (előtte/utána csatornaszám), hogy látszódjon, melyik újság
+           * mit adott.
+           */
+          const tryPublicGuide = async (candidate: (typeof PUBLIC_GUIDE_URLS)[number]): Promise<void> => {
+            const before = index.size;
             appLog(`EPG-ÁLLAPOT: nyilvános EPG próba – ${candidate.label}: ${candidate.url}`);
             buffer = '';
             lastProgrammes = 0;
@@ -1236,17 +1247,26 @@ export async function ensureGuide(provider: {
             } catch { /* a download már naplózta a valódi okot */ }
             channels = index.size;
             appLog(
-              `EPG-ÁLLAPOT: nyilvános EPG (${candidate.label}) után: ${index.size} csatorna, ${statKept} megtartott műsor, `
-              + `${(lastBytes / 1024).toFixed(0)} KB${abortReason ? ` (részleges: ${abortReason})` : ''}.`
+              `EPG-ÁLLAPOT: nyilvános EPG (${candidate.label}) – ${before} → ${index.size} csatorna (+${index.size - before}), `
+              + `${statKept} megtartott műsor, ${(lastBytes / 1024).toFixed(0)} KB`
+              + `${abortReason ? ` (részleges: ${abortReason})` : ''}.`
             );
-            if (index.size > 0) {
-              loadedAt = Date.now();
-              void persistGuide(provider.id, !abortReason);
-              appLog(`EPG-ÁLLAPOT: műsorújság betöltve NYILVÁNOS forrásból (${candidate.label}) – ${index.size} csatorna.`);
-              break;
-            }
+          };
+          // globális források: az első műsort adó után elég (részleges is jó)
+          for (const candidate of PUBLIC_GUIDE_URLS) {
+            if (candidate.scope !== 'global' || index.size > 0) continue;
+            await tryPublicGuide(candidate);
           }
-          if (index.size === 0) {
+          // magyar külön fájlok: mindet próbáljuk, mindegyik hozzátehet a HU-hoz
+          for (const candidate of PUBLIC_GUIDE_URLS) {
+            if (candidate.scope !== 'hu') continue;
+            await tryPublicGuide(candidate);
+          }
+          if (index.size > 0) {
+            loadedAt = Date.now();
+            void persistGuide(provider.id, !abortReason);
+            appLog(`EPG-ÁLLAPOT: műsorújság betöltve NYILVÁNOS forrásokból – összesen ${index.size} csatorna, ${statKept} megtartott műsor.`);
+          } else {
             appLog('EPG-ÁLLAPOT: egyetlen nyilvános EPG forrás sem adott műsort – marad a per-csatornás get_simple_data_table tartalék.');
           }
         } else if (!guideSourceUrl) {
@@ -1294,10 +1314,23 @@ function guideKeyFor(channel: { epgChannelId?: string | null; name?: string }): 
   const id = (channel.epgChannelId || '').trim();
   const nameKey = normalizeName(channel.name || '');
   const candidates: string[] = [];
-  if (id) candidates.push(id.toLowerCase());
+  if (id) {
+    const low = id.toLowerCase();
+    candidates.push(low);
+    // 2.5.268 (#1-es napló): a nyilvános újságok „.hu” végű azonosítókat
+    // használnak („TV2.hu”), a panel viszont gyakran csak sima nevet vagy
+    // számot ad – ezért a pont nélküli ID-hez a „.hu” végűt, a „.hu”-s ID-hez
+    // a csupasz változatot is próbáljuk.
+    if (!low.includes('.')) candidates.push(`${low}.hu`);
+    if (low.endsWith('.hu')) candidates.push(low.slice(0, -3));
+  }
   if (nameKey) {
     candidates.push(nameKey);
     if (nameKey.startsWith('hu') && nameKey.length > 2) candidates.push(nameKey.slice(2));
+    // 2.5.268 (#1-es napló): a „Spiler” márkát a panel „SPIELER”-rel írja –
+    // a helyesírási változatot is próbáljuk (mindkét oldal normalizálva).
+    const spilerVariant = nameKey.replace(/spieler/g, 'spiler');
+    if (spilerVariant !== nameKey) candidates.push(spilerVariant);
   }
   // először közvetlenül az indexben, aztán a display-name → id leképezésen
   for (const candidate of candidates) {
