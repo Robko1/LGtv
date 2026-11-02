@@ -28,7 +28,7 @@ import {
   hasPendingDeleteMarker,
 } from './services/contentStore';
 import { appLog, appLogError, logPhase } from './services/appLog';
-import { persistHuLogoOverrides } from './services/huChannelLogos';
+import { persistHuLogoOverrides, logHuLogoStore } from './services/huChannelLogos';
 import {
   bootScreenChannels,
   bootScreenDetail,
@@ -2375,6 +2375,8 @@ export function App() {
     try {
       const count = persistHuLogoOverrides(channels);
       if (count) appLog(`HU logók véglegesítve a helyi tárolóban (iptv_rt_hu_logos_v1): ${count} leképezés.`);
+      // 2.5.261 (#10): a logótár mérete induláskor a naplóba (hány logónk van összesen).
+      logHuLogoStore('indulás');
     } catch { /* nem kritikus */ }
   }, [channels]);
 

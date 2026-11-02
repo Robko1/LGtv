@@ -187,7 +187,9 @@ const LogoImage: React.FC<Props & { huLogo?: string; fallbackUrl?: string; cache
     setFailed(true);
     if (logoFailLogCount < 25) {
       logoFailLogCount += 1;
-      appLog(`CSATORNALOGÓ-HIBA: „${name}” – a logó végleg nem tölthető be, ezt próbálta: ${url}`);
+      // 2.5.261: beépített (data-URL) logónál nem írjuk ki a base64 törzset a naplóba.
+      const tried = url.startsWith('data:') ? `beépített data-URL (bundle, ${url.length} karakter)` : url;
+      appLog(`CSATORNALOGÓ-HIBA: „${name}” – a logó végleg nem tölthető be, ezt próbálta: ${tried}`);
     }
     // A gyorsítótárban az EREDETI szolgáltatói URL alatt keressük a képet.
     void loadCachedLogo(url);

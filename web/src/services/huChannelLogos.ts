@@ -1,4 +1,5 @@
 import { appLog } from './appLog';
+import { HU_EMBEDDED_LOGOS, HU_EMBEDDED_LOGO_COUNT } from '../generatedHuLogos';
 
 /**
  * SAJÁT MAGYAR CSATORNALOGÓ-TÁR (2.5.245).
@@ -34,8 +35,9 @@ export function normalizeChannelName(name: string): string {
 
 /*
  * A magyar logók publikus gyűjteménye (tv-logo/tv-logos GitHub-tár,
- * countries/hungary mappa) – közvetlenül raw GitHub URL-ként tölthetők le,
- * így a TV-n nincs szükség külön letöltő lépésre.
+ * countries/hungary mappa). 2.5.261 óta a képek be vannak építve a bundle-be
+ * (lásd huLogo alább), ez a távoli cím már csak TARTALÉK (ha egy új logó még
+ * nincs beépítve, innen töltődik le, amíg be nem kerül a generált fájlba).
  *
  * Kulcs = normalizeChannelName(csatornanév) a „hu” előtag NÉLKÜL (a keresés
  * a teljes és az előtag nélküli változatot is próbálja, lásd getHuChannelLogo).
@@ -43,123 +45,173 @@ export function normalizeChannelName(name: string): string {
  */
 const TV_LOGOS_HU = 'https://raw.githubusercontent.com/tv-logo/tv-logos/master/countries/hungary/';
 
+/*
+ * 2.5.261 (#10-es napló): a TELJES magyar logótár (96 PNG) és a hiányzó márkák
+ * nemzetközi változatai BEÉPÍTVE, data-URL-ként a bundle-ben (generatedHuLogos).
+ * A #10-es napló CSATORNALOGÓ-HIBA sorai bizonyítják, hogy a TV sem a
+ * raw.githubusercontent.com-ot, sem a picons szervereket nem éri el megbízhatóan,
+ * ezért a távoli URL önmagában nem elég. A huLogo() először a beépített képet
+ * adja vissza; ha az nincs, a régi távoli URL marad tartalékként.
+ */
+function huLogo(slug: string): string {
+  return HU_EMBEDDED_LOGOS[slug] || `${TV_LOGOS_HU}${slug}.png`;
+}
+
 export const HU_CHANNEL_LOGOS: Record<string, string> = {
-  '9tv': `${TV_LOGOS_HU}9tv-hu.png`,
-  'amc': `${TV_LOGOS_HU}amc-hu.png`,
-  'arena4': `${TV_LOGOS_HU}arena4-hu.png`,
-  'atv extra': `${TV_LOGOS_HU}atv-extra-hu.png`,
-  'atv': `${TV_LOGOS_HU}atv-hu.png`,
-  'axn': `${TV_LOGOS_HU}axn-hu.png`,
-  'balkanika music television': `${TV_LOGOS_HU}balkanika-music-television-hu.png`,
-  'cinemax': `${TV_LOGOS_HU}cinemax-hu.png`,
-  'cinemax2': `${TV_LOGOS_HU}cinemax2-hu.png`,
-  'comedy central family': `${TV_LOGOS_HU}comedy-central-family-hu.png`,
-  'cool tv': `${TV_LOGOS_HU}cool-tv-hu.png`,
-  'd1': `${TV_LOGOS_HU}d1-hu.png`,
-  'da vinci': `${TV_LOGOS_HU}da-vinci-hu.png`,
-  'dikh tv': `${TV_LOGOS_HU}dikh-tv-hu.png`,
-  'duna': `${TV_LOGOS_HU}duna-hu.png`,
-  'duna world': `${TV_LOGOS_HU}duna-world-hu.png`,
-  'epic drama': `${TV_LOGOS_HU}epic-drama-hu.png`,
-  'estv': `${TV_LOGOS_HU}estv-hu.png`,
-  'fem3': `${TV_LOGOS_HU}fem3-hu.png`,
-  'film cafe': `${TV_LOGOS_HU}film-cafe-hu.png`,
-  'film plus': `${TV_LOGOS_HU}film-plus-hu.png`,
-  'film4': `${TV_LOGOS_HU}film4-hu.png`,
-  'filmbox extra': `${TV_LOGOS_HU}filmbox-extra-hu.png`,
-  'filmbox family': `${TV_LOGOS_HU}filmbox-family-hu.png`,
-  'filmbox': `${TV_LOGOS_HU}filmbox-hu.png`,
-  'filmbox premium': `${TV_LOGOS_HU}filmbox-premium-hu.png`,
-  'filmbox stars': `${TV_LOGOS_HU}filmbox-stars-hu.png`,
-  'fix': `${TV_LOGOS_HU}fix-hu.png`,
-  'galaxy4': `${TV_LOGOS_HU}galaxy4-hu.png`,
-  'game toon': `${TV_LOGOS_HU}game-toon-hu.png`,
-  'hbo': `${TV_LOGOS_HU}hbo-hu.png`,
-  'hbo2': `${TV_LOGOS_HU}hbo2-hu.png`,
-  'hbo3': `${TV_LOGOS_HU}hbo3-hu.png`,
-  'hir tv': `${TV_LOGOS_HU}hir-tv-hu.png`,
-  'izaura tv': `${TV_LOGOS_HU}izaura-tv-hu.png`,
-  'jocky tv': `${TV_LOGOS_HU}jocky-tv-hu.png`,
-  'life tv': `${TV_LOGOS_HU}life-tv-hu.png`,
-  'm1': `${TV_LOGOS_HU}m1-hu.png`,
-  'm2': `${TV_LOGOS_HU}m2-hu.png`,
-  'm2 petofi': `${TV_LOGOS_HU}m2-petofi-hu.png`,
-  'm4 sport': `${TV_LOGOS_HU}m4-sport-hu.png`,
-  'm4 sport plus': `${TV_LOGOS_HU}m4-sport-plus-hu.png`,
-  'm5': `${TV_LOGOS_HU}m5-hu.png`,
-  'magyar mozi tv': `${TV_LOGOS_HU}magyar-mozi-tv-hu.png`,
-  'match4': `${TV_LOGOS_HU}match4-hu.png`,
-  'max4': `${TV_LOGOS_HU}max4-hu.png`,
-  'mezzo': `${TV_LOGOS_HU}mezzo-hu.png`,
-  'minimax': `${TV_LOGOS_HU}minimax-hu.png`,
-  'movies 24': `${TV_LOGOS_HU}movies-24-hu.png`,
-  'mozi plus': `${TV_LOGOS_HU}mozi-plus-hu.png`,
-  'moziverzum': `${TV_LOGOS_HU}moziverzum-hu.png`,
-  'music plus': `${TV_LOGOS_HU}music-plus-hu.png`,
-  'muzsika tv': `${TV_LOGOS_HU}muzsika-tv-hu.png`,
-  'ozone tv': `${TV_LOGOS_HU}ozone-tv-hu.png`,
-  'paramount network': `${TV_LOGOS_HU}paramount-network-hu.png`,
-  'prime': `${TV_LOGOS_HU}prime-hu.png`,
-  'rakosmente tv': `${TV_LOGOS_HU}rakosmente-tv-hu.png`,
-  'rtl gold': `${TV_LOGOS_HU}rtl-gold-hu.png`,
-  'rtl harom': `${TV_LOGOS_HU}rtl-harom-hu.png`,
-  'rtl': `${TV_LOGOS_HU}rtl-hu.png`,
-  'rtl ketto': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
-  'slager tv': `${TV_LOGOS_HU}slager-tv-hu.png`,
-  'sorozat plus': `${TV_LOGOS_HU}sorozat-plus-hu.png`,
-  'spektrum home': `${TV_LOGOS_HU}spektrum-home-hu.png`,
-  'spektrum': `${TV_LOGOS_HU}spektrum-hu.png`,
-  'spiler 1': `${TV_LOGOS_HU}spiler-1-hu.png`,
-  'spiler 2': `${TV_LOGOS_HU}spiler-2-hu.png`,
-  'spiler extra': `${TV_LOGOS_HU}spiler-extra-hu.png`,
-  'sport1': `${TV_LOGOS_HU}sport1-hu.png`,
-  'sport2': `${TV_LOGOS_HU}sport2-hu.png`,
-  'sport3': `${TV_LOGOS_HU}sport3-hu.png`,
-  'story4': `${TV_LOGOS_HU}story4-hu.png`,
-  'super one': `${TV_LOGOS_HU}super-one-hu.png`,
-  'the fishing and hunting channel': `${TV_LOGOS_HU}the-fishing-and-hunting-channel-hu.png`,
-  'travelxp': `${TV_LOGOS_HU}travelxp-hu.png`,
-  'tv paprika': `${TV_LOGOS_HU}tv-paprika-hu.png`,
-  'tv10': `${TV_LOGOS_HU}tv10-hu.png`,
-  'tv2 comedy': `${TV_LOGOS_HU}tv2-comedy-hu.png`,
-  'tv2': `${TV_LOGOS_HU}tv2-hu.png`,
-  'tv2 kids': `${TV_LOGOS_HU}tv2-kids-hu.png`,
-  'tv2 klub': `${TV_LOGOS_HU}tv2-klub-hu.png`,
-  'tv2 sef': `${TV_LOGOS_HU}tv2-sef-hu.png`,
-  'tv2 sport': `${TV_LOGOS_HU}tv2-sport-hu.png`,
-  'tv2 sport plus': `${TV_LOGOS_HU}tv2-sport-plus-hu.png`,
-  'tv2 super': `${TV_LOGOS_HU}tv2-super-hu.png`,
-  'tv4': `${TV_LOGOS_HU}tv4-hu.png`,
-  'ujbuda tv': `${TV_LOGOS_HU}ujbuda-tv-hu.png`,
-  'viasat explore': `${TV_LOGOS_HU}viasat-explore-hu.png`,
-  'viasat film': `${TV_LOGOS_HU}viasat-film-hu.png`,
-  'viasat history': `${TV_LOGOS_HU}viasat-history-hu.png`,
-  'viasat nature': `${TV_LOGOS_HU}viasat-nature-hu.png`,
-  'viasat2': `${TV_LOGOS_HU}viasat2-hu.png`,
-  'viasat3': `${TV_LOGOS_HU}viasat3-hu.png`,
-  'viasat6': `${TV_LOGOS_HU}viasat6-hu.png`,
-  'vixen': `${TV_LOGOS_HU}vixen-hu.png`,
-  'zenebutik': `${TV_LOGOS_HU}zenebutik-hu.png`,
-  'rtl klub': `${TV_LOGOS_HU}rtl-hu.png`,
-  'rtl ii': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
-  'rtl2': `${TV_LOGOS_HU}rtl-ketto-hu.png`,
-  'rtl 3': `${TV_LOGOS_HU}rtl-harom-hu.png`,
+  '9tv': huLogo('9tv-hu'),
+  'amc': huLogo('amc-hu'),
+  'arena4': huLogo('arena4-hu'),
+  'atv extra': huLogo('atv-extra-hu'),
+  'atv': huLogo('atv-hu'),
+  'axn': huLogo('axn-hu'),
+  'balkanika music television': huLogo('balkanika-music-television-hu'),
+  'cinemax': huLogo('cinemax-hu'),
+  'cinemax2': huLogo('cinemax2-hu'),
+  'comedy central family': huLogo('comedy-central-family-hu'),
+  'cool tv': huLogo('cool-tv-hu'),
+  'd1': huLogo('d1-hu'),
+  'da vinci': huLogo('da-vinci-hu'),
+  'dikh tv': huLogo('dikh-tv-hu'),
+  'duna': huLogo('duna-hu'),
+  'duna world': huLogo('duna-world-hu'),
+  'epic drama': huLogo('epic-drama-hu'),
+  'estv': huLogo('estv-hu'),
+  'fem3': huLogo('fem3-hu'),
+  'film cafe': huLogo('film-cafe-hu'),
+  'film plus': huLogo('film-plus-hu'),
+  'film4': huLogo('film4-hu'),
+  'filmbox extra': huLogo('filmbox-extra-hu'),
+  'filmbox family': huLogo('filmbox-family-hu'),
+  'filmbox': huLogo('filmbox-hu'),
+  'filmbox premium': huLogo('filmbox-premium-hu'),
+  'filmbox stars': huLogo('filmbox-stars-hu'),
+  'fix': huLogo('fix-hu'),
+  'galaxy4': huLogo('galaxy4-hu'),
+  'game toon': huLogo('game-toon-hu'),
+  'hbo': huLogo('hbo-hu'),
+  'hbo2': huLogo('hbo2-hu'),
+  'hbo3': huLogo('hbo3-hu'),
+  'hir tv': huLogo('hir-tv-hu'),
+  'izaura tv': huLogo('izaura-tv-hu'),
+  'jocky tv': huLogo('jocky-tv-hu'),
+  'life tv': huLogo('life-tv-hu'),
+  'm1': huLogo('m1-hu'),
+  'm2': huLogo('m2-hu'),
+  'm2 petofi': huLogo('m2-petofi-hu'),
+  'm4 sport': huLogo('m4-sport-hu'),
+  'm4 sport plus': huLogo('m4-sport-plus-hu'),
+  'm5': huLogo('m5-hu'),
+  'magyar mozi tv': huLogo('magyar-mozi-tv-hu'),
+  'match4': huLogo('match4-hu'),
+  'max4': huLogo('max4-hu'),
+  'mezzo': huLogo('mezzo-hu'),
+  'minimax': huLogo('minimax-hu'),
+  'movies 24': huLogo('movies-24-hu'),
+  'mozi plus': huLogo('mozi-plus-hu'),
+  'moziverzum': huLogo('moziverzum-hu'),
+  'music plus': huLogo('music-plus-hu'),
+  'muzsika tv': huLogo('muzsika-tv-hu'),
+  'ozone tv': huLogo('ozone-tv-hu'),
+  'paramount network': huLogo('paramount-network-hu'),
+  'prime': huLogo('prime-hu'),
+  'rakosmente tv': huLogo('rakosmente-tv-hu'),
+  'rtl gold': huLogo('rtl-gold-hu'),
+  'rtl harom': huLogo('rtl-harom-hu'),
+  'rtl': huLogo('rtl-hu'),
+  'rtl ketto': huLogo('rtl-ketto-hu'),
+  'slager tv': huLogo('slager-tv-hu'),
+  'sorozat plus': huLogo('sorozat-plus-hu'),
+  'spektrum home': huLogo('spektrum-home-hu'),
+  'spektrum': huLogo('spektrum-hu'),
+  'spiler 1': huLogo('spiler-1-hu'),
+  'spiler 2': huLogo('spiler-2-hu'),
+  'spiler extra': huLogo('spiler-extra-hu'),
+  'sport1': huLogo('sport1-hu'),
+  'sport2': huLogo('sport2-hu'),
+  'sport3': huLogo('sport3-hu'),
+  'story4': huLogo('story4-hu'),
+  'super one': huLogo('super-one-hu'),
+  'the fishing and hunting channel': huLogo('the-fishing-and-hunting-channel-hu'),
+  'travelxp': huLogo('travelxp-hu'),
+  'tv paprika': huLogo('tv-paprika-hu'),
+  'tv10': huLogo('tv10-hu'),
+  'tv2 comedy': huLogo('tv2-comedy-hu'),
+  'tv2': huLogo('tv2-hu'),
+  'tv2 kids': huLogo('tv2-kids-hu'),
+  'tv2 klub': huLogo('tv2-klub-hu'),
+  'tv2 sef': huLogo('tv2-sef-hu'),
+  'tv2 sport': huLogo('tv2-sport-hu'),
+  'tv2 sport plus': huLogo('tv2-sport-plus-hu'),
+  'tv2 super': huLogo('tv2-super-hu'),
+  'tv4': huLogo('tv4-hu'),
+  'ujbuda tv': huLogo('ujbuda-tv-hu'),
+  'viasat explore': huLogo('viasat-explore-hu'),
+  'viasat film': huLogo('viasat-film-hu'),
+  'viasat history': huLogo('viasat-history-hu'),
+  'viasat nature': huLogo('viasat-nature-hu'),
+  'viasat2': huLogo('viasat2-hu'),
+  'viasat3': huLogo('viasat3-hu'),
+  'viasat6': huLogo('viasat6-hu'),
+  'vixen': huLogo('vixen-hu'),
+  'zenebutik': huLogo('zenebutik-hu'),
+  'rtl klub': huLogo('rtl-hu'),
+  'rtl ii': huLogo('rtl-ketto-hu'),
+  'rtl2': huLogo('rtl-ketto-hu'),
+  'rtl 3': huLogo('rtl-harom-hu'),
   /*
    * 2.5.255 (#8-as napló, 21:37: 107 HU csatorna): név-aliaszok azokhoz a
    * csatornákhoz, amelyek neve nem egyezik a logófájl nevével (pl. AXN
    * Black → axn-hu.png, Arena 4 → arena4-hu.png). Minden URL .png-re végződik.
    */
-  'axn black': `${TV_LOGOS_HU}axn-hu.png`,
-  'axn white': `${TV_LOGOS_HU}axn-hu.png`,
-  'axn ce': `${TV_LOGOS_HU}axn-hu.png`,
-  'cool': `${TV_LOGOS_HU}cool-tv-hu.png`,
-  'arena 4': `${TV_LOGOS_HU}arena4-hu.png`,
-  'story 4': `${TV_LOGOS_HU}story4-hu.png`,
-  'fishing and hunting': `${TV_LOGOS_HU}the-fishing-and-hunting-channel-hu.png`,
-  'ozone network': `${TV_LOGOS_HU}ozone-tv-hu.png`,
-  'spieler tv': `${TV_LOGOS_HU}spiler-1-hu.png`,
-  'spieler2 tv': `${TV_LOGOS_HU}spiler-2-hu.png`,
-  'viasat nature history': `${TV_LOGOS_HU}viasat-nature-hu.png`,
+  'axn black': huLogo('axn-hu'),
+  'axn white': huLogo('axn-hu'),
+  'axn ce': huLogo('axn-hu'),
+  'cool': huLogo('cool-tv-hu'),
+  'arena 4': huLogo('arena4-hu'),
+  'story 4': huLogo('story4-hu'),
+  'fishing and hunting': huLogo('the-fishing-and-hunting-channel-hu'),
+  'ozone network': huLogo('ozone-tv-hu'),
+  'spieler tv': huLogo('spiler-1-hu'),
+  'spieler2 tv': huLogo('spiler-2-hu'),
+  'viasat nature history': huLogo('viasat-nature-hu'),
+  /*
+   * 2.5.261 (#10-es napló): a LOGÓ-HIÁNY / CSATORNALOGÓ-HIBA listában szereplő
+   * csatornákhoz a magyar mappában nincs fájl – hozzájuk a beépített
+   * nemzetközi (int / UK / regionális) változatot rendeljük (ext-… kulcsok).
+   * A keresőkulcs a normalizált név; a minősítő utótagokat (uhd/hd/tv/channel)
+   * a logoKeyCandidates levágja, ezért itt a rövid alak is elég.
+   */
+  'animal planet': huLogo('ext-animal-planet'),
+  'auto motor sport': huLogo('ext-auto-motor-sport'),
+  'bbc earth': huLogo('ext-bbc-earth'),
+  'boomerang': huLogo('ext-boomerang'),
+  'cartoon network': huLogo('ext-cartoon-network'),
+  'cartoonito': huLogo('ext-cartoonito'),
+  'discovery channel': huLogo('ext-discovery-channel'),
+  'discovery investigation': huLogo('ext-discovery-investigation'),
+  'disney channel': huLogo('ext-disney-channel'),
+  'disney jr': huLogo('ext-disney-jr'),
+  'duck tv': huLogo('ext-duck-tv'),
+  'duck': huLogo('ext-duck-tv'),
+  'e entertainment': huLogo('ext-e-entertainment'),
+  'eurosport': huLogo('ext-eurosport'),
+  'eurosport 2': huLogo('ext-eurosport-2'),
+  'food network': huLogo('ext-food-network'),
+  'history': huLogo('ext-history'),
+  'jimjam': huLogo('ext-jimjam'),
+  'love nature': huLogo('ext-love-nature'),
+  'nat geo': huLogo('ext-nat-geo'),
+  'nat geo wild': huLogo('ext-nat-geo-wild'),
+  'nickelodeon': huLogo('ext-nickelodeon'),
+  'nickelodeon europe': huLogo('ext-nickelodeon'),
+  'nick jr': huLogo('ext-nick-jr'),
+  'sony max': huLogo('ext-sony-max'),
+  'sony movie': huLogo('ext-sony-movie'),
+  'tlc': huLogo('ext-tlc'),
+  'travel channel': huLogo('ext-travel-channel'),
+  'travel': huLogo('ext-travel-channel'),
+  'xtreme sport': huLogo('ext-xtreme-sport'),
+  'film mania': huLogo('ext-film-mania'),
 };
 
 const LOCAL_OVERRIDES_KEY = 'iptv_rt_hu_logos_v1';
@@ -175,7 +227,8 @@ function readOverrides(): Record<string, string> {
       const value = JSON.parse(raw);
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         for (const [key, url] of Object.entries(value)) {
-          if (typeof url === 'string' && /^https?:\/\//i.test(url)) parsed[String(key)] = url;
+          // 2.5.261: data:image/ felülírás is engedett (a beépített logó kézzel cserélhető).
+          if (typeof url === 'string' && /^(?:https?:\/\/|data:image\/)/i.test(url)) parsed[String(key)] = url;
         }
       }
     }
@@ -277,7 +330,12 @@ export function persistHuLogoOverrides(channels: Array<{ name: string; countryCo
     if (!channel || (channel.countryCode || '').toUpperCase() !== 'HU') continue;
     const logo = getHuChannelLogo(channel.name);
     const key = normalizeChannelName(channel.name);
-    if (logo && key && overrides[key] !== logo) {
+    /*
+     * 2.5.261 (#10): csak a TÁVOLI (http/https) leképezéseket írjuk tartósan a
+     * tárolóba – a beépített (data-URL) logók a bundle-ben úgyis ott vannak,
+     * így a localStorage nem telik meg feleslegesen.
+     */
+    if (logo && /^https?:\/\//i.test(logo) && key && overrides[key] !== logo) {
       overrides[key] = logo;
       count += 1;
     }
@@ -294,6 +352,23 @@ export function persistHuLogoOverrides(channels: Array<{ name: string; countryCo
 /** Van-e saját (beépített vagy helyi) logó ehhez a magyar csatornához? */
 export function hasHuChannelLogo(name: string): boolean {
   return Boolean(getHuChannelLogo(name));
+}
+
+/**
+ * 2.5.261 (#10): induláskor a logótár mérete a naplóba – a következő kézi
+ * naplóból pontosan látszik, HÁNY logó van a tárolóban (beépített data-URL-ek
+ * + localStorage felülírások + képi gyorsítótár) és hány kulcs a táblában.
+ * A „HU-LOGÓ-TÁR” előtag nincs a mérési szűrőben, így MÉRÉS KI-nál is megmarad.
+ */
+export function logHuLogoStore(context: string): void {
+  let overrideCount = 0;
+  let imgCacheCount = 0;
+  try { overrideCount = Object.keys(readOverrides()).length; } catch { /* néha nincs még tároló */ }
+  try { imgCacheCount = Object.keys(readImgCache()).length; } catch { /* néha nincs még tároló */ }
+  appLog(
+    `HU-LOGÓ-TÁR [${context}]: beépített=${HU_EMBEDDED_LOGO_COUNT}, tábla-kulcs=${Object.keys(HU_CHANNEL_LOGOS).length}, `
+    + `felülírás=${overrideCount}, képi gyorsítótár=${imgCacheCount}.`
+  );
 }
 
 /*

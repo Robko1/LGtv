@@ -1,6 +1,19 @@
 import { normalizeLogoUrl } from './logoUrl';
 import { Channel } from '../types/iptv';
 import { httpGetJson, httpGetText, recentlyReachable } from './net';
+import { appLog } from './appLog';
+
+/** 2.5.261 (#10): egyszeri napló arról, ha egy EPG végpont üres/nem-JSON választ ad. */
+let shortEpgEmptyLogged = false;
+let simpleEpgEmptyLogged = false;
+
+/** Nyers törzs diagnózis: az első 200 karakter a naplóba, ha nincs műsor. */
+function logEmptyEpgBody(action: string, text: string): void {
+  appLog(
+    `EPG-ÁLLAPOT: ${action} válasz – ${text.length} bájt, 0 műsor; nyers törzs (első 200 karakter): `
+    + `„${text.slice(0, 200).replace(/\s+/g, ' ')}”.`
+  );
+}
 
 export interface XtreamUserInfo {
   username: string;
@@ -344,7 +357,9 @@ export const xtreamService = {
     now_playing?: number;
   }>> {
     const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_short_epg&stream_id=${encodeURIComponent(String(streamId))}&limit=${limit}`;
-    const data = await httpGetJson<{ epg_listings?: Array<{
+    // 2.5.261 (#10): nyers szövegben kérjük, hogy üres válasznál a törzs a naplóba kerülhessen.
+    const text = await httpGetText(url, { timeoutMs: 10000 });
+    let data: { epg_listings?: Array<{
       id?: string | number;
       title?: string;
       description?: string;
@@ -353,8 +368,22 @@ export const xtreamService = {
       start_timestamp?: number | string;
       stop_timestamp?: number | string;
       now_playing?: number;
-    }> }>(url, { timeoutMs: 10000 });
-    return Array.isArray(data?.epg_listings) ? data.epg_listings : [];
+    }> };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (!shortEpgEmptyLogged) {
+        shortEpgEmptyLogged = true;
+        logEmptyEpgBody('get_short_epg', text);
+      }
+      throw new Error('A szerver nem JSON választ adott (talán hibás a szerver cím vagy a port).');
+    }
+    const items = Array.isArray(data?.epg_listings) ? data.epg_listings : [];
+    if (!items.length && !shortEpgEmptyLogged) {
+      shortEpgEmptyLogged = true;
+      logEmptyEpgBody('get_short_epg', text);
+    }
+    return items;
   },
 
   /**
@@ -382,7 +411,9 @@ export const xtreamService = {
     now_playing?: number;
   }>> {
     const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_simple_data_table&stream_id=${encodeURIComponent(String(streamId))}`;
-    const data = await httpGetJson<{ epg_listings?: Array<{
+    // 2.5.261 (#10): nyers szövegben kérjük, hogy üres válasznál a törzs a naplóba kerülhessen.
+    const text = await httpGetText(url, { timeoutMs: 12000 });
+    let data: { epg_listings?: Array<{
       id?: string | number;
       title?: string;
       description?: string;
@@ -391,8 +422,22 @@ export const xtreamService = {
       start_timestamp?: number | string;
       stop_timestamp?: number | string;
       now_playing?: number;
-    }> }>(url, { timeoutMs: 12000 });
-    return Array.isArray(data?.epg_listings) ? data.epg_listings : [];
+    }> };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (!simpleEpgEmptyLogged) {
+        simpleEpgEmptyLogged = true;
+        logEmptyEpgBody('get_simple_data_table', text);
+      }
+      throw new Error('A szerver nem JSON választ adott (talán hibás a szerver cím vagy a port).');
+    }
+    const items = Array.isArray(data?.epg_listings) ? data.epg_listings : [];
+    if (!items.length && !simpleEpgEmptyLogged) {
+      simpleEpgEmptyLogged = true;
+      logEmptyEpgBody('get_simple_data_table', text);
+    }
+    return items;
   },
 
   async seriesInfo(
