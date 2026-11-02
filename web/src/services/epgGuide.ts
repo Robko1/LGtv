@@ -1155,14 +1155,20 @@ export async function ensureGuide(provider: {
      */
     const thick = restored.channels > 0
       && restored.programmes >= restored.channels * USABLE_PROGRAMMES_PER_CHANNEL;
-    if (restored.complete && thick && Date.now() - restored.savedAt < GUIDE_TTL_MS) {
+    /* 2.5.273 (#5-ös napló): kevés magyar adó esetén a mentés akkor sem „friss”. */
+    const huLow = huCoverageLow();
+    if (huLow) {
+      const hu = huProbeCoverage();
+      appLog(`EPG-ÁLLAPOT: a visszatöltött újság csak ${hu.hit}/${hu.total} magyar adót fed le – nem tekintjük frissnek, frissítjük + nyilvános HU újságok.`);
+    }
+    if (restored.complete && thick && Date.now() - restored.savedAt < GUIDE_TTL_MS && !huLow) {
       // 2.5.266 (#13): a szinkron zárat minden kilépésnél el kell engedni.
       finishLoading();
       return;
     }
     appLog(
       'EPG-ÁLLAPOT: a mentett műsorújság '
-      + `${!restored.complete ? 'részleges' : (!thick ? 'túl kevés műsort tartalmaz' : 'lejárt')} `
+      + `${!restored.complete ? 'részleges' : (!thick ? 'túl kevés műsort tartalmaz' : (huLow ? 'kevés magyar adót fed le' : 'lejárt'))} `
       + '– a háttérben frissítjük, a már látható műsorok addig is megmaradnak.'
     );
   }
@@ -1202,8 +1208,11 @@ export async function ensureGuide(provider: {
       );
       appLog(`IMPORT-API-DIAG [EPG XMLTV] letöltés kész: ${channels} csatorna, ${statKept} megtartott műsor, ${lastProgrammes} feldolgozott blokk, ${(lastBytes / 1024).toFixed(0)} KB; mezők: channel-id/display-name, programme start/stop/title/desc (a ténylegesen beolvasott XML-elemek alapján).`);
       if (channels > 0) void persistGuide(provider.id, !abortReason);
-      if (channels === 0 || ujMűsor === 0) {
-        appLog(`EPG-ÁLLAPOT: a szolgáltató műsorújságja nem adott ÚJ műsort (index=${channels}, újonnan=${ujMűsor}) – url-tvg / jelölt útvonalak / nyilvános HU újság próbája következik.`);
+      /* 2.5.273 (#5-ös napló): akkor is megy a nyilvános HU lánc, ha a letöltés adott
+         is új műsort, de a magyar adók így is kevésbé lennének lefedve. */
+      if (channels === 0 || ujMűsor === 0 || huCoverageLow()) {
+        const hu = huProbeCoverage();
+        appLog(`EPG-ÁLLAPOT: a szolgáltató műsorújságja nem adott ÚJ műsort (index=${channels}, újonnan=${ujMűsor}, magyar még ${hu.hit}/${hu.total}) – url-tvg / jelölt útvonalak / nyilvános HU újság próbája következik.`);
         /*
          * 2.5.261 (#10-es napló): az xmltv.php üres 200-at adott – megpróbáljuk
          * az M3U lista (get.php) fejlécében hirdetett url-tvg címet. Ha ott van
@@ -1518,6 +1527,20 @@ function huProbeCoverage(): { hit: number; total: number } {
   let hit = 0;
   for (const ch of huProbeChannels) if (guideKeyFor(ch)) hit += 1;
   return { hit, total: huProbeChannels.length };
+}
+
+/*
+ * 2.5.273 (#5-ös napló): „kevés magyar adót fed le” – a visszatöltött újság
+ * lehet teljes és friss, mégis hiányozhatnak belőle a magyar adók (a #5-ös
+ * naplóban a memóriában 1039 csatorna volt, és csak 89/107 magyar adónak jutott
+ * műsor, mert a frissnek minősített mentés nem a HU-forrásokból jött). Ilyenkor
+ * a mentés NEM számít frissnek: frissítünk, és a nyilvános HU újságok is
+ * lefutnak. Tesztben (nincs szonda) a régi viselkedés marad.
+ */
+function huCoverageLow(): boolean {
+  if (huProbeChannels.length === 0) return false;
+  const { hit, total } = huProbeCoverage();
+  return hit < Math.max(1, Math.floor(total * 0.9));
 }
 
 export function guideChannelCoverage(

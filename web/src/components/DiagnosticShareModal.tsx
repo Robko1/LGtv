@@ -26,13 +26,7 @@ import {
   type DiagnosticLogKind,
   type DiagnosticLogRecord,
 } from '../services/diagnosticShareService';
-import {
-  formatDoctorBytes,
-  getTvDoctorMemoryStats,
-  getTvDoctorOperationHealth,
-  subscribeTvDoctorUpdates,
-} from '../services/tvDoctor';
-import { getTvDoctorCloudStatus } from '../services/tvDoctorCloud';
+import { subscribeTvDoctorUpdates } from '../services/tvDoctor';
 import { useTvModalNavigation } from '../hooks/useTvModalNavigation';
 import { normalizeTvKey } from '../utils/tvKeys';
 
@@ -309,9 +303,6 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
   };
 
   if (!isOpen) return null;
-  const doctorMem = getTvDoctorMemoryStats();
-  const doctorOp = getTvDoctorOperationHealth();
-  const doctorCloud = getTvDoctorCloudStatus();
 
   const renderSendButton = (kind: DiagnosticLogKind) => {
     const isSystem = kind === 'system';
@@ -354,33 +345,13 @@ export const DiagnosticShareModal: React.FC<DiagnosticShareModalProps> = ({ isOp
 
           <LogStatusBar kind="tv-doctor" snap={doctorSnapshot} />
           <LogStats snap={doctorSnapshot} />
-
-          <div
-            data-diagnostic-tv-doctor-box=""
-            className="flex shrink-0 items-start gap-3 rounded-xl border border-cyan-500/40 bg-[#08152d] px-3 py-2"
-          >
-            <span className={`mt-0.5 shrink-0 text-cyan-300 ${doctorSnapshot.enabled ? 'opacity-100' : 'text-slate-400'}`}>
-              <span className="text-2xl font-black">✚</span>
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="mb-1 flex flex-wrap items-center gap-2">
-                <span className={`rounded-md px-2 py-1 text-xs font-black uppercase ${doctorSnapshot.enabled ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-800 text-slate-300'}`}>
-                  {doctorSnapshot.enabled ? 'Külön naplóba kerül' : 'Kikapcsolva'}
-                </span>
-                <div className="text-base font-black leading-tight tracking-wide text-white">TV Doktor működés- és elakadás-napló (külön, a nagy napló nélkül is)</div>
-              </div>
-              <p className="text-sm leading-snug text-slate-200">
-                Rögzíti a TV Doktor döntéseit, az elakadásokat/lassulásokat, a TV memóriáját és a Supabase kapcsolati hibákat – a nagy naplóba ezek NEM kerülnek be, és külön (tv-doctor-log) funkcióra küldhetők.
-              </p>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold leading-snug text-cyan-200">
-                <span>Memória: {formatDoctorBytes(doctorMem.doctorTotalBytes)}</span>
-                <span>•</span>
-                <span>Supabase: {doctorCloud.connected ? 'Kapcsolódva' : (doctorCloud.lastErrorLocation ? `Hiba (${doctorCloud.lastErrorLocation})` : 'Helyi mód')}</span>
-                <span>•</span>
-                <span>Elakadás/lassulás: {doctorOp.slowOpsCount + doctorOp.confirmedFreezesCount} db</span>
-              </div>
-            </div>
-          </div>
+          {/*
+           * 2.5.273 (#5-ös kérés): a „TV Doktor működésének teljes leírása” doboz
+           * innen KIKERÜLT – nem jelenik meg, és nem foglal helyet, így az
+           * „UTOLSÓ 5 ELKÜLDÖTT NAPLÓ” mind az 5 sora látható. A TV DR
+           * indítás/leállítás és küldés gombjai továbbra is az alsó gombsorban
+           * vannak, a működését nem érinti a változás.
+           */}
 
           <div className="shrink-0 overflow-hidden rounded-xl border border-cyan-500/35 bg-[#081329] p-2">
             <div className="mb-1 flex items-center gap-2 text-sm font-black tracking-wide text-cyan-200">
