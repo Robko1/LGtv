@@ -54,7 +54,7 @@ import {
 } from './services/providerImport';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
-import { channelNowNext, clearGuide, ensureChannelsEpg, ensureGuide, guideChannelCoverage, guideStatus, guideUpcoming } from './services/epgGuide';
+import { channelNowNext, clearGuide, ensureChannelsEpg, ensureGuide, guideChannelCoverage, guideStatus, guideUpcoming, setGuideHuProbe } from './services/epgGuide';
 import { xtreamService } from './services/xtreamService';
 import {
   attachVodProviderDiagnostics,
@@ -1591,6 +1591,8 @@ export function App() {
         }
         // 2.5.265 (#12): a #12-es naplóban egyetlen EPG-ÁLLAPOT sor sem volt – innen tudjuk majd, hogy elindult-e.
         appLog(`EPG-ÁLLAPOT: ütemezett műsorújság indul – provider típus=${plan.provider?.type || '?'}, cím=${plan.provider?.serverUrl || '?'}.`);
+        // 2.5.269 (#2): a magyar csatornák szondája – forrásonkénti HU-számláláshoz.
+        setGuideHuProbe(channelsRef.current);
         void ensureGuide(plan.provider)
           .then(() => {
             const status = guideStatusSafe();
@@ -1604,9 +1606,15 @@ export function App() {
                */
               try {
                 const coverage = guideChannelCoverage(channelsRef.current);
+                /*
+                 * 2.5.269 (#2-es kérés): a magyar csatornák pontos száma és a
+                 * még hiányzó nevek (max 30) – hogy az EPG azonosítótáblát
+                 * (huEpgIds.ts) ki lehessen egészíteni.
+                 */
                 appLog(
                   `EPG-ÁLLAPOT: lefedettség – lista=${coverage.total} csatorna, ebből műsort kapott=${coverage.withGuide}`
-                  + `; magyar adók: összesen=${coverage.huTotal}, műsort kapott=${coverage.huWithGuide}.`
+                  + `; HU-EPG: magyar csatornák a listában pontosan=${coverage.huTotal}, műsort kapott=${coverage.huWithGuide}`
+                  + `; hiányzó nevek (max 30): ${coverage.huMissing.length ? coverage.huMissing.join(' | ') : '(nincs ilyen)'}.`
                 );
               } catch { /* a naplózás soha ne akadályozzon */ }
             } else {
@@ -1716,6 +1724,7 @@ export function App() {
     timers.refreshTimer = window.setInterval(() => {
       if (providerRefreshActiveRef.current) return;
       if (typeof document !== 'undefined' && document.hidden) return;
+      setGuideHuProbe(channelsRef.current); // 2.5.269 (#2)
       void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
     }, 30 * 60 * 1000);
     return timers;
