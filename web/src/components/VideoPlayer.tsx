@@ -2633,6 +2633,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * ilyenkor a megszokott „Gyors kapcsolódás...” képernyő látszik.
    */
   const [currentStreamHasFrame, setCurrentStreamHasFrame] = useState<boolean>(false);
+  /*
+   * 2.5.262 (#11-es visszajelzés): teljes képernyőn a lejátszó rétegei (konténer,
+   * poszter, videó, töltőjelző) csak AKKOR átlátszóak, ha az AKTUÁLIS adás már ad
+   * képkockát – ekkor a videó (object-fit:cover) úgyis kitölti a kijelzőt, a
+   * háttér sosem látszik. Csatornaváltáskor, amíg az új adás első képkockája meg
+   * nem érkezik (currentStreamHasFrame=false), a rétegek FEKETÉK: így a főoldal
+   * nem tud „beugrani” a teljes képernyős nézetbe a váltás idejére (a 2.5.246-os
+   * teljes képernyős átlátszóság éppen ezt a lyukat hagyta a betöltési időre).
+   */
+  const fsLayerSeeThrough = isFullscreen && currentStreamHasFrame;
   const [, setNativeMessage] = useState<string>('');
 
   const [vodCurrentTime, setVodCurrentTime] = useState(0);
@@ -5121,10 +5131,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
          Korábban a lejátszó doboza világos türkiz (#0d2630) volt, ezért a
          váltás alatt – amíg az új adás első képkockája meg nem jön – a
          képernyő világoskéknek látszott. Most fekete, mint a videó maga.
-         2.5.245 – TELJES KÉPERNYŐN KIVÉTEL: ott átlátszó a doboz hátere
-         (a videó object-fit:cover-rel tölti ki a kijelzőt), mert teljes
-         képernyőn a TV Doctor panelen kívül NE legyen fekete háttér. */
-      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff || isFullscreen ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
+         2.5.246 – TELJES KÉPERNYŐN átlátszó a doboz hátere, MERT a videó
+         object-fit:cover-rel tölti ki a kijelzőt.
+         2.5.262 (#11) – KIVÉTEL A VÁLTÁS IDEJÉRE: teljes képernyőn is csak akkor
+         átlátszó a konténer, ha az aktuális adás már ad képkockát
+         (fsLayerSeeThrough); amíg az új csatorna első képkockája meg nem jön,
+         FEKETE – így a főoldal nem ugrik be a teljes képernyős nézet fölé. */
+      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff || fsLayerSeeThrough ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
       /* Állandó főoldali stílus: teljes képernyőn a CSS-osztály írja felül
          `!important`-tal, ezért a React itt SOHA nem ír stílust a váltáskor. */
       style={PLAYER_HOME_STYLE}
@@ -5137,7 +5150,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {!isVod && !firstFrameShown && (
         <div
           data-player-poster=""
-          className={`absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 ${isFullscreen ? 'bg-transparent' : 'bg-black'} pointer-events-none`}
+          /* 2.5.262: teljes képernyőn is fekete, amíg nincs képkocka (lásd fsLayerSeeThrough). */
+          className={`absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 ${fsLayerSeeThrough ? 'bg-transparent' : 'bg-black'} pointer-events-none`}
         >
           {/* 2.5.135 – FOLYAMATOS INDULÁS.
               Üres IPK-n nincs csatorna: a logó-doboz és a „Kapcsolódás…”
@@ -5169,7 +5183,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={htmlVideoRef}
             data-iptv-player="true"
             data-iptv-mode={isVod ? 'VOD' : 'élő'}
-            className={`block h-full w-full ${isFullscreen ? 'bg-transparent' : 'bg-black'}`}
+            /* 2.5.262: teljes képernyőn is fekete a videóelem hátere, amíg az aktuális
+               adás nem ad képkockát – így csatornaváltáskor nem látszik át rajta a főoldal. */
+            className={`block h-full w-full ${fsLayerSeeThrough ? 'bg-transparent' : 'bg-black'}`}
             // KÉPMINŐSÉG (2.5.156): teljes képernyőn `contain` – se nyújtás, se vágás.
             // Korábban a VOD `fill` módban a 16:9-es területre NYÚJTOTTA a
             // 2.39:1-es filmeket (torz, „megnyúlt" kép), az élő `cover` pedig
@@ -5725,9 +5741,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </span>
         </div>
       ) : (
-        /* A „Gyors kapcsolódás...” felirat háttere is FEKETE (2.5.165);
-           teljes képernyőn átlátszó, hogy ne legyen fekete a teljes kijelző (2.5.245). */
-        <div data-playback-loading="" className={`absolute inset-0 flex flex-col items-center justify-center ${isFullscreen ? 'bg-transparent' : 'bg-black'} z-10 pointer-events-none`}>
+        /* A „Gyors kapcsolódás...” felirat háttere is FEKETE (2.5.165).
+           2.5.262 (#11): teljes képernyőn is FEKETE – ez a réteg éppen akkor
+           látszik, amikor az aktuális adás még NEM ad képkockát (csatornaváltás
+           közben); ilyenkor a főoldal nem ugorhat be a teljes képernyős nézetbe. */
+        <div data-playback-loading="" className="absolute inset-0 flex flex-col items-center justify-center bg-black z-10 pointer-events-none">
           <div className="relative w-12 h-12 flex items-center justify-center">
             <div className="w-12 h-12 rounded-full border-3 border-cyan-500/30 border-t-cyan-400 animate-spin" />
             <div className="absolute w-6 h-6 rounded-full bg-cyan-400/20 animate-ping" />
