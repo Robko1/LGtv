@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.267';
+export const WEB_VERSION = '2.5.268';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.267',
+    version: '2.5.268',
     date: '2026-11-02',
     changes: [
       'EPG (#14, nyilvános EPG újság): ha a szolgáltató saját műsorújsága üres (a #13-as naplóban a LOWEND panel üres <tv></tv>-t küld, az M3U-ban sincs url-tvg), mostantól NYILVÁNOS, mindig elérhető XMLTV forrásokból töltünk műsort: először az összes országos globális fájlok (epgshare01 ALL_SOURCES, epg.pw), aztán a magyar külön fájlok (epgshare01 epg_ripper_HU1, iptv-org mediaklikk.hu és tvmusor.hu HU, iptv-epg.org HU) – minden próba EPG-ÁLLAPOT sorral naplózva (HTTP státusz + hány csatorna lett), a .gz fájlok olvasás közben DecompressionStream-mel bontva, saját idő-/méretkorláttal; az első műsort adó forrás után leállunk és tartósan elmentjük. Tesztkörnyezetben (nincs window) kikapcsolva.',
