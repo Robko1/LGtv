@@ -525,6 +525,213 @@ export function discardSentAppLog(): ManualLogSnapshot {
   return manualLogSnapshot();
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * TV DOKTOR KÜLÖN NAPLÓ (2.5.264)
+ *
+ * A felhasználó kérése: a TV Doktor működésének naplózása KÜLÖN kapcsolható
+ * be, anélkül hogy a nagy (rendszer) naplózás menne – és a TV Doktor adatai
+ * SOHA ne kerüljenek a nagy naplóba. Ezért a TV DOKTOR sorok egy saját,
+ * külön pufferbe mennek (saját localStorage kulcs, saját sorszám a közös
+ * számlálóból, saját küldés a külön tv-doctor-log edge funkcióra).
+ *
+ * A két napló életciklusa párhuzamos: külön indítás/leállítás/küldés, és
+ * sikeres küldés után az adott napló leáll és nullázódik (lásd lent).
+ * ══════════════════════════════════════════════════════════════════════════ */
+export type AppLogKind = 'system' | 'tv-doctor';
+
+/** A naplófajta magyar címkéje a felületen és a küldött fejlécben. */
+export function appLogKindLabel(kind: AppLogKind): string {
+  return kind === 'tv-doctor' ? 'TV DR' : 'NAGY NAPLÓ';
+}
+
+const DOCTOR_STORE_KEY = 'tv-doctor-log';
+
+let doctorLines: string[] = [];
+let doctorChars = 0;
+let doctorRestoreAttempted = false;
+let doctorSaveTimer: number | null = null;
+let doctorLoggingEnabled = false;
+let doctorLogNumber: number | null = null;
+let doctorLogStartedAt = 0;
+let doctorLogStoppedAt = 0;
+
+export interface TvDoctorLogSnapshot {
+  enabled: boolean;
+  number: number | null;
+  startedAt: number;
+  startedAtText: string;
+  elapsedMs: number;
+  lineCount: number;
+  charCount: number;
+}
+
+function doctorRestore(): void {
+  if (doctorRestoreAttempted) return;
+  doctorRestoreAttempted = true;
+  try {
+    const raw = localStorage.getItem(`iptv_rt_${DOCTOR_STORE_KEY}`) || '';
+    if (!raw) return;
+    for (const line of String(raw).split('\n').filter(Boolean)) {
+      doctorLines.push(line);
+      doctorChars += line.length + 1;
+    }
+    // Csak az elmúlt 24 órán belüli, dátummal ellátott sorokat tartjuk meg.
+    const now = Date.now();
+    const cutoff = now - MAX_AGE_MS;
+    doctorLines = doctorLines.filter((line) => {
+      const timestamp = Date.parse(line.slice(0, line.indexOf(' ')));
+      return Number.isFinite(timestamp) && timestamp >= cutoff && timestamp <= now + 60_000;
+    });
+    doctorChars = doctorLines.reduce((total, line) => total + line.length + 1, 0);
+    if (doctorChars > MAX_BUFFER_CHARS) {
+      doctorLines = [];
+      doctorChars = 0;
+    }
+  } catch {
+    /* a napló visszaolvasása nem kritikus */
+  }
+}
+
+function doctorPersistPayload(): string {
+  const text = doctorLines.join('\n');
+  if (text.length <= PERSIST_MAX_CHARS) return text;
+  const cut = text.length - PERSIST_MAX_CHARS;
+  const boundary = text.indexOf('\n', cut);
+  return text.slice(boundary >= 0 ? boundary + 1 : cut);
+}
+
+function doctorPersistSoon(): void {
+  if (doctorSaveTimer !== null) return;
+  try {
+    doctorSaveTimer = window.setTimeout(() => {
+      doctorSaveTimer = null;
+      try {
+        localStorage.setItem(`iptv_rt_${DOCTOR_STORE_KEY}`, doctorPersistPayload());
+      } catch {
+        /* a TV tárhelyhibája nem akadályozhatja a működést */
+      }
+    }, PERSIST_DELAY_MS);
+  } catch {
+    doctorSaveTimer = null;
+  }
+}
+
+function doctorPersistNow(): void {
+  if (doctorSaveTimer !== null) {
+    try { window.clearTimeout(doctorSaveTimer); } catch { /* nem elérhető */ }
+    doctorSaveTimer = null;
+  }
+  try {
+    localStorage.setItem(`iptv_rt_${DOCTOR_STORE_KEY}`, doctorPersistPayload());
+  } catch {
+    /* a TV tárhelyhibája nem akadályozhatja a működést */
+  }
+}
+
+/** A TV Doktor naplózás pillanatnyi állapota (külön kapcsoló a nagy naplóhoz). */
+export function manualTvDoctorLogSnapshot(): TvDoctorLogSnapshot {
+  const now = Date.now();
+  return {
+    enabled: doctorLoggingEnabled,
+    number: doctorLogNumber,
+    startedAt: doctorLogStartedAt,
+    startedAtText: doctorLogStartedAt ? dateTimeText(doctorLogStartedAt) : '',
+    elapsedMs: doctorLogStartedAt
+      ? Math.max(0, (doctorLogStoppedAt || now) - doctorLogStartedAt)
+      : 0,
+    lineCount: doctorLines.length,
+    charCount: doctorChars,
+  };
+}
+
+/** A TV Doktor naplózás külön indítása (a nagy naplózástól függetlenül). */
+export function startTvDoctorLogging(): TvDoctorLogSnapshot {
+  if (doctorLoggingEnabled && doctorLogNumber !== null) return manualTvDoctorLogSnapshot();
+  clearTvDoctorLog();
+  const startedAt = Date.now();
+  // Ugyanaz a közös sorszám-számláló: a szám egyértelmű, a fajta (NAGY/TV DR) a címke.
+  doctorLogNumber = allocateLogNumber();
+  doctorLogStartedAt = startedAt;
+  doctorLogStoppedAt = 0;
+  doctorLoggingEnabled = true;
+  let version = DEFAULT_APP_VERSION;
+  try { version = String((window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION || DEFAULT_APP_VERSION); } catch { /* régi/teszt környezet */ }
+  tvDoctorLog(`=== TV DOKTOR NAPLÓ INDULT; napló=#${doctorLogNumber}; kezdete=${dateTimeText(startedAt)}; verzió=${version} ===`);
+  tvDoctorLog(`Eszköz: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'ismeretlen környezet'}`);
+  tvDoctorLog(`TV TÍPUS: ${tvDeviceText()}`);
+  // A TV Doktor diagnosztika (állapotkép) is a saját életciklus-figyelőin
+  // keresztül ír – itt induláskor rögtön bekerül a TV Doktor naplóba.
+  runLifecycleHooks('start');
+  return manualTvDoctorLogSnapshot();
+}
+
+/** A TV Doktor naplózás külön leállítása; küldéshez a kész napló memóriában marad. */
+export function stopTvDoctorLogging(reason = 'kézi leállítás'): TvDoctorLogSnapshot {
+  // A záró összesítő sorok még a leállítás előtt, a TV Doktor naplóba mennek.
+  if (doctorLoggingEnabled) runLifecycleHooks('stop');
+  if (doctorLoggingEnabled) {
+    tvDoctorLog(`=== TV DOKTOR NAPLÓ LEÁLLÍTVA; napló=#${doctorLogNumber ?? 'ismeretlen'}; ok=${reason} ===`);
+  }
+  doctorLoggingEnabled = false;
+  if (!doctorLogStoppedAt) doctorLogStoppedAt = Date.now();
+  doctorPersistNow();
+  return manualTvDoctorLogSnapshot();
+}
+
+/** A TV Doktor naplózó puffer kiürítése (új, tiszta munkamenethez). */
+export function clearTvDoctorLog(): void {
+  if (doctorSaveTimer !== null) {
+    try { window.clearTimeout(doctorSaveTimer); } catch { /* nem elérhető */ }
+    doctorSaveTimer = null;
+  }
+  doctorLines = [];
+  doctorChars = 0;
+  doctorRestoreAttempted = true;
+  try {
+    localStorage.removeItem(`iptv_rt_${DOCTOR_STORE_KEY}`);
+  } catch {
+    /* a naplótár hibája nem akadályozhatja az alkalmazás működését */
+  }
+}
+
+/** Sikeres TV Doktor napló-küldés után a napló eldobása (RAM + localStorage). */
+export function discardSentTvDoctorLog(): TvDoctorLogSnapshot {
+  clearTvDoctorLog();
+  doctorLogNumber = null;
+  doctorLogStartedAt = 0;
+  doctorLogStoppedAt = 0;
+  return manualTvDoctorLogSnapshot();
+}
+
+/** Egy sor a KÜLÖN TV Doktor naplóba (csak ha a TV Doktor naplózás fut). */
+export function tvDoctorLog(message: string): void {
+  if (!doctorLoggingEnabled) return;
+  const safe = redactLogUrls(String(message ?? '')).replace(/\\s+/g, ' ');
+  doctorRestore();
+  let line = `${nowStamp()} ${safe}`;
+  if (line.length + 1 > MAX_BUFFER_CHARS) line = line.slice(0, MAX_BUFFER_CHARS - 2);
+  if (doctorChars + line.length + 1 > MAX_BUFFER_CHARS) {
+    doctorLines = [];
+    doctorChars = 0;
+  }
+  doctorLines.push(line);
+  doctorChars += line.length + 1;
+  doctorPersistSoon();
+}
+
+/** A TV Doktor napló küldhető szövege (a fejlécben a fajta is szerepel: TV DR). */
+export function getTvDoctorLogText(): string {
+  if (doctorLogNumber === null || doctorLogStartedAt <= 0) return '';
+  doctorRestore();
+  const header = `--- WEBOS TV DOKTOR NAPLÓ #${doctorLogNumber} (${doctorLines.length} sor; teljes napló; max. 1 MB) | NAPLÓ KEZDETE: ${dateTimeText(doctorLogStartedAt)} | TV: ${tvDeviceText()} ---`;
+  return [header, ...doctorLines].join('\n');
+}
+
+/** A TV Doktor naplózás éppen fut-e (a kapcsoló állapota). */
+export function isTvDoctorLogEnabled(): boolean {
+  return doctorLoggingEnabled;
+}
+
 /**
  * Naplószintű biztonsági öv: a későbbi hibakeresési sorok se tehessenek ki
  * véletlenül Xtream-belépési adatot. A stream- és felirat-útvonalakban a
@@ -586,6 +793,18 @@ export function measurementLogsEnabled(): boolean {
 
 /** Egy sor hozzáadása a kézzel indított diagnosztikai naplóhoz. */
 export function appLog(message: string): void {
+  /*
+   * 2.5.264: a TV DOKTOR sorok SOHA nem kerülnek a nagy naplóba – minden
+   * „TV DOKTOR …” kezdetű sort a külön TV Doktor naplóba irányítunk (ha az
+   * fut; ha nem, a sor elvész, de a nagy napló tiszta marad). Ez a
+   * visszafelé kompatibilitás is: a régi hívóhelyek (tvDoctor.ts,
+   * tvDoctorCloud.ts) appLog-ot hívnak, mégis a jó helyre kerülnek.
+   */
+  // A „=== TV DOKTOR …” összesítő sorok is ide mennek (nem csak a sima előtag).
+  if (/^\s*[=*\-#>\s]*TV DOKTOR/i.test(String(message ?? ''))) {
+    tvDoctorLog(String(message ?? ''));
+    return;
+  }
   // A normál tévézés közben nincs diagnosztikai naplózás, nincs localStorage-
   // írás és nincs extra szövegfeldolgozás. Ez a csatornaváltást is gyorsítja.
   if (!loggingEnabled) return;
@@ -1054,7 +1273,9 @@ export function getAppLogText(): string {
    * milyen készüléken készült a mérés – a későbbi összehasonlításokhoz
    * nem kell a napló törzsét átfésülni. A részletes TV-sor a törzsben van.
    */
-  const header = `--- WEBOS NAPLÓ #${activeLogNumber} (${lines.length} sor; teljes napló; max. 1 MB) | NAPLÓ KEZDETE: ${dateTimeText(activeLogStartedAt)} | MÉRÉS KEZDETE: ${clockText(measure.startedAt)} | TV: ${tvDeviceText()} ---`;
+  // 2.5.264: a fejlécben is szerepel a napló fajtája (NAGY NAPLÓ), mert a sorszám
+  // közös a TV Doktor naplóval, és így egyértelmű, melyik fajta érkezett be.
+  const header = `--- WEBOS NAPLÓ #${activeLogNumber} [NAGY NAPLÓ] (${lines.length} sor; teljes napló; max. 1 MB) | NAPLÓ KEZDETE: ${dateTimeText(activeLogStartedAt)} | MÉRÉS KEZDETE: ${clockText(measure.startedAt)} | TV: ${tvDeviceText()} ---`;
   return [header, ...lines].join('\n');
 }
 

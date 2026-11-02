@@ -12,7 +12,7 @@ import {
   bufferProfileTiming,
   mediaProgressed,
 } from './playbackRecovery';
-import { appLog, isVerbosePlaybackLogging } from './appLog';
+import { appLog, isVerbosePlaybackLogging, isTvDoctorLogEnabled, startTvDoctorLogging, stopTvDoctorLogging, tvDoctorLog } from './appLog';
 
 /**
  * TV Doktor – intelligens, önfejlesztő diagnosztikai, csatornaváltás-gyorsító és EPG-felügyelő rendszer.
@@ -402,7 +402,6 @@ let memoryCache: DoctorStoreData | null = null;
 let memoryCacheSerializedChars = 0;
 let pendingPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let lifecyclePersistAttached = false;
-let diagLoggingCache: boolean | null = null;
 
 const opHealth: TvDoctorOperationHealth = {
   decisionsCount: 0,
@@ -483,30 +482,43 @@ export function notifyTvDoctorListeners(): void {
   }
 }
 
+/*
+ * 2.5.264: a TV Doktor naplózás KÜLÖN kapcsolható – nem a nagy napló része.
+ * A valódi állapot a külön TV Doktor naplózó pufferé (appLog.ts:
+ * startTvDoctorLogging/stopTvDoctorLogging), így ez a kapcsoló a nagy napló
+ * nélkül is működik, és a TV DOKTOR sorok soha nem kerülnek a nagy naplóba.
+ * A `storage` paraméter a teszteké maradt (elszigetelt tároló).
+ */
 export function isTvDoctorDiagLoggingEnabled(storage?: Storage | null): boolean {
-  if (!storage && diagLoggingCache !== null) return diagLoggingCache;
-  try {
-    const target = storage !== undefined ? storage : (typeof localStorage !== 'undefined' ? localStorage : null);
-    const raw = target?.getItem(TV_DOCTOR_DIAG_LOGGING_KEY);
-    const enabled = raw !== '0' && raw !== 'false';
-    if (!storage) diagLoggingCache = enabled;
-    return enabled;
-  } catch {
-    return true;
+  if (storage) {
+    try {
+      const raw = storage.getItem(TV_DOCTOR_DIAG_LOGGING_KEY);
+      return raw !== '0' && raw !== 'false';
+    } catch {
+      return true;
+    }
   }
+  return isTvDoctorLogEnabled();
 }
 
 export function setTvDoctorDiagLoggingEnabled(enabled: boolean, storage?: Storage | null): void {
-  if (!storage) diagLoggingCache = enabled;
+  if (storage) {
+    try {
+      storage.setItem(TV_DOCTOR_DIAG_LOGGING_KEY, enabled ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
   try {
-    const target = storage !== undefined ? storage : (typeof localStorage !== 'undefined' ? localStorage : null);
-    target?.setItem(TV_DOCTOR_DIAG_LOGGING_KEY, enabled ? '1' : '0');
+    localStorage.setItem(TV_DOCTOR_DIAG_LOGGING_KEY, enabled ? '1' : '0');
   } catch {
     /* ignore */
   }
-  if (isVerbosePlaybackLogging()) {
-    appLog(`TV DOKTOR NAPLÓZÁSI BEÁLLÍTÁS: ${enabled ? 'BEKAPCSOLVA (működés és elakadás rögzítése aktív)' : 'KIKAPCSOLVA'}`);
-  }
+  // A tényleges naplózó kapcsoló a külön TV Doktor napló indítása/leállítása.
+  if (enabled) startTvDoctorLogging();
+  else stopTvDoctorLogging('kapcsoló kikapcsolva');
+  tvDoctorLog(`TV DOKTOR NAPLÓZÁSI BEÁLLÍTÁS: ${enabled ? 'BEKAPCSOLVA (külön TV Doktor napló aktív)' : 'KIKAPCSOLVA'}`);
   notifyTvDoctorListeners();
 }
 

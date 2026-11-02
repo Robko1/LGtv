@@ -247,19 +247,21 @@ check(/switchInProgressRef\.current\) return;/.test(PLAYER),
  * betöltés felirat háttere FEKETE (korábban világoskék/türkiz volt). A réteg
  * továbbra is csak a „még nincs képkocka” ágban jelenik meg, tehát a már
  * futó adást nem takarja el.
- * 2.5.246: teljes képernyőn a konténer/poszter/videó/töltő réteg átlátszó.
- * 2.5.262 (#11): de teljes képernyőn is csak addig átlátszó, amíg az AKTUÁLIS
- * adás már ad képkockát (fsLayerSeeThrough = isFullscreen && currentStreamHasFrame);
- * csatornaváltáskor (még nincs képkocka) minden réteg FEKETE, így a főoldal nem
- * ugrik be a teljes képernyős nézetbe a betöltés idejére.
+ * 2.5.246/2.5.262: teljes képernyőn korábban átlátszóak voltak a rétegek.
+ * 2.5.264 (#11): a #11 napló szerint a képkocka csak két képkockával később
+ * érkezik, ezért teljes képernyőn MOST MINDIG FEKETE a konténer/poszter/videó
+ * (csak a natív áadás, nativeHandoff esetén átlátszó) – így csatornaváltáskor a
+ * főoldal többé nem villan be a teljes képernyős nézetbe.
  */
 check(/currentStreamHasFrame \? \(/.test(PLAYER) && /data-playback-loading=""/.test(PLAYER)
   && /data-playback-loading="" className="[^"]*bg-black z-10 pointer-events-none"/.test(PLAYER),
   'a töltő réteg csak képkocka előtt jelenik meg, és mindig FEKETE (2.5.165 + 2.5.262)');
-check(/const fsLayerSeeThrough = isFullscreen && currentStreamHasFrame/.test(PLAYER)
-  && /\$\{nativeHandoff \|\| fsLayerSeeThrough \? 'bg-transparent' : 'bg-black'\}/.test(PLAYER)
-  && (PLAYER.match(/\$\{fsLayerSeeThrough \? 'bg-transparent' : 'bg-black'\}/g) || []).length >= 2,
-  'teljes képernyőn a konténer/poszter/videó csak képkocka esetén átlátszó (2.5.246+2.5.262), váltáskor fekete');
+check(!/fsLayerSeeThrough/.test(PLAYER.replace(/\*[^]*?\*\//g, '')),
+  'a régi fsLayerSeeThrough (képkocka-függő átlátszóság) megszűnt (2.5.264)');
+check(/\$\{nativeHandoff \? 'bg-transparent' : 'bg-black'\}/.test(PLAYER)
+  && /className="absolute inset-0 z-\[1\] flex flex-col items-center justify-center gap-3 bg-black pointer-events-none"/.test(PLAYER)
+  && /className="block h-full w-full bg-black"/.test(PLAYER),
+  'teljes képernyőn a konténer/poszter/videó MINDIG fekete, csak nativeHandoff esetén átlátszó (2.5.264, #11)');
 check(!/bg-\[#0b1c24\]|bg-\[#0d2630\]/.test(PLAYER),
   'a lejátszó dobozán nincs többé világoskék (türkiz) háttér');
 check(/data-playback-status/.test(PLAYER)

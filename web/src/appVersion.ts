@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.263';
+export const WEB_VERSION = '2.5.264';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,17 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.264',
+    date: '2026-11-02',
+    changes: [
+      'HU csatornalogók (#11): a beépített (data-URL) logók mostantól azonnal (loading=eager) és blob objektum-URL-ként töltődnek, mert a lusta betöltés a virtuális listában a 8 mp-es watchdog előtt „beragadt”; a keresés a szóköz nélküli változatot is próbálja („viasat 3” → „viasat3”); a régi raw.githubusercontent.com-os helyi felülírások többé nem írják felül a beépített logókat.',
+      'IPK képek: a beépített HU logók mostantól max. 128 px-es, max. 128 színű palettás PNG-k, és a webos-build workflow az ipk készítése előtt a splash mellett az összes beépített logót és ikont is újratömöríti – kisebb IPK.',
+      'EPG (#11): az url-tvg keresés már a get.php válasz törzsében is keres nem-200 válasznál, kipróbálja a type=m3u változatot és a panel alap útvonalain az /epg.xml, /guide.xml, /xmltv.xml jelölt XMLTV címeket is; minden próba HTTP státusza és a törzs eleje a naplóba kerül; a get_simple_data_table hibáinak státusza is naplózva.',
+      'Teljes képernyős élő TV csatornaváltás (#11): teljes képernyőn a lejátszó összes rétege (konténer, poszter, videó, töltőjelző) mostantól MINDIG fekete (csak a natív áadás marad átlátszó) – a 2.5.263 „csak képkockánál átlátszó” állapot ellenére is felvillant a főoldal a váltáskor, mert a képkocka csak két képkockával később érkezik.',
+      'Két külön kézi napló: a nagy (rendszer) napló és a csak TV Doktor napló külön kapcsolható, külön sorszám-címkével („NAGY NAPLÓ” / „TV DR”) egy ablakban, külön küldőgombbal; a sikeres küldés után az adott napló leáll és nullázódik; a TV Doktor adatai többé nem kerülnek a nagy naplóba; a TV Doktor naplót külön edge funkció (tv-doctor-log) fogadja külön táblába.',
+    ],
+  },
   {
     version: '2.5.263',
     date: '2026-11-02',

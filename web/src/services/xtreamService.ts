@@ -1,7 +1,7 @@
 import { normalizeLogoUrl } from './logoUrl';
 import { Channel } from '../types/iptv';
 import { httpGetJson, httpGetText, recentlyReachable } from './net';
-import { appLog } from './appLog';
+import { appLog, providerEndpointLabel } from './appLog';
 
 /** 2.5.261 (#10): egyszeri napló arról, ha egy EPG végpont üres/nem-JSON választ ad. */
 let shortEpgEmptyLogged = false;
@@ -412,7 +412,20 @@ export const xtreamService = {
   }>> {
     const url = `${this.playerApiBase(serverUrl, username, password)}&action=get_simple_data_table&stream_id=${encodeURIComponent(String(streamId))}`;
     // 2.5.261 (#10): nyers szövegben kérjük, hogy üres válasznál a törzs a naplóba kerülhessen.
-    const text = await httpGetText(url, { timeoutMs: 12000 });
+    // 2.5.264 (#11): a KÉRÉS hibáját (nem-200 státusz, időtúllépés) is naplózzuk egyszer.
+    let text: string;
+    try {
+      text = await httpGetText(url, { timeoutMs: 12000 });
+    } catch (error) {
+      if (!simpleEpgEmptyLogged) {
+        simpleEpgEmptyLogged = true;
+        appLog(
+          `EPG-ÁLLAPOT: get_simple_data_table KÉRÉS HIBA – ${error instanceof Error ? error.message : String(error)}; `
+          + `végpont=${providerEndpointLabel(url)}.`
+        );
+      }
+      throw error;
+    }
     let data: { epg_listings?: Array<{
       id?: string | number;
       title?: string;

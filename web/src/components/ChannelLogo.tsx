@@ -9,6 +9,48 @@ import { appLog } from '../services/appLog';
    meg. A következő kézi naplóból látszik majd, mely címek hibáznak. */
 let logoFailLogCount = 0;
 
+/*
+ * 2.5.264 (#11-es napló): a BEÉPÍTETT (data-URL) logók betöltése. A #11 napló
+ * szerint a 6 beépített data-URL logó (Travel Channel, Xtreme Sport, Duck TV,
+ * Disney Jr/Channel, Discovery) „beragadt” – a PNG formátumuk hibátlan (8 bites
+ * palettás), tehát nem a kódolás, hanem a BETÖLTÉSI ÚT a gond: a `loading="lazy"`
+ * a virtuális listában a nem látható soroknál soha nem indítja el a képet,
+ * így a 8 mp-es watchdog előbb „hibásnak” minősít. Ezért:
+ *   - data:/blob: forrásnál MINDIG eager betöltés;
+ *   - a data: URL-t module-szintű gyorsítótárral blob: objektum-URL-lé
+ *     alakítjuk (atob → Blob → createObjectURL) – a blob: útvonal ezen a TV-n
+ *     már bizonyítottan működik (a logó-kép gyorsítótár is blob: URL-t használ),
+ *     és a data: közvetlen használata helyett kisebb a feldolgozási út.
+ */
+const dataUrlBlobCache = new Map<string, string>();
+
+function dataUrlToBlobUrl(dataUrl: string): string {
+  const cached = dataUrlBlobCache.get(dataUrl);
+  if (cached) return cached;
+  try {
+    const comma = dataUrl.indexOf(',');
+    const meta = dataUrl.slice(0, comma);
+    const base64 = dataUrl.slice(comma + 1);
+    const mime = /^data:([^;,]+)/i.exec(meta)?.[1] || 'image/png';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    // A cache kulcsa a teljes data-URL; a beépített logók élettartama az appéval
+    // azonos, így nem revoke-oljuk (a kis képek nem foglalnak sokat).
+    dataUrlBlobCache.set(dataUrl, blobUrl);
+    return blobUrl;
+  } catch {
+    return dataUrl;
+  }
+}
+
+/** Megjelenítési forrás: data: URL → blob: objektum-URL (gyorsabb, biztosabb betöltés). */
+function displaySource(source: string): string {
+  if (source.startsWith('data:')) return dataUrlToBlobUrl(source);
+  return source;
+}
+
 /** retryKey: bármilyen stabil érték (pl. csatorna-azonosító) – változására újratölt. */
 interface Props { url?: string; name: string; retryKey?: unknown; countryCode?: string }
 
@@ -201,16 +243,23 @@ const LogoImage: React.FC<Props & { huLogo?: string; fallbackUrl?: string; cache
     return <img src={APP_ICON_SMALL_DATA_URL} width={20} height={20} className="w-5 h-5 rounded object-contain opacity-80" alt="" aria-label={`A(z) ${name} logója nem érhető el`} />;
   }
 
+  // 2.5.264 (#11): helyi (data:/blob:) képeknél eager betöltés – a lazy a
+  // virtuális soroknál beragasztotta a beépített logókat (lásd fent).
+  const renderedSource = displaySource(cachedSource || source);
+  const eagerLocal = renderedSource.startsWith('blob:') || renderedSource.startsWith('data:');
+
   return (
     <img
       key={`${cachedSource || source}:${attempt}`}
-      src={cachedSource || source}
+      src={renderedSource}
       alt={name}
       className="relative z-10 w-full h-full object-contain"
-      // FONTOS (memória/fagyás): lusta betöltés. Korábban minden sor logója
-      // azonnal letöltődött – 20 000 csatornánál ez több ezer egyidejű kérést
-      // és akkora memóriát jelentett, hogy a rendszer leállította a beágyazott böngészőt.
-      loading="lazy"
+      // FONTOS (memória/fagyás): a távoli (http/https) képeknél továbbra is
+      // lusta betöltés – 20 000 csatornánál az azonnali betöltés több ezer
+      // egyidejű kérést és akkora memóriát jelentett, hogy a rendszer
+      // leállította a beágyazott böngészőt. A HELYI (data:/blob:) képekhez
+      // viszont nincs hálózati kérés, ott az eager nem árt (2.5.264, #11).
+      loading={eagerLocal ? 'eager' : 'lazy'}
       decoding="async"
       // 2.5.257/2.5.259: HU csatornánál (saját VAGY szolgáltatói logó) a képet
       // egyszer letöltve data-URL-ként is elmentjük a localStorage-ba (nem-HU

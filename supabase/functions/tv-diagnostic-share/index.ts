@@ -114,6 +114,9 @@ function recordFromRow(row, fallbackLog, fallbackStartedAt) {
     logNumber: Number(row && row.log_number),
     startedAt: (row && row.started_at) || fallbackStartedAt,
     createdAt: (row && row.created_at) || new Date().toISOString(),
+    // 2.5.264: a napló fajtája is látszik a válaszban ("system" = nagy napló;
+    // a csak TV Doktor naplókat a külön tv-doctor-log funkció kapja).
+    kind: (row && row.kind) || "system",
     charCount: typeof (row && row.log_text) === "string" ? row.log_text.length : fallbackLog.length,
     lineCount: typeof (row && row.log_text) === "string" ? row.log_text.split("\n").length : fallbackLog.split("\n").length,
   };
@@ -122,7 +125,7 @@ function recordFromRow(row, fallbackLog, fallbackStartedAt) {
 async function findExisting(logNumber, startedAt) {
   const path = "?log_number=eq." + encodeURIComponent(String(logNumber)) +
     "&started_at=eq." + encodeURIComponent(startedAt) +
-    "&select=log_number,started_at,created_at,log_text&order=created_at.desc&limit=1";
+    "&select=log_number,started_at,created_at,log_text,kind&order=created_at.desc&limit=1";
   const response = await db(path);
   if (!response.ok) {
     const reason = await responseReason(response);
@@ -184,7 +187,7 @@ async function handle(req) {
     // Ugyanaz a rendezés, mint a törlésnél: a beérkezés ideje dönt, mert egy
     // friss telepítésnél a sorszám újra 1-ről indul, és a kisebb számú, de
     // újabb naplónak a lista ELEJÉN a helye.
-    const result = await db("?log_number=not.is.null&select=log_number,started_at,created_at&order=created_at.desc&limit=" + MAX_LOG_ROWS);
+    const result = await db("?log_number=not.is.null&select=log_number,started_at,created_at,kind&order=created_at.desc&limit=" + MAX_LOG_ROWS);
     if (!result.ok) {
       const reason = await responseReason(result);
       console.error("diagnostic history failed", reason);
@@ -197,6 +200,7 @@ async function handle(req) {
         logNumber: Number(row.log_number),
         startedAt: row.started_at,
         createdAt: row.created_at,
+        kind: row.kind || "system",
       })) : [],
     });
   }
@@ -210,6 +214,9 @@ async function handle(req) {
   const cleanedLog = cleanLog(body.logText);
   if (cleanedLog.length > MAX_LOG_CHARS) return out(413, { error: "log_too_large" });
 
+  // 2.5.264: a napló fajtája („system" itt az alapértelmezett; a "tv-doctor"
+  // fajtát a külön tv-doctor-log funkció tárolja külön táblában).
+  const kind = body.kind === "tv-doctor" ? "tv-doctor" : "system";
   const startedAt = new Date(body.startedAt).toISOString();
   const existing = await findExisting(body.logNumber, startedAt);
   if (existing) return out(200, { ok: true, record: recordFromRow(existing, cleanedLog, startedAt), duplicate: true });
@@ -221,6 +228,7 @@ async function handle(req) {
       log_number: body.logNumber,
       started_at: startedAt,
       log_text: cleanedLog,
+      kind,
       expires_at: new Date(Date.now() + RETENTION_MS).toISOString(),
     }]),
   });

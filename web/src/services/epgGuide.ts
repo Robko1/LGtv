@@ -560,56 +560,142 @@ async function download(
  * (az első ~512 KB bőven elég, a url-tvg mindig a fejlécben van), és abból
  * olvassuk ki az XMLTV címet – onnan már a download() a szokásos módon tölti.
  */
-async function discoverUrlTvg(provider: { serverUrl?: string; username?: string; password?: string }): Promise<string | null> {
+/** url-tvg érték kinyerése egy M3U fejléc-szövegből (&amp; visszaalakítással). */
+function matchUrlTvg(text: string): string | null {
+  const match = text.match(/url-tvg\s*=\s*"([^"]+)"/i)
+    || text.match(/url-tvg\s*=\s*'([^']+)'/i)
+    || text.match(/url-tvg\s*=\s*([^\s"'>]+)/i);
+  // M3U-ban a &amp; alak is előfordulhat a lekérdező paraméterekben.
+  return match ? match[1].replace(/&amp;/g, '&') : null;
+}
+
+/*
+ * 2.5.264 (#11-es napló): egy M3U változat elejének beolvasása és url-tvg
+ * keresése benne – AKKOR IS, ha a HTTP státusz nem 200 (a #11 naplóban a
+ * get.php HTTP 884 text/html választ adott; ettől a törzsben még lehet
+ * url-tvg). Minden próba státusza és a törzs eleje a naplóba kerül.
+ */
+async function scanM3uForUrlTvg(m3uUrl: string, variantLabel: string): Promise<string | null> {
   try {
-    const m3uUrl = xtreamService.buildPlaylistUrl(provider.serverUrl || '', provider.username || '', provider.password || '');
-    appLog('EPG-ÁLLAPOT: url-tvg keresése az M3U lista (get.php) elején indul – az xmltv.php üres választ adott.');
+    appLog(`EPG-ÁLLAPOT: url-tvg keresése az M3U lista (${variantLabel}) elején indul – az xmltv.php üres választ adott.`);
     const response = await fetch(m3uUrl, {
       method: 'GET',
       credentials: 'omit',
       cache: 'no-store',
     });
     appLog(
-      `EPG-ÁLLAPOT: M3U lista (get.php) válasz – HTTP ${response.status}, `
+      `EPG-ÁLLAPOT: M3U lista (${variantLabel}) válasz – HTTP ${response.status}, `
       + `content-type=${response.headers.get('content-type') || '?'}, átirányítva=${response.redirected ? 'igen' : 'nem'}.`
     );
-    if (!response.ok || !response.body || typeof response.body.getReader !== 'function') return null;
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
     let text = '';
     let bytes = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      bytes += value.byteLength;
-      text += decoder.decode(value, { stream: true });
-      const match = text.match(/url-tvg\s*=\s*"([^"]+)"/i)
-        || text.match(/url-tvg\s*=\s*'([^']+)'/i)
-        || text.match(/url-tvg\s*=\s*([^\s"'>]+)/i);
-      if (match) {
-        try { await reader.cancel(); } catch { /* már lezárult */ }
-        // M3U-ban a &amp; alak is előfordulhat a lekérdező paraméterekben.
-        return match[1].replace(/&amp;/g, '&');
+    if (response.body && typeof response.body.getReader === 'function') {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        bytes += value.byteLength;
+        text += decoder.decode(value, { stream: true });
+        const match = matchUrlTvg(text);
+        if (match) {
+          try { await reader.cancel(); } catch { /* már lezárult */ }
+          return match;
+        }
+        if (bytes >= 512 * 1024) {
+          try { await reader.cancel(); } catch { /* már lezárult */ }
+          break;
+        }
       }
-      if (bytes >= 512 * 1024) {
-        try { await reader.cancel(); } catch { /* már lezárult */ }
-        appLog(
-          `EPG-ÁLLAPOT: az M3U lista első ${(bytes / 1024).toFixed(0)} KB-jában NINCS url-tvg – `
-          + `első 200 karakter: „${text.slice(0, 200).replace(/\s+/g, ' ')}”.`
-        );
-        return null;
-      }
+    } else {
+      // Régi motor: nincs stream, egyben olvassuk.
+      text = await response.text();
+      bytes = text.length;
+      const match = matchUrlTvg(text);
+      if (match) return match;
     }
     appLog(
-      `EPG-ÁLLAPOT: az M3U lista (${(bytes / 1024).toFixed(0)} KB) végéig sincs url-tvg – `
+      `EPG-ÁLLAPOT: az M3U lista (${variantLabel}) ${bytes >= 512 * 1024 ? `első ${(bytes / 1024).toFixed(0)} KB-jában` : `(${bytes} bájt, teljes)`} NINCS url-tvg – `
       + `első 200 karakter: „${text.slice(0, 200).replace(/\s+/g, ' ')}”.`
     );
     return null;
   } catch (error) {
-    appLog(`EPG-ÁLLAPOT: url-tvg keresése az M3U listában sikertelen – ${error instanceof Error ? error.message : String(error)}.`);
+    appLog(`EPG-ÁLLAPOT: url-tvg keresése az M3U listában (${variantLabel}) sikertelen – ${error instanceof Error ? error.message : String(error)}.`);
     return null;
   }
+}
+
+async function discoverUrlTvg(provider: { serverUrl?: string; username?: string; password?: string }): Promise<string | null> {
+  const m3uUrl = xtreamService.buildPlaylistUrl(provider.serverUrl || '', provider.username || '', provider.password || '');
+  const found = await scanM3uForUrlTvg(m3uUrl, 'get.php type=m3u_plus&output=ts');
+  if (found) return found;
+  /*
+   * 2.5.264 (#11): egyes panelek csak a sima `type=m3u` listában hirdetik
+   * az url-tvg-t – ezt is kipróbáljuk.
+   */
+  const plainUrl = m3uUrl.replace(/type=m3u_plus&output=ts/i, 'type=m3u');
+  if (plainUrl !== m3uUrl) return await scanM3uForUrlTvg(plainUrl, 'get.php type=m3u');
+  return null;
+}
+
+/*
+ * 2.5.264 (#11-es napló): jelölt XMLTV útvonalak próbája a panel ALAP címén.
+ * A #11 naplóban az xmltv.php üres <tv> burok, a get.php pedig HTTP 884 – de a
+ * panel alap címe alatt sok esetben egy másik útvonalon él a valódi műsorújság
+ * (/epg.xml, /guide.xml, /xmltv.xml). Mindegyik próba HTTP státusza és a törzs
+ * első karakterei a naplóba kerülnek, így a következő naplóból pontosan látszik,
+ * melyik útvonal mit válaszol.
+ */
+async function discoverXmltvCandidates(provider: { serverUrl?: string; username?: string; password?: string }): Promise<string | null> {
+  const base = xtreamService.baseUrl(provider.serverUrl || '');
+  const user = encodeURIComponent(provider.username || '');
+  const pass = encodeURIComponent(provider.password || '');
+  const candidates = ['/epg.xml', '/guide.xml', '/xmltv.xml'];
+  for (const path of candidates) {
+    const url = `${base}${path}?username=${user}&password=${pass}`;
+    try {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), 10_000) : null;
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'omit',
+        cache: 'no-store',
+        signal: controller ? controller.signal : undefined,
+      });
+      if (timer) clearTimeout(timer);
+      let text = '';
+      if (response.body && typeof response.body.getReader === 'function') {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let bytes = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          bytes += value.byteLength;
+          text += decoder.decode(value, { stream: true });
+          if (bytes >= 64 * 1024) {
+            try { await reader.cancel(); } catch { /* már lezárult */ }
+            break;
+          }
+        }
+      } else {
+        text = await response.text();
+      }
+      const looksXmltv = /<tv[\s>]/i.test(text) && /<channel[\s>]/i.test(text);
+      appLog(
+        `EPG-ÁLLAPOT: jelölt XMLTV próba ${path} – HTTP ${response.status}, `
+        + `content-type=${response.headers.get('content-type') || '?'}, beolvasva=${text.length} bájt; `
+        + `első 120 karakter: „${text.slice(0, 120).replace(/\s+/g, ' ')}”`
+        + `${looksXmltv ? ' – XMLTV-nek látszik.' : '.'}`
+      );
+      if (response.ok && looksXmltv) return url;
+    } catch (error) {
+      appLog(`EPG-ÁLLAPOT: jelölt XMLTV próba ${path} – kérés hiba: ${error instanceof Error ? error.message : String(error)}.`);
+    }
+  }
+  return null;
 }
 
 /* ──────────────────── TARTÓS GYORSÍTÓTÁR (IndexedDB) ──────────────────── */
@@ -923,24 +1009,40 @@ export async function ensureGuide(provider: {
          * az M3U lista (get.php) fejlécében hirdetett url-tvg címet. Ha ott van
          * XMLTV, innen töltjük le ugyanazzal a folyamatos olvasóval.
          */
+        /*
+         * 2.5.264 (#11-es napló): ha az xmltv.php üres és az M3U-ból sincs
+         * url-tvg, még a panel alap címe alatti jelölt XMLTV útvonalakat is
+         * kipróbáljuk (/epg.xml, /guide.xml, /xmltv.xml) – mindegyik próba
+         * naplózva van (státusz + törzs eleje).
+         */
         const tvgUrl = await discoverUrlTvg(provider);
-        if (tvgUrl && tvgUrl !== guideUrl(provider)) {
-          appLog(`EPG-ÁLLAPOT: url-tvg találat az M3U listában: ${tvgUrl} – a műsorújság letöltése innen indul.`);
+        let guideSourceUrl = tvgUrl && tvgUrl !== guideUrl(provider) ? tvgUrl : null;
+        let guideSourceLabel = 'url-tvg XMLTV';
+        if (!guideSourceUrl) {
+          appLog('EPG-ÁLLAPOT: az M3U listában sincs url-tvg – jelölt XMLTV útvonalak próbája következik.');
+          const candidateUrl = await discoverXmltvCandidates(provider);
+          if (candidateUrl) {
+            guideSourceUrl = candidateUrl;
+            guideSourceLabel = 'jelölt XMLTV';
+          }
+        }
+        if (guideSourceUrl) {
+          appLog(`EPG-ÁLLAPOT: műsorújság forrása megtalálva: ${guideSourceUrl} – a letöltés innen indul.`);
           buffer = '';
           lastProgrammes = 0;
           lastSkipped = 0;
           lastBytes = 0;
           abortReason = '';
-          await download(provider, tvgUrl, 'url-tvg XMLTV');
+          await download(provider, guideSourceUrl, guideSourceLabel);
           channels = index.size;
           loadedAt = Date.now();
           appLog(
-            `EPG-ÁLLAPOT: url-tvg műsorújság betöltve – ${channels} csatorna, ${statKept} megtartott műsor, `
+            `EPG-ÁLLAPOT: ${guideSourceLabel} műsorújság betöltve – ${channels} csatorna, ${statKept} megtartott műsor, `
             + `${(lastBytes / 1024).toFixed(0)} KB${abortReason ? ` (részleges: ${abortReason})` : ''}.`
           );
           if (channels > 0) void persistGuide(provider.id, !abortReason);
-        } else if (!tvgUrl) {
-          appLog('EPG-ÁLLAPOT: az M3U listában sincs url-tvg – marad a per-csatornás get_simple_data_table tartalék.');
+        } else {
+          appLog('EPG-ÁLLAPOT: sem url-tvg, sem jelölt XMLTV útvonal nem adott műsorújságot – marad a per-csatornás get_simple_data_table tartalék.');
         }
       }
     })

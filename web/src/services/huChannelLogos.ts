@@ -216,11 +216,26 @@ export const HU_CHANNEL_LOGOS: Record<string, string> = {
 
 const LOCAL_OVERRIDES_KEY = 'iptv_rt_hu_logos_v1';
 
+/*
+ * 2.5.264 (#11-es napló): a régi (2.5.261 előtti) helyi felülírások közt vannak
+ * olyan értékek, amelyek a tv-logo/tv-logos távoli (raw.githubusercontent.com)
+ * képeire mutatnak – a TV ezt a címet NEM éri el (#10/#11 napló), és mivel a
+ * felülírás a beépített táblát is felülírja, a TV PAPRIKA/AMC/HÍR TV így
+ * távoli URL-re esett vissza és üres maradt. Az ilyen értékeket mostantól
+ * KIHAGYJUK és KITAKARÍTJUK a tárolóból, hogy a beépített logó érvényesüljön.
+ */
+const UNREACHABLE_LOGO_BASE = 'https://raw.githubusercontent.com/tv-logo/';
+
+function isUnreachableLogoUrl(url: string): boolean {
+  return url.toLowerCase().startsWith(UNREACHABLE_LOGO_BASE);
+}
+
 let overridesCache: Record<string, string> | null = null;
 
 function readOverrides(): Record<string, string> {
   if (overridesCache) return overridesCache;
   let parsed: Record<string, string> = {};
+  let purged = false;
   try {
     const raw = localStorage.getItem(LOCAL_OVERRIDES_KEY);
     if (raw) {
@@ -228,11 +243,19 @@ function readOverrides(): Record<string, string> {
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         for (const [key, url] of Object.entries(value)) {
           // 2.5.261: data:image/ felülírás is engedett (a beépített logó kézzel cserélhető).
-          if (typeof url === 'string' && /^(?:https?:\/\/|data:image\/)/i.test(url)) parsed[String(key)] = url;
+          if (typeof url !== 'string' || !/^(?:https?:\/\/|data:image\/)/i.test(url)) continue;
+          // 2.5.264 (#11): a TV által el nem érhető tv-logo távoli URL-eket
+          // eldobjuk és a tárolóból is kitakarítjuk (lásd fent).
+          if (isUnreachableLogoUrl(url)) { purged = true; continue; }
+          parsed[String(key)] = url;
         }
       }
     }
   } catch { /* sérült tároló esetén csak a beépített táblát használjuk */ }
+  if (purged) {
+    // Kitakarítás: csak a megmaradt (használható) értékeket írjuk vissza.
+    try { localStorage.setItem(LOCAL_OVERRIDES_KEY, JSON.stringify(parsed)); } catch { /* kvóta hiba esetén a memória tiszta marad */ }
+  }
   overridesCache = parsed;
   return parsed;
 }
@@ -240,7 +263,11 @@ function readOverrides(): Record<string, string> {
 /** Beállít egy helyi felülírást (pl. tesztből vagy beállításból). */
 export function setHuChannelLogoOverride(name: string, url: string): void {
   const overrides = { ...readOverrides() };
-  overrides[normalizeChannelName(name)] = url;
+  const key = normalizeChannelName(name);
+  // 2.5.264 (#11): a TV által el nem érhető tv-logo távoli URL soha nem kerül
+  // a tárolóba – ilyen érték esetén a meglévő felülírást inkább töröljük.
+  if (isUnreachableLogoUrl(url)) delete overrides[key];
+  else overrides[key] = url;
   overridesCache = overrides;
   try {
     localStorage.setItem(LOCAL_OVERRIDES_KEY, JSON.stringify(overrides));
@@ -397,6 +424,14 @@ function logoKeyCandidates(key: string): string[] {
       }
     }
   }
+  /*
+   * 2.5.264 (#11-es napló): a szóköz nélküli változat is kell. A #11 naplóban
+   * „[HU] VIASAT 3” → „viasat 3” NEM találta a „viasat3” táblakulcsot (ugyanígy
+   * film4, cinemax2, match4), ezért ezek a csatornák a beépített logó helyett a
+   * TV által el nem érhető picons URL-re estek. Minden jelölt mellé betesszük a
+   * szóközmentes alakot is.
+   */
+  for (const candidate of [...out]) push(candidate.replace(/\s+/g, ''));
   return out;
 }
 
