@@ -626,7 +626,17 @@ async function scanM3uForUrlTvg(m3uUrl: string, variantLabel: string): Promise<s
   }
 }
 
-async function discoverUrlTvg(provider: { serverUrl?: string; username?: string; password?: string }): Promise<string | null> {
+async function discoverUrlTvg(
+  provider: { serverUrl?: string; username?: string; password?: string },
+  isM3u = false,
+): Promise<string | null> {
+  /*
+   * 2.5.265 (#12-es napló): m3u provider esetén a serverUrl MAGA az M3U
+   * lista – ebben keressük az url-tvg-t (nincs get.php).
+   */
+  if (isM3u) {
+    return await scanM3uForUrlTvg(provider.serverUrl || '', 'm3u lista (provider.serverUrl)');
+  }
   const m3uUrl = xtreamService.buildPlaylistUrl(provider.serverUrl || '', provider.username || '', provider.password || '');
   const found = await scanM3uForUrlTvg(m3uUrl, 'get.php type=m3u_plus&output=ts');
   if (found) return found;
@@ -647,13 +657,43 @@ async function discoverUrlTvg(provider: { serverUrl?: string; username?: string;
  * első karakterei a naplóba kerülnek, így a következő naplóból pontosan látszik,
  * melyik útvonal mit válaszol.
  */
-async function discoverXmltvCandidates(provider: { serverUrl?: string; username?: string; password?: string }): Promise<string | null> {
-  const base = xtreamService.baseUrl(provider.serverUrl || '');
+async function discoverXmltvCandidates(
+  provider: { serverUrl?: string; username?: string; password?: string },
+  isM3u = false,
+): Promise<string | null> {
+  let base = '';
+  let listDir = '';
+  if (isM3u) {
+    /*
+     * 2.5.265 (#12): m3u esetén a jelölt XMLTV útvonalakat a lista
+     * KÖNYVTÁRÁBAN (pl. …/live/user/pass/epg.xml) és a szerver gyökerében
+     * próbáljuk, hitelesítő paraméterek nélkül.
+     */
+    const serverUrl = provider.serverUrl || '';
+    try {
+      base = new URL(serverUrl).origin;
+    } catch {
+      base = serverUrl;
+    }
+    listDir = serverUrl.slice(0, serverUrl.lastIndexOf('/') + 1);
+  } else {
+    base = xtreamService.baseUrl(provider.serverUrl || '');
+  }
   const user = encodeURIComponent(provider.username || '');
   const pass = encodeURIComponent(provider.password || '');
-  const candidates = ['/epg.xml', '/guide.xml', '/xmltv.xml'];
-  for (const path of candidates) {
-    const url = `${base}${path}?username=${user}&password=${pass}`;
+  const cred = isM3u ? '' : `?username=${user}&password=${pass}`;
+  const probes: Array<{ url: string; label: string }> = [];
+  if (isM3u && listDir && listDir !== base) {
+    for (const name of ['epg.xml', 'guide.xml', 'xmltv.xml']) {
+      probes.push({ url: `${listDir}${name}`, label: `lista könyvtára: ${listDir}${name}` });
+    }
+  }
+  for (const path of ['/epg.xml', '/guide.xml', '/xmltv.xml']) {
+    probes.push({ url: `${base}${path}${cred}`, label: `${base}${path}${isM3u ? '' : ' (hitelesítéssel)'}` });
+  }
+  for (const probe of probes) {
+    const url = probe.url;
+    const path = probe.label;
     try {
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timer = controller ? setTimeout(() => controller.abort(), 10_000) : null;
@@ -911,7 +951,25 @@ export async function ensureGuide(provider: {
   username?: string;
   password?: string;
 } | null): Promise<void> {
-  if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) {
+  /*
+   * 2.5.265 (#12-es napló): MINDEN korai kilépés naplózva van – a #12-es
+   * naplóban egyetlen EPG-ÁLLAPOT sor sem volt, így nem lehetett látni, hol
+   * állt le a műsorújság. Az m3u providerhez is tartozik műsorújság: ott a
+   * lista (serverUrl) fejlécéből (url-tvg) vagy a lista melletti jelölt
+   * XMLTV útvonalakról töltjük (lásd discoverUrlTvg/discoverXmltvCandidates).
+   */
+  if (!provider || !provider.serverUrl) {
+    appLog('EPG-ÁLLAPOT: ensureGuide – nincs provider vagy serverUrl, a műsorújság nem indul.');
+    return;
+  }
+  const providerType = provider.type || '';
+  const isM3u = providerType === 'm3u';
+  if (providerType !== 'xtream' && !isM3u) {
+    appLog(`EPG-ÁLLAPOT: ensureGuide – nem támogatott provider típus (${providerType || 'üres'}), a műsorújság nem indul.`);
+    return;
+  }
+  if (!isM3u && (!provider.username || !provider.password)) {
+    appLog('EPG-ÁLLAPOT: ensureGuide – xtream providerhez nincs felhasználónév vagy jelszó, a műsorújság nem indul.');
     return;
   }
   /*
@@ -924,8 +982,15 @@ export async function ensureGuide(provider: {
   const usable = statKept >= index.size * USABLE_PROGRAMMES_PER_CHANNEL;
   const fresh = loadedProviderId === provider.id && index.size > 0 && usable
     && Date.now() - loadedAt < GUIDE_TTL_MS;
-  if (fresh) return;
-  if (loading) return loading;
+  // 2.5.265 (#12): a „már friss” és „már töltődik” állapot is naplózva.
+  if (fresh) {
+    appLog(`EPG-ÁLLAPOT: a műsorújság már friss a memóriában (${index.size} csatorna) – nem töltjük újra.`);
+    return;
+  }
+  if (loading) {
+    appLog('EPG-ÁLLAPOT: a műsorújság épp töltődik – a már futó letöltéshez csatlakozunk.');
+    return loading;
+  }
   if (breakerOpen()) {
     appLog(`EPG-ÁLLAPOT: a megszakító nyitva van (${Math.ceil(breakerRemainingMs() / 1000)} mp) – a műsorújság később töltődik be.`);
     return;
@@ -985,9 +1050,18 @@ export async function ensureGuide(provider: {
     );
   }
 
-  appLog('EPG-ÁLLAPOT: a teljes műsorújság (XMLTV) letöltése indul – a rövid EPG végpont ezen a panelen üres választ ad.');
+  appLog(
+    'EPG-ÁLLAPOT: a teljes műsorújság (XMLTV) letöltése indul – provider típus='
+    + `${providerType}, forrás=${isM3u ? 'm3u lista (serverUrl)' : 'xmltv.php'} (${provider.serverUrl}).`
+  );
 
-  loading = download(provider)
+  /*
+   * 2.5.265 (#12): m3u provider esetén NINCS xmltv.php végpont – ott előbb
+   * forrást keresünk (url-tvg a listában, majd jelölt XMLTV útvonalak), és
+   * csak onnan töltünk (lásd a channels===0 ágat lejjebb).
+   */
+  const primaryDownload = isM3u ? Promise.resolve() : download(provider);
+  loading = primaryDownload
     .then(async () => {
       loadedAt = Date.now();
       loadedProviderId = provider.id;
@@ -1015,12 +1089,13 @@ export async function ensureGuide(provider: {
          * kipróbáljuk (/epg.xml, /guide.xml, /xmltv.xml) – mindegyik próba
          * naplózva van (státusz + törzs eleje).
          */
-        const tvgUrl = await discoverUrlTvg(provider);
-        let guideSourceUrl = tvgUrl && tvgUrl !== guideUrl(provider) ? tvgUrl : null;
+        // 2.5.265 (#12): m3u esetén a discover* függvények a listát / annak könyvtárát nézik.
+        const tvgUrl = await discoverUrlTvg(provider, isM3u);
+        let guideSourceUrl = tvgUrl && (!isM3u ? tvgUrl !== guideUrl(provider) : true) ? tvgUrl : null;
         let guideSourceLabel = 'url-tvg XMLTV';
         if (!guideSourceUrl) {
-          appLog('EPG-ÁLLAPOT: az M3U listában sincs url-tvg – jelölt XMLTV útvonalak próbája következik.');
-          const candidateUrl = await discoverXmltvCandidates(provider);
+          appLog(`EPG-ÁLLAPOT: ${isM3u ? 'az m3u listában' : 'az M3U listában'} sincs url-tvg – jelölt XMLTV útvonalak próbája következik.`);
+          const candidateUrl = await discoverXmltvCandidates(provider, isM3u);
           if (candidateUrl) {
             guideSourceUrl = candidateUrl;
             guideSourceLabel = 'jelölt XMLTV';
@@ -1220,7 +1295,11 @@ export async function ensureChannelsEpg(
   channels: Array<{ name?: string; epgChannelId?: string | null; streamId?: number; streamUrl?: string }>,
   max = 250,
 ): Promise<number> {
-  if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) return 0;
+  if (!provider || provider.type !== 'xtream' || !provider.serverUrl || !provider.username || !provider.password) {
+    // 2.5.265 (#12): naplózva, hogy a következő kézi naplóból látszódjon, miért nem indul.
+    appLog(`EPG-ÁLLAPOT: per-csatornás EPG (get_simple_data_table) kihagyva – provider típus=${provider?.type || 'nincs'} (csak xtream providerhez létezik ez a végpont).`);
+    return 0;
+  }
   if (index.size > 0 || loading) return 0; // már van teljes műsorújság vagy épp töltődik
   const targets = (Array.isArray(channels) ? channels : []).filter((ch) => streamIdFor(ch)).slice(0, max);
   if (!targets.length) return 0;
