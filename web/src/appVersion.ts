@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.260';
+export const WEB_VERSION = '2.5.261';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.261',
+    date: '2026-11-02',
+    changes: [
+      'HU csatornalogók (#10): a teljes magyar logótár (96 PNG a tv-logo/tv-logos countries/hungary mappából) és a #10-es napló hiányzó márkáinak nemzetközi változatai (28 db, pl. Disney, Discovery, Nickelodeon, Nat Geo, Eurosport, Cartoon Network, BBC Earth, JimJam…) mostantól BEÉPÍTVE vannak a bundle-ben, data-URL-ként (generatedHuLogos.ts) – a #10-es napló szerint a TV sem a raw.githubusercontent.com-ot, sem a picons szervereket nem éri el, ezért a távoli logók soha nem voltak megbízhatóak. Induláskor új naplósor: „HU-LOGÓ-TÁR: beépített=124, tábla-kulcs=…, felülírás=…, képi gyorsítótár=…”.',
+      'EPG (#10): a panelen az xmltv.php üres 200-at ad, ezért ha a teljes XMLTV 0 csatornát hoz, most az M3U lista (get.php) fejlécéből keressük ki az url-tvg="…" címet, és onnan töltjük le a műsorújságot ugyanazzal a folyamatos olvasóval; továbbá minden üres/kis EPG-válasz törzsének első karakterei is a naplóba kerülnek (EPG-ÁLLAPOT), hogy lássuk, mit válaszol pontosan a panel. A per-csatornás get_simple_data_table tartalék megmarad.',
+    ],
+  },
   {
     version: '2.5.260',
     date: '2026-11-02',

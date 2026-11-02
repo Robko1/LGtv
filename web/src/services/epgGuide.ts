@@ -429,8 +429,11 @@ function guideUrl(provider: { serverUrl?: string; username?: string; password?: 
 /** A megszakítás oka (a naplóban ez a VALÓDI magyarázat). */
 let abortReason = '';
 
-async function download(provider: { serverUrl?: string; username?: string; password?: string }): Promise<void> {
-  const url = guideUrl(provider);
+async function download(
+  provider: { serverUrl?: string; username?: string; password?: string },
+  url: string = guideUrl(provider),
+  label = 'xmltv.php',
+): Promise<void> {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   abortReason = '';
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -467,8 +470,9 @@ async function download(provider: { serverUrl?: string; username?: string; passw
      * az xmltv.php címre (üres 200, átirányítás, 401 stb.).
      */
     appLog(
-      `EPG-ÁLLAPOT: xmltv.php válasz – HTTP ${response.status}, content-type=${response.headers.get('content-type') || '?'}, `
-      + `content-length=${response.headers.get('content-length') || '?'}, átirányítva=${response.redirected ? 'igen' : 'nem'}.`
+      `EPG-ÁLLAPOT: ${label} válasz – HTTP ${response.status}, content-type=${response.headers.get('content-type') || '?'}, `
+      + `content-length=${response.headers.get('content-length') || '?'}, átirányítva=${response.redirected ? 'igen' : 'nem'}`
+      + (response.redirected && response.url && response.url !== url ? `, végső cím=${response.url}` : '') + '.'
     );
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -479,6 +483,11 @@ async function download(provider: { serverUrl?: string; username?: string; passw
       const text = await response.text();
       lastBytes = text.length;
       armIdle();
+      // 2.5.261 (#10): kis/üres törzsnél kiírjuk az első karaktereket is – így a
+      // naplóból látszik, hogy a panel mit válaszol pontosan (pl. üres 200).
+      if (text.length < 8192) {
+        appLog(`EPG-ÁLLAPOT: ${label} válasz törzse (${text.length} bájt): „${text.slice(0, 300).replace(/\s+/g, ' ')}”.`);
+      }
       await feedWithBreath(text);
       finishParsing();
       return;
@@ -488,19 +497,23 @@ async function download(provider: { serverUrl?: string; username?: string; passw
     let bytes = 0;
     let lastLoggedBytes = 0;
     let lastYield = Date.now();
+    // 2.5.261 (#10): az első pár blokk szövege diagnózishoz (üres/kis válasznál log).
+    let firstText = '';
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
       armIdle();
       bytes += value.byteLength;
+      const chunkText = decoder.decode(value, { stream: true });
+      if (firstText.length < 400) firstText += chunkText;
       if (bytes > MAX_BYTES) {
         try { await reader.cancel(); } catch { /* már lezárult */ }
         abortReason = `a műsorújság nagyobb, mint ${Math.round(MAX_BYTES / 1048576)} MB`;
         appLog(`EPG-ÁLLAPOT: ${abortReason} – a további részt nem olvassuk, a MÁR beolvasott rész használható.`);
         break;
       }
-      await feedWithBreath(decoder.decode(value, { stream: true }));
+      await feedWithBreath(chunkText);
       // LÉLEGZÉS: 250 ms-onként visszaadjuk a főszálat, hogy a felület fusson.
       if (Date.now() - lastYield > 250) {
         lastYield = Date.now();
@@ -518,6 +531,11 @@ async function download(provider: { serverUrl?: string; username?: string; passw
       }
     }
     lastBytes = bytes;
+    // 2.5.261 (#10): kis/üres törzsnél a naplóba az első karakterek is – így
+    // pontosan látszik, mit válaszol a panel (pl. „0 bájt” vs. üres XML burok).
+    if (bytes < 8192 && firstText) {
+      appLog(`EPG-ÁLLAPOT: ${label} válasz törzse (${bytes} bájt): „${firstText.slice(0, 300).replace(/\s+/g, ' ')}”.`);
+    }
   } finally {
     if (idleTimer) clearTimeout(idleTimer);
     if (deadline) clearTimeout(deadline);
@@ -529,6 +547,68 @@ async function download(provider: { serverUrl?: string; username?: string; passw
      * már van adat.
      */
     if (index.size > 0) finishParsing();
+  }
+}
+
+/*
+ * 2.5.261 (#10-es napló): URL-TVG KERESÉSE AZ M3U LISTÁBAN (get.php).
+ *
+ * A #10-es napló: ezen a panelen az xmltv.php ÜRES 200-at ad (0 bájt), ezért a
+ * teljes műsorújság soha nem töltődik be, és a get_simple_data_table is üres.
+ * Sok Xtream panel viszont a get.php M3U listájának elején hirdeti meg az igazi
+ * XMLTV címét (`#EXTM3U url-tvg="…"`). Itt letöltjük az M3U lista elejét
+ * (az első ~512 KB bőven elég, a url-tvg mindig a fejlécben van), és abból
+ * olvassuk ki az XMLTV címet – onnan már a download() a szokásos módon tölti.
+ */
+async function discoverUrlTvg(provider: { serverUrl?: string; username?: string; password?: string }): Promise<string | null> {
+  try {
+    const m3uUrl = xtreamService.buildPlaylistUrl(provider.serverUrl || '', provider.username || '', provider.password || '');
+    appLog('EPG-ÁLLAPOT: url-tvg keresése az M3U lista (get.php) elején indul – az xmltv.php üres választ adott.');
+    const response = await fetch(m3uUrl, {
+      method: 'GET',
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+    appLog(
+      `EPG-ÁLLAPOT: M3U lista (get.php) válasz – HTTP ${response.status}, `
+      + `content-type=${response.headers.get('content-type') || '?'}, átirányítva=${response.redirected ? 'igen' : 'nem'}.`
+    );
+    if (!response.ok || !response.body || typeof response.body.getReader !== 'function') return null;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let text = '';
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      bytes += value.byteLength;
+      text += decoder.decode(value, { stream: true });
+      const match = text.match(/url-tvg\s*=\s*"([^"]+)"/i)
+        || text.match(/url-tvg\s*=\s*'([^']+)'/i)
+        || text.match(/url-tvg\s*=\s*([^\s"'>]+)/i);
+      if (match) {
+        try { await reader.cancel(); } catch { /* már lezárult */ }
+        // M3U-ban a &amp; alak is előfordulhat a lekérdező paraméterekben.
+        return match[1].replace(/&amp;/g, '&');
+      }
+      if (bytes >= 512 * 1024) {
+        try { await reader.cancel(); } catch { /* már lezárult */ }
+        appLog(
+          `EPG-ÁLLAPOT: az M3U lista első ${(bytes / 1024).toFixed(0)} KB-jában NINCS url-tvg – `
+          + `első 200 karakter: „${text.slice(0, 200).replace(/\s+/g, ' ')}”.`
+        );
+        return null;
+      }
+    }
+    appLog(
+      `EPG-ÁLLAPOT: az M3U lista (${(bytes / 1024).toFixed(0)} KB) végéig sincs url-tvg – `
+      + `első 200 karakter: „${text.slice(0, 200).replace(/\s+/g, ' ')}”.`
+    );
+    return null;
+  } catch (error) {
+    appLog(`EPG-ÁLLAPOT: url-tvg keresése az M3U listában sikertelen – ${error instanceof Error ? error.message : String(error)}.`);
+    return null;
   }
 }
 
@@ -822,10 +902,10 @@ export async function ensureGuide(provider: {
   appLog('EPG-ÁLLAPOT: a teljes műsorújság (XMLTV) letöltése indul – a rövid EPG végpont ezen a panelen üres választ ad.');
 
   loading = download(provider)
-    .then(() => {
+    .then(async () => {
       loadedAt = Date.now();
       loadedProviderId = provider.id;
-      const channels = index.size;
+      let channels = index.size;
       const partial = abortReason ? ` (részleges: ${abortReason})` : '';
       appLog(
         `EPG-ÁLLAPOT: műsorújság betöltve ${((Date.now() - startedAt) / 1000).toFixed(1)} mp alatt – `
@@ -838,6 +918,30 @@ export async function ensureGuide(provider: {
       if (channels > 0) void persistGuide(provider.id, !abortReason);
       if (channels === 0) {
         appLog('EPG-ÁLLAPOT: a szolgáltató műsorújságja üres – a felület a rövid EPG-t használja tartalékként.');
+        /*
+         * 2.5.261 (#10-es napló): az xmltv.php üres 200-at adott – megpróbáljuk
+         * az M3U lista (get.php) fejlécében hirdetett url-tvg címet. Ha ott van
+         * XMLTV, innen töltjük le ugyanazzal a folyamatos olvasóval.
+         */
+        const tvgUrl = await discoverUrlTvg(provider);
+        if (tvgUrl && tvgUrl !== guideUrl(provider)) {
+          appLog(`EPG-ÁLLAPOT: url-tvg találat az M3U listában: ${tvgUrl} – a műsorújság letöltése innen indul.`);
+          buffer = '';
+          lastProgrammes = 0;
+          lastSkipped = 0;
+          lastBytes = 0;
+          abortReason = '';
+          await download(provider, tvgUrl, 'url-tvg XMLTV');
+          channels = index.size;
+          loadedAt = Date.now();
+          appLog(
+            `EPG-ÁLLAPOT: url-tvg műsorújság betöltve – ${channels} csatorna, ${statKept} megtartott műsor, `
+            + `${(lastBytes / 1024).toFixed(0)} KB${abortReason ? ` (részleges: ${abortReason})` : ''}.`
+          );
+          if (channels > 0) void persistGuide(provider.id, !abortReason);
+        } else if (!tvgUrl) {
+          appLog('EPG-ÁLLAPOT: az M3U listában sincs url-tvg – marad a per-csatornás get_simple_data_table tartalék.');
+        }
       }
     })
     .catch((error) => {
