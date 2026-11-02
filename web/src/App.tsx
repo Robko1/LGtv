@@ -54,7 +54,7 @@ import {
 } from './services/providerImport';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
-import { channelNowNext, clearGuide, ensureChannelsEpg, ensureGuide, guideStatus, guideUpcoming } from './services/epgGuide';
+import { channelNowNext, clearGuide, ensureChannelsEpg, ensureGuide, guideChannelCoverage, guideStatus, guideUpcoming } from './services/epgGuide';
 import { xtreamService } from './services/xtreamService';
 import {
   attachVodProviderDiagnostics,
@@ -1596,6 +1596,19 @@ export function App() {
             const status = guideStatusSafe();
             if (status.channels > 0) {
               setEpgRevision((revision) => revision + 1);
+              /*
+               * 2.5.267 (#14): lefedettségi naplósor – hány csatorna (ebből
+               * hány magyar [HU]) kapott műsort a betöltött újságból, így a
+               * következő kézi naplóból pontosan látszik, hogy a nyilvános
+               * EPG mennyi magyar adót fed le.
+               */
+              try {
+                const coverage = guideChannelCoverage(channelsRef.current);
+                appLog(
+                  `EPG-ÁLLAPOT: lefedettség – lista=${coverage.total} csatorna, ebből műsort kapott=${coverage.withGuide}`
+                  + `; magyar adók: összesen=${coverage.huTotal}, műsort kapott=${coverage.huWithGuide}.`
+                );
+              } catch { /* a naplózás soha ne akadályozzon */ }
             } else {
               /*
                * 2.5.259 (#9): ha a teljes XMLTV üres volt ezen a panelen

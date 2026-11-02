@@ -426,6 +426,41 @@ function finishParsing(): void {
   buffer = '';
 }
 
+/*
+ * 2.5.267 (#14-es kérés): NYILVÁNOS, mindig elérhető EPG (XMLTV) újságok.
+ *
+ * Ha a szolgáltató saját műsorújsága üres (a #13-as napló: a LOWEND panel
+ * üres <tv></tv>-t küld, az M3U-ban sincs url-tvg), innen töltünk le egy
+ * megbízható nyilvános forrást. Sorrend a kérés szerint: ELŐSZÖR az összes
+ * ország egy fájlban (globális), aztán a MAGYAR (HU) külön fájlok (kicsik,
+ * gyorsak – a listában pontosan annyi magyar adó van, ahány [HU] csatorna,
+ * ezekhez a HU fájlok adják a műsort).
+ *
+ * A .gz végű fájlokat a letöltés közben DecompressionStream-mel bontjuk
+ * (lásd download()); a github.io (iptv-org) és a legtöbb ilyen forrás
+ * CORS-szempontból is engedi a böngészős lekérést (Access-Control-Allow-Origin: *).
+ * Minden próba naplózva van (HTTP státusz + hogy hány csatorna lett belőle).
+ * Tesztkörnyezetben (nincs window) a nyilvános források KI vannak kapcsolva,
+ * hogy a tesztek hermetikusan a saját mock szerverüket használják.
+ */
+const PUBLIC_GUIDES_ENABLED = typeof window !== 'undefined';
+
+const PUBLIC_GUIDE_URLS: Array<{
+  url: string;
+  label: string;
+  limits: { maxBytes: number; maxMs: number };
+}> = [
+  // összes ország egy nagy fájlban (lassú, de teljes)
+  { url: 'https://epgshare01.online/epgshare01/epg_ripper_ALL_SOURCES1.xml.gz', label: 'epgshare01 ALL_SOURCES (összes ország)', limits: { maxBytes: 128 * 1024 * 1024, maxMs: 4 * 60 * 1000 } },
+  { url: 'https://epg.pw/xmltv/epg.xml.gz', label: 'epg.pw globális', limits: { maxBytes: 128 * 1024 * 1024, maxMs: 4 * 60 * 1000 } },
+  // magyar csatornák külön (kicsi, gyors)
+  { url: 'https://epgshare01.online/epgshare01/epg_ripper_HU1.xml.gz', label: 'epgshare01 HU (magyar)', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  { url: 'https://iptv-org.github.io/epg/guides/hu/mediaklikk.hu.epg.xml.gz', label: 'iptv-org HU mediaklikk (állami adók)', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  { url: 'https://iptv-org.github.io/epg/guides/hu/tvmusor.hu.epg.xml.gz', label: 'iptv-org HU tvmusor.hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  { url: 'https://iptv-epg.org/files/epg-hu.xml.gz', label: 'iptv-epg.org HU', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  { url: 'https://epg.cdn.loc.cc/xml', label: 'epg.cdn.loc.cc globális (sima xml)', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+];
+
 /* ─────────────────────────────── letöltés ──────────────────────────────── */
 
 function guideUrl(provider: { serverUrl?: string; username?: string; password?: string }): string {
@@ -442,9 +477,13 @@ async function download(
   provider: { serverUrl?: string; username?: string; password?: string },
   url: string = guideUrl(provider),
   label = 'xmltv.php',
+  limits: { maxBytes?: number; maxMs?: number } = {},
 ): Promise<void> {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   abortReason = '';
+  // 2.5.267 (#14): a nyilvános forrásokhoz saját (kisebb) korlátok adhatók.
+  const maxBytes = limits.maxBytes ?? MAX_BYTES;
+  const maxMs = limits.maxMs ?? MAX_DOWNLOAD_MS;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   /*
    * ŐRKUTYA: a teljes időkorlát helyett az ADATHIÁNYT figyeljük. A #36 napló
@@ -460,9 +499,9 @@ async function download(
   };
   const deadline = controller
     ? setTimeout(() => {
-      abortReason = `a letöltés elérte a ${Math.round(MAX_DOWNLOAD_MS / 60000)} perces felső korlátot`;
+      abortReason = `a letöltés elérte a ${Math.round(maxMs / 60000)} perces felső korlátot`;
       controller.abort();
-    }, MAX_DOWNLOAD_MS)
+    }, maxMs)
     : null;
   armIdle();
   try {
@@ -486,8 +525,25 @@ async function download(
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
+    /*
+     * 2.5.267 (#14): .gz végű nyilvános EPG fájlok (pl. epgshare01). A fetch
+     * csak a Content-Encoding: gzip válaszokat bontja magától – a fájlban
+     * tárolt .gz-t kézzel, DecompressionStream-mel kell kibontani olvasás közben.
+     */
+    const wantsGzip = /\.gz(?:[?#]|$)/i.test(url);
+    if (wantsGzip && typeof DecompressionStream === 'undefined') {
+      abortReason = 'a motor nem tud gzip fájlt bontani (nincs DecompressionStream)';
+      appLog(`EPG-ÁLLAPOT: ${label} – .gz fájl, de ebben a motorban nincs DecompressionStream – kihagyva.`);
+      return;
+    }
     const body = response.body;
     if (!body || typeof body.getReader !== 'function') {
+      if (wantsGzip) {
+        // Régi motor + tömörített fájl: egyben olvasva nem értelmezhető.
+        abortReason = 'a motor nem tud streamet és gzip-et sem kezelni';
+        appLog(`EPG-ÁLLAPOT: ${label} – .gz fájl régi motoron, nincs stream olvasó – kihagyva.`);
+        return;
+      }
       // Régi motor: nincs stream, egyben olvassuk (ez már csak tartalék út).
       const text = await response.text();
       lastBytes = text.length;
@@ -501,7 +557,9 @@ async function download(
       finishParsing();
       return;
     }
-    const reader = body.getReader();
+    // 2.5.267 (#14): .gz fájl kibontása olvasás közben.
+    const stream = wantsGzip ? body.pipeThrough(new DecompressionStream('gzip')) : body;
+    const reader = stream.getReader();
     const decoder = new TextDecoder('utf-8');
     let bytes = 0;
     let lastLoggedBytes = 0;
@@ -516,9 +574,9 @@ async function download(
       bytes += value.byteLength;
       const chunkText = decoder.decode(value, { stream: true });
       if (firstText.length < 400) firstText += chunkText;
-      if (bytes > MAX_BYTES) {
+      if (bytes > maxBytes) {
         try { await reader.cancel(); } catch { /* már lezárult */ }
-        abortReason = `a műsorújság nagyobb, mint ${Math.round(MAX_BYTES / 1048576)} MB`;
+        abortReason = `a műsorújság nagyobb, mint ${Math.round(maxBytes / 1048576)} MB`;
         appLog(`EPG-ÁLLAPOT: ${abortReason} – a további részt nem olvassuk, a MÁR beolvasott rész használható.`);
         break;
       }
@@ -1154,7 +1212,44 @@ export async function ensureGuide(provider: {
             + `${(lastBytes / 1024).toFixed(0)} KB${abortReason ? ` (részleges: ${abortReason})` : ''}.`
           );
           if (channels > 0) void persistGuide(provider.id, !abortReason);
-        } else {
+        }
+        /*
+         * 2.5.267 (#14-es kérés): NYILVÁNOS EPG ÚJSÁG – ha a szolgáltató saját
+         * műsorújsága és minden jelölt panel-útvonal üres volt (a #13-as napló:
+         * LOWEND panel üres <tv></tv>), innen töltünk egy mindig elérhető
+         * nyilvános XMLTV forrást. Sorrend: először az ÖSSZES ORSZÁG (globális
+         * fájl), aztán a MAGYAR (HU) külön fájlok. Az első műsort adó forrás
+         * után leállunk; minden próba naplózva. Tesztkörnyezetben kikapcsolva.
+         */
+        if (!guideSourceUrl && PUBLIC_GUIDES_ENABLED) {
+          appLog('EPG-ÁLLAPOT: a panel minden útvonala üres – nyilvános EPG újságok próbája indul (először összes ország, aztán magyar).');
+          for (const candidate of PUBLIC_GUIDE_URLS) {
+            if (index.size > 0) break;
+            appLog(`EPG-ÁLLAPOT: nyilvános EPG próba – ${candidate.label}: ${candidate.url}`);
+            buffer = '';
+            lastProgrammes = 0;
+            lastSkipped = 0;
+            lastBytes = 0;
+            abortReason = '';
+            try {
+              await download(provider, candidate.url, candidate.label, candidate.limits);
+            } catch { /* a download már naplózta a valódi okot */ }
+            channels = index.size;
+            appLog(
+              `EPG-ÁLLAPOT: nyilvános EPG (${candidate.label}) után: ${index.size} csatorna, ${statKept} megtartott műsor, `
+              + `${(lastBytes / 1024).toFixed(0)} KB${abortReason ? ` (részleges: ${abortReason})` : ''}.`
+            );
+            if (index.size > 0) {
+              loadedAt = Date.now();
+              void persistGuide(provider.id, !abortReason);
+              appLog(`EPG-ÁLLAPOT: műsorújság betöltve NYILVÁNOS forrásból (${candidate.label}) – ${index.size} csatorna.`);
+              break;
+            }
+          }
+          if (index.size === 0) {
+            appLog('EPG-ÁLLAPOT: egyetlen nyilvános EPG forrás sem adott műsort – marad a per-csatornás get_simple_data_table tartalék.');
+          }
+        } else if (!guideSourceUrl) {
           appLog('EPG-ÁLLAPOT: sem url-tvg, sem jelölt XMLTV útvonal nem adott műsorújságot – marad a per-csatornás get_simple_data_table tartalék.');
         }
       }
@@ -1184,15 +1279,34 @@ export async function ensureGuide(provider: {
     .finally(finishLoading);
 }
 
-/** A csatorna XMLTV-azonosítója: `epg_channel_id`, majd név-egyeztetés. */
+/**
+ * A csatorna XMLTV-kulcsa: `epg_channel_id`, majd név-egyeztetés.
+ *
+ * 2.5.267 (#14): a NYILVÁNOS EPG újságok (epgshare01, iptv-org…) más
+ * azonosítókat használnak, mint a panel (pl. „TV2.hu” vs. a panel saját
+ * epg_channel_id-je), ezért az ID csak akkor jó, ha tényleg szerepel az
+ * indexben – különben név alapján keresünk tovább. A „[HU] TV2” névből
+ * normalizeName után „hutv2” lesz, ezért a vezető „hu” (országjelző)
+ * levágott változatát is próbáljuk („tv2”), így a nyilvános újság
+ * display-name-jei („TV2”) is betalálnak.
+ */
 function guideKeyFor(channel: { epgChannelId?: string | null; name?: string }): string | null {
   const id = (channel.epgChannelId || '').trim();
-  if (id) return id.toLowerCase();
-  const key = normalizeName(channel.name || '');
-  if (!key) return null;
-  const viaName = nameToId.get(key);
-  if (viaName) return viaName;
-  if (index.has(key)) return key;
+  const nameKey = normalizeName(channel.name || '');
+  const candidates: string[] = [];
+  if (id) candidates.push(id.toLowerCase());
+  if (nameKey) {
+    candidates.push(nameKey);
+    if (nameKey.startsWith('hu') && nameKey.length > 2) candidates.push(nameKey.slice(2));
+  }
+  // először közvetlenül az indexben, aztán a display-name → id leképezésen
+  for (const candidate of candidates) {
+    if (index.has(candidate)) return candidate;
+  }
+  for (const candidate of candidates) {
+    const viaName = nameToId.get(candidate);
+    if (viaName && index.has(viaName)) return viaName;
+  }
   return null;
 }
 
@@ -1297,6 +1411,29 @@ export function guideStatus(): {
     programmes: statKept || lastProgrammes,
     skipped: lastSkipped,
   };
+}
+
+/**
+ * 2.5.267 (#14): lefedettség – a lista hány csatornájához van műsor a
+ * betöltött újságban (külön a magyar [HU] csatornák), hogy a naplóból
+ * pontosan látszódjon, hány magyar adóra van újság.
+ */
+export function guideChannelCoverage(
+  channels: Array<{ name?: string; epgChannelId?: string | null; countryCode?: string }>,
+): { total: number; withGuide: number; huTotal: number; huWithGuide: number } {
+  let withGuide = 0;
+  let huTotal = 0;
+  let huWithGuide = 0;
+  for (const channel of Array.isArray(channels) ? channels : []) {
+    const isHu = (channel.countryCode || '').toUpperCase() === 'HU';
+    const hit = Boolean(guideKeyFor(channel));
+    if (hit) withGuide += 1;
+    if (isHu) {
+      huTotal += 1;
+      if (hit) huWithGuide += 1;
+    }
+  }
+  return { total: Array.isArray(channels) ? channels.length : 0, withGuide, huTotal, huWithGuide };
 }
 
 /**
