@@ -33,7 +33,7 @@ import { appLog, appLogError } from './appLog';
 import type { ProviderRef } from './contentStore';
 import { breakerOpen, breakerRemainingMs } from './net';
 import { EpgNowNext, getCachedShortEpg, loadSimpleEpg, nowNextFromEpg, streamIdFor } from './epgService';
-import { getHuEpgId } from './huEpgIds';
+import { getHuEpgIds } from './huEpgIds';
 import { openIdbStore } from './idbStore';
 import { xtreamService } from './xtreamService';
 
@@ -212,6 +212,16 @@ let buffer = '';
 let windowStart = 0;
 let windowEnd = 0;
 
+/**
+ * 2.5.270 (#3-as napló): az iptv-org stílusú azonosítók („Viasat2.hu@SD”)
+ * „@…” utótagját levágjuk – a felület így a csupasz „viasat2.hu” alapján is
+ * megtalálja a műsort.
+ */
+function channelIdBase(id: string): string {
+  const at = id.indexOf('@');
+  return at > 0 ? id.slice(0, at) : id;
+}
+
 /** Egy kész blokk feldolgozása (`<programme …>…</programme>` vagy `<channel …>`). */
 function consumeBlock(kind: string, attrs: string, body: string): void {
   if (kind === 'channel') {
@@ -221,12 +231,15 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
     const nameMatch = /<display-name[^>]*>([\s\S]*?)<\/display-name>/i.exec(body);
     if (!nameMatch) return;
     const key = normalizeName(decodeEntities(nameMatch[1]));
-    if (key && !nameToId.has(key)) nameToId.set(key, id.toLowerCase());
+    /* 2.5.270 (#3): „@SD”/„@HD” utótag levágása az azonosítóból (iptv-org stílus). */
+    const baseId = channelIdBase(id).toLowerCase();
+    if (key && !nameToId.has(key)) nameToId.set(key, baseId);
     return;
   }
 
   const info = attributeMap(attrs);
-  const channel = (info.channel || '').trim().toLowerCase();
+  /* 2.5.270 (#3): „@…” utótag levágása – „Viasat2.hu@SD” → „viasat2.hu”. */
+  const channel = channelIdBase((info.channel || '').trim()).toLowerCase();
   if (!channel) return;
   lastProgrammes += 1;
   const start = parseXmltvDate(info.start);
@@ -455,8 +468,13 @@ const PUBLIC_GUIDE_URLS: Array<{
 }> = [
   // magyar csatornák külön (kicsi, gyors, kis tároló, teljes HU lefedettség)
   { url: 'https://epgshare01.online/epgshare01/epg_ripper_HU1.xml.gz', label: 'epgshare01 HU (magyar)', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
-  { url: 'https://iptv-org.github.io/epg/guides/hu/mediaklikk.hu.epg.xml.gz', label: 'iptv-org HU mediaklikk (állami adók)', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
-  { url: 'https://iptv-org.github.io/epg/guides/hu/tvmusor.hu.epg.xml.gz', label: 'iptv-org HU tvmusor.hu', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
+  /*
+   * 2.5.270 (#3-as napló): az iptv-org.github.io/epg/… útvonalak 2026-ban már
+   * 404-et adnak (a #3-as naplóban mindkettő HTTP 404) – helyettük az iptv-org
+   * magyar lista alapján készült, naponta kétszer frissülő magyar guide.xml
+   * (GitHub Pages, sima XML, „@SD” azonosítók – levágjuk belőlük a „@…”-ot).
+   */
+  { url: 'https://aldork04.github.io/lgtv-epg/guide.xml', label: 'aldork04 lgtv-epg HU (iptv-org magyar lista)', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
   { url: 'https://iptv-epg.org/files/epg-hu.xml.gz', label: 'iptv-epg.org HU', scope: 'hu', limits: { maxBytes: 32 * 1024 * 1024, maxMs: 3 * 60 * 1000 } },
 ];
 
@@ -1343,13 +1361,27 @@ function guideKeyFor(channel: { epgChannelId?: string | null; name?: string }): 
     if (spilerVariant !== nameKey) candidates.push(spilerVariant);
   }
   /*
-   * 2.5.269 (#2-es napló): a beépített HU EPG azonosítótábla (huEpgIds.ts,
-   * ugyanaz a logika, mint a csatornalogóknál): a magyar csatorna neve alapján
-   * közvetlenül a nyilvános újság (.hu végű) azonosítójára képezünk – akkor is
-   * működik, ha az újság display-name-je másképp írja a csatornát.
+   * 2.5.270 (#3-as napló): az iptv-org alapú magyar újságok az azonosítók végén
+   * „@SD”/„@HD”/„@Hungary” utótagot használnak („Viasat2.hu@SD”) – a panel
+   * epg_channel_id-jéből is levágjuk ezt az utótagot.
    */
-  const huEpgId = channel.name ? getHuEpgId(channel.name) : undefined;
-  if (huEpgId) candidates.push(huEpgId.toLowerCase());
+  if (id) {
+    const lowId = id.toLowerCase();
+    if (lowId.includes('@')) {
+      const base = lowId.slice(0, lowId.indexOf('@'));
+      if (base) candidates.push(base);
+    }
+  }
+  /*
+   * 2.5.269–2.5.270 (#2/#3-as napló): a beépített HU EPG azonosítótáblák
+   * (huEpgIds.ts: epgshare01 HU1 + iptv-org magyar idők, ugyanaz a logika, mint a
+   * csatornalogóknál): a magyar csatorna neve alapján közvetlenül a nyilvános
+   * újság (.hu végű) azonosítójára képezünk – akkor is működik, ha az újság
+   * display-name-je másképp írja a csatornát.
+   */
+  if (channel.name) {
+    for (const huEpgId of getHuEpgIds(channel.name)) candidates.push(huEpgId.toLowerCase());
+  }
   // először közvetlenül az indexben, aztán a display-name → id leképezésen
   for (const candidate of candidates) {
     if (index.has(candidate)) return candidate;
@@ -1504,8 +1536,9 @@ export function guideChannelCoverage(
       huTotal += 1;
       if (hit) huWithGuide += 1;
       /* 2.5.269 (#2): a még műsor nélküli magyar adók nevei – hogy a
-         huEpgIds táblát ki lehessen egészíteni (max huMissingMax név). */
-      else if (huMissing.length < huMissingMax && channel.name) huMissing.push(channel.name);
+         huEpgIds táblát ki lehessen egészíteni (max huMissingMax név).
+         2.5.270: a „##### … #####” csoportfejlécek kihagyva (nem valódi adó). */
+      else if (huMissing.length < huMissingMax && channel.name && !channel.name.trim().startsWith('#####')) huMissing.push(channel.name);
     }
   }
   return { total: Array.isArray(channels) ? channels.length : 0, withGuide, huTotal, huWithGuide, huMissing };
