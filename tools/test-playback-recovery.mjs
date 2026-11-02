@@ -247,16 +247,19 @@ check(/switchInProgressRef\.current\) return;/.test(PLAYER),
  * betöltés felirat háttere FEKETE (korábban világoskék/türkiz volt). A réteg
  * továbbra is csak a „még nincs képkocka” ágban jelenik meg, tehát a már
  * futó adást nem takarja el.
- * 2.5.245: TELJES KÉPERNYŐN viszont a töltő réteg (és a konténer, poszter,
- * videó elem) ÁTLÁTSZÓ – teljes képernyőn a TV Doctor panelen kívül ne
- * legyen fekete háttér.
+ * 2.5.246: teljes képernyőn a konténer/poszter/videó/töltő réteg átlátszó.
+ * 2.5.262 (#11): de teljes képernyőn is csak addig átlátszó, amíg az AKTUÁLIS
+ * adás már ad képkockát (fsLayerSeeThrough = isFullscreen && currentStreamHasFrame);
+ * csatornaváltáskor (még nincs képkocka) minden réteg FEKETE, így a főoldal nem
+ * ugrik be a teljes képernyős nézetbe a betöltés idejére.
  */
 check(/currentStreamHasFrame \? \(/.test(PLAYER) && /data-playback-loading=""/.test(PLAYER)
-  && /\$\{isFullscreen \? 'bg-transparent' : 'bg-black'\} z-10 pointer-events-none/.test(PLAYER),
-  'a töltő réteg csak képkocka előtt jelenik meg; főoldalon FEKETE (2.5.165), teljes képernyőn átlátszó (2.5.245)');
-check(/\$\{nativeHandoff \|\| isFullscreen \? 'bg-transparent' : 'bg-black'\}/.test(PLAYER)
-  && (PLAYER.match(/\$\{isFullscreen \? 'bg-transparent' : 'bg-black'\}/g) || []).length >= 2,
-  'teljes képernyőn a lejátszó konténer, poszter- és videó-háttere átlátszó (2.5.245)');
+  && /data-playback-loading="" className="[^"]*bg-black z-10 pointer-events-none"/.test(PLAYER),
+  'a töltő réteg csak képkocka előtt jelenik meg, és mindig FEKETE (2.5.165 + 2.5.262)');
+check(/const fsLayerSeeThrough = isFullscreen && currentStreamHasFrame/.test(PLAYER)
+  && /\$\{nativeHandoff \|\| fsLayerSeeThrough \? 'bg-transparent' : 'bg-black'\}/.test(PLAYER)
+  && (PLAYER.match(/\$\{fsLayerSeeThrough \? 'bg-transparent' : 'bg-black'\}/g) || []).length >= 2,
+  'teljes képernyőn a konténer/poszter/videó csak képkocka esetén átlátszó (2.5.246+2.5.262), váltáskor fekete');
 check(!/bg-\[#0b1c24\]|bg-\[#0d2630\]/.test(PLAYER),
   'a lejátszó dobozán nincs többé világoskék (türkiz) háttér');
 check(/data-playback-status/.test(PLAYER)

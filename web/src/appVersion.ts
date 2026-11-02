@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.261';
+export const WEB_VERSION = '2.5.262';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,13 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.262',
+    date: '2026-11-02',
+    changes: [
+      'Teljes képernyős élő TV csatornaváltáskor (#11): amíg az új csatorna első képkockája meg nem érkezik, a lejátszó összes rétege (konténer, poszter, videóelem, „Gyors kapcsolódás…” töltőjelző) mostantól FEKETÉN tartja a teljes képernyőt – korábban ezek teljes képernyőn átlátszóak voltak (2.5.246), ezért a váltás idejére a főoldal „beugrott” a teljes képernyős nézetbe. Amint az adás ad képkockát, a videó továbbra is kitölti a kijelzőt, a háttér továbbra sem látszik.',
+    ],
+  },
   {
     version: '2.5.261',
     date: '2026-11-02',
