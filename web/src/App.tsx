@@ -1584,7 +1584,13 @@ export function App() {
     const timers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0, restoreTimer: 0 };
     const scheduleGuide = () => {
       timers.guideTimer = window.setTimeout(() => {
-        if (providerRefreshActiveRef.current) return;
+        if (providerRefreshActiveRef.current) {
+          // 2.5.265 (#12): látszódjon, miért marad ki az ütemezett EPG-indítás.
+          appLog('EPG-ÁLLAPOT: ütemezett műsorújság-indítás kimarad – szolgáltatói frissítés folyik éppen.');
+          return;
+        }
+        // 2.5.265 (#12): a #12-es naplóban egyetlen EPG-ÁLLAPOT sor sem volt – innen tudjuk majd, hogy elindult-e.
+        appLog(`EPG-ÁLLAPOT: ütemezett műsorújság indul – provider típus=${plan.provider?.type || '?'}, cím=${plan.provider?.serverUrl || '?'}.`);
         void ensureGuide(plan.provider)
           .then(() => {
             const status = guideStatusSafe();
@@ -1615,15 +1621,25 @@ export function App() {
         .finally(() => {
           markLiveReady();
           /*
+           * 2.5.265 (#12-es napló): a műsorújság NEM vár a VOD visszatöltés
+           * végére. A #12-es naplóban a 103 ezer VOD bejegyzés visszatöltése
+           * 14,5 mp-ig lefoglalta a fő szálat, és az ütemezett EPG emiatt a
+           * napló küldéséig (08:37) soha nem indult el (0 db EPG-ÁLLAPOT sor).
+           * Most az ÉLŐ lista után rögtön ütemezzük, a VOD pedig párhuzamosan
+           * fut tovább; a VOD végén csak újra ránézünk (az ensureGuide ekkor
+           * már vagy fut, vagy friss – egyik sem tölt újra).
+           */
+          scheduleGuide();
+          /*
            * SZAKASZOLT INDULÁS (2.5.228, 2.5.249): előbb a főoldal (élő
            * lista) készül el teljesen, majd a MOZI+SOROZAT lista is
            * visszatöltődik a tartós tárból (moviesRef/seriesRef ekkor már
            * töltve), és csak UTÁNA melegednek elő az első 25-25 plakát
            * képei – korábban az előmelegítés üres listán futott, így a
-           * képeket csak a menü megnyitásakor töltötte a rendszer. Végül a
-           * műsorújság. Így egyszerre csak egy nagyobb munka fut, és a
-           * Mozi/Sorozat menü megnyitásakor már minden (lista + plakátok) ott
-           * van, egyetlen várakozás nélkül.
+           * képeket csak a menü megnyitásakor töltötte a rendszer. Így
+           * egyszerre csak egy nagyobb munka fut, és a Mozi/Sorozat menü
+           * megnyitásakor már minden (lista + plakátok) ott van, egyetlen
+           * várakozás nélkül.
            */
           void runRestore(plan, 'vod')
             .catch(() => { /* a naplóban már ott a valódi ok */ })

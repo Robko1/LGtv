@@ -212,6 +212,28 @@ export const HU_CHANNEL_LOGOS: Record<string, string> = {
   'travel': huLogo('ext-travel-channel'),
   'xtreme sport': huLogo('ext-xtreme-sport'),
   'film mania': huLogo('ext-film-mania'),
+  /*
+   * 2.5.265 (#12-es napló): a 7 logó nélküli magyar csatorna beépített logója
+   * (ATV Spirit, HIT TV, APOSTOL TV, PAX TV, TV 1000, ERDÉLY TV, M4/UHD).
+   * Forrás: Hungary-Picons GitHub-tár, Wikimedia Commons, hivatalos oldalak
+   * (lásd a fájl végét: generatedHuLogos.ts, ext-… kulcsok). A provider picons
+   * szerverei a TV-ről nem elérhetők (#12), ezért ezek is csak beépítve élnek.
+   */
+  'atv spirit': huLogo('ext-atv-spirit'),
+  'hit tv': huLogo('ext-hit-tv'),
+  'hit music channel': huLogo('ext-hit-tv'),
+  'hit': huLogo('ext-hit-tv'),
+  'apostol tv': huLogo('ext-apostol-tv'),
+  'apostol': huLogo('ext-apostol-tv'),
+  'pax tv': huLogo('ext-pax-tv'),
+  'pax': huLogo('ext-pax-tv'),
+  'tv 1000': huLogo('ext-tv-1000'),
+  'tv1000': huLogo('ext-tv-1000'),
+  'erdely tv': huLogo('ext-erdely-tv'),
+  'erdely': huLogo('ext-erdely-tv'),
+  'erdelyi magyar televizio': huLogo('ext-erdely-tv'),
+  'm4': huLogo('ext-m4'),
+  'm4 uhd': huLogo('ext-m4'),
 };
 
 const LOCAL_OVERRIDES_KEY = 'iptv_rt_hu_logos_v1';
