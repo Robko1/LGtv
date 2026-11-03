@@ -415,6 +415,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           return;
         }
         if (key === 'ArrowUp' || key === 'ArrowDown') {
+          if (box.hasAttribute('data-tv-doctor-box') && active === box && key === 'ArrowDown') {
+            controls[0]?.focus({ preventScroll: true } as any);
+            controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            return;
+          }
           if (box.hasAttribute('data-tv-doctor-box') && active !== box) {
             const index = controls.indexOf(active as HTMLElement);
             if (index >= 0) {
