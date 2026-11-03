@@ -55,6 +55,7 @@ import {
   storedCatalogPresence,
   readStoredCategories,
   saveCatalogExtras,
+  saveVodContent,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
@@ -2162,6 +2163,95 @@ async function refreshXtreamIncremental(
     // Mindhárom kategórialista szükséges. Hálózati hiba esetén nem indul
     // helyette rejtett, teljes katalógusletöltés.
     throw new Error('A szolgáltató kategórialistái nem érhetők el. A frissítés most nem indult el.');
+  }
+
+  /*
+   * EGYSZERI, CÉLZOTT FILMMENTÉS-JAVÍTÁS.
+   *
+   * Régi verzióból maradhat olyan VOD-fejléc, amely a teljes darabszámot
+   * mutatja, de csak az első 500-as adag létezik. Ilyenkor a kategória-
+   * ujjlenyomat változatlan lehet, ezért a szokásos gyors ellenőrzés tévesen
+   * „nincs változás” eredménnyel kilépne. Csak a hiányosnak jelölt filmrészt
+   * kérjük le újra; az élő és sorozat indexlistához nem nyúlunk.
+   */
+  if (catalogState?.providerId === provider.id && catalogState.sections?.vod?.incomplete) {
+    onProgress({ phase: 'Hiányos filmmentés javítása…', detail: 'A teljes film lista egyszeri visszatöltése', percent: 8 });
+    logProviderEvent('HIÁNYOS FILMMENTÉS: a program felismerte a régi, részleges VOD-tárat; célzott film-visszatöltés indul.');
+    const [storedVod, freshVodRaw] = await Promise.all([
+      loadVodAsync(providerRef),
+      xtreamService.vodStreams(server, user, pass),
+    ]);
+    if (!Array.isArray(freshVodRaw) || freshVodRaw.length === 0) {
+      throw new Error('A filmmentés hiányos, de a szolgáltató teljes filmlistája nem érhető el. A régi mentés változatlan maradt.');
+    }
+    const categoryMap = makeCategoryMap(vodCats || []);
+    const repairedMovies: Movie[] = [];
+    const seenMovieIds = new Set<string>();
+    for (let index = 0; index < freshVodRaw.length && repairedMovies.length < MAX_MOVIES; index++) {
+      const raw = freshVodRaw[index];
+      if (!raw || raw.stream_id === undefined || raw.stream_id === null) continue;
+      const id = String(raw.stream_id);
+      if (seenMovieIds.has(id)) continue;
+      seenMovieIds.add(id);
+      const category = resolveCategory(categoryMap, raw.category_id, 'vc-');
+      const fresh = decodeMoviesForImport([
+        movieRowFromRaw(raw as unknown as Record<string, unknown>, category),
+      ], providerRef)[0];
+      if (!fresh) continue;
+      const old = storedVod.movies.find((movie) => movie.id === fresh.id
+        || String(movie.streamId ?? '') === id);
+      repairedMovies.push(old ? {
+        ...fresh,
+        isFavorite: old.isFavorite,
+        resumePositionSeconds: old.resumePositionSeconds,
+        detailProviderData: old.detailProviderData,
+      } : fresh);
+      if (repairedMovies.length % 1000 === 0) {
+        onProgress({
+          phase: 'Hiányzó filmek feldolgozása…',
+          detail: repairedMovies.length.toLocaleString('hu-HU') + '/' + freshVodRaw.length.toLocaleString('hu-HU'),
+          percent: 8 + Math.round((repairedMovies.length / Math.max(1, freshVodRaw.length)) * 82),
+        });
+        await yieldToUi();
+      }
+    }
+    if (repairedMovies.length < freshVodRaw.length * 0.95) {
+      throw new Error(`A film-visszatöltés nem teljes: ${repairedMovies.length}/${freshVodRaw.length} feldolgozható film. A régi mentés változatlan maradt.`);
+    }
+    const movieCounts = new Map<string, number>();
+    for (const movie of repairedMovies) movieCounts.set(movie.categoryId, (movieCounts.get(movie.categoryId) || 0) + 1);
+    const repairedCategories = categoryCounts(
+      repairedMovies,
+      buildCategories(vodCats || [], 'vc-', 'movie', new Map()),
+      'movie',
+    );
+    const repairedContent: ImportedContent = {
+      provider: providerRef,
+      savedAt: new Date().toISOString(),
+      channels: [],
+      movies: repairedMovies,
+      series: [],
+      liveCategories: [],
+      vodCategories: repairedCategories,
+      seriesCategories: [],
+      totals: { live: 0, vod: repairedMovies.length, series: 0 },
+      warnings: [],
+      authoritative: true,
+    };
+    // A régi generáció addig marad aktív, amíg az új teljes filmgeneráció
+    // sikeresen el nem készült és a fejlécét el nem mentettük.
+    await saveVodContent(repairedContent);
+    markCatalogSectionsComplete(['vod']);
+    await onPartial({
+      preview: true,
+      movies: repairedMovies,
+      vodCategories: repairedCategories,
+      totals: { vod: repairedMovies.length },
+    });
+    saveSyncState({ providerId: provider.id, fingerprint: quickFingerprint, fullSyncAt: Date.now() });
+    logProviderEvent(`FILMJAVÍTÁS KÉSZ: ${repairedMovies.length.toLocaleString('hu-HU')} film újra letöltve és teljes generációként elmentve; élő és sorozat lista érintetlen.`);
+    onProgress({ phase: 'Filmlista helyreállítva', detail: `${repairedMovies.length.toLocaleString('hu-HU')} film mentve`, percent: 100 });
+    return { unchanged: true, quick: true, check: quickCheck };
   }
 
   if (quickUnchanged) {
