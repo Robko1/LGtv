@@ -4331,44 +4331,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setErrorMessage('Az LG webOS videóelem még nem áll készen.');
       return;
     }
-    /*
-     * 2.5.279 GYORS ZAP: ha a rejtett prefetch slot már a kért címet puffereli
-     * (readyState ≥ 3, előre puffer ≥ 0,5 s), ÁTVESSZÜK fő lejátszóként – így a
-     * csatornaváltás a már letöltött adatokkal indul, nem nulláról. A régi fő
-     * elem lesz az új rejtett (prefetch) slot.
-     */
-    if (!customStreamUrl) {
+    // Prefetch slot átvétele teljesen kikapcsolva: csak egy szolgáltatói kapcsolat használható.
+    if (false && !customStreamUrl) {
       const otherSlot: 0 | 1 = leadSlotRef.current === 0 ? 1 : 0;
-      const pre = slotVideoRefs.current[otherSlot];
-      if (pre && pre !== video) {
-        const preSrc = pre.currentSrc || pre.src;
-        let sameUrl = false;
-        if (preSrc) {
-          sameUrl = preSrc === url;
-          if (!sameUrl) {
-            try {
-              sameUrl = new URL(preSrc, window.location.href).href === new URL(url, window.location.href).href;
-            } catch { sameUrl = false; }
-          }
-        }
-        const preAhead = bufferedAheadSeconds(pre);
-        if (sameUrl && pre.readyState >= 3 && preAhead !== null && preAhead >= 0.5) {
-          adoptedPrefetch = true;
-          appLog(
-            `GYORS ZAP: előkészített puffer átvétel – csatorna=${String(channel?.name || '').slice(0, 40)}; `
-            + `readyState=${pre.readyState}; puffer-előre=${preAhead.toFixed(1)} s; váltás-eltelt=${Date.now() - (channelSwitchDiagnosticRef.current?.startedAt || Date.now())} ms.`
-          );
-          leadSlotRef.current = otherSlot;
-          htmlVideoRef.current = pre;
-          setLeadSlot(otherSlot);
-          try {
-            video.pause();
-            video.removeAttribute('src');
-            video.load();
-          } catch { /* régi motor */ }
-          video = pre;
-        }
-      }
+      void otherSlot;
     }
     try {
       if (!customStreamUrl) {
@@ -4902,51 +4868,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // A pufferprofil élő lejátszás közben is váltható. Nem indítjuk újra a
   // forrást pusztán a módváltás miatt: a következő watchdog/recovery már az
   // új policy-t használja, így a menü tesztelése nem okoz mesterséges akadozást.
-  /*
-   * 2.5.279 (#20/#21): ELŐKÉSZÍTÉS (prefetch) – a rejtett videó-slotba a
-   * következő csatorna címe töltődik be előre (némán, csak puffer).
-   * Csatornaváltáskor ezt a slotot veszi át a fő lejátszó (lásd loadStream),
-   * így a váltás kész pufferrel indul. A letöltést ~5 s előre-pufferig
-   * korlátozzuk, hogy ne egye a sávszélet a fő adás elől.
-   */
-  const prefetchSlot = (): HTMLVideoElement | null => slotVideoRefs.current[leadSlotRef.current === 0 ? 1 : 0];
-  useEffect(() => {
-    if (isVod || customStreamUrl) return;
-    if (nativeApi()?.play) return; // natív hídnál a HTML5 elem nem játszik
-    const pre = prefetchSlot();
-    if (!pre) return;
-    const targetChannel = prefetchChannels && prefetchChannels.length > 0 ? prefetchChannels[0] : null;
-    const target = targetChannel ? (targetChannel.streamUrl || targetChannel.fallbackUrl || '') : '';
-    if (!target) return;
-    const current = pre.currentSrc || pre.src;
-    if (current === target) return;
-    try {
-      pre.muted = true;
-      pre.preload = 'auto';
-      pre.setAttribute('playsinline', '');
-      if (current) {
-        pre.pause();
-        pre.removeAttribute('src');
-        pre.load();
-      }
-      pre.src = target;
-      pre.load();
-      appLog(`Előcsatorna előkészítés indul (prefetch): ${String(targetChannel?.name || target).slice(0, 60)}`);
-    } catch { /* régi motor */ }
-  }, [isVod, customStreamUrl, prefetchChannels, leadSlot, streamUrl]);
-  useEffect(() => {
-    if (isVod || customStreamUrl) return;
-    const timer = window.setInterval(() => {
-      const pre = prefetchSlot();
-      if (!pre || !(pre.currentSrc || pre.src)) return;
-      const ahead = bufferedAheadSeconds(pre);
-      // 2.5.279: ~5 s előre-puffer után leállítjuk az előkészítő letöltést.
-      if (ahead !== null && ahead > 5 && !pre.paused) {
-        try { pre.pause(); } catch { /* ignore */ }
-      }
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [isVod, customStreamUrl, leadSlot]);
+  // A második (rejtett) videó-slot előtöltése teljesen kikapcsolva.
+  // A szolgáltató egyetlen kapcsolatot engedélyez; a második slot nem kaphat src-t,
+  // és nem indíthat load() hívást. A rejtett video elem üresen marad.
 
   const loadKey = streamUrl;
   useEffect(() => {
