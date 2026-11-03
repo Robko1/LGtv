@@ -457,10 +457,48 @@ check(planDuringCooldown.maxRepairSteps === core.MAX_DEAD_CHANNEL_QUICK_STEPS &&
   '2.5.277: újraaktiválási hűtőben csak a rövid (2 lépéses) ellenőrzés engedélyezett (ARENA 4 flapping ellen)');
 check(recAfterExhaust !== null && core.getChannelDoctorRecord(flapCh, flapStore)?.deadUntil === undefined,
   '2.5.277: kézi újraválasztásnál a halott jelölés azonnal törlődik (NAT GEO WILD UHD eset)');
-// 3) siker után a halott-számláló visszaáll
+// 3) siker után minden korábbi halott/hűtési állapot törlődik, és a gyorsprofil ismét használható.
 core.recordDoctorChannelSuccess({ channel: flapCh, format: 'hls', bufferProfile: 'balanced', startupMs: 800, storage: flapStore });
-check((core.getChannelDoctorRecord(flapCh, flapStore)?.haltCount || 0) === 0,
-  '2.5.277: sikeres indulás után a halott-jelölés számlálója nullázódik');
+const flapAfterSuccess = core.getChannelDoctorRecord(flapCh, flapStore);
+const planAfterRecovery = core.selectChannelLaunchPlan(flapCh, flapCh.streamUrl, core.INITIAL_SETTINGS, flapStore);
+check(
+  (flapAfterSuccess?.haltCount || 0) === 0 &&
+    flapAfterSuccess?.lastExhaustedAt === undefined &&
+    flapAfterSuccess?.deadUntil === undefined &&
+    flapAfterSuccess?.lastErrorCode !== 'CHANNEL_UNREACHABLE' &&
+    planAfterRecovery.maxRepairSteps === core.MAX_DOCTOR_REPAIR_STEPS &&
+    planAfterRecovery.directFastStart === true,
+  'sikeres indulás után törlődik a halott és hűtési állapot, a Doktor azonnal a megtanult gyorsprofilt használja',
+);
+
+// 4) a percenkénti beavatkozási limit nem jelölhet működő csatornát halottnak.
+const rateLimitStore = new MemoryStorage();
+const rateLimitChannel = {
+  id: 'ch-rate-limit',
+  name: '[HU] Beavatkozási korlát teszt',
+  streamUrl: 'http://panel.example:8080/live/u/p/405.ts',
+};
+for (let step = 1; step <= core.MAX_INTERVENTIONS_PER_MINUTE; step += 1) {
+  core.planDoctorRepairStep({
+    channel: rateLimitChannel, trigger: 'startup_timeout', step: 1,
+    currentFormat: 'ts', currentBufferProfile: 'balanced',
+    streamUrl: rateLimitChannel.streamUrl, tsUrl: rateLimitChannel.streamUrl,
+    hlsUrl: 'http://panel.example:8080/live/u/p/405.m3u8', storage: rateLimitStore,
+  });
+}
+const rateLimited = core.planDoctorRepairStep({
+  channel: rateLimitChannel, trigger: 'startup_timeout', step: 1,
+  currentFormat: 'ts', currentBufferProfile: 'balanced',
+  streamUrl: rateLimitChannel.streamUrl, tsUrl: rateLimitChannel.streamUrl,
+  hlsUrl: 'http://panel.example:8080/live/u/p/405.m3u8', storage: rateLimitStore,
+});
+check(
+  rateLimited.strategyId === 'intervention_rate_limited' &&
+    rateLimited.exhausted === false &&
+    core.getChannelDoctorRecord(rateLimitChannel, rateLimitStore)?.deadUntil === undefined &&
+    core.getChannelDoctorRecord(rateLimitChannel, rateLimitStore)?.lastErrorCode !== 'CHANNEL_UNREACHABLE',
+  'a biztonsági beavatkozási limit elérése nem jelöli hibásnak vagy halottnak a csatornát',
+);
 
 // 1.7 VOD (Filmek és Sorozatok) TV Doktor támogatás: valós idejű lejátszássegítés MEMÓRIA- ÉS NAPLÓMENTÉS NÉLKÜL
 const vodStore = new MemoryStorage();
