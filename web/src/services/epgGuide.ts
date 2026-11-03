@@ -641,7 +641,7 @@ async function download(
  * teljes műsorújság soha nem töltődik be, és a get_simple_data_table is üres.
  * Sok Xtream panel viszont a get.php M3U listájának elején hirdeti meg az igazi
  * XMLTV címét (`#EXTM3U url-tvg="…"`). Itt letöltjük az M3U lista elejét
- * (az első ~512 KB bőven elég, a url-tvg mindig a fejlécben van), és abból
+ * (az első ~64 KB bőven elég, a url-tvg mindig a fejlécben van – 2.5.275), és abból
  * olvassuk ki az XMLTV címet – onnan már a download() a szokásos módon tölti.
  */
 /** url-tvg érték kinyerése egy M3U fejléc-szövegből (&amp; visszaalakítással). */
@@ -687,7 +687,12 @@ async function scanM3uForUrlTvg(m3uUrl: string, variantLabel: string): Promise<s
           try { await reader.cancel(); } catch { /* már lezárult */ }
           return match;
         }
-        if (bytes >= 512 * 1024) {
+        /*
+         * 2.5.275 (#11-es napló): a url-tvg mindig a #EXTM3U fejlécben van, az
+         * első pár KB-ben – 64 KB után már felesleges tovább olvasni (és minden
+         * blokk után újra regexelni a teljes eddigi szöveget a főszálon).
+         */
+        if (bytes >= 64 * 1024) {
           try { await reader.cancel(); } catch { /* már lezárult */ }
           break;
         }
@@ -696,11 +701,11 @@ async function scanM3uForUrlTvg(m3uUrl: string, variantLabel: string): Promise<s
       // Régi motor: nincs stream, egyben olvassuk.
       text = await response.text();
       bytes = text.length;
-      const match = matchUrlTvg(text);
+      const match = matchUrlTvg(text.slice(0, 64 * 1024));
       if (match) return match;
     }
     appLog(
-      `EPG-ÁLLAPOT: az M3U lista (${variantLabel}) ${bytes >= 512 * 1024 ? `első ${(bytes / 1024).toFixed(0)} KB-jában` : `(${bytes} bájt, teljes)`} NINCS url-tvg – `
+      `EPG-ÁLLAPOT: az M3U lista (${variantLabel}) ${bytes >= 64 * 1024 ? `első ${(bytes / 1024).toFixed(0)} KB-jában` : `(${bytes} bájt, teljes)`} NINCS url-tvg – `
       + `első 200 karakter: „${text.slice(0, 200).replace(/\s+/g, ' ')}”.`
     );
     return null;
@@ -838,6 +843,42 @@ async function discoverXmltvCandidates(
 const GUIDE_IDB_PREFIX = 'epg-guide-v1-';
 /** Ennél nagyobb mentést nem írunk ki (a tár ne teljen meg feleslegesen). */
 const GUIDE_IDB_MAX_CHARS = 6 * 1024 * 1024;
+/*
+ * 2.5.275 (#11-es napló): „a panel EPG végpontjai üresek" jelző. Ha egy teljes
+ * próba után az xmltv.php üres volt és a get.php M3U-ban sincs url-tvg (és a
+ * jelölt /epg.xml, /guide.xml, /xmltv.xml útvonalak is üresek/404-esek), ezt
+ * elmentjük – így a KÉSŐBBI frissítések (30 percenként) már NEM töltenek le
+ * újra több MB-os M3U-t és nem próbálják újra a jelölt útvonalakat, hanem
+ * egyenesen a nyilvános HU újságokhoz mennek. 24 óra után újra próbáljuk
+ * (hátha a panel közben beállította az EPG-t).
+ */
+const PANEL_EMPTY_TTL_MS = 24 * 60 * 60 * 1000;
+
+function panelEmptyKey(providerId: string): string {
+  return `${GUIDE_IDB_PREFIX}${providerId}-panel-empty`;
+}
+
+async function readPanelEmptyAt(providerId: string): Promise<number> {
+  try {
+    const store = await openIdbStore();
+    if (!store) return 0;
+    const raw = await store.get(panelEmptyKey(providerId));
+    const value = raw ? Number(JSON.parse(String(raw))) : 0;
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function writePanelEmpty(providerId: string): Promise<void> {
+  try {
+    const store = await openIdbStore();
+    if (!store) return;
+    await store.put(panelEmptyKey(providerId), JSON.stringify(Date.now()));
+  } catch {
+    /* a jelző írásának hibája nem akadály */
+  }
+}
 /** Ha `clearGuide()` volt, a következő letöltés ne a régi mentésből induljon. */
 let skipRestore = false;
 /* 2.5.269 (#2): true, ha az induláskor visszatöltött újság RÉSZLEGES volt –
@@ -1161,7 +1202,20 @@ export async function ensureGuide(provider: {
       const hu = huProbeCoverage();
       appLog(`EPG-ÁLLAPOT: a visszatöltött újság csak ${hu.hit}/${hu.total} magyar adót fed le – nem tekintjük frissnek, frissítjük + nyilvános HU újságok.`);
     }
-    if (restored.complete && thick && Date.now() - restored.savedAt < GUIDE_TTL_MS && !huLow) {
+    /*
+     * 2.5.275 (#11-es napló): a mentett újság akkor is „friss”, ha az IDŐABLKA
+     * még érvényes (a mentéssavedAt + KEEP_AFTER_SEC még a jövőbe mutat) – így
+     * nem töltjük le újra a 30+ MB-os nyilvános HU újságokat 3 óránként, csak
+     * amikor a mentett műsorok már tényleg kifutnának. A 3 órás TTL továbbra
+     * is él (gyorsabb frissülés friss indulásnál).
+     */
+    const windowStillValid = Date.now() < restored.savedAt + (KEEP_AFTER_SEC - 3600) * 1000;
+    if (restored.complete && thick && !huLow
+      && (Date.now() - restored.savedAt < GUIDE_TTL_MS || windowStillValid)) {
+      appLog(
+        `EPG-ÁLLAPOT: a mentett műsorújság még érvényes (${restored.channels} csatorna, ablaka ${(KEEP_AFTER_SEC / 3600).toFixed(0)} órás) `
+        + `– a 30+ MB-os újbóli letöltés kihagyva, a meglévő műsorok maradnak.`
+      );
       // 2.5.266 (#13): a szinkron zárat minden kilépésnél el kell engedni.
       finishLoading();
       return;
@@ -1225,16 +1279,36 @@ export async function ensureGuide(provider: {
          * naplózva van (státusz + törzs eleje).
          */
         // 2.5.265 (#12): m3u esetén a discover* függvények a listát / annak könyvtárát nézik.
-        const tvgUrl = await discoverUrlTvg(provider, isM3u);
-        let guideSourceUrl = tvgUrl && (!isM3u ? tvgUrl !== guideUrl(provider) : true) ? tvgUrl : null;
+        /*
+         * 2.5.275 (#11-es napló): ha korábban már egy teljes próba üresnek találta
+         * a panel összes EPG végpontját (üres xmltv.php, nincs url-tvg a get.php
+         * elején, a jelölt útvonalak 404-esek), a 24 órás jelző ideje alatt
+         * KIHAGYJUK az M3U letöltést és a jelölt útvonalak újbóli próbáját – ez
+         * minden frissítésnél több MB és több másodperc megtakarítás a főszálon.
+         */
+        const panelEmptyAt = await readPanelEmptyAt(provider.id);
+        const panelKnownEmpty = panelEmptyAt > 0 && Date.now() - panelEmptyAt < PANEL_EMPTY_TTL_MS;
+        let guideSourceUrl: string | null = null;
         let guideSourceLabel = 'url-tvg XMLTV';
-        if (!guideSourceUrl) {
-          appLog(`EPG-ÁLLAPOT: ${isM3u ? 'az m3u listában' : 'az M3U listában'} sincs url-tvg – jelölt XMLTV útvonalak próbája következik.`);
-          const candidateUrl = await discoverXmltvCandidates(provider, isM3u);
-          if (candidateUrl) {
-            guideSourceUrl = candidateUrl;
-            guideSourceLabel = 'jelölt XMLTV';
+        if (panelKnownEmpty) {
+          appLog(
+            `EPG-ÁLLAPOT: a panel EPG végpontjai ${Math.round((Date.now() - panelEmptyAt) / 60000)} perce üresnek bizonyultak `
+            + `– a get.php url-tvg keresés és a jelölt útvonalak újbóli próbája KIHAGYVA, egyenesen a nyilvános HU újságok következnek.`
+          );
+        } else {
+          const tvgUrl = await discoverUrlTvg(provider, isM3u);
+          guideSourceUrl = tvgUrl && (!isM3u ? tvgUrl !== guideUrl(provider) : true) ? tvgUrl : null;
+          if (!guideSourceUrl) {
+            appLog(`EPG-ÁLLAPOT: ${isM3u ? 'az m3u listában' : 'az M3U listában'} sincs url-tvg – jelölt XMLTV útvonalak próbája következik.`);
+            const candidateUrl = await discoverXmltvCandidates(provider, isM3u);
+            if (candidateUrl) {
+              guideSourceUrl = candidateUrl;
+              guideSourceLabel = 'jelölt XMLTV';
+            }
           }
+          // 2.5.275: csak VALÓDI próba után jegyezzük fel (különben a 24 órás
+          // lejárati idő soha nem érne véget, és soha nem próbálnánk újra).
+          if (!guideSourceUrl) void writePanelEmpty(provider.id);
         }
         if (guideSourceUrl) {
           appLog(`EPG-ÁLLAPOT: műsorújság forrása megtalálva: ${guideSourceUrl} – a letöltés innen indul.`);

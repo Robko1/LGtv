@@ -1076,9 +1076,30 @@ export const HU_EPG_IDS_IPTV: Record<string, string> = {
   'zuglotvhu': 'ZugloTV.hu',
 };
 
+/*
+ * 2.5.275 (#11-es napló): TÖBBES aliaszok – egy névhez több, különböző forrásokban
+ * előforduló azonosító is tartozhat (pl. „AXN CE” lehet „AXN” a musor.tv-s
+ * guide-ban, „AXNCEE.es@Hungary” az iptv-org listában és „HU1#AXN.hu" az
+ * epgshare01 HU1-ben). A guideKeyFor minden jelöltet kipróbál.
+ */
+export const HU_EPG_IDS_EXTRA: Record<string, string[]> = {
+  'axnce': ['AXN', 'AXN.hu', 'HU1#AXN.hu'],
+  'axncee': ['AXN', 'AXN.hu', 'HU1#AXN.hu'],
+  'boomerang': ['Cartoonito.hu', 'HU1#Cartoonito.hu', 'CARTOONITO', 'CARTOON', 'Boomerang.hu', 'HU1#Boomerang.hu'],
+  'cartoonito': ['CARTOONITO', 'CARTOON', 'HU1#Cartoonito.hu'],
+  'disneyjr': ['DISNEYJUNIOR', 'DisneyJunior.hu', 'HU1#Disney.Junior.hu', 'Disney.Junior.hu'],
+  'disneyjunior': ['DISNEYJUNIOR', 'DisneyJunior.hu', 'HU1#Disney.Junior.hu', 'Disney.Junior.hu'],
+  'eentertainment': ['E_ENTERTAINMENT', 'E!Entertainment.hu', 'HU1#E.Entertainment.hu', 'EEntertainment.hu'],
+  'hittv': ['HITTV', 'HIT.TV.hu', 'HU1#Hit.TV.hu', 'HitTV.hu'],
+  'tv1000': ['TV1000', 'TV1000.hu', 'HU1#TV1000.hu', 'TV.1000.hu'],
+  'mplus': ['M+.hu', 'MPlus.hu', 'HU1#M+.hu'],
+};
+
 /**
  * Minden ismert magyar EPG azonosító egy névhez (HU1 újság + iptv-org tábla is) –
- * a guideKeyFor minden jelöltet kipróbál.
+ * a guideKeyFor minden jelöltet kipróbál. A HU1 táblából a „HU1#…” előtagú
+ * változat is jelölt lesz (az epgshare01 HU1 újság ténylegesen „HU1#AXN.hu"
+ * alakú azonosítókat használ).
  */
 export function getHuEpgIds(name: string): string[] {
   const out: string[] = [];
@@ -1086,8 +1107,13 @@ export function getHuEpgIds(name: string): string[] {
     if (value && !out.includes(value)) out.push(value);
   };
   for (const candidate of huEpgIdCandidates(name)) {
-    push(HU_EPG_IDS[candidate]);
+    const hu1 = HU_EPG_IDS[candidate];
+    push(hu1);
+    /* 2.5.275 (#11): az epgshare01 HU1 „HU1#…” előtagos alakja is. */
+    if (hu1) push(`HU1#${hu1}`);
     push(HU_EPG_IDS_IPTV[candidate]);
+    const extra = HU_EPG_IDS_EXTRA[candidate];
+    if (extra) for (const value of extra) push(value);
   }
   return out;
 }
