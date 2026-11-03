@@ -534,6 +534,12 @@ interface VideoPlayerProps {
   channel: Channel | null;
   customStreamUrl?: string;
   customTitle?: string;
+  /**
+   * 2.5.279: a következő/előző csatornák előkészítéshez (prefetch) – a lejátszó
+   * rejtett videó-slotjába ezek töltődnek be előre, így a csatornaváltás már
+   * pufferelt adással indul (gyors zap).
+   */
+  prefetchChannels?: Channel[];
   audioTracks?: AudioTrack[];
   subtitleTracks?: SubtitleTrack[];
   settings: AppSettings;
@@ -631,6 +637,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   channel,
   customStreamUrl,
   customTitle,
+  prefetchChannels,
   audioTracks: providedAudioTracks,
   subtitleTracks: providedSubtitleTracks,
   settings,
@@ -660,6 +667,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoSurfaceRef = useRef<HTMLDivElement | null>(null);
   const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
+  /*
+   * 2.5.279 (#20/#21): KÉT VIDEÓ-SLOT – a fő (látható, leadSlot) és egy rejtett
+   * előkészítő (prefetch) elem. Csatornaváltáskor ha a rejtett slot már a kért
+   * címet puffereli (readyState ≥ 3), átveszi a fő szerepet: a váltás nem üres
+   * lappal, hanem KÉSZ pufferrel indul → a kép ~1 mp alatt megjelenik.
+   */
+  const [leadSlot, setLeadSlot] = useState<0 | 1>(0);
+  const leadSlotRef = useRef<0 | 1>(0);
+  const slotVideoRefs = useRef<Array<HTMLVideoElement | null>>([null, null]);
+  const attachSlotRef = useCallback((slot: 0 | 1) => (el: HTMLVideoElement | null) => {
+    const prev = slotVideoRefs.current[slot];
+    slotVideoRefs.current[slot] = el;
+    if (el) {
+      if (leadSlotRef.current === slot) htmlVideoRef.current = el;
+    } else if (htmlVideoRef.current === prev) {
+      // 2.5.279: leválasztáskor (unmount) a fő ref is null legyen – mint a
+      // sima ref objektumnál; különben egy leválasztott példány időzítői még
+      // tudnának load()-ot hívni a régi elemen.
+      htmlVideoRef.current = null;
+    }
+  }, []);
+  const attachSlotRefs = useMemo(
+    () => [attachSlotRef(0), attachSlotRef(1)] as [(el: HTMLVideoElement | null) => void, (el: HTMLVideoElement | null) => void],
+    [attachSlotRef],
+  );
   const isVodRef = useRef(Boolean(customStreamUrl));
   isVodRef.current = Boolean(customStreamUrl);
   const playbackActiveRef = useRef(playbackActive);
@@ -896,6 +928,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * engedjük az új csatorna loading/error állapotát átírni.
    */
   const isActiveMediaEvent = (video: HTMLVideoElement): boolean => {
+    // 2.5.279: két slot esetén csak a FŐ slot eseménye érvényes (a rejtett
+    // prefetch elem eseményei soha nem írhatják felül az állapotot).
+    if (video !== htmlVideoRef.current) return false;
     const expected = activeMediaUrlRef.current;
     const actual = video.currentSrc || video.src;
     if (!expected || !actual) return true;
@@ -4277,7 +4312,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     // LG webOS: lejátszás a TV HTML5/HLS videóelemével.
-    const video = htmlVideoRef.current;
+    let video = htmlVideoRef.current;
+    let adoptedPrefetch = false;
     // Élő adás csak akkor indul, ha a főoldal (élő nézet) látszik. A korábbi
     // ág itt hagyta az isLoading=true állapotot, ezért nézetváltás vagy import
     // közben végtelen töltő maradhatott a lejátszón.
@@ -4294,6 +4330,45 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setHasError(true);
       setErrorMessage('Az LG webOS videóelem még nem áll készen.');
       return;
+    }
+    /*
+     * 2.5.279 GYORS ZAP: ha a rejtett prefetch slot már a kért címet puffereli
+     * (readyState ≥ 3, előre puffer ≥ 0,5 s), ÁTVESSZÜK fő lejátszóként – így a
+     * csatornaváltás a már letöltött adatokkal indul, nem nulláról. A régi fő
+     * elem lesz az új rejtett (prefetch) slot.
+     */
+    if (!customStreamUrl) {
+      const otherSlot: 0 | 1 = leadSlotRef.current === 0 ? 1 : 0;
+      const pre = slotVideoRefs.current[otherSlot];
+      if (pre && pre !== video) {
+        const preSrc = pre.currentSrc || pre.src;
+        let sameUrl = false;
+        if (preSrc) {
+          sameUrl = preSrc === url;
+          if (!sameUrl) {
+            try {
+              sameUrl = new URL(preSrc, window.location.href).href === new URL(url, window.location.href).href;
+            } catch { sameUrl = false; }
+          }
+        }
+        const preAhead = bufferedAheadSeconds(pre);
+        if (sameUrl && pre.readyState >= 3 && preAhead !== null && preAhead >= 0.5) {
+          adoptedPrefetch = true;
+          appLog(
+            `GYORS ZAP: előkészített puffer átvétel – csatorna=${String(channel?.name || '').slice(0, 40)}; `
+            + `readyState=${pre.readyState}; puffer-előre=${preAhead.toFixed(1)} s; váltás-eltelt=${Date.now() - (channelSwitchDiagnosticRef.current?.startedAt || Date.now())} ms.`
+          );
+          leadSlotRef.current = otherSlot;
+          htmlVideoRef.current = pre;
+          setLeadSlot(otherSlot);
+          try {
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+          } catch { /* régi motor */ }
+          video = pre;
+        }
+      }
     }
     try {
       if (!customStreamUrl) {
@@ -4356,11 +4431,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // a valóban szükséges fallback/recovery esetén indítunk teljes load()-ot.
       // A webOS HTML5 videóelemét használjuk. Élő adásnál legfeljebb két
       // külön formátum-próba van; a további indításokat a recovery időzíti.
-      video.src = url;
-      // UGYANAZ a cím az újracsatlakozásnál: a TV médiamotorja ilyenkor nem
-      // mindig indít új kérést, ezért kifejezetten újratöltjük. Ha egy régi
-      // hibaállapotot bontottunk le, az új címhez ugyanígy teljes reset kell.
-      if (forceReload || hadMediaError) video.load();
+      if (!adoptedPrefetch) {
+        video.src = url;
+        // UGYANAZ a cím az újracsatlakozásnál: a TV médiamotorja ilyenkor nem
+        // mindig indít új kérést, ezért kifejezetten újratöltjük. Ha egy régi
+        // hibaállapotot bontottunk le, az új címhez ugyanígy teljes reset kell.
+        if (forceReload || hadMediaError) video.load();
+      }
+      // 2.5.279: átvett prefetch elemnél a src már rajta van – csak újra kell játszani.
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
       video.volume = Math.max(0, Math.min(1, volume));
       applyMuteState(video, volume);
@@ -4429,8 +4507,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // se hiba, se kép), nem várunk a végtelenségig pörgő töltésre -
       // automatikusan a következő formátumra (MPEG-TS) váltunk.
       if (!customStreamUrl) {
-        const { startupWatchdogMs } = bufferTiming();
-        const attemptTimeoutMs = Math.min(startupWatchdogMs, 2000);
+        const { startupWatchdogMs, bufferWatchdogMs } = bufferTiming();
+        /*
+         * 2.5.279 (#20/#21): a zap-őr NEM indíthatja újra pusztán azért a
+         * streamet, mert „már van puffer”, közben pedig mégsem indul – a
+         * #20-as naplóban így lett egy 1,7 mp-es váltásból 4,4 mp (RTL KLUB)
+         * és 5,8 mp (HIR TV): őr + ugyanakkora türelmi idő = dupla várakozás,
+         * majd felesleges teljes újratöltés. Most: rövidebb első őr; ha adat
+         * folyik (puffer nő), csak a lejátszás-őrig várunk tovább, és csak
+         * valóban adat nélküli streamnél próbálunk azonnal újra.
+         */
+        const attemptTimeoutMs = Math.min(startupWatchdogMs, 1500);
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
           if (isCurrentLoad() && !playbackStartedRef.current) {
@@ -4440,16 +4527,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             let hasStartupData = video.readyState >= 3;
             try { hasStartupData = hasStartupData || video.buffered.length > 0; } catch { /* régi motor */ }
             if (hasStartupData) {
-              // Egyszer adunk még egy rövid türelmi ablakot a webOS-nek;
-              // a `playing` nélküli végtelen várakozás viszont nem maradhat.
-            const graceMs = Math.max(1000, Math.min(startupWatchdogMs, 2000));
-            appLog(`Zap-őr: már van metaadat/puffer, türelmi idő indul (${graceMs} ms).`);
+              // Puffer van: türelmi ablak a lejátszás-őrig (legfeljebb ~2,5 mp).
+              const graceMs = Math.max(900, Math.min(startupWatchdogMs, 1200, bufferWatchdogMs - attemptTimeoutMs));
+              appLog(`Zap-őr: már van metaadat/puffer, türelmi idő indul (${graceMs} ms).`);
               zapWatchdogRef.current = window.setTimeout(() => {
                 zapWatchdogRef.current = null;
                 if (isCurrentLoad() && !playbackStartedRef.current) {
-                  appLog('Zap-őr: a türelmi idő után sem indult el az adás, formátumpróba következik.');
-                  notifyTvDoctorIncident('startup_timeout', video, 'STARTUP_TIMEOUT', 'türelmi idő lejárt');
-                  scheduleAutoRetry();
+                  const ahead = bufferedAheadSeconds(video);
+                  if (ahead !== null && ahead >= 1) {
+                    /*
+                     * 2.5.279: az adat FOLYIK (a puffer még nő) – ez NEM hiba,
+                     * csak lassú indulás. Nem váltunk formátumot és nem
+                     * töltünk újra: a lejátszás-őrig még egyszer ránézünk.
+                     */
+                    const restMs = Math.max(500, bufferWatchdogMs - attemptTimeoutMs - graceMs);
+                    appLog(`Zap-őr: a puffer még nő (előre=${ahead.toFixed(1)} s), várakozás még ${restMs} ms-ig.`);
+                    zapWatchdogRef.current = window.setTimeout(() => {
+                      zapWatchdogRef.current = null;
+                      if (isCurrentLoad() && !playbackStartedRef.current) {
+                        appLog('Zap-őr: a lejátszás-őr után sem indult el az adás, formátumpróba következik.');
+                        notifyTvDoctorIncident('startup_timeout', video, 'STARTUP_TIMEOUT', 'lejátszási őr lejárt');
+                        scheduleAutoRetry();
+                      }
+                    }, restMs);
+                  } else {
+                    appLog('Zap-őr: a türelmi idő után sem indult el az adás, formátumpróba következik.');
+                    notifyTvDoctorIncident('startup_timeout', video, 'STARTUP_TIMEOUT', 'türelmi idő lejárt');
+                    scheduleAutoRetry();
+                  }
                 }
               }, graceMs);
               return;
@@ -4459,7 +4564,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             scheduleAutoRetry();
           }
         }, attemptTimeoutMs);
-      } else if (tvDoctorEnabledRef.current) {
+            } else if (tvDoctorEnabledRef.current) {
         // VOD INDULÁSI ŐR: ha a film vagy sorozat HTTP-kapcsolata némán
         // beragad induláskor, a TV Doktor türelmes ablak után (≥ 8,5 mp)
         // automatikusan újracsatlakoztatja ugyanazt a fájlt.
@@ -4769,6 +4874,52 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // A pufferprofil élő lejátszás közben is váltható. Nem indítjuk újra a
   // forrást pusztán a módváltás miatt: a következő watchdog/recovery már az
   // új policy-t használja, így a menü tesztelése nem okoz mesterséges akadozást.
+  /*
+   * 2.5.279 (#20/#21): ELŐKÉSZÍTÉS (prefetch) – a rejtett videó-slotba a
+   * következő csatorna címe töltődik be előre (némán, csak puffer).
+   * Csatornaváltáskor ezt a slotot veszi át a fő lejátszó (lásd loadStream),
+   * így a váltás kész pufferrel indul. A letöltést ~5 s előre-pufferig
+   * korlátozzuk, hogy ne egye a sávszélet a fő adás elől.
+   */
+  const prefetchSlot = (): HTMLVideoElement | null => slotVideoRefs.current[leadSlotRef.current === 0 ? 1 : 0];
+  useEffect(() => {
+    if (isVod || customStreamUrl) return;
+    if (nativeApi()?.play) return; // natív hídnál a HTML5 elem nem játszik
+    const pre = prefetchSlot();
+    if (!pre) return;
+    const targetChannel = prefetchChannels && prefetchChannels.length > 0 ? prefetchChannels[0] : null;
+    const target = targetChannel ? (targetChannel.streamUrl || targetChannel.fallbackUrl || '') : '';
+    if (!target) return;
+    const current = pre.currentSrc || pre.src;
+    if (current === target) return;
+    try {
+      pre.muted = true;
+      pre.preload = 'auto';
+      pre.setAttribute('playsinline', '');
+      if (current) {
+        pre.pause();
+        pre.removeAttribute('src');
+        pre.load();
+      }
+      pre.src = target;
+      pre.load();
+      appLog(`Előcsatorna előkészítés indul (prefetch): ${String(targetChannel?.name || target).slice(0, 60)}`);
+    } catch { /* régi motor */ }
+  }, [isVod, customStreamUrl, prefetchChannels, leadSlot, streamUrl]);
+  useEffect(() => {
+    if (isVod || customStreamUrl) return;
+    const timer = window.setInterval(() => {
+      const pre = prefetchSlot();
+      if (!pre || !(pre.currentSrc || pre.src)) return;
+      const ahead = bufferedAheadSeconds(pre);
+      // 2.5.279: ~5 s előre-puffer után leállítjuk az előkészítő letöltést.
+      if (ahead !== null && ahead > 5 && !pre.paused) {
+        try { pre.pause(); } catch { /* ignore */ }
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isVod, customStreamUrl, leadSlot]);
+
   const loadKey = streamUrl;
   useEffect(() => {
     clearAutoRetry();
@@ -5127,78 +5278,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isFullscreen, isVod, streamUrl]);
 
-  return (
-    <div
-      ref={containerRef}
-      data-tv-player=""
-      /* Film/sorozat alatt ez a jelölés mondja meg a webos.js-nek, hogy a
-         ZÖLD gomb a közös sávválasztót nyitja, KÉK nem végez műveletet. */
-      data-vod-active={isVod ? '1' : undefined}
-      data-player-engine={playerEngine}
-      tabIndex={isFullscreen ? 0 : -1}
-      onKeyDown={handleKeyDown}
-      /* A TELJES KÉPERNYŐ geometriája a `.iptv-fs` CSS-osztályból jön
-         (web/src/index.css), nem inline stílusból: így a váltás egyetlen
-         attribútum-írás, a kilépéskor pedig az osztály eltávolítása magától
-         visszaadja a főoldali 16:9-es keretet. A `fixed` osztály a webos.js
-         TV-s szabályaihoz kell (a lejátszó OSD-jének elrejtése a főoldalon). */
-      /* 2.5.165 – A CSATORNAVÁLTÁS KÖZÖTTI HÁTTÉR FEKETE (felhasználói kérés).
-         Korábban a lejátszó doboza világos türkiz (#0d2630) volt, ezért a
-         váltás alatt – amíg az új adás első képkockája meg nem jön – a
-         képernyő világoskéknek látszott. Most fekete, mint a videó maga.
-         2.5.264 (#11) – TELJES KÉPERNYŐN MINDIG FEKETE a konténer (csak a natív
-         áadás átlátszó): a #11 napló szerint az új adás első képkockája csak
-         „két képkockával később” érkezik, addig az átlátszó rétegeken át a
-         főoldal villant be a teljes képernyős nézetbe csatornaváltáskor. */
-      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
-      /* Állandó főoldali stílus: teljes képernyőn a CSS-osztály írja felül
-         `!important`-tal, ezért a React itt SOHA nem ír stílust a váltáskor. */
-      style={PLAYER_HOME_STYLE}
-    >
-      {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
-      {/* Amíg az első képkocka meg nem érkezik, a csatorna nevét és logóját
-          mutatjuk – MINDIG FEKETE alapon (2.5.165; 2.5.264: teljes képernyőn is).
-          A korábbi türkiz alap volt a
-          „világoskék csatornaváltási háttér”, amit a felhasználó kifogásolt. */}
-      {!isVod && !firstFrameShown && (
-        <div
-          data-player-poster=""
-          /* 2.5.264: teljes képernyőn is MINDIG fekete (a főoldal ne villanjon be váltáskor, #11). */
-          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-black pointer-events-none"
-        >
-          {/* 2.5.135 – FOLYAMATOS INDULÁS.
-              Üres IPK-n nincs csatorna: a logó-doboz és a „Kapcsolódás…”
-              felirat csak egy sötét, majdnem fekete téglalapot adott volna a
-              képernyő közepére (ez volt a „fekete felvillanás”). A HTML
-              fejlécéből injektált CSS ilyenkor a webOS indítóképét teszi a
-              doboz hátterére, ezért a REVEAL után is UGYANAZ a kép látszik –
-              csak a kezelőfelület épül köré. Ha már van csatorna, a logó és
-              a csatornanév változatlanul megjelenik. */}
-          {channel && (
-            <>
-              <div className="h-16 w-16 md:h-24 md:w-24 flex items-center justify-center overflow-hidden rounded-xl border border-cyan-800/50 bg-[#0e1e3e]">
-                <ChannelLogo url={channel.logo} name={channel.name || ''} retryKey={channel.id} countryCode={channel.countryCode} />
-              </div>
-              <div className="max-w-[80%] truncate text-center text-lg font-bold text-slate-300 md:text-2xl">
-                {channel.name || 'Kapcsolódás…'}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      <div
-        ref={videoSurfaceRef}
-        className="absolute inset-0 bg-transparent pointer-events-none"
-      >
-        {!nativeApi()?.play && (
-          <video
-            ref={htmlVideoRef}
-            data-iptv-player="true"
+  /*
+   * 2.5.279: a videóelem KÉT slotban jelenik meg (fő + rejtett prefetch).
+   * A `renderVideoSlot` ugyanazt a lejátszót rajzolja ki kétszer: a fő slot
+   * látható és viseli a data-iptv-player jelzőt, a másik rejtett (display:none),
+   * és csak előre tölti a következő csatornát. Átvételnél (GYORS ZAP) a
+   * leadSlot állapot cseréli őket.
+   */
+  const renderVideoSlot = (slot: 0 | 1) => {
+    const isLead = leadSlot === slot;
+    return (
+      <video
+            ref={attachSlotRefs[slot]}
+            data-iptv-player={isLead ? 'true' : undefined}
             data-iptv-mode={isVod ? 'VOD' : 'élő'}
             /* 2.5.264: teljes képernyőn is MINDIG fekete a videóelem hátere – a képkockák
                erre festődnek rá, így csatornaváltáskor nem látszik át rajta a főoldal (#11). */
-            className="block h-full w-full bg-black"
+            className={isLead ? 'block h-full w-full bg-black' : 'hidden'}
             // KÉPMINŐSÉG (2.5.156): teljes képernyőn `contain` – se nyújtás, se vágás.
             // Korábban a VOD `fill` módban a 16:9-es területre NYÚJTOTTA a
             // 2.39:1-es filmeket (torz, „megnyúlt" kép), az élő `cover` pedig
@@ -5207,9 +5303,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             // és a cover azonos, így a megszokott kép nem változik.
             // A főoldali kis előnézet-dobozban az élő kép továbbra is `cover`
             // (ott a kitöltés a cél, a dobozt a geometria-effekt is így írja).
-            style={{ objectFit: isVod || isFullscreen ? 'contain' : 'cover', imageRendering: 'auto', filter: 'none', backfaceVisibility: 'hidden' }}
+            style={isLead ? { objectFit: isVod || isFullscreen ? 'contain' : 'cover', imageRendering: 'auto', filter: 'none', backfaceVisibility: 'hidden' } : { display: 'none' }}
             playsInline
             preload="auto"
+            tabIndex={-1}
+            aria-hidden={isLead ? undefined : true}
 
 
             onDurationChange={(event) => {
@@ -5725,7 +5823,79 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 onProgress?.(position, duration);
               }
             }}
-          />
+      />
+    );
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      data-tv-player=""
+      /* Film/sorozat alatt ez a jelölés mondja meg a webos.js-nek, hogy a
+         ZÖLD gomb a közös sávválasztót nyitja, KÉK nem végez műveletet. */
+      data-vod-active={isVod ? '1' : undefined}
+      data-player-engine={playerEngine}
+      tabIndex={isFullscreen ? 0 : -1}
+      onKeyDown={handleKeyDown}
+      /* A TELJES KÉPERNYŐ geometriája a `.iptv-fs` CSS-osztályból jön
+         (web/src/index.css), nem inline stílusból: így a váltás egyetlen
+         attribútum-írás, a kilépéskor pedig az osztály eltávolítása magától
+         visszaadja a főoldali 16:9-es keretet. A `fixed` osztály a webos.js
+         TV-s szabályaihoz kell (a lejátszó OSD-jének elrejtése a főoldalon). */
+      /* 2.5.165 – A CSATORNAVÁLTÁS KÖZÖTTI HÁTTÉR FEKETE (felhasználói kérés).
+         Korábban a lejátszó doboza világos türkiz (#0d2630) volt, ezért a
+         váltás alatt – amíg az új adás első képkockája meg nem jön – a
+         képernyő világoskéknek látszott. Most fekete, mint a videó maga.
+         2.5.264 (#11) – TELJES KÉPERNYŐN MINDIG FEKETE a konténer (csak a natív
+         áadás átlátszó): a #11 napló szerint az új adás első képkockája csak
+         „két képkockával később” érkezik, addig az átlátszó rétegeken át a
+         főoldal villant be a teljes képernyős nézetbe csatornaváltáskor. */
+      className={`relative w-full ${isFullscreen ? 'iptv-fs h-screen max-h-none aspect-auto fixed inset-0 z-[9999]' : 'flex-1 min-h-0 max-h-none'} ${nativeHandoff ? 'bg-transparent' : 'bg-black'} overflow-hidden group select-none focus:outline-none focus-visible:outline-none ${isFullscreen ? '' : 'shadow-2xl border-b border-cyan-900/30'}`}
+      /* Állandó főoldali stílus: teljes képernyőn a CSS-osztály írja felül
+         `!important`-tal, ezért a React itt SOHA nem ír stílust a váltáskor. */
+      style={PLAYER_HOME_STYLE}
+    >
+      {/* Három külön elrendezés: főoldali 16:9, álló teljes képernyőn 16:9 keret (élő TV és VOD is), fekvőben teljes kijelző. */}
+      {/* Amíg az első képkocka meg nem érkezik, a csatorna nevét és logóját
+          mutatjuk – MINDIG FEKETE alapon (2.5.165; 2.5.264: teljes képernyőn is).
+          A korábbi türkiz alap volt a
+          „világoskék csatornaváltási háttér”, amit a felhasználó kifogásolt. */}
+      {!isVod && !firstFrameShown && (
+        <div
+          data-player-poster=""
+          /* 2.5.264: teljes képernyőn is MINDIG fekete (a főoldal ne villanjon be váltáskor, #11). */
+          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-black pointer-events-none"
+        >
+          {/* 2.5.135 – FOLYAMATOS INDULÁS.
+              Üres IPK-n nincs csatorna: a logó-doboz és a „Kapcsolódás…”
+              felirat csak egy sötét, majdnem fekete téglalapot adott volna a
+              képernyő közepére (ez volt a „fekete felvillanás”). A HTML
+              fejlécéből injektált CSS ilyenkor a webOS indítóképét teszi a
+              doboz hátterére, ezért a REVEAL után is UGYANAZ a kép látszik –
+              csak a kezelőfelület épül köré. Ha már van csatorna, a logó és
+              a csatornanév változatlanul megjelenik. */}
+          {channel && (
+            <>
+              <div className="h-16 w-16 md:h-24 md:w-24 flex items-center justify-center overflow-hidden rounded-xl border border-cyan-800/50 bg-[#0e1e3e]">
+                <ChannelLogo url={channel.logo} name={channel.name || ''} retryKey={channel.id} countryCode={channel.countryCode} />
+              </div>
+              <div className="max-w-[80%] truncate text-center text-lg font-bold text-slate-300 md:text-2xl">
+                {channel.name || 'Kapcsolódás…'}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      <div
+        ref={videoSurfaceRef}
+        className="absolute inset-0 bg-transparent pointer-events-none"
+      >
+        {!nativeApi()?.play && (
+          <>
+            {renderVideoSlot(0)}
+            {renderVideoSlot(1)}
+          </>
         )}
       </div>
 

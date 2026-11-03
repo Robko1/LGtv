@@ -33,7 +33,7 @@ import { appLog, appLogError } from './appLog';
 import type { ProviderRef } from './contentStore';
 import { breakerOpen, breakerRemainingMs } from './net';
 import { EpgNowNext, getCachedShortEpg, loadSimpleEpg, nowNextFromEpg, streamIdFor } from './epgService';
-import { getHuEpgIds } from './huEpgIds';
+import { getHuEpgIds, HU_EPG_IDS } from './huEpgIds';
 import { openIdbStore } from './idbStore';
 import { xtreamService } from './xtreamService';
 
@@ -222,6 +222,42 @@ function channelIdBase(id: string): string {
   return at > 0 ? id.slice(0, at) : id;
 }
 
+/*
+ * 2.5.279 (#20/#21-es napló): CSAK MAGYAR (HU) CSATORNÁK műsorújsága.
+ * A teljes (minden országos) szolgáltatói XML feldolgozása és tárolása
+ * feleslegesen lassította a TV-t (10–50 MB tároló, főszál-leállások
+ * csatornaváltás közben) – a magyar fő menühöz csak a magyar adók kellenek.
+ * Ezért a feldolgozásnál (consumeBlock) és a visszatöltésnél is csak a
+ * magyar csatornákat vesszük figyelembe; a letöltés pedig korán megáll,
+ * amint elég magyar csatorna érkezett.
+ */
+/** A beépített HU táblából (huEpgIds.ts) levezetett, kisbetűs HU azonosítók. */
+const HU_GUIDE_ID_SET: Set<string> = (() => {
+  const set = new Set<string>();
+  for (const rawId of Object.values(HU_EPG_IDS)) {
+    const low = String(rawId).toLowerCase();
+    set.add(low);
+    set.add(channelIdBase(low));
+  }
+  return set;
+})();
+/** A beépített HU táblából levezetett, normalizált magyar csatornanevek. */
+const HU_GUIDE_NAME_SET: Set<string> = new Set(Object.keys(HU_EPG_IDS));
+/** A már feldolgozott <channel> blokkok közül a MAGYAR csatornák azonosítói. */
+const huChannelIdSet = new Set<string>();
+/** Nem magyar blokkok száma az aktuális feldolgozásban (naplóhoz). */
+let lastSkippedNonHu = 0;
+/** Ennyi magyar csatorna után a letöltést korán megállítjuk (lásd download()). */
+const HU_ENOUGH_CHANNELS = 110;
+/** Egy XMLTV csatornaazonosító magyar (HU)-e? */
+function isHuGuideChannelId(rawId: string): boolean {
+  const base = channelIdBase(rawId).toLowerCase();
+  if (!base) return false;
+  if (base.endsWith('.hu')) return true;
+  if (HU_GUIDE_ID_SET.has(base)) return true;
+  return huChannelIdSet.has(base);
+}
+
 /** Egy kész blokk feldolgozása (`<programme …>…</programme>` vagy `<channel …>`). */
 function consumeBlock(kind: string, attrs: string, body: string): void {
   if (kind === 'channel') {
@@ -233,6 +269,13 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
     const key = normalizeName(decodeEntities(nameMatch[1]));
     /* 2.5.270 (#3): „@SD”/„@HD” utótag levágása az azonosítóból (iptv-org stílus). */
     const baseId = channelIdBase(id).toLowerCase();
+    /* 2.5.279: CSAK magyar csatorna kerül a név→azonosító térképbe – a többi
+       ország blokkját itt kihagyjuk (se név, se műsor nem tárolódik). */
+    if (!isHuGuideChannelId(id) && !(key && HU_GUIDE_NAME_SET.has(key))) {
+      lastSkippedNonHu += 1;
+      return;
+    }
+    huChannelIdSet.add(baseId);
     if (key && !nameToId.has(key)) nameToId.set(key, baseId);
     return;
   }
@@ -241,6 +284,11 @@ function consumeBlock(kind: string, attrs: string, body: string): void {
   /* 2.5.270 (#3): „@…” utótag levágása – „Viasat2.hu@SD” → „viasat2.hu”. */
   const channel = channelIdBase((info.channel || '').trim()).toLowerCase();
   if (!channel) return;
+  /* 2.5.279: csak magyar csatorna műsora kerül az indexbe. */
+  if (!isHuGuideChannelId(channel)) {
+    lastSkippedNonHu += 1;
+    return;
+  }
   lastProgrammes += 1;
   const start = parseXmltvDate(info.start);
   const stop = parseXmltvDate(info.stop);
@@ -617,6 +665,17 @@ async function download(
         break;
       }
       await feedWithBreath(chunkText);
+      /*
+       * 2.5.279 (#20/#21): ha már elég MAGYAR csatorna érkezett, a letöltést
+       * itt megállítjuk – a többi ország műsorújsága csak letöltési időt és
+       * tárolót foglalna, nekünk nem kell.
+       */
+      if (huChannelIdSet.size >= HU_ENOUGH_CHANNELS && lastSkippedNonHu >= 4 * huChannelIdSet.size) {
+        try { await reader.cancel(); } catch { /* már lezárult */ }
+        abortReason = `elég magyar csatorna (${huChannelIdSet.size} db) – a többi ország kihagyva`;
+        appLog(`EPG-ÁLLAPOT: ${abortReason}; a letöltés ${(bytes / 1048576).toFixed(1)} MB-nál megáll, a már beolvasott rész használható.`);
+        break;
+      }
       // LÉLEGZÉS: 250 ms-onként visszaadjuk a főszálat, hogy a felület fusson.
       if (Date.now() - lastYield > 250) {
         lastYield = Date.now();
@@ -1024,6 +1083,9 @@ async function restorePersistedGuide(
         if (!line) continue;
         const [channel, entries] = JSON.parse(line) as [string, Array<[number, number, string]>];
         if (!channel || !Array.isArray(entries) || !entries.length) continue;
+        /* 2.5.279: a régi, minden országot tartalmazó mentésből is csak a magyar csatornák maradnak. */
+        if (!isHuGuideChannelId(channel)) continue;
+        huChannelIdSet.add(channelIdBase(channel).toLowerCase());
         index.set(channel, entries.map(([start, end, title]) => ({ s: start, e: end, t: title })));
         restored += 1;
       }
@@ -1039,6 +1101,8 @@ async function restorePersistedGuide(
           for (let i = 0; i < parsedNames.length; i += 1) {
             const pair = parsedNames[i];
             if (Array.isArray(pair) && pair[0] && pair[1]) {
+              /* 2.5.279: csak magyar cél-azonosítójú névpárok maradnak. */
+              if (!isHuGuideChannelId(String(pair[1]))) continue;
               nameToId.set(String(pair[0]), String(pair[1]));
               restoredNamesCount += 1;
             }
@@ -1114,6 +1178,7 @@ async function loadPublicHuGuides(
     scannedUpTo = 0; // 2.5.278
     lastProgrammes = 0;
     lastSkipped = 0;
+    lastSkippedNonHu = 0; // 2.5.279
     lastBytes = 0;
     abortReason = '';
     try {
@@ -1215,10 +1280,12 @@ export async function ensureGuide(provider: {
   const startedAt = Date.now();
   index.clear();
   nameToId.clear();
+  huChannelIdSet.clear(); // 2.5.279
   buffer = '';
   scannedUpTo = 0; // 2.5.278
   lastProgrammes = 0;
   lastSkipped = 0;
+  lastSkippedNonHu = 0; // 2.5.279
   lastBytes = 0;
   lastError = '';
   statInvalidDate = 0;
@@ -1318,7 +1385,8 @@ export async function ensureGuide(provider: {
     await loadPublicHuGuides(provider);
   }
   const statKeptBase = statKept;
-  const primaryDownload = isM3u ? Promise.resolve() : download(provider);
+  /* 2.5.279: a szolgáltató teljes (minden országos) xmltv-je csak korlátozottan töltődik – csak magyar kell, a többit a korai megállás/ez a plafon vágja. */
+  const primaryDownload = isM3u ? Promise.resolve() : download(provider, undefined, 'xmltv.php', { maxBytes: 32 * 1024 * 1024 });
   await primaryDownload
     .then(async () => {
       loadedAt = Date.now();
@@ -1331,7 +1399,7 @@ export async function ensureGuide(provider: {
         + `${channels} csatorna, ${statKept} megtartott műsor (ebből ÚJONNAN ${ujMűsor}) `
         + `(a ${lastProgrammes} feldolgozott blokkból ${lastSkipped} időablakon kívüli, `
         + `${statInvalidDate} érvénytelen időpont, ${statNoTitle} cím nélküli, `
-        + `${statCap} korlát miatt kihagyott), ${(lastBytes / 1024).toFixed(0)} KB${partial}.`
+        + `${statCap} korlát miatt kihagyott, ${lastSkippedNonHu} nem magyar csatorna/műsor kihagyva (HU-mód)), ${(lastBytes / 1024).toFixed(0)} KB${partial}.`
       );
       appLog(`IMPORT-API-DIAG [EPG XMLTV] letöltés kész: ${channels} csatorna, ${statKept} megtartott műsor, ${lastProgrammes} feldolgozott blokk, ${(lastBytes / 1024).toFixed(0)} KB; mezők: channel-id/display-name, programme start/stop/title/desc (a ténylegesen beolvasott XML-elemek alapján).`);
       if (channels > 0) void persistGuide(provider.id, !abortReason);
@@ -1391,7 +1459,7 @@ export async function ensureGuide(provider: {
           lastSkipped = 0;
           lastBytes = 0;
           abortReason = '';
-          await download(provider, guideSourceUrl, guideSourceLabel);
+          await download(provider, guideSourceUrl, guideSourceLabel, { maxBytes: 32 * 1024 * 1024 });
           channels = index.size;
           loadedAt = Date.now();
           appLog(

@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.278';
+export const WEB_VERSION = '2.5.279';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.279',
+    date: '2026-11-03',
+    changes: [
+      'EPG CSAK magyar csatornákra (#20/#21-es napló, „az EPG csak a magyar csatornákra kell, a többi csak lassítja a TV-t"): a műsorújság feldolgozásnál és a tartós tárolónál is csak a magyar (HU) csatornákat vesszük figyelembe – a nem magyar blokkokat kihagyjuk, így a tároló 10-50 MB helyett pár MB lesz, és a csatornaváltás közbeni főszál-leállások (LEÁLLÁS 2,5 mp a #20-as naplóban) megszűnnek. A szolgáltató teljes (minden országos) xmltv.php letöltése 32 MB-nál leáll, és korábban megáll, amint elég magyar csatorna érkezett – nem töltünk le minden országot.',
+      'GYORS CSATORNAVÁLTÁS (#20/#21-es napló, „1 másodperc alatt meg kell történnie, ne a TV Doktort javítsd"): (1) előkészítés (prefetch) – a lejátszó rejtett második videóeleme előre betölti a következő/előző csatornát; váltáskor ezt a kész pufferű elemet veszi át a fő lejátszó, így a kép már a váltás pillanatában ott van; (2) a zap-őr nem indítja újra az éppen pufferelő streamet („már van puffer, mégis újratöltöttük" – a #20-as naplóban ebből lett 4,4-5,8 mp-es váltás); most csak akkor próbál újra, ha tényleg nincs adat, egyébként a lejátszás-őrig vár; (3) az indulási őr 2 mp helyett 1,5 mp.',
+    ],
+  },
   {
     version: '2.5.278',
     date: '2026-11-03',
