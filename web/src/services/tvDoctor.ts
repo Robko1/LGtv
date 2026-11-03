@@ -1970,8 +1970,16 @@ export function recordDoctorChannelSuccess(params: {
     rec.lastWorkingStartupMs = safeMs;
     rec.consecutiveFailures = 0;
     rec.deadUntil = undefined;
-    // 2.5.277: siker után a halott-jelölés számlálója visszaáll (a csatorna újra „él”).
+    // Valódi siker minden korábbi kimerülési/hűtési állapotot érvénytelenít.
+    // A lastExhaustedAt különben a siker után is 8 percig rövid javítási
+    // létrán tartaná a csatornát, és a Doktor figyelmen kívül hagyná a friss mérést.
+    rec.lastExhaustedAt = undefined;
     rec.haltCount = 0;
+    // A korábbi „nem működik” jelzés többé nem érvényes, ha a stream ténylegesen elindult.
+    if (rec.lastErrorCode === 'CHANNEL_UNREACHABLE') {
+      rec.lastErrorCode = undefined;
+      rec.lastErrorReason = undefined;
+    }
     rec.consecutiveCleanStarts = wasRepair ? 1 : (rec.consecutiveCleanStarts || 0) + 1;
 
     rec.bestStartupMs = rec.bestStartupMs === null || rec.bestStartupMs <= 20
@@ -2410,9 +2418,31 @@ export function planDoctorRepairStep(params: {
     Math.min(MAX_DOCTOR_REPAIR_STEPS, maxStepsOverride || MAX_DOCTOR_REPAIR_STEPS),
   );
 
-  // Ha minden különböző beállítást kipróbáltunk és a csatorna nem működik,
-  // VÉGLEGESEN LEÁLLÍTJUK az újrapróbálást (nincs végtelen újracsatlakozási ciklus!).
-  if (step > effectiveMaxSteps || !canDoctorIntervene(channelKey)) {
+  // A percenkénti beavatkozási korlát NEM bizonyítja, hogy a csatorna halott.
+  // Ha csak a biztonsági limit fogyott el, állítsuk meg ezt a javítási kört,
+  // de ne írjunk CHANNEL_UNREACHABLE állapotot és ne indítsunk halott-cooldownt.
+  if (step <= effectiveMaxSteps && !canDoctorIntervene(channelKey)) {
+    const safeCfg = getDoctorBufferConfig(record?.bestBufferProfile || currentBufferProfile);
+    return {
+      step,
+      maxSteps: effectiveMaxSteps,
+      strategyId: 'intervention_rate_limited',
+      description: 'a TV Doktor biztonsági beavatkozási korlátja elérte a határt',
+      nextFormat: currentFormat,
+      nextUrl: urlFor(currentFormat),
+      nextBufferProfile: safeCfg.id,
+      nextBufferTiming: safeCfg,
+      delayMs: 0,
+      useFallbackUrl: false,
+      forceCleanReset: false,
+      stopRetrying: true,
+      exhausted: false,
+    };
+  }
+
+  // Csak akkor minősítjük átmenetileg elérhetetlennek, ha a teljes javítási
+  // létra minden lépése valóban lefutott és sikertelen maradt.
+  if (step > effectiveMaxSteps) {
     const safeCfg = getDoctorBufferConfig(record?.bestBufferProfile || currentBufferProfile);
     opHealth.deadChannelsHaltedCount += 1;
 
