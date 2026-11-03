@@ -1738,9 +1738,30 @@ export function selectChannelLaunchPlan(
     const learnedFormatSuccesses = learnedFormat === 'hls'
       ? Math.max(0, record.hlsOk || 0)
       : Math.max(0, record.tsOk || 0);
-    const chosenFormat: LiveFormat = supportsDualFormat && learnedFormatSuccesses >= 2
-      ? learnedFormat
-      : fallbackPrimary;
+    const preferredFormatSuccesses = learnedFormat === 'hls'
+      ? Math.max(0, record.hlsOk || 0)
+      : Math.max(0, record.tsOk || 0);
+    const alternateFormat: LiveFormat = learnedFormat === 'hls' ? 'ts' : 'hls';
+    const alternateSuccesses = alternateFormat === 'hls'
+      ? Math.max(0, record.hlsOk || 0)
+      : Math.max(0, record.tsOk || 0);
+    const alternateFailures = alternateFormat === 'hls'
+      ? Math.max(0, record.hlsFail || 0)
+      : Math.max(0, record.tsFail || 0);
+    /*
+     * Biztonságos sebességpróba: ha a jelenlegi mód már legalább 10-szer
+     * sikeresen indult, időnként egyetlen váltás erejéig kipróbáljuk a másik
+     * formátumot is. Két valódi siker után már összehasonlítható a sebesség;
+     * ismételt hibánál ritkítjuk, majd leállítjuk a próbát.
+     */
+    const shouldProbeAlternateFormat = supportsDualFormat
+      && alternateSuccesses < 2
+      && alternateFailures < 3
+      && preferredFormatSuccesses >= (alternateFailures + 1) * 10
+      && preferredFormatSuccesses % 10 === 0;
+    const chosenFormat: LiveFormat = shouldProbeAlternateFormat
+      ? alternateFormat
+      : (supportsDualFormat && learnedFormatSuccesses >= 2 ? learnedFormat : fallbackPrimary);
 
     // Szinkronban tartjuk a VideoPlayer helyi formátum-emlékével is (csak ha a TV Doktor be van kapcsolva!).
     if (channel.id && !storage && totalLifetimeOk > 0) {
