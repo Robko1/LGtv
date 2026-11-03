@@ -126,7 +126,6 @@ export function ensureDurableStorage(): Promise<DurableStorageInfo> {
       persisted: false, quotaBytes: null, usageBytes: null, method: 'nem elérhető',
     };
     const manager = storageManager();
-    let legacyGrantedQuota: number | null = null;
     try {
       if (manager && typeof manager.persist === 'function') {
         info.method = 'StorageManager.persist';
@@ -134,17 +133,25 @@ export function ensureDurableStorage(): Promise<DurableStorageInfo> {
         info.persisted = already === true || (await manager.persist()) === true;
       }
     } catch { /* a tartósság-kérés hibája nem akadályozza a tárolást */ }
+    try {
+      const estimate = manager && typeof manager.estimate === 'function' ? await manager.estimate() : null;
+      if (estimate) {
+        info.quotaBytes = typeof estimate.quota === 'number' ? estimate.quota : null;
+        info.usageBytes = typeof estimate.usage === 'number' ? estimate.usage : null;
+      }
+    } catch { /* a kvóta-olvasás nem kritikus */ }
     /*
      * Régebbi webOS Chromiumon a persist() nem feltétlenül növeli a kvótát.
-     * Ha a régi requestQuota API elérhető, kérünk 256 MB-ot, és a callbackben
-     * visszaadott tényleges keretet is megőrizzük a mentési döntésekhez.
+     * Csak akkor kérünk külön 256 MB-ot, ha a becsült keret kisebb vagy
+     * ismeretlen; a callbackben visszaadott tényleges keretet használjuk.
      */
     try {
       const legacy = typeof navigator !== 'undefined'
         ? (navigator as any).webkitPersistentStorage : null;
-      if (legacy && typeof legacy.requestQuota === 'function') {
+      if (legacy && typeof legacy.requestQuota === 'function'
+        && (!info.quotaBytes || info.quotaBytes < 128 * 1024 * 1024)) {
         info.method = 'webkitPersistentStorage.requestQuota';
-        legacyGrantedQuota = await new Promise<number>((resolve) => {
+        const granted = await new Promise<number>((resolve) => {
           let done = false;
           const finish = (bytes: number) => {
             if (done) return;
@@ -152,26 +159,16 @@ export function ensureDurableStorage(): Promise<DurableStorageInfo> {
             resolve(Number.isFinite(bytes) && bytes > 0 ? bytes : 0);
           };
           try {
-            legacy.requestQuota(256 * 1024 * 1024, (granted: number) => finish(granted), () => finish(0));
+            legacy.requestQuota(256 * 1024 * 1024, (bytes: number) => finish(bytes), () => finish(0));
           } catch { finish(0); }
           setTimeout(() => finish(0), 3000);
         });
-        if (legacyGrantedQuota > 0) info.persisted = true;
+        if (granted > 0) {
+          info.persisted = true;
+          info.quotaBytes = Math.max(info.quotaBytes || 0, granted);
+        }
       }
     } catch { /* a régi kvóta API hiánya nem akadályozza a tárolást */ }
-    try {
-      const estimate = manager && typeof manager.estimate === 'function' ? await manager.estimate() : null;
-      if (estimate) {
-        info.quotaBytes = typeof estimate.quota === 'number' ? estimate.quota : null;
-        info.usageBytes = typeof estimate.usage === 'number' ? estimate.usage : null;
-      }
-      if (legacyGrantedQuota && legacyGrantedQuota > (info.quotaBytes || 0)) {
-        info.quotaBytes = legacyGrantedQuota;
-      }
-    } catch { /* a kvóta-olvasás nem kritikus */ }
-    if (legacyGrantedQuota && legacyGrantedQuota > (info.quotaBytes || 0)) {
-      info.quotaBytes = legacyGrantedQuota;
-    }
     // Ha a böngésző nem ad kvótát, feltételezzük a referenciában használt
     // konzervatív keretet (idb-cache.ts: FALLBACK_BUDGET_BYTES).
     return info;
