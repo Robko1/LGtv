@@ -1763,6 +1763,7 @@ export function selectChannelLaunchPlan(
       && stableFormatSuccesses >= (alternateFailures + 1) * 10
       && stableFormatSuccesses % 10 === 0;
     const shouldProbeAlternateFormat = supportsDualFormat
+      && !inCooldown
       && alternateSuccesses < 2
       && (continueAlternateCalibration || startAlternateCalibration);
     const chosenFormat: LiveFormat = shouldProbeAlternateFormat
@@ -1834,11 +1835,13 @@ export function selectChannelLaunchPlan(
       bufferProfileId: hasCustomBufferExperience ? chosenBufferProfile : baseBufferMode,
       bufferTiming: chosenTiming,
       expectedStartupMs,
-      reason: inCooldown
-        ? (inReactivationCooldown
-          ? `újraaktiválási hűtőben (${Math.max(1, Math.round((DOCTOR_REACTIVATION_COOLDOWN_MS - (now - (record.lastExhaustedAt || now))) / 60000))} perc hátra) – rövidített (${maxRepairSteps} lépéses) gyors ellenőrzés`
-          : `korábban nem működő csatorna – rövidített (${maxRepairSteps} lépéses) gyors ellenőrzés`)
-        : `tanult gyorsprofil (${chosenFormat.toUpperCase()}, puffer=${chosenBufferProfile}${expectedStartupMs ? `, ~${expectedStartupMs}ms` : ''})`,
+      reason: shouldProbeAlternateFormat
+        ? `időszakos formátum-sebességpróba (${chosenFormat.toUpperCase()})`
+        : inCooldown
+          ? (inReactivationCooldown
+            ? `újraaktiválási hűtőben (${Math.max(1, Math.round((DOCTOR_REACTIVATION_COOLDOWN_MS - (now - (record.lastExhaustedAt || now))) / 60000))} perc hátra) – rövidített (${maxRepairSteps} lépéses) gyors ellenőrzés`
+            : `korábban nem működő csatorna – rövidített (${maxRepairSteps} lépéses) gyors ellenőrzés`)
+          : `tanult gyorsprofil (${chosenFormat.toUpperCase()}, puffer=${chosenBufferProfile}${expectedStartupMs ? `, ~${expectedStartupMs}ms` : ''})`,
     };
     const elapsed = nowPerfMs() - startedAt;
     recordDoctorOpTiming('selectChannelLaunchPlan', elapsed, channel.name);
