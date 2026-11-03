@@ -134,6 +134,17 @@ ${Array.from({ length: 10 }, (_, index) => {
  * Itt azt ellenőrizzük, hogy a darabonkénti (64 KB) feldolgozás MINDEN
  * csatornát és műsort megtart (nincs veszteség a darabhatárokon).
  */
+/* 2.5.279: vegyes (HU + nem HU) újság – csak a magyar csatorna maradhat meg. */
+const MIXED_GUIDE = `<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="m1.hu"><display-name>M1</display-name></channel>
+  <channel id="rtl2.de"><display-name>RTL II DE</display-name></channel>
+  <channel id="bbc.uk"><display-name>BBC UK</display-name></channel>
+  <programme start="${xmltv(now - 30 * 60)}" stop="${xmltv(now + 30 * 60)}" channel="m1.hu"><title>M1 műsor</title></programme>
+  <programme start="${xmltv(now - 30 * 60)}" stop="${xmltv(now + 30 * 60)}" channel="rtl2.de"><title>DE műsor</title></programme>
+  <programme start="${xmltv(now - 30 * 60)}" stop="${xmltv(now + 30 * 60)}" channel="bbc.uk"><title>UK műsor</title></programme>
+</tv>`;
+
 const BIG_CHANNELS = 400;
 const BIG_PROGRAMMES = 150;
 const BIG_GUIDE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -167,6 +178,12 @@ function startServer(): Promise<void> {
         if (variant === 'dashed' || variant === 'many') {
           res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' });
           res.end(variant === 'dashed' ? DASHED_GUIDE : MANY_GUIDE);
+          return;
+        }
+        if (variant === 'mixed') {
+          // 2.5.279 (#20/#21): vegyes (HU + DE + UK) újság – csak a .hu marad.
+          res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' });
+          res.end(MIXED_GUIDE);
           return;
         }
         if (variant === 'big') {
@@ -389,6 +406,21 @@ const bigNow = guideNowNext({ epgChannelId: 'big7.hu' });
 check(!!bigNow?.now && /^Big 7\//.test(bigNow.now.title),
   '2.5.278: a nagy újságból a most futó műsor is pontos', String(bigNow?.now?.title));
 console.log(`  (nagy újság feldolgozása: ${bigMs} ms, ${bigStatus.channels} csatorna, ${bigStatus.programmes} műsor)`);
+
+/* ───────────── 2.5.279 (#20/#21): CSAK magyar (HU) csatorna marad az indexben ───────────── */
+
+clearGuide();
+await ensureGuide({ ...provider, username: 'mixed' });
+const mixedStatus = guideStatus();
+check(mixedStatus.channels === 1,
+  '2.5.279: vegyes (HU+DE+UK) újságból CSAK a magyar csatorna kerül az indexbe',
+  `kapott: ${mixedStatus.channels} csatorna`);
+check(!!guideNowNext({ epgChannelId: 'm1.hu' })?.now,
+  '2.5.279: a magyar csatorna műsora megvan');
+check(!guideNowNext({ epgChannelId: 'rtl2.de' }),
+  '2.5.279: a német csatorna műsora NINCS az indexben (nem magyar)');
+check(!guideNowNext({ epgChannelId: 'bbc.uk' }),
+  '2.5.279: az angol csatorna műsora NINCS az indexben (nem magyar)');
 
 /*
  * A kiszolgáló lezárása: a próba ne akadjon meg egy nyitott kapcsolaton.

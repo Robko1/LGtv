@@ -2292,6 +2292,22 @@ export function App() {
     speedChannelCommit('főoldal React commit', activeChannelId);
   }, [activeChannelId]);
 
+  /*
+   * 2.5.279 (#20/#21): a következő/előző csatorna előre betöltése (prefetch) a
+   * lejátszó rejtett videó-slotjába – így a CH+/CH−/OK csatornaváltás már
+   * pufferelt adással indul, nem üres lappal (gyors zap, ~1 mp).
+   */
+  const prefetchChannels = useMemo(() => {
+    if (customStreamUrl) return [];
+    const list = filteredChannels;
+    const idx = list.findIndex((c) => c.id === activeChannelId);
+    if (idx < 0) return [];
+    const out: Channel[] = [];
+    if (idx + 1 < list.length) out.push(list[idx + 1]); // CH+ irány
+    if (idx > 0) out.push(list[idx - 1]); // CH− irány
+    return out;
+  }, [customStreamUrl, filteredChannels, activeChannelId]);
+
   // Next / Prev channel switching: always follow the numeric channel number,
   // not the current category/search/render order. Stop at the ends instead of
   // wrapping from the last channel to the first (which could be unrelated).
@@ -4627,6 +4643,7 @@ export function App() {
           <VideoPlayer
             liveAccent={liveAccent}
             channel={activeChannel}
+            prefetchChannels={prefetchChannels}
             customStreamUrl={customStreamUrl}
             customTitle={customStreamTitle}
             /* Élő adás csak a főoldalon (élő nézetben) indul – Mozi/Sorozat

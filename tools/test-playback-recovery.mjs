@@ -260,7 +260,7 @@ check(!/fsLayerSeeThrough/.test(PLAYER.replace(/\*[^]*?\*\//g, '')),
   'a régi fsLayerSeeThrough (képkocka-függő átlátszóság) megszűnt (2.5.264)');
 check(/\$\{nativeHandoff \? 'bg-transparent' : 'bg-black'\}/.test(PLAYER)
   && /className="absolute inset-0 z-\[1\] flex flex-col items-center justify-center gap-3 bg-black pointer-events-none"/.test(PLAYER)
-  && /className="block h-full w-full bg-black"/.test(PLAYER),
+  && /className=\{isLead \? 'block h-full w-full bg-black' : 'hidden'\}/.test(PLAYER), // 2.5.279: két slot, a fő mindig fekete
   'teljes képernyőn a konténer/poszter/videó MINDIG fekete, csak nativeHandoff esetén átlátszó (2.5.264, #11)');
 check(!/bg-\[#0b1c24\]|bg-\[#0d2630\]/.test(PLAYER),
   'a lejátszó dobozán nincs többé világoskék (türkiz) háttér');
