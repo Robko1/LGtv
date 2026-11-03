@@ -30,8 +30,8 @@
  *
  * Ezen felül a tárolót TARTÓSSÁ tesszük: `navigator.storage.persist()` (illetve
  * régi webOS-on `webkitPersistentStorage.requestQuota`) meghívásával a böngésző
- * nem dobhatja el az adatbázist, amikor az alkalmazást bezárják. Ha a kért
- * kapacitás nem lenne elég, a contentStore a kvóta alapján takarít (ld. ott).
+ * nem dobhatja el az adatbázist, amikor az alkalmazást bezárják. A katalógus
+ * teljes mentését a contentStore ellenőrzi; kvótahibánál a régi teljes lista marad aktív.
  */
 
 const DB_NAME = 'iptv_rt_content';
@@ -176,7 +176,7 @@ export function ensureDurableStorage(): Promise<DurableStorageInfo> {
   return durablePromise;
 }
 
-/** A rendelkezésre álló keret (bájt). A contentStore ebből dönt a takarításról. */
+/** A böngésző által jelzett tárhelykeret (bájt), naplózáshoz és ellenőrzéshez. */
 export async function storageBudgetBytes(): Promise<{ quotaBytes: number | null; usageBytes: number | null }> {
   const info = await ensureDurableStorage();
   const fallbackQuota = info.quotaBytes === null ? 384 * 1024 * 1024 : info.quotaBytes;
