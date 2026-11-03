@@ -30,7 +30,17 @@ const REQUEST_TIMEOUT_MS = 12_000;
 const STATUS_CHECK_TIMEOUT_MS = 7_500;
 const SLOW_CLOUD_THRESHOLD_MS = 3_500;
 const BOOTSTRAP_DELAY_MS = 3_800;
-const FLUSH_DEBOUNCE_MS = 14_000;
+/*
+ * 2.5.278 (#19-es napló): a #19-es naplóban 15-60 másodpercenként ment ki
+ * „FELHŐ SZINKRON OK” sor 5,4 mp-es Supabase-válaszidővel – a gyakori kis
+ * csomagok felesleges hálózati forgalmat és várakozást okoztak nézés közben.
+ * Most ritkábban, nagyobb kötegekben szinkronizálunk: 60 mp debouncing + legalább
+ * 3 perc két küldés között.
+ */
+const FLUSH_DEBOUNCE_MS = 60_000;
+const MIN_FLUSH_GAP_MS = 3 * 60 * 1000;
+/** Mikor fejeződött be az utolsó tényleges küldés. */
+let lastFlushDoneAt = 0;
 const MAX_PENDING_PROFILES = 30;
 const MAX_PENDING_EVENTS = 35;
 
@@ -1290,16 +1300,22 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
     return false;
   } finally {
     syncingNow = false;
+    lastFlushDoneAt = Date.now(); // 2.5.278: minimum időköz két küldés között
     notifyTvDoctorListeners();
   }
 }
 
 function scheduleDeferredFlush(): void {
   if (!cloudEnabled || !isTvDoctorPaired() || flushTimer !== null) return;
+  // 2.5.278: két küldés között minimum MIN_FLUSH_GAP_MS telik el (ha már volt küldés).
+  const sinceLast = Date.now() - lastFlushDoneAt;
+  const delay = lastFlushDoneAt > 0 && sinceLast < MIN_FLUSH_GAP_MS
+    ? MIN_FLUSH_GAP_MS - sinceLast + 5_000
+    : FLUSH_DEBOUNCE_MS;
   flushTimer = scheduleTimer(() => {
     flushTimer = null;
     void flushTvDoctorCloudQueue();
-  }, FLUSH_DEBOUNCE_MS);
+  }, delay);
 }
 
 function enqueueFromHook(payload: {
