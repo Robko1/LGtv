@@ -39,6 +39,7 @@ import {
 import { fsNow, fsPerf, fsStep } from './services/fullscreenPerf';
 import { speedChannelCommit, speedSelect } from './services/speedDiagnostics';
 import { configureTvDoctorCloud } from './services/tvDoctorCloud';
+import { watchTvDoctorEpg } from './services/tvDoctor';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import { displayChannelPositions } from './utils/displayChannelOrder';
@@ -675,6 +676,8 @@ export function App() {
   const moviesRef = useRef(movies);
   const seriesRef = useRef(series);
   const selectedCategoryIdRef = useRef(selectedCategoryId);
+  // 2.5.277: a TV Doktor EPG-őre (háttér-időzítő) a beállításokhoz is hozzáfér.
+  const settingsRef = useRef(settings);
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId;
     activeProviderRef.current = activeProvider;
@@ -685,7 +688,8 @@ export function App() {
     moviesRef.current = movies;
     seriesRef.current = series;
     selectedCategoryIdRef.current = selectedCategoryId;
-  }, [activeChannelId, activeProvider, channels, categories, vodCategories, seriesCategories, movies, series, selectedCategoryId]);
+    settingsRef.current = settings;
+  }, [activeChannelId, activeProvider, channels, categories, vodCategories, seriesCategories, movies, series, selectedCategoryId, settings]);
 
   /**
    * Kijelölés-csere CSAK akkor, ha a nézett csatorna valóban eltűnt.
@@ -1304,8 +1308,8 @@ export function App() {
    * megjelenik”). Mostantól a futás alatt érkező kérés egy helyre
    * bejegyzésre kerül, és a futás végén automatikusan lefut.
    */
-  const runRestoreRef = useRef<((plan?: StoredCatalogPlan | null, scope?: 'all' | 'live' | 'vod' | 'movies' | 'series') => Promise<void>) | null>(null);
-  const restoreQueuedRef = useRef<Array<{ plan: StoredCatalogPlan; scope: 'all' | 'live' | 'vod' | 'movies' | 'series' }>>([]);
+  const runRestoreRef = useRef<((plan?: StoredCatalogPlan | null, scope?: 'all' | 'live' | 'vod' | 'movies' | 'series', options?: { bootSubset?: number }) => Promise<void>) | null>(null);
+  const restoreQueuedRef = useRef<Array<{ plan: StoredCatalogPlan; scope: 'all' | 'live' | 'vod' | 'movies' | 'series'; options?: { bootSubset?: number } }>>([]);
   /*
    * 2.5.251 (#5 napló): a boot-háttérmunka (teljes visszatöltés + VOD +
    * plakát-előmelegítés + műsorújság) EGYSZER induljon. Ha az indulás üres
@@ -1318,15 +1322,17 @@ export function App() {
   const runRestore = useCallback(async (
     plan?: StoredCatalogPlan | null,
     scope: 'all' | 'live' | 'vod' | 'movies' | 'series' = 'all',
+    options?: { bootSubset?: number },
   ): Promise<void> => {
     const target = plan || catalogPlanRef.current;
     if (!target) return;
     if (restoreRunningRef.current) {
       // A futó visszatöltés alatt érkező külön Mozi/Sorozat kérések sem veszhetnek el.
       const alreadyQueued = restoreQueuedRef.current.some(
-        (item) => item.plan.provider.id === target.provider.id && item.scope === scope,
+        (item) => item.plan.provider.id === target.provider.id && item.scope === scope
+          && Boolean(item.options?.bootSubset) === Boolean(options?.bootSubset),
       );
-      if (!alreadyQueued) restoreQueuedRef.current.push({ plan: target, scope });
+      if (!alreadyQueued) restoreQueuedRef.current.push({ plan: target, scope, options });
       return;
     }
     restoreRunningRef.current = true;
@@ -1445,12 +1451,12 @@ export function App() {
           });
           appLog(`Sorozatok a felületen EGYBEN: ${ser.series.length} (letöltés nélkül).`);
         },
-      }, { scope });
+      }, { scope, bootSubset: options?.bootSubset });
     } finally {
       restoreRunningRef.current = false;
       const queued = restoreQueuedRef.current.shift();
       if (queued) {
-        void runRestoreRef.current?.(queued.plan, queued.scope);
+        void runRestoreRef.current?.(queued.plan, queued.scope, queued.options);
       }
     }
   }, []);
@@ -1666,7 +1672,13 @@ export function App() {
            * megnyitásakor már minden (lista + plakátok) ott van, egyetlen
            * várakozás nélkül.
            */
-          void runRestore(plan, 'vod')
+          /*
+           * 2.5.277 (#17-es kérés): induláskor CSAK 25+25 film/sorozat töltődik
+           * be (induló részhalmaz) – a teljes lista a tartós IDB tárban marad,
+           * és csak a Mozi/Sorozat menü megnyitásakor töltődik be on demand,
+           * hálózat és nagy RAM-foglalás nélkül.
+           */
+          void runRestore(plan, 'vod', { bootSubset: 25 })
             .catch(() => { /* a naplóban már ott a valódi ok */ })
             .finally(() => {
               void warmUpVodPosters();
@@ -1730,6 +1742,15 @@ export function App() {
       if (typeof document !== 'undefined' && document.hidden) return;
       setGuideHuProbe(channelsRef.current); // 2.5.269 (#2)
       void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
+      /*
+       * 2.5.277 (#17-es kérés): a TV DOKTOR EPG-ŐRE is fut – az új műsorújság-
+       * tárolót (epgGuide) nézi, és csak akkor indít frissítést, ha hiányzik,
+       * elavult, vagy kevés magyar adót fed le. Egyébként csendben visszatér.
+       */
+      if (settingsRef.current.tvDoctorEnabled !== false) {
+        void watchTvDoctorEpg({ provider: plan.provider, channels: channelsRef.current })
+          .catch(() => { /* az őr soha nem akadályoz */ });
+      }
     }, 30 * 60 * 1000);
     return timers;
   }, [runRestore, markLiveReady, guideStatusSafe, warmUpVodPosters]);

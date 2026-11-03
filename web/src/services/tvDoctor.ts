@@ -13,6 +13,13 @@ import {
   mediaProgressed,
 } from './playbackRecovery';
 import { appLog, isVerbosePlaybackLogging, isTvDoctorLogEnabled, startTvDoctorLogging, stopTvDoctorLogging, tvDoctorLog } from './appLog';
+/*
+ * 2.5.277 (#17-es kérés): a TV Doktor EPG-őre az ÚJ műsorújság-tárolót (epgGuide)
+ * figyeli és azon keresztül frissít – a régi url-tvg/saját EPG-kéréseket nem
+ * használja. Nincs körkörös import: az epgGuide nem importálja a tvDoctor-t.
+ */
+import { ensureGuide, guideChannelCoverage, guideStatus } from './epgGuide';
+import type { ProviderRef } from './contentStore';
 
 /**
  * TV Doktor – intelligens, önfejlesztő diagnosztikai, csatornaváltás-gyorsító és EPG-felügyelő rendszer.
@@ -48,7 +55,18 @@ export const MAX_DEAD_CHANNEL_QUICK_STEPS = 2;
 export const MAX_INTERVENTIONS_PER_MINUTE = 8;
 export const DOCTOR_VERIFY_STABLE_MS = 2200;
 export const DEAD_CHANNEL_COOLDOWN_MS = 3 * 60 * 1000;
+/*
+ * 2.5.277 (#17-es napló, ARENA 4): egy csatorna újraaktiválódási hűtése – egy
+ * kimerült javítási létra után ennyi ideig CSAK a rövid (2 lépéses) ellenőrzés
+ * futhat újra kézi újraválasztásnál, így nem indul újra teljes létra 25–30
+ * másodpercenként oda-vissza kapcsolásnál (lebegés/flapping ellen).
+ */
+export const DOCTOR_REACTIVATION_COOLDOWN_MS = 8 * 60 * 1000;
+/** A halott-csatorna jelölés ismétlődő kimerülésnél skálázódik, max. ennyi ideig. */
+export const MAX_DEAD_CHANNEL_COOLDOWN_MS = 30 * 60 * 1000;
 export const EPG_DISABLED_TTL_MS = 12 * 60 * 60 * 1000;
+/** 2.5.277: a TV Doktor EPG-őre – a betöltött műsorújság ennyi idő után számít elavultnak. */
+export const GUIDE_STALE_MS = 3 * 60 * 60 * 1000;
 const STORE_PERSIST_DEBOUNCE_MS = 220;
 
 /** Szigorú biztonsági határok a pufferbeállításokhoz (soha nem nőhet korlátlanul). */
@@ -191,7 +209,8 @@ export type DoctorEventCategory =
   | 'learning'
   | 'assistance'
   | 'activation'
-  | 'channel_error';
+  | 'channel_error'
+  | 'epg_assist'; // 2.5.277: a TV Doktor EPG-őre
 
 export interface DoctorCategoryBucket {
   count: number;
@@ -204,6 +223,7 @@ export interface DoctorCategoryStats {
   assistance: DoctorCategoryBucket;
   activation: DoctorCategoryBucket;
   channel_error: DoctorCategoryBucket;
+  epg_assist: DoctorCategoryBucket; // 2.5.277
 }
 
 export interface BufferProfileStats {
@@ -236,6 +256,11 @@ export interface ChannelDoctorRecord {
   consecutiveCleanStarts?: number;
   consecutiveFailures?: number;
   deadUntil?: number;
+  /* 2.5.277: utolsó teljes létra-kimerülés ideje + hányszor halt le – az
+     újraaktiválási hűtő (DOCTOR_REACTIVATION_COOLDOWN_MS) és a skálázódó
+     halott-jelölés innen számol. */
+  lastExhaustedAt?: number;
+  haltCount?: number;
   stalls: number;
   repairsOk: number;
   bufferStats: Partial<Record<DoctorBufferProfileId, BufferProfileStats>>;
@@ -392,7 +417,8 @@ export interface TvDoctorOperationHealth {
   lastStorageError: { location: string; message: string; at: number } | null;
 }
 
-const MAX_RECENT_LOGS = 80;
+/* 2.5.277: a memóriában csak annyi naplót tartunk, ami hibakereséshez kell – ne nőjön feleslegesen. */
+const MAX_RECENT_LOGS = 48;
 const recentDoctorLogs: DoctorLogEntry[] = [];
 const diagnosticPlugins: DoctorDiagnosticPlugin[] = [];
 const interventionTimestampsByChannel = new Map<string, number[]>();
@@ -424,6 +450,7 @@ function createEmptyCategoryStats(): DoctorCategoryStats {
     assistance: { count: 0, lastAt: null, lastChannelName: null },
     activation: { count: 0, lastAt: null, lastChannelName: null },
     channel_error: { count: 0, lastAt: null, lastChannelName: null },
+    epg_assist: { count: 0, lastAt: null, lastChannelName: null },
   };
 }
 
@@ -450,6 +477,7 @@ function sanitizeCategoryStats(raw: unknown): DoctorCategoryStats {
     assistance: sanitizeCategoryBucket(obj.assistance),
     activation: sanitizeCategoryBucket(obj.activation),
     channel_error: sanitizeCategoryBucket(obj.channel_error),
+    epg_assist: sanitizeCategoryBucket(obj.epg_assist),
   };
 }
 
@@ -887,6 +915,8 @@ function readStore(storage?: Storage | null): DoctorStoreData {
         consecutiveCleanStarts: Math.max(0, Number(v.consecutiveCleanStarts) || 0),
         consecutiveFailures: Math.max(0, Number(v.consecutiveFailures) || 0),
         deadUntil: typeof v.deadUntil === 'number' && v.deadUntil > 0 ? v.deadUntil : undefined,
+        lastExhaustedAt: typeof v.lastExhaustedAt === 'number' && v.lastExhaustedAt > 0 ? v.lastExhaustedAt : undefined,
+        haltCount: Math.max(0, Number(v.haltCount) || 0),
         stalls: Math.max(0, Number(v.stalls) || 0),
         repairsOk: Math.max(0, Number(v.repairsOk) || 0),
         bufferStats: v.bufferStats && typeof v.bufferStats === 'object' ? v.bufferStats : {},
@@ -1148,6 +1178,7 @@ export function getTvDoctorCategoryStats(storage?: Storage | null): DoctorCatego
     assistance: { ...store.categoryStats.assistance },
     activation: { ...store.categoryStats.activation },
     channel_error: { ...store.categoryStats.channel_error },
+    epg_assist: { ...store.categoryStats.epg_assist },
   };
 }
 
@@ -1170,6 +1201,59 @@ export function getTvDoctorEpgStats(storage?: Storage | null): TvDoctorEpgStats 
     lastAssistAt: store.epgLastAssistAt,
     lastRecoveredAt: store.epgLastRecoveredAt,
   };
+}
+
+/**
+ * 2.5.277 (#17-es kérés): a TV DOKTOR EPG-ŐRE.
+ *
+ * Az ÚJ műsorújság-tárolót (epgGuide, tartós IDB mentéssel) ellenőrzi – NEM a
+ * régi url-tvg / get_simple_data_table útvonalakat. Ha az újság hiányzik,
+ * elavult (> GUIDE_STALE_MS), vagy a magyar [HU] csatornák lefedettsége 90%
+ * alatt van, EGYETLEN frissítést indít az ensureGuide-on keresztül. Ha minden
+ * rendben van, csendben visszatér – nem dolgozik folyamatosan, és nem naplóz
+ * feleslegesen. A memóriába csak két számláló + időbélyeg kerül.
+ */
+export async function watchTvDoctorEpg(params: {
+  provider: ProviderRef | null | undefined;
+  channels: Array<{ name?: string; epgChannelId?: string | null; countryCode?: string }>;
+  storage?: Storage | null;
+}): Promise<void> {
+  const { provider, channels, storage } = params;
+  try {
+    if (!provider) return;
+    const now = Date.now();
+    const status = guideStatus();
+    let reason = '';
+    if (status.channels === 0) {
+      reason = 'nincs betöltött műsorújság a tárolóban';
+    } else if (status.loadedAt > 0 && now - status.loadedAt > GUIDE_STALE_MS) {
+      reason = `elavult műsorújság (${Math.round((now - status.loadedAt) / 60000)} perce betöltve)`;
+    } else {
+      // 17. kérés: csak magyar csatornák számítanak (a régi szabály szerint).
+      const coverage = guideChannelCoverage(channels);
+      if (coverage.huTotal > 0 && coverage.huWithGuide < Math.max(1, Math.floor(coverage.huTotal * 0.9))) {
+        reason = `kevés magyar adó van az újságban (HU ${coverage.huWithGuide}/${coverage.huTotal})`;
+      }
+    }
+    if (!reason) return; // minden rendben – az őr nem dolgozik feleslegesen
+    const store = readStore(storage);
+    store.epgAssistCount = (store.epgAssistCount || 0) + 1;
+    store.epgLastAssistAt = now;
+    writeStore(store, storage);
+    logDoctor('info', null, `EPG-őr beavatkozás: ${reason} – műsorújság-frissítés indul (új tárolóút, ensureGuide)`, 'epg_assist', storage);
+    await ensureGuide(provider);
+    const after = guideStatus();
+    const cov = guideChannelCoverage(channels);
+    logDoctor(
+      'info',
+      null,
+      `EPG-őr kész: újság csatornák=${after.channels}, műsorok=${after.programmes}, HU lefedettség=${cov.huWithGuide}/${cov.huTotal}`,
+      'epg_assist',
+      storage,
+    );
+  } catch {
+    /* az EPG-őr soha nem akadályozhatja a lejátszást */
+  }
 }
 
 export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemoryStats {
@@ -1409,7 +1493,9 @@ function logDoctor(
           ? 'SEGÍTSÉG/JAVÍTÁS'
           : category === 'activation'
             ? 'AKTIVÁLÓDÁS'
-            : 'CSATORNAHIBA';
+            : category === 'epg_assist'
+              ? 'EPG-ŐR'
+              : 'CSATORNAHIBA';
     appLog(`TV DOKTOR [${tag}] [${channelName}] ${message}`);
   }
   writeStore(store, storage);
@@ -1609,7 +1695,38 @@ export function selectChannelLaunchPlan(
     const now = Date.now();
     const isRecentlyDead = Boolean(record.deadUntil && record.deadUntil > now);
     const totalLifetimeOk = (record.tsOk || 0) + (record.hlsOk || 0);
-    const maxRepairSteps = isRecentlyDead && totalLifetimeOk === 0
+    /*
+     * 2.5.277 (#17-es napló, NAT GEO WILD UHD): kézi újraválasztásnál a halott
+     * jelölés AZONNAL törlődik, ha a csatorna korábban már működött – a
+     * csatorna „önmagától is” újraindulhat, a doktor ezt nem blokkolhatja.
+     * A flapping ellen NEM ez, hanem az újraaktiválási hűtő védekezik lásd lejjebb.
+     */
+    if (isRecentlyDead && totalLifetimeOk > 0) {
+      record.deadUntil = undefined;
+      record.updatedAt = now;
+      /* 2.5.277: explicit storage-nál a readStore új objektumot ad – a módosítást
+         ugyanabba a store-ba kell írni, amelyikből olvastunk, majd menteni. */
+      try {
+        const store2 = readStore(storage);
+        const rec2 = store2.byKey[channelKey];
+        if (rec2) {
+          rec2.deadUntil = undefined;
+          rec2.updatedAt = now;
+        }
+        writeStore(store2, storage);
+      } catch { /* a jelölés törlése mentés nélkül is biztonságos */ }
+    }
+    /*
+     * 2.5.277 (#17-es napló, ARENA 4): újraaktiválási hűtő – egy kimerült létra
+     * után DOCTOR_REACTIVATION_COOLDOWN_MS-ig csak a rövid ellenőrzés futhat,
+     * akár törölve lett is a halott jelölés. Így oda-vissza kapcsolásnál nem
+     * indul újra teljes 5 lépéses létra 25–30 másodpercenként.
+     */
+    const inReactivationCooldown = Boolean(
+      record.lastExhaustedAt && now - record.lastExhaustedAt < DOCTOR_REACTIVATION_COOLDOWN_MS,
+    );
+    const inCooldown = isRecentlyDead || inReactivationCooldown;
+    const maxRepairSteps = inCooldown
       ? MAX_DEAD_CHANNEL_QUICK_STEPS
       : MAX_DOCTOR_REPAIR_STEPS;
 
@@ -1639,7 +1756,8 @@ export function selectChannelLaunchPlan(
 
     const chosenOkCount = chosenFormat === 'hls' ? record.hlsOk : record.tsOk;
     const chosenConsecFail = chosenFormat === 'hls' ? (record.hlsConsecutiveFail || 0) : (record.tsConsecutiveFail || 0);
-    const directFastStart = !isRecentlyDead && chosenOkCount >= 1 && chosenConsecFail === 0;
+    // 2.5.277: hűtőben nincs közvetlen gyorsindítás – előbb a rövid ellenőrzés fut le.
+    const directFastStart = !isRecentlyDead && !inReactivationCooldown && chosenOkCount >= 1 && chosenConsecFail === 0;
 
     // Kalibrált indulási őr: ha a csatorna pl. 450 ms alatt szokott indulni,
     // nem várunk 2000 ms-ot hiba esetén, hanem ~900 ms után már lépünk is!
@@ -1666,7 +1784,7 @@ export function selectChannelLaunchPlan(
       hasLearnedProfile: true,
       directFastStart,
       skipSameFormatRetry: true,
-      isRecentlyDead,
+      isRecentlyDead: inCooldown,
       maxRepairSteps,
       channelKey,
       primaryFormat: chosenFormat,
@@ -1674,8 +1792,10 @@ export function selectChannelLaunchPlan(
       bufferProfileId: hasCustomBufferExperience ? chosenBufferProfile : baseBufferMode,
       bufferTiming: chosenTiming,
       expectedStartupMs,
-      reason: isRecentlyDead
-        ? `korábban nem működő csatorna – rövidített (${maxRepairSteps} lépéses) gyors ellenőrzés`
+      reason: inCooldown
+        ? (inReactivationCooldown
+          ? `újraaktiválási hűtőben (${Math.max(1, Math.round((DOCTOR_REACTIVATION_COOLDOWN_MS - (now - (record.lastExhaustedAt || now))) / 60000))} perc hátra) – rövidített (${maxRepairSteps} lépéses) gyors ellenőrzés`
+          : `korábban nem működő csatorna – rövidített (${maxRepairSteps} lépéses) gyors ellenőrzés`)
         : `tanult gyorsprofil (${chosenFormat.toUpperCase()}, puffer=${chosenBufferProfile}${expectedStartupMs ? `, ~${expectedStartupMs}ms` : ''})`,
     };
     const elapsed = nowPerfMs() - startedAt;
@@ -1805,6 +1925,8 @@ export function recordDoctorChannelSuccess(params: {
     rec.lastWorkingStartupMs = safeMs;
     rec.consecutiveFailures = 0;
     rec.deadUntil = undefined;
+    // 2.5.277: siker után a halott-jelölés számlálója visszaáll (a csatorna újra „él”).
+    rec.haltCount = 0;
     rec.consecutiveCleanStarts = wasRepair ? 1 : (rec.consecutiveCleanStarts || 0) + 1;
 
     rec.bestStartupMs = rec.bestStartupMs === null || rec.bestStartupMs <= 20
@@ -2204,6 +2326,12 @@ export function planDoctorRepairStep(params: {
   streamUrl: string;
   tsUrl: string;
   hlsUrl: string;
+  /*
+   * 2.5.277 (#17-es napló, ARENA 4): egy javítási létrán belül már sikertelenül
+   * kipróbált formátumok. A létra ezeket NEM próbálja újra – így nincs
+   * HLS↔TS oda-vissza ugrálás egyetlen javítási körön belül.
+   */
+  triedFormats?: LiveFormat[];
   storage?: Storage | null;
 }): DoctorRepairProposal {
   const {
@@ -2216,12 +2344,15 @@ export function planDoctorRepairStep(params: {
     streamUrl,
     tsUrl,
     hlsUrl,
+    triedFormats,
     storage,
   } = params;
 
   const channelKey = normalizeChannelDoctorKey(channel);
-  const hasAlternateFormat = Boolean(tsUrl && hlsUrl && tsUrl !== hlsUrl);
   const altFormat: LiveFormat = currentFormat === 'hls' ? 'ts' : 'hls';
+  /* 2.5.277: az alternatív formátum csak akkor „él”, ha ezt a létrát még nem próbálta sikertelenül. */
+  const altAlreadyTried = Boolean(triedFormats && triedFormats.includes(altFormat));
+  const hasAlternateFormat = Boolean(tsUrl && hlsUrl && tsUrl !== hlsUrl && !altAlreadyTried);
   // Az elsődleges (csatorna-saját) formátum: a 2. lépésben bekapcsolt alternatív
   // formátumra való visszaesés után a 3. lépésben vissza kell térni rá, ne maradjon
   // az alternatívon (currentFormat), mert az már egyszer meghibásodott.
@@ -2242,10 +2373,27 @@ export function planDoctorRepairStep(params: {
 
     if (channel) {
       const rec = getOrCreateRecord(store, channel, currentFormat, currentBufferProfile);
-      rec.deadUntil = Date.now() + DEAD_CHANNEL_COOLDOWN_MS;
+      const nowMs = Date.now();
+      /*
+       * 2.5.277 (#17-es napló): a halott jelölés ismétlődő kimerülésnél
+       * skálázódik (3 perc → 6 → 12 → … max 30 perc), és külön jegyezzük az
+       * utolsó kimerülés idejét – az újraaktiválási hűtő (lásd
+       * selectChannelLaunchPlan) ebből számol, így kézi újraválasztásnál sem
+       * indul újra teljes létra pár másodpercenként (ARENA 4 flapping ellen).
+       */
+      const haltCount = (rec.haltCount || 0) + 1;
+      rec.haltCount = haltCount;
+      rec.lastExhaustedAt = nowMs;
+      rec.deadUntil = nowMs + Math.min(
+        MAX_DEAD_CHANNEL_COOLDOWN_MS,
+        DEAD_CHANNEL_COOLDOWN_MS * Math.pow(2, haltCount - 1),
+      );
       rec.lastErrorCode = 'CHANNEL_UNREACHABLE';
       rec.lastErrorReason = `${effectiveMaxSteps} különböző beállítás sikertelen (${trigger})`;
-      rec.updatedAt = Date.now();
+      rec.updatedAt = nowMs;
+      /* 2.5.277: azonnal mentjük – a logDoctor saját readStore-ja külön objektumot
+         adna vissza explicit storage-nál, és felülírná ezt a módosítást. */
+      try { writeStore(store, storage); } catch { /* mentési hiba nem akadályozhat */ }
     }
 
     logDoctor(

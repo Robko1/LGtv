@@ -160,11 +160,24 @@ let writeSequence = 0;
  * egyébként pedig nem dekódoljuk újra ugyanazt a 100 ezres listát.
  */
 const decodedCache = new Map<string, unknown>();
+/*
+ * 2.5.277 (#17-es kérés): a RAM-ban csak KIS, visszafejtett lista maradhat
+ * (induló 25+25 részlet, beállítások). A teljes 100 ezres filmlista NEM
+ * kerülhet a kis memóriába – azt a tartós IDB tárolóból olvassuk vissza
+ * újra, ha kell (hálózat nélkül). Ezért a nagy listákat nem gyorsítótárazuk.
+ */
+const DECODED_CACHE_MAX_ITEMS = 5000;
+function decodedItemCount(value: unknown): number {
+  const v = value as { movies?: unknown[]; series?: unknown[] } | null | undefined;
+  if (!v || typeof v !== 'object') return 0;
+  return Math.max(Array.isArray(v.movies) ? v.movies.length : 0, Array.isArray(v.series) ? v.series.length : 0);
+}
 function rememberDecoded<T>(providerId: string, kind: 'vod' | 'series', key: string, value: T): void {
   const prefix = `${kind}|${providerId}|`;
   for (const existing of decodedCache.keys()) {
     if (existing.startsWith(prefix)) decodedCache.delete(existing);
   }
+  if (decodedItemCount(value) > DECODED_CACHE_MAX_ITEMS) return; // nagy lista: nem tartjuk RAM-ban
   decodedCache.set(key, value);
 }
 
@@ -2569,7 +2582,15 @@ export async function loadVodAsync(
    * után azonnal a felületre kerül, a többi pedig utána, adagonként.
    */
   onPartial?: (partial: { movies: Movie[]; categories: Category[] }) => void,
+  /*
+   * 2.5.277 (#17-es kérés): induló részhalmaz – csak az első maxItems film
+   * dekódolódik (pl. 25); a teljes lista a tartós tárban marad, és csak a
+   * Mozi menü megnyitásakor töltődik be on demand (hálózat nélkül). A csonkolt
+   * eredmény külön gyorsítótár-kulcsot kap, ne keveredjön a teljes listával.
+   */
+  limits?: { maxItems?: number },
 ): Promise<{ movies: Movie[]; categories: Category[] }> {
+  const maxItems = limits?.maxItems && limits.maxItems > 0 ? Math.floor(limits.maxItems) : 0;
   /*
    * EGYSZERI VISSZAFEJTÉS. A korábbi kód ugyanazt a 100 ezres listát az
    * indulásnál akár háromszor is végigdekódolta (tároló-próba, 1,2 mp-es
@@ -2606,6 +2627,8 @@ export async function loadVodAsync(
         for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
         offset += rows.length;
         onProgress?.(offset, chunked.meta.chunks * metaChunkSize(chunked.meta));
+        // 2.5.277: induló részhalmaz – elég ennyi, a teljes lista a tartós tárban marad.
+        if (maxItems && movies.length >= maxItems) break;
         // Az ELSŐ adag után azonnal láthatóvá tesszük, amit már tudunk.
         if (!partialSent && movies.length > 0) {
           partialSent = true;
@@ -2625,13 +2648,22 @@ export async function loadVodAsync(
        * a háttér-ellenőrzés frissítése visszapótolja és újra elmenti.
        */
       const expectedVod = Number(chunked.meta.totals?.vod) || 0;
-      if (missingChunks > 0 || (expectedVod > 0 && movies.length + 5 < expectedVod)) {
+      // 2.5.277: szándékos részhalmaz (induló 25) – NEM hiányosság, nem pótlandó.
+      if (maxItems) {
+        if (movies.length > maxItems) movies.length = maxItems;
+      } else if (missingChunks > 0 || (expectedVod > 0 && movies.length + 5 < expectedVod)) {
         noteSectionIncomplete('vod',
           `visszatöltéskor ${missingChunks} hiányzó adag, ${movies.length}/${expectedVod || '?'} film.`);
       }
       if (movies.length > 0) {
         const categories = decodeCategories(chunked.meta.cats, 'movie');
         await applyCatalogExtras(provider.id, movies, []);
+        if (maxItems) {
+          appLog(`Filmek induló részhalmaza a tartós tárból: ${movies.length} film (a teljes lista menü megnyitásakor töltődik).`);
+          const subResult = { movies, categories };
+          rememberDecoded(provider.id, 'vod', `${cacheKey}:sub${maxItems}`, subResult);
+          return subResult;
+        }
         appLog(`Filmlista visszatöltve a tartós tárból: ${movies.length} film, ${chunked.meta.chunks} adag`
           + (missingChunks ? `, ${missingChunks} HIÁNYZÓ adag` : ''));
         const result = { movies, categories };
@@ -2707,7 +2739,10 @@ export async function loadSeriesAsync(
   onProgress?: (loaded: number, total: number) => void,
   /* Részlegesítés, mint a filmeknél: az első adag azonnal a képernyőre kerül. */
   onPartial?: (partial: { series: Series[]; categories: Category[] }) => void,
+  /* 2.5.277: induló részhalmaz (maxItems) – lásd loadVodAsync. */
+  limits?: { maxItems?: number },
 ): Promise<{ series: Series[]; categories: Category[] }> {
+  const maxItems = limits?.maxItems && limits.maxItems > 0 ? Math.floor(limits.maxItems) : 0;
   // Ugyanaz, mint a filmeknél: a teljes sorozatlista a tartós tárban van.
   const idb = await contentChunkStore();
   let cacheKey = `series|${provider.id}|legacy`;
@@ -2736,6 +2771,8 @@ export async function loadSeriesAsync(
         for (const item of decodeSeries(rows, provider, offset)) series.push(item);
         offset += rows.length;
         onProgress?.(offset, chunked.meta.chunks * metaChunkSize(chunked.meta));
+        // 2.5.277: induló részhalmaz – elég ennyi, a teljes lista a tartós tárban marad.
+        if (maxItems && series.length >= maxItems) break;
         if (!partialSent && series.length > 0) {
           partialSent = true;
           try { onPartial?.({ series: series.slice(), categories: decodeCategories(chunked.meta.cats, 'series') }); } catch { /* nem állítja meg a betöltést */ }
@@ -2748,13 +2785,22 @@ export async function loadSeriesAsync(
       }
       // Fejléc kontra valóság: hiányzó adagnál a szakasz hiányosnak jelölődik.
       const expectedSeries = Number(chunked.meta.totals?.series) || 0;
-      if (missingChunks > 0 || (expectedSeries > 0 && series.length + 5 < expectedSeries)) {
+      // 2.5.277: szándékos részhalmaz (induló 25) – NEM hiányosság.
+      if (maxItems) {
+        if (series.length > maxItems) series.length = maxItems;
+      } else if (missingChunks > 0 || (expectedSeries > 0 && series.length + 5 < expectedSeries)) {
         noteSectionIncomplete('series',
           `visszatöltéskor ${missingChunks} hiányzó adag, ${series.length}/${expectedSeries || '?'} sorozat.`);
       }
       if (series.length > 0) {
         const categories = decodeCategories(chunked.meta.cats, 'series');
         await applyCatalogExtras(provider.id, [], series);
+        if (maxItems) {
+          appLog(`Sorozatok induló részhalmaza a tartós tárból: ${series.length} sorozat (a teljes lista menü megnyitásakor töltődik).`);
+          const subResult = { series, categories };
+          rememberDecoded(provider.id, 'series', `${cacheKey}:sub${maxItems}`, subResult);
+          return subResult;
+        }
         appLog(`Sorozatlista visszatöltve a tartós tárból: ${series.length} sorozat, ${chunked.meta.chunks} adag`
           + (missingChunks ? `, ${missingChunks} HIÁNYZÓ adag` : ''));
         const result = { series, categories };
@@ -3093,9 +3139,16 @@ export function cancelStoredContentRestore(): void {
 export function restoreStoredContent(
   plan: StoredCatalogPlan,
   handlers: RestoreHandlers = {},
-  options: { scope?: 'all' | 'live' | 'vod' | 'movies' | 'series' } = {},
+  options: { scope?: 'all' | 'live' | 'vod' | 'movies' | 'series'; bootSubset?: number } = {},
 ): Promise<void> {
   const scope = options.scope || 'all';
+  /*
+   * 2.5.277 (#17-es kérés): induláskor elég a 25+25 részhalmaz a Mozi/Sorozat
+   * nézethez – a teljes lista ekkor NEM töltődik be (sem RAM-ba, sem képernyőre).
+   * A teljes visszatöltés csak a menü tényleges megnyitásakor fut le a tartós
+   * tárból (ezért a szakaszjelző itt NEM áll "kész"-re, hogy később újra fusson).
+   */
+  const bootSubset = options.bootSubset && options.bootSubset > 0 ? Math.floor(options.bootSubset) : 0;
   const wantLive = scope === 'all' || scope === 'live';
   const wantMovies = scope === 'all' || scope === 'vod' || scope === 'movies';
   const wantSeries = scope === 'all' || scope === 'vod' || scope === 'series';
@@ -3129,31 +3182,35 @@ export function restoreStoredContent(
       await yieldToStorage();
     }
     if (wantMovies && !restoreDone.movies && plan.hasVod && !restoreCancelled) {
-      handlers.onStage?.('filmlista a tartós tárból');
+      handlers.onStage?.(bootSubset ? 'filmek induló részhalmaza a tartós tárból' : 'filmlista a tartós tárból');
       const vod = await loadVodAsync(
         provider,
         undefined,
         (partial) => handlers.onVodPartial?.(partial),
+        bootSubset ? { maxItems: bootSubset } : undefined,
       );
       if (vod.movies.length && !restoreCancelled) {
         handlers.onVod?.(vod);
         loaded += ` film=${vod.movies.length}`;
       }
-      if (!restoreCancelled) restoreDone.movies = true;
+      /* 2.5.277: induló részhalmaz után a szakasz NEM kész – a menü nyitásakor
+         a teljes lista on demand töltődik a tartós tárból. */
+      if (!restoreCancelled && !bootSubset) restoreDone.movies = true;
       await yieldToStorage();
     }
     if (wantSeries && !restoreDone.series && plan.hasSeries && !restoreCancelled) {
-      handlers.onStage?.('sorozatlista a tartós tárból');
+      handlers.onStage?.(bootSubset ? 'sorozatok induló részhalmaza a tartós tárból' : 'sorozatlista a tartós tárból');
       const ser = await loadSeriesAsync(
         provider,
         undefined,
         (partial) => handlers.onSeriesPartial?.(partial),
+        bootSubset ? { maxItems: bootSubset } : undefined,
       );
       if (ser.series.length && !restoreCancelled) {
         handlers.onSeries?.(ser);
         loaded += ` sorozat=${ser.series.length}`;
       }
-      if (!restoreCancelled) restoreDone.series = true;
+      if (!restoreCancelled && !bootSubset) restoreDone.series = true;
     }
     /*
      * Csak AKKOR jelöljük késznek, ha tényleg lefutott. Korábban a
@@ -3162,8 +3219,8 @@ export function restoreStoredContent(
      * filmeket – üres rács, újraindításig.
      */
     if (!restoreCancelled) {
-      if (wantMovies) restoreDone.movies = true;
-      if (wantSeries) restoreDone.series = true;
+      if (wantMovies && !bootSubset) restoreDone.movies = true;
+      if (wantSeries && !bootSubset) restoreDone.series = true;
     }
     if (!restoreCancelled) {
       appLog(`TARTÓS VISSZATÖLTÉS készen (${Date.now() - startedAt} ms, letöltés nélkül):${loaded || ' üres'}.`);

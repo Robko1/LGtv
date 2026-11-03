@@ -425,7 +425,9 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
       {favoriteTarget && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label="Kedvencmappa kiválasztása">
           <div className="w-full max-w-md rounded-2xl border border-yellow-400/50 bg-[#081329] p-5 text-white shadow-2xl">
-            <h3 className="mb-3 text-lg font-black text-yellow-300">„{favoriteTarget.title}” hozzáadása kedvencekhez</h3>
+            {/* 2.5.277 (#17-es kérés): a fejlécben pontosan látszik, HÁNY csatorna kerül be – így egy alkategória (pl. Kids 24/7) kiválasztásánál nem lehet „minden bejelölődni” észrevétlenül. */}
+            <h3 className="mb-1 text-lg font-black text-yellow-300">„{favoriteTarget.title}” hozzáadása kedvencekhez</h3>
+            <p className="mb-3 text-sm font-bold text-slate-300">Pontosan {favoriteTarget.channelIds.length} csatorna kerül a mappába (csak ez a csoport).</p>
             {folders.length ? folders.map((folder) => (
               <button key={folder.id} onClick={() => { onAssignChannelsToFolder(favoriteTarget.channelIds, folder.id); setFavoriteTarget(null); }} className="mb-2 w-full rounded-xl border border-slate-600 bg-[#102247] p-3 text-left font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">{folder.name}</button>
             )) : <p className="py-3 text-sm text-slate-300">Még nincs létrehozott kedvencmappa.</p>}

@@ -293,6 +293,25 @@ try {
   check(indexedDbFake.puts === putsBefore,
     'a második visszatöltési kérés nem ír újra semmit (nincs felesleges munka)');
 
+  /* 4b. 2.5.277 (#17-es kérés): INDULÓ RÉSZHALMAZ – boot közben csak 25+25 töltődik
+     be, a teljes lista a tartós tárban marad, és menü nyitásakor on demand jön. */
+  const app4b = await boot(41);
+  await settle();
+  const plan4b = await app4b.inspectStoredCatalogs();
+  const sub = { vod: 0, series: 0, vodFull: 0 };
+  await app4b.restoreStoredContent(plan4b, {
+    onVod: (vod) => { sub.vod = vod.movies.length; },
+    onSeries: (ser) => { sub.series = ser.series.length; },
+  }, { scope: 'vod', bootSubset: 25 });
+  check(sub.vod === 25 && sub.series === 25,
+    '2.5.277: boot részhalmaz – pontosan 25 film és 25 sorozat töltődik be induláskor', JSON.stringify(sub));
+  // A részhalmaz után a szakasz NEM „kész": a menü nyitásakor a TELJES lista jön.
+  await app4b.restoreStoredContent(plan4b, {
+    onVod: (vod) => { sub.vodFull = vod.movies.length; },
+  }, { scope: 'movies' });
+  check(sub.vodFull === N_MOVIES,
+    '2.5.277: menü megnyitásakor a TELJES filmlista on demand visszajön a tartós tárból', String(sub.vodFull));
+
   /* 5. A WEBOS BEZÁRJA A KAPCSOLATOT – a következő mentés ÚJRANYIT ─────── */
   const app5 = await boot(5);
   await settle();
