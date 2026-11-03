@@ -2186,6 +2186,11 @@ async function refreshXtreamIncremental(
     }
     const categoryMap = makeCategoryMap(vodCats || []);
     const repairedMovies: Movie[] = [];
+    const oldMoviesById = new Map<string, Movie>();
+    for (const movie of storedVod.movies) {
+      oldMoviesById.set(movie.id, movie);
+      if (movie.streamId !== undefined) oldMoviesById.set(String(movie.streamId), movie);
+    }
     const seenMovieIds = new Set<string>();
     for (let index = 0; index < freshVodRaw.length && repairedMovies.length < MAX_MOVIES; index++) {
       const raw = freshVodRaw[index];
@@ -2198,8 +2203,7 @@ async function refreshXtreamIncremental(
         movieRowFromRaw(raw as unknown as Record<string, unknown>, category),
       ], providerRef)[0];
       if (!fresh) continue;
-      const old = storedVod.movies.find((movie) => movie.id === fresh.id
-        || String(movie.streamId ?? '') === id);
+      const old = oldMoviesById.get(fresh.id) || oldMoviesById.get(id);
       repairedMovies.push(old ? {
         ...fresh,
         isFavorite: old.isFavorite,
@@ -2218,8 +2222,6 @@ async function refreshXtreamIncremental(
     if (repairedMovies.length < freshVodRaw.length * 0.95) {
       throw new Error(`A film-visszatöltés nem teljes: ${repairedMovies.length}/${freshVodRaw.length} feldolgozható film. A régi mentés változatlan maradt.`);
     }
-    const movieCounts = new Map<string, number>();
-    for (const movie of repairedMovies) movieCounts.set(movie.categoryId, (movieCounts.get(movie.categoryId) || 0) + 1);
     const repairedCategories = categoryCounts(
       repairedMovies,
       buildCategories(vodCats || [], 'vc-', 'movie', new Map()),
