@@ -1756,21 +1756,36 @@ try {
   );
   check(doctorToggle.getAttribute('aria-checked') === 'true', 'alapértelmezetten a TV Doktor aktív');
 
-  // Távirányítós OK a TV Doktor dobozon közvetlenül a Ki/Be kapcsolót váltja:
+  // Távirányítós OK: elsőre a kapcsolóra viszi a fókuszt, a következő OK aktiválja.
+  const doctorToggle = doc.querySelector('[data-tv-doctor-toggle]');
   doctorBox.focus();
   doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
   await wait(45);
   check(
-    window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === false &&
-      doc.querySelector('[data-tv-doctor-toggle]').getAttribute('aria-checked') === 'false',
-    'a Rendszer → TV Doktor dobozon az OK (Enter) gomb közvetlenül átkapcsolja a TV Doktor kapcsolót',
+    doc.activeElement === doctorToggle &&
+      window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === true &&
+      doctorToggle.getAttribute('aria-checked') === 'true',
+    'a Rendszer → TV Doktor dobozon az első OK a kapcsolóra viszi a fókuszt, de még nem kapcsolja ki',
   );
+  // jsdom nem szimulálja a böngésző natív Enter → click aktiválását,
+  // ezért a fókuszált kapcsoló click() hívása modellezi a második OK-t.
+  doctorToggle.click();
+  await wait(45);
+  check(
+    window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === false &&
+      doctorToggle.getAttribute('aria-checked') === 'false',
+    'a kapcsolón megnyomott második OK kikapcsolja a TV Doktort',
+  );
+  doctorBox.focus();
   doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await wait(45);
+  check(doc.activeElement === doctorToggle, 'visszakapcsolás előtt is a kapcsolóra kerül a fókusz');
+  doctorToggle.click();
   await wait(45);
   check(
     window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === true &&
-      doc.querySelector('[data-tv-doctor-toggle]').getAttribute('aria-checked') === 'true',
-    'a Rendszer → TV Doktor dobozon az ismételt OK (Enter) visszakapcsolja a TV Doktort',
+      doctorToggle.getAttribute('aria-checked') === 'true',
+    'a kapcsolón megnyomott OK visszakapcsolja a TV Doktort',
   );
 
   // Különálló Supabase-párosítás menüpont távirányítós megnyitása és 0-kat tartalmazó 6 jegyű párosítás végigvitele:
