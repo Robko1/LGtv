@@ -1959,8 +1959,6 @@ export function saveVodContent(content: ImportedContent): Promise<void> {
     generationPrefix: VOD_GENERATION_PREFIX,
     total: content.movies.length,
     chunkSize: VOD_STORE_CHUNK_SIZE,
-    // 2.5.276 (#14): kvóta-keret – részleges mentés is jobb, mint a semmi.
-    maxBytes: VOD_SAVE_MAX_BYTES,
     chunkRows: (index) => encodeMovies(content.movies.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
     totals: { vod: content.totals.vod },
     cats: encodeCategories(content.vodCategories),
