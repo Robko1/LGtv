@@ -10,6 +10,8 @@ interface CategoriesModalProps {
   channels: Channel[];
   folders: FavoriteFolder[];
   onAssignChannelsToFolder: (channelIds: string[], folderId: string) => void;
+  /* 2.5.276 (#14): csoportos kivétel – a kategória összes csatornájának kivétele minden kedvenc mappából. */
+  onRemoveChannelsFromFolders: (channelIds: string[]) => void;
   selectedCategoryId: string;
   onSelectCategory: (categoryId: string) => void;
   onSelectSubCategory: (countryCategoryId: string, subCategoryId: string) => void;
@@ -27,6 +29,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   channels,
   folders,
   onAssignChannelsToFolder,
+  onRemoveChannelsFromFolders,
   selectedCategoryId,
   onSelectCategory,
   onSelectSubCategory,
@@ -189,8 +192,27 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   const openFavoritePicker = (title: string, channelIds: string[]) => {
     if (channelIds.length) setFavoriteTarget({ title, channelIds });
   };
-  const isGroupInFavorites = (channelIds: string[]) =>
-    channelIds.length > 0 && folders.some((folder) => channelIds.every((id) => folder.channelIds.includes(id)));
+  /*
+   * 2.5.276 (#14-es kérés): a kategória csillaga valódi KAPCSOLÓ.
+   * - Ha a csoport (még részben) szerepel valamelyik kedvenc mappában, egy
+   *   nyomás KIVESZI az összes ide tartozó csatornát MINDEN kedvenc mappából.
+   * - Egyébként megnyílik a mappaválasztó, és csak ennek a kategóriának a
+   *   csatornái kerülnek be (soha nem más kategória elemei).
+   */
+  const groupIdsForCountry = (catId: string): string[] => {
+    if (!catId.startsWith('country-')) return [];
+    const code = catId.slice('country-'.length);
+    return channels
+      .filter((channel) => (channel.countryCode || 'INT').toUpperCase() === code)
+      .map((channel) => channel.id);
+  };
+  const isAnyInFavorites = (channelIds: string[]): boolean =>
+    channelIds.length > 0 && channelIds.some((id) => folders.some((folder) => folder.channelIds.includes(id)));
+  const toggleGroupFavorite = (title: string, channelIds: string[]) => {
+    if (!channelIds.length) return;
+    if (isAnyInFavorites(channelIds)) onRemoveChannelsFromFolders(channelIds);
+    else openFavoritePicker(title, channelIds);
+  };
 
   // A feltételes visszatérés csak az összes hook után lehet: különben a modal
   // nyitásakor/zárásakor változik a hookok száma, ami React futásidejű hibát okoz.
@@ -285,10 +307,14 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
           )}
           {filtered.map((cat) => {
             const isSelected = selectedCategoryId === cat.id && !isOnlyFavorites;
+            // 2.5.276 (#14): a csillag a TELJES ország-kategóriára vonatkozik, és
+            // kapcsolóként működik (hozzáad ↔ összes kivétele).
+            const groupIds = groupIdsForCountry(cat.id);
+            const groupFav = isAnyInFavorites(groupIds);
             return (
               <React.Fragment key={cat.id}>
               <div className="flex items-stretch gap-2">
-              <button type="button" aria-label={"Kedvencekhez adás: " + cat.name} onClick={(e) => { e.stopPropagation(); const code = cat.id.startsWith("country-") ? cat.id.slice(8) : ""; const ids = channels.filter((channel) => (channel.countryCode || "INT").toUpperCase() === code).map((channel) => channel.id); openFavoritePicker(cat.name, ids); }} className={"w-12 shrink-0 rounded-xl border-2 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 " + (isGroupInFavorites(channels.filter((channel) => (channel.countryCode || "INT").toUpperCase() === cat.id.slice(8)).map((channel) => channel.id)) ? "border-yellow-300 bg-yellow-400/20 text-yellow-300" : "border-slate-600 bg-[#0a1630] text-slate-400 hover:text-yellow-300")}><Star className="w-6 h-6" fill={isGroupInFavorites(channels.filter((channel) => (channel.countryCode || "INT").toUpperCase() === cat.id.slice(8)).map((channel) => channel.id)) ? "currentColor" : "none"} /></button>
+              <button type="button" aria-label={(groupFav ? "Kivétel a kedvencekből: " : "Kedvencekhez adás: ") + cat.name} onClick={(e) => { e.stopPropagation(); toggleGroupFavorite(cat.name, groupIds); }} className={"w-12 shrink-0 rounded-xl border-2 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 " + (groupFav ? "border-yellow-300 bg-yellow-400/20 text-yellow-300" : "border-slate-600 bg-[#0a1630] text-slate-400 hover:text-yellow-300")}><Star className="w-6 h-6" fill={groupFav ? "currentColor" : "none"} /></button>
               <div
                 data-category-row="true"
                 role="button"
@@ -367,10 +393,11 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                     </button>
                     {subCategories.map((subCategory) => {
                       const subChannelIds = channels.filter((channel) => (channel.countryCode || "INT").toUpperCase() === countryCode && (channel.categoryId || "other") === subCategory.id).map((channel) => channel.id);
-                      const subIsFavorite = isGroupInFavorites(subChannelIds);
+                      // 2.5.276 (#14): az alkategória csillaga is kapcsoló (hozzáad ↔ összes kivétele).
+                      const subIsFavorite = isAnyInFavorites(subChannelIds);
                       return (
                       <div key={subCategory.id} className="flex items-stretch gap-2">
-                      <button type="button" aria-label={"Kedvencekhez adás: " + subCategory.name} onClick={() => openFavoritePicker(subCategory.name, subChannelIds)} className={"w-12 shrink-0 rounded-xl border-2 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 " + (subIsFavorite ? "border-yellow-300 bg-yellow-400/20 text-yellow-300" : "border-slate-600 bg-[#0a1630] text-slate-400 hover:text-yellow-300")}><Star className="w-6 h-6" fill={subIsFavorite ? "currentColor" : "none"} /></button>
+                      <button type="button" aria-label={(subIsFavorite ? "Kivétel a kedvencekből: " : "Kedvencekhez adás: ") + subCategory.name} onClick={() => toggleGroupFavorite(subCategory.name, subChannelIds)} className={"w-12 shrink-0 rounded-xl border-2 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 " + (subIsFavorite ? "border-yellow-300 bg-yellow-400/20 text-yellow-300" : "border-slate-600 bg-[#0a1630] text-slate-400 hover:text-yellow-300")}><Star className="w-6 h-6" fill={subIsFavorite ? "currentColor" : "none"} /></button>
                       <button
                         key={subCategory.id}
                         onClick={() => {

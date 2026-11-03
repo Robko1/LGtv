@@ -2385,6 +2385,29 @@ export function App() {
     dirtyRef.current = true;
   }, [folders, handleSaveFolders]);
 
+  /*
+   * 2.5.276 (#14-es kérés): CSOPORTOS KIVÉTEL – a kategória (ország/alkategória)
+   * csillaga üres mappából visszavonja az EGÉSZ csoportot minden kedvenc mappából,
+   * nem csak egyesével. Csak a csoporthoz tartozó csatornák törlődnek, idegen
+   * (más kategóriás) kedvencek érintetlenek maradnak.
+   */
+  const handleRemoveChannelsFromFolders = useCallback((channelIds: string[]) => {
+    const removed = new Set(channelIds);
+    if (!removed.size) return;
+    const updatedFolders = folders.map((folder) => ({
+      ...folder,
+      channelIds: folder.channelIds.filter((id) => !removed.has(id)),
+    }));
+    handleSaveFolders(updatedFolders);
+    const stillFavorite = new Set(updatedFolders.flatMap((folder) => folder.channelIds));
+    setChannels((previous) => previous.map((channel) =>
+      removed.has(channel.id) && channel.isFavorite && !stillFavorite.has(channel.id)
+        ? { ...channel, isFavorite: false }
+        : channel
+    ));
+    dirtyRef.current = true;
+  }, [folders, handleSaveFolders]);
+
   // A kukával a kedvenc mappából csak a mappatagságot vesszük ki;
   // az ország/alaplistából törölve a csatorna minden kedvenc mappából is eltűnik.
   const handleDeleteChannel = useCallback((channelId: string) => {
@@ -4913,6 +4936,7 @@ export function App() {
         channels={channels}
         folders={folders}
         onAssignChannelsToFolder={handleAssignChannelsToFolder}
+        onRemoveChannelsFromFolders={handleRemoveChannelsFromFolders}
         selectedCategoryId={selectedCategoryId}
         onSelectCategory={(catId) => {
           setSelectedFavoriteFolderId(null);

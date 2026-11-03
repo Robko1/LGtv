@@ -89,6 +89,15 @@ const CHUNK_SIZE = 500;
  * egyenletesebben érkezik (lásd a CHUNK_SIZE fenti megjegyzését).
  */
 const VOD_STORE_CHUNK_SIZE = 2000;
+/*
+ * 2.5.276 (#14-es napló): a film-/sorozatmentés felső BAJT-kerete. A webOS
+ * tárolója ~5 MB, a teljes katalógus (103 ezer film) ennek sokszorosa volt, ezért
+ * a mentés kvótahibával mindig meghiúsult, és IPK-frissítés után a Mozi/Sorozat
+ * teljesen üres lett. Most legfeljebb ennyi bájtot írunk ki (a tényleges keret
+ * a szabad helyhez igazodik, lásd saveChunkedToIdb – valódi TV-n a ~5 MB-os
+ * kvóta miatt ez pár MB lesz), a maradék a háttérben pótlódik.
+ */
+const VOD_SAVE_MAX_BYTES = 8 * 1024 * 1024;
 
 /** Egy mentett szakasz adagmérete a fejlécből (régi fejléc esetén CHUNK_SIZE). */
 function metaChunkSize(meta: { chunkSize?: number }): number {
@@ -324,6 +333,8 @@ interface ChunkMeta {
   liveTotal?: number;
   /** 2.5.245: az adag mérete ennél a mentésnél (hiányában CHUNK_SIZE). */
   chunkSize?: number;
+  /** 2.5.276 (#14): true, ha a kvóta-keret miatt nem az összes adag íródott ki. */
+  partial?: boolean;
 }
 
 /* --------------------------------------------------------------- backendek */
@@ -1481,6 +1492,16 @@ interface ChunkedSaveOptions {
   liveTotal?: number;
   /** 2.5.245: egy adag sorainak száma (hiányában CHUNK_SIZE=500). */
   chunkSize?: number;
+  /*
+   * 2.5.276 (#14-es napló): BAJT-KERET a mentéshez. A webOS ~5 MB-os kvótájába
+   * a 103 ezres filmlista soha nem fért bele: a kötegelt írás kvótahibával
+   * meghiúsult, a fejléc sosem íródott ki, és IPK-frissítés után a Mozi/Sorozat
+   * nézet teljesen üres lett (0/103021 film), miközben az élő lista megmaradt.
+   * Ha maxBytes meg van adva, a mentés csak annyi adagot ír ki, amennyi belefér,
+   * a fejléc pedig RÉSZLEGES jelölést kap – így újraindítás után is van lista,
+   * és a háttér-ellenőrzés később visszapótolja a hiányzó részt.
+   */
+  maxBytes?: number;
 }
 
 /** A korábbi adagok kulcsainak összegyűjtése (törléshez). */
@@ -1632,6 +1653,29 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
   try {
     let batch: ChunkEntry[] = [];
     let approxBytes = 0;
+    /*
+     * 2.5.276 (#14-es napló): KVÓTA-KERET. A webOS-tároló ~5 MB, a teljes filmlista
+     * (103 ezer film) ennek sokszorosa – az erőltetett mentés kvótahibával
+     * meghiúsult, és IPK-frissítés után üres lett a Mozi nézet. Ha maxBytes van
+     * adva, csak annyi adagot írunk ki, amennyi biztonságosan belefér, a fejléc
+     * pedig partial jelölést kap (a visszatöltés így részleges listát ad, nem nullát).
+     */
+    let effMaxBytes = Infinity;
+    if (options.maxBytes) {
+      try {
+        const budget = await storageBudgetBytes();
+        /*
+         * Csak akkor korlátozunk, ha a valódi kvóta KICSI (webOS ~5 MB): nagy
+         * tárnál (tesztkörnyezet, asztali böngésző, ahol a becslés vagy a
+         * fallback nagy) a teljes lista elfér, azt mentjük ki teljesen.
+         */
+        if (budget.quotaBytes && budget.quotaBytes <= 32 * 1024 * 1024) {
+          const free = budget.quotaBytes - (budget.usageBytes || 0) - 256 * 1024;
+          effMaxBytes = Math.max(128 * 1024, Math.min(options.maxBytes, free));
+        }
+      } catch { /* a becslés hibája esetén nincs korlátozás */ }
+    }
+    let plannedChunks = chunkCount;
     const flush = async (): Promise<void> => {
       if (!batch.length) return;
       const toWrite = batch;
@@ -1645,6 +1689,11 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       await yieldToStorage();
     };
     for (let index = 0; index < chunkCount; index++) {
+      // 2.5.276: a keret elérése után leállunk (legalább egy adag mindig megy).
+      if (index > 0 && approxBytes >= effMaxBytes) {
+        plannedChunks = index;
+        break;
+      }
       const text = JSON.stringify({ rows: options.chunkRows(index) });
       approxBytes += text.length;
       batch.push({ key: generationPrefix + index, value: text });
@@ -1672,9 +1721,9 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
      */
     const persistedKeys = await store.keys();
     const persistedChunks = persistedKeys.filter((key) => key.startsWith(generationPrefix)).length;
-    if (persistedChunks !== chunkCount) {
+    if (persistedChunks !== plannedChunks) {
       throw new Error(
-        `mentés-ellenőrzés: ${persistedChunks}/${chunkCount} adag van ténylegesen a tárolóban`
+        `mentés-ellenőrzés: ${persistedChunks}/${plannedChunks} adag van ténylegesen a tárolóban`
       );
     }
 
@@ -1690,8 +1739,11 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       v: 1,
       totals: options.totals,
       cats: options.cats,
-      chunks: chunkCount,
+      chunks: plannedChunks,
       chunkPrefix: generationPrefix,
+      // 2.5.276 (#14): részleges mentésnél a visszatöltés látja, hogy hiányzik még
+      // adat (a fejléc totals-a a TELJES szám), és a háttér-ellenőrzés pótolja.
+      ...(plannedChunks < chunkCount ? { partial: true } : {}),
       savedAtMs: Date.now(),
       ...(options.provider ? { provider: options.provider } : {}),
       ...(options.savedAt ? { savedAt: options.savedAt } : {}),
@@ -1710,8 +1762,9 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
     const section = sectionForMetaKey(options.metaKey);
     if (section) noteSectionSaved(section, options.total, options.provider || null, meta.savedAtMs || Date.now());
     appLog(
-      `${options.label} TARTÓSAN elmentve: ${options.total} elem, ${chunkCount} adag, `
-      + `~${(approxBytes / 1024 / 1024).toFixed(1)} MB, ${Date.now() - startedAt} ms.`
+      `${options.label} TARTÓSAN elmentve: ${options.total} elem, ${plannedChunks} adag`
+      + (plannedChunks < chunkCount ? ` (RÉSZLEGES: ${chunkCount - plannedChunks} adag kimaradt a kvóta-keret miatt)` : '')
+      + `, ~${(approxBytes / 1024 / 1024).toFixed(1)} MB, ${Date.now() - startedAt} ms.`
     );
   } catch (error) {
     // A még futó háttérírásokat bevárjuk, hogy a takarítás ne hagyjon árvát.
@@ -1901,6 +1954,8 @@ export function saveSeriesContent(content: ImportedContent): Promise<void> {
     generationPrefix: SERIES_GENERATION_PREFIX,
     total: content.series.length,
     chunkSize: VOD_STORE_CHUNK_SIZE,
+    // 2.5.276 (#14): kvóta-keret – részleges mentés is jobb, mint a semmi.
+    maxBytes: VOD_SAVE_MAX_BYTES,
     chunkRows: (index) => encodeSeries(content.series.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
     totals: { series: content.totals.series },
     cats: encodeCategories(content.seriesCategories),
@@ -1923,6 +1978,8 @@ export function saveVodContent(content: ImportedContent): Promise<void> {
     generationPrefix: VOD_GENERATION_PREFIX,
     total: content.movies.length,
     chunkSize: VOD_STORE_CHUNK_SIZE,
+    // 2.5.276 (#14): kvóta-keret – részleges mentés is jobb, mint a semmi.
+    maxBytes: VOD_SAVE_MAX_BYTES,
     chunkRows: (index) => encodeMovies(content.movies.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
     totals: { vod: content.totals.vod },
     cats: encodeCategories(content.vodCategories),
