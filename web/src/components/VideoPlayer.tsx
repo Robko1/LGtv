@@ -4432,11 +4432,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // A webOS HTML5 videóelemét használjuk. Élő adásnál legfeljebb két
       // külön formátum-próba van; a további indításokat a recovery időzíti.
       if (!adoptedPrefetch) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
         video.src = url;
-        // UGYANAZ a cím az újracsatlakozásnál: a TV médiamotorja ilyenkor nem
-        // mindig indít új kérést, ezért kifejezetten újratöltjük. Ha egy régi
-        // hibaállapotot bontottunk le, az új címhez ugyanígy teljes reset kell.
-        if (forceReload || hadMediaError) video.load();
+        video.load();
       }
       // 2.5.279: átvett prefetch elemnél a src már rajta van – csak újra kell játszani.
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
