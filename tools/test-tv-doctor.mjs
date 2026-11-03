@@ -176,6 +176,46 @@ check(
   'három sikeres fast indulás után a TV Doctor a turbo puffert is kipróbálja',
 );
 
+// 1.2c A stabilan működő formátum mellett a Doktor időnként a másikat is megméri.
+const formatProbeStore = new MemoryStorage();
+const formatProbeChannel = {
+  id: 'ch-format-probe',
+  name: '[HU] Formátum sebességpróba',
+  streamUrl: 'http://panel.example:8080/live/u/p/997.ts',
+};
+for (let i = 0; i < 10; i += 1) {
+  core.recordDoctorChannelSuccess({
+    channel: formatProbeChannel, format: 'ts', bufferProfile: 'balanced', startupMs: 1200, storage: formatProbeStore,
+  });
+}
+const firstFormatProbe = core.selectChannelLaunchPlan(
+  formatProbeChannel, formatProbeChannel.streamUrl, core.INITIAL_SETTINGS, formatProbeStore,
+);
+check(
+  firstFormatProbe.primaryFormat === 'hls',
+  'tíz sikeres TS-indulás után a Doktor egyetlen váltással kipróbálja a még nem mért HLS-t',
+);
+core.recordDoctorChannelSuccess({
+  channel: formatProbeChannel, format: 'hls', bufferProfile: 'fast', startupMs: 420, storage: formatProbeStore,
+});
+const secondFormatProbe = core.selectChannelLaunchPlan(
+  formatProbeChannel, formatProbeChannel.streamUrl, core.INITIAL_SETTINGS, formatProbeStore,
+);
+check(
+  secondFormatProbe.primaryFormat === 'hls',
+  'az első gyors HLS-siker után a második valódi mérés is HLS-sel indul, hogy összehasonlítható legyen',
+);
+core.recordDoctorChannelSuccess({
+  channel: formatProbeChannel, format: 'hls', bufferProfile: 'fast', startupMs: 390, storage: formatProbeStore,
+});
+const learnedFormatPlan = core.selectChannelLaunchPlan(
+  formatProbeChannel, formatProbeChannel.streamUrl, core.INITIAL_SETTINGS, formatProbeStore,
+);
+check(
+  learnedFormatPlan.primaryFormat === 'hls',
+  'a két gyors HLS-mérés után a következő váltás már a gyorsabb formátumot választja',
+);
+
 // 1.3 Automatikus pufferoptimalizálás és szigorú biztonsági határok (1.0 .. 10.0 mp)
 const jitterChannel = {
   id: 'ch-uhd',
