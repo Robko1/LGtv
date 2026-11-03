@@ -218,10 +218,13 @@ check(/urls: alternative \? \[primaryUrl, alternative\.url\] : \[primaryUrl\]/.t
 check(/const isActiveMediaEvent = \(video: HTMLVideoElement\): boolean =>/.test(PLAYER)
   && /RÉGI MÉDIAESEMÉNY KIHAGYVA/.test(PLAYER),
   'a későn érkező régi src médiaeseménye nem írhatja át az új csatorna állapotát');
-check(/hasStartupData/.test(PLAYER)
-  && /türelmi idő indul/.test(PLAYER)
-  && /türelmi idő után sem indult/.test(PLAYER),
-  'a késői playing esemény kap türelmi időt, de nem maradhat végtelenül elakadt');
+const liveZapWatchdog = PLAYER.slice(PLAYER.indexOf('const attemptTimeoutMs = Math.min(startupWatchdogMs, 1500);'), PLAYER.indexOf('}, attemptTimeoutMs);') + '}, attemptTimeoutMs);';
+check(/const attemptTimeoutMs = Math\.min\(startupWatchdogMs, 1500\)/.test(liveZapWatchdog)
+  && /bufferedAheadSeconds\(video\)/.test(liveZapWatchdog)
+  && /ahead >= 2 && video\.readyState >= 3/.test(liveZapWatchdog)
+  && /setTimeout\([\s\S]*?bufferWatchdogMs\)/.test(liveZapWatchdog)
+  && !/networkState|graceMs|restMs|hasStartupData/.test(liveZapWatchdog),
+  'az élő ZAP-ŐR egy 1,5 mp-es ellenőrzést és csak valódi puffer esetén egyetlen további türelmi időt használ');
 check(/vodRecoveryRef\.current\('korai ended esemény'\)/.test(PLAYER)
   && /isPrematureVodEnd\(position, duration\)/.test(PLAYER),
   'a VOD korai ended eseménye visszaállítást indít, nem következő részt');
