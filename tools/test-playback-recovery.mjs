@@ -224,7 +224,7 @@ const liveZapWatchdog = liveZapWatchdogStart >= 0 && liveZapWatchdogEnd >= 0
   ? PLAYER.slice(liveZapWatchdogStart, liveZapWatchdogEnd + '}, attemptTimeoutMs);'.length)
   : '';
 check(/const attemptTimeoutMs = Math\.max\(2000, Math\.min\(startupWatchdogMs, 2500\)\)/.test(liveZapWatchdog)
-  && /video\.readyState >= 2/.test(liveZapWatchdog)
+  && /readyStateAtCheck >= 2/.test(liveZapWatchdog)
   && /aheadAtCheck/.test(liveZapWatchdog)
   && /framesProgressed/.test(liveZapWatchdog)
   && /bufferProgressed/.test(liveZapWatchdog)
