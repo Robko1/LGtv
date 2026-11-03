@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.275';
+export const WEB_VERSION = '2.5.276';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.276',
+    date: '2026-11-03',
+    changes: [
+      'Mozi/Sorozat eltűnés javítása IPK-frissítés után (#14-es napló): a teljes filmlista (103 021 film) soha nem fért bele a webOS ~5 MB-os tárolójába, ezért a kötegelt mentés kvótahibával meghiúsult, a fejléc sosem íródott ki, és frissítés után „0/103021 film” lett (az élő lista kis mérete miatt megmaradt). Mostantól a film-/sorozatmentésnek van bájtkerekete (max 2 MB, a tényleges szabad helyhez igazítva): ami belefér, azt elmentjük, a fejléc „partial” jelölést kap, így újraindítás után is van lista, és a háttér-ellenőrzés később visszapótolja a hiányzó részt. Ez egyben megszünteti a több másodperces főszál-leállásokat is, amiket a 100 ezres lista újra-kódolása okozott mentés-újrapróbáláskor nézés közben.',
+      'Kedvencek – ország/alkategória csillaga kapcsoló (#14-es kérés): ha a kategória csillagát már „teli” állapotban nyomod meg, az EGÉSZ kategória kikerül minden kedvenc mappából (korábban ilyenkor csak újra megnyílt a mappaválasztó, kivétel nem volt). Hozzáadáskor továbbra is csak a kiválasztott kategória saját csatornái kerülnek be – idegen kategória elemei nem. Az egyes csatornák egyenkénti csillaga változatlanul működik (hozzáad/kivesz minden mappából).',
+    ],
+  },
   {
     version: '2.5.275',
     date: '2026-11-03',
