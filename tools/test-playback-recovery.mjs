@@ -218,7 +218,11 @@ check(/urls: alternative \? \[primaryUrl, alternative\.url\] : \[primaryUrl\]/.t
 check(/const isActiveMediaEvent = \(video: HTMLVideoElement\): boolean =>/.test(PLAYER)
   && /RÉGI MÉDIAESEMÉNY KIHAGYVA/.test(PLAYER),
   'a későn érkező régi src médiaeseménye nem írhatja át az új csatorna állapotát');
-const liveZapWatchdog = PLAYER.slice(PLAYER.indexOf('const attemptTimeoutMs = Math.min(startupWatchdogMs, 1500);'), PLAYER.indexOf('}, attemptTimeoutMs);') + '}, attemptTimeoutMs);';
+const liveZapWatchdogStart = PLAYER.indexOf('const attemptTimeoutMs = Math.min(startupWatchdogMs, 1500);');
+const liveZapWatchdogEnd = PLAYER.indexOf('}, attemptTimeoutMs);', liveZapWatchdogStart);
+const liveZapWatchdog = liveZapWatchdogStart >= 0 && liveZapWatchdogEnd >= 0
+  ? PLAYER.slice(liveZapWatchdogStart, liveZapWatchdogEnd + '}, attemptTimeoutMs);'.length)
+  : '';
 check(/const attemptTimeoutMs = Math\.min\(startupWatchdogMs, 1500\)/.test(liveZapWatchdog)
   && /bufferedAheadSeconds\(video\)/.test(liveZapWatchdog)
   && /ahead >= 2 && video\.readyState >= 3/.test(liveZapWatchdog)
