@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.280';
+export const WEB_VERSION = '2.5.281';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.281',
+    date: '2026-11-03',
+    changes: [
+      'GYORS ZAP tényleg működik (#24/#26-os napló, „csatornaváltás 5 mp, nem 1 mp"): a CH+/CH− mostantól a ref-ből (azonnal frissülő azonosítóból) számolja a következő csatornát, így gyors egymás utáni váltásnál nem ugrunk vissza ugyanarra, és az előkészítés (prefetch) mindig a valóban következő csatornát tölti előre – eddig egy lépéssel lemaradva a rossz csatornát töltötte, ezért a GYORS ZAP soha nem váltott be, és minden váltás hidegen 2-5 mp-ig tartott.',
+      'Zap-őr: váltás után a webOS egy ideig még a régi csatorna pufferét jelenti – ezt mostantól nem számítjuk az új adás indulási adatának, és amíg az új cím töltődik (NETWORK_LOADING), nem indítunk felesleges formátum-újrapróbát (ez a #24-es naplóban 2 mp helyett 4,7 mp-es váltást okozott).',
+      'Nézés közbeni leállások megszüntetése (#24-es napló: 81 mp-es VOD-visszatöltés futott végig élő TV közben, LEÁLLÁS 2,5-2,6 mp): a Mozi/Sorozat teljes visszatöltése mostantól adagonként megszakítható – ha a néző visszament élőbe, az olvasás a következő adagnál leáll; a film/sorozat mentési adagméret 2000-ről 500 sorra csökkent, így egy adag beolvasása ~0,6 mp a korábbi ~2,5 mp helyett.',
+    ],
+  },
   {
     version: '2.5.280',
     date: '2026-11-03',
