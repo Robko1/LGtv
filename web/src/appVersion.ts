@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.274';
+export const WEB_VERSION = '2.5.275';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.275',
+    date: '2026-11-03',
+    changes: [
+      'Gyorsítás (#11-es napló): ha a panel összes EPG végpontja (xmltv.php, get.php url-tvg, /epg.xml /guide.xml /xmltv.xml) egy teljes próba után üres volt, ezt 24 órára elmentjük – a későbbi frissítések (30 percenként) így már NEM töltenek le újra több MB-os M3U-t és nem próbálják újra a jelölt útvonalakat, hanem egyenesen a nyilvános HU újságokhoz mennek; 24 óra után újra próbáljuk (hátha a panel közben beállította az EPG-t). A naplóban külön sor: „a panel EPG végpontjai … üresnek bizonyultak – … KIHAGYVA”.',
+      'Gyorsítás (#11-es napló): a mentett műsorújság akkor is „frissnek” számít, ha az időablaka még érvényes (a mentés + 12 óra még a jövőbe mutat) – így a 30+ MB-os nyilvános HU újságokat nem 3 óránként, hanem csak akkor töltjük újra, amikor a mentett műsorok tényleg kifutnának; ez szünteti meg a nézés közbeni több másodperces főszál-leállásokat (LEÁLLÁS 3–6 mp) az újratöltéskor.',
+      'Gyorsítás (#11-es napló): az M3U url-tvg keresése 512 KB helyett csak az első 64 KB-t olvassa és regexeli (a url-tvg mindig a #EXTM3U fejlécben van) – kevesebb letöltés és főszáli munka minden próbánál.',
+      'EPG (#11-es napló): új többes aliasz-tábla (HU_EPG_IDS_EXTRA) a még műsor nélküli magyar adókhoz – AXN CE → AXN / AXN.hu / HU1#AXN.hu, BOOMERANG → Cartoonito.hu / HU1#Cartoonito.hu / CARTOONITO / CARTOON, DISNEY JR → DISNEYJUNIOR / DisneyJunior.hu / HU1#Disney.Junior.hu, E ENTERTAINMENT → E_ENTERTAINMENT / E!Entertainment.hu, HIT TV → HITTV / HIT.TV.hu, TV 1000 → TV1000 / TV1000.hu, M PLUS → M+.hu / MPlus.hu; az epgshare01 HU1 táblából a „HU1#…” előtagos azonosítók is közvetlenül próbálva (az újság ténylegesen „HU1#AXN.hu” alakú id-eket használ).',
+    ],
+  },
   {
     version: '2.5.274',
     date: '2026-11-02',
