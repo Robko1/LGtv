@@ -1757,7 +1757,6 @@ try {
   check(doctorToggle.getAttribute('aria-checked') === 'true', 'alapértelmezetten a TV Doktor aktív');
 
   // Távirányítós OK: elsőre a kapcsolóra viszi a fókuszt, a következő OK aktiválja.
-  const doctorToggle = doc.querySelector('[data-tv-doctor-toggle]');
   doctorBox.focus();
   doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
   await wait(45);
