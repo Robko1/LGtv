@@ -386,6 +386,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       if (box && (
         ['ArrowLeft', 'ArrowRight'].includes(key) ||
         (['ArrowUp', 'ArrowDown'].includes(key) && active !== box) ||
+        (box.hasAttribute('data-tv-doctor-box') && key === 'ArrowDown' && active === box) ||
         (key === 'Enter' && active === box)
       )) {
         const controls = Array.from(box.querySelectorAll<HTMLElement>(
@@ -394,6 +395,15 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         e.preventDefault();
         e.stopPropagation();
         if (key === 'Enter' && active === box) {
+          // A TV Doktor dobozra OK-val belépve először a kapcsoló kapjon
+          // valódi fókuszt. Így a felhasználó látja a kijelölést, és csak a
+          // következő OK kapcsolja át; nem aktiváljuk rejtetten a kapcsolót.
+          if (box.hasAttribute('data-tv-doctor-box')) {
+            const toggle = box.querySelector<HTMLElement>('[data-tv-doctor-toggle]');
+            toggle?.focus({ preventScroll: true } as any);
+            toggle?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            return;
+          }
           if (controls.length === 1) {
             controls[0].click();
             return;
