@@ -1730,8 +1730,16 @@ export function selectChannelLaunchPlan(
       ? MAX_DEAD_CHANNEL_QUICK_STEPS
       : MAX_DOCTOR_REPAIR_STEPS;
 
-    const chosenFormat: LiveFormat = supportsDualFormat
+    const learnedFormat = supportsDualFormat
       ? pickFastestReliableFormat(record, fallbackPrimary)
+      : fallbackPrimary;
+    // Egyetlen korábbi siker (különösen régi/hibás mérés) még nem írhatja felül
+    // az aktuális forrás/beállítás formátumát. Legalább két valós indulás kell.
+    const learnedFormatSuccesses = learnedFormat === 'hls'
+      ? Math.max(0, record.hlsOk || 0)
+      : Math.max(0, record.tsOk || 0);
+    const chosenFormat: LiveFormat = supportsDualFormat && learnedFormatSuccesses >= 2
+      ? learnedFormat
       : fallbackPrimary;
 
     // Szinkronban tartjuk a VideoPlayer helyi formátum-emlékével is (csak ha a TV Doktor be van kapcsolva!).
