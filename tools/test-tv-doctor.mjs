@@ -457,6 +457,21 @@ check(planDuringCooldown.maxRepairSteps === core.MAX_DEAD_CHANNEL_QUICK_STEPS &&
   '2.5.277: újraaktiválási hűtőben csak a rövid (2 lépéses) ellenőrzés engedélyezett (ARENA 4 flapping ellen)');
 check(recAfterExhaust !== null && core.getChannelDoctorRecord(flapCh, flapStore)?.deadUntil === undefined,
   '2.5.277: kézi újraválasztásnál a halott jelölés azonnal törlődik (NAT GEO WILD UHD eset)');
+// A rövid (2 lépéses) visszaellenőrzés újabb kudarca nem növelheti a halottszámlálót.
+const haltCountBeforeQuickCheck = core.getChannelDoctorRecord(flapCh, flapStore)?.haltCount || 0;
+const quickCheckExhausted = core.planDoctorRepairStep({
+  channel: flapCh, trigger: 'startup_timeout', step: core.MAX_DEAD_CHANNEL_QUICK_STEPS + 1,
+  maxStepsOverride: core.MAX_DEAD_CHANNEL_QUICK_STEPS,
+  currentFormat: 'hls', currentBufferProfile: 'balanced',
+  streamUrl: flapCh.streamUrl, tsUrl: 'http://panel.example:8080/live/u/p/404.ts',
+  hlsUrl: flapCh.streamUrl, storage: flapStore,
+});
+check(
+  quickCheckExhausted.strategyId === 'reactivation_check_failed' &&
+    quickCheckExhausted.exhausted === false &&
+    (core.getChannelDoctorRecord(flapCh, flapStore)?.haltCount || 0) === haltCountBeforeQuickCheck,
+  'a rövid újraaktiválási ellenőrzés kudarca nem jelöli ismét halottnak a csatornát',
+);
 // 3) siker után minden korábbi halott/hűtési állapot törlődik, és a gyorsprofil ismét használható.
 core.recordDoctorChannelSuccess({ channel: flapCh, format: 'hls', bufferProfile: 'balanced', startupMs: 800, storage: flapStore });
 const flapAfterSuccess = core.getChannelDoctorRecord(flapCh, flapStore);
