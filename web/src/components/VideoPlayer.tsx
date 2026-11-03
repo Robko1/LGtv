@@ -2143,7 +2143,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // rövid megerősítő ablakot adunk a dekódernek. A korábbi 1,2/2,0 mp-es
         // profilidőzítők a #12-ben túl korán indítottak forráscserét egy
         // pillanatnyi HLS/TS szegmensváltás miatt.
-        if (!confirmationUsed && ahead !== null && ahead >= timing.minBufferAheadSeconds && video.readyState >= 2) {
+        // 2.5.278 (#18-as napló): ha a puffer már NAGY (>= 8 mp előre), nincs
+        // értelme megerősítő szünetet várni – ott már biztosan akadás van
+        // (a #18-ban 11 mp előrenél is 750 ms-et vártunk feleslegesen).
+        if (!confirmationUsed && ahead !== null && ahead >= timing.minBufferAheadSeconds && ahead < 8 && video.readyState >= 2) {
           confirmationUsed = true;
           const confirmMs = Math.max(750, Math.min(1500, timing.retryMs));
           appLog(

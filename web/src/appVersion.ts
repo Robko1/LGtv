@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.277';
+export const WEB_VERSION = '2.5.278';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.278',
+    date: '2026-11-03',
+    changes: [
+      'GYORSÍTÁS (#18/#19-es napló, „retten lassú/fagy minden"): az EPG (műsorújság) feldolgozás inkrementálissá vált – korábban minden beérkező blokkra újra végigfutott a zárójel-keresés a teljes (akár 8 MB-os) pufferen, ami egy 10-20 MB-os újságnál önmagában 2,7-3,1 mp-es főszál-leállást okozott (LEÁLLÁS a #18-as naplóban). Most csak az új szöveget dolgozzuk fel lépésenként, a leállások megszűnnek.',
+      'EPG magyar adók ELŐRE (#18-as napló): ha a visszatöltött újság kevés magyar adót fed le, most előbb a kis, gyors nyilvános HU újságokat töltjük le (másodpercek alatt), és csak utána indul a nagy szolgáltatói XMLTV a háttérben – a magyar sárga műsorsor így azonnal megjelenik, nem 2-3 perc múlva.',
+      'Felhőszinkron ritkítás (#19-es napló): a TV Doktor Supabase szinkronja 14 mp-es debouncing helyett most 60 mp után, de két küldés között legalább 3 perc telik el – a #19-es naplóban 15-60 másodpercenként ment ki szinkron 5,4 mp-es válaszidővel nézés közben; most ritkábban, nagyobb kötegekben megy.',
+      'Pufferőr: 8 mp-nél nagyobb előrenyúffer esetén már nem várunk 750 ms megerősítő szünetet – ott biztosan akadás van, a beavatkozás azonnal indul (#18: 11 mp előrenél is vártunk).',
+    ],
+  },
   {
     version: '2.5.277',
     date: '2026-11-03',

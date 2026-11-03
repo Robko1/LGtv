@@ -128,6 +128,25 @@ ${Array.from({ length: 10 }, (_, index) => {
 }).join('\n')}
 </tv>`;
 
+/*
+ * 2.5.278 (#18-as napló): nagy, darabokban érkező műsorújság – a #18-as
+ * naplóban a 10-20 MB-os fájlok feldolgozása 2,7-3,1 mp-es leállást okozott.
+ * Itt azt ellenőrizzük, hogy a darabonkénti (64 KB) feldolgozás MINDEN
+ * csatornát és műsort megtart (nincs veszteség a darabhatárokon).
+ */
+const BIG_CHANNELS = 400;
+const BIG_PROGRAMMES = 150;
+const BIG_GUIDE = `<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+${Array.from({ length: BIG_CHANNELS }, (_, c) => `  <channel id="big${c}.hu"><display-name>Big TV ${c}</display-name></channel>`).join('\n')}
+${Array.from({ length: BIG_CHANNELS }, (_, c) =>
+  Array.from({ length: BIG_PROGRAMMES }, (_, p) => {
+    const slotStart = now - 1800 + p * 900 + c;
+    return `  <programme start="${xmltv(slotStart)}" stop="${xmltv(slotStart + 900)}" channel="big${c}.hu">\n    <title>Big ${c}/${p}</title>\n  </programme>`;
+  }).join('\n')
+).join('\n')}
+</tv>`;
+
 let guideRequests = 0;
 let failNext = false;
 let server;
@@ -148,6 +167,24 @@ function startServer(): Promise<void> {
         if (variant === 'dashed' || variant === 'many') {
           res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' });
           res.end(variant === 'dashed' ? DASHED_GUIDE : MANY_GUIDE);
+          return;
+        }
+        if (variant === 'big') {
+          // 2.5.278 (#18-as napló): NAGY újság (400 csatorna x 150 műsor, ~10 MB)
+          // 64 KB-os darabokban – az inkrementális feldolgozás (feed) útvonala.
+          res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' });
+          const buffer = Buffer.from(BIG_GUIDE, 'utf8');
+          let offset = 0;
+          const tick = () => {
+            if (offset >= buffer.length) {
+              res.end();
+              return;
+            }
+            res.write(buffer.subarray(offset, offset + 64 * 1024));
+            offset += 64 * 1024;
+            setTimeout(tick, 0);
+          };
+          tick();
           return;
         }
         if (variant === 'partial') {
@@ -334,6 +371,24 @@ check(/complete\?: boolean/.test(SOURCE) && /persistGuide\(provider\.id, false\)
   'a részleges mentés RÉSZLEGES jelölést kap (nem blokkolja a frissítést)');
 check(/restored\.complete && thick/.test(SOURCE),
   'csak a teljes és elég sűrű mentés számít frissnek (a vékony mentés frissül)');
+
+/* ───────────── 2.5.278 (#18): nagy újság darabokban, veszteség nélkül ───────────── */
+
+clearGuide();
+const bigStart = Date.now();
+await ensureGuide({ ...provider, username: 'big' });
+const bigMs = Date.now() - bigStart;
+const bigStatus = guideStatus();
+check(bigStatus.channels === BIG_CHANNELS,
+  '2.5.278: a nagy (~10 MB) újság darabokban feldolgozva MINDEN csatorna megvan (nincs veszteség a darabhatárokon)',
+  `kapott: ${bigStatus.channels}/${BIG_CHANNELS}`);
+check(bigStatus.programmes >= BIG_CHANNELS,
+  '2.5.278: a nagy újságból a műsorok is megvannak csatornánként',
+  `kapott: ${bigStatus.programmes}`);
+const bigNow = guideNowNext({ epgChannelId: 'big7.hu' });
+check(!!bigNow?.now && /^Big 7\//.test(bigNow.now.title),
+  '2.5.278: a nagy újságból a most futó műsor is pontos', String(bigNow?.now?.title));
+console.log(`  (nagy újság feldolgozása: ${bigMs} ms, ${bigStatus.channels} csatorna, ${bigStatus.programmes} műsor)`);
 
 /*
  * A kiszolgáló lezárása: a próba ne akadjon meg egy nyitott kapcsolaton.

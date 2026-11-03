@@ -345,46 +345,64 @@ let sliceStartedAt = 0;
 /** A legutóbbi szünet óta feldolgozott blokkok száma. */
 let blocksSinceYield = 0;
 
+/*
+ * 2.5.278 (#18-as napló): INKREMENTÁLIS FELDOLGOZÁS – a #18-as naplóban egy
+ * 10 MB-os, majd egy 20 MB-os műsorújság feldolgozása közben LEÁLLÁS 3099/2758
+ * ms volt: korábban MINDEN beérkező blokkra újra végigfutott a zárójel-keresés
+ * a TELJES pufferen (akár 8 MB), ami 20 MB-nál önmagában több másodperc.
+ * Most csak az új szöveget + egy blokknyi átfedést nézzük (scannedUpTo), és a
+ * kész blokkokat HELYBEN dolgozzuk fel, egyetlen slice erejéig a végén.
+ */
+const MAX_BLOCK_CHARS = 512 * 1024;
+/** Meddig kerestünk már zárójelet a pufferben (ne keressük újra). */
+let scannedUpTo = 0;
+
 /** A szövegdarab feldolgozása; csak a BEFEJEZETT blokkokat értelmezzük. */
 function feed(text: string): void {
   if (!sliceStartedAt) sliceStartedAt = nowMs();
   buffer += text;
   // Memória-védelem: ha egyetlen blokk sem zárult le, ne nőjön korlátlanul.
-  if (buffer.length > 8 * 1024 * 1024) buffer = buffer.slice(-1024 * 1024);
+  if (buffer.length > 4 * 1024 * 1024) {
+    buffer = buffer.slice(-2 * MAX_BLOCK_CHARS);
+    scannedUpTo = 0;
+  }
   let lastComplete = -1;
   let lastLength = 0;
   const endRe = /<\/(programme|channel)>/gi;
+  // 2.5.278: csak az új rész + egy blokknyi átfedés – NEM a teljes puffer.
+  endRe.lastIndex = Math.max(0, scannedUpTo - MAX_BLOCK_CHARS);
   let endMatch = endRe.exec(buffer);
   while (endMatch) {
     lastComplete = endMatch.index;
     lastLength = endMatch[0].length;
     endMatch = endRe.exec(buffer);
   }
+  scannedUpTo = buffer.length;
   if (lastComplete < 0) return;
-  const complete = buffer.slice(0, lastComplete + lastLength);
-  buffer = buffer.slice(lastComplete + lastLength);
+  const limit = lastComplete + lastLength;
 
   const blockRe = /<(programme|channel)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
-  let match = blockRe.exec(complete);
+  let match = blockRe.exec(buffer);
   let consumed = 0;
-  while (match) {
+  while (match && match.index + match[0].length <= limit) {
     consumeBlock(match[1].toLowerCase(), match[2] || '', match[3] || '');
     consumed = match.index + match[0].length;
     blocksSinceYield += 1;
     const elapsed = nowMs() - sliceStartedAt;
     if (blocksSinceYield >= YIELD_EVERY_BLOCKS || elapsed >= YIELD_AFTER_MS) {
       blocksSinceYield = 0;
-      // A feldolgozatlan maradékot VISSZATESSZÜK a pufferbe. Korábban ez a
-      // rész elveszett: a `complete` blokk már ki volt vágva a pufferből,
-      // így a szünet után a maradék műsorok egyszerűen eltűntek.
-      buffer = complete.slice(consumed) + buffer;
-      // Rövid szünet a hívónak: a 62 MB-os fájl így nem egyetlen hosszú
+      // A feldolgozatlan maradék a pufferben marad (egyetlen slice).
+      buffer = buffer.slice(consumed);
+      scannedUpTo = 0;
+      // Rövid szünet a hívónak: a nagy fájl így nem egyetlen hosszú
       // feladat, hanem sok apró lépés (a felület közben fest).
       yieldRequested = true;
       return;
     }
-    match = blockRe.exec(complete);
+    match = blockRe.exec(buffer);
   }
+  buffer = buffer.slice(consumed);
+  scannedUpTo = 0;
   // A szelet végére ÉRTÜNK (nem kellett szünetet kérni): a következő
   // hívás új mérési ablakot kap, különben azonnal szünetelne.
   sliceStartedAt = 0;
@@ -438,6 +456,7 @@ function finishParsing(): void {
     }
   });
   buffer = '';
+  scannedUpTo = 0; // 2.5.278
 }
 
 /*
@@ -1072,6 +1091,51 @@ async function clearPersistedGuide(): Promise<void> {
  * indítja. Hibánál csendben visszatér (a naplóban ott a valódi ok), és a
  * rövid EPG marad tartaléknak.
  */
+/*
+ * 2.5.278 (#18-as napló): NYILVÁNOS MAGYAR (HU) EPG ELŐRE.
+ *
+ * A #18-as naplóban a nagy (10-20 MB-os) szolgáltatói XMLTV csak ~1-3 perc
+ * alatt ért ide, és a magyar adók műsora még később (a nyilvános HU újság
+ * 08:02:55-kor lett kész). Most ha a visszatöltött újság kevés magyar adót fed
+ * le, ELŐBB a kis, gyors nyilvános HU fájlokat töltjük le (másodpercek alatt),
+ * és csak utána indul a nagy szolgáltatói letöltés a háttérben – így a magyar
+ * sárga műsorsor azonnal megjelenik.
+ */
+async function loadPublicHuGuides(
+  provider: { id: string; type?: string; serverUrl?: string; username?: string; password?: string },
+): Promise<void> {
+  if (!PUBLIC_GUIDES_ENABLED) return;
+  appLog('EPG-ÁLLAPOT: kevés magyar adót fed le a jelenlegi újság – nyilvános MAGYAR (HU) EPG újságok előre indulnak (kicsik, gyorsak).');
+  for (const candidate of PUBLIC_GUIDE_URLS) {
+    if (candidate.scope !== 'hu') continue;
+    const before = index.size;
+    appLog(`EPG-ÁLLAPOT: nyilvános EPG próba – ${candidate.label}: ${candidate.url}`);
+    buffer = '';
+    scannedUpTo = 0; // 2.5.278
+    lastProgrammes = 0;
+    lastSkipped = 0;
+    lastBytes = 0;
+    abortReason = '';
+    try {
+      await download(provider, candidate.url, candidate.label, candidate.limits);
+    } catch { /* a download már naplózta a valódi okot */ }
+    const hu = huProbeCoverage();
+    appLog(
+      `EPG-ÁLLAPOT: nyilvános EPG (${candidate.label}) – ${before} → ${index.size} csatorna (+${index.size - before}), `
+      + `${statKept} megtartott műsor, ${(lastBytes / 1024).toFixed(0)} KB`
+      + `${abortReason ? ` (részleges: ${abortReason})` : ''}`
+      + `; magyar adók műsorral eddig: ${hu.hit}/${hu.total}.`
+    );
+    if (index.size > 0) {
+      loadedAt = Date.now();
+      void persistGuide(provider.id, !abortReason);
+    }
+    // Ha már elég magyar adó kapott műsort, nem kell végigpróbálni a többit.
+    if (hu.total > 0 && hu.hit >= Math.max(1, Math.floor(hu.total * 0.9))) break;
+  }
+  notifyGuideListeners();
+}
+
 export async function ensureGuide(provider: {
   id: string;
   type?: string;
@@ -1152,6 +1216,7 @@ export async function ensureGuide(provider: {
   index.clear();
   nameToId.clear();
   buffer = '';
+  scannedUpTo = 0; // 2.5.278
   lastProgrammes = 0;
   lastSkipped = 0;
   lastBytes = 0;
@@ -1244,6 +1309,14 @@ export async function ensureGuide(provider: {
    * a visszatöltésből, pedig a letöltés üres volt, így a tartalék lánc soha nem
    * futott le), hanem hogy a LETÖLTÉS mennyi ÚJ műsort adott hozzá.
    */
+  /*
+   * 2.5.278 (#18-as napló): ha kevés magyar adót fed le az aktuális (visszatöltött)
+   * újság, ELŐBB a kis nyilvános HU újságokat töltjük le – a magyar EPG így
+   * másodpercek alatt megjelenik, nem csak a nagy szolgáltatói fájl után.
+   */
+  if (huCoverageLow()) {
+    await loadPublicHuGuides(provider);
+  }
   const statKeptBase = statKept;
   const primaryDownload = isM3u ? Promise.resolve() : download(provider);
   await primaryDownload
@@ -1313,6 +1386,7 @@ export async function ensureGuide(provider: {
         if (guideSourceUrl) {
           appLog(`EPG-ÁLLAPOT: műsorújság forrása megtalálva: ${guideSourceUrl} – a letöltés innen indul.`);
           buffer = '';
+          scannedUpTo = 0; // 2.5.278
           lastProgrammes = 0;
           lastSkipped = 0;
           lastBytes = 0;
@@ -1337,45 +1411,8 @@ export async function ensureGuide(provider: {
          */
         if (!guideSourceUrl && PUBLIC_GUIDES_ENABLED) {
           appLog('EPG-ÁLLAPOT: a panel minden útvonala üres – nyilvános MAGYAR (HU) EPG újságok próbája indul.');
-          /*
-           * 2.5.268–2.5.269: minden HU forrást végigpróbálunk, mindegyik
-           * hozzátehet a magyar adókhoz az indexhez. Minden forrás külön
-           * naplózva (előtte/utána csatornaszám + magyar találat), hogy
-           * látszódjon, melyik újság mit adott.
-           */
-          const tryPublicGuide = async (candidate: (typeof PUBLIC_GUIDE_URLS)[number]): Promise<void> => {
-            const before = index.size;
-            appLog(`EPG-ÁLLAPOT: nyilvános EPG próba – ${candidate.label}: ${candidate.url}`);
-            buffer = '';
-            lastProgrammes = 0;
-            lastSkipped = 0;
-            lastBytes = 0;
-            abortReason = '';
-            try {
-              await download(provider, candidate.url, candidate.label, candidate.limits);
-            } catch { /* a download már naplózta a valódi okot */ }
-            channels = index.size;
-            /* 2.5.269 (#2): forrásonként külön: hány MAGYAR adó kapott eddig műsort. */
-            const hu = huProbeCoverage();
-            appLog(
-              `EPG-ÁLLAPOT: nyilvános EPG (${candidate.label}) – ${before} → ${index.size} csatorna (+${index.size - before}), `
-              + `${statKept} megtartott műsor, ${(lastBytes / 1024).toFixed(0)} KB`
-              + `${abortReason ? ` (részleges: ${abortReason})` : ''}`
-              + `; magyar adók műsorral eddig: ${hu.hit}/${hu.total}.`
-            );
-          };
-          /*
-           * 2.5.269 (#2-es kérés): CSAK kis magyar (HU) fájlok – egyenként
-           * végigmegyünk, mindegyik hozzátehet a magyar adókhoz. Minden forrás
-           * külön naplózva (előtte/utána csatornaszám + magyar találat), hogy
-           * látszódjon, melyik újság mit adott.
-           */
-          for (const candidate of PUBLIC_GUIDE_URLS) {
-            await tryPublicGuide(candidate);
-          }
+          await loadPublicHuGuides(provider);
           if (index.size > 0) {
-            loadedAt = Date.now();
-            void persistGuide(provider.id, !abortReason);
             appLog(`EPG-ÁLLAPOT: műsorújság betöltve NYILVÁNOS forrásokból – összesen ${index.size} csatorna, ${statKept} megtartott műsor.`);
           } else {
             appLog('EPG-ÁLLAPOT: egyetlen nyilvános EPG forrás sem adott műsort – marad a per-csatornás get_simple_data_table tartalék.');
@@ -1651,6 +1688,7 @@ export function clearGuide(): void {
   index.clear();
   nameToId.clear();
   buffer = '';
+  scannedUpTo = 0; // 2.5.278
   loadedAt = 0;
   loadedProviderId = '';
   lastEmptyGuideAt = 0; // 2.5.266 (#13)
