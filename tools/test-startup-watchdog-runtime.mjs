@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// A tényleges React VideoPlayer indítási őre: az 1200ms-os határidőket
+// A tényleges React VideoPlayer indítási őre: a legalább 1800ms-os határidőt
 // rövidítjük, hogy a különböző timeout/hiba-versenyek determinisztikusak legyenek.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -25,7 +25,7 @@ const bundle=await esbuild.build({stdin:{contents:harness,resolveDir:resolve('.'
 const vc=new VirtualConsole(); vc.on('jsdomError',e=>{if(!/Not implemented/.test(e.message))throw e;});
 const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:'http://localhost/',runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,beforeParse(window){
  window.__IPTV_DIRECT_LIVE_ZAP_TEST__ = false; // a watchdog/fallback regressziós tesztjeihez
- const set=window.setTimeout.bind(window); window.setTimeout=(fn,ms,...args)=>set(fn,ms===1200?150:ms,...args);
+ const set=window.setTimeout.bind(window); window.setTimeout=(fn,ms,...args)=>set(fn,ms===1800?150:ms,...args);
  window.state={ready:0,buffered:false,plays:[],loads:0}; const p=window.HTMLMediaElement.prototype;
  Object.defineProperty(p,'paused',{configurable:true,get(){return this.__paused??true;}});
  Object.defineProperty(p,'currentSrc',{configurable:true,get(){return this.getAttribute('src')||'';}});
