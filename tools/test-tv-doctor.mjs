@@ -144,6 +144,38 @@ check(
   'a hibátlan és gyors profilnál a Gyors (1.5 mp) pufferprofil kerül kiválasztásra',
 );
 
+// 1.2b A gyorsabb pufferlépcsőt a következő csatornaváltáskor valóban ki kell próbálni.
+const rampStore = new MemoryStorage();
+const rampChannel = {
+  id: 'ch-buffer-ramp',
+  name: '[HU] Puffer gyorsítási próba',
+  streamUrl: 'http://panel.example:8080/live/u/p/998.ts',
+};
+for (let i = 0; i < 2; i += 1) {
+  core.recordDoctorChannelSuccess({
+    channel: rampChannel, format: 'ts', bufferProfile: 'balanced', startupMs: 1100, storage: rampStore,
+  });
+}
+const fastRampPlan = core.selectChannelLaunchPlan(
+  rampChannel, rampChannel.streamUrl, core.INITIAL_SETTINGS, rampStore,
+);
+check(
+  fastRampPlan.bufferProfileId === 'fast',
+  'két gyors balanced indulás után a következő váltás már a még nem próbált fast puffert használja',
+);
+for (let i = 0; i < 3; i += 1) {
+  core.recordDoctorChannelSuccess({
+    channel: rampChannel, format: 'ts', bufferProfile: 'fast', startupMs: 820, storage: rampStore,
+  });
+}
+const turboRampPlan = core.selectChannelLaunchPlan(
+  rampChannel, rampChannel.streamUrl, core.INITIAL_SETTINGS, rampStore,
+);
+check(
+  turboRampPlan.bufferProfileId === 'turbo',
+  'három sikeres fast indulás után a TV Doctor a turbo puffert is kipróbálja',
+);
+
 // 1.3 Automatikus pufferoptimalizálás és szigorú biztonsági határok (1.0 .. 10.0 mp)
 const jitterChannel = {
   id: 'ch-uhd',
