@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.279';
+export const WEB_VERSION = '2.5.280';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,17 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.280',
+    date: '2026-11-03',
+    changes: [
+      'GYORSULÁS NÉZÉS KÖZBEN (#22/#23-as napló, „minden kurva lassú, a távkapcsoló nem reagál azonnal"): a teljes listák újraírása (20 193 csatorna + 103 043 film + 25 046 sorozat = 22-50 mp főszál-foglalás a #22-es naplóban, LEÁLLÁS 2,5-3,3 mp) mostantól NEM fut lejátszás közben – a mentés 3 mp-enként újrapróbálkozik, és csak akkor ír, ha nincs aktív lejátszás (kilépéskor azonnal ment). Emellett a visszatöltött listák azonosítója rögtön „már mentettnek” számít, így egy későbbi változás (pl. egy ország betöltése) nem írja ki újra mind a három teljes listát.',
+      'HÁTTÉR-TÖLTÉS LEÁLLÍTÁSA (#22-es napló, „össze-vissza tölt be minden"): a Mozi/Sorozat teljes visszatöltése csak akkor indul, ha a menü 1,2 mp után is nyitva van (gyors átlapolásnál nem indul 40 mp-es IDB-olvasás), és ha a néző közben visszament élő TV-re, a 103 ezres lista NEM kerül a felületre (nincs teljes újrarajzolás, nincs fókuszugrás).',
+      'ORSZÁGOK A HELYÜKRE (#22-es napló, „az országok kategóriája nem jó helyre vannak berakva"): a csatornalista (keresési találatok, kedvenc mappák, vegyes kategóriák) mostantól ORSZÁGONKÉNT csoportosítva jelenik meg, a Kategóriák menü sorrendjében (Magyarország elöl, utána magyar ABC) – a CH+/CH− így nem ugrik át egyik országból a másikba (#22: [HU] TV2 UHD után rögtön [UK] CHU CHU TV jött). Az országkategóriák rendezése is magyar ABC-re váltott (a régi alapértelmezett locale máshogy rendezte őket).',
+      'FÓKUSZ (#22-es napló, „össze-vissza ugrál a fókusz"): a Kategóriák panel ha a lista újraépülése miatt a fókusz kikerült a panelből, automatikusan visszaáll az első sorra – a nyilak így mindig működnek, nem „ugrálnak össze-vissza". A nagy háttérmunkák megszűnésével a főoldali fókusz is stabil marad.',
+      'EPG továbbra is CSAK magyar (#22: „csak magyar EPG, nem 10 vagy 20 MB szarság" – ez a 2.5.279 óta így van, a #22-es napló szerint a tároló 215 csatorna/2511 műsor, a 30+ MB-os újbóli letöltés kihagyva).',
+    ],
+  },
   {
     version: '2.5.279',
     date: '2026-11-03',

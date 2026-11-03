@@ -68,11 +68,21 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
     }
     const t = window.setTimeout(() => {
       const container = modalRef.current;
-      const firstCategory = container?.querySelector<HTMLElement>('[data-category-row="true"]');
+      if (!container) return;
+      /*
+       * 2.5.280 (#22/#23): ha a lista közben újraépült (pl. egy ország csatornái
+       * épp betöltődtek) és a fókusz kikerült a panelből, visszaállítjuk az első
+       * sorra – különben a nyilak „nem mennek sehova”, és a fókusz látszólag
+       * össze-vissza ugrál. Ha a fókusz bent van a panelen, nem nyúlunk hozzá.
+       */
+      if (document.activeElement && container.contains(document.activeElement)) return;
+      const firstCategory = container.querySelector<HTMLElement>('[data-category-row="true"]');
       (firstCategory || searchTriggerRef.current)?.focus({ preventScroll: true } as any);
     }, 120);
     return () => window.clearTimeout(t);
-  }, [isOpen]);
+    // A channels.length azért kell, hogy új csatornák érkezésekor (ország
+    // betöltése) is ellenőrizzük, nem veszett-e el a fókusz.
+  }, [isOpen, channels.length]);
 
   useEffect(() => {
     if (!searchEditing) return;

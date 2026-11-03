@@ -243,7 +243,11 @@ function buildCountryCategories(channels: Channel[], providerCategories: Categor
       subCategoryCount: item.subCategories.size,
       type: 'live' as const,
     }))
-    .sort((a, b) => (a.id === 'country-HU' ? -1 : b.id === 'country-HU' ? 1 : a.name.localeCompare(b.name)));
+    // 2.5.280 (#22/#23): magyar ABC szerint rendezzük, ahogy a Kategóriák menü
+    // is – a régi alapértelmezett (pl. angol) locale más sorrendbe rakta az
+    // országokat („nem jó helyre vannak berakva”).
+    .sort((a, b) => (a.id === 'country-HU' ? -1 : b.id === 'country-HU' ? 1
+      : a.name.localeCompare(b.name, 'hu', { sensitivity: 'base', numeric: true })));
 }
 
 function findHungaryCategoryId(categories: Category[]): string | undefined {
@@ -303,6 +307,43 @@ function hungaryFirst(list: Channel[]): Channel[] {
   if (rest.length === 0) return hungarian;
   if (hungarian.length === 0) return rest;
   return hungarian.concat(rest);
+}
+
+/*
+ * 2.5.280 (#22/#23): a szűrt csatornalista ORSZÁGONKÉNT CSOPORTOSÍTVA, a
+ * Kategóriák menü ország-sorrendjében (Magyarország elöl, utána magyar
+ * ABC szerint). Korábban a keresési találatok, a kedvenc mappák és a
+ * vegyes kategóriák a szolgáltató eredeti sorrendjében jelentek meg, így a
+ * CH+/CH− egyik országból a másikba ugrott át („az országok nincsenek jó
+ * helyre téve”). A csoportosítás stabil és lineáris (O(n)): országon belül
+ * az eredeti sorrend változatlan marad.
+ */
+function byCountryOrder(list: Channel[], countryCategories: Category[]): Channel[] {
+  if (list.length < 2) return list;
+  const rank = new Map<string, number>();
+  for (let index = 0; index < countryCategories.length; index++) {
+    const category = countryCategories[index];
+    if (category.id.startsWith('country-')) rank.set(category.id.slice('country-'.length), index);
+  }
+  if (rank.size === 0) return list;
+  const intRank = rank.get('INT');
+  const fallback = countryCategories.length;
+  const buckets = new Map<number, Channel[]>();
+  for (const channel of list) {
+    const code = (channel.countryCode || 'INT').toUpperCase();
+    let order = rank.get(code);
+    if (order === undefined) order = code === 'INT' && intRank !== undefined ? intRank : fallback;
+    const bucket = buckets.get(order);
+    if (bucket) bucket.push(channel);
+    else buckets.set(order, [channel]);
+  }
+  const out: Channel[] = [];
+  const keys = Array.from(buckets.keys()).sort((a, b) => a - b);
+  for (const key of keys) {
+    const bucket = buckets.get(key);
+    if (bucket) out.push(...bucket);
+  }
+  return out;
 }
 
 /**
@@ -545,6 +586,11 @@ export function App() {
    * állítjuk vissza; a Mozi/Sorozat nézet csak kézi váltásra nyílik meg.
    */
   const [activeView, setActiveView] = useState<'live' | 'movies' | 'series'>('live');
+  // 2.5.280 (#22/#23): az aktív nézet ref-másolata – a háttérmunkák (VOD
+  // visszatöltés, mentés) így akkor is látják, hogy a néző már visszament
+  // élő TV-re, és nem terhelik feleslegesen a lejátszást.
+  const activeViewRef = useRef(activeView);
+  useEffect(() => { activeViewRef.current = activeView; }, [activeView]);
   /* 2.5.273 (#5-ös kérés): nézetváltás-időmérés a kézi naplóhoz. */
   const viewSwitchT0Ref = useRef(0);
   const viewSwitchReadyLoggedRef = useRef(false);
@@ -1050,23 +1096,25 @@ export function App() {
           countryNames.set(category.id.slice('country-'.length), category.name);
         }
       }
-      return channels.filter((channel) => {
+      // 2.5.280 (#22/#23): a találatokat is országonként csoportosítjuk.
+      return byCountryOrder(channels.filter((channel) => {
         const code = (channel.countryCode || 'INT').toUpperCase();
         const countryName = countryNames.get(code) || channel.country || '';
         return [channel.name, channel.categoryName, channel.categoryId, channel.country, channel.countryCode, countryName]
           .some((value) => String(value || '').toLocaleLowerCase().includes(globalQuery));
-      });
+      }), countryCategories);
     }
     if (selectedFavoriteFolderId) {
       const folder = folders.find((item) => item.id === selectedFavoriteFolderId);
-      return (folder?.channelIds || [])
+      // 2.5.280 (#22/#23): a kedvenc mappa vegyes országait is csoportosítjuk.
+      return byCountryOrder((folder?.channelIds || [])
         .map((id) => channelsById.get(id))
-        .filter((channel): channel is Channel => Boolean(channel));
+        .filter((channel): channel is Channel => Boolean(channel)), countryCategories);
     }
     const effectiveCategoryId = selectedCategoryId === 'all'
       ? findHungaryCategoryId(countryCategories) || countryCategories[0]?.id || 'all'
       : selectedCategoryId;
-    return channels.filter((ch) => {
+    return byCountryOrder(channels.filter((ch) => {
       // A Kedvencek nézet mappaválasztó: itt nem soroljuk fel az összes csatornát.
       // Csatornákat csak egy konkrét mappa megnyitásakor mutatunk.
       if (isOnlyFavorites) return false;
@@ -1076,7 +1124,7 @@ export function App() {
       }
       if (effectiveCategoryId === 'all') return false;
       return ch.categoryId === effectiveCategoryId;
-    });
+    }), countryCategories);
   }, [channels, channelsById, selectedCategoryId, selectedSubCategoryId, isOnlyFavorites, folders, selectedFavoriteFolderId, countryCategories, categorySearchQuery]);
 
   /*
@@ -1365,7 +1413,18 @@ export function App() {
           );
           appLog(`Teljes élő lista előkészítve: ${prepared.length} csatorna (${Date.now() - prepStartedAt} ms).`);
           startTransition(() => {
-            setChannels((current) => current.length >= full.channels.length ? current : prepared);
+            setChannels((current) => {
+              const next = current.length >= full.channels.length ? current : prepared;
+              /*
+               * 2.5.280 (#22/#23): a visszatöltött lista azonosítója rögtön
+               * „már mentettnek” számít. Korábban egy későbbi piszkos jelzés
+               * (pl. egy ország betöltése a Kategóriákban) újra kiírta mind a
+               * három teljes listát – a #22-es napló szerint ez 20-50 mp-es
+               * főszál-foglalás volt éppen nézés közben.
+               */
+              lastSavedRef.current = { ...lastSavedRef.current, channels: next };
+              return next;
+            });
             setCategories((current) => (current.length ? current : full.categories));
             setTotalCounts((current) => (current.live >= full.totals.live
               ? current : { ...current, live: full.totals.live }));
@@ -1436,17 +1495,39 @@ export function App() {
         },
         onVod: (vod) => {
           if (providerRefreshActiveRef.current) return;
+          /*
+           * 2.5.280 (#22/#23): ha a néző közben visszament élő TV-re, a teljes
+           * filmlista NEM kerül a felületre – a 103 ezres commit újrarajzolná
+           * az egész felületet (a #22-es naplóban DOM=1854, fókuszugrás közben).
+           */
+          if (activeViewRef.current === 'live') {
+            appLog(`Filmlista visszatöltve (${vod.movies.length}), de a nézet már élő – nem kerül a felületre.`);
+            return;
+          }
           // Egyetlen, megszakítható commit: a teljes filmlista egyszerre kerül a felületre.
           startTransition(() => {
-            setMovies(vod.movies);
+            setMovies(() => {
+              // 2.5.280 (#22/#23): visszatöltés után a lista már mentettnek számít.
+              lastSavedRef.current = { ...lastSavedRef.current, movies: vod.movies };
+              return vod.movies;
+            });
             if (vod.categories.length) setVodCategories(vod.categories);
           });
           appLog(`Filmek a felületen EGYBEN: ${vod.movies.length} (letöltés nélkül).`);
         },
         onSeries: (ser) => {
           if (providerRefreshActiveRef.current) return;
+          // 2.5.280 (#22/#23): mint a filmeknél – élő nézetben nincs commit.
+          if (activeViewRef.current === 'live') {
+            appLog(`Sorozatlista visszatöltve (${ser.series.length}), de a nézet már élő – nem kerül a felületre.`);
+            return;
+          }
           startTransition(() => {
-            setSeries(ser.series);
+            setSeries(() => {
+              // 2.5.280 (#22/#23): visszatöltés után a lista már mentettnek számít.
+              lastSavedRef.current = { ...lastSavedRef.current, series: ser.series };
+              return ser.series;
+            });
             if (ser.categories.length) setSeriesCategories(ser.categories);
           });
           appLog(`Sorozatok a felületen EGYBEN: ${ser.series.length} (letöltés nélkül).`);
@@ -1858,6 +1939,8 @@ export function App() {
             plan.provider.id,
           );
           setChannels(prepared);
+          // 2.5.280 (#22/#23): az induló visszatöltés is „már mentettnek” számít.
+          lastSavedRef.current = { ...lastSavedRef.current, channels: prepared };
           if (plan.bootCategories.length) setCategories(plan.bootCategories);
           const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
           const recoveredActiveId = savedLastId && prepared.some((channel) => channel.id === savedLastId)
@@ -1964,7 +2047,10 @@ export function App() {
   useEffect(() => {
     if (!dirtyRef.current || !activeProvider) return;
     const provider = activeProvider;
-    const timer = setTimeout(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    let waitedMs = 0;
+    const doSave = () => {
       dirtyRef.current = false;
       const previous = lastSavedRef.current;
       const content = {
@@ -2009,8 +2095,42 @@ export function App() {
           appLogError('Tartalom mentése', error);
         }
       })();
-    }, 600);
-    return () => clearTimeout(timer);
+    };
+    const runSave = (force: boolean) => {
+      if (cancelled) return;
+      /*
+       * 2.5.280 (#22/#23): amíg megy a lejátszás, NE írjuk újra a teljes
+       * listákat a fő szálon. A #22-es naplóban egyetlen mentés (20 193
+       * csatorna + 103 043 film + 25 046 sorozat) 22-50 másodpercig foglalta
+       * a fő szálat éppen nézés közben – a távkapcsoló ekkor „nem reagált”,
+       * és LEÁLLÁS (2,5-3,3 mp) is volt. Ezért ilyenkor 3 mp-enként újrapróbáljuk,
+       * és csak akkor mentünk, ha már nincs aktív lejátszás (legfeljebb 5 perc
+       * várakozás után biztonságból akkor is). Kilépéskor (pagehide) azonnal mentünk.
+       */
+      const video = document.querySelector<HTMLVideoElement>('video[data-iptv-player="true"]');
+      const playing = Boolean(video && !video.paused && !video.ended);
+      if (!force && playing && waitedMs < 300000) {
+        waitedMs += 3000;
+        dirtyRef.current = true;
+        if (waitedMs === 3000 || waitedMs % 30000 === 0) {
+          appLog(`Teljes mentés késleltetve: lejátszás közben nem írjuk újra a listákat (várt eddig: ${waitedMs} ms).`);
+        }
+        timer = window.setTimeout(() => runSave(false), 3000);
+        return;
+      }
+      doSave();
+    };
+    const onPageHide = () => { if (dirtyRef.current) runSave(true); };
+    const onVisibility = () => { if (document.visibilityState === 'hidden' && dirtyRef.current) runSave(true); };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    timer = window.setTimeout(() => runSave(false), 600);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [channels, movies, series, activeProvider, categories, vodCategories, seriesCategories, totalCounts]);
 
   // Update Settings helper
@@ -2141,13 +2261,22 @@ export function App() {
     capturePaneScroll(activeView);
     setVisitedViews((previous) => (previous[view] ? previous : { ...previous, [view]: true }));
     setActiveView(view);
+    activeViewRef.current = view;
     setCustomStreamUrl(undefined);
     setCustomStreamTitle(undefined);
     // Élő nézetben újra a legutóbbi csatorna megy; böngészés közben nem fut a háttérben.
     setIsPlaying(view === 'live');
     if (view !== 'live') {
-      // A film/sorozat lista betöltése már a menü megnyomásakor elindul.
-      window.setTimeout(() => ensureVodLoaded(view), 0);
+      /*
+       * 2.5.280 (#22/#23): a teljes VOD-visszatöltés (103 ezer film / 25 ezer
+       * sorozat kiolvasása az IDB-ből) csak akkor induljon, ha a nézet 1,2 mp
+       * után is még aktív. A #22-es naplóban a gyors átlapolás
+       * (TV→Mozi→Sorozat→TV) közben is elindult egy ~42 mp-es visszatöltés,
+       * ami végül a nézés közbeni leállásokat okozta („össze-vissza tölt be”).
+       */
+      window.setTimeout(() => {
+        if (activeViewRef.current === view) ensureVodLoaded(view);
+      }, 1200);
     } else {
       /*
        * A SÁRGA FÓKUSZ A KIVÁLASZTOTT CSATORNÁN MARAD (2.5.165).
