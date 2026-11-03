@@ -88,7 +88,14 @@ const CHUNK_SIZE = 500;
  * ~4x kevesebb kör. Az élő lista marad 500-nál: visszatöltéskor a kisebb adag
  * egyenletesebben érkezik (lásd a CHUNK_SIZE fenti megjegyzését).
  */
-const VOD_STORE_CHUNK_SIZE = 2000;
+/*
+ * 2.5.281 (#24/#26): a film/sorozat mentési adag 2000-ről 500 sorra csökkent.
+ * A #24-es naplóban egy 2000 soros adag beolvasása+dekódolása ~2,5 mp-ig
+ * blokkolta a fő szálat (LEÁLLÁS 2561 ms nézés közben); 500 sor ~0,6 mp,
+ * így a távkapcsoló közben is azonnal reagál. A régi, 2000-es fejlécű
+ * tárolók továbbra is működnek (a fejlécből olvassuk ki az adagméretet).
+ */
+const VOD_STORE_CHUNK_SIZE = 500;
 /*
  * 2.5.276 (#14-es napló): a film-/sorozatmentés felső BAJT-kerete. A webOS
  * tárolója ~5 MB, a teljes katalógus (103 ezer film) ennek sokszorosa volt, ezért
@@ -2589,6 +2596,8 @@ export async function loadVodAsync(
    * eredmény külön gyorsítótár-kulcsot kap, ne keveredjön a teljes listával.
    */
   limits?: { maxItems?: number },
+  /* 2.5.281 (#24/#26): ha közben true lesz, a visszatöltés az adaghatáron leáll. */
+  shouldAbort?: () => boolean,
 ): Promise<{ movies: Movie[]; categories: Category[] }> {
   const maxItems = limits?.maxItems && limits.maxItems > 0 ? Math.floor(limits.maxItems) : 0;
   /*
@@ -2620,7 +2629,9 @@ export async function loadVodAsync(
       // az IndexedDB-ből – az 1-es naplóban a 206 adagos, tisztán soros
       // visszatöltés 57 mp volt, ennek jelentős része olvasásra várakozás.
       let nextChunk = chunked.readChunk(0);
+      let aborted = false;
       for (let index = 0; index < chunked.meta.chunks; index++) {
+        if (shouldAbort?.()) { aborted = true; break; }
         const rows = await nextChunk;
         if (index + 1 < chunked.meta.chunks) nextChunk = chunked.readChunk(index + 1);
         if (rows.length === 0) missingChunks++;
@@ -2639,6 +2650,15 @@ export async function loadVodAsync(
         // (100 ms-os újrapróba, 2 mp-es zap-őr) láthatóan késtek.
         // 2.5.244: 4 adagonként elég lélegezni – a visszatöltés így ~4x gyorsabb.
         if ((index + 1) % 4 === 0 || index + 1 === chunked.meta.chunks) await yieldToStorage();
+      }
+      if (aborted) {
+        /*
+         * 2.5.281 (#24/#26): megszakított visszatöltés – üres eredményt adunk
+         * vissza, és NEM gyorsítótárazunk: a részleges lista nem kerülhet a
+         * teljes lista kulcsára (különben a következő betöltés is csonka lenne).
+         */
+        appLog(`Filmlista visszatöltés megszakítva (${movies.length} film beolvasva) – a nézet már nem aktív.`);
+        return { movies: [], categories: [] };
       }
       /*
        * ÚJRAINDÍTÁS UTÁNI ELLENŐRZÉS (2.5.222): a fejléc ígéretét a
@@ -2741,6 +2761,8 @@ export async function loadSeriesAsync(
   onPartial?: (partial: { series: Series[]; categories: Category[] }) => void,
   /* 2.5.277: induló részhalmaz (maxItems) – lásd loadVodAsync. */
   limits?: { maxItems?: number },
+  /* 2.5.281 (#24/#26): megszakítható visszatöltés – lásd loadVodAsync. */
+  shouldAbort?: () => boolean,
 ): Promise<{ series: Series[]; categories: Category[] }> {
   const maxItems = limits?.maxItems && limits.maxItems > 0 ? Math.floor(limits.maxItems) : 0;
   // Ugyanaz, mint a filmeknél: a teljes sorozatlista a tartós tárban van.
@@ -2764,7 +2786,9 @@ export async function loadSeriesAsync(
       let missingChunks = 0;
       // ELŐREOLVASÁS (2.5.226): lásd a filmlista betöltőjét.
       let nextChunk = chunked.readChunk(0);
+      let aborted = false;
       for (let index = 0; index < chunked.meta.chunks; index++) {
+        if (shouldAbort?.()) { aborted = true; break; }
         const rows = await nextChunk;
         if (index + 1 < chunked.meta.chunks) nextChunk = chunked.readChunk(index + 1);
         if (rows.length === 0) missingChunks++;
@@ -2782,6 +2806,11 @@ export async function loadSeriesAsync(
         // (100 ms-os újrapróba, 2 mp-es zap-őr) láthatóan késtek.
         // 2.5.244: 4 adagonként elég lélegezni.
         if ((index + 1) % 4 === 0 || index + 1 === chunked.meta.chunks) await yieldToStorage();
+      }
+      if (aborted) {
+        // 2.5.281 (#24/#26): lásd loadVodAsync – megszakításkor üres eredmény.
+        appLog(`Sorozatlista visszatöltés megszakítva (${series.length} sorozat beolvasva) – a nézet már nem aktív.`);
+        return { series: [], categories: [] };
       }
       // Fejléc kontra valóság: hiányzó adagnál a szakasz hiányosnak jelölődik.
       const expectedSeries = Number(chunked.meta.totals?.series) || 0;
@@ -3139,7 +3168,12 @@ export function cancelStoredContentRestore(): void {
 export function restoreStoredContent(
   plan: StoredCatalogPlan,
   handlers: RestoreHandlers = {},
-  options: { scope?: 'all' | 'live' | 'vod' | 'movies' | 'series'; bootSubset?: number } = {},
+  options: {
+    scope?: 'all' | 'live' | 'vod' | 'movies' | 'series';
+    bootSubset?: number;
+    /* 2.5.281 (#24/#26): ha true, a visszatöltés szakaszonként/adagonként leáll. */
+    shouldAbort?: () => boolean;
+  } = {},
 ): Promise<void> {
   const scope = options.scope || 'all';
   /*
@@ -3158,10 +3192,12 @@ export function restoreStoredContent(
   restoreCancelled = false;
   const startedAt = Date.now();
   const run = async (): Promise<void> => {
-    if (restoreCancelled) return;
+    // 2.5.281: a külső leállítási jel is ugyanúgy működik, mint a cancel.
+    const aborted = () => restoreCancelled || Boolean(options.shouldAbort?.());
+    if (aborted()) return;
     const provider = plan.provider;
     let loaded = '';
-    if (wantLive && !restoreDone.live && plan.hasLive && !restoreCancelled) {
+    if (wantLive && !restoreDone.live && plan.hasLive && !aborted()) {
       // Két különböző szolgáltató listája NEM keveredhet: ha a tartós tár
       // fejléce másik fiókhoz tartozik, azt a listát nem fogadjuk el.
       const store = await contentChunkStore();
@@ -3171,7 +3207,7 @@ export function restoreStoredContent(
       if (sameProvider) {
         handlers.onStage?.('teljes élő csatornalista a tartós tárból');
         const full = await loadLiveFull(provider);
-        if (full && full.channels.length && !restoreCancelled) {
+        if (full && full.channels.length && !aborted()) {
           handlers.onLive?.(full);
           loaded += ` élő=${full.channels.length}`;
           restoreDone.live = true;
@@ -3181,36 +3217,38 @@ export function restoreStoredContent(
       }
       await yieldToStorage();
     }
-    if (wantMovies && !restoreDone.movies && plan.hasVod && !restoreCancelled) {
+    if (wantMovies && !restoreDone.movies && plan.hasVod && !aborted()) {
       handlers.onStage?.(bootSubset ? 'filmek induló részhalmaza a tartós tárból' : 'filmlista a tartós tárból');
       const vod = await loadVodAsync(
         provider,
         undefined,
         (partial) => handlers.onVodPartial?.(partial),
         bootSubset ? { maxItems: bootSubset } : undefined,
+        options.shouldAbort,
       );
-      if (vod.movies.length && !restoreCancelled) {
+      if (vod.movies.length && !aborted()) {
         handlers.onVod?.(vod);
         loaded += ` film=${vod.movies.length}`;
       }
       /* 2.5.277: induló részhalmaz után a szakasz NEM kész – a menü nyitásakor
          a teljes lista on demand töltődik a tartós tárból. */
-      if (!restoreCancelled && !bootSubset) restoreDone.movies = true;
+      if (!aborted() && !bootSubset) restoreDone.movies = true;
       await yieldToStorage();
     }
-    if (wantSeries && !restoreDone.series && plan.hasSeries && !restoreCancelled) {
+    if (wantSeries && !restoreDone.series && plan.hasSeries && !aborted()) {
       handlers.onStage?.(bootSubset ? 'sorozatok induló részhalmaza a tartós tárból' : 'sorozatlista a tartós tárból');
       const ser = await loadSeriesAsync(
         provider,
         undefined,
         (partial) => handlers.onSeriesPartial?.(partial),
         bootSubset ? { maxItems: bootSubset } : undefined,
+        options.shouldAbort,
       );
-      if (ser.series.length && !restoreCancelled) {
+      if (ser.series.length && !aborted()) {
         handlers.onSeries?.(ser);
         loaded += ` sorozat=${ser.series.length}`;
       }
-      if (!restoreCancelled && !bootSubset) restoreDone.series = true;
+      if (!aborted() && !bootSubset) restoreDone.series = true;
     }
     /*
      * Csak AKKOR jelöljük késznek, ha tényleg lefutott. Korábban a
@@ -3218,12 +3256,14 @@ export function restoreStoredContent(
      * látszott, ezért a Mozi nézet későbbi megnyitása VÉGLEG kihagyta a
      * filmeket – üres rács, újraindításig.
      */
-    if (!restoreCancelled) {
+    if (!aborted()) {
       if (wantMovies && !bootSubset) restoreDone.movies = true;
       if (wantSeries && !bootSubset) restoreDone.series = true;
     }
-    if (!restoreCancelled) {
+    if (!aborted()) {
       appLog(`TARTÓS VISSZATÖLTÉS készen (${Date.now() - startedAt} ms, letöltés nélkül):${loaded || ' üres'}.`);
+    } else {
+      appLog(`TARTÓS VISSZATÖLTÉS megszakítva (${Date.now() - startedAt} ms után) – a nézet már nem aktív.`);
     }
   };
   // SORBAN FUTÓ SZAKASZOK: az élő lista és a filmek/sorozatok nem

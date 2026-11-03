@@ -4521,11 +4521,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
           if (isCurrentLoad() && !playbackStartedRef.current) {
+            /*
+             * 2.5.281 (#24/#26): a src átírása után a webOS egy ideig MÉG a
+             * régi csatorna readyState-jét/pufferét jelenti (a #24-es naplóban
+             * közvetlenül váltás után is „puffer-előre=20-28 s” szerepelt).
+             * Ha az új cím már töltődik (networkState=NETWORK_LOADING), ezt
+             * semmiképp ne indítsuk újra vagy váltsunk formátumot – csak várunk;
+             * különben egy 2 mp-es váltásból felesleges újratöltéssel 4-5 mp lett.
+             */
+            const srcAttr = video.getAttribute('src') || '';
+            let srcIsCurrent = srcAttr === url || (video.currentSrc || '') === url;
+            if (!srcIsCurrent) {
+              try {
+                srcIsCurrent = new URL(video.currentSrc || srcAttr, window.location.href).href
+                  === new URL(url, window.location.href).href;
+              } catch { srcIsCurrent = false; }
+            }
+            if (srcIsCurrent && video.networkState === 3) {
+              appLog('Zap-őr: az új cím már töltődik (a régi puffer még látszik) – várakozunk, nincs újrapróba.');
+              zapWatchdogRef.current = window.setTimeout(() => {
+                zapWatchdogRef.current = null;
+                if (isCurrentLoad() && !playbackStartedRef.current) {
+                  appLog('Zap-őr: várakozás után sem indult el az adás, formátumpróba következik.');
+                  notifyTvDoctorIncident('startup_timeout', video, 'STARTUP_TIMEOUT', 'várakozás után sem indult');
+                  scheduleAutoRetry();
+                }
+              }, bufferWatchdogMs);
+              return;
+            }
             // A webOS néha a `playing` eseményt később küldi, miközben már
             // van metaadat/puffer. Ilyenkor nem szabad félbeszakítani az épp
             // dekódolás alatt álló címet egy új formátummal.
-            let hasStartupData = video.readyState >= 3;
-            try { hasStartupData = hasStartupData || video.buffered.length > 0; } catch { /* régi motor */ }
+            let hasStartupData = srcIsCurrent && video.readyState >= 3;
+            try { hasStartupData = hasStartupData || (srcIsCurrent && video.buffered.length > 0); } catch { /* régi motor */ }
             if (hasStartupData) {
               // Puffer van: türelmi ablak a lejátszás-őrig (legfeljebb ~2,5 mp).
               const graceMs = Math.max(900, Math.min(startupWatchdogMs, 1200, bufferWatchdogMs - attemptTimeoutMs));

@@ -1532,7 +1532,22 @@ export function App() {
           });
           appLog(`Sorozatok a felületen EGYBEN: ${ser.series.length} (letöltés nélkül).`);
         },
-      }, { scope, bootSubset: options?.bootSubset });
+      }, {
+        scope,
+        bootSubset: options?.bootSubset,
+        /*
+         * 2.5.281 (#24/#26): ha a néző közben visszament élő TV-re, a teljes
+         * VOD-visszatöltés (103 ezer film beolvasása) azonnal leálljon – a
+         * #24-es naplóban egy 81 mp-es olvasás futott végig nézés közben
+         * (LEÁLLÁS 2,5-2,6 mp), mert a nézet már rég élő volt.
+         */
+        shouldAbort: () => {
+          if (scope === 'movies') return activeViewRef.current !== 'movies';
+          if (scope === 'series') return activeViewRef.current !== 'series';
+          if (scope === 'vod' && !options?.bootSubset) return activeViewRef.current === 'live';
+          return false;
+        },
+      });
     } finally {
       restoreRunningRef.current = false;
       const queued = restoreQueuedRef.current.shift();
@@ -2407,6 +2422,15 @@ export function App() {
     setNextEpisodeToPlay(null);
     setCustomStreamUrl(undefined);
     setCustomStreamTitle(undefined);
+    /*
+     * 2.5.281 (#24/#26): a ref-et AZONNAL frissítjük, nem csak a state-et. A
+     * #24-es naplóban gyors egymás utáni CH+ esetén a következő váltás még a
+     * régi activeChannelId-ből számolt (a state commit később érkezett), így
+     * ugyanarra a csatornára váltottunk többször, és az előkészítés (prefetch)
+     * is mindig egy lépéssel lemaradva a rossz csatornát töltötte előre –
+     * ezért nem volt GYORS ZAP, és a váltás hidegen 2-5 mp-ig tartott.
+     */
+    activeChannelIdRef.current = channel.id;
     setActiveChannelId(channel.id);
     setIsPlaying(true);
     // Csak ezt az egy azonosítót mentjük, késleltetve - a beállítás-objektum
@@ -2429,7 +2453,9 @@ export function App() {
   const prefetchChannels = useMemo(() => {
     if (customStreamUrl) return [];
     const list = filteredChannels;
-    const idx = list.findIndex((c) => c.id === activeChannelId);
+    // 2.5.281 (#24/#26): a ref a legfrissebb – így az előkészítés mindig a
+    // ténylegesen nézett csatorna szomszédját tölti előre (GYORS ZAP működik).
+    const idx = list.findIndex((c) => c.id === (activeChannelIdRef.current || activeChannelId));
     if (idx < 0) return [];
     const out: Channel[] = [];
     if (idx + 1 < list.length) out.push(list[idx + 1]); // CH+ irány
@@ -2446,7 +2472,9 @@ export function App() {
     if (settings.closeListOnZap) setIsCategoriesOpen(false);
     const list = filteredChannels;
     if (list.length === 0) return;
-    const currentIndex = list.findIndex((c) => c.id === activeChannelId);
+    // 2.5.281 (#24/#26): a ref-ből számolunk, hogy gyors egymás utáni
+    // váltásoknál is az éppen nézett csatorna következőjére lépjünk.
+    const currentIndex = list.findIndex((c) => c.id === (activeChannelIdRef.current || activeChannelId));
     /*
      * Ha a jelenleg nézett csatorna nincs a szűrt listában (másik ország /
      * mappa / keresés), KORÁBBAN a lista ELSŐ csatornájára váltott – ez volt a
@@ -2463,7 +2491,8 @@ export function App() {
     if (settings.closeListOnZap) setIsCategoriesOpen(false);
     const list = filteredChannels;
     if (list.length === 0) return;
-    const currentIndex = list.findIndex((c) => c.id === activeChannelId);
+    // 2.5.281 (#24/#26): ref-ből, lásd a CH+-nál.
+    const currentIndex = list.findIndex((c) => c.id === (activeChannelIdRef.current || activeChannelId));
     // Ugyanaz, mint a CH+-nál: ismeretlen csatorna esetén nem ugrunk az elsőre.
     if (currentIndex < 0) return;
     if (currentIndex <= 0) return;
