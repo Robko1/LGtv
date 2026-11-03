@@ -5257,7 +5257,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             // (ott a kitöltés a cél, a dobozt a geometria-effekt is így írja).
             style={isLead ? { objectFit: isVod || isFullscreen ? 'contain' : 'cover', imageRendering: 'auto', filter: 'none', backfaceVisibility: 'hidden' } : { display: 'none' }}
             playsInline
-            preload="auto"
+            preload={isLead ? "auto" : "none"}
             tabIndex={-1}
             aria-hidden={isLead ? undefined : true}
 
