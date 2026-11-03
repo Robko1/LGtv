@@ -223,7 +223,7 @@ const liveZapWatchdogEnd = PLAYER.indexOf('}, attemptTimeoutMs);', liveZapWatchd
 const liveZapWatchdog = liveZapWatchdogStart >= 0 && liveZapWatchdogEnd >= 0
   ? PLAYER.slice(liveZapWatchdogStart, liveZapWatchdogEnd + '}, attemptTimeoutMs);'.length)
   : '';
-check(/const attemptTimeoutMs = Math\.min\(startupWatchdogMs, 1500\)/.test(liveZapWatchdog)
+check(/const attemptTimeoutMs = Math\.max\(1800, Math\.min\(startupWatchdogMs, 2500\)\)/.test(liveZapWatchdog)
   && /bufferedAheadSeconds\(video\)/.test(liveZapWatchdog)
   && /ahead >= 2 && video\.readyState >= 3/.test(liveZapWatchdog)
   && /setTimeout\([\s\S]*?bufferWatchdogMs\)/.test(liveZapWatchdog)
