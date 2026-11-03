@@ -4483,7 +4483,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
          * folyik (puffer nő), csak a lejátszás-őrig várunk tovább, és csak
          * valóban adat nélküli streamnél próbálunk azonnal újra.
          */
-        const attemptTimeoutMs = Math.min(startupWatchdogMs, 1500);
+        // A TV Doktor nem avatkozhat közbe a korábban mért ~1 mp-es normál indulás előtt.
+        // Csak valódi, elhúzódó indulási hibánál kezdjen helyreállítást.
+        const attemptTimeoutMs = Math.max(1800, Math.min(startupWatchdogMs, 2500));
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
           if (isCurrentLoad() && !playbackStartedRef.current) {
@@ -5383,7 +5385,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     const diag = channelSwitchDiagnosticRef.current;
                     const measuredStartupMs = diag
                       ? Math.max(20, Date.now() - diag.attemptStartedAt)
-                      : 250;
+                      : null;
                     const verifyGen = streamLoadGenerationRef.current;
                     const verifyVideo = event.currentTarget;
                     if (docState.verifyTimer !== null) {
@@ -5408,25 +5410,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         ) {
                           return;
                         }
-                        recordDoctorChannelSuccess({
-                          channel: target,
-                          format,
-                          bufferProfile: verifiedProfile,
-                          startupMs: measuredStartupMs,
-                          wasRepair: true,
-                        });
+                        if (measuredStartupMs !== null) {
+                          recordDoctorChannelSuccess({
+                            channel: target,
+                            format,
+                            bufferProfile: verifiedProfile,
+                            startupMs: measuredStartupMs,
+                            wasRepair: true,
+                          });
+                        }
                         docState.repairInFlight = false;
                         docState.repairStep = 0;
                         scheduleClearDoctorStatus(350);
                       }, DOCTOR_VERIFY_STABLE_MS);
                     } else {
-                      recordDoctorChannelSuccess({
-                        channel: target,
-                        format,
-                        bufferProfile: docState.activeBufferProfile,
-                        startupMs: measuredStartupMs,
-                        wasRepair: false,
-                      });
+                      if (measuredStartupMs !== null) {
+                        recordDoctorChannelSuccess({
+                          channel: target,
+                          format,
+                          bufferProfile: docState.activeBufferProfile,
+                          startupMs: measuredStartupMs,
+                          wasRepair: false,
+                        });
+                      }
                       scheduleClearDoctorStatus(650);
                     }
                   }
@@ -5435,13 +5441,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   const docState = doctorSessionRef.current;
                   docState.waitingOrStalledFlag = false;
                   docState.consecutiveStallTicks = 0;
-                  recordDoctorChannelSuccess({
-                    channel: target,
-                    format: 'ts',
-                    bufferProfile: docState.activeBufferProfile,
-                    startupMs: 250,
-                    wasRepair: false,
-                  });
+                  // Ismeretlen URL-formátumnál nem gyártunk hamis TS-sikert vagy 250 ms-os mérést.
                   scheduleClearDoctorStatus(650);
                 }
               } else if (isVod && tvDoctorEnabledRef.current) {
