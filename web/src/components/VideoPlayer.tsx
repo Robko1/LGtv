@@ -4415,19 +4415,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // A webOS HTML5 videóelemét használjuk. Élő adásnál legfeljebb két
       // külön formátum-próba van; a további indításokat a recovery időzíti.
       if (!adoptedPrefetch) {
-        if (!isVodRef.current && !hadMediaError) {
-          // KÍSÉRLETI GYORS ÉLŐ VÁLTÁS: tiszta médiaállapotnál csak az új
-          // forrást állítjuk be. VOD-nál és korábbi médiahiba után marad a
-          // webOS-biztos teljes reset sorrend.
-          video.src = url;
-          video.load();
-        } else {
-          video.pause();
-          video.removeAttribute('src');
-          video.load();
-          video.src = url;
-          video.load();
-        }
+        // Élő adásnál és VOD-nál is a webOS-biztos teljes forrás-reset sorrend.
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        video.src = url;
+        video.load();
       }
       // 2.5.279: átvett prefetch elemnél a src már rajta van – csak újra kell játszani.
       // A src beállítása elindítja a HTML5 betöltést; a külön load() újabb resetet okozhat.
