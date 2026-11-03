@@ -1724,9 +1724,6 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
       cats: options.cats,
       chunks: plannedChunks,
       chunkPrefix: generationPrefix,
-      // 2.5.276 (#14): részleges mentésnél a visszatöltés látja, hogy hiányzik még
-      // adat (a fejléc totals-a a TELJES szám), és a háttér-ellenőrzés pótolja.
-      ...(plannedChunks < chunkCount ? { partial: true } : {}),
       savedAtMs: Date.now(),
       ...(options.provider ? { provider: options.provider } : {}),
       ...(options.savedAt ? { savedAt: options.savedAt } : {}),
@@ -1746,7 +1743,6 @@ async function saveChunkedToIdb(store: ChunkStore, options: ChunkedSaveOptions):
     if (section) noteSectionSaved(section, options.total, options.provider || null, meta.savedAtMs || Date.now());
     appLog(
       `${options.label} TARTÓSAN elmentve: ${options.total} elem, ${plannedChunks} adag`
-      + (plannedChunks < chunkCount ? ` (RÉSZLEGES: ${chunkCount - plannedChunks} adag kimaradt a kvóta-keret miatt)` : '')
       + `, ~${(approxBytes / 1024 / 1024).toFixed(1)} MB, ${Date.now() - startedAt} ms.`
     );
   } catch (error) {
