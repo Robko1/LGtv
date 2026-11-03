@@ -1622,11 +1622,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [clearDoctorStatusTimer]);
 
   useEffect(() => {
-    if (settings.tvDoctorEnabled === false) {
-      clearDoctorStatusTimer();
-      setDoctorStatus(null);
-      setVodSessionAssisted(false);
+    if (settings.tvDoctorEnabled !== false) return;
+
+    // A kikapcsolás ne csak a kapcsoló/állapotjelző kinézetét változtassa:
+    // a már előkészített TV Doktor-javítást és az ellenőrző időzítőt is
+    // érvénytelenítjük, különben egy korábban ütemezett javítás még lefuthat.
+    clearDoctorStatusTimer();
+    setDoctorStatus(null);
+    setVodSessionAssisted(false);
+
+    const doctorState = doctorSessionRef.current;
+    if (doctorState.verifyTimer !== null) {
+      window.clearTimeout(doctorState.verifyTimer);
+      doctorState.verifyTimer = null;
     }
+    doctorState.lastProposal = null;
+    doctorState.repairInFlight = false;
+    doctorState.waitingOrStalledFlag = false;
+    doctorState.consecutiveStallTicks = 0;
+    doctorState.repairStep = 0;
+    doctorState.activeBufferTiming = null;
+    doctorState.fallbackUrlOverride = null;
+    doctorState.triedFormats = [];
   }, [settings.tvDoctorEnabled, clearDoctorStatusTimer]);
 
   // VOD (film / sorozat) lejátszássegítés kizárólag az aktuális munkamenetben,
