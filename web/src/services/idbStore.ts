@@ -126,35 +126,52 @@ export function ensureDurableStorage(): Promise<DurableStorageInfo> {
       persisted: false, quotaBytes: null, usageBytes: null, method: 'nem elérhető',
     };
     const manager = storageManager();
+    let legacyGrantedQuota: number | null = null;
     try {
       if (manager && typeof manager.persist === 'function') {
         info.method = 'StorageManager.persist';
         const already = typeof manager.persisted === 'function' ? await manager.persisted() : false;
         info.persisted = already === true || (await manager.persist()) === true;
-      } else {
-        const legacy = typeof navigator !== 'undefined'
-          ? (navigator as any).webkitPersistentStorage : null;
-        if (legacy && typeof legacy.requestQuota === 'function') {
-          info.method = 'webkitPersistentStorage.requestQuota';
-          // 256 MB bőven elég a ~30 MB-os katalógusnak és a jövőbeli növekedésnek.
-          info.persisted = await new Promise<boolean>((resolve) => {
-            let done = false;
-            const finish = (ok: boolean) => { if (!done) { done = true; resolve(ok); } };
-            try {
-              legacy.requestQuota(256 * 1024 * 1024, () => finish(true), () => finish(false));
-            } catch { finish(false); }
-            setTimeout(() => finish(false), 3000);
-          });
-        }
       }
     } catch { /* a tartósság-kérés hibája nem akadályozza a tárolást */ }
+    /*
+     * Régebbi webOS Chromiumon a persist() nem feltétlenül növeli a kvótát.
+     * Ha a régi requestQuota API elérhető, kérünk 256 MB-ot, és a callbackben
+     * visszaadott tényleges keretet is megőrizzük a mentési döntésekhez.
+     */
+    try {
+      const legacy = typeof navigator !== 'undefined'
+        ? (navigator as any).webkitPersistentStorage : null;
+      if (legacy && typeof legacy.requestQuota === 'function') {
+        info.method = 'webkitPersistentStorage.requestQuota';
+        legacyGrantedQuota = await new Promise<number>((resolve) => {
+          let done = false;
+          const finish = (bytes: number) => {
+            if (done) return;
+            done = true;
+            resolve(Number.isFinite(bytes) && bytes > 0 ? bytes : 0);
+          };
+          try {
+            legacy.requestQuota(256 * 1024 * 1024, (granted: number) => finish(granted), () => finish(0));
+          } catch { finish(0); }
+          setTimeout(() => finish(0), 3000);
+        });
+        if (legacyGrantedQuota > 0) info.persisted = true;
+      }
+    } catch { /* a régi kvóta API hiánya nem akadályozza a tárolást */ }
     try {
       const estimate = manager && typeof manager.estimate === 'function' ? await manager.estimate() : null;
       if (estimate) {
         info.quotaBytes = typeof estimate.quota === 'number' ? estimate.quota : null;
         info.usageBytes = typeof estimate.usage === 'number' ? estimate.usage : null;
       }
+      if (legacyGrantedQuota && legacyGrantedQuota > (info.quotaBytes || 0)) {
+        info.quotaBytes = legacyGrantedQuota;
+      }
     } catch { /* a kvóta-olvasás nem kritikus */ }
+    if (legacyGrantedQuota && legacyGrantedQuota > (info.quotaBytes || 0)) {
+      info.quotaBytes = legacyGrantedQuota;
+    }
     // Ha a böngésző nem ad kvótát, feltételezzük a referenciában használt
     // konzervatív keretet (idb-cache.ts: FALLBACK_BUDGET_BYTES).
     return info;
