@@ -423,6 +423,9 @@ let surfaceZap = 0;
 const liveHomeOsdVisibility = [];
 window.__IPTV_TEST__.mount({ channel: LIVE, keepFullscreenOsdMounted: true, onPrevChannel: () => surfaceZap++, onNextChannel: () => surfaceZap++, onOverlayVisibilityChange: (visible) => liveHomeOsdVisibility.push(visible) });
 check(await waitFor(() => Boolean(video()), 5000, 'fullscreen teszt videó'), 'fullscreen teszthez élő videó létrejön');
+// A fullscreen regresszióteszt már futó adást vizsgáljon: a valódi ZAP-ŐR
+// indulási időzítője ne egy még el sem indult tesztstreamet próbáljon helyreállítani.
+fire(video(), 'playing');
 await tick(100);
 const surface = doc.querySelector('[data-tv-player]');
 surface.dispatchEvent(new window.MouseEvent('mousedown', {bubbles:true, clientY:200}));
