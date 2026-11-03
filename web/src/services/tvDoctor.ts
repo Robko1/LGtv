@@ -1747,10 +1747,17 @@ export function selectChannelLaunchPlan(
       rememberFormatFor(channel.id, chosenFormat);
     }
 
-    const chosenBufferProfile = evaluateBestBufferProfile(
-      record.bufferStats,
-      record.bestBufferProfile || record.lastWorkingBufferProfile || baseBufferMode,
-    );
+    // Ha a tanulási létra egy gyorsabb pufferprofilt jelölt ki, de azt
+    // még nem próbáltuk, a következő indításkor ténylegesen azt kell kipróbálni.
+    // Korábban az értékelő csak a régi profilokból választott, ezért a
+    // balanced -> fast -> turbo -> instant gyorsítás a gyakorlatban megakadt.
+    const storedBestBufferProfile = record.bestBufferProfile
+      || record.lastWorkingBufferProfile
+      || baseBufferMode;
+    const storedProfileStats = record.bufferStats[storedBestBufferProfile];
+    const chosenBufferProfile = storedProfileStats && storedProfileStats.ok > 0
+      ? evaluateBestBufferProfile(record.bufferStats, storedBestBufferProfile)
+      : storedBestBufferProfile;
     const hasCustomBufferExperience =
       Object.keys(record.bufferStats || {}).length > 0 ||
       record.source === 'cloud' ||
