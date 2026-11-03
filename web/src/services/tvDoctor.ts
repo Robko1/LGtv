@@ -2444,6 +2444,52 @@ export function planDoctorRepairStep(params: {
   // létra minden lépése valóban lefutott és sikertelen maradt.
   if (step > effectiveMaxSteps) {
     const safeCfg = getDoctorBufferConfig(record?.bestBufferProfile || currentBufferProfile);
+
+    // A rövid, újraaktiválási ellenőrzés (2 lépés) sikertelensége önmagában
+    // nem bizonyítja, hogy a csatorna halott. Ne növeljük a halottszámlálót,
+    // és ne írjunk újabb CHANNEL_UNREACHABLE hibát; a teljes létra a hűtés
+    // lejárta után ismét rendelkezésre áll.
+    if (effectiveMaxSteps < MAX_DOCTOR_REPAIR_STEPS) {
+      logDoctor(
+        'warn',
+        channel,
+        'AZ ÚJRAAKTIVÁLÁSI GYORS ELLENŐRZÉS SIKERTELEN – a csatorna nincs végleg hibásnak minősítve; a teljes vizsgálat később újrapróbálható.',
+        'activation',
+        storage,
+      );
+      if (cloudHook && record) {
+        cloudHook({
+          eventType: 'repair_exhausted',
+          record,
+          event: {
+            channelKey,
+            channelId: channel?.id,
+            channelName: channel?.name || channelKey,
+            playbackFormat: currentFormat,
+            bufferProfile: currentBufferProfile,
+            errorCode: 'REACTIVATION_CHECK_FAILED',
+            errorReason: trigger,
+            recovered: false,
+          },
+        });
+      }
+      return {
+        step,
+        maxSteps: effectiveMaxSteps,
+        strategyId: 'reactivation_check_failed',
+        description: 'a rövid újraaktiválási ellenőrzés sikertelen; később teljes vizsgálat következik',
+        nextFormat: currentFormat,
+        nextUrl: urlFor(currentFormat),
+        nextBufferProfile: safeCfg.id,
+        nextBufferTiming: safeCfg,
+        delayMs: 0,
+        useFallbackUrl: false,
+        forceCleanReset: false,
+        stopRetrying: true,
+        exhausted: false,
+      };
+    }
+
     opHealth.deadChannelsHaltedCount += 1;
 
     if (channel) {
