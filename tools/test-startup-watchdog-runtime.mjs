@@ -25,14 +25,14 @@ const bundle=await esbuild.build({stdin:{contents:harness,resolveDir:resolve('.'
 const vc=new VirtualConsole(); vc.on('jsdomError',e=>{if(!/Not implemented/.test(e.message))throw e;});
 const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:'http://localhost/',runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,beforeParse(window){
  window.__IPTV_DIRECT_LIVE_ZAP_TEST__ = false; // a watchdog/fallback regressziós tesztjeihez
- const set=window.setTimeout.bind(window); window.setTimeout=(fn,ms,...args)=>set(fn,ms===1800?150:ms,...args);
- window.state={ready:0,buffered:false,plays:[],loads:0}; const p=window.HTMLMediaElement.prototype;
+ const set=window.setTimeout.bind(window); window.setTimeout=(fn,ms,...args)=>set(fn,(ms===2000||ms===2500)?150:ms,...args);
+ window.state={ready:0,buffered:false,bufferEnd:2,plays:[],loads:0}; const p=window.HTMLMediaElement.prototype;
  Object.defineProperty(p,'paused',{configurable:true,get(){return this.__paused??true;}});
  Object.defineProperty(p,'currentSrc',{configurable:true,get(){return this.getAttribute('src')||'';}});
  Object.defineProperty(p,'readyState',{configurable:true,get(){return window.state.ready;}});
  Object.defineProperty(p,'networkState',{configurable:true,get(){return 2;}});
  Object.defineProperty(p,'error',{configurable:true,get(){return null;}});
- Object.defineProperty(p,'buffered',{configurable:true,get(){return window.state.buffered?{length:1,start:()=>0,end:()=>2}:{length:0};}});
+ Object.defineProperty(p,'buffered',{configurable:true,get(){return window.state.buffered?{length:1,start:()=>0,end:()=>window.state.bufferEnd}:{length:0};}});
  p.play=function(){this.__paused=false;window.state.plays.push(this.getAttribute('src'));return Promise.resolve();};
  p.pause=function(){this.__paused=true;};p.load=function(){window.state.loads++;};p.canPlayType=()=> 'maybe';
  p.getVideoPlaybackQuality=()=>({totalVideoFrames:Date.now()});window.fetch=()=>new Promise(()=>{});
@@ -43,7 +43,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
 const until=async (predicate,label)=>{for(let i=0;i<150;i++){if(predicate())return;await wait(10);}assert.fail(label);};
 let serial=0;
 async function mount(ext='m3u8',ready=0,vod) {
- window.testPlayer.unmount();await wait(30);window.localStorage.clear();window.state.ready=ready;window.state.buffered=false;window.state.plays=[];window.state.loads=0;
+ window.testPlayer.unmount();await wait(30);window.localStorage.clear();window.state.ready=ready;window.state.buffered=false;window.state.bufferEnd=2;window.state.plays=[];window.state.loads=0;
  const id=`case-${++serial}`;const channel={id,name:id,streamUrl:`http://example.invalid/live/${id}.${ext}`};
  window.testPlayer.mount(channel,vod);await until(()=>window.state.plays.length>=1,'initial play');return doc.querySelector('video[data-iptv-player="true"]');
 }
@@ -62,9 +62,13 @@ try {
  // the existing grace period cancels the pending transition.
  video=await mount('m3u8',4);await wait(200);assert.equal(window.state.plays.length,1);
  fire(video,'playing');await wait(280);assert.equal(window.state.plays.length,1,'playing alatt nincs fallback');
- // Even after grace expires the original same-format retry is preserved.
- video=await mount('m3u8',4);await until(()=>window.state.plays.length>=2,'HLS grace timeout retry');
- assert.match(window.state.plays[1],/\.m3u8$/);assert.equal(window.state.plays.length,2);fire(video,'playing');
+ // Ready media data and progressing frames must not be interrupted by the watchdog.
+ video=await mount('m3u8',4);await wait(1200);
+ assert.equal(window.state.plays.length,1,'dekódolható adatnál nincs felesleges formátumváltás');
+ fire(video,'playing');
+ // A growing buffer also counts as real startup progress, even before playing fires.
+ video=await mount('m3u8',0);window.state.buffered=true;await wait(220);window.state.bufferEnd=4;await wait(850);
+ assert.equal(window.state.plays.length,1,'növekvő puffer esetén nincs újrapróbálkozás');fire(video,'playing');
  // Actual HLS media errors still receive the original same-format retry.
  video=await mount();fire(video,'error');await until(()=>window.state.plays.length>=2,'HLS error retry');
  assert.match(window.state.plays[1],/\.m3u8$/);fire(video,'playing');
