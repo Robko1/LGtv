@@ -1935,13 +1935,21 @@ try {
     bufferProfile: 'fast',
     startupMs: 290,
   });
+  // Egyetlen régi siker nem írhatja felül az aktuális TS alapértelmezést.
+  // A HLS előválasztásához legalább két valódi sikeres indulás szükséges.
+  window.__DOCTOR_UI__.recordDoctorChannelSuccess({
+    channel: { id: 'other-provider-id', name: '[HU] ATV HD' },
+    format: 'hls',
+    bufferProfile: 'fast',
+    startupMs: 275,
+  });
 
   playedUrls.length = 0;
   window.__MOUNT_MODE__('player');
   await wait(80);
   check(
     playedUrls.length >= 1 && playedUrls[0].endsWith('/701.m3u8'),
-    'bekapcsolt TV Doktornál a VideoPlayer már az első próbánál a tanult gyorsabb HLS (.m3u8) módot indítja',
+    'bekapcsolt TV Doktornál a VideoPlayer két valódi HLS-siker után már az első próbánál a tanult gyorsabb HLS (.m3u8) módot indítja',
   );
 
   // Ha kikapcsoljuk a TV Doktort és új csatornára váltunk, amelynek csak felhő/TV Doktor profilja van,
