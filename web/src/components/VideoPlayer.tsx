@@ -4490,29 +4490,64 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // se hiba, se kép), nem várunk a végtelenségig pörgő töltésre -
       // automatikusan a következő formátumra (MPEG-TS) váltunk.
       if (!customStreamUrl) {
-        const { startupWatchdogMs, bufferWatchdogMs } = bufferTiming();
-        const attemptTimeoutMs = Math.min(startupWatchdogMs, 1500);
+        const { startupWatchdogMs } = bufferTiming();
+        /*
+         * A normál indulásnak legalább 2–2,5 másodpercet hagyunk.
+         * Ha már van dekódolható adat, nem váltunk formátumot vakon:
+         * röviden ellenőrizzük, hogy valóban halad-e a puffer/képkockaszám.
+         */
+        const attemptTimeoutMs = Math.max(2000, Math.min(startupWatchdogMs, 2500));
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
-          if (isCurrentLoad() && !playbackStartedRef.current) {
-            // Egyetlen ellenőrzés: ha ténylegesen folyik az adat (buffer nő),
-            // még egyszer rövid esély, különben azonnal formátumpróba.
-            const ahead = bufferedAheadSeconds(video);
-            if (ahead !== null && ahead >= 2 && video.readyState >= 3) {
-              appLog(`Zap-őr: adat folyik (előre=${ahead.toFixed(1)} s), még ${bufferWatchdogMs} ms türelem.`);
-              zapWatchdogRef.current = window.setTimeout(() => {
-                zapWatchdogRef.current = null;
-                if (isCurrentLoad() && !playbackStartedRef.current) {
-                  notifyTvDoctorIncident('startup_timeout', video, 'STARTUP_TIMEOUT', 'türelmi idő lejárt');
-                  scheduleAutoRetry();
-                }
-              }, bufferWatchdogMs);
-              return;
+          if (!isCurrentLoad() || playbackStartedRef.current) return;
+
+          const aheadAtCheck = bufferedAheadSeconds(video);
+          const framesAtCheck = readPlaybackFrameStats(video)?.total ?? null;
+          const readyStateAtCheck = video.readyState;
+          const hasStartupData = readyStateAtCheck >= 2 || (aheadAtCheck !== null && aheadAtCheck > 0);
+
+          const retryForRealFailure = (reason: string) => {
+            if (!isCurrentLoad() || playbackStartedRef.current) return;
+            const mediaError = video.error;
+            if (mediaError) {
+              notifyTvDoctorIncident(
+                'media_error',
+                video,
+                `MEDIA_ERR_${mediaError.code || 'UNKNOWN'}`,
+                mediaError.message || reason,
+              );
+            } else {
+              notifyTvDoctorIncident('startup_timeout', video, 'STARTUP_TIMEOUT', reason);
             }
-            appLog('Zap-őr: nem indult el az adás időben, automatikus formátumváltás.');
-            notifyTvDoctorIncident('startup_timeout', video, 'STARTUP_TIMEOUT', 'indulási időtúllépés');
             scheduleAutoRetry();
+          };
+
+          if (hasStartupData) {
+            appLog('Zap-őr: már érkezett adat; formátumváltás előtt ellenőrzi a tényleges előrehaladást.');
+            zapWatchdogRef.current = window.setTimeout(() => {
+              zapWatchdogRef.current = null;
+              if (!isCurrentLoad() || playbackStartedRef.current) return;
+
+              const aheadNow = bufferedAheadSeconds(video);
+              const framesNow = readPlaybackFrameStats(video)?.total ?? null;
+              const bufferProgressed = aheadAtCheck !== null
+                && aheadNow !== null
+                && aheadNow > aheadAtCheck + 0.15;
+              const framesProgressed = framesAtCheck !== null
+                && framesNow !== null
+                && framesNow > framesAtCheck;
+              const readyStateProgressed = video.readyState > readyStateAtCheck;
+
+              if (bufferProgressed || framesProgressed || readyStateProgressed) {
+                appLog('Zap-őr: a puffer vagy a képkockák tovább haladnak; nincs felesleges újrapróbálkozás.');
+                return;
+              }
+              retryForRealFailure('az adatfolyam megállt, és nem indult el a lejátszás');
+            }, 900);
+            return;
           }
+
+          retryForRealFailure('2–2,5 másodperc alatt nem érkezett lejátszható adat');
         }, attemptTimeoutMs);
             } else if (tvDoctorEnabledRef.current) {
         // VOD INDULÁSI ŐR: ha a film vagy sorozat HTTP-kapcsolata némán
