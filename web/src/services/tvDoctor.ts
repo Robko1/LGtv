@@ -1738,27 +1738,33 @@ export function selectChannelLaunchPlan(
     const learnedFormatSuccesses = learnedFormat === 'hls'
       ? Math.max(0, record.hlsOk || 0)
       : Math.max(0, record.tsOk || 0);
-    const preferredFormatSuccesses = learnedFormat === 'hls'
-      ? Math.max(0, record.hlsOk || 0)
-      : Math.max(0, record.tsOk || 0);
-    const alternateFormat: LiveFormat = learnedFormat === 'hls' ? 'ts' : 'hls';
-    const alternateSuccesses = alternateFormat === 'hls'
-      ? Math.max(0, record.hlsOk || 0)
-      : Math.max(0, record.tsOk || 0);
+    const tsSuccesses = Math.max(0, record.tsOk || 0);
+    const hlsSuccesses = Math.max(0, record.hlsOk || 0);
+    const stableFormat: LiveFormat = tsSuccesses >= hlsSuccesses ? 'ts' : 'hls';
+    const stableFormatSuccesses = stableFormat === 'hls' ? hlsSuccesses : tsSuccesses;
+    const alternateFormat: LiveFormat = stableFormat === 'hls' ? 'ts' : 'hls';
+    const alternateSuccesses = alternateFormat === 'hls' ? hlsSuccesses : tsSuccesses;
     const alternateFailures = alternateFormat === 'hls'
       ? Math.max(0, record.hlsFail || 0)
       : Math.max(0, record.tsFail || 0);
+    const alternateConsecutiveFailures = alternateFormat === 'hls'
+      ? Math.max(0, record.hlsConsecutiveFail || 0)
+      : Math.max(0, record.tsConsecutiveFail || 0);
     /*
-     * Biztonságos sebességpróba: ha a jelenlegi mód már legalább 10-szer
-     * sikeresen indult, időnként egyetlen váltás erejéig kipróbáljuk a másik
-     * formátumot is. Két valódi siker után már összehasonlítható a sebesség;
-     * ismételt hibánál ritkítjuk, majd leállítjuk a próbát.
+     * Biztonságos sebességpróba: 10 stabil indulás után megmérjük a másik
+     * formátumot is. Ha már egyszer sikerült, a második valódi mérés is
+     * ugyanazzal készül; ismételt hiba esetén ritkítjuk, majd leállítjuk.
      */
+    const continueAlternateCalibration = alternateSuccesses === 1
+      && alternateConsecutiveFailures === 0
+      && stableFormatSuccesses >= 10;
+    const startAlternateCalibration = alternateSuccesses === 0
+      && alternateFailures < 3
+      && stableFormatSuccesses >= (alternateFailures + 1) * 10
+      && stableFormatSuccesses % 10 === 0;
     const shouldProbeAlternateFormat = supportsDualFormat
       && alternateSuccesses < 2
-      && alternateFailures < 3
-      && preferredFormatSuccesses >= (alternateFailures + 1) * 10
-      && preferredFormatSuccesses % 10 === 0;
+      && (continueAlternateCalibration || startAlternateCalibration);
     const chosenFormat: LiveFormat = shouldProbeAlternateFormat
       ? alternateFormat
       : (supportsDualFormat && learnedFormatSuccesses >= 2 ? learnedFormat : fallbackPrimary);
