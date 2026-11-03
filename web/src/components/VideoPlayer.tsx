@@ -82,6 +82,7 @@ import {
 } from '../services/liveSubtitleService';
 import { formatClockTime, normalizeClockOffset } from '../utils/clock';
 import {
+  LiveFormat,
   alternativeUrl,
   formatOfUrl,
   forgetFormatFor,
@@ -1618,6 +1619,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     consecutiveStallTicks: number;
     verifyTimer: number | null;
     fallbackUrlOverride: string | null;
+    /* 2.5.277: egy javítási létrán belül már sikertelen formátumok – a létra ezeket nem próbálja újra (nincs HLS↔TS ingadozás). */
+    triedFormats: LiveFormat[];
   }>({
     channelKey: '',
     hasLearnedProfile: false,
@@ -1636,6 +1639,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     consecutiveStallTicks: 0,
     verifyTimer: null,
     fallbackUrlOverride: null,
+    triedFormats: [],
   });
   /**
    * LG webOS TV-n a támogatott webes lejátszási út a HTMLVideoElement.
@@ -1802,6 +1806,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const hlsCandidate = baseStreamUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8');
 
       docState.repairStep += 1;
+      // 2.5.277 (#17-es napló): a sikertelen formátumot feljegyezzük – a létra
+      // ugyanezen a körön belül NEM vált vissza rá (nincs HLS↔TS ingadozás).
+      if (!docState.triedFormats.includes(currentFmt)) docState.triedFormats.push(currentFmt);
       const proposal = planDoctorRepairStep({
         channel: targetChannel,
         trigger,
@@ -1812,6 +1819,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         streamUrl: baseStreamUrl,
         tsUrl: tsCandidate,
         hlsUrl: hlsCandidate,
+        triedFormats: docState.triedFormats.slice(),
       });
 
       docState.activeBufferProfile = proposal.nextBufferProfile;
@@ -4819,6 +4827,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       doctorSessionRef.current.activeBufferTiming = doctorPlan?.enabled ? doctorPlan.bufferTiming : null;
       doctorSessionRef.current.vodStartupRecorded = false;
       doctorSessionRef.current.repairStep = 0;
+      doctorSessionRef.current.triedFormats = [];
       doctorSessionRef.current.repairInFlight = false;
       doctorSessionRef.current.waitingOrStalledFlag = false;
       doctorSessionRef.current.consecutiveStallTicks = 0;
@@ -4840,6 +4849,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       doctorSessionRef.current.vodLoadStartedAt = Date.now();
       doctorSessionRef.current.vodStartupRecorded = false;
       doctorSessionRef.current.repairStep = 0;
+      doctorSessionRef.current.triedFormats = [];
       doctorSessionRef.current.repairInFlight = false;
       doctorSessionRef.current.waitingOrStalledFlag = false;
       doctorSessionRef.current.consecutiveStallTicks = 0;
@@ -5778,6 +5788,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               liveRecoveryOnlyRef.current = false;
               doctorSessionRef.current.channelHaltedDead = false;
               doctorSessionRef.current.repairStep = 0;
+              doctorSessionRef.current.triedFormats = [];
               doctorSessionRef.current.lastProposal = null;
               endSwitch();
               setHasError(false);

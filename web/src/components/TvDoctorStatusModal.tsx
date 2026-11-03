@@ -5,6 +5,7 @@ import {
   AlertOctagon,
   AlertTriangle,
   BookOpenCheck,
+  CalendarClock,
   CheckCircle2,
   Database,
   RefreshCw,
@@ -138,6 +139,21 @@ const CATEGORY_VISUALS: readonly CategoryVisualMeta[] = [
     logBadge: 'border-rose-400/70 bg-rose-500/25 text-rose-200',
     Icon: AlertOctagon,
   },
+  {
+    // 2.5.277: a TV Doktor EPG-őre (műsorújság-figyelés/frissítés).
+    id: 'epg_assist',
+    title: 'EPG-őr',
+    shortTag: 'EPG-ŐR',
+    subtitle: 'Műsorújság hiány/elavultság észlelése és frissítése',
+    cardBorder: 'border-violet-400/80',
+    cardBg: 'bg-violet-950/45',
+    dotClass: 'bg-violet-400 shadow-[0_0_10px_rgba(167,139,250,0.9)]',
+    titleColor: 'text-violet-200',
+    countBadge: 'border-violet-400/75 bg-violet-500/25 text-violet-100',
+    logBorder: 'border-violet-400/75 bg-violet-950/35',
+    logBadge: 'border-violet-400/65 bg-violet-500/25 text-violet-200',
+    Icon: CalendarClock,
+  },
 ];
 
 const CATEGORY_BY_ID: Record<DoctorEventCategory, CategoryVisualMeta> = {
@@ -145,6 +161,7 @@ const CATEGORY_BY_ID: Record<DoctorEventCategory, CategoryVisualMeta> = {
   assistance: CATEGORY_VISUALS[1],
   activation: CATEGORY_VISUALS[2],
   channel_error: CATEGORY_VISUALS[3],
+  epg_assist: CATEGORY_VISUALS[4], // 2.5.277: EPG-őr kategória
 };
 
 function resolveEntryCategory(entry: DoctorLogEntry): DoctorEventCategory {

@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.276';
+export const WEB_VERSION = '2.5.277';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.277',
+    date: '2026-11-03',
+    changes: [
+      'TV Doktor teljes átdolgozás (#16/#17-es napló): (1) újraaktiválási hűtő csatornánként – egy kimerült javítási létra után 8 percig csak a rövid (2 lépéses) ellenőrzés futhat, így az ARENA 4 oda-vissza kapcsolásnál már nem indul újra teljes 5 lépéses létra 25–30 másodpercenként; (2) egy létrán belül a sikertelen formátumot többször NEM próbálja újra – megszűnt a HLS↔TS ingadozás; (3) a halott-csatorna jelölés kézi újraválasztásnál AZONNAL törlődik (NAT GEO WILD UHD esete), és ismétlődő kimerülésnél skálázódik (3→30 perc); (4) a TV Doktor mostantól az EPG-t is figyeli – az új műsorújság-tárolót (epgGuide) nézi, és csak akkor indít frissítést (ensureGuide), ha hiányzik, elavult (>3 óra) vagy kevés magyar adót fed le; egyébként nem dolgozik; (5) a memóriában csak tanulható adat marad (napló-gyűrű 80→48), a kijelzett memória így kisebb.',
+      'Kedvencek – pontos hozzáadás (#17-es kérés): a mappaválasztó fejlécében mostantól látszik, pontosan hány csatorna kerül a mappába („Pontosan N csatorna kerül a mappába (csak ez a csoport)”) – így egy országon belüli alkategória (pl. UK → Kids 24/7) kiválasztásánál rögtön látszik, ha véletlenül az egész országot jelöltük volna ki. A csillag továbbra is kapcsoló: hozzáad ↔ egész csoport kivétele minden mappából.',
+      'Mozi/Sorozat induláskor (#17-es kérés): induláskor csak 25+25 film/sorozat töltődik be (induló részhalmaz a tartós tárból); a teljes lista csak a menü megnyitásakor töltődik be on demand, a tartós IndexedDB tárolóból, hálózat nélkül. A visszafejtett nagy listák többé NEM kerülnek a RAM-ba (decodedCache felső határ 5000 tétel) – a kis memória csak a fő magyar csatornákat, beállításokat és a szükségeseket tartalmazza. A szolgáltató adatait továbbra is csak egyszer tölti le az app, onnan csak olvassa a tartós tárat – IPK-frissítés vagy újraindítás után sem töltődik újra.',
+    ],
+  },
   {
     version: '2.5.276',
     date: '2026-11-03',

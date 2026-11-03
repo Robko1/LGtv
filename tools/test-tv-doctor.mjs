@@ -340,6 +340,56 @@ check(
   'a javító korlátozott lépésben vált formátumot, puffert, tartalék URL-t, majd visszaáll az alap helyreállításra',
 );
 
+// 1.6b 2.5.277 (#17-es napló): létrán belül nincs HLS<->TS ingadozás – ha az
+// alternatív formátum már sikertelen volt, a létra NEM vált vissza rá.
+const flapChannel = {
+  id: 'ch-flap',
+  name: '[HU] ARENA 4 HD',
+  streamUrl: 'http://panel.example:8080/live/u/p/404.m3u8',
+};
+const flapStep2 = core.planDoctorRepairStep({
+  channel: flapChannel,
+  trigger: 'startup_timeout',
+  step: 2,
+  currentFormat: 'hls',
+  currentBufferProfile: 'fast',
+  streamUrl: flapChannel.streamUrl,
+  tsUrl: 'http://panel.example:8080/live/u/p/404.ts',
+  hlsUrl: flapChannel.streamUrl,
+  triedFormats: ['hls', 'ts'],
+  storage: store,
+});
+check(
+  flapStep2.nextFormat === 'hls',
+  '2.5.277: már kipróbált alternatív formátumra a létra nem vált vissza (nincs oda-vissza ugrálás)',
+);
+
+// 1.6c 2.5.277: kimerült létra után újraaktiválási hűtő – kézi újraválasztásnál
+// csak a rövid (2 lépéses) ellenőrzés jöhet, és a halott jelölés törlődik.
+const flapStore = new MemoryStorage();
+const flapCh = { id: 'ch-flap2', name: '[HU] ARENA 4 HD', streamUrl: 'http://panel.example:8080/live/u/p/404.m3u8' };
+// 1) sikeres múlt (tanult profil), hogy később törölhessen a halott jelölés
+core.recordDoctorChannelSuccess({ channel: flapCh, format: 'hls', bufferProfile: 'balanced', startupMs: 900, storage: flapStore });
+// 2) teljes létra kimerülése -> halott jelölés + lastExhaustedAt
+for (let step = 1; step <= 6; step += 1) {
+  core.planDoctorRepairStep({
+    channel: flapCh, trigger: 'startup_timeout', step, currentFormat: 'hls', currentBufferProfile: 'balanced',
+    streamUrl: flapCh.streamUrl, tsUrl: 'http://panel.example:8080/live/u/p/404.ts', hlsUrl: flapCh.streamUrl, storage: flapStore,
+  });
+}
+const recAfterExhaust = core.getChannelDoctorRecord(flapCh, flapStore);
+check(Boolean(recAfterExhaust?.deadUntil) && Boolean(recAfterExhaust?.lastExhaustedAt),
+  '2.5.277: kimerült létra után halott jelölés + kimerülési időbélyeg mentődik');
+const planDuringCooldown = core.selectChannelLaunchPlan(flapCh, flapCh.streamUrl, core.INITIAL_SETTINGS, flapStore);
+check(planDuringCooldown.maxRepairSteps === core.MAX_DEAD_CHANNEL_QUICK_STEPS && planDuringCooldown.isRecentlyDead === true,
+  '2.5.277: újraaktiválási hűtőben csak a rövid (2 lépéses) ellenőrzés engedélyezett (ARENA 4 flapping ellen)');
+check(recAfterExhaust !== null && core.getChannelDoctorRecord(flapCh, flapStore)?.deadUntil === undefined,
+  '2.5.277: kézi újraválasztásnál a halott jelölés azonnal törlődik (NAT GEO WILD UHD eset)');
+// 3) siker után a halott-számláló visszaáll
+core.recordDoctorChannelSuccess({ channel: flapCh, format: 'hls', bufferProfile: 'balanced', startupMs: 800, storage: flapStore });
+check((core.getChannelDoctorRecord(flapCh, flapStore)?.haltCount || 0) === 0,
+  '2.5.277: sikeres indulás után a halott-jelölés számlálója nullázódik');
+
 // 1.7 VOD (Filmek és Sorozatok) TV Doktor támogatás: valós idejű lejátszássegítés MEMÓRIA- ÉS NAPLÓMENTÉS NÉLKÜL
 const vodStore = new MemoryStorage();
 const sampleMovie = {
