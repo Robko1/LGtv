@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Clock, Play, X } from 'lucide-react';
+import { Clock, Play, Trash2, X } from 'lucide-react';
 import { Episode, Movie, Series } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { enrichVodItemOnOpen } from '../services/vodEnrich';
@@ -17,6 +17,12 @@ interface Props {
   isFavorite: boolean;
   onClose: () => void;
   onToggleFavorite: () => void;
+  /**
+   * 2.5.298: törlés a TV memóriájából. A poszter jobb felső sarkában lévő
+   * piros kuka mellett itt is elérhető, mert az adatlap távirányítóval
+   * biztosan bejárható (a kuka a rácson nem mindig érhető el nyilakkal).
+   */
+  onDelete?: () => void;
   onPlayMovie?: (movie: Movie) => void;
   onPlayEpisode?: (series: Series, episode: Episode) => void;
   /*
@@ -54,7 +60,7 @@ interface Props {
  *  pótolja őket (lásd enrichVodItemOnOpen); teljes adatoknál továbbra sincs
  *  kérés, és az eredmény tartósan elmentődik.
  */
-export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose, onPlayMovie, onPlayEpisode, provider, onItemEnriched, dialogRef }) => {
+export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose, onPlayMovie, onPlayEpisode, provider, onItemEnriched, dialogRef, onDelete }) => {
   const { modalRef: panelRef, handleKeyDown, handleBackdropClick } = useTvModalNavigation(true, onClose, [itemProp.id]);
   /* 2.5.255: a belső és a külső (hívó) ref egyszerre töltődik. */
   const setPanelRef = (el: HTMLDivElement | null) => {
@@ -169,6 +175,17 @@ export const VodDetailSheet: React.FC<Props> = ({ kind, item: itemProp, onClose,
                   className="mt-5 flex w-full max-w-md items-center justify-center gap-3 rounded-2xl bg-cyan-500 px-8 py-4 text-2xl font-black uppercase tracking-wide text-slate-950 transition-colors hover:bg-cyan-400 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70"
                 >
                   <Play className="h-7 w-7 fill-current" /> Lejátszás
+                </button>
+              )}
+              {/* 2.5.298: törlés a TV memóriájából – távirányítóval is elérhető. */}
+              {onDelete && (
+                <button
+                  type="button"
+                  data-vod-delete-action=""
+                  onClick={() => onDelete()}
+                  className="mt-3 flex w-full max-w-md items-center justify-center gap-2.5 rounded-2xl border-2 border-rose-400/80 bg-rose-950/90 px-6 py-3 text-lg font-black uppercase tracking-wide text-rose-100 transition-colors hover:bg-rose-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-rose-300"
+                >
+                  <Trash2 className="h-5 w-5" /> Törlés a memóriából
                 </button>
               )}
             </div>

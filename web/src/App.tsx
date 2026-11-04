@@ -15,6 +15,7 @@ import {
   needsLiveCacheCompaction,
   compactLiveCacheIfNeeded,
   ProviderRef,
+  readCatalogStateSync,
   restoreStoredContent,
   saveCatalogExtras,
   saveContent,
@@ -28,6 +29,7 @@ import {
   hasPendingDeleteMarker,
   storedRestorePending,
 } from './services/contentStore';
+import { clearRemovedVod, filterRemovedVod, getRemovedVodIds, removeVodFromMemory } from './services/vodRemovals';
 import { appLog, appLogError, logPhase } from './services/appLog';
 import { persistHuLogoOverrides, logHuLogoStore } from './services/huChannelLogos';
 import {
@@ -423,6 +425,30 @@ export function App() {
   const [series, setSeries] = useState<Series[]>([]);
   const [activeProvider, setActiveProvider] = useState<ProviderRef | null>(() => bootLive.provider);
   const [totalCounts, setTotalCounts] = useState(() => bootLive.totals);
+  /*
+   * 2.5.298 – VALÓS VISSZATÖLTÉSI DARABSZÁM A SAJÁT MENTÉSBŐL.
+   *
+   * A néző kérése: a Mozi/Sorozat fejlécben ne csak az épp a képernyőre került
+   * 500-as adag és a szolgáltató által ígért összlétszám látszódjon, hanem a
+   * TV saját, tartós tárából ténylegesen visszatöltött mennyiség is.
+   * Ez a `CatalogState.sections.vod/series.count` érték (a tartósan elmentett
+   * sorok száma), amely a `readCatalogStateSync()`-ből olvasható. A teljes
+   * visszatöltés végén felülírjuk a felületre került lista hosszával, hogy a
+   * törlések után is pontos maradjon.
+   */
+  const [catalogSavedCounts, setCatalogSavedCounts] = useState(() => {
+    try {
+      const st = readCatalogStateSync();
+      return {
+        vod: Math.max(st?.sections?.vod?.count ?? 0, st?.counts?.vod ?? 0),
+        series: Math.max(st?.sections?.series?.count ?? 0, st?.counts?.series ?? 0),
+      };
+    } catch {
+      return { vod: 0, series: 0 };
+    }
+  });
+  const catalogSavedCountsRef = useRef(catalogSavedCounts);
+  useEffect(() => { catalogSavedCountsRef.current = catalogSavedCounts; }, [catalogSavedCounts]);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [diagnosticEvents, setDiagnosticEvents] = useState<NetworkDiagnosticEvent[]>([]);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
@@ -1492,11 +1518,13 @@ export function App() {
            */
           if (!vodFirstPainted) {
             vodFirstPainted = true;
+            // 2.5.298: a piros kukával törölt filmek már az első adagban se jelenjenek meg.
+            const firstFiltered = filterRemovedVod(target.provider.id, 'movie', partial.movies);
             startTransition(() => {
-              setMovies(partial.movies);
+              setMovies(firstFiltered);
               if (partial.categories.length) setVodCategories(partial.categories);
             });
-            appLog(`Filmek első adaga már a felületen: ${partial.movies.length} film (a teljes lista a végén, egyben érkezik).`);
+            appLog(`Filmek első adaga már a felületen: ${firstFiltered.length} film (a teljes lista a végén, egyben érkezik).${firstFiltered.length !== partial.movies.length ? ` (${partial.movies.length - firstFiltered.length} törölt film szűrve)` : ''}`);
           }
           appLog(`Film visszatöltés folyamatban: ${partial.movies.length} az első adagból (a teljes lista egyben jelenik meg a végén).`);
         },
@@ -1511,11 +1539,13 @@ export function App() {
           // 2.5.253: mint a filmeknél – az első adag rögtön megjelenik.
           if (!seriesFirstPainted) {
             seriesFirstPainted = true;
+            // 2.5.298: a piros kukával törölt sorozatok már az első adagban se jelenjenek meg.
+            const firstFiltered = filterRemovedVod(target.provider.id, 'series', partial.series);
             startTransition(() => {
-              setSeries(partial.series);
+              setSeries(firstFiltered);
               if (partial.categories.length) setSeriesCategories(partial.categories);
             });
-            appLog(`Sorozatok első adaga már a felületen: ${partial.series.length} sorozat (a teljes lista a végén, egyben érkezik).`);
+            appLog(`Sorozatok első adaga már a felületen: ${firstFiltered.length} sorozat (a teljes lista a végén, egyben érkezik).${firstFiltered.length !== partial.series.length ? ` (${partial.series.length - firstFiltered.length} törölt sorozat szűrve)` : ''}`);
           }
           appLog(`Sorozat visszatöltés folyamatban: ${partial.series.length} az első adagból (a teljes lista egyben jelenik meg a végén).`);
         },
@@ -1535,15 +1565,23 @@ export function App() {
             return false;
           }
           // Egyetlen, megszakítható commit: a teljes filmlista egyszerre kerül a felületre.
+          // 2.5.298: a korábban kukával törölt filmek a teljes listából is kimaradnak.
+          const filteredVod = filterRemovedVod(target.provider.id, 'movie', vod.movies);
+          if (filteredVod.length !== vod.movies.length) {
+            appLog(`Filmek szűrése: ${vod.movies.length - filteredVod.length} korábban törölt film nem került vissza a felületre.`);
+          }
           startTransition(() => {
             setMovies(() => {
               // 2.5.280 (#22/#23): visszatöltés után a lista már mentettnek számít.
-              lastSavedRef.current = { ...lastSavedRef.current, movies: vod.movies };
-              return vod.movies;
+              lastSavedRef.current = { ...lastSavedRef.current, movies: filteredVod };
+              return filteredVod;
             });
             if (vod.categories.length) setVodCategories(vod.categories);
+            // 2.5.298: a valódi, tartós tárból visszatöltött mennyiség pontosítása.
+            setCatalogSavedCounts({ vod: filteredVod.length, series: catalogSavedCountsRef.current.series });
           });
-          appLog(`Filmek a felületen EGYBEN: ${vod.movies.length} (letöltés nélkül).`);
+          catalogSavedCountsRef.current = { vod: filteredVod.length, series: catalogSavedCountsRef.current.series };
+          appLog(`Filmek a felületen EGYBEN: ${filteredVod.length} (letöltés nélkül).`);
           return true;
         },
         onSeries: (ser) => {
@@ -1556,15 +1594,22 @@ export function App() {
             appLog(`Sorozatlista visszatöltve (${ser.series.length}), de a nézet már élő – nem kerül a felületre (a következő Sorozatok megnyitáskor újra visszatöltjük).`);
             return false;
           }
+          // 2.5.298: a korábban kukával törölt sorozatok a teljes listából is kimaradnak.
+          const filteredSeries = filterRemovedVod(target.provider.id, 'series', ser.series);
+          if (filteredSeries.length !== ser.series.length) {
+            appLog(`Sorozatok szűrése: ${ser.series.length - filteredSeries.length} korábban törölt sorozat nem került vissza a felületre.`);
+          }
           startTransition(() => {
             setSeries(() => {
               // 2.5.280 (#22/#23): visszatöltés után a lista már mentettnek számít.
-              lastSavedRef.current = { ...lastSavedRef.current, series: ser.series };
-              return ser.series;
+              lastSavedRef.current = { ...lastSavedRef.current, series: filteredSeries };
+              return filteredSeries;
             });
             if (ser.categories.length) setSeriesCategories(ser.categories);
+            setCatalogSavedCounts({ vod: catalogSavedCountsRef.current.vod, series: filteredSeries.length });
           });
-          appLog(`Sorozatok a felületen EGYBEN: ${ser.series.length} (letöltés nélkül).`);
+          catalogSavedCountsRef.current = { vod: catalogSavedCountsRef.current.vod, series: filteredSeries.length };
+          appLog(`Sorozatok a felületen EGYBEN: ${filteredSeries.length} (letöltés nélkül).`);
           return true;
         },
       }, {
@@ -2764,6 +2809,57 @@ export function App() {
     dirtyRef.current = true;
   }, []);
 
+  /*
+   * 2.5.298 – PIROS KUKA: TÖRLÉS A TV MEMÓRIÁJÁBÓL (Mozik / Sorozatok).
+   *
+   * A kuka a poszter jobb felső sarkában és az adatlapon is elérhető.
+   * A törlés a `vodRemovals` jegyzékbe ír (providerenként, fajtánként), és
+   * azonnal kiveszi az elemet a felületi listából. A jegyzék a
+   * visszatöltéskor és a következő szolgáltatói frissítéskor is érvényesül,
+   * így a törölt film nem jön vissza. A lista a következő automatikus
+   * mentésnél már nélküle íródik ki (nem kell azonnal 100 ezres újraírás).
+   */
+  const handleDeleteMovie = useCallback((movieId: string) => {
+    const providerId = activeProviderRef.current?.id || activeProvider?.id || '';
+    if (!providerId || !movieId) return;
+    const added = removeVodFromMemory(providerId, 'movie', movieId);
+    if (!added) {
+      // Már a jegyzékben van, de a felületen még látszik – vegyük ki innen is.
+      if (!getRemovedVodIds(providerId, 'movie').has(String(movieId))) return;
+    }
+    setMovies((prev) => {
+      const next = prev.filter((m) => m.id !== movieId);
+      if (next.length !== prev.length) {
+        moviesRef.current = next;
+        setCatalogSavedCounts((c) => ({ vod: Math.max(0, c.vod - 1), series: c.series }));
+        catalogSavedCountsRef.current = { vod: Math.max(0, catalogSavedCountsRef.current.vod - 1), series: catalogSavedCountsRef.current.series };
+        appLog(`Film törölve a TV memóriájából: ${movieId} (provider=${providerId}).`);
+        dirtyRef.current = true;
+      }
+      return next;
+    });
+  }, [activeProvider]);
+
+  const handleDeleteSeries = useCallback((seriesId: string) => {
+    const providerId = activeProviderRef.current?.id || activeProvider?.id || '';
+    if (!providerId || !seriesId) return;
+    const added = removeVodFromMemory(providerId, 'series', seriesId);
+    if (!added) {
+      if (!getRemovedVodIds(providerId, 'series').has(String(seriesId))) return;
+    }
+    setSeries((prev) => {
+      const next = prev.filter((s) => s.id !== seriesId);
+      if (next.length !== prev.length) {
+        seriesRef.current = next;
+        setCatalogSavedCounts((c) => ({ vod: c.vod, series: Math.max(0, c.series - 1) }));
+        catalogSavedCountsRef.current = { vod: catalogSavedCountsRef.current.vod, series: Math.max(0, catalogSavedCountsRef.current.series - 1) };
+        appLog(`Sorozat törölve a TV memóriájából: ${seriesId} (provider=${providerId}).`);
+        dirtyRef.current = true;
+      }
+      return next;
+    });
+  }, [activeProvider]);
+
   // Kézi csatorna-sorrend: az aktuálisan látható listában egy hellyel fel/le mozgat.
   const handleMoveChannel = useCallback((channelId: string, direction: 'up' | 'down') => {
     if (selectedFavoriteFolderId) {
@@ -3026,6 +3122,8 @@ export function App() {
     const updated = providers.filter((p) => p.id !== id);
     setProviders(updated);
     storageService.saveProviders(updated);
+    // 2.5.298: a szolgáltatóhoz tartozó „törölt filmek” jegyzékét is dobjuk.
+    try { clearRemovedVod(id); } catch {}
 
     if (activeProvider?.id === id) {
       // A felhasználói kedvencek és sorrendek csak a szolgáltató törlésekor törlődnek.
@@ -3038,6 +3136,8 @@ export function App() {
       setSeries([]);
       setSeriesCategories([]);
       setTotalCounts({ live: 0, vod: 0, series: 0 });
+      setCatalogSavedCounts({ vod: 0, series: 0 });
+      catalogSavedCountsRef.current = { vod: 0, series: 0 };
       setFolders([]);
       storageService.saveFolders([]);
       setSelectedFavoriteFolderId(null);
@@ -3437,8 +3537,14 @@ export function App() {
         setCategories((current) => (sameCategories(current, partial.liveCategories!) ? current : partial.liveCategories!));
       }
       if (partial.movies) {
-        const nextMovies = partial.authoritative ? (partial.movies || []) : keepIfFilled(moviesRef.current, partial.movies);
+        let nextMovies = partial.authoritative ? (partial.movies || []) : keepIfFilled(moviesRef.current, partial.movies);
+        // 2.5.298: a korábban piros kukával törölt filmek a frissítéskor se jöjjenek vissza.
         if (nextMovies) {
+          const filtered = filterRemovedVod(id, 'movie', nextMovies);
+          if (filtered.length !== nextMovies.length) {
+            appLog(`Frissítés: ${nextMovies.length - filtered.length} korábban törölt film szűrve (${id}).`);
+          }
+          nextMovies = filtered;
           draft.movies = nextMovies;
           moviesRef.current = nextMovies;
           const nowVod = Date.now();
@@ -3453,8 +3559,14 @@ export function App() {
         setVodCategories((current) => (sameCategories(current, partial.vodCategories!) ? current : partial.vodCategories!));
       }
       if (partial.series) {
-        const nextSeries = partial.authoritative ? (partial.series || []) : keepIfFilled(seriesRef.current, partial.series);
+        let nextSeries = partial.authoritative ? (partial.series || []) : keepIfFilled(seriesRef.current, partial.series);
+        // 2.5.298: a korábban piros kukával törölt sorozatok a frissítéskor se jöjjenek vissza.
         if (nextSeries) {
+          const filtered = filterRemovedVod(id, 'series', nextSeries);
+          if (filtered.length !== nextSeries.length) {
+            appLog(`Frissítés: ${nextSeries.length - filtered.length} korábban törölt sorozat szűrve (${id}).`);
+          }
+          nextSeries = filtered;
           draft.series = nextSeries;
           seriesRef.current = nextSeries;
           const nowSeries = Date.now();
@@ -3688,8 +3800,19 @@ export function App() {
       setActiveProvider(draft.provider);
       activeProviderRef.current = draft.provider;
       const liveToShow = refreshedContent.authoritative ? hungaryFirst(channelsForDisplay) : keepIfFilled(previousChannels, hungaryFirst(channelsForDisplay));
-      const moviesToShow = refreshedContent.authoritative ? refreshedContent.movies : keepIfFilled(previousMovies, refreshedContent.movies);
-      const seriesToShow = refreshedContent.authoritative ? refreshedContent.series : keepIfFilled(previousSeries, refreshedContent.series);
+      let moviesToShow = refreshedContent.authoritative ? refreshedContent.movies : keepIfFilled(previousMovies, refreshedContent.movies);
+      let seriesToShow = refreshedContent.authoritative ? refreshedContent.series : keepIfFilled(previousSeries, refreshedContent.series);
+      // 2.5.298: a korábban törölt elemek a frissítés végeredményéből is kimaradnak.
+      if (moviesToShow) {
+        const f = filterRemovedVod(id, 'movie', moviesToShow);
+        if (f.length !== moviesToShow.length) appLog(`Frissítés vége: ${moviesToShow.length - f.length} törölt film szűrve a végeredményből.`);
+        moviesToShow = f;
+      }
+      if (seriesToShow) {
+        const f = filterRemovedVod(id, 'series', seriesToShow);
+        if (f.length !== seriesToShow.length) appLog(`Frissítés vége: ${seriesToShow.length - f.length} törölt sorozat szűrve a végeredményből.`);
+        seriesToShow = f;
+      }
       // Üres hibaválasz ugyanazon provider frissítésekor nem törölheti a
       // korábban működő cache-t. Új provider esetén viszont nem mentjük a
       // régi provider listáját az új azonosító alá.
@@ -3768,6 +3891,9 @@ export function App() {
       setVodCategories((current) => (sameCategories(current, contentForStorage.vodCategories) ? current : contentForStorage.vodCategories));
       if (seriesToShow) setSeries(seriesToShow);
       setSeriesCategories((current) => (sameCategories(current, contentForStorage.seriesCategories) ? current : contentForStorage.seriesCategories));
+      // 2.5.298: a katalógus-számláló a SZŰRT, ténylegesen látható mennyiséget mutatja.
+      setCatalogSavedCounts({ vod: persistedMovies.length, series: persistedSeries.length });
+      catalogSavedCountsRef.current = { vod: persistedMovies.length, series: persistedSeries.length };
       setTotalCounts(contentForStorage.totals);
 
       // A szakaszok már a tartós tárban vannak. Csak a hiányzókat pótoljuk,
@@ -5126,11 +5252,13 @@ export function App() {
             movies={movies}
             categories={vodCategories}
             totalCount={totalCounts.vod}
+            savedCount={catalogSavedCounts.vod || movies.length}
             onPlayMovie={handlePlayMovie}
             selectedCategoryId={movieCategoryRef.current}
             onSelectedCategoryChange={handleMoviesCategoryChange}
             onBackToLive={handleBackToLive}
             onToggleFavoriteMovie={handleToggleFavoriteMovie}
+            onDeleteMovie={handleDeleteMovie}
             isActive={activeView === 'movies'}
             activeProvider={activeProvider}
             onVodItemEnriched={(item) => handleVodItemEnriched('movies', item)}
@@ -5150,11 +5278,13 @@ export function App() {
             series={series}
             categories={seriesCategories}
             totalCount={totalCounts.series}
+            savedCount={catalogSavedCounts.series || series.length}
             onPlayEpisode={handlePlayEpisode}
             selectedCategoryId={seriesCategoryRef.current}
             onSelectedCategoryChange={handleSeriesCategoryChange}
             onBackToLive={handleBackToLive}
             onToggleFavoriteSeries={handleToggleFavoriteSeries}
+            onDeleteSeries={handleDeleteSeries}
             isActive={activeView === 'series'}
             activeProvider={activeProvider}
             onVodItemEnriched={(item) => handleVodItemEnriched('series', item)}

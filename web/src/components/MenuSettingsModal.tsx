@@ -455,6 +455,19 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           enterTarget?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
           return;
         }
+        /*
+         * 2.5.298 – A TV DOKTOR KI/BE KAPCSOLÓJÁRÓL MINDEN NYÍL A DOBOZRA TÉR.
+         *
+         * A kért távirányítós menet: a dobozon OK → a fókusz a kapcsolóra
+         * ugrik → OK átváltja → a négy nyíl bármelyike VISSZAVISZI a fókuszt
+         * a saját dobozára → onnan a fel/le már a következő beállításra lép.
+         * Korábban a fel/le a kapcsolóról egyenesen a szomszéd dobozra
+         * ugrott, ezért a kijelölés „eltűnt” a dobozról.
+         */
+        if (active !== box && active && box.contains(active) && box.hasAttribute('data-tv-doctor-box')) {
+          focusSystemElement(box);
+          return;
+        }
         if (key === 'ArrowUp' || key === 'ArrowDown') {
           /* A doboz belső vezérlőin fel/le lépkedünk, a sor végén viszont
            * NEM pattanunk vissza a doboz keretére (ez okozta a csapdát),
@@ -1383,6 +1396,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             type="button"
                             role="switch"
                             data-tv-doctor-toggle=""
+                            data-tv-box-default=""
                             aria-checked={tvDoctorEnabled}
                             aria-label="TV Doktor be- és kikapcsolása"
                             onPointerDown={(e) => e.stopPropagation()}

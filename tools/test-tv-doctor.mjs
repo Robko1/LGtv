@@ -1904,9 +1904,17 @@ try {
   doctorToggle.focus();
   dpad(doctorToggle, 'ArrowDown');
   await wait(40);
+  // 2.5.298: a Ki/Be kapcsolóról MINDEN nyíl (le is) a SAJÁT dobozára visz vissza,
+  // onnan a következő le nyíl már a szomszéd dobozra lép (két lépéses, szabályos menet).
+  check(
+    doc.activeElement === doctorBox,
+    'a Ki/Be kapcsolóról LEFELÉ a saját dobozára ugrik vissza a fókusz (2.5.298)',
+  );
+  dpad(doc.activeElement, 'ArrowDown');
+  await wait(40);
   check(
     doc.activeElement === nextBox && !doctorBox.contains(doc.activeElement),
-    'a Ki/Be kapcsolóról LEFELÉ is el lehet hagyni a TV Doktor dobozt',
+    'onnan lefelé már a következő beállításra lép a fókusz',
   );
   doctorBox.focus();
   dpad(doctorBox, 'ArrowUp');

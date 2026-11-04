@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.297';
+export const WEB_VERSION = '2.5.298';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,18 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.298',
+    date: '2026-11-04',
+    changes: [
+      'TV DOKTOR KI/BE FÓKUSZ (Beállítások → Rendszer): a dobozon OK mostantól a kapcsolóra (data-tv-box-default) viszi a fókuszt, nem kapcsolja át rejtetten; a kapcsolóról bármely nyíl (le/fel/jobbra/balra) a SAJÁT dobozára ugrik vissza, onnan a fel/le már a következő beállításra lép – a globális webOS réteg és a beállítások saját navigációja együtt kezeli, nincs fókuszcsapda.',
+      'MOZI / SOROZAT VISSZATÖLTÉSI DARABSZÁM: a fejléc eddig csak a képernyőn lévő 500-as adagot és a szolgáltató ígért összlétszámát mutatta; mostantól a TV saját, tartós tárából (CatalogState.sections) ténylegesen visszatöltött mennyiség is látszik („• TV-memóriában: N”), így a valós visszatöltés ellenőrizhető.',
+      'PIROS KUKA TÖRLÉS A MEMÓRIÁBÓL (Mozik & Sorozatok): minden poszter jobb felső sarkában piros kuka ikon, az adatlapon is „Törlés a memóriából” gomb – a törlés providerenkénti tartós jegyzékbe (vodRemovals) kerül, a rácsról azonnal eltűnik, a következő visszatöltéskor és szolgáltatói frissítéskor sem jön vissza, a lista a következő automatikus mentésnél már nélküle íródik ki.',
+      'KIADÁSI ÉV SZERINTI RENDEZÉS (Mozik & Sorozatok): a rács mostantól a kiadási év szerint csökkenően rendezett (legfrissebb elöl: 2026 → 2025 → …), az év mezőből vagy a cím végi „(YYYY)”-ből; év nélküli elemek a lista végén, stabil sorrendben.',
+      'TV DOKTOR CSAK MAGYAR CSATORNÁT MEMORIZÁL: a tanuló siker/hiba rögzítés (recordDoctorChannelSuccess/Failure) külföldi csatornánál (nem HU) nem hoz létre tartós rekordot és nem kerül felhőbe – a kedvencekben lévő idegen adók miatti felesleges memória megszűnt.',
+      'TV DOKTOR NE JELÖLJÖN MŰKÖDŐ CSATORNÁT NEM MŰKÖDŐNEK: korábban már sikeresen indult csatornánál a javítási létra 3-5. lépésében is a memóriában tanult, legjobb útvonalát próbálja újra (tanult_route_retry), és kimerülésnél csak rövid, 60 mp-es hűtést kap (haltCount max 1) – egy átmeneti hiba nem zárja ki 30 percre.',
+    ],
+  },
   {
     version: '2.5.297',
     date: '2026-11-04',
