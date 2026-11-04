@@ -2205,6 +2205,7 @@ export interface LoadedLiveFull {
 export async function loadLiveFull(
   provider?: ProviderRef | null,
   onProgress?: (loaded: number) => void,
+  shouldAbort?: () => boolean,
 ): Promise<LoadedLiveFull | null> {
   const store = await contentChunkStore();
   if (!store) return null;
@@ -2218,6 +2219,10 @@ export async function loadLiveFull(
   // mostani adag dekódolása ALATT fut – az olvasás és a feldolgozás átlapolódik.
   let nextChunk = chunked.readChunk(0);
   for (let index = 0; index < chunked.meta.chunks; index++) {
+    if (shouldAbort?.()) {
+      appLog(`Teljes élő csatornalista visszatöltés megszakítva (${channels.length} csatorna beolvasva) – a nézet már nem aktív.`);
+      return null;
+    }
     const rows = await nextChunk;
     if (index + 1 < chunked.meta.chunks) nextChunk = chunked.readChunk(index + 1);
     if (rows.length === 0) missingChunks++;
@@ -3203,6 +3208,22 @@ export function cancelStoredContentRestore(): void {
 }
 
 /**
+ * 2.5.301: KIZÁRÓLAGOS VOD-VISSZATÖLTÉS – MINDEN MÁS LEÁLL.
+ *
+ * Amikor a néző a Mozi vagy Sorozat fülre kattint, a háttérben futó élő
+ * lista és műsorújság azonnal leáll, és CSAK a kért VOD lista töltődik
+ * villámgyorsan. Ez a könnyű megszakítás NEM nullázza a kész-jelzőket
+ * (restoreDone), így a már betöltött élő lista megmarad, és a következő
+ * visszalépéskor nem kell újraolvasni.
+ */
+export function abortCurrentRestore(): void {
+  restoreCancelled = true;
+}
+export function clearRestoreAbort(): void {
+  restoreCancelled = false;
+}
+
+/**
  * A TELJES katalógus visszatöltése a tartós tárból – HÁLÓZAT NÉLKÜL.
  *
  * Sorrend: élő → filmek → sorozatok, minden szakasz után visszaadva a
@@ -3257,7 +3278,7 @@ export function restoreStoredContent(
         || liveMeta.meta.provider.id === plan.provider.id;
       if (sameProvider) {
         handlers.onStage?.('teljes élő csatornalista a tartós tárból');
-        const full = await loadLiveFull(provider);
+        const full = await loadLiveFull(provider, undefined, options.shouldAbort);
         if (full && full.channels.length && !aborted()) {
           handlers.onLive?.(full);
           loaded += ` élő=${full.channels.length}`;

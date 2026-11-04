@@ -1622,6 +1622,7 @@ export function App() {
          * (LEÁLLÁS 2,5-2,6 mp), mert a nézet már rég élő volt.
          */
         shouldAbort: () => {
+          if (scope === 'live') return activeViewRef.current !== 'live';
           if (scope === 'movies') return activeViewRef.current !== 'movies';
           if (scope === 'series') return activeViewRef.current !== 'series';
           if (scope === 'vod' && !options?.bootSubset) return activeViewRef.current === 'live';
@@ -1648,13 +1649,30 @@ export function App() {
    * lista adagokban, lélegzve töltődik be.
    */
   const ensureVodLoaded = useCallback((view: 'movies' | 'series') => {
+    // 2.5.301: KIZÁRÓLAGOS, VILLÁMGYORS VISSZATÖLTÉS.
+    // Amikor Mozi/Sorozat fülre kattint a néző, MINDEN háttérmunka
+    // (élő lista, EPG, plakát-előmelegítés) azonnal leáll, és CSAK a
+    // kért lista tölt vissza a tartós IDB tárból – semmi más nem fut,
+    // amíg el nem kattint onnan.
+    // A megszakítás a shouldAbort (activeViewRef) révén történik, nem
+    // globális flag-gel, így az új VOD töltés nem abortálódik.
     const plan = catalogPlanRef.current;
     if (plan) {
-      /*
-       * 2.5.244: NINCS 25 elemes azonnali előnézet. A nézet a „betöltés
-       * folyamatban” állapotot mutatja, amíg a TELJES mentett lista vissza nem
-       * töltődött, és akkor EGYBEN, szaggatás nélkül jelenik meg minden.
-       */
+      // Háttér időzítők leállítása – EPG, biztonsági stb. Mozi alatt szünetel.
+      // Az élő lista futó visszaolvasása a shouldAbort miatt a következő
+      // adaghatáron (≤100 ms) magától leáll, és a sorban álló VOD jön.
+      // A 30 perces frissítő intervallumot NEM töröljük végleg – a
+      // visszahívása amúgy is ellenőrzi, hogy élő nézetben vagyunk-e,
+      // így Mozi alatt automatikusan no-op, élőre visszaérve pedig
+      // magától újraindul.
+      try {
+        const timers = backgroundWorkTimersRef.current;
+        if (timers) {
+          window.clearTimeout(timers.guideTimer);
+          window.clearTimeout(timers.safetyTimer);
+          window.clearTimeout(timers.restoreTimer);
+        }
+      } catch {}
       void runRestore(plan, view);
       return;
     }
@@ -1807,6 +1825,11 @@ export function App() {
     const timers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0, restoreTimer: 0 };
     const scheduleGuide = () => {
       timers.guideTimer = window.setTimeout(() => {
+        // 2.5.301: Mozi/Sorozat alatt EPG leáll – csak élő nézetben fut.
+        if (activeViewRef.current !== 'live') {
+          appLog('EPG-ÁLLAPOT: ütemezett műsorújság kimarad – Mozi/Sorozat nézet aktív (kizárólagos VOD).');
+          return;
+        }
         if (providerRefreshActiveRef.current) {
           // 2.5.265 (#12): látszódjon, miért marad ki az ütemezett EPG-indítás.
           appLog('EPG-ÁLLAPOT: ütemezett műsorújság-indítás kimarad – szolgáltatói frissítés folyik éppen.');
@@ -1860,43 +1883,17 @@ export function App() {
     const startRestore = () => {
       if (started) return;
       started = true;
+      // 2.5.301: KIZÁRÓLAGOS VOD – INDULÁSKOR CSAK AZ ÉLŐ TÖLTŐDIK.
+      // Nincs 25+25 előnézet és nincs plakát-előmelegítés a háttérben.
+      // A Mozi/Sorozat csak akkor tölt vissza a tartós tárból, amikor
+      // a néző tényleg rákattint – akkor viszont MINDEN más leáll és
+      // villámgyorsan csak az a lista jön.
       void runRestore(plan, 'live')
         .catch(() => { /* a naplóban már ott a valódi ok */ })
         .finally(() => {
           markLiveReady();
-          /*
-           * 2.5.265 (#12-es napló): a műsorújság NEM vár a VOD visszatöltés
-           * végére. A #12-es naplóban a 103 ezer VOD bejegyzés visszatöltése
-           * 14,5 mp-ig lefoglalta a fő szálat, és az ütemezett EPG emiatt a
-           * napló küldéséig (08:37) soha nem indult el (0 db EPG-ÁLLAPOT sor).
-           * Most az ÉLŐ lista után rögtön ütemezzük, a VOD pedig párhuzamosan
-           * fut tovább; a VOD végén csak újra ránézünk (az ensureGuide ekkor
-           * már vagy fut, vagy friss – egyik sem tölt újra).
-           */
-          scheduleGuide();
-          /*
-           * SZAKASZOLT INDULÁS (2.5.228, 2.5.249): előbb a főoldal (élő
-           * lista) készül el teljesen, majd a MOZI+SOROZAT lista is
-           * visszatöltődik a tartós tárból (moviesRef/seriesRef ekkor már
-           * töltve), és csak UTÁNA melegednek elő az első 25-25 plakát
-           * képei – korábban az előmelegítés üres listán futott, így a
-           * képeket csak a menü megnyitásakor töltötte a rendszer. Így
-           * egyszerre csak egy nagyobb munka fut, és a Mozi/Sorozat menü
-           * megnyitásakor már minden (lista + plakátok) ott van, egyetlen
-           * várakozás nélkül.
-           */
-          /*
-           * 2.5.277 (#17-es kérés): induláskor CSAK 25+25 film/sorozat töltődik
-           * be (induló részhalmaz) – a teljes lista a tartós IDB tárban marad,
-           * és csak a Mozi/Sorozat menü megnyitásakor töltődik be on demand,
-           * hálózat és nagy RAM-foglalás nélkül.
-           */
-          void runRestore(plan, 'vod', { bootSubset: 25 })
-            .catch(() => { /* a naplóban már ott a valódi ok */ })
-            .finally(() => {
-              void warmUpVodPosters();
-              scheduleGuide();
-            });
+          // 2.5.301: EPG csak élő nézetben indul – Mozi/Sorozat alatt szünetel.
+          if (activeViewRef.current === 'live') scheduleGuide();
         });
     };
     const revealNow = (): boolean => {
@@ -1951,6 +1948,8 @@ export function App() {
      * frissítés alatt nem indítunk letöltést.
      */
     timers.refreshTimer = window.setInterval(() => {
+      // 2.5.301: Mozi/Sorozat alatt a periodikus EPG frissítés is szünetel.
+      if (activeViewRef.current !== 'live') return;
       if (providerRefreshActiveRef.current) return;
       if (typeof document !== 'undefined' && document.hidden) return;
       setGuideHuProbe(channelsRef.current); // 2.5.269 (#2)
@@ -2406,17 +2405,30 @@ export function App() {
     // Élő nézetben újra a legutóbbi csatorna megy; böngészés közben nem fut a háttérben.
     setIsPlaying(view === 'live');
     if (view !== 'live') {
-      /*
-       * 2.5.280 (#22/#23): a teljes VOD-visszatöltés (103 ezer film / 25 ezer
-       * sorozat kiolvasása az IDB-ből) csak akkor induljon, ha a nézet 1,2 mp
-       * után is még aktív. A #22-es naplóban a gyors átlapolás
-       * (TV→Mozi→Sorozat→TV) közben is elindult egy ~42 mp-es visszatöltés,
-       * ami végül a nézés közbeni leállásokat okozta („össze-vissza tölt be”).
-       */
-      window.setTimeout(() => {
-        if (activeViewRef.current === view) ensureVodLoaded(view);
-      }, 1200);
+      // 2.5.301: VILLÁMGYORS – nincs 1200 ms várakozás. Kattintásra azonnal
+      // csak az adott lista indul, minden más leáll (lásd ensureVodLoaded).
+      ensureVodLoaded(view);
     } else {
+      // 2.5.301: vissza élőre – a háttérmunkák újraindulhatnak.
+      // Az élő lista shouldAbort-ja most már false, így a következő
+      // runRestore folytatni tudja, ha még nem volt kész.
+      try {
+        const plan = catalogPlanRef.current;
+        if (plan && !providerRefreshActiveRef.current) {
+          window.setTimeout(() => {
+            if (activeViewRef.current === 'live') void runRestore(plan, 'live').catch(()=>{});
+          }, 300);
+          // EPG is újraindulhat élőre visszaérve, ha még nem futott.
+          // A startBackgroundWork időzítőit nem indítjuk újra itt,
+          // elég a guide-et kérni, ha még nincs adat.
+          window.setTimeout(() => {
+            if (activeViewRef.current === 'live' && guideStatusSafe().channels === 0) {
+              try { void ensureGuide(plan.provider).catch(()=>{}); } catch {}
+            }
+          }, 2500);
+        }
+      } catch {}
+    
       /*
        * A SÁRGA FÓKUSZ A KIVÁLASZTOTT CSATORNÁN MARAD (2.5.165).
        *
