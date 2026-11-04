@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.293';
+export const WEB_VERSION = '2.5.294';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.293',
+    version: '2.5.294',
     date: '2026-11-04',
     changes: [
       'ÚJRAINDÍTÁS UTÁN CSAK 500 FILM („MOZI VOD KÖNYVTÁR 500 / 103048”): a teljes film lista visszatöltése eddig akkor is „késznek” számított, ha a felület nem vette át (a néző közben visszament élő TV-re, vagy épp szolgáltatói frissítés futott) – így a képernyőn tartósan az első 500 filmes adag maradt, és semmilyen későbbi megnyitás nem töltötte újra. Mostantól a szakasz csak akkor kész, ha a lista tényleg a felületre került, a részleges adag pedig soha nem csökkenti a már meglévő teljes listát.',
