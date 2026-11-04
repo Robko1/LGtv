@@ -905,59 +905,79 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 {renderCategoryBox('channel_error', false)}
               </div>
 
-              {/* Tanult útvonalak (max. 8) – közvetlenül a 4 doboz alatt, csak bal oldalon, 4+4 elrendezés */}
+              {/* Tanult útvonalak (max. 8) – függőleges oszlop, 8 doboz egymás alatt, nagy középre igazított írással, kitölti a bal oldal szabad részét egyenletesen */}
               <div
                 data-tv-doctor-routes=""
-                className="shrink-0 rounded-2xl border border-emerald-700/50 bg-[#04121c] p-3 space-y-2 mt-1"
+                className="flex-1 min-h-0 flex flex-col rounded-2xl border border-emerald-700/50 bg-[#04121c] p-3 gap-2 mt-1"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2 text-base font-black text-emerald-200">
+                <div className="flex items-center justify-between gap-2 shrink-0">
+                  <span className="flex items-center gap-2 text-base lg:text-lg font-black text-emerald-200">
                     <Activity className="h-5 w-5 shrink-0 text-emerald-300" />
                     <span>Tanult útvonalak (max. 8){activeChannel ? ` — ${activeChannel.name}` : ''}</span>
                   </span>
                   <span
                     data-tv-doctor-routes-count=""
-                    className="inline-flex items-center rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-2 py-0.5 font-mono text-xs font-black text-emerald-100"
+                    className="inline-flex items-center rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-2.5 py-1 font-mono text-sm lg:text-base font-black text-emerald-100"
                   >
                     {activeRoutes.length} / {MAX_CHANNEL_ROUTES}
                   </span>
                 </div>
-                <p className="text-[11px] font-bold text-emerald-300/80 -mt-1">A tárolt adatokból dolgozik — valós mérések a hosszú memóriából/Supabase-ből (nem minta)</p>
+                <p className="text-xs lg:text-sm font-bold text-emerald-300/90 text-center -mt-1 shrink-0">A tárolt adatokból dolgozik — valós mérések a hosszú memóriából/Supabase-ből</p>
                 {activeRoutes.length === 0 ? (
-                  <p className="text-sm font-bold text-slate-300">
-                    {activeChannel ? `${activeChannel.name}: még nincs tanult útvonal.` : 'Nincs kiválasztott élő csatorna.'}
-                  </p>
+                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-2">
+                    {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => (
+                      <div
+                        key={`empty-${idx}`}
+                        data-tv-doctor-route-empty={`${idx + 1}`}
+                        className="flex-1 min-h-[46px] flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700/60 bg-slate-900/30 px-3 py-2 text-center"
+                      >
+                        <span className="font-mono text-sm md:text-base lg:text-lg font-black tracking-wide text-slate-500">
+                          {idx + 1}. — üres —
+                        </span>
+                        <span className="text-[11px] md:text-xs font-bold text-slate-600">
+                          {activeChannel ? 'még nincs tanult útvonal' : 'nincs kiválasztott élő csatorna'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
-                  <div data-tv-doctor-routes-list="" className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1.5">
-                      {activeRoutes.slice(0, 4).map((route, idx) => (
+                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-1.5">
+                    {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => {
+                      const route = activeRoutes[idx] || null;
+                      if (!route) {
+                        return (
+                          <div
+                            key={`empty-${idx}`}
+                            data-tv-doctor-route-empty={`${idx + 1}`}
+                            className="flex-1 min-h-[46px] flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700/40 bg-slate-900/20 px-3 py-2 text-center"
+                          >
+                            <span className="font-mono text-sm md:text-base lg:text-lg font-black tracking-wide text-slate-600">
+                              {idx + 1}. — üres —
+                            </span>
+                            <span className="text-[11px] md:text-xs font-bold text-slate-600">még nincs adat ehhez a helyhez</span>
+                          </div>
+                        );
+                      }
+                      const isBest = idx === 0;
+                      return (
                         <div
                           key={route.id}
                           data-tv-doctor-route={route.id}
-                          className={`flex items-center justify-between gap-1 rounded-lg border px-2.5 py-1.5 font-mono text-xs font-bold ${
-                            idx === 0 ? 'border-emerald-400/70 bg-emerald-500/15 text-emerald-100' : 'border-slate-700/60 bg-slate-900/50 text-slate-200'
+                          className={`flex-1 min-h-[52px] flex flex-col items-center justify-center rounded-xl border-2 px-3 py-2 text-center ${
+                            isBest
+                              ? 'border-emerald-400/80 bg-emerald-500/20 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                              : 'border-slate-600/60 bg-slate-800/70'
                           }`}
                         >
-                          <span className="truncate">{idx === 0 ? '★ ' : `${idx + 1}. `}{safeDoctorFormat(route.format)} + {route.bufferProfile}</span>
-                          <span className="shrink-0 text-[10px] text-slate-400">{route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok}/{route.fail}{route.stalls ? `/${route.stalls}` : ''}</span>
+                          <span className={`font-mono text-sm md:text-[15px] lg:text-lg xl:text-xl font-black tracking-wide leading-tight ${isBest ? 'text-emerald-100' : 'text-slate-100'}`}>
+                            {isBest ? '★ ' : `${idx + 1}. `}{safeDoctorFormat(route.format)} + {route.bufferProfile}
+                          </span>
+                          <span className={`font-mono text-xs md:text-sm lg:text-base font-bold leading-tight ${isBest ? 'text-emerald-200/90' : 'text-slate-300'}`}>
+                            {route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok} ok / {route.fail} hiba{route.stalls ? ` • ${route.stalls} akadás` : ''}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                    <div className="space-y-1.5">
-                      {activeRoutes.slice(4, 8).map((route, idx) => {
-                        const realIdx = idx + 4;
-                        return (
-                          <div
-                            key={route.id}
-                            data-tv-doctor-route={route.id}
-                            className="flex items-center justify-between gap-1 rounded-lg border border-slate-700/60 bg-slate-900/50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-200"
-                          >
-                            <span className="truncate">{realIdx + 1}. {safeDoctorFormat(route.format)} + {route.bufferProfile}</span>
-                            <span className="shrink-0 text-[10px] text-slate-400">{route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok}/{route.fail}{route.stalls ? `/${route.stalls}` : ''}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

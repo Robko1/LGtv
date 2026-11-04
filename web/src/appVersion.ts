@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.312';
+export const WEB_VERSION = '2.5.313';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,13 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.313',
+    date: '2026-11-04',
+    changes: [
+      'TANULT ÚTVONALAK MAX 8 — FÜGGŐLEGES OSZLOP KÖZÉPRE IGAZÍTOTT NAGY ÍRÁSSAL: a TV Doktor 0-popup bal oldalán a Tanult útvonalak már nem 2 oszlopban (4+4) hanem FÜGGŐLEGESEN EGYMÁS ALATT jelenik meg — 8 doboz egy oszlopban, középre igazított nagy írással, a bal fél szabad részét egyenletesen kitöltve. Mindegyik doboz nagy, jól látható (format + bufferProfile középen, alatta 13–16px-es „X ms • Y ok / Z hiba” szintén középen), a legjobb (★) kiemelt emerald szegéllyel és fénnyel, az üres helyek szaggatott „— üres —” dobozzal — így nagy TV-n távolról is jól olvasható és a 8 elfér függőlegesen.',
+    ],
+  },
   {
     version: '2.5.312',
     date: '2026-11-04',
