@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.318';
+export const WEB_VERSION = '2.5.319';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.318',
+    version: '2.5.319',
     date: '2026-11-04',
     changes: [
       'ORSZÁGOK BETÖLTŐ % — KÖR A MODAL TETEJÉN: az Országok (Kategóriák) ablak tetején, ahol van hely, mostantól 3D kör mutatja a teljes élő lista visszatöltését (cián, 0-100% a helyi tárból). Csak az Ország menüre kattintva indul, előtte 0% — a kör mellett „ORSZÁGOK • X / Y csatorna • Betöltés… N%” sorok, a teljes lista számával (pl. 9 200 / 20 190). A teljes lista továbbra sem töltődik induláskor.',
