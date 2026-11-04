@@ -1,0 +1,152 @@
+name: Tisztítás
+
+# Kizárólag kézzel indítható. A jelenlegi fájlállapotot megtartja,
+# és minden korábbi Git-commitot leválaszt róla.
+# A működő forráskódot, képeket és az IPK-repót nem módosítja.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  cleanup:
+    name: Régi Git-előzmények törlése
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Aktuális main letöltése
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Csak a jelenlegi állapot megtartása
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          TREE_BEFORE="$(git rev-parse HEAD^{tree})"
+
+          # Új, szülőcommit nélküli történetet készítünk ugyanazzal a fájltartalommal.
+          git checkout --orphan clean-current-state
+          git add -A
+          TREE_AFTER="$(git write-tree)"
+
+          if [[ "$TREE_BEFORE" != "$TREE_AFTER" ]]; then
+            echo "HIBA: a fájltartalom eltérne; a törlés leáll."
+            exit 1
+          fi
+
+          git commit --allow-empty -m "Keep only current source snapshot"
+          NEW_SHA="$(git rev-parse HEAD)"
+          PARENT_COUNT="$(git rev-list --parents -n 1 HEAD | wc -w)"
+
+          if [[ "$PARENT_COUNT" -ne 1 ]]; then
+            echo "HIBA: az új commitnak nem lehet szülőcommitja."
+            exit 1
+          fi
+
+          git push --force origin HEAD:refs/heads/main
+
+          # A main kivételével minden további távoli ág törlése.
+          while read -r ref; do
+            branch="${ref#refs/heads/}"
+            if [[ "$branch" != "main" ]]; then
+              git push origin --delete "$branch"
+            fi
+          done < <(git ls-remote --heads origin | awk '{print $2}')
+
+          # A régi verziókat rögzítő tagek törlése is.
+          while read -r ref; do
+            tag="${ref#refs/tags/}"
+            tag="${tag%^{}}"
+            [[ -z "$tag" ]] && continue
+            git push origin --delete "refs/tags/$tag" || true
+          done < <(git ls-remote --tags origin | awk '{print $2}' | sort -u)
+
+          echo "Új main commit: $NEW_SHA"
+          echo "A fájltartalom változatlan: $TREE_BEFORE"
+          echo "A main egyetlen, szülő nélküli commitot tartalmaz."
+
+      - name: Régi Actions-futások takarítása
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          current_id = int(os.environ["CURRENT_RUN_ID"])
+          base = f"https://api.github.com/repos/{repo}"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def api(url, method="GET"):
+              req = urllib.request.Request(url, headers=headers, method=method)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read()
+                  return json.loads(raw) if raw else {}
+
+          def runs(url):
+              result, page = [], 1
+              while True:
+                  data = api(f"{url}?per_page=100&page={page}")
+                  batch = data.get("workflow_runs", [])
+                  result.extend(batch)
+                  if len(batch) < 100:
+                      return result
+                  page += 1
+
+          builds = runs(f"{base}/actions/workflows/webos-build.yml/runs")
+          builds = [
+              r for r in builds
+              if r.get("status") == "completed" and r.get("conclusion") == "success"
+          ]
+          builds.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+          keep = {int(r["id"]) for r in builds[:5]}
+          print(f"Az utolsó {len(keep)} sikeres IPK-build megtartása.")
+
+          removed = skipped_running = 0
+          for run in runs(f"{base}/actions/runs"):
+              rid = int(run["id"])
+              if rid == current_id or rid in keep:
+                  continue
+              if run.get("status") != "completed":
+                  skipped_running += 1
+                  continue
+              try:
+                  api(f"{base}/actions/runs/{rid}", method="DELETE")
+                  removed += 1
+              except Exception as exc:
+                  print(f"Nem sikerült törölni a(z) {rid} futást: {exc}")
+
+          print(f"Kész. Törölt futások: {removed}; futó futások kihagyva: {skipped_running}.")
+          PY
+
+      - name: Összefoglaló
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## LGtv tisztítás"
+            echo "- Kizárólag kézzel indítható."
+            echo "- A main jelenlegi fájltartalma változatlan marad."
+            echo "- A régi commit-előzmények törlődnek; egyetlen új kezdőcommit marad."
+            echo "- A main kivételével a többi ág és minden régi tag törlődik."
+            echo "- Az utolsó 5 sikeres IPK-build Actions-futása megmarad."
+            echo "- A külön Robko1/Ipk repóhoz nem nyúl."
+          } >> "$GITHUB_STEP_SUMMARY"
