@@ -26,6 +26,7 @@ import {
   StoredCatalogPlan,
   sweepStorage,
   hasPendingDeleteMarker,
+  storedRestorePending,
 } from './services/contentStore';
 import { appLog, appLogError, logPhase } from './services/appLog';
 import { persistHuLogoOverrides, logHuLogoStore } from './services/huChannelLogos';
@@ -721,6 +722,8 @@ export function App() {
   const seriesCategoriesRef = useRef(seriesCategories);
   const moviesRef = useRef(movies);
   const seriesRef = useRef(series);
+  // 2.5.294: a frissítés utáni pótláshoz a tényleges darabszámok kellenek.
+  const totalCountsRef = useRef(totalCounts);
   const selectedCategoryIdRef = useRef(selectedCategoryId);
   // 2.5.277: a TV Doktor EPG-őre (háttér-időzítő) a beállításokhoz is hozzáfér.
   const settingsRef = useRef(settings);
@@ -733,9 +736,10 @@ export function App() {
     seriesCategoriesRef.current = seriesCategories;
     moviesRef.current = movies;
     seriesRef.current = series;
+    totalCountsRef.current = totalCounts;
     selectedCategoryIdRef.current = selectedCategoryId;
     settingsRef.current = settings;
-  }, [activeChannelId, activeProvider, channels, categories, vodCategories, seriesCategories, movies, series, selectedCategoryId, settings]);
+  }, [activeChannelId, activeProvider, channels, categories, vodCategories, seriesCategories, movies, series, totalCounts, selectedCategoryId, settings]);
 
   /**
    * Kijelölés-csere CSAK akkor, ha a nézett csatorna valóban eltűnt.
@@ -1464,6 +1468,23 @@ export function App() {
           if (providerRefreshActiveRef.current) return;
           if (!partial.movies.length) return;
           /*
+           * 2.5.294 (#500 FILM HIBA): A RÉSZLEGES ADAG SOSEM CSÖKKENTI A MÁR
+           * MEGLÉVŐ LISTÁT.
+           *
+           * A 2.5.253 óta az első adag (500 film) azonnal a felületre kerül.
+           * Ha viszont a készüléken már ott volt a teljes 103 ezres lista
+           * (pl. egy korábbi visszatöltésből), egy újraindított visszatöltés
+           * első adagja 500 filmre CSERÉLTE – a teljes lista pedig csak a
+           * folyamat végén (akár egy perc múlva) tért volna vissza. Ha közben
+           * a néző Frissítést indított, a visszatöltés megszakadt, és a
+           * képernyőn tartósan az 500 film maradt („MOZI VOD KÖNYVTÁR 500 /
+           * 103048”). Mostantól a részleges adag csak BŐVÍTHET.
+           */
+          if (partial.movies.length <= moviesRef.current.length) {
+            appLog(`Film visszatöltés: az első adag (${partial.movies.length}) nem kisebb a felületen lévő listánál (${moviesRef.current.length}) – nem cseréljük le.`);
+            return;
+          }
+          /*
            * 2.5.253 (#6): újraindítás után az ELSŐ adag (500 film) rögtön a
            * felületre kerül – így a poszterek és a darabszám azonnal látszik,
            * nem kell megvárni a teljes 103 ezres visszatöltést. A TELJES lista
@@ -1482,6 +1503,11 @@ export function App() {
         onSeriesPartial: (partial) => {
           if (providerRefreshActiveRef.current) return;
           if (!partial.series.length) return;
+          // 2.5.294: lásd a filmeknél – a részleges adag nem csökkentheti a listát.
+          if (partial.series.length <= seriesRef.current.length) {
+            appLog(`Sorozat visszatöltés: az első adag (${partial.series.length}) nem kisebb a felületen lévő listánál (${seriesRef.current.length}) – nem cseréljük le.`);
+            return;
+          }
           // 2.5.253: mint a filmeknél – az első adag rögtön megjelenik.
           if (!seriesFirstPainted) {
             seriesFirstPainted = true;
@@ -1494,15 +1520,19 @@ export function App() {
           appLog(`Sorozat visszatöltés folyamatban: ${partial.series.length} az első adagból (a teljes lista egyben jelenik meg a végén).`);
         },
         onVod: (vod) => {
-          if (providerRefreshActiveRef.current) return;
+          if (providerRefreshActiveRef.current) {
+            // 2.5.294: nem vettük át – a szakasz NEM lesz kész, később újra jön.
+            appLog(`Filmlista visszatöltve (${vod.movies.length}), de szolgáltatói frissítés fut – később újra visszatöltjük.`);
+            return false;
+          }
           /*
            * 2.5.280 (#22/#23): ha a néző közben visszament élő TV-re, a teljes
            * filmlista NEM kerül a felületre – a 103 ezres commit újrarajzolná
            * az egész felületet (a #22-es naplóban DOM=1854, fókuszugrás közben).
            */
           if (activeViewRef.current === 'live') {
-            appLog(`Filmlista visszatöltve (${vod.movies.length}), de a nézet már élő – nem kerül a felületre.`);
-            return;
+            appLog(`Filmlista visszatöltve (${vod.movies.length}), de a nézet már élő – nem kerül a felületre (a következő Mozi megnyitáskor újra visszatöltjük).`);
+            return false;
           }
           // Egyetlen, megszakítható commit: a teljes filmlista egyszerre kerül a felületre.
           startTransition(() => {
@@ -1514,13 +1544,17 @@ export function App() {
             if (vod.categories.length) setVodCategories(vod.categories);
           });
           appLog(`Filmek a felületen EGYBEN: ${vod.movies.length} (letöltés nélkül).`);
+          return true;
         },
         onSeries: (ser) => {
-          if (providerRefreshActiveRef.current) return;
+          if (providerRefreshActiveRef.current) {
+            appLog(`Sorozatlista visszatöltve (${ser.series.length}), de szolgáltatói frissítés fut – később újra visszatöltjük.`);
+            return false;
+          }
           // 2.5.280 (#22/#23): mint a filmeknél – élő nézetben nincs commit.
           if (activeViewRef.current === 'live') {
-            appLog(`Sorozatlista visszatöltve (${ser.series.length}), de a nézet már élő – nem kerül a felületre.`);
-            return;
+            appLog(`Sorozatlista visszatöltve (${ser.series.length}), de a nézet már élő – nem kerül a felületre (a következő Sorozatok megnyitáskor újra visszatöltjük).`);
+            return false;
           }
           startTransition(() => {
             setSeries(() => {
@@ -1531,6 +1565,7 @@ export function App() {
             if (ser.categories.length) setSeriesCategories(ser.categories);
           });
           appLog(`Sorozatok a felületen EGYBEN: ${ser.series.length} (letöltés nélkül).`);
+          return true;
         },
       }, {
         scope,
@@ -1592,6 +1627,43 @@ export function App() {
       })
       .catch(() => { /* a naplóban már ott az ok */ });
   }, [runRestore]);
+
+  /**
+   * 2.5.294: A FRISSÍTÉS UTÁNI PÓTLÁS – „ÚJRAINDÍTÁS UTÁN CSAK 500 FILM” HIBA.
+   *
+   * A Frissítés gomb (és a csendes ellenőrzés) a legelején megszakítja a futó
+   * tartós visszatöltést (`cancelStoredContentRestore`). Ha a Mozi/Sorozat
+   * nézet épp töltődött, a képernyőn az első 500 filmes adag maradt, a
+   * teljes lista pedig soha nem érkezett meg – a néző ezt látta:
+   * „MOZI VOD KÖNYVTÁR (500 / 103048)”, és a következő Frissítés is 500
+   * filmet írt a diagnosztikába.
+   *
+   * Ezért a frissítés BÁRMELY befejezése után (nincs változás, elhalasztva,
+   * sikeres, hibás vagy megszakított) megnézzük: a nyitott Mozi/Sorozat nézet
+   * listája hiányos-e. Ha igen, a tartós tárból, letöltés nélkül pótoljuk.
+   */
+  const resumeActiveViewRestore = useCallback(() => {
+    const view = activeViewRef.current;
+    if (view === 'live') return;
+    const totals = totalCountsRef.current;
+    const section = view === 'movies' ? 'vod' : 'series';
+    const loaded = view === 'movies' ? moviesRef.current.length : seriesRef.current.length;
+    const expected = view === 'movies' ? totals.vod : totals.series;
+    const shortfall = expected > 0 && loaded < expected;
+    // Csak akkor pótolunk, ha tényleg hiányzik valami ÉS a visszatöltés nem
+    // fejeződött be sikeresen (a szolgáltatói darabszám és a tárolt sorok
+    // száma néhány elemmel eltérhet – az nem hiba).
+    if (!shortfall || !storedRestorePending(section)) return;
+    appLog(
+      `A(z) ${section} lista hiányos a frissítés után (${loaded}/${expected || '?'}) – `
+      + 'a tartós tárból, letöltés nélkül pótoljuk.',
+    );
+    window.setTimeout(() => {
+      if (activeViewRef.current !== view) return;
+      if (providerRefreshActiveRef.current) return;
+      ensureVodLoaded(view);
+    }, 1200);
+  }, [ensureVodLoaded]);
 
   /**
    * A TELJES ÉLŐ LISTA VISSZATÖLTÉSE – A FELFEDÉS UTÁN (2.5.149).
@@ -2991,7 +3063,9 @@ export function App() {
     provider: ProviderAccount,
     check: { counts: { live: number; vod: number; series: number }; ageMs: number | null },
     startedAt: number,
-    quick = false
+    quick = false,
+    /* 2.5.294: a gyors ellenőrzés előtt a hiányos filmmentés helyreállt. */
+    repairedVod = false
   ) => {
     const ageMinutes = Math.round((check.ageMs ?? 0) / 60000);
     // 12 órás ablaknál a percérték olvashatatlan lenne – óránként kerekítünk.
@@ -3015,8 +3089,11 @@ export function App() {
     };
     const summary = describeCatalogSummary(snapshot);
     const finalProgress = {
-      phase: 'Kész – nincs változás',
-      detail: quick
+      phase: repairedVod ? 'Kész – a hiányos filmlista helyreállt' : 'Kész – nincs változás',
+      detail: repairedVod
+        ? `A tárolt filmlista hiányos volt (kevesebb adag, mint amennyit a fejléc ígért), ezért a filmek ` +
+          `újra letöltődtek és teljes listaként elmentődtek; az élő és a sorozat lista érintetlen maradt. • ${summary.counts}`
+        : quick
         ? `Gyors ellenőrzés: a kategórialisták (${check.counts.live} élő / ${check.counts.vod} film / ` +
           `${check.counts.series} sorozat kategória) nem változtak, ezért a nagy listák le sem töltődtek ` +
           `(utolsó teljes összevetés: ${ageText}). • ${summary.counts}`
@@ -3047,6 +3124,8 @@ export function App() {
     setLiveListComplete(true);
     bootScreenPhase('live', 'A szolgáltató listája változatlan – a mentett készlet érvényes.');
     bootScreenDetail(`${finalProgress.detail}`);
+    // 2.5.294: a frissítés megszakíthatta a VOD-visszatöltést – pótoljuk.
+    resumeActiveViewRestore();
   };
 
   /*
@@ -3085,6 +3164,8 @@ export function App() {
     setLiveListComplete(true);
     bootScreenPhase('live', 'A letöltés elhalasztva – a mentett készlet érvényes.');
     bootScreenDetail(finalProgress.detail);
+    // 2.5.294: a frissítés megszakíthatta a VOD-visszatöltést – pótoljuk.
+    resumeActiveViewRestore();
   };
 
   // Refresh Provider: újratölti a csatornákat, filmeket és sorozatokat, közben ugyanaz a diagnosztika jelenik meg., filmeket és sorozatokokat, közben ugyanaz a diagnosztika jelenik meg.
@@ -3538,7 +3619,8 @@ export function App() {
 
       if ('unchanged' in result && result.unchanged) {
         const quick = 'quick' in result && result.quick === true;
-        reportUnchangedRefresh(provider, result.check, refreshStartedAt, quick);
+        const repairedVod = 'repairedVod' in result && result.repairedVod === true;
+        reportUnchangedRefresh(provider, result.check, refreshStartedAt, quick, repairedVod);
         return;
       }
 
@@ -3748,6 +3830,8 @@ export function App() {
       providerRefreshActiveRef.current = false;
       bootScreenPhase('live', `${summary.counts}`);
       bootScreenDetail(`${summary.counts}${summary.extra ? ` • ${summary.extra}` : ''}`);
+      // 2.5.294: a frissítés megszakíthatta a VOD-visszatöltést – pótoljuk.
+      resumeActiveViewRestore();
       /*
        * 2.5.251 (#5 napló): ha az indulás üres tárolót látott és emiatt
        * automatikus frissítés futott, a boot-háttérmunka (teljes élő lista
@@ -3803,6 +3887,8 @@ export function App() {
       }));
       providerRefreshActiveRef.current = false;
       setLiveListComplete(true);
+      // 2.5.294: a megszakadt/hibás frissítés után is pótoljuk a hiányzó listát.
+      resumeActiveViewRestore();
 
       // Hálózati szintű hiba (nem jött válasz a szervertől): egyetlen gyors
       // kéréssel megállapítjuk, hogy az internet maga működik-e. Ebből derül
@@ -3954,8 +4040,10 @@ export function App() {
     setProviderContentReady(channelsRef.current.length > 0);
     setLiveListComplete(true);
     appLog('A néző leállította a frissítést (X gomb) – a letöltés megszakadt, a mentett tartalom változatlan.');
+    // 2.5.294: a leállított frissítés is megszakíthatta a VOD-visszatöltést.
+    resumeActiveViewRestore();
     closeRefreshDiagnostic();
-  }, [answerRefreshChangePrompt, cancelAutoRetry, closeRefreshDiagnostic]);
+  }, [answerRefreshChangePrompt, cancelAutoRetry, closeRefreshDiagnostic, resumeActiveViewRestore]);
 
   const closeLastImportDiagnostic = useCallback(() => {
     setLastImportDiagnosticOpen(false);

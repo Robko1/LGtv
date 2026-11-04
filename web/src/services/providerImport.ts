@@ -53,8 +53,10 @@ import {
   loadSeriesAsync,
   readCatalogStateSync,
   storedCatalogPresence,
+  storedSectionFill,
   readStoredCategories,
   saveCatalogExtras,
+  saveVodContent,
 } from './contentStore';
 import { xtreamService, XtreamCategory, XtreamLiveStream, XtreamSeriesItem, XtreamVodStream } from './xtreamService';
 import { ParsedVodMetadata, parseSeriesMetadata, parseVodMetadata, UNKNOWN_LANGUAGE } from './vodMetadata';
@@ -2006,7 +2008,11 @@ export async function importM3UProvider(
 export type RefreshOutcome =
   | ImportedProvider
   | ImportedContent
-  | { unchanged: true; quick?: boolean; check: ProviderChangeCheck }
+  /*
+   * 2.5.294: `repairedVod` – a „nincs változás” eredmény előtt a hiányos
+   * filmmentés helyreállt (a felület ezt külön jelzi a diagnosztikában).
+   */
+  | { unchanged: true; quick?: boolean; check: ProviderChangeCheck; repairedVod?: boolean }
   | { cancelled: true; check: ProviderChangeCheck };
 
 /** A gyors ellenőrzés által észlelt szolgáltatói változás adatai. */
@@ -2052,6 +2058,143 @@ const MAX_REFRESH_DETAILS = 20;
  * Xtream különbség-frissítés: a könnyű indexlisták összevetése után csak az új vagy
  * módosult elemek részletei töltődnek le. A változatlan tételek helyben maradnak.
  */
+/**
+ * 2.5.294: HIÁNYOS FILMMENTÉS HELYREÁLLÍTÁSA – CSAK A FRISSÍTÉS GOMBRA.
+ *
+ * ATA jelenség (TV-képernyő, 2026-11-03): „MOZI VOD KÖNYVTÁR (500 / 103048)”.
+ * A tároló fejléce a teljes darabszámot ígérte, de mögötte csak az első 500
+ * soros adag maradt meg (korábbi, kvótahibás mentés). A visszatöltés ezért
+ * mindig 500 filmet ad, a gyors ellenőrzés pedig – mivel a kategóriák nem
+ * változtak – „nincs változás”-t írt, és soha nem javította.
+ *
+ * Itt CÉLZOTTAN csak a film indexlistát kérjük le újra (az élő és a sorozat
+ * adathoz nem nyúlunk), és a meglévő kedvenceket, folytatási pozíciókat,
+ * részletes adatokat megtartva TELJES generációként mentjük. A mentés a már
+ * megszokott módon ellenőrzött: a fejléc csak akkor vált, ha minden adag
+ * valóban a tárolóban van – hiba esetén a régi mentés érvényben marad.
+ *
+ * Visszatérés: true, ha a filmek helyreálltak (a hívó ekkor „kész”-t jelent).
+ */
+async function repairIncompleteVodCatalog(
+  provider: ProviderAccount,
+  providerRef: ProviderRef,
+  server: string,
+  user: string,
+  pass: string,
+  vodCats: XtreamCategory[] | null,
+  fingerprint: string,
+  onProgress: ProgressFn,
+  onPartial: PartialFn,
+): Promise<boolean> {
+  onProgress({ phase: 'Hiányos filmmentés javítása…', detail: 'A teljes filmlista újratöltése (csak a filmek)', percent: 8 });
+  logProviderEvent('HIÁNYOS FILMMENTÉS: a tárolt filmlista kevesebb adagot tartalmaz, mint a fejléc ígéri – célzott film-visszatöltés indul.');
+  const freshVodRaw = await xtreamService.vodStreams(server, user, pass);
+  if (!Array.isArray(freshVodRaw) || freshVodRaw.length === 0) {
+    logProviderEvent('HIÁNYOS FILMMENTÉS: a szolgáltató film-listája most nem érhető el – a régi mentés változatlan marad.');
+    return false;
+  }
+  // A meglévő (részleges) lista csak a kedvencek/folytatás átvételéhez kell.
+  let oldMovies: Movie[] = [];
+  try {
+    oldMovies = (await loadVodAsync(providerRef)).movies;
+  } catch { /* a régi lista hiánya nem akadály */ }
+  const oldById = new Map<string, Movie>();
+  for (const movie of oldMovies) {
+    oldById.set(movie.id, movie);
+    if (movie.streamId !== undefined) oldById.set(String(movie.streamId), movie);
+  }
+  const categoryMap = makeCategoryMap(vodCats || []);
+  const repaired: Movie[] = [];
+  const seen = new Set<string>();
+  const total = freshVodRaw.length;
+  for (let index = 0; index < total && repaired.length < MAX_MOVIES; index++) {
+    const raw = freshVodRaw[index] as unknown as Record<string, unknown> | null;
+    if (!raw || raw.stream_id === undefined || raw.stream_id === null) continue;
+    const id = String(raw.stream_id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const category = resolveCategory(categoryMap, raw.category_id as string | number | undefined, 'vc-');
+    const fresh = decodeMoviesForImport([movieRowFromRaw(raw, category)], providerRef)[0];
+    if (!fresh) continue;
+    const old = oldById.get(fresh.id) || oldById.get(id);
+    repaired.push(old ? {
+      ...fresh,
+      isFavorite: old.isFavorite,
+      resumePositionSeconds: old.resumePositionSeconds,
+      detailProviderData: old.detailProviderData,
+    } : fresh);
+    if (repaired.length % 1000 === 0) {
+      onProgress({
+        phase: 'Hiányzó filmek feldolgozása…',
+        detail: `${repaired.length.toLocaleString('hu-HU')}/${total.toLocaleString('hu-HU')}`,
+        percent: 8 + Math.round((repaired.length / Math.max(1, total)) * 82),
+      });
+      await yieldToUi();
+    }
+  }
+  // Csak akkor írjuk felül a tárolt listát, ha a feldolgozás gyakorlatilag teljes:
+  // enélkül egy félbeszakadt letöltés 500 filmre csökkentené a katalógust.
+  if (repaired.length < seen.size * 0.98 || repaired.length < total * 0.9) {
+    logProviderEvent(`HIÁNYOS FILMMENTÉS: a feldolgozás nem teljes (${repaired.length}/${seen.size} egyedi film) – a régi mentés változatlan marad.`);
+    return false;
+  }
+  const repairedCategories = categoryCounts(
+    repaired,
+    buildCategories(vodCats || [], 'vc-', 'movie', new Map()),
+    'movie',
+  );
+  const repairedContent: ImportedContent = {
+    provider: providerRef,
+    savedAt: new Date().toISOString(),
+    channels: [],
+    movies: repaired,
+    series: [],
+    liveCategories: [],
+    vodCategories: repairedCategories,
+    seriesCategories: [],
+    totals: { live: 0, vod: repaired.length, series: 0 },
+    warnings: [],
+    authoritative: true,
+  };
+  /*
+   * A mentés a sorba állított, ellenőrzött úton megy: a fejléc csak az összes
+   * adag megléte után vált. Hiba esetén a korábbi mentés érvényben marad.
+   */
+  await saveVodContent(repairedContent);
+  /*
+   * SZIGORÚ UTÓELLENŐRZÉS: a „kész” jelzés és a felületre írás csak akkor
+   * történik meg, ha a tárolóban tényleg ott van a teljes generáció. Ha a
+   * mentés (kvóta, lezárt kapcsolat) meghiúsult, a régi mentés érvényes, és a
+   * javítást egy későbbi Frissítés újra megpróbálhatja.
+   */
+  const afterSave = await storedSectionFill('vod', provider.id);
+  if (!afterSave || afterSave.short) {
+    logProviderEvent(
+      'HIÁNYOS FILMMENTÉS: a helyreállított lista nem került teljesen a tárolóba '
+      + `(${afterSave ? `${afterSave.present}/${afterSave.chunks} adag` : 'nincs fejléc'}) – a régi mentés érvényes.`,
+    );
+    return false;
+  }
+  markCatalogSectionsComplete(['vod']);
+  saveSyncState({ providerId: provider.id, fingerprint, fullSyncAt: Date.now() });
+  /*
+   * A felület azonnal megkapja a helyreállt listát. Az `unchangedSections`
+   * jelzés azt mondja meg a felületnek, hogy ez a szakasz MÁR tartósan
+   * elmentődött – így nem indul róla egy második, felesleges 76 MB-os írás.
+   */
+  await onPartial({
+    durable: true,
+    authoritative: true,
+    movies: repaired,
+    vodCategories: repairedCategories,
+    totals: { vod: repaired.length },
+    unchangedSections: ['vod'],
+  });
+  onProgress({ phase: 'Filmlista helyreállítva', detail: `${repaired.length.toLocaleString('hu-HU')} film elmentve`, percent: 100 });
+  logProviderEvent(`FILMJAVÍTÁS KÉSZ: ${repaired.length.toLocaleString('hu-HU')} film újra letöltve és teljes generációként elmentve; az élő és a sorozat lista érintetlen.`);
+  return true;
+}
+
 async function refreshXtreamIncremental(
   provider: ProviderAccount,
   onProgress: ProgressFn,
@@ -2162,6 +2305,34 @@ async function refreshXtreamIncremental(
     // Mindhárom kategórialista szükséges. Hálózati hiba esetén nem indul
     // helyette rejtett, teljes katalógusletöltés.
     throw new Error('A szolgáltató kategórialistái nem érhetők el. A frissítés most nem indult el.');
+  }
+
+  /*
+   * 2.5.294: HIÁNYOS FILMMENTÉS JAVÍTÁSA – A GYORS „NINCS VÁLTOZÁS” ELŐTT.
+   *
+   * Ha a tárolt filmlista kevesebb adagot tartalmaz, mint amennyit a fejléc
+   * ígér (a képernyőn: „MOZI VOD KÖNYVTÁR 500 / 103048”), akkor a kategóriák
+   * változatlansága nem jelentheti azt, hogy minden rendben van. Ilyenkor a
+   * film indexlistát EGYSZER újratöltjük és teljes generációként mentjük.
+   * Ez kizárólag a Frissítés gombra fut le (automatikus letöltés nincs).
+   */
+  try {
+    const vodFill = await storedSectionFill('vod', provider.id);
+    if (vodFill?.short) {
+      logProviderEvent(
+        `HIÁNYOS FILMMENTÉS a gyors ellenőrzés előtt: a fejléc ${vodFill.chunks} adagot ígér, `
+        + `${vodFill.present} van a tárolóban (${vodFill.rows}/${vodFill.expected} film).`,
+      );
+      const repaired = await repairIncompleteVodCatalog(
+        provider, providerRef, server, user, pass, vodCats, quickFingerprint, onProgress, onPartial,
+      );
+      if (repaired) {
+        return { unchanged: true, quick: true, check: quickCheck, repairedVod: true };
+      }
+    }
+  } catch (error) {
+    // A javítás hibája nem akadályozhatja a szokásos frissítést.
+    logProviderEvent(`HIÁNYOS FILMMENTÉS: a javítás nem sikerült (${safeErrorDetail(error)}) – a régi mentés érvényes marad.`);
   }
 
   if (quickUnchanged) {
