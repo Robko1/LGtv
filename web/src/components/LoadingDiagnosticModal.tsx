@@ -203,27 +203,9 @@ export const LoadingDiagnosticModal: React.FC<LoadingDiagnosticModalProps> = ({
       >
         <div className="absolute inset-0 pointer-events-none opacity-30 bg-[radial-gradient(circle_at_center,transparent_15%,#020208_90%)]" />
         <div className="relative flex flex-col h-full p-4 sm:p-7 lg:p-9">
-          <header className="shrink-0 mb-5 sm:mb-8 border-b border-cyan-950/80 pb-4 flex items-center justify-between gap-4">
+          <header className="shrink-0 mb-5 sm:mb-8 border-b border-cyan-950/80 pb-4 flex items-center justify-center gap-4">
             <h2 id="loading-diagnostic-title" className="text-xl sm:text-2xl lg:text-3xl font-black tracking-wider">BETÖLTÉSI DIAGNOSZTIKA</h2>
-            {/*
-              X GOMB – LEÁLLÍTÁS ÉS KILÉPÉS (2.5.239). A gomb automatikusan
-              fókuszt kap, így a távirányító OK gombja is ezt nyomja meg:
-              a futó frissítés azonnal leáll, az ablak bezárul, a mentett
-              tartalom marad. (Korábban az OK a háttérben maradt Frissítés
-              gombot nyomta újra, és mindent elölről indított.)
-            */}
-            <button
-              autoFocus
-              onClick={() => (onAbort ? onAbort() : onClose())}
-              aria-label={onAbort ? 'Leállítás és kilépés' : 'Bezárás'}
-              title={onAbort ? 'Leállítás és kilépés' : 'Bezárás'}
-              /* 2.5.241: a néző kérésére az X sima FEHÉR, nem piros.
-               * 2.5.255 (#7 képernyőkép): KIJELÖLVE sincs fehér háttér –
-               * csak a sima fehér ✕ látszik (vékony fehér körvonalon). */
-              className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-xl border-2 border-white/70 bg-slate-800/60 text-white text-2xl sm:text-3xl font-black leading-none flex items-center justify-center hover:bg-slate-700/70 focus:bg-transparent focus:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 transition-all"
-            >
-              ✕
-            </button>
+            {/* 2.5.319: fehér X és kerete törölve — csak a VISSZA gomb zárja az ablakot (capture handler), nincs külön bezáró doboz */}
           </header>
 
           <div className="relative grid grid-cols-[minmax(110px,0.7fr)_minmax(0,2fr)] sm:grid-cols-[minmax(150px,0.65fr)_minmax(0,2fr)] lg:grid-cols-[minmax(190px,0.55fr)_minmax(0,2fr)] gap-4 sm:gap-8 lg:gap-12 items-center flex-1 min-h-0">

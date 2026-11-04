@@ -1,6 +1,6 @@
 {
   "id": "hu.rt.iptv.webos",
-  "version": "2.5.318",
+  "version": "2.5.319",
   "vendor": "TV",
   "type": "web",
   "main": "index.html",
@@ -10,7 +10,7 @@
   "iconColor": "#00BFFF",
   "bgColor": "#04141a",
   "resolution": "1920x1080",
-  "appDescription": "TV \u2013 \u00c9l\u0151 TV, Mozi \u00e9s Sorozat",
+  "appDescription": "TV – Élő TV, Mozi és Sorozat",
   "disableBackHistoryAPI": true,
   "requiredPermissions": [
     "com.webos.media",

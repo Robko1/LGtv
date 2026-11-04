@@ -23,6 +23,7 @@ import {
   saveLiveContentSafely,
   saveSeriesContentSafely,
   saveVodContentSafely,
+  migrateVodStorageIfNeeded,
   prefetchContentImages,
   setCatalogFingerprint,
   StoredCatalogPlan,
@@ -2110,6 +2111,10 @@ export function App() {
          */
         // 2.5.140-es menet: a teljes élő lista AZONNAL, a takarókép alatt.
         backgroundWork = startBackgroundWork(plan);
+        // 2.5.319: VOD migrálás — ha a Mozi tár régi sorrendben (2024 elöl) van, háttérben rendezzük 2026 elölre (képek 68% vs 100% regresszió)
+        if (plan?.provider) {
+          window.setTimeout(() => { void migrateVodStorageIfNeeded(plan.provider).catch(() => {}); }, 3500);
+        }
         // 2.5.251: jegyezzük, hogy a háttérmunka már elindult (lásd a frissítés végét).
         bootBackgroundStartedRef.current = true;
         backgroundWorkTimersRef.current = backgroundWork;
@@ -2215,6 +2220,10 @@ export function App() {
        */
       const moviesComplete = totalCounts.vod === 0 ? true : movies.length >= totalCounts.vod;
       const seriesComplete = totalCounts.series === 0 ? true : series.length >= totalCounts.series;
+      const liveComplete = totalCounts.live === 0 ? true : channels.length >= totalCounts.live;
+      if (!liveComplete) {
+        appLog(`Részleges élő lista – a teljes élő mentés kimarad (${channels.length}/${totalCounts.live} csatorna); csak a HU+kedvenc boot frissül (FAST BOOT védve).`);
+      }
       if (!moviesComplete || !seriesComplete) {
         appLog(`Részleges lista – a film/sorozat mentés kimarad (${movies.length}/${totalCounts.vod} film, ${series.length}/${totalCounts.series} sorozat).`);
       }

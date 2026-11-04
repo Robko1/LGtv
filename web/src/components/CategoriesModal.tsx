@@ -53,6 +53,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   // A főoldali (App) szűréshez késleltetve adjuk át a keresést: gépelés közben
   // ne induljon el minden leütésre a teljes csatornalista újraszűrése.
   const searchPropagateTimer = useRef<number | null>(null);
@@ -231,6 +232,25 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
     else openFavoritePicker(title, channelIds);
   };
 
+  // 2.5.319: expanded ország ugorjon lista tetejére — átrendezzük, hogy az expanded legyen első, ne kelljen keresni a 340-es listában
+  const displayedCategories = useMemo(() => {
+    if (!expandedCountryId || normalizedSearch) return filtered;
+    const idx = filtered.findIndex((cat) => cat.id === expandedCountryId);
+    if (idx <= 0) return filtered;
+    const expanded = filtered[idx]!;
+    return [expanded, ...filtered.slice(0, idx), ...filtered.slice(idx + 1)];
+  }, [filtered, expandedCountryId, normalizedSearch]);
+
+  // 2.5.319: ha egy ország kinyílik, a kártya ugorjon a lista tetejére majd nyíljon — többi ország lefelé scroll marad
+  useEffect(() => {
+    if (expandedCountryId && listRef.current) {
+      const t = window.setTimeout(() => {
+        listRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 60);
+      return () => window.clearTimeout(t);
+    }
+  }, [expandedCountryId]);
+
   // A feltételes visszatérés csak az összes hook után lehet: különben a modal
   // nyitásakor/zárásakor változik a hookok száma, ami React futásidejű hibát okoz.
   if (!isOpen) return null;
@@ -250,12 +270,12 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
 
         </div>
 
-        {/* 2.5.318: ORSZÁGOK BETÖLTŐ % — csak Ország menüre töltődik a teljes élő lista, itt látszik a kör (kattintás után) */}
-        {liveRestoreProgress > 0 && liveRestoreProgress < 100 ? (
+        {/* 2.5.319: ORSZÁGOK BETÖLTŐ % — VÉGIG látszik (0-100% és 100% után is), nagyobb kör ugyanott — csak Ország menüre töltődik a teljes lista */}
+        {liveRestoreProgress > 0 ? (
           <div className="px-3 py-2 bg-[#0f2042]/70 border-b border-cyan-800/40 flex items-center gap-3">
-            {/* 3D kör — ORSZÁGOK (cián), 0-100% a helyi tárból — illeszkedik a legfölülre ahol van hely */}
-            <div className="relative w-14 h-14 md:w-16 md:h-16 shrink-0 -ml-0.5">
-              <svg width="64" height="64" viewBox="0 0 56 56" className="w-14 h-14 md:w-16 md:h-16 -rotate-90 drop-shadow-[0_4px_10px_rgba(6,182,212,0.5)]">
+            {/* 3D kör — ORSZÁGOK (cián), 0-100% a helyi tárból — 2.5.319: 100%-nál is marad, nagyobb (w-20/24 vs 14/16, 16-18px vs 11px) */}
+            <div className="relative w-20 h-20 md:w-24 md:h-24 shrink-0 -ml-0.5">
+              <svg width="96" height="96" viewBox="0 0 56 56" className="w-20 h-20 md:w-24 md:h-24 -rotate-90 drop-shadow-[0_4px_10px_rgba(6,182,212,0.5)]">
                 <defs>
                   <linearGradient id="gradCountries" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" stopColor="#67e8f9" />
@@ -272,7 +292,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
                 <circle cx="28" cy="28" r="22" fill="none" stroke="url(#gradCountries)" strokeWidth="6" strokeLinecap="round" strokeDasharray={138.23} strokeDashoffset={138.23 * (1 - Math.min(100, Math.max(0, liveRestoreProgress)) / 100)} style={{ transition: 'stroke-dashoffset 0.45s ease' }} />
                 <circle cx="28" cy="28" r="15" fill="url(#innerCountries)" stroke="#0e7490" strokeWidth="1.2" />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-[11px] md:text-[12px] font-black text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">{Math.round(liveRestoreProgress)}%</span>
+              <span className="absolute inset-0 flex items-center justify-center text-[16px] md:text-[18px] font-black text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">{Math.round(liveRestoreProgress)}%</span>
             </div>
             <div className="flex flex-col leading-tight min-w-0">
               <span className="text-[10px] md:text-xs font-bold tracking-[0.14em] text-cyan-300/90">ORSZÁGOK</span>
@@ -340,8 +360,8 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
           {normalizedSearch && searchResults.length > 150 && <span className="ml-2"> (az első 150)</span>}
         </div>
 
-        {/* Category Cards List */}
-        <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+        {/* Category Cards List — 2.5.319: ref a tetejére ugráshoz */}
+        <div ref={listRef} className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
           {normalizedSearch && searchResults.map((channel) => (
             <button
               key={channel.id}
@@ -358,7 +378,7 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
           {normalizedSearch && searchResults.length === 0 && filtered.length === 0 && (
             <p className="p-4 text-center text-sm text-slate-400">Nincs találat erre: „{searchTerm}”</p>
           )}
-          {filtered.map((cat) => {
+          {displayedCategories.map((cat) => {
             const isSelected = selectedCategoryId === cat.id && !isOnlyFavorites;
             // 2.5.276 (#14): a csillag a TELJES ország-kategóriára vonatkozik, és
             // kapcsolóként működik (hozzáad ↔ összes kivétele).

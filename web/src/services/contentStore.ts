@@ -1069,6 +1069,12 @@ export async function saveLiveContentAsync(content: ImportedContent): Promise<vo
     // A cache hibája nem akadályozhatja a teljes lista mentését.
     appLogError('Élő csatornák induló készletének mentése', error);
   }
+  // 2.5.319: RÉSZLEGES élő lista (pl. boot 106 / 20197) SOHA ne írja felül a teljeset — reboot után FAST BOOT csak HU+kedvenc maradjon
+  const isLiveComplete = !content.totals.live || channels.length >= content.totals.live;
+  if (!isLiveComplete) {
+    appLog(`Élő mentés védve: részleges lista (${channels.length}/${content.totals.live}) nem írja felül a teljeset — csak a HU+kedvenc boot frissült.`);
+    return;
+  }
   const savedFull = await saveLiveFullToIdb(content, channels);
   if (savedFull === 'unavailable') {
     appLog('Élő csatornák: IndexedDB nem érhető el; csak a magyar induló készlet marad a localStorage-ban.');
@@ -1962,16 +1968,40 @@ export async function saveSeriesContentSafely(content: ImportedContent): Promise
   }
 }
 
+/* 2.5.319: MOZI/SOROZAT mentéskor a legfrissebb év elöl — így az első 500 is 2026-ot adja, nem 2024-et (képek 68% vs 100% regresszió) */
+function vodYearOf(item: { year?: number; title?: string } | null): number {
+  if (!item) return 0;
+  const explicit = Math.round(Number((item as any).year) || 0);
+  if (Number.isFinite(explicit) && explicit > 1800) return explicit;
+  const m = String((item as any).title || '').match(/\((1[89]\d{2}|20\d{2})\)\s*$/);
+  return m ? Number(m[1]) : 0;
+}
+function sortVodByYearDesc<T extends { year?: number; title?: string }>(items: readonly T[]): T[] {
+  if (!Array.isArray(items) || items.length < 2) return items as T[];
+  const decorated = items.map((item, index) => ({ item, index, year: vodYearOf(item) }));
+  decorated.sort((a, b) => {
+    if (a.year !== b.year) {
+      if (a.year === 0) return 1;
+      if (b.year === 0) return -1;
+      return b.year - a.year;
+    }
+    return a.index - b.index;
+  });
+  return decorated.map((entry) => entry.item);
+}
+
 /** A sorozatmentések sorban futnak, nem írhatják felül egymás félkész adagjait. */
 export function saveSeriesContent(content: ImportedContent): Promise<void> {
+  // 2.5.319: mentés előtt év szerint csökkenő, stabil sorrend — az első adag (500) így már a legfrissebb 2026-os sorozatokat tartalmazza
+  const sortedSeries = sortVodByYearDesc(content.series) as Series[];
   const task = seriesSaveQueue.then(() => saveChunkedAuto({
     metaKey: SERIES_META_KEY,
     legacyKey: SERIES_KEY,
     legacyPrefix: SERIES_CHUNK_PREFIX,
     generationPrefix: SERIES_GENERATION_PREFIX,
-    total: content.series.length,
+    total: sortedSeries.length,
     chunkSize: VOD_STORE_CHUNK_SIZE,
-    chunkRows: (index) => encodeSeries(content.series.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
+    chunkRows: (index) => encodeSeries(sortedSeries.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
     totals: { series: content.totals.series },
     cats: encodeCategories(content.seriesCategories),
     label: 'Sorozatlista',
@@ -1986,14 +2016,16 @@ export function saveSeriesContent(content: ImportedContent): Promise<void> {
 
 /** Csak a filmek mentése (adagolva, hogy ne legyen nagy memóriacsúcs). */
 export function saveVodContent(content: ImportedContent): Promise<void> {
+  // 2.5.319: mentés előtt év szerint csökkenő, stabil sorrend — az első adag (500) így már a legfrissebb 2026-os filmeket tartalmazza, nem 2024-et
+  const sortedMovies = sortVodByYearDesc(content.movies) as Movie[];
   const task = vodSaveQueue.then(() => saveChunkedAuto({
     metaKey: VOD_META_KEY,
     legacyKey: VOD_KEY,
     legacyPrefix: VOD_CHUNK_PREFIX,
     generationPrefix: VOD_GENERATION_PREFIX,
-    total: content.movies.length,
+    total: sortedMovies.length,
     chunkSize: VOD_STORE_CHUNK_SIZE,
-    chunkRows: (index) => encodeMovies(content.movies.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
+    chunkRows: (index) => encodeMovies(sortedMovies.slice(index * VOD_STORE_CHUNK_SIZE, (index + 1) * VOD_STORE_CHUNK_SIZE)),
     totals: { vod: content.totals.vod },
     cats: encodeCategories(content.vodCategories),
     label: 'Filmlista',
@@ -2004,6 +2036,52 @@ export function saveVodContent(content: ImportedContent): Promise<void> {
   });
   vodSaveQueue = task.catch(() => undefined);
   return task;
+}
+
+/**
+ * 2.5.319: meglévő, rendezetlen VOD tár migrálása — háttérben, boot után.
+ * Ha az első adag max éve < utolsó adag max éve (régi elöl), a teljes listát
+ * beolvassuk, rendezzük és újraírjuk. Ez teszi a Mozi első 500-as előnézetét
+ * is 2026-ossá (eddig 2024 volt), mint a Sorozaté. Csak egyszer fut, nem blokkol.
+ */
+export async function migrateVodStorageIfNeeded(provider: ProviderRef): Promise<void> {
+  try {
+    const idb = await contentChunkStore();
+    if (!idb) return;
+    const stored = await readIdbChunks(idb, VOD_META_KEY);
+    if (!stored || !stored.meta.provider || stored.meta.provider.id !== provider.id) return;
+    if (stored.meta.chunks < 2) return;
+    // Mintavétel: első és utolsó adag max éve — ha első < utolsó, akkor régi elöl (asc) és migrálni kell
+    const firstRows = await stored.readChunk(0);
+    const lastRows = await stored.readChunk(stored.meta.chunks - 1);
+    if (firstRows.length === 0 || lastRows.length === 0) return;
+    const firstMovies = decodeMovies(firstRows, provider, 0);
+    const lastMovies = decodeMovies(lastRows, provider, (stored.meta.chunks - 1) * VOD_STORE_CHUNK_SIZE);
+    const firstMax = Math.max(0, ...firstMovies.map((m) => vodYearOf(m as any)));
+    const lastMax = Math.max(0, ...lastMovies.map((m) => vodYearOf(m as any)));
+    if (!firstMax || !lastMax || firstMax >= lastMax) return; // már rendezett (első >= utolsó) vagy nincs év
+    appLog(`VOD migrálás indul: első adag max éve ${firstMax} < utolsó adag max éve ${lastMax} — régi elöl, rendezés év szerint csökkenően.`);
+    const full = await loadVodAsync(provider);
+    if (!full.movies.length) return;
+    const sorted = sortVodByYearDesc(full.movies) as Movie[];
+    // Csak ha tényleg változik a sorrend, írjuk újra
+    const needsRewrite = sorted[0]?.title !== full.movies[0]?.title || sorted[sorted.length - 1]?.title !== full.movies[full.movies.length - 1]?.title;
+    if (!needsRewrite) return;
+    await saveVodContent({
+      provider,
+      savedAt: new Date().toISOString(),
+      channels: [],
+      movies: sorted,
+      series: [],
+      liveCategories: [],
+      vodCategories: full.categories,
+      seriesCategories: [],
+      totals: { live: 0, vod: sorted.length, series: 0 },
+    });
+    appLog(`VOD migrálás kész: ${sorted.length} film újraírva év szerint csökkenően (első már ${vodYearOf(sorted[0] as any)}).`);
+  } catch (error) {
+    appLogError('VOD migrálás (nem végzetes)', error);
+  }
 }
 
 export async function saveContent(content: ImportedContent): Promise<void> {

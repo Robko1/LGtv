@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.318';
+export const WEB_VERSION = '2.5.319';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,17 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.319',
+    date: '2026-11-04',
+    changes: [
+      'ORSZÁG % KÖR VÉGIG LÁTSZIK NAGYOBBAN: az Országok betöltő 3D kör mostantól 100%-nál sem tűnik el, hanem végig látszik a modal tetején. Átmérő 56px (w-14 md:w-16) → 80-96px (w-20 md:w-24), felirat 11px → 16-18px, ugyanott középen — a 100% utáni nagyobb kör jelzi a teljes 20 197-es lista beragadását, nem tűnik el.',
+      'ORSZÁG KATTINTÁSNÁL UGRÁS A TETEJÉRE: ha egy országra kattint (pl. Magyarország 107) és kinyílnak az alkategóriák, az ország kártyája azonnal a lista tetejére ugrik (scrollTo 0 + ország beúszik), és csak utána nyílik le — a többi ország lefelé scroll marad, nem kell a 340-es lista közepén keresni a lenyílást.',
+      'DIAGNOSZTIKA — FEHÉR X TÖRÖLVE: a Betöltési diagnosztika jobb felső fehér X gombja és 12×12-es kerete teljesen kikerült; az ablak csak a VISSZA gombbal (Esc/Backspace) vagy 10 mp után magától záródik — nincs fehér doboz a sötét fejlécben.',
+      'ÉLŐ LISTA REBOOT VÉDELEM — FAST BOOT JAVÍTVA: a TV-napló #4 szerint reboot után az élő lista 106/20197-re esett vissza és a 41 adagos teljes mentést 1 adagos 106-os írta felül. Mostantól a dirty-mentés és a saveLiveContentAsync is csak TELJES élő listát (channels >= totals.live) ír az IndexedDB-be; részleges (boot) csak a kis localStorage HU+kedvenc készletet frissíti. Reboot után így csak HU+kedvenc van a képernyőn (FAST BOOT), a teljes 20 197 csak Ország megnyitásra tölt vissza (hálózat nélkül, IDB-ből).',
+      'MOZI 2024→2026 SORRENDI REGRESSZIÓ JAVÍTVA: a Mozi első adag (500) eddig szolgáltatói sorrendben (régi elöl) mentődött, ezért 68%-nál 2024-et (L&Harper, Whispers) mutatott, míg 100%-nál 2026-ot — a Sorozat 39%-nál már 2026-ot mutatott, mert a sorozat lista már rendezett volt. Mostantól a Mozi és a Sorozat mentése is sortByReleaseYearDesc szerint rendezetten íródik az IDB-be, így az első 500 is a legfrissebb 2026-os filmeket adja, nem a régi 2024-et — a kép 3x reprodukált hibája végleg megszűnt.',
+    ],
+  },
   {
     version: '2.5.318',
     date: '2026-11-04',
