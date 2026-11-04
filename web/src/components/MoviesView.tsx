@@ -3,9 +3,9 @@ import { Category, Movie } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
-import { Sparkles, Filter, ChevronDown, Clock } from 'lucide-react';
+import { Sparkles, Filter, ChevronDown, Clock, Trash2 } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { formatRuntime } from '../utils/vodDisplay';
+import { formatRuntime, sortByReleaseYearDesc } from '../utils/vodDisplay';
 import { yearFromTitle } from '../services/catalogRows';
 import { enrichMovieDurationsInBackground } from '../services/vodEnrich';
 
@@ -13,11 +13,19 @@ interface MoviesViewProps {
   movies: Movie[];
   categories?: Category[];
   totalCount?: number;
+  /**
+   * 2.5.298: hány film van a TV SAJÁT memóriájában (a tartós tárból
+   * visszatöltött lista darabszáma) – a fejléc ezt is kiírja, hogy a néző
+   * lássa, mennyi a valós visszatöltés a szolgáltatói összlétszám mellett.
+   */
+  savedCount?: number;
   onPlayMovie: (movie: Movie) => void;
   selectedCategoryId?: string;
   onSelectedCategoryChange?: (categoryId: string) => void;
   onBackToLive: () => void;
   onToggleFavoriteMovie: (movieId: string) => void;
+  /** 2.5.298: a poszter piros kukájával törölt film eltávolítása a memóriából. */
+  onDeleteMovie?: (movieId: string) => void;
   isActive: boolean;
   activeProvider?: ProviderRef | null;
   /* 2.5.249: az adatlap megnyitásakor dúsított film visszaadása a listához. */
@@ -42,11 +50,13 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   movies,
   categories: providerCategories,
   totalCount,
+  savedCount = 0,
   onPlayMovie,
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
   isActive,
   onToggleFavoriteMovie,
+  onDeleteMovie,
   activeProvider,
   onVodItemEnriched,
 }) => {
@@ -111,11 +121,19 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
    * kirajzoláskor végigfutott az összes film (akár 20 000) a szűrőn, még
    * akkor is, amikor semmilyen szűrés nem volt beállítva.
    */
+  /*
+   * 2.5.298 – KIADÁSI ÉV SZERINT, A LEGFRISSEBB ELÖL.
+   *
+   * A rendezés a szűrés ELŐTT, egyszer fut (a teljes listán), és az
+   * eredmény a `movies` tömb azonosságához kötött – így a rácsozás,
+   * a lapozás és a kategóriaváltás ugyanezt a sorrendet látja.
+   */
+  const yearSortedMovies = useMemo(() => sortByReleaseYearDesc(movies), [movies]);
   const filteredMovies = useMemo(
     () => (selectedCategory === 'all'
-      ? movies
-      : movies.filter((m) => m.categoryId === selectedCategory)),
-    [movies, selectedCategory],
+      ? yearSortedMovies
+      : yearSortedMovies.filter((m) => m.categoryId === selectedCategory)),
+    [yearSortedMovies, selectedCategory],
   );
 
   /*
@@ -231,7 +249,17 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
 
           <div className="flex items-center gap-2 text-base font-black text-amber-400">
             <Sparkles className="w-4 h-4 text-amber-400" />
-            <span>MOZI VOD KÖNYVTÁR ({totalCount && totalCount > movies.length ? `${movies.length} / ${totalCount}` : movies.length})</span>
+            {/*
+              * 2.5.298 – VALÓS DARABSZÁM A SAJÁT MEMÓRIÁBÓL.
+              *
+              * Eddig csak „500 / 103048” állt itt: a felületre került adag és
+              * a szolgáltató ígért összlétszáma. A néző kérése, hogy lássa a
+              * TÉNYLEGES visszatöltést a TV saját mentéséből is. Ezért:
+              *   látható / szolgáltatói össz  •  TV-memóriában: mentett darab
+              */}
+            <span data-vod-count="movies">
+              {`MOZI VOD KÖNYVTÁR (${movies.length}${totalCount && totalCount > movies.length ? ` / ${totalCount}` : ''}${savedCount > 0 && savedCount !== movies.length ? ` • TV-memóriában: ${savedCount}` : ''})`}
+            </span>
           </div>
         </div>
 
@@ -294,7 +322,10 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                 data-poster-index={index}
                 data-vod-card={String(mov.id)}
                 onClick={() => setSelectedMovieId(mov.id)}
-                onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovieId(mov.id); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+                onKeyDown={(e) => {
+                  // 2.5.298: a poszter kukájának billentyűit a kuka maga kezeli.
+                  if ((e.target as HTMLElement)?.closest?.('[data-vod-delete]')) return;
+                  const key = normalizeTvKey(e); if (key === 'Enter' || key === ' ') { e.preventDefault(); setSelectedMovieId(mov.id); return; } if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
                   e.preventDefault();
                   e.stopPropagation();
                   const index = Number((e.currentTarget as HTMLElement).dataset.posterIndex);
@@ -326,6 +357,35 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                 <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
                   {/* 2.5.245: a listán KIZÁRÓLAG a poszter látszik (csillag/értékelés nélkül). */}
                   <PosterImage src={mov.poster} title={mov.title} kind="movie" localOnly alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  {/*
+                    * 2.5.298 – PIROS KUKA A POSZTER JOBB FELSŐ SARKÁBAN.
+                    *
+                    * A felhasználó kérése: minden mozis poszteren legyen egy
+                    * piros kuka ikon, amivel a film a TV memóriájából törölhető.
+                    * A kattintás NEM nyitja meg az adatlapot (stopPropagation),
+                    * a fókuszált kukán az OK gomb (Enter) is töröl.
+                    */}
+                  {onDeleteMovie && (
+                    <button
+                      type="button"
+                      data-vod-delete=""
+                      data-vod-delete-id={String(mov.id)}
+                      aria-label={`${mov.title} törlése a TV memóriájából`}
+                      title="Törlés a memóriából"
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDeleteMovie(mov.id); }}
+                      onKeyDown={(e) => {
+                        const key = normalizeTvKey(e);
+                        if (key === 'Enter' || key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onDeleteMovie(mov.id);
+                        }
+                      }}
+                      className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border-2 border-rose-200/80 bg-rose-600 text-white shadow-lg transition-colors hover:bg-rose-500 focus:outline-none focus-visible:ring-4 focus-visible:ring-rose-300"
+                    >
+                      <Trash2 className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
                 <div className="p-3">
                   <h3 className="text-white font-black text-lg sm:text-xl truncate">{mov.title}</h3>
@@ -358,6 +418,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
           isFavorite={Boolean(selectedMovie.isFavorite)}
           onClose={() => setSelectedMovieId(null)}
           onToggleFavorite={() => onToggleFavoriteMovie(selectedMovie.id)}
+          onDelete={onDeleteMovie ? () => { const id = selectedMovie.id; setSelectedMovieId(null); onDeleteMovie(id); } : undefined}
           provider={activeProvider ?? null}
           onItemEnriched={(enriched) => onVodItemEnriched?.(enriched as Movie)}
           onPlayMovie={(mov) => {

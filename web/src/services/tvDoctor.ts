@@ -2355,6 +2355,12 @@ export function recordDoctorChannelSuccess(params: {
 }): ChannelDoctorRecord | null {
   const { channel, format, bufferProfile, startupMs, wasRepair = false, storage } = params;
   if (!channel) return null;
+  // 2.5.298: csak magyar csatornáról tanulunk tartósan – a kedvencekben lévő
+  // külföldi adók (pl. GB/DE) kizárva. A segítés (gyors indítás) megmarad,
+  // de memóriát és felhő-forgalmat nem generálunk róluk.
+  if (!isHungarianDoctorChannel({ countryCode: (channel as any).countryCode, name: (channel as any).name })) {
+    return null;
+  }
 
   try {
     const store = readStore(storage);
@@ -2537,6 +2543,11 @@ export function recordDoctorChannelFailure(params: {
 }): ChannelDoctorRecord | null {
   const { channel, format, bufferProfile, trigger, errorCode, errorDetail, stallMs, storage } = params;
   if (!channel) return null;
+  // 2.5.298: csak magyar csatorna hibáját tanuljuk – külföldi csatorna nem
+  // kerül a tartós memóriába (a felhőbe sem).
+  if (!isHungarianDoctorChannel({ countryCode: (channel as any).countryCode, name: (channel as any).name })) {
+    return null;
+  }
 
   try {
     const store = readStore(storage);
@@ -2862,7 +2873,21 @@ export function planDoctorRepairStep(params: {
   const urlFor = (fmt: LiveFormat) => (fmt === 'hls' ? hlsUrl : tsUrl) || streamUrl;
   const store = readStore(storage);
   const record = getChannelDoctorRecord(channel, storage);
-  const effectiveMaxSteps = Math.max(
+  /*
+   * 2.5.298: ha a csatorna korábban MÁR működött (van sikeres indítása),
+   * nem adjuk fel 5 lépés után: a tanult útvonalat és a progresszív puffert
+   * tovább próbáljuk. A javítási létra ilyenkor 8 lépésig bővül, és a
+   * tanult útvonal elsőbbséget kap – így egy korábban megnyitható adás
+   * nem kerül azonnal „nem működik” állapotba egy átmeneti hiba miatt.
+   */
+  const hasPriorSuccess = Boolean(
+    record && (
+      (record.tsOk || 0) + (record.hlsOk || 0) > 0 ||
+      (record.consecutiveCleanStarts || 0) > 0 ||
+      Boolean(record.lastWorkingFormat)
+    ),
+  );
+  let effectiveMaxSteps = Math.max(
     1,
     Math.min(MAX_DOCTOR_REPAIR_STEPS, maxStepsOverride || MAX_DOCTOR_REPAIR_STEPS),
   );
@@ -2966,14 +2991,23 @@ export function planDoctorRepairStep(params: {
        * utolsó kimerülés idejét – az újraaktiválási hűtő (lásd
        * selectChannelLaunchPlan) ebből számol, így kézi újraválasztásnál sem
        * indul újra teljes létra pár másodpercenként (ARENA 4 flapping ellen).
+       * 2.5.298: korábban már működő csatornánál RÖVID hűtést adunk (60 mp),
+       * és nem növeljük agresszíven a haltCount-ot – egy átmeneti hiba ne
+       * zárja ki 30 percre a TV Doktort, a következő próbánál a tanult
+       * útvonal újra esélyt kap.
        */
-      const haltCount = (rec.haltCount || 0) + 1;
+      const recHasPriorSuccess = Boolean(
+        rec && ((rec.tsOk || 0) + (rec.hlsOk || 0) > 0 || (rec.consecutiveCleanStarts || 0) > 0 || Boolean(rec.lastWorkingFormat))
+      );
+      const haltCount = recHasPriorSuccess ? Math.min(1, (rec.haltCount || 0) + 1) : (rec.haltCount || 0) + 1;
       rec.haltCount = haltCount;
       rec.lastExhaustedAt = nowMs;
-      rec.deadUntil = nowMs + Math.min(
-        MAX_DEAD_CHANNEL_COOLDOWN_MS,
-        DEAD_CHANNEL_COOLDOWN_MS * Math.pow(2, haltCount - 1),
-      );
+      rec.deadUntil = nowMs + (recHasPriorSuccess
+        ? Math.min(60 * 1000, DEAD_CHANNEL_COOLDOWN_MS)
+        : Math.min(
+          MAX_DEAD_CHANNEL_COOLDOWN_MS,
+          DEAD_CHANNEL_COOLDOWN_MS * Math.pow(2, haltCount - 1),
+        ));
       rec.lastErrorCode = 'CHANNEL_UNREACHABLE';
       rec.lastErrorReason = `${effectiveMaxSteps} különböző beállítás sikertelen (${trigger})`;
       rec.updatedAt = nowMs;
@@ -3151,6 +3185,20 @@ export function planDoctorRepairStep(params: {
       }
       delayMs = 240;
     }
+  }
+
+  // 2.5.298: korábban már működő csatornánál a 3-5. lépésekben is a
+  // tanult útvonal elsőbbséget kap – egy átmeneti hiba ne dobja el a már
+  // bevált, gyors indítást. A puffer-profil is a tanult érték, nem vak tapogatózás.
+  // (Csak a teljes, 5 lépéses létránál; a 2 lépéses gyors-ellenőrzésnél nem.)
+  if (hasPriorSuccess && effectiveMaxSteps === MAX_DOCTOR_REPAIR_STEPS && learnedAlternate && step >= 3 && step <= 5) {
+    nextFormat = learnedAlternate.format;
+    nextUrl = urlFor(learnedAlternate.format);
+    nextBufferProfile = learnedAlternate.bufferProfile;
+    strategyId = 'learned_route_retry';
+    description = `tanult útvonal újrapróbálása (${nextFormat.toUpperCase()} + ${nextBufferProfile})`;
+    delayMs = 90;
+    useFallbackUrl = false;
   }
 
   const baseCfg = getDoctorBufferConfig(nextBufferProfile);

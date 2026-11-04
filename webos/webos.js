@@ -998,6 +998,21 @@
     if (navOwner && isArrowKey(key)) {
       var ownerType = navOwner.getAttribute('data-tv-navigation-owner');
       if (ownerType === 'posters') return;
+      /*
+       * 2.5.298 – TV DOKTOR KI/BE KAPCSOLÓ: a dobozon belüli vezérlőről a négy
+       * nyíl bármelyike a SAJÁT DOBOZÁRA viszi vissza a fókuszt, onnan a fel/le
+       * már a következő beállításra lép tovább. Ezt a globális távirányító
+       * rétegnek magának kell elvégeznie, mert a beállítások ablaka a nyilakat
+       * egyébként teljesen magának kéri.
+       */
+      var doctorArrowBox = e.target && e.target.closest ? e.target.closest('[data-tv-doctor-box]') : null;
+      if (doctorArrowBox && e.target !== doctorArrowBox && doctorArrowBox.contains(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        doctorArrowBox.focus({preventScroll:true});
+        revealEl(doctorArrowBox);
+        return;
+      }
       // A Beállítások/Kedvencek fül és a 0-ás TV Doktor ablak saját React-navigációja
       // kezeli MIND a négy nyilat (és a bal oldali napló lefelé görgetését).
       // Capture fázisban itt nem szabad fókuszt mozgatni vagy a gombot elnyelni.
@@ -1128,13 +1143,40 @@
       }
     }
 
+    /*
+     * 2.5.298 – A DOBOZON BELÜLI VEZÉRLŐRŐL MINDEN NYÍL VISSZA A DOBOZRA.
+     *
+     * A TV Doktor Ki/Be kapcsolója (data-tv-box-default) a doboz belsejében
+     * van. Miután a fókusz a kapcsolóra került, a négy nyíl bármelyike a
+     * SAJÁT DOBOZÁT jelölje ki újra – onnan a fel/le tovább lép a következő
+     * beállításra. Ezt a React is elvégzi, de a globális távirányító rétegnek
+     * is tudnia kell, mert a beállítások ablaka saját fókuszkezelővel fut.
+     */
+    if (isArrowKey(key) && active && active.closest) {
+      var arrowBox = active.closest('[data-tv-doctor-box]');
+      if (arrowBox && arrowBox !== active) {
+        e.preventDefault();
+        e.stopPropagation();
+        arrowBox.focus({preventScroll:true});
+        revealEl(arrowBox);
+        return;
+      }
+    }
+
     // OK gomb egy kijelölt "dobozon" (data-tv-box): BELÉPÉS a dobozba –
-    // a fókusz a doboz első vezérlőjére kerül, ott lehet választani.
-    // Ha a dobozban EGYETLEN vezérlő van (pl. egy kapcsoló), az OK azonnal
-    // átkapcsolja, nem kell külön belépni.
+    // a fókusz a doboz kijelölt (data-tv-box-default) vezérlőjére kerül, ott
+    // lehet választani. A hangsúly a BELÉPÉSEN van: az OK nem kapcsolja át
+    // rejtetten a kapcsolót, mert a nézőnek látnia kell, hova került a fókusz
+    // (a második OK végzi el a váltást).
     if (isConfirm && active && active.hasAttribute && active.hasAttribute('data-tv-box')) {
       e.preventDefault();
       e.stopPropagation();
+      var boxDefault = active.querySelector ? active.querySelector('[data-tv-box-default]') : null;
+      if (boxDefault && boxDefault !== active) {
+        boxDefault.focus({preventScroll:true});
+        revealEl(boxDefault);
+        return;
+      }
       var innerF = getFocusable(active);
       if (innerF.length === 1 && (innerF[0].tagName === 'BUTTON' || innerF[0].tagName === 'A' ||
           innerF[0].getAttribute('role') === 'button' || innerF[0].type === 'checkbox')) {
@@ -1142,10 +1184,8 @@
         return;
       }
       if (innerF.length) {
-        var boxDef = active.querySelector ? active.querySelector('[data-tv-box-default]') : null;
-        var enterTarget = (boxDef && innerF.indexOf(boxDef) !== -1) ? boxDef : innerF[0];
-        enterTarget.focus({preventScroll:true});
-        revealEl(enterTarget);
+        innerF[0].focus({preventScroll:true});
+        revealEl(innerF[0]);
       }
       return;
     }
