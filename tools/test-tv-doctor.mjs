@@ -1108,6 +1108,90 @@ check(
   'a Supabase szerveroldalon is kiszűr minden hitelesítő adatot a tárolás előtt',
 );
 
+// 2.1b 2.5.294: TANULT ÚTVONALAK a felhőben – csatornánként max. 8, és CSAK magyar csatorna
+const manyRoutes = [];
+for (const format of ['ts', 'hls']) {
+  for (const profile of ['instant', 'turbo', 'fast', 'balanced', 'stable', 'adaptive-1']) {
+    manyRoutes.push({
+      format,
+      bufferProfile: profile,
+      ok: 3,
+      fail: 0,
+      stalls: 0,
+      avgStartupMs: format === 'hls' ? 380 : 900,
+      bestStartupMs: format === 'hls' ? 340 : 850,
+      lastOkAt: Date.now(),
+    });
+  }
+}
+const routeSyncResp = await edgeHandler(
+  new Request('https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-tv-device-id': tv1Auth.deviceId,
+      'x-tv-device-token': tv1Auth.deviceToken,
+    },
+    body: JSON.stringify({
+      action: 'sync',
+      deviceId: tv1Auth.deviceId,
+      tvModel: 'OLED55C3',
+      profiles: [
+        {
+          channelKey: 'hu:tv2-hd',
+          channelName: '[HU] TV2 HD',
+          countryCode: 'HU',
+          bestFormat: 'hls',
+          bestBufferProfile: 'turbo',
+          hlsSuccessDelta: 2,
+          routes: manyRoutes,
+        },
+        {
+          channelKey: 'gb:bbc-two-hd',
+          channelName: '[UK] BBC Two HD',
+          countryCode: 'GB',
+          bestFormat: 'hls',
+          bestBufferProfile: 'fast',
+          hlsSuccessDelta: 4,
+          routes: [{ format: 'hls', bufferProfile: 'fast', ok: 4, fail: 0, stalls: 0, avgStartupMs: 600 }],
+        },
+      ],
+      events: [
+        {
+          eventUid: 'gb-event-2',
+          eventType: 'diagnostic',
+          channelKey: 'gb:bbc-two-hd',
+          channelName: '[UK] BBC Two HD',
+          errorCode: 'MEDIA_ERR_DECODE',
+        },
+      ],
+    }),
+  }),
+);
+const routeSyncJson = await routeSyncResp.json();
+const routeRow = dbProfiles.get('hu:tv2-hd');
+check(
+  routeSyncResp.status === 200 && Array.isArray(routeRow?.routes) && routeRow.routes.length === 8,
+  'a tanult útvonalak bekerülnek a Supabase memóriába, csatornánként legfeljebb 8 sorral',
+);
+check(
+  routeRow.routes.every((r) => typeof r.format === 'string' && typeof r.bufferProfile === 'string' && typeof r.avgStartupMs === 'number'),
+  'az útvonal-sorok csak a szükséges mezőket tartalmazzák (formátum, puffer, mérés)',
+);
+check(
+  !JSON.stringify(routeRow.routes).includes('http') && !JSON.stringify(routeRow.routes).includes('u/p'),
+  'a Supabase-ben tárolt útvonalakban nincs stream URL és nincs jelszó',
+);
+check(
+  Array.isArray(routeSyncJson.mergedProfiles) && routeSyncJson.mergedProfiles.every((p) => p.countryCode === 'HU'),
+  'a visszakapott (összefésült) profilok mind magyar csatornák',
+);
+check(!dbProfiles.has('gb:bbc-two-hd'), 'a nem magyar (GB) csatorna profilját a felhő NEM tárolja');
+check(
+  !dbEvents.some((ev) => ev.channel_key === 'gb:bbc-two-hd'),
+  'a nem magyar csatorna eseménye sem kerül a Supabase-be',
+);
+
 // 2.2 Saját TV kliensoldali egyszeri párosítása, újraindítás-tűrés, csendes tokenmegújítás és késleltetésmentes működés!
 globalThis.localStorage = new MemoryStorage();
 core.clearTvDoctorMemory();

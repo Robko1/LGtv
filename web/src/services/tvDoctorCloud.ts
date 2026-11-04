@@ -10,7 +10,11 @@ import {
   getTvDoctorOperationHealth,
   getTvDoctorSummary,
   isTvDoctorDiagLoggingEnabled,
+  collectDoctorRoutePayload,
+  compactDoctorRoutes,
+  isPersistableDoctorRecord,
   mergeCloudProfilesIntoLocal,
+  mergeCloudRoutesIntoLocal,
   notifyTvDoctorListeners,
   resetTvDoctorOperationCounters,
   setTvDoctorCloudHook,
@@ -99,6 +103,21 @@ export interface PendingProfileSync {
   stallDelta: number;
   repairSuccessDelta: number;
   bufferScores: Record<string, unknown>;
+  /**
+   * 2.5.294: a csatorna legfeljebb 8 legjobb tanult útvonala (formátum + puffer).
+   * Csak magyar csatornáról, csak a legszükségesebb mezőkkel kerül a felhőbe.
+   */
+  routes?: Array<{
+    format: string;
+    bufferProfile: string;
+    ok: number;
+    fail: number;
+    stalls: number;
+    avgStartupMs: number | null;
+    bestStartupMs: number | null;
+    lastOkAt: number | null;
+    lastFailAt: number | null;
+  }>;
   lastErrorCode?: string;
   lastErrorReason?: string;
 }
@@ -740,6 +759,106 @@ function classifyHttpError(status: number, rawBody: string): {
   };
 }
 
+/**
+ * 2.5.294: A TANULT ÚTVONALAK felhő-memóriája.
+ *
+ * A csatornánkénti legjobb 8 útvonalat (formátum + pufferprofil) a Supabase
+ * token-ellenőrzött RPC-függvényein keresztül mentjük és olvassuk vissza:
+ *   • public.tv_doctor_routes_upsert – csak a párosított eszköz tokenjével,
+ *   • public.tv_doctor_routes_fetch  – ugyanazzal a tokennel.
+ * Így a tanulás nem vész el újratelepítéskor vagy TV-csere esetén, és a
+ * szerver oldalon is csak magyar csatornák, csatornánként max. 8 útvonal marad.
+ */
+function restBaseUrl(): string {
+  const api = getApiUrl();
+  const match = api.match(/^(https?:\/\/[^/]+)/);
+  return match ? `${match[1]}/rest/v1` : '';
+}
+
+async function postTvDoctorRpc(
+  fn: 'tv_doctor_routes_upsert' | 'tv_doctor_routes_fetch',
+  params: Record<string, unknown>,
+  timeoutMs = STATUS_CHECK_TIMEOUT_MS,
+): Promise<any | null> {
+  const base = restBaseUrl();
+  if (!base || typeof fetch !== 'function') return null;
+  const pairing = readPairingState();
+  if (!pairing.deviceId || !pairing.deviceToken) return null;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+
+  const AbortCtor = typeof AbortController !== 'undefined' ? AbortController : null;
+  const controller = AbortCtor ? new AbortCtor() : null;
+  const timeout = controller
+    ? scheduleTimer(() => {
+        try { controller.abort(); } catch { /* ignore */ }
+      }, timeoutMs)
+    : null;
+  try {
+    const response = await fetch(`${base}/rpc/${fn}`, {
+      method: 'POST',
+      headers: {
+        apikey: API_KEY,
+        Authorization: `Bearer ${API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!response.ok) {
+      if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
+        appLog(`TV DOKTOR FELHŐ ÚTVONAL: ${fn} HTTP ${response.status} – a helyi tanulás változatlanul működik tovább.`);
+      }
+      return null;
+    }
+    return await response.json();
+  } catch {
+    return null;
+  } finally {
+    if (timeout !== null) cancelTimer(timeout);
+  }
+}
+
+/** A készüléken tanult útvonalak feltöltése a Supabase memóriába (csak magyar csatornák). */
+export async function pushTvDoctorRoutesToCloud(): Promise<number> {
+  if (!cloudEnabled || !isTvDoctorPaired()) return 0;
+  /*
+   * A csomag a HELYI tanult memóriából épül (nem a küldésre váró sorból):
+   * a szinkron után a várakozó profilok törlődnek, a tanult útvonalak viszont
+   * megmaradnak – így a feltöltés mindig a teljes, friss tudást küldi.
+   */
+  const payload = collectDoctorRoutePayload();
+  if (payload.length === 0) return 0;
+
+  const pairing = readPairingState();
+  const result = await postTvDoctorRpc('tv_doctor_routes_upsert', {
+    p_device_id: pairing.deviceId,
+    p_device_token: pairing.deviceToken,
+    p_payload: payload,
+  });
+  const count = typeof result === 'number' ? result : 0;
+  if (count > 0 && isTvDoctorDiagLoggingEnabled()) {
+    appLog(`TV DOKTOR FELHŐ ÚTVONAL: ${count} csatorna tanult útvonala mentve a Supabase memóriába.`);
+  }
+  return count;
+}
+
+/** A felhőben tárolt tanult útvonalak letöltése és összefésülése a helyi memóriával. */
+export async function fetchTvDoctorRoutesFromCloud(): Promise<number> {
+  if (!cloudEnabled || !isTvDoctorPaired()) return 0;
+  const pairing = readPairingState();
+  const rows = await postTvDoctorRpc('tv_doctor_routes_fetch', {
+    p_device_id: pairing.deviceId,
+    p_device_token: pairing.deviceToken,
+    p_limit: 400,
+  });
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  const merged = mergeCloudRoutesIntoLocal(rows as Array<{ channel_key?: string; country_code?: string; routes?: unknown }>);
+  if (merged > 0 && isTvDoctorDiagLoggingEnabled()) {
+    appLog(`TV DOKTOR FELHŐ ÚTVONAL: ${merged} csatorna tanult útvonala letöltve a Supabase memóriából.`);
+  }
+  return merged;
+}
+
 async function postTvDoctor(
   body: Record<string, unknown>,
   timeoutMs = REQUEST_TIMEOUT_MS,
@@ -1290,6 +1409,12 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
     }
     state.lastSyncAt = typeof res.serverTime === 'string' ? res.serverTime : new Date().toISOString();
     saveSyncState();
+    /*
+     * 2.5.294: a tanult útvonalak külön, kis csomagban mennek fel a Supabase
+     * memóriába (a profil-szinkron mellett). Hiba esetén a helyi tanulás
+     * változatlanul működik tovább – ez soha nem akaszthatja meg a lejátszást.
+     */
+    void pushTvDoctorRoutesToCloud();
     if (isVerbosePlaybackLogging() && isTvDoctorDiagLoggingEnabled()) {
       appLog(
         `TV DOKTOR FELHŐ SZINKRON OK: elküldve profil=${profilesToSend.length}, esemény=${eventsToSend.length}`,
@@ -1328,6 +1453,13 @@ function enqueueFromHook(payload: {
   if (rawKeyCheck.startsWith('vod:') || payload.record?.countryCode === 'VOD' || payload.record?.countryCode === 'SER') {
     return;
   }
+  /*
+   * 2.5.294: a felhő (Supabase) memóriája CSAK a magyar csatornák tanulását
+   * őrzi. A nem magyar csatornákat a TV Doktor továbbra is segíti a
+   * készüléken, de róluk egyetlen adat sem megy fel a felhőbe – így hosszú
+   * távon sem halmozódik felesleges adat.
+   */
+  if (payload.record && !isPersistableDoctorRecord(payload.record)) return;
   const state = readSyncState();
   const { eventType, record, event } = payload;
 
@@ -1358,6 +1490,7 @@ function enqueueFromHook(payload: {
       stallDelta: (prev?.stallDelta || 0) + stallDelta,
       repairSuccessDelta: (prev?.repairSuccessDelta || 0) + repairDelta,
       bufferScores: (record.bufferStats || {}) as Record<string, unknown>,
+      routes: compactDoctorRoutes(record.routes),
       lastErrorCode: safeCleanText(record.lastErrorCode, 48),
       lastErrorReason: safeCleanText(record.lastErrorReason, 120),
     };
@@ -1422,7 +1555,12 @@ export function configureTvDoctorCloud(enabled: boolean): void {
     bootstrapTimer = scheduleTimer(() => {
       bootstrapTimer = null;
       if (!isTvDoctorPaired()) return;
-      void bootstrapTvDoctorFromCloud().then(() => {
+      /*
+       * 2.5.294: induláskor előbb a tanult útvonalak memóriáját töltjük le
+       * (ez teszi azonnal gyorssá az ismert csatornák indítását), majd a
+       * profil-szinkron következik.
+       */
+      void fetchTvDoctorRoutesFromCloud().then(() => bootstrapTvDoctorFromCloud()).then(() => {
         const st = readSyncState();
         if (Object.keys(st.pendingProfiles).length > 0 || st.pendingEvents.length > 0) {
           void flushTvDoctorCloudQueue();

@@ -20,11 +20,15 @@ import { dateTimeText } from '../services/appLog';
 import {
   DoctorEventCategory,
   DoctorLogEntry,
+  MAX_CHANNEL_ROUTES,
   formatDoctorBytes,
+  getChannelDoctorRecord,
   getTvDoctorMemoryStats,
   getTvDoctorOperationHealth,
   getTvDoctorSummary,
   isChannelHandledByDoctor,
+  logTvDoctorPanel,
+  rankDoctorRouteList,
   subscribeTvDoctorUpdates,
 } from '../services/tvDoctor';
 import {
@@ -211,6 +215,36 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     });
   }, [isOpen]);
 
+  /*
+   * 2.5.294: AZ ABLAK MŰKÖDÉSÉNEK NAPLÓZÁSA.
+   *
+   * Eddig a 0-gombos ablak semmit nem írt a naplóba: nem lehetett tudni,
+   * megnyílt-e, melyik csatornán, mit mutatott, és a benne végzett műveletek
+   * (memória nullázás, Supabase-teszt, bezárás) is nyom nélkül maradtak.
+   * Mostantól minden ilyen esemény bekerül a TV Doktor naplójába – de csak
+   * akkor, ha a naplózás be van kapcsolva, és a 48 soros élő eseménylistát
+   * nem szemeteljük vele.
+   */
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const record = activeChannel ? getChannelDoctorRecord(activeChannel) : null;
+    const routes = record ? rankDoctorRouteList(record.routes || []) : [];
+    logTvDoctorPanel('megnyitva (0 gomb)', {
+      csatorna: activeChannel?.name || 'nincs',
+      ország: activeChannel?.countryCode || 'nincs',
+      tanultÚtvonalak: routes.length,
+      legjobb: routes[0] ? `${routes[0].format.toUpperCase()}+${routes[0].bufferProfile}` : 'még nincs',
+      mód: settings.tvDoctorEnabled === false ? 'kikapcsolva' : 'aktív',
+    });
+    return () => {
+      logTvDoctorPanel('bezárva', {
+        csatorna: activeChannel?.name || 'nincs',
+      });
+    };
+    // A naplózás csak megnyitáskor/záráskor fusson – a csatornaváltás külön esemény.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) {
       setResetFeedback(false);
@@ -303,9 +337,22 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
 
   const orderedLogs = [...doctorSummary.recentLogs].reverse();
   const activeChannelHandled = Boolean(activeChannel && tvDoctorEnabled && isChannelHandledByDoctor(activeChannel));
+  /*
+   * 2.5.294: a nézett magyar csatorna legfeljebb 8 tanult útvonala
+   * (formátum + puffer, mért indulási idővel) – ez mutatja meg, mit tanult a
+   * TV Doktor, és hogy a legjobb útvonal indul-e.
+   */
+  const activeRecord = tvDoctorEnabled && activeChannel ? getChannelDoctorRecord(activeChannel) : null;
+  const activeRoutes = activeRecord ? rankDoctorRouteList(activeRecord.routes || []) : [];
 
   const handleResetMemory = () => {
+    const beforeStats = getTvDoctorMemoryStats();
+    const beforeSummary = getTvDoctorSummary();
     resetTvDoctorAllToZero();
+    logTvDoctorPanel('memória 0 állapotra állítva', {
+      tanultCsatornákElőtte: beforeSummary.learnedChannelCount,
+      memóriaElőtte: formatDoctorBytes(beforeStats.doctorTotalBytes),
+    });
     setResetFeedback(true);
     if (logScrollRef.current) {
       logScrollRef.current.scrollTop = 0;
@@ -679,7 +726,16 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 data-tv-doctor-check-cloud=""
                 disabled={doctorCloud.checking || doctorCloud.syncing}
                 onClick={() => {
-                  void checkTvDoctorConnection();
+                  logTvDoctorPanel('Supabase kapcsolatteszt indítva', { csatorna: activeChannel?.name || 'nincs' });
+                  void checkTvDoctorConnection().then((status) => {
+                    logTvDoctorPanel('Supabase kapcsolatteszt eredménye', {
+                      állapot: status.connectionState,
+                      késleltetés: status.latencyMs ?? 'nincs adat',
+                      párosítva: status.paired ? 'igen' : 'nem',
+                    });
+                  }).catch(() => {
+                    logTvDoctorPanel('Supabase kapcsolatteszt hiba miatt leállt');
+                  });
                 }}
                 className="inline-flex items-center gap-2 rounded-xl border-2 border-cyan-400/60 bg-cyan-500/20 px-4 py-1.5 text-base lg:text-lg font-black text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-amber-400"
               >
@@ -748,6 +804,59 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 );
               })}
             </div>
+          </div>
+
+          {/* 0b. Tanult útvonalak – csatornánként max. 8 (2.5.294) */}
+          <div
+            data-tv-doctor-routes=""
+            className="rounded-2xl border border-emerald-700/60 bg-[#04121c] p-4 space-y-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2.5 text-lg lg:text-xl font-black text-emerald-200">
+                <Activity className="h-6 w-6 shrink-0 text-emerald-300" />
+                <span>Tanult útvonalak (max. {MAX_CHANNEL_ROUTES})</span>
+              </span>
+              <span
+                data-tv-doctor-routes-count=""
+                className="inline-flex items-center rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-2.5 py-0.5 font-mono text-sm lg:text-base font-black text-emerald-100"
+              >
+                {activeRoutes.length} / {MAX_CHANNEL_ROUTES}
+              </span>
+            </div>
+            <p className="text-base font-bold text-slate-200 leading-snug">
+              {!activeChannel
+                ? 'Nincs kiválasztott élő csatorna.'
+                : activeRoutes.length === 0
+                  ? `${activeChannel.name}: még nincs tanult útvonal – az első adás után itt jelenik meg.`
+                  : `${activeChannel.name} – a TV Doktor a legjobb útvonalat indítja, a többit javításkor próbálja.`}
+            </p>
+            {activeRoutes.length > 0 && (
+              <div data-tv-doctor-routes-list="" className="space-y-1">
+                {activeRoutes.map((route, idx) => (
+                  <div
+                    key={route.id}
+                    data-tv-doctor-route={route.id}
+                    className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 font-mono text-sm lg:text-base font-bold ${
+                      idx === 0
+                        ? 'border-emerald-400/70 bg-emerald-500/15 text-emerald-100'
+                        : 'border-slate-700/70 bg-slate-900/45 text-slate-200'
+                    }`}
+                  >
+                    <span className="truncate">
+                      {idx === 0 ? '★ ' : `${idx + 1}. `}
+                      {route.format.toUpperCase()} + {route.bufferProfile}
+                    </span>
+                    <span className="shrink-0 text-slate-300">
+                      {route.avgStartupMs !== null ? `${route.avgStartupMs} ms` : 'nincs mérés'} •{' '}
+                      {route.ok} jó / {route.fail} hiba{route.stalls > 0 ? ` / ${route.stalls} akadás` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-sm font-semibold text-slate-400">
+              Csak magyar csatornáról tanulunk; a nem magyar csatornákat segítjük, de róluk nem tárolunk adatot.
+            </p>
           </div>
 
           {/* 2. Supabase kapcsolat */}
