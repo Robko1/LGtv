@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.294';
+export const WEB_VERSION = '2.5.295';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
