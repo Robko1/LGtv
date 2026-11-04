@@ -8,6 +8,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 export const WEB_VERSION_HISTORY = [
   {
     version: '2.5.293',
+    date: '2026-11-04',
+    changes: [
+      'ÚJRAINDÍTÁS UTÁN CSAK 500 FILM („MOZI VOD KÖNYVTÁR 500 / 103048”): a teljes film lista visszatöltése eddig akkor is „késznek” számított, ha a felület nem vette át (a néző közben visszament élő TV-re, vagy épp szolgáltatói frissítés futott) – így a képernyőn tartósan az első 500 filmes adag maradt, és semmilyen későbbi megnyitás nem töltötte újra. Mostantól a szakasz csak akkor kész, ha a lista tényleg a felületre került, a részleges adag pedig soha nem csökkenti a már meglévő teljes listát.',
+      'A Frissítés (nincs változás / elhalasztva / kész / hiba / megszakítva) után a program megnézi, hogy a nyitott Mozi/Sorozat nézet listája hiányos-e, és ha igen, a tartós tárból, letöltés nélkül pótolja.',
+      'HIÁNYOS MENTÉS JAVÍTÁSA: ha a készüléken a film lista fejléce több adagot ígér, mint amennyi tényleg a tárolóban van (régi, kvótahibás mentés), a Frissítés ezt mostantól felismeri, a film indexlistát EGYSZER újratölti, és teljes generációként menti – a kedvencek és a folytatási pozíciók megmaradnak, az élő és a sorozat lista érintetlen. A diagnosztika ezt kiírja: „Kész – a hiányos filmlista helyreállt”.',
+    ],
+  },
+  {
+    version: '2.5.293',
     date: '2026-11-03',
     changes: [
       'GYORS ZAP tényleg működik (#24/#26-os napló, „csatornaváltás 5 mp, nem 1 mp"): a CH+/CH− mostantól a ref-ből (azonnal frissülő azonosítóból) számolja a következő csatornát, így gyors egymás utáni váltásnál nem ugrunk vissza ugyanarra, és az előkészítés (prefetch) mindig a valóban következő csatornát tölti előre – eddig egy lépéssel lemaradva a rossz csatornát töltötte, ezért a GYORS ZAP soha nem váltott be, és minden váltás hidegen 2-5 mp-ig tartott.',
