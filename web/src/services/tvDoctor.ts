@@ -1068,9 +1068,16 @@ export function isHungarianDoctorChannel(
   return /magyar|hungary|\bhu\b/i.test(hay);
 }
 
-/** Tartósan tárolható-e ez a tanult rekord? (Csak magyar csatorna.) */
-export function isPersistableDoctorRecord(record?: { countryCode?: string } | null): boolean {
-  return String(record?.countryCode || '').toUpperCase() === 'HU';
+/** Tartósan tárolható-e ez a tanult rekord? (Csak magyar csatorna.) 2.5.310: kulcs-előtag és név alapján is felismerjük a HU csatornát, hogy IPK-újraindításkor se vesszen el a 8 tanult útvonal. */
+export function isPersistableDoctorRecord(record?: { countryCode?: string; channelKey?: string; channelName?: string } | null): boolean {
+  if (!record) return false;
+  const code = String((record as any).countryCode || '').trim().toUpperCase();
+  if (code === 'HU') return true;
+  const key = String((record as any).channelKey || '').toLowerCase();
+  if (key.startsWith('hu:')) return true;
+  if (code) return false;
+  const name = String((record as any).channelName || '');
+  return /magyar|hungary/i.test(name);
 }
 
 /* ============================================================================
@@ -1144,8 +1151,9 @@ function readStore(storage?: Storage | null): DoctorStoreData {
        * 2.5.294: a korábbi verziók minden országról tanultak. Mostantól csak a
        * magyar csatornák tudása marad meg tartósan – a régi, idegen rekordokat
        * az első olvasáskor eldobjuk, és a szűkített kép visszaíródik.
+       * 2.5.310: HU felismerés kulcs-előtaggal és névvel is (IPK újraindítás után se vesszen el a 8 tanult útvonal).
        */
-      if (String(v.countryCode || '').toUpperCase() !== 'HU') {
+      if (!isPersistableDoctorRecord(v as any)) {
         hadForeign = true;
         continue;
       }
@@ -1584,7 +1592,17 @@ export function getChannelDoctorRecord(
     if (byId) return byId;
   }
   const key = normalizeChannelDoctorKey(channel);
-  return store.byKey[key] || null;
+  if (store.byKey[key]) return store.byKey[key];
+  // 2.5.310: IPK újraindításkor a csatorna országkódja hiányozhat, de a tanult kulcs hu: előtaggal mentődött – próbáljuk mindkét variánst
+  if (key.includes(':')) {
+    const withoutPrefix = key.split(':').slice(1).join(':');
+    if (withoutPrefix && store.byKey[withoutPrefix]) return store.byKey[withoutPrefix];
+  }
+  if (!key.startsWith('hu:')) {
+    const withHu = `hu:${key}`;
+    if (store.byKey[withHu]) return store.byKey[withHu];
+  }
+  return null;
 }
 
 export function isChannelHandledByDoctor(
@@ -1966,7 +1984,8 @@ export function selectChannelLaunchPlan(
       && (continueAlternateCalibration || startAlternateCalibration);
     const chosenFormatBase: LiveFormat = shouldProbeAlternateFormat
       ? alternateFormat
-      : (supportsDualFormat && learnedFormatSuccesses >= 2 ? learnedFormat : fallbackPrimary);
+      // 2.5.310: már 1 igazolt siker is elég, hogy a tanult formátumot ne írja felül a fallback (IPK újraindítás után azonnal éljen a tudás)
+      : (supportsDualFormat && learnedFormatSuccesses >= 1 ? learnedFormat : fallbackPrimary);
 
     // Ha a tanulási létra egy gyorsabb pufferprofilt jelölt ki, de azt
     // még nem próbáltuk, a következő indításkor ténylegesen azt kell kipróbálni.
@@ -1988,15 +2007,15 @@ export function selectChannelLaunchPlan(
      * legjobbnak mért útvonala indul – ha az legalább kétszer igazoltan
      * működött és megbízható. Időszakos sebességpróba alatt (hogy legyen
      * összehasonlítási alap) és hűtőben a régi logika marad.
+     * 2.5.310: IPK újraindításkor a már tanult 8 útvonal közül a legjobbat már 1 igazolt indulástól alkalmazzuk, hogy a tanulás soha ne kezdődjön újra.
      */
     const bestLearnedRoute = shouldProbeAlternateFormat || inCooldown ? null : learnedRouteFor(record);
     const routeReliable = Boolean(
       bestLearnedRoute
-      // Legalább 3 igazolt indulás kell – az első 1-2 adás után még a gyorsítási
-      // létra (balanced -> fast -> turbo -> instant) tapasztalatát gyűjtjük.
-      && bestLearnedRoute.ok >= 3
+      // 2.5.310: már 1 igazolt indulástól használjuk a tanult útvonalat (korábban 3 volt), hogy a hosszú memóriából/Supabase-ből betöltött tudás azonnal éljen
+      && bestLearnedRoute.ok >= 1
       && (bestLearnedRoute.fail === 0
-        || bestLearnedRoute.ok / (bestLearnedRoute.ok + bestLearnedRoute.fail) >= 0.6)
+        || bestLearnedRoute.ok / (bestLearnedRoute.ok + bestLearnedRoute.fail) >= 0.5)
       && (bestLearnedRoute.format === fallbackPrimary || supportsDualFormat),
     );
     const chosenFormat: LiveFormat = routeReliable && bestLearnedRoute
@@ -3126,8 +3145,9 @@ export function mergeCloudProfilesIntoLocal(
     /*
      * 2.5.294: a felhő csak a magyar csatornák tudását tartalmazza; idegen
      * országú profilt nem veszünk át (a régi, feltöltött sorok így sem hatnak).
+     * 2.5.310: kulcs-előtaggal is felismerjük a HU-t, hogy IPK újraindításkor se vesszen el.
      */
-    if (String((incoming as { countryCode?: string }).countryCode || '').toUpperCase() !== 'HU') continue;
+    if (!isPersistableDoctorRecord({ countryCode: (incoming as any).countryCode, channelKey: key, channelName: String((incoming as any).channelName || '') } as any)) continue;
     const incomingRoutes = sanitizeDoctorRoutes((incoming as { routes?: unknown }).routes);
     const bp: DoctorBufferProfileId = isValidBufferProfile(incoming.bestBufferProfile)
       ? incoming.bestBufferProfile
@@ -3264,13 +3284,43 @@ export function mergeCloudRoutesIntoLocal(
 
   for (const row of rows.slice(0, 600)) {
     if (!row || typeof row !== 'object') continue;
-    if (String(row.country_code || '').toUpperCase() !== 'HU') continue;
     const key = String(row.channel_key || '').slice(0, 120);
     if (!key || key.startsWith('vod:')) continue;
-    const existing = store.byKey[key];
-    if (!existing) continue; // ismeretlen csatornára nem hozunk létre „üres” rekordot
+    // 2.5.310: HU felismerés kulcs-előtaggal is, és IPK-újraindításkor a Supabase-ből akkor is visszaállítjuk a 8 tanult útvonalat, ha a helyi tárhely üres volt
+    if (!isPersistableDoctorRecord({ countryCode: String(row.country_code || ''), channelKey: key, channelName: key } as any)) continue;
     const incoming = sanitizeDoctorRoutes(row.routes);
     if (incoming.length === 0) continue;
+    let existing = store.byKey[key];
+    if (!existing) {
+      const bestRoute = rankDoctorRouteList(incoming)[0];
+      const bp: DoctorBufferProfileId = bestRoute ? bestRoute.bufferProfile : 'balanced';
+      const cfg = DOCTOR_BUFFER_CONFIGS[bp] || DOCTOR_BUFFER_CONFIGS.balanced;
+      // Összesített számlálók a bejövő útvonalakból – hogy a launch-plan azonnal használhassa
+      let tsOk = 0; let tsFail = 0; let hlsOk = 0; let hlsFail = 0; let stalls = 0;
+      for (const r of incoming) {
+        if (r.format === 'ts') { tsOk += r.ok; tsFail += r.fail; } else { hlsOk += r.ok; hlsFail += r.fail; }
+        stalls += r.stalls;
+      }
+      const newRec: ChannelDoctorRecord = {
+        channelKey: key,
+        channelName: key,
+        countryCode: 'HU',
+        bestFormat: bestRoute ? bestRoute.format : 'ts',
+        bestBufferProfile: bp,
+        bestBufferAheadSeconds: cfg.minBufferAheadSeconds,
+        tsAvgStartupMs: bestRoute && bestRoute.format === 'ts' && bestRoute.avgStartupMs ? bestRoute.avgStartupMs : null,
+        hlsAvgStartupMs: bestRoute && bestRoute.format === 'hls' && bestRoute.avgStartupMs ? bestRoute.avgStartupMs : null,
+        bestStartupMs: bestRoute ? bestRoute.bestStartupMs : null,
+        tsOk, tsFail, hlsOk, hlsFail, stalls, repairsOk: 0,
+        bufferStats: {},
+        routes: incoming,
+        source: 'cloud',
+        updatedAt: Date.now(),
+      };
+      store.byKey[key] = newRec;
+      mergedCount += 1;
+      continue;
+    }
 
     const byId = new Map<string, DoctorRoute>();
     for (const route of sanitizeDoctorRoutes(existing.routes)) byId.set(route.id, route);

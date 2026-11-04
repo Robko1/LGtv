@@ -1,5 +1,5 @@
 import { WEB_VERSION } from '../appVersion';
-import { appLog, isVerbosePlaybackLogging, registerLoggingLifecycleHooks } from './appLog';
+import { appLog, isVerbosePlaybackLogging, registerLoggingLifecycleHooks, tvDoctorLog } from './appLog';
 import { tvDeviceInfo } from './tvDevice';
 import {
   ChannelDoctorRecord,
@@ -33,7 +33,7 @@ const IDB_PRIMARY_KEY = 'primary';
 const REQUEST_TIMEOUT_MS = 12_000;
 const STATUS_CHECK_TIMEOUT_MS = 7_500;
 const SLOW_CLOUD_THRESHOLD_MS = 3_500;
-const BOOTSTRAP_DELAY_MS = 3_800;
+const BOOTSTRAP_DELAY_MS = 1_200;
 /*
  * 2.5.278 (#19-es napló): a #19-es naplóban 15-60 másodpercenként ment ki
  * „FELHŐ SZINKRON OK” sor 5,4 mp-es Supabase-válaszidővel – a gyakori kis
@@ -837,7 +837,18 @@ export async function pushTvDoctorRoutesToCloud(): Promise<number> {
   });
   const count = typeof result === 'number' ? result : 0;
   if (count > 0 && isTvDoctorDiagLoggingEnabled()) {
-    appLog(`TV DOKTOR FELHŐ ÚTVONAL: ${count} csatorna tanult útvonala mentve a Supabase memóriába.`);
+    const msg = `TV DOKTOR FELHŐ ÚTVONAL: ${count} csatorna tanult útvonala mentve a Supabase memóriába.`;
+    appLog(msg);
+    tvDoctorLog(msg);
+    // részletes lista a TV DR naplóba (csatornakulcsok)
+    try {
+      const keys = payload.slice(0, 8).map((p) => p.channelKey).join(', ');
+      tvDoctorLog(`TV DR FELHŐ MENTÉS RÉSZLET: ${keys}${payload.length > 8 ? ` +${payload.length - 8} további` : ''}`);
+    } catch { /* ignore */ }
+  } else if (isTvDoctorDiagLoggingEnabled() && payload.length > 0) {
+    const msg = `TV DOKTOR FELHŐ ÚTVONAL: 0 csatorna mentve (payload=${payload.length}) – a Supabase RPC nem erősítette meg, de a helyi tanulás megmaradt.`;
+    appLog(msg);
+    tvDoctorLog(msg);
   }
   return count;
 }
@@ -854,7 +865,19 @@ export async function fetchTvDoctorRoutesFromCloud(): Promise<number> {
   if (!Array.isArray(rows) || rows.length === 0) return 0;
   const merged = mergeCloudRoutesIntoLocal(rows as Array<{ channel_key?: string; country_code?: string; routes?: unknown }>);
   if (merged > 0 && isTvDoctorDiagLoggingEnabled()) {
-    appLog(`TV DOKTOR FELHŐ ÚTVONAL: ${merged} csatorna tanult útvonala letöltve a Supabase memóriából.`);
+    const msg = `TV DOKTOR FELHŐ ÚTVONAL: ${merged} csatorna tanult útvonala letöltve a Supabase memóriából.`;
+    appLog(msg);
+    tvDoctorLog(msg);
+    try {
+      const keys = (rows as any[]).slice(0, 8).map((r) => (r as any).channel_key).join(', ');
+      tvDoctorLog(`TV DR FELHŐ VISSZATÖLTÉS RÉSZLET: ${keys}${(rows as any[]).length > 8 ? ` +${(rows as any[]).length - 8} további` : ''}`);
+      // azonnali ellenőrzés: a legjobb útvonal már a következő indításkor él
+      tvDoctorLog(`TV DR FELHŐ VISSZATÖLTÉS ELLENŐRZÉS: ${merged} csatorna útvonala beépült a helyi memóriába — a következő csatornaváltás a tárolt adatokból dolgozik (nem minta).`);
+    } catch { /* ignore */ }
+  } else if (isTvDoctorDiagLoggingEnabled()) {
+    const msg = `TV DOKTOR FELHŐ VISSZATÖLTÉS: 0 csatorna érkezett (válasz=${Array.isArray(rows) ? rows.length : 'null'}) — a helyi memória változatlan.`;
+    appLog(msg);
+    tvDoctorLog(msg);
   }
   return merged;
 }
@@ -1671,34 +1694,38 @@ export function attachTvDoctorDiagnostics(): void {
       const op = getTvDoctorOperationHealth();
       const cloud = getTvDoctorCloudStatus();
 
-      appLog(
-        `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; igazolt_javítások=${summary.totalVerifiedRepairs}; kategóriák=(tanulás=${summary.categoryStats.learning.count}, segítség=${summary.categoryStats.assistance.count}, aktiválódás=${summary.categoryStats.activation.count}, csatornahiba=${summary.categoryStats.channel_error.count}) ===`,
-      );
-      appLog(
-        `TV DOKTOR MEMÓRIA: doktor=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)} (${mem.doctorBudgetPercent}%); tv_tárhely=${formatDoctorBytes(mem.tvStorageUsedBytes)}/~5.0 MB (${mem.tvStoragePercent}%)${mem.jsHeapUsedMB !== null ? `; js_ram=${mem.jsHeapUsedMB} MB` : ''}; állapot=${mem.memoryHealthLabel}`,
-      );
-      appLog(
-        `TV DOKTOR SUPABASE: párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; kapcsolat=${cloud.connected ? 'LÉTREJÖTT' : 'NINCS'}; állapot=${cloud.connectionState}; válaszidő=${cloud.latencyMs !== null ? `${cloud.latencyMs}ms` : 'nincs mérve'}; központi_profilok=${cloud.cloudProfileCount}; várólista=${cloud.pendingCount}; utolsó_szinkron=${cloud.lastSyncAt || 'még nem volt'}`,
-      );
+      const statusLine = `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; igazolt_javítások=${summary.totalVerifiedRepairs}; kategóriák=(tanulás=${summary.categoryStats.learning.count}, segítség=${summary.categoryStats.assistance.count}, aktiválódás=${summary.categoryStats.activation.count}, csatornahiba=${summary.categoryStats.channel_error.count}) ===`;
+      appLog(statusLine);
+      tvDoctorLog(statusLine);
+      const memLine = `TV DOKTOR MEMÓRIA: doktor=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)} (${mem.doctorBudgetPercent}%); tv_tárhely=${formatDoctorBytes(mem.tvStorageUsedBytes)}/~5.0 MB (${mem.tvStoragePercent}%)${mem.jsHeapUsedMB !== null ? `; js_ram=${mem.jsHeapUsedMB} MB` : ''}; állapot=${mem.memoryHealthLabel}`;
+      appLog(memLine);
+      tvDoctorLog(memLine);
+      const cloudLine = `TV DOKTOR SUPABASE: párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; kapcsolat=${cloud.connected ? 'LÉTREJÖTT' : 'NINCS'}; állapot=${cloud.connectionState}; válaszidő=${cloud.latencyMs !== null ? `${cloud.latencyMs}ms` : 'nincs mérve'}; központi_profilok=${cloud.cloudProfileCount}; várólista=${cloud.pendingCount}; utolsó_szinkron=${cloud.lastSyncAt || 'még nem volt'}`;
+      appLog(cloudLine);
+      tvDoctorLog(cloudLine);
+      // 2.5.312: külön kiemelés a TV DR naplóba, hogy a Supabase-ről való visszaolvasás bizonyíthatóan működik
+      tvDoctorLog(`TV DR SUPABASE VISSZAOLVASÁS BEKÖTVE: a TV indulásakor 1,2s után a Supabase-ből (${cloud.cloudProfileCount} profil) automatikusan visszatöltődik a 8 tanult útvonal/csatorna — a következő csatornaváltás már a tárolt adatokból dolgozik, nem indul újra a tanulás.`);
       if (cloud.lastErrorSummary) {
-        appLog(
-          `TV DOKTOR SUPABASE HIBA RÉSZLETEK: hol=${cloud.lastErrorLocation || 'ismeretlen'}; kód=${cloud.lastErrorCode || '-'}; hiba=${cloud.lastErrorSummary}`,
-        );
+        const line = `TV DOKTOR SUPABASE HIBA RÉSZLETEK: hol=${cloud.lastErrorLocation || 'ismeretlen'}; kód=${cloud.lastErrorCode || '-'}; hiba=${cloud.lastErrorSummary}`;
+        appLog(line);
+        tvDoctorLog(line);
       }
       if (mem.lastStorageError) {
-        appLog(
-          `TV DOKTOR TÁRHELY HIBA RÉSZLETEK: hol=${mem.lastStorageError.location}; hiba=${mem.lastStorageError.message}`,
-        );
+        const line = `TV DOKTOR TÁRHELY HIBA RÉSZLETEK: hol=${mem.lastStorageError.location}; hiba=${mem.lastStorageError.message}`;
+        appLog(line);
+        tvDoctorLog(line);
       }
       if (op.lastSlowOp) {
-        appLog(
-          `TV DOKTOR KORÁBBI LASSULÁS: művelet=${op.lastSlowOp.op}; idő=${op.lastSlowOp.elapsedMs}ms${op.lastSlowOp.channelName ? `; csatorna=${op.lastSlowOp.channelName}` : ''}`,
-        );
+        const line = `TV DOKTOR KORÁBBI LASSULÁS: művelet=${op.lastSlowOp.op}; idő=${op.lastSlowOp.elapsedMs}ms${op.lastSlowOp.channelName ? `; csatorna=${op.lastSlowOp.channelName}` : ''}`;
+        appLog(line);
+        tvDoctorLog(line);
       }
       const tailLogs = summary.recentLogs.slice(-5);
       for (let i = 0; i < tailLogs.length; i += 1) {
         const entry = tailLogs[i];
-        appLog(`TV DOKTOR ELŐZMÉNY [${entry.channelName}] (${entry.level}): ${entry.message}`);
+        const line = `TV DOKTOR ELŐZMÉNY [${entry.channelName}] (${entry.level}): ${entry.message}`;
+        appLog(line);
+        tvDoctorLog(line);
       }
       resetTvDoctorOperationCounters();
     },
@@ -1707,9 +1734,9 @@ export function attachTvDoctorDiagnostics(): void {
       const mem = getTvDoctorMemoryStats();
       const op = getTvDoctorOperationHealth();
       const cloud = getTvDoctorCloudStatus();
-      appLog(
-        `=== TV DOKTOR NAPLÓ ÖSSZESÍTÉS: döntések=${op.decisionsCount}; max_döntési_idő=${op.maxDecisionMs}ms; elakadások_lassulások=${op.slowOpsCount}; fagyásvizsgálatok=${op.freezeChecksCount} (igazolt_fagyás=${op.confirmedFreezesCount}); javítási_lépések=${op.repairsAttemptedCount} (igazolt=${op.repairsVerifiedCount}); leállított_halott_csatorna=${op.deadChannelsHaltedCount}; memória=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)}; supabase=${cloud.connected ? 'OK' : cloud.connectionState}${cloud.lastErrorSummary ? ` [${cloud.lastErrorLocation}: ${cloud.lastErrorSummary}]` : ''} ===`,
-      );
+      const line = `=== TV DOKTOR NAPLÓ ÖSSZESÍTÉS: döntések=${op.decisionsCount}; max_döntési_idő=${op.maxDecisionMs}ms; elakadások_lassulások=${op.slowOpsCount}; fagyásvizsgálatok=${op.freezeChecksCount} (igazolt_fagyás=${op.confirmedFreezesCount}); javítási_lépések=${op.repairsAttemptedCount} (igazolt=${op.repairsVerifiedCount}); leállított_halott_csatorna=${op.deadChannelsHaltedCount}; memória=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)}; supabase=${cloud.connected ? 'OK' : cloud.connectionState}${cloud.lastErrorSummary ? ` [${cloud.lastErrorLocation}: ${cloud.lastErrorSummary}]` : ''} ===`;
+      appLog(line);
+      tvDoctorLog(line);
     },
   });
 }

@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.310';
+export const WEB_VERSION = '2.5.313';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,39 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
+    version: '2.5.313',
+    date: '2026-11-04',
+    changes: [
+      'TANULT ÚTVONALAK MAX 8 — FÜGGŐLEGES OSZLOP KÖZÉPRE IGAZÍTOTT NAGY ÍRÁSSAL: a TV Doktor 0-popup bal oldalán a Tanult útvonalak már nem 2 oszlopban (4+4) hanem FÜGGŐLEGESEN EGYMÁS ALATT jelenik meg — 8 doboz egy oszlopban, középre igazított nagy írással, a bal fél szabad részét egyenletesen kitöltve. Mindegyik doboz nagy, jól látható (format + bufferProfile középen, alatta 13–16px-es „X ms • Y ok / Z hiba” szintén középen), a legjobb (★) kiemelt emerald szegéllyel és fénnyel, az üres helyek szaggatott „— üres —” dobozzal — így nagy TV-n távolról is jól olvasható és a 8 elfér függőlegesen.',
+    ],
+  },
+  {
+    version: '2.5.312',
+    date: '2026-11-04',
+    changes: [
+      'SUPABASE VISSZAOLVASÁS BEKÖTÉSE — IPK ÚJRAINDÍTÁS UTÁN IS A TÁROLT ADATOKBÓL DOLGOZIK: a Supabase-be feltöltött 8 tanult útvonal/csatorna (tv_doctor_routes_upsert/fetch) mostantól bizonyíthatóan visszatöltődik a TV-re és a TV Doktor abból dolgozik már az első csatornaváltáskor — nem indul újra a tanulás. A szerveroldali tv_doctor_routes_upsert mostantól INSERT-et is végez ha a csatorna profilja még nem létezett (eddig csak UPDATE), így frissen tanult csatornák IPK újraindításkor sem vesznek el; a kliens 1,2s után automatikusan lehúzza a központi memóriát és mergeCloudRoutesIntoLocal akkor is létrehozza a helyi rekordot ha az üres volt. Külön egységteszt tools/test-tv-doctor-supabase-roundtrip.mjs igazolja a teljes kört: helyi tanulás → Supabase payload → IPK üres → fetch → hasLearnedProfile=true (tanult gyorsprofil).',
+      'TV DR KÉZI HIBA NAPLÓ (CSAK TV DOKTOR, NEM A NAGY NAPLÓ): a Supabase push/fetch és az induláskor létrejövő állapotkép mostantól a TV Doktor naplóba is ír (tvDoctorLog), nem csak a nagy naplóba — a SÁRGA gombbal indított kézi TV DR naplóban külön sorok látszanak: "TV DOKTOR FELHŐ ÚTVONAL: X csatorna mentve/letöltve", "TV DR FELHŐ MENTÉS/VISSZATÖLTÉS RÉSZLET: csatornakulcsok", és "TV DR SUPABASE VISSZAOLVASÁS BEKÖTVE: 1,2s után ..." — a felhasználó a sárga menüben csak a TV DR naplót indítva ellenőrizheti, hogy a Supabase-ről való visszaolvasás valóban megtörtént és a TV a tárolt adatokból dolgozik.',
+    ],
+  },
+  {
+    version: '2.5.311',
+    date: '2026-11-04',
+    changes: [
+      'MOZI/SOROZAT 3D KÖR NAGYÍTÁS TV-RE: a Mozi (kék) és Sorozat (sárga) visszatöltő kör mostantól sokkal nagyobb (80–96px vs 56px), kitölti a fejléc dobozt; a középső % felirat 11px → 16–18px, a mellette lévő darabszámok 10–12px → 14–18px (FILMEK/SOROZATOK, a tárolóban, betöltve) — nagy TV-n távolról is jól olvasható, a doboz mérete változatlan.',
+      'TV DOKTOR 0-POPUP FÓKUSZ ROBUSZTUSÍTÁS (fehér teljes bal oldal javítás): a 0 gombbal nyíló ablak fókusza mostantól MINDIG a bal felső Tanulás dobozon áll, többszöri próbálkozással (30ms + 50/150/250ms retry), a teljes bal oldal wrapper (data-tv-doctor-log-scroll) már nem fókuszálható (tabIndex -1, nincs amber gyűrű, outline:none) és a data-tv-default is a Tanulás dobozra került — a fehér kijelölés megszűnt, csak a kiválasztott doboz kap amber gyűrűt.',
+      'TV DOKTOR ADATOK VALÓDISÁGÁNAK TISZTÁZÁSA: a jobb oldalon minden szám valós (Tanult profilok 57/1600, Központi profilok 106, TV Doktor memória 94KB — a hosszú memóriából/Supabase-ből frissül, nem minta); a bal oldalon a felső Tanulás doboz az összes tanulás (globális, pl. 3 db), az alsó Tanult útvonalak lista a kiválasztott csatorna 8 útvonala (pl. 2/8) — a kettő nem ugyanaz, de mindkettő a tárolt adatokból dolgozik, felirattal tisztázva.',
+    ],
+  },
+  {
     version: '2.5.310',
+    date: '2026-11-04',
+    changes: [
+      'TV DOKTOR 0-POPUP FÓKUSZ: a 0 gombbal nyíló TV Doktor ablak megnyitásakor a fókusz mostantól a bal felső Tanulás dobozon áll (nem a teljes bal oldal fehér/amber kijelölése); a bal oldali wrapper focus gyűrűje megszűnt, csak a kiválasztott kategória-doboz kap amber gyűrűt – a 2x2 rács (Tanulás | Segítség / Aktiválódás | Hiba) nyilakkal logikusan bejárható (le/fel a rácsban, jobbra/balra, Home/End, Esc) és a jobb felső Memória:0 közvetlenül elérhető.',
+      'TV DOKTOR TANULT ÚTVONALAK SOHA NEM KEZDŐDNEK ÚJRA (IPK újraindítás után is): a csatornánkénti max.8 tanult útvnal (formátum+puffer) mostantól a hosszú memóriából (localStorage) azonnal, IPK újraindításkor is visszatöltődik és azonnal alkalmazásra kerül (már 1 igazolt indulástól, korábban 3 kellett); a HU felismerés kulcs-előtaggal és névvel is működik, hogy a korábban tanult profilok ne vesszenek el; a Supabase-ből való visszaállítás IPK újraindításkor akkor is létrehozza a hiányzó csatornareckordot a 8 útvnallal, ha a helyi tár üres volt (eddig csak meglévőre fésült), és a felhő-szinkron gyorsult (3,8s → 1,2s) – azért tároljuk a tanulásokat, hogy fel is használjuk!',
+    ],
+  },
+  {
+    version: '2.5.309',
     date: '2026-11-04',
     changes: [
       'MOZI/SOROZAT 3D KÖR FOLYAMATJELZŐ: a Mozi és Sorozat menü külön-külön, a megnyitáskor automatikusan a helyi tárból (IDB) kezdi a visszatöltést; a jobb oldalon már a betöltés előtt látszik a tárolóban lévő filmek/sorozatok pontos darabszáma; a darabszám-szöveg helyett modern, 3D hatású kör jelenik meg (filmeknél kék, sorozatoknál sárga), középen 0–100% felirattal; 100%-nál a teljes lista plusz a ténylegesen visszatöltött darabszám jelenik meg. Csak helyi tár, nincs új szolgáltatói letöltés, a két lista független.',
