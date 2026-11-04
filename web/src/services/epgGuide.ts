@@ -36,6 +36,7 @@ import { EpgNowNext, getCachedShortEpg, loadSimpleEpg, nowNextFromEpg, streamIdF
 import { getHuEpgIds, HU_EPG_IDS } from './huEpgIds';
 import { openIdbStore } from './idbStore';
 import { xtreamService } from './xtreamService';
+import { formatBudapestTime, parseBroadcastTime } from '../utils/broadcastTime';
 
 interface GuideEntry {
   /** Kezdés (unix másodperc). */
@@ -153,21 +154,20 @@ function parseXmltvDate(value: string | null | undefined): number {
   const text = String(value).trim();
   const match = XMLTV_DASHED.exec(text) || XMLTV_COMPACT.exec(text);
   if (!match) return 0;
-  const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
   const hour = Number(match[4]);
   const minute = Number(match[5]);
-  const second = match[6] ? Number(match[6]) : 0;
+  // A teljes értelmezés (időzónával vagy anélkül) a közös segédfüggvényben van.
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return 0;
-  let offsetMinutes = 0;
-  if (match[7]) {
-    const sign = match[7] === '-' ? -1 : 1;
-    offsetMinutes = sign * (Number(match[8]) * 60 + Number(match[9]));
-  }
-  const utc = Date.UTC(year, month - 1, day, hour, minute, second);
-  const seconds = Math.floor((utc - offsetMinutes * 60_000) / 1000);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  /*
+   * 2.5.297: ha az XMLTV-ben NINCS időzóna (a legtöbb magyar panel így adja:
+   * „20261104020000”), az az adás MAGYAR ideje. Korábban ilyenkor UTC-nek
+   * vettük, ezért a magyar műsorújság a nem magyar időzónában élő nézőnél
+   * (pl. Írország, UTC+0) egy órával csúszott, és a „most” a lejárt műsort
+   * mutatta. Az időzóna megadását továbbra is tiszteletben tartjuk.
+   */
+  return parseBroadcastTime(text);
 }
 
 /** XML entitások visszafejtése (a címekben gyakran van `&amp;`). */
@@ -977,7 +977,16 @@ interface PersistedGuideMeta {
    * tucat műsort látta (vagy semmit).
    */
   complete?: boolean;
+  /**
+   * 2.5.297: milyen időzóna-értelmezéssel készült a mentés. A régi (készülék
+   * helyi idejét használó) mentések időbélyegei eltolódtak, ezért azokat nem
+   * használjuk fel: egyszer újratöltjük a műsorújságot magyar időben.
+   */
+  timeMode?: string;
 }
+
+/** A jelenlegi műsoridő-értelmezés azonosítója (magyar idő). */
+const GUIDE_TIME_MODE = 'hu-budapest-1';
 
 /**
  * Ennyi műsor kell csatornánként ahhoz, hogy a mentett példány használhatónak
@@ -1052,6 +1061,7 @@ async function persistGuide(providerId: string, complete: boolean): Promise<void
       bytes: lastBytes,
       chunks,
       complete,
+      timeMode: GUIDE_TIME_MODE,
     };
     // A fejléc MINDIG utolsóként íródik: félkész mentést soha nem olvasunk be.
     await store.put(guideMetaKey(providerId), JSON.stringify(meta));
@@ -1075,6 +1085,13 @@ async function restorePersistedGuide(
     if (!rawMeta) return null;
     const meta = JSON.parse(rawMeta) as PersistedGuideMeta;
     if (!meta || meta.providerId !== providerId || !meta.chunks) return null;
+    if (meta.timeMode !== GUIDE_TIME_MODE) {
+      appLog(
+        'EPG-ÁLLAPOT: a mentett műsorújság régi időzóna-kezeléssel készült (a műsoridők csúsztak), '
+        + 'ezért egyszer újratöltjük magyar időben.',
+      );
+      return null;
+    }
     let restored = 0;
     for (let chunk = 0; chunk < meta.chunks; chunk++) {
       const raw = await store.get(guideChunkKey(providerId, chunk));
@@ -1583,12 +1600,8 @@ function guideKeyFor(channel: { epgChannelId?: string | null; name?: string }): 
 
 /** 24 órás, nyelvfüggetlen idő (a rövid EPG-vel azonos formátum). */
 function time24(seconds: number): string {
-  const value = Number(seconds);
-  if (!Number.isFinite(value) || value <= 0) return '--:--';
-  const date = new Date(value * 1000);
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  return `${hours < 10 ? '0' : ''}${hours}:${minutes < 10 ? '0' : ''}${minutes}`;
+  // 2.5.297: magyar idő (a néző bárhol él, a magyar műsorújság ugyanazt mutatja).
+  return formatBudapestTime(seconds);
 }
 
 /** Most / következő a letöltött műsorújságból (ha van rá adat). */

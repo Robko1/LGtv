@@ -12,6 +12,7 @@
 import { ProviderRef } from './contentStore';
 import { appLog } from './appLog';
 import { xtreamService } from './xtreamService';
+import { formatBudapestTime, parseBroadcastTime } from '../utils/broadcastTime';
 
 export interface EpgEntry {
   id: string;
@@ -73,8 +74,14 @@ function decodeBase64(value: string | undefined): string {
 function toTimestamp(value: string | number | undefined, fallback: string | undefined): number {
   const ts = Number(value);
   if (Number.isFinite(ts) && ts > 0) return ts;
-  const parsed = fallback ? Date.parse(fallback) : NaN;
-  return Number.isFinite(parsed) ? Math.round(parsed / 1000) : 0;
+  /*
+   * 2.5.297: ha a panel csak falióra-szöveget ad („2026-11-04 02:00:00”
+   * időzóna nélkül), azt MAGYAR időnek kell venni. A korábbi `Date.parse`
+   * a készülék saját idejeként olvasta, ezért Írországban (UTC+0) a magyar
+   * műsorújság egy órával csúszott, és a „most futó” műsor a már lejárt,
+   * előző műsor volt.
+   */
+  return parseBroadcastTime(fallback);
 }
 
 /** A végpont nyers epg_listings elemeinek közös leképezése EpgEntry-re. */
@@ -237,12 +244,12 @@ export async function loadShortEpg(
  * függ a telepített nyelvi csomagoktól (régi webOS-on az Intl hiányos).
  */
 export function formatTime24(seconds: number): string {
-  const value = Number(seconds);
-  if (!Number.isFinite(value) || value <= 0) return '--:--';
-  const date = new Date(value * 1000);
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  return `${hours < 10 ? '0' : ''}${hours}:${minutes < 10 ? '0' : ''}${minutes}`;
+  /*
+   * 2.5.297: a műsoridőt MAGYAR időben írjuk ki (nem a készülék helyi
+   * idejében), így a magyar műsorújság minden országban ugyanazt mutatja,
+   * mint a magyar újság – és a „most” jelölés a valóban futó műsorra esik.
+   */
+  return formatBudapestTime(seconds);
 }
 
 function fmtRange(start: number, end: number): string {

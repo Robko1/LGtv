@@ -94,6 +94,37 @@ function dashedDate(seconds: number): string {
     + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} +0000`;
 }
 
+/**
+ * 2.5.297: a panelek gyakori esete – az XMLTV-ben NINCS időzóna, az időpont a
+ * magyar falióra szerint értendő. Írországban (UTC+0) ez eddig egy órás
+ * csúszást okozott: a „most futó” a már lejárt műsor volt.
+ */
+function huWallClockXmltv(seconds: number): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Budapest',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(seconds * 1000));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '00';
+  return `${get('year')}${get('month')}${get('day')}${get('hour')}${get('minute')}${get('second')}`;
+}
+
+const NO_TZ_GUIDE = `<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="notz.hu"><display-name>Időzóna TV</display-name></channel>
+  <programme start="${huWallClockXmltv(started)}" stop="${huWallClockXmltv(ends)}" channel="notz.hu">
+    <title>Időzóna nélküli műsor</title>
+  </programme>
+  <programme start="${huWallClockXmltv(nextStart)}" stop="${huWallClockXmltv(nextEnd)}" channel="notz.hu">
+    <title>Időzóna nélküli következő</title>
+  </programme>
+</tv>`;
+
 const DASHED_GUIDE = `<?xml version="1.0" encoding="UTF-8"?>
 <tv>
   <channel id="dash.hu"><display-name>Dash TV</display-name></channel>
@@ -178,6 +209,12 @@ function startServer(): Promise<void> {
         if (variant === 'dashed' || variant === 'many') {
           res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' });
           res.end(variant === 'dashed' ? DASHED_GUIDE : MANY_GUIDE);
+          return;
+        }
+        if (variant === 'notz') {
+          // 2.5.297: időzóna NÉLKÜLI időpontok (magyar falióra).
+          res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' });
+          res.end(NO_TZ_GUIDE);
           return;
         }
         if (variant === 'mixed') {
@@ -351,6 +388,28 @@ check(dashedNow?.now?.title === 'Kötőjeles kezdés',
 check(dashedNow?.next?.title === 'Kötőjeles következő',
   'az elválasztós dátumú KÖVETKEZŐ műsor is megvan',
   String(dashedNow?.next?.title));
+
+// (a2) 2.5.297: időzóna nélküli időpontok = MAGYAR idő (Írországban is jó).
+clearGuide();
+await ensureGuide({ ...provider, username: 'notz' });
+const noTzNow = guideNowNext({ epgChannelId: 'notz.hu' });
+check(noTzNow?.now?.title === 'Időzóna nélküli műsor',
+  'időzóna nélküli XMLTV-ből is megtalálja a most futó műsort',
+  String(noTzNow?.now?.title));
+check(noTzNow?.now?.startTimestamp === started,
+  'az időzóna nélküli időpontot MAGYAR időként értelmezi (nincs 1 órás csúszás)',
+  `várt: ${started}, kapott: ${noTzNow?.now?.startTimestamp}`);
+check(noTzNow?.next?.title === 'Időzóna nélküli következő',
+  'az időzóna nélküli KÖVETKEZŐ műsor is helyes',
+  String(noTzNow?.next?.title));
+{
+  const huHour = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Budapest', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(new Date(started * 1000)).replace('.', ':');
+  check(noTzNow?.now?.time?.startsWith(huHour),
+    'a felület a műsoridőt MAGYAR időben írja ki (nem a készülék helyi idejében)',
+    `várt kezdés: ${huHour}, kapott: ${noTzNow?.now?.time}`);
+}
 
 // (b) Nem időrendi fájl: a MAI műsor nem veszhet el a jövő hetiek mellett.
 clearGuide();
