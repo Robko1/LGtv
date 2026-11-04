@@ -68,6 +68,7 @@ const tasks = [
   { name: 'quality-diagnostics', args: ['tools/test-quality-diagnostics.mjs'] },
   { name: 'tv-device', args: ['tools/test-tv-device.mjs'] },
   { name: 'tv-doctor', args: ['tools/test-tv-doctor.mjs'] },
+  { name: 'tv-doctor-routes', args: ['tools/test-tv-doctor-routes.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');

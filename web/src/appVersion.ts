@@ -7,6 +7,20 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
+    version: '2.5.295',
+    date: '2026-11-04',
+    changes: [
+      'TV DOKTOR TANULÓ ÚTVONALAK (a gyors csatornaváltás továbbfejlesztése): a TV Doktor mostantól minden adásból tanul, és csatornánként (a főoldali magyar csatornáknál) legfeljebb 8 legjobb „útvonalat” jegyez meg – a lejátszási formátumot (TS/HLS) és a pufferprofilt EGYÜTT, a mért indulási idővel. Indításkor a legjobban bevált útvonal indul; ha egy új, jobb útvonal születik, azonnal a legjobbak közé kerül, a leggyengébb pedig kiesik.',
+      'JAVÍTÁS A SAJÁT TANULÁSBÓL: ha indulási hiba vagy megakadás van, a TV Doktor nem váltogat vakon formátumot és puffert, hanem előbb azokat az útvonalakat próbálja ki, amelyek ezen a csatornán korábban már működtek – így gyorsabban áll helyre a folyamatos nézés.',
+      'SUPABASE MEMÓRIA: a tanult útvonalak a felhőbe is felkerülnek a párosított eszköz tokenjével védett, külön memória-kapcsolaton (tv_doctor_routes_upsert / tv_doctor_routes_fetch), így egy másik TV vagy egy újratelepítés is azonnal a bevált beállításokkal indul – induláskor a program előbb ezt a memóriát tölti le, és csak utána szinkronizál. Csak a szükséges adat megy fel: formátum, pufferprofil, mérési számok – stream URL, jelszó, film- vagy sorozatcím soha.',
+      'CSAK MAGYAR CSATORNÁKRÓL TÁROLUNK: a nem magyar csatornákat a TV Doktor továbbra is segíti (gyors indulás, formátumváltás, javítás), de róluk sem a készüléken, sem a felhőben nem marad adat – a korábbi, más országokról összegyűlt tanulás automatikusan törlődik.',
+      'A MEMÓRIA NEM HÍZHAT MEG: a készüléken csatornánként legfeljebb 8 bejegyzés van (a leggyengébb automatikusan kiesik), a felhőben csatornánként ugyanígy 8, csak magyar csatorna, ismeretlen vagy hibás sor pedig nem is kerülhet be.',
+      'AUTOMATIKUS TISZTÍTÁS: a Supabase memória minden szinkron után rendet tesz – csak magyar csatornák maradnak, csatornánként legfeljebb 8 útvonal, a 30 napnál régebbi események és a felesleges sorok törlődnek, így hosszú távon sem halmozódik fel adat.',
+      'A 0-GOMBOS ABLAK: a felugró TV Doktor ablak mostantól mutatja a nézett csatorna tanult útvonalait (melyik indul, mennyi a mért indulási idő), és a működése (megnyitás, zárás, memória nullázás, Supabase-teszt) bekerül a naplóba – az élő, 48 soros eseménylistát viszont nem szemeteli.',
+      'Film és sorozat (VOD): a TV Doktor továbbra is csak a folyékony lejátszást segíti (újraindítás, pufferemelés), de filmről vagy sorozatról SEMMILYEN adatot nem tárol – ez tudatosan így marad.',
+    ],
+  },
+  {
     version: '2.5.294',
     date: '2026-11-04',
     changes: [

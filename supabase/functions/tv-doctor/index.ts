@@ -41,6 +41,11 @@ const BUFFER_PROFILE_DEFAULT_SECONDS = {
   "adaptive-2": 8.0,
   "adaptive-3": 10.0,
 };
+/* 2.5.294: csatornánként legfeljebb ennyi tanult útvonalat őrzünk. */
+const MAX_CHANNEL_ROUTES = 8;
+/* 2.5.294: a felhő csak a magyar csatornák tudását tárolja. */
+const ALLOWED_COUNTRY_CODE = "HU";
+
 const VALID_EVENT_TYPES = new Set([
   "measurement",
   "diagnostic",
@@ -229,6 +234,97 @@ function mergeBufferScores(existingRaw, incomingRaw) {
   return merged;
 }
 
+/**
+ * 2.5.294: a tanult útvonalak (formátum + pufferprofil) tisztítása.
+ * Csak ellenőrzött formátum/puffer és korlátozott számok maradhatnak meg –
+ * URL, jelszó vagy csatornanév soha nem kerül ide.
+ */
+function sanitizeRoutes(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of raw.slice(0, MAX_CHANNEL_ROUTES * 2)) {
+    if (!item || typeof item !== "object") continue;
+    const format = String(item.format || "");
+    const bufferProfile = String(item.bufferProfile || "");
+    if (!VALID_FORMATS.has(format) || !VALID_BUFFER_PROFILES.has(bufferProfile)) continue;
+    const id = format + ":" + bufferProfile;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const num = (value, max) => {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+      return Math.min(max, Math.round(parsed));
+    };
+    const avg = Number(item.avgStartupMs);
+    const best = Number(item.bestStartupMs);
+    const lastOkAt = Number(item.lastOkAt);
+    const lastFailAt = Number(item.lastFailAt);
+    out.push({
+      format,
+      bufferProfile,
+      ok: num(item.ok, 100000),
+      fail: num(item.fail, 100000),
+      stalls: num(item.stalls, 100000),
+      avgStartupMs: Number.isFinite(avg) && avg > 20 ? Math.min(60000, Math.round(avg)) : null,
+      bestStartupMs: Number.isFinite(best) && best > 20 ? Math.min(60000, Math.round(best)) : null,
+      lastOkAt: Number.isFinite(lastOkAt) && lastOkAt > 0 ? Math.round(lastOkAt) : null,
+      lastFailAt: Number.isFinite(lastFailAt) && lastFailAt > 0 ? Math.round(lastFailAt) : null,
+    });
+  }
+  return out;
+}
+
+function routeScore(route) {
+  const ok = Math.max(0, route.ok || 0);
+  const fail = Math.max(0, route.fail || 0);
+  const total = ok + fail;
+  if (total <= 0 || ok <= 0) return -1;
+  const reliability = ok / total;
+  const stallPenalty = Math.min(0.8, ((route.stalls || 0) / Math.max(1, ok)) * 0.45);
+  const speed = route.avgStartupMs && route.avgStartupMs > 20 ? Math.max(0, (4200 - route.avgStartupMs) / 9500) : 0;
+  return reliability - stallPenalty + speed;
+}
+
+/** A legjobb 8 útvonal megtartása (a „sosem sikerült” sorok esnek ki először). */
+function rankRoutes(routes) {
+  const sorted = [...routes].sort((a, b) => {
+    const aPure = a.ok > 0 ? 0 : 1;
+    const bPure = b.ok > 0 ? 0 : 1;
+    if (aPure !== bPure) return aPure - bPure;
+    return routeScore(b) - routeScore(a);
+  });
+  return sorted.slice(0, MAX_CHANNEL_ROUTES);
+}
+
+function mergeRoutes(existingRaw, incomingRaw) {
+  const byId = new Map();
+  for (const route of sanitizeRoutes(existingRaw)) byId.set(route.format + ":" + route.bufferProfile, route);
+  for (const route of sanitizeRoutes(incomingRaw)) {
+    const id = route.format + ":" + route.bufferProfile;
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, route);
+      continue;
+    }
+    byId.set(id, {
+      ...prev,
+      ok: Math.max(prev.ok, route.ok),
+      fail: Math.max(prev.fail, route.fail),
+      stalls: Math.max(prev.stalls, route.stalls),
+      avgStartupMs: prev.avgStartupMs === null
+        ? route.avgStartupMs
+        : (route.avgStartupMs === null ? prev.avgStartupMs : Math.min(prev.avgStartupMs, route.avgStartupMs)),
+      bestStartupMs: prev.bestStartupMs === null
+        ? route.bestStartupMs
+        : (route.bestStartupMs === null ? prev.bestStartupMs : Math.min(prev.bestStartupMs, route.bestStartupMs)),
+      lastOkAt: Math.max(prev.lastOkAt || 0, route.lastOkAt || 0) || null,
+      lastFailAt: Math.max(prev.lastFailAt || 0, route.lastFailAt || 0) || null,
+    });
+  }
+  return rankRoutes([...byId.values()]);
+}
+
 function chooseBestFormat(tsOk, tsFail, tsMs, hlsOk, hlsFail, hlsMs, fallbackFormat) {
   const tsTotal = tsOk + tsFail;
   const hlsTotal = hlsOk + hlsFail;
@@ -306,6 +402,7 @@ function mapProfileRow(row) {
     sampleCount: Number(row.sample_count || 1),
     deviceCount: Number(row.device_count || 1),
     bufferScores: row.buffer_scores || {},
+    routes: sanitizeRoutes(row.routes),
     confidenceScore: Number(row.confidence_score || 0),
     updatedAt: row.updated_at,
   };
@@ -852,7 +949,7 @@ export function createTvDoctorHandler(customEnv = {}) {
 
   async function handleBootstrap(body, auth) {
     const limit = clampInt(body && body.limit, 1, MAX_BOOTSTRAP_LIMIT, DEFAULT_BOOTSTRAP_LIMIT);
-    let query = "?select=channel_key,channel_id_hint,channel_name,country_code,best_format,best_buffer_profile,best_buffer_ahead_seconds,ts_avg_startup_ms,hls_avg_startup_ms,best_startup_ms,ts_success_count,ts_failure_count,hls_success_count,hls_failure_count,stall_count,repair_success_count,sample_count,device_count,buffer_scores,confidence_score,updated_at&order=updated_at.desc,confidence_score.desc&limit=" + limit;
+    let query = "?select=channel_key,channel_id_hint,channel_name,country_code,best_format,best_buffer_profile,best_buffer_ahead_seconds,ts_avg_startup_ms,hls_avg_startup_ms,best_startup_ms,ts_success_count,ts_failure_count,hls_success_count,hls_failure_count,stall_count,repair_success_count,sample_count,device_count,buffer_scores,routes,confidence_score,updated_at&order=updated_at.desc,confidence_score.desc&limit=" + limit;
     if (body && typeof body.since === "string" && Number.isFinite(Date.parse(body.since))) {
       const iso = new Date(body.since).toISOString();
       query += "&updated_at=gt." + encodeURIComponent(iso);
@@ -900,6 +997,8 @@ export function createTvDoctorHandler(customEnv = {}) {
     const appVersion = cleanText(body && body.appVersion, 32) || null;
 
     let mergedProfiles = [];
+    /* 2.5.294: a most szinkronizált magyar csatornák kulcsai (esemény-szűréshez). */
+    const huBatchKeys = new Set();
     if (rawProfiles.length > 0) {
       const validIncoming = [];
       const seenKeys = new Set();
@@ -909,8 +1008,11 @@ export function createTvDoctorHandler(customEnv = {}) {
         const channelName = cleanText(item.channelName, 140);
         if (!channelKey || !channelName || seenKeys.has(channelKey)) continue;
         if (channelKey.startsWith("vod:") || item.countryCode === "VOD" || item.countryCode === "SER") continue;
+        /* 2.5.294: a felhő memóriája csak a magyar csatornáké – idegen országút nem tárolunk. */
+        if (cleanText(item.countryCode, 12).toUpperCase() !== ALLOWED_COUNTRY_CODE) continue;
         seenKeys.add(channelKey);
         validIncoming.push({ ...item, channelKey, channelName });
+        huBatchKeys.add(channelKey);
       }
 
       if (validIncoming.length > 0) {
@@ -988,6 +1090,8 @@ export function createTvDoctorHandler(customEnv = {}) {
             : Math.max(1, tsOk + tsFail + hlsOk + hlsFail);
 
           const mergedBufScores = mergeBufferScores(prev && prev.buffer_scores, inc.bufferScores);
+          /* 2.5.294: a tanult útvonalak egyesítése (max. 8, a legjobbak maradnak). */
+          const mergedRoutes = mergeRoutes(prev && prev.routes, inc.routes);
           const incomingFormat = VALID_FORMATS.has(inc.bestFormat) ? inc.bestFormat : "ts";
           const bestFormat = chooseBestFormat(tsOk, tsFail, tsAvg, hlsOk, hlsFail, hlsAvg, incomingFormat);
           const incomingBufProfile = VALID_BUFFER_PROFILES.has(inc.bestBufferProfile) ? inc.bestBufferProfile : "balanced";
@@ -1031,6 +1135,7 @@ export function createTvDoctorHandler(customEnv = {}) {
             last_error_code: cleanText(inc.lastErrorCode, 48) || (prev && prev.last_error_code) || null,
             last_error_reason: cleanText(inc.lastErrorReason, 140) || (prev && prev.last_error_reason) || null,
             buffer_scores: mergedBufScores,
+            routes: mergedRoutes,
             confidence_score: confidenceScore,
             updated_at: nowIso,
           };
@@ -1057,6 +1162,34 @@ export function createTvDoctorHandler(customEnv = {}) {
 
     let syncedEvents = 0;
     if (rawEvents.length > 0) {
+      /*
+       * 2.5.294: esemény is CSAK magyar csatornához mehet fel. A mostani
+       * csomag kulcsai mellett a felhőben már ismert magyar csatornákat is
+       * elfogadjuk (egyetlen, korlátos lekérdezéssel), hogy a korábban mentett
+       * magyar csatorna javítási eseménye ne vesszen el.
+       */
+      const hungarianKeys = new Set(huBatchKeys);
+      let foreignFilterReady = false;
+      try {
+        const eventKeys = Array.from(new Set(rawEvents
+          .map((ev) => (ev && typeof ev === "object" ? cleanKey(ev.channelKey) : ""))
+          .filter((k) => k && !k.startsWith("vod:")))).slice(0, MAX_EVENTS_PER_SYNC);
+        if (eventKeys.length > 0) {
+          const keyFilter = eventKeys.map((k) => '"' + k.replace(/"/g, "") + '"').join(",");
+          const huResp = await rest(
+            profilesUrl + "?channel_key=in.(" + encodeURIComponent(keyFilter) + ")&select=channel_key&country_code=eq." + ALLOWED_COUNTRY_CODE,
+          );
+          if (huResp.ok) {
+            const huRows = await jsonOrEmpty(huResp);
+            if (Array.isArray(huRows)) {
+              for (const r of huRows) if (r && r.channel_key) hungarianKeys.add(r.channel_key);
+              foreignFilterReady = true;
+            }
+          }
+        }
+      } catch (_) {
+        foreignFilterReady = false;
+      }
       const eventRows = [];
       for (let i = 0; i < rawEvents.length; i++) {
         const ev = rawEvents[i];
@@ -1065,6 +1198,11 @@ export function createTvDoctorHandler(customEnv = {}) {
         const channelKey = cleanKey(ev.channelKey);
         const channelName = cleanText(ev.channelName, 140);
         if (!channelKey || !channelName || channelKey.startsWith("vod:")) continue;
+        /*
+         * 2.5.294: esemény is csak magyar csatornához (a profil-tábla a mérvadó;
+         * a nem magyar csatorna eseménye nem kerülhet a felhőbe).
+         */
+        if (foreignFilterReady && !hungarianKeys.has(channelKey)) continue;
         const rawUid = cleanText(ev.eventUid, 80) || `${deviceHash}-${channelKey}-${eventType}-${nowFn()}-${i}`;
         const eventUid = await sha256Short(rawUid);
         eventRows.push({
