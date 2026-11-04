@@ -54,6 +54,7 @@ const tasks = [
   { name: 'vod-provider-diagnostics', args: ['tools/test-vod-provider-diagnostics.mjs'] },
   { name: 'persistence', args: ['tools/test-persistence.mjs'] },
   { name: 'durable-restart', args: ['tools/test-durable-restart.mjs'] },
+  { name: 'vod-repair', args: ['tools/test-vod-repair.mjs'] },
   { name: 'live-cache', args: ['tools/test-live-cache.mjs'] },
   { name: 'applog-discard', args: ['tools/test-applog-discard.mjs'] },
   { name: 'channel-selection', args: ['tools/test-channel-selection.mjs'] },

@@ -2936,8 +2936,20 @@ export interface StoredCatalogPlan {
 
 export interface RestoreHandlers {
   onLive?: (full: LoadedLiveFull) => void;
-  onVod?: (result: { movies: Movie[]; categories: Category[] }) => void;
-  onSeries?: (result: { series: Series[]; categories: Category[] }) => void;
+  /*
+   * A FOGADÓ FÉL IGENJE (2.5.294).
+   *
+   * A visszatöltés csak akkor számít „késznek”, ha a felület a kapott listát
+   * TÉNYLEGESEN átvette. Korábban a szakasz akkor is készre állt, amikor a
+   * kezelő eldobta az adatot (mert a néző közben visszament élő TV-re, vagy
+   * épp szolgáltatói frissítés futott) – így a 103 ezres film lista
+   * elveszett, a képernyőn pedig tartósan az első 500-as adag maradt, és
+   * semmilyen későbbi megnyitás nem töltötte újra. Most a kezelő `false`-szal
+   * jelezheti, hogy nem vette át: ilyenkor a szakasz NEM lesz kész, és a
+   * következő kérés újra visszatölti a tartós tárból.
+   */
+  onVod?: (result: { movies: Movie[]; categories: Category[] }) => void | boolean;
+  onSeries?: (result: { series: Series[]; categories: Category[] }) => void | boolean;
   /**
    * RÉSZLEGES KISZOLGÁLÁS (2.5.165): az első adag dekódolása után azonnal
    * meghívjuk, hogy a rács ne legyen üres a 30 mp-es teljes visszatöltés
@@ -2991,6 +3003,78 @@ export async function storedCatalogPresence(providerId: string): Promise<StoredC
     return { live, vod, series };
   } catch {
     return empty;
+  }
+}
+
+/**
+ * 2.5.294: OLCSÓ „HIÁNYOS-E A MENTÉS?” ELLENŐRZÉS.
+ *
+ * Csak a fejlécet (localStorage vagy IndexedDB meta) és a tároló KULCSLISTÁJÁT
+ * olvassa – egyetlen sort sem dekódol, tehát néhány ms.
+ *
+ * Miért kell: egy régi, kvótahibás mentés után olyan fejléc maradhat, amely a
+ * TELJES darabszámot ígéri, de csak az első adag van mögötte (a képernyőn
+ * „MOZI VOD KÖNYVTÁR 500 / 103048”). Ilyenkor a szokásos „nincs változás”
+ * gyors ellenőrzés örökre kihagyná a javítást, mert a kategóriák nem
+ * változtak. Ezzel a méréssel a Frissítés felismeri és helyreállítja.
+ */
+export interface StoredSectionFill {
+  /** A fejlécben ígért adagok száma. */
+  chunks: number;
+  /** A ténylegesen megtalált adagok száma. */
+  present: number;
+  /** A fejléc szerinti elemszám. */
+  expected: number;
+  /** A meglévő adagokból becsült elemszám. */
+  rows: number;
+  /** Igaz, ha a mentés bizonyítottan hiányos. */
+  short: boolean;
+}
+
+export async function storedSectionFill(
+  section: 'vod' | 'series',
+  providerId?: string,
+): Promise<StoredSectionFill | null> {
+  try {
+    const store = await contentChunkStore();
+    if (!store) return null;
+    const metaKey = section === 'vod' ? VOD_META_KEY : SERIES_META_KEY;
+    const chunked = await readIdbChunks(store, metaKey);
+    if (!chunked) return null;
+    const { meta } = chunked;
+    // Idegen szolgáltató mentett listáját nem vizsgáljuk (nem is használjuk).
+    if (providerId && meta.provider && meta.provider.id !== providerId) return null;
+    const expected = Number(section === 'vod' ? meta.totals?.vod : meta.totals?.series) || 0;
+    const chunks = Number(meta.chunks) || 0;
+    if (chunks === 0) return { chunks, present: 0, expected, rows: 0, short: expected > 0 };
+    /*
+     * RÉGI (adagméret nélküli) fejlécnél nem tudjuk kiszámolni a sorok
+     * számát: a régi verziók 400/1200/2000 soros adagokat is írtak, és a
+     * fejlécből ez nem derül ki. Ilyenkor csak a hiányzó adagokat vesszük
+     * hiánynak – felesleges újratöltést nem indítunk.
+     */
+    const size = meta.chunkSize && meta.chunkSize > 0 ? meta.chunkSize : 0;
+    const keys = await store.keys();
+    const present = keys.filter((key) => key.startsWith(meta.chunkPrefix)).length;
+    /*
+     * A meglévő adagokból becsült (felső) elemszám: a fejléc szerinti
+     * adagokból legfeljebb ennyi sor lehet a tárolóban. Az utolsó adag
+     * rendszerint rövidebb, ezért egy adagnyi eltérést megengedünk.
+     */
+    const rows = size > 0 ? present * size : expected;
+    /*
+     * HIÁNYOS, ha
+     *   • kevesebb adag van a tárolóban, mint a fejléc ígér, VAGY
+     *   • a fejléc belső ellentmondást tartalmaz: a darabszámhoz jóval több
+     *     adag kellene, mint amennyit a fejléc megjelöl (ez a régi,
+     *     „500 film / 103 048 ígért darabszám” hiba).
+     * Egy adagnyi eltérést megengedünk, hogy a szolgáltató és a feldolgozott
+     * sorok közötti néhány elemes különbség ne indítson felesleges javítást.
+     */
+    const short = present < chunks || (size > 0 && expected > 0 && expected > rows + size);
+    return { chunks, present, expected, rows, short };
+  } catch {
+    return null;
   }
 }
 
@@ -3099,6 +3183,18 @@ let restoreCancelled = false;
  */
 let restoreDone: { live: boolean; movies: boolean; series: boolean } = { live: false, movies: false, series: false };
 
+/**
+ * 2.5.294: VÁR-E MÉG VISSZATÖLTÉSRE A SZAKASZ?
+ *
+ * Igaz, ha a film- vagy sorozatlista visszatöltése még nem fejeződött be
+ * sikeresen (megszakadt, eldobták, vagy el sem indult). A frissítés végén a
+ * felület ebből tudja, hogy a képernyőn maradt részleges listát pótolni kell
+ * – enélkül a néző tartósan az első 500 filmnél ragadt.
+ */
+export function storedRestorePending(section: 'vod' | 'series'): boolean {
+  return section === 'vod' ? !restoreDone.movies : !restoreDone.series;
+}
+
 /** A felület bezárásakor / új import indításakor a háttér-visszatöltés leáll. */
 export function cancelStoredContentRestore(): void {
   restoreCancelled = true;
@@ -3182,12 +3278,18 @@ export function restoreStoredContent(
         options.shouldAbort,
       );
       if (vod.movies.length && !aborted()) {
-        handlers.onVod?.(vod);
-        loaded += ` film=${vod.movies.length}`;
+        /*
+         * 2.5.294: CSAK AKKOR kész a szakasz, ha a felület át is vette.
+         * A kezelő `false`-szal jelzi, hogy eldobta (pl. közben élő TV-re
+         * váltott a néző, vagy szolgáltatói frissítés fut). Enélkül a teljes
+         * lista elveszett, és a képernyőn maradt első 500-as adag soha nem
+         * töltődött vissza – ez volt az „újraindítás után csak 500 film”
+         * hiba egyik útja.
+         */
+        const accepted = handlers.onVod?.(vod) !== false;
+        loaded += ` film=${vod.movies.length}${accepted ? '' : ' (a felület nem vette át)'}`;
+        if (accepted && !bootSubset) restoreDone.movies = true;
       }
-      /* 2.5.277: induló részhalmaz után a szakasz NEM kész – a menü nyitásakor
-         a teljes lista on demand töltődik a tartós tárból. */
-      if (!aborted() && !bootSubset) restoreDone.movies = true;
       await yieldToStorage();
     }
     if (wantSeries && !restoreDone.series && plan.hasSeries && !aborted()) {
@@ -3200,21 +3302,21 @@ export function restoreStoredContent(
         options.shouldAbort,
       );
       if (ser.series.length && !aborted()) {
-        handlers.onSeries?.(ser);
-        loaded += ` sorozat=${ser.series.length}`;
+        // 2.5.294: lásd a filmeknél – csak átvett lista számít késznek.
+        const accepted = handlers.onSeries?.(ser) !== false;
+        loaded += ` sorozat=${ser.series.length}${accepted ? '' : ' (a felület nem vette át)'}`;
+        if (accepted && !bootSubset) restoreDone.series = true;
       }
-      if (!aborted() && !bootSubset) restoreDone.series = true;
     }
     /*
-     * Csak AKKOR jelöljük késznek, ha tényleg lefutott. Korábban a
-     * megszakított (szolgáltatófrissítés közbeni) visszatöltés is késznek
-     * látszott, ezért a Mozi nézet későbbi megnyitása VÉGLEG kihagyta a
-     * filmeket – üres rács, újraindításig.
+     * 2.5.294: ITT MÁR NINCS „KÉSZRE ÁLLÍTÁS”.
+     *
+     * Korábban a blokk végén feltétel nélkül készre álltak a szakaszok, még
+     * akkor is, ha a felület eldobta az adatot, vagy ha egyáltalán nem jött
+     * vissza semmi. Emiatt a Mozi nézet későbbi megnyitása VÉGLEG kihagyta a
+     * visszatöltést. A kész jelzés mostantól kizárólag az átvett adat után
+     * történik (lásd feljebb).
      */
-    if (!aborted()) {
-      if (wantMovies && !bootSubset) restoreDone.movies = true;
-      if (wantSeries && !bootSubset) restoreDone.series = true;
-    }
     if (!aborted()) {
       appLog(`TARTÓS VISSZATÖLTÉS készen (${Date.now() - startedAt} ms, letöltés nélkül):${loaded || ' üres'}.`);
     } else {

@@ -116,6 +116,9 @@ function createIndexedDb() {
     failPuts: (after = 0) => { putCount = 0; failAfterPuts = after; },
     resumePuts: () => { failAfterPuts = Infinity; },
     dump: () => Object.fromEntries(data),
+    /** Teszt-segéd: nyers rekord beírása/törlése a tárolóba. */
+    seed: (key, value) => { data.set(String(key), String(value)); },
+    drop: (key) => { data.delete(String(key)); },
     keys: () => Array.from(data.keys()),
     get puts() { return putCount; },
     get opens() { return openCount; },
@@ -161,6 +164,7 @@ await esbuild.build({
       readCatalogState, catalogNeedsCheck, markCatalogChecked, setCatalogFingerprint,
       catalogIncompleteSections, markCatalogSectionsComplete,
       describeStoredContent, saveCatalogExtras, clearContent,
+      storedSectionFill, storedRestorePending,
     } from './web/src/services/contentStore.ts';
     export { ensureDurableStorage, describeIdbStore, storageBudgetBytes } from './web/src/services/idbStore.ts';`,
     resolveDir: ROOT, sourcefile: 'durable-harness.ts', loader: 'ts',
@@ -311,6 +315,91 @@ try {
   }, { scope: 'movies' });
   check(sub.vodFull === N_MOVIES,
     '2.5.277: menü megnyitásakor a TELJES filmlista on demand visszajön a tartós tárból', String(sub.vodFull));
+
+  /* 4c. 2.5.294: ELDOBOTT RÉSZLEGES ADAG – a szakasz nem lehet „kész” ──── */
+  /*
+   * A TV-n ez volt a hiba: a Mozi nézet megnyitásakor az első 500 filmes adag
+   * a képernyőre került, majd a néző visszament élő TV-re / Frissítést indított,
+   * ezért a felület ELDOBTA a teljes listát. A visszatöltés viszont „késznek”
+   * jelölte a szakaszt, így a 103 ezres lista soha nem jött vissza – a
+   * képernyőn maradt „500 / 103048”. Most a következő megnyitás pótolja.
+   */
+  const app4c = await boot(42);
+  await settle();
+  const plan4c = await app4c.inspectStoredCatalogs();
+  const declined = { vod: 0, partials: 0 };
+  await app4c.restoreStoredContent(plan4c, {
+    onVodPartial: () => { declined.partials += 1; },
+    onVod: () => false, // a felület nem veszi át (pl. közben élő TV-re váltott)
+  }, { scope: 'movies' });
+  check(declined.partials > 0,
+    '2.5.294: az első adag megérkezik (a képernyőn 500 film látszana)', String(declined.partials));
+  check(app4c.storedRestorePending('vod') === true,
+    '2.5.294: eldobott teljes lista után a szakasz NEM „kész” (újra kérhető)');
+  await app4c.restoreStoredContent(plan4c, {
+    onVod: (vod) => { declined.vod = vod.movies.length; },
+  }, { scope: 'movies' });
+  check(declined.vod === N_MOVIES,
+    '2.5.294: a következő Mozi megnyitás a TELJES filmlistát adja (nem ragad 500-nál)',
+    String(declined.vod));
+  check(app4c.storedRestorePending('vod') === false,
+    '2.5.294: átvett lista után a szakasz kész');
+
+  /* 4d. 2.5.294: MEGSZAKÍTOTT VISSZATÖLTÉS – szintén nem lesz „kész” ───── */
+  const app4d = await boot(43);
+  await settle();
+  const plan4d = await app4d.inspectStoredCatalogs();
+  let sawPartial = false;
+  const aborted = { vod: 0 };
+  await app4d.restoreStoredContent(plan4d, {
+    onVodPartial: () => { sawPartial = true; },
+    onVod: (vod) => { aborted.vod = vod.movies.length; },
+  }, { scope: 'movies', shouldAbort: () => sawPartial });
+  check(aborted.vod === 0, '2.5.294: megszakított visszatöltés nem ad teljes listát', String(aborted.vod));
+  check(app4d.storedRestorePending('vod') === true,
+    '2.5.294: megszakított visszatöltés után a szakasz újra kérhető');
+  await app4d.restoreStoredContent(plan4d, {
+    onVod: (vod) => { aborted.vod = vod.movies.length; },
+  }, { scope: 'movies' });
+  check(aborted.vod === N_MOVIES,
+    '2.5.294: a megszakítás után a teljes filmlista visszajön', String(aborted.vod));
+
+  /* 4e. 2.5.294: HIÁNYOS FILMMENTÉS FELISMERÉSE (olcsó fejléc-ellenőrzés) ─ */
+  const app4e = await boot(44);
+  await settle();
+  const dump4e = indexedDbFake.dump();
+  const savedMeta = dump4e['content-vod-meta'];
+  const healthyFill = await app4e.storedSectionFill('vod', 'p1');
+  check(healthyFill && healthyFill.short === false,
+    '2.5.294: a teljes mentést NEM jelöli hiányosnak', JSON.stringify(healthyFill));
+  // Régi, kvótahibás mentés utáni állapot szimulálása: a fejléc 1 adagot mutat,
+  // de 102 824 filmet ígér (a képernyőn „500 / 103048”).
+  const shortPrefix = 'content-vod-chunk-v2-short-';
+  const shortRows = Array.from({ length: 500 }, (_, index) => [
+    String(index + 1), `Film ${index}`, 'vc-1', 'Filmek', '', 0, 2021, 'mkv', '', 0,
+  ]);
+  const shortMeta = {
+    v: 1,
+    provider,
+    totals: { vod: N_MOVIES },
+    cats: JSON.parse(savedMeta).cats,
+    chunks: 1,
+    chunkPrefix: shortPrefix,
+    savedAtMs: Date.now(),
+    chunkSize: 500,
+  };
+  indexedDbFake.seed('content-vod-meta', JSON.stringify(shortMeta));
+  indexedDbFake.seed(`${shortPrefix}0`, JSON.stringify({ rows: shortRows }));
+  const shortFill = await app4e.storedSectionFill('vod', 'p1');
+  check(shortFill && shortFill.short === true && shortFill.present === 1,
+    '2.5.294: az „500 film / 103 048 ígért darabszám” állapotot HIÁNYOSNAK ismeri fel',
+    JSON.stringify(shortFill));
+  const otherProviderFill = await app4e.storedSectionFill('vod', 'masik-szolgaltato');
+  check(otherProviderFill === null,
+    '2.5.294: más szolgáltató mentett listáját nem vizsgálja/javítja');
+  // A visszaállított (teljes) fejléc maradjon érvényben a következő lépésekhez.
+  indexedDbFake.seed('content-vod-meta', savedMeta);
+  indexedDbFake.drop(`${shortPrefix}0`);
 
   /* 5. A WEBOS BEZÁRJA A KAPCSOLATOT – a következő mentés ÚJRANYIT ─────── */
   const app5 = await boot(5);
