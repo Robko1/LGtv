@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.311';
+export const WEB_VERSION = '2.5.312';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.312',
+    date: '2026-11-04',
+    changes: [
+      'SUPABASE VISSZAOLVASÁS BEKÖTÉSE — IPK ÚJRAINDÍTÁS UTÁN IS A TÁROLT ADATOKBÓL DOLGOZIK: a Supabase-be feltöltött 8 tanult útvonal/csatorna (tv_doctor_routes_upsert/fetch) mostantól bizonyíthatóan visszatöltődik a TV-re és a TV Doktor abból dolgozik már az első csatornaváltáskor — nem indul újra a tanulás. A szerveroldali tv_doctor_routes_upsert mostantól INSERT-et is végez ha a csatorna profilja még nem létezett (eddig csak UPDATE), így frissen tanult csatornák IPK újraindításkor sem vesznek el; a kliens 1,2s után automatikusan lehúzza a központi memóriát és mergeCloudRoutesIntoLocal akkor is létrehozza a helyi rekordot ha az üres volt. Külön egységteszt tools/test-tv-doctor-supabase-roundtrip.mjs igazolja a teljes kört: helyi tanulás → Supabase payload → IPK üres → fetch → hasLearnedProfile=true (tanult gyorsprofil).',
+      'TV DR KÉZI HIBA NAPLÓ (CSAK TV DOKTOR, NEM A NAGY NAPLÓ): a Supabase push/fetch és az induláskor létrejövő állapotkép mostantól a TV Doktor naplóba is ír (tvDoctorLog), nem csak a nagy naplóba — a SÁRGA gombbal indított kézi TV DR naplóban külön sorok látszanak: "TV DOKTOR FELHŐ ÚTVONAL: X csatorna mentve/letöltve", "TV DR FELHŐ MENTÉS/VISSZATÖLTÉS RÉSZLET: csatornakulcsok", és "TV DR SUPABASE VISSZAOLVASÁS BEKÖTVE: 1,2s után ..." — a felhasználó a sárga menüben csak a TV DR naplót indítva ellenőrizheti, hogy a Supabase-ről való visszaolvasás valóban megtörtént és a TV a tárolt adatokból dolgozik.',
+    ],
+  },
   {
     version: '2.5.311',
     date: '2026-11-04',
