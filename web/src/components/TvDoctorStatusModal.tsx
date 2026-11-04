@@ -154,6 +154,11 @@ function resolveEntryCategory(entry: DoctorLogEntry): DoctorEventCategory {
   return 'learning';
 }
 
+function safeDoctorFormat(format: unknown): string {
+  const value = typeof format === 'string' ? format.trim() : '';
+  return value ? value.toUpperCase() : 'ISMERETLEN';
+}
+
 export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
   isOpen,
   onClose,
@@ -221,7 +226,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       csatorna: activeChannel?.name || 'nincs',
       ország: activeChannel?.countryCode || 'nincs',
       tanultÚtvonalak: routes.length,
-      legjobb: routes[0] ? `${routes[0].format.toUpperCase()}+${routes[0].bufferProfile}` : 'még nincs',
+      legjobb: routes[0] ? `${safeDoctorFormat(routes[0].format)}+${routes[0].bufferProfile}` : 'még nincs',
       mód: settings.tvDoctorEnabled === false ? 'kikapcsolva' : 'aktív',
     });
     return () => {
@@ -927,7 +932,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                             idx === 0 ? 'border-emerald-400/70 bg-emerald-500/15 text-emerald-100' : 'border-slate-700/60 bg-slate-900/50 text-slate-200'
                           }`}
                         >
-                          <span className="truncate">{idx === 0 ? '★ ' : `${idx + 1}. `}{route.format.toUpperCase()} + {route.bufferProfile}</span>
+                          <span className="truncate">{idx === 0 ? '★ ' : `${idx + 1}. `}{safeDoctorFormat(route.format)} + {route.bufferProfile}</span>
                           <span className="shrink-0 text-[10px] text-slate-400">{route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok}/{route.fail}{route.stalls ? `/${route.stalls}` : ''}</span>
                         </div>
                       ))}
@@ -941,7 +946,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                             data-tv-doctor-route={route.id}
                             className="flex items-center justify-between gap-1 rounded-lg border border-slate-700/60 bg-slate-900/50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-200"
                           >
-                            <span className="truncate">{realIdx + 1}. {route.format.toUpperCase()} + {route.bufferProfile}</span>
+                            <span className="truncate">{realIdx + 1}. {safeDoctorFormat(route.format)} + {route.bufferProfile}</span>
                             <span className="shrink-0 text-[10px] text-slate-400">{route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok}/{route.fail}{route.stalls ? `/${route.stalls}` : ''}</span>
                           </div>
                         );
