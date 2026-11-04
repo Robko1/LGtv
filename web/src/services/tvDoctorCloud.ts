@@ -33,7 +33,7 @@ const IDB_PRIMARY_KEY = 'primary';
 const REQUEST_TIMEOUT_MS = 12_000;
 const STATUS_CHECK_TIMEOUT_MS = 7_500;
 const SLOW_CLOUD_THRESHOLD_MS = 3_500;
-const BOOTSTRAP_DELAY_MS = 3_800;
+const BOOTSTRAP_DELAY_MS = 1_200;
 /*
  * 2.5.278 (#19-es napló): a #19-es naplóban 15-60 másodpercenként ment ki
  * „FELHŐ SZINKRON OK” sor 5,4 mp-es Supabase-válaszidővel – a gyakori kis

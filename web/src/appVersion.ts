@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.309';
+export const WEB_VERSION = '2.5.310';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.310',
+    date: '2026-11-04',
+    changes: [
+      'TV DOKTOR 0-POPUP FÓKUSZ: a 0 gombbal nyíló TV Doktor ablak megnyitásakor a fókusz mostantól a bal felső Tanulás dobozon áll (nem a teljes bal oldal fehér/amber kijelölése); a bal oldali wrapper focus gyűrűje megszűnt, csak a kiválasztott kategória-doboz kap amber gyűrűt – a 2x2 rács (Tanulás | Segítség / Aktiválódás | Hiba) nyilakkal logikusan bejárható (le/fel a rácsban, jobbra/balra, Home/End, Esc) és a jobb felső Memória:0 közvetlenül elérhető.',
+      'TV DOKTOR TANULT ÚTVONALAK SOHA NEM KEZDŐDNEK ÚJRA (IPK újraindítás után is): a csatornánkénti max.8 tanult útvnal (formátum+puffer) mostantól a hosszú memóriából (localStorage) azonnal, IPK újraindításkor is visszatöltődik és azonnal alkalmazásra kerül (már 1 igazolt indulástól, korábban 3 kellett); a HU felismerés kulcs-előtaggal és névvel is működik, hogy a korábban tanult profilok ne vesszenek el; a Supabase-ből való visszaállítás IPK újraindításkor akkor is létrehozza a hiányzó csatornareckordot a 8 útvnallal, ha a helyi tár üres volt (eddig csak meglévőre fésült), és a felhő-szinkron gyorsult (3,8s → 1,2s) – azért tároljuk a tanulásokat, hogy fel is használjuk!',
+    ],
+  },
   {
     version: '2.5.309',
     date: '2026-11-04',

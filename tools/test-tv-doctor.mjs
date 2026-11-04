@@ -2042,31 +2042,27 @@ try {
   // Lefelé menve végigolvasható napló távirányítóval (ArrowDown / ArrowUp):
   Object.defineProperty(logScroll, 'clientHeight', { value: 400, configurable: true });
   Object.defineProperty(logScroll, 'scrollHeight', { value: 1800, configurable: true });
-  check(doc.activeElement === logScroll, 'megnyitáskor az alapértelmezett fókusz a bal oldali görgethető naplón áll');
-  logScroll.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-  await wait(20);
-  const scrollAfterDown1 = logScroll.scrollTop;
-  logScroll.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-  await wait(20);
-  const scrollAfterDown2 = logScroll.scrollTop;
-  logScroll.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
-  await wait(20);
-  const scrollAfterUp = logScroll.scrollTop;
-  check(
-    scrollAfterDown1 > 0 &&
-      scrollAfterDown2 > scrollAfterDown1 &&
-      scrollAfterUp < scrollAfterDown2 &&
-      doc.activeElement === logScroll,
-    'a bal oldali Legutóbbi TV Doktor napló távirányítóval (Le/Fel nyilakkal) valóban görgetve végigolvasható',
-  );
-
-  // Jobbra nyíllal átnavigálás a jobb felső sarokban lévő piros Memória: 0 gombra (elérhető távirányítóval!):
-  logScroll.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  const learningBox = doc.querySelector('[data-tv-doctor-cat=learning]');
+  check(doc.activeElement === learningBox, 'megnyitáskor a fókusz a bal felső Tanulás dobozon áll (nem a teljes bal oldalon fehér kijelölés) – 2.5.310');
+  check(!logScroll.className.includes('focus:ring-4'), 'a bal oldali wrapperen nincs fehér (amber) focus gyűrű – csak a Tanulás dobozon (2.5.310)');
+  // 2.5.310: 2x2 rács navigáció (Tanulás -> Segítség -> Memória:0), és Le/Fel a rácsban
+  learningBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  await wait(25);
+  const assistanceBox = doc.querySelector('[data-tv-doctor-cat=assistance]');
+  check(doc.activeElement === assistanceBox, 'Tanulás dobozról Jobbra nyíllal a Segítség dobozra lép (2.5.310 rács)');
+  assistanceBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
   await wait(25);
   check(
     doc.activeElement === modalResetBtn,
-    'a bal oldali naplóról Jobbra nyíllal közvetlenül elérhető a jobb felső sarokban lévő piros Memória: 0 gomb',
+    'a bal oldali kategóriákról Jobbra nyíllal közvetlenül elérhető a jobb felső sarokban lévő piros Memória: 0 gomb (2.5.310)',
   );
+  // Lefelé navigáció a 2x2 rácsban: Tanulás -> Aktiválódás
+  learningBox.focus();
+  await wait(20);
+  learningBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  await wait(20);
+  const activationBox = doc.querySelector('[data-tv-doctor-cat=activation]');
+  check(doc.activeElement === activationBox, 'Tanulás dobozról Lefelé nyíllal az Aktiválódás dobozra lép (2x2 rács 2.5.310)');
 
   // Supabase hiba esetén pontosan kiírja HOL a hiba és MI a hiba röviden:
   mockCloudMode = 'http_401';

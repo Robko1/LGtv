@@ -256,17 +256,20 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
         try { largeScrollRef.current.focus({ preventScroll: true } as FocusOptions); } catch { largeScrollRef.current.focus(); }
         return;
       }
-      // For test compatibility: focus the scrollable left wrapper first (data-tv-doctor-log-scroll)
+      // 2.5.310: fókusz mindig a bal felső Tanulás dobozon legyen, ne a teljes bal panełen (fehér kijelölés javítása)
+      const first = categoryHeaderRefs.current.learning;
+      if (first) {
+        try { first.focus({ preventScroll: true } as FocusOptions); } catch { first.focus(); }
+        return;
+      }
+      // fallback: compat wrapper csak ha a Tanulás doboz még nem elérhető (pl. animáció közben)
       const compat = compatLogScrollRef.current;
       if (compat) {
         try { compat.focus({ preventScroll: true } as FocusOptions); } catch { compat.focus(); }
         return;
       }
-      const first = categoryHeaderRefs.current.learning;
-      if (first) {
-        first.focus();
-      } else if (leftPaneRef.current) {
-        leftPaneRef.current.focus();
+      if (leftPaneRef.current) {
+        try { leftPaneRef.current.focus({ preventScroll: true } as FocusOptions); } catch { leftPaneRef.current.focus(); }
       }
     }, 0);
 
@@ -885,7 +888,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               tabIndex={0}
               role="region"
               aria-label="Legutóbbi TV Doktor napló – görgethető (kompatibilis)"
-              className="flex-1 min-h-0 overflow-y-auto rounded-xl focus:outline-none focus:ring-4 focus:ring-amber-400 p-1 -m-1 flex flex-col gap-3"
+              className="flex-1 min-h-0 overflow-y-auto rounded-xl focus:outline-none p-1 -m-1 flex flex-col gap-3"
               style={{ scrollBehavior: 'auto' }}
             >
               {/* 1. vízszintes sor: Tanulás | Segítség/Javítás */}
