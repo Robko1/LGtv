@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.307';
+export const WEB_VERSION = '2.5.308';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.308',
+    date: '2026-11-04',
+    changes: [
+      'FAST BOOT: IPK indításkor azonnal csak a mentett magyar induló csatornák és a kedvenc mappákba elmentett csatornák töltődnek be a főoldalon – hálózat nélkül, a tartós tárból. Az összes többi csatorna, a műsorújság (EPG/XMLTV) és a VOD poszterek NEM töltődnek induláskor; betöltésük csak az Ország menü megnyitásakor indul, letöltés és adatvesztés nélkül, a meglévő mentett adatok megtartásával. A magyar + kedvenc induló készlet a localStorage mellett az IndexedDB első adagjaiból is pótolódik, és mentéskor a magyarok után a kedvencek is előre kerülnek, így újraindítás után is azonnal látszanak.',
+      'TV DOKTOR 0-POPUP JAVÍTÁS (2x2 + NAGY ABLAK + 4+4): a bal oldali 4 kategória-doboz (Tanulás | Segítség / Aktiválódás | Hiba) fix 2x2 rácsban, nagy átlapoló ablak rákattintásra (nem tolja a rácsot), laponként görgethető (nyilak/PageUp/PageDown/Home/End/Enter), logikus fókusz (fel/le 2x2-ben, jobbra/balra, Home/End, Esc/Backspace), Tanult útvonalak (max.8) közvetlenül a 4 doboz alatt, csak bal oldalon 4+4 elrendezésben (1 5 / 2 6 / 3 7 / 4 8), alul üresen hagyva; nincs alsó színes sáv, nincs átfedés, nincs nyúlás.',
+    ],
+  },
   {
     version: '2.5.307',
     date: '2026-11-04',

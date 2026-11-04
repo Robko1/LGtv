@@ -11,6 +11,7 @@ import {
   ImportedContent,
   inspectStoredCatalogs,
   loadLive,
+  loadLiveChannelsByIds,
   markCatalogChecked,
   needsLiveCacheCompaction,
   compactLiveCacheIfNeeded,
@@ -1394,6 +1395,9 @@ export function App() {
    */
   const bootBackgroundStartedRef = useRef(false);
   const backgroundWorkTimersRef = useRef<{ guideTimer: number; safetyTimer: number; refreshTimer: number; restoreTimer: number } | undefined>(undefined);
+  // FAST BOOT (2026-11-04): a teljes élő lista csak Ország menüre töltődik
+  const pendingFullLivePlanRef = useRef<StoredCatalogPlan | null>(null);
+  const fullLiveRestoreStartedRef = useRef(false);
 
   const runRestore = useCallback(async (
     plan?: StoredCatalogPlan | null,
@@ -1788,6 +1792,7 @@ export function App() {
       }
     } catch { /* az előmelegítés kimaradhat – a plakátok a menü megnyitásakor töltődnek */ }
   }, []);
+  void warmUpVodPosters;
 
   const startBackgroundWork = useCallback((plan: StoredCatalogPlan | null) => {
     if (!plan) {
@@ -1795,166 +1800,69 @@ export function App() {
       markLiveReady();
       return;
     }
-    /*
-     * A TELJES LISTA (20 190 CSATORNA) A KÉSZ FELÜLET FÖLÖTT TÖLTŐDIK BE (2.5.149).
-     *
-     * A 28–30. napló mérése: a teljes élő lista dekódolása a TV-n 3 mp, az
-     * alkalmazás pedig 1,5 mp-re fagyott tőle – MINDKETTŐ a takarókép alatt,
-     * ezért a felfedés 7–10 mp-re tolódott. A néző ezt „katasztrofális
-     * indulásként” látta.
-     *
-     * Ezért a felfedés már NEM vár a teljes listára: a takarókép akkor megy
-     * le, amikor a LÁTHATÓ felület (fejléc, csatornalista az induló
-     * készlettel, lejátszó) kész és a videó első képkockája megjelent. A
-     * teljes lista ezután, a már működő felület fölött, háttérben érkezik –
-     * a látható magyar lista sorrendje nem változik meg tőle.
-     *
-     * A visszatöltés akkor indul, amikor a főoldal tényleg a képernyőn van
-     * (`iptv-app-ready`), hogy a dekódolás ne a felfedés Pillanatára essen.
-     */
-    let started = false;
-    /*
-     * A MŰSORÚJSÁG (XMLTV) A TELJES ÉLŐ LISTA UTÁN INDUL.
-     *
-     * A 29. napló: a 62 MB-os műsorújság feldolgozása 21,6 mp volt, és közben
-     * a videó képkockái akadoztak. Ezért a lista visszatöltése UTÁN, 2,5 mp
-     * késleltetéssel indul – de csak akkor, ha a felület már látható.
-     */
-    const timers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0, restoreTimer: 0 };
-    const scheduleGuide = () => {
-      timers.guideTimer = window.setTimeout(() => {
-        // 2.5.301: Mozi/Sorozat alatt EPG leáll – csak élő nézetben fut.
-        if (activeViewRef.current !== 'live') {
-          appLog('EPG-ÁLLAPOT: ütemezett műsorújság kimarad – Mozi/Sorozat nézet aktív (kizárólagos VOD).');
-          return;
-        }
-        if (providerRefreshActiveRef.current) {
-          // 2.5.265 (#12): látszódjon, miért marad ki az ütemezett EPG-indítás.
-          appLog('EPG-ÁLLAPOT: ütemezett műsorújság-indítás kimarad – szolgáltatói frissítés folyik éppen.');
-          return;
-        }
-        // 2.5.265 (#12): a #12-es naplóban egyetlen EPG-ÁLLAPOT sor sem volt – innen tudjuk majd, hogy elindult-e.
-        appLog(`EPG-ÁLLAPOT: ütemezett műsorújság indul – provider típus=${plan.provider?.type || '?'}, cím=${plan.provider?.serverUrl || '?'}.`);
-        // 2.5.269 (#2): a magyar csatornák szondája – forrásonkénti HU-számláláshoz.
-        setGuideHuProbe(channelsRef.current);
-        void ensureGuide(plan.provider)
-          .then(() => {
-            const status = guideStatusSafe();
-            if (status.channels > 0) {
-              setEpgRevision((revision) => revision + 1);
-              /*
-               * 2.5.267 (#14): lefedettségi naplósor – hány csatorna (ebből
-               * hány magyar [HU]) kapott műsort a betöltött újságból, így a
-               * következő kézi naplóból pontosan látszik, hogy a nyilvános
-               * EPG mennyi magyar adót fed le.
-               */
-              try {
-                const coverage = guideChannelCoverage(channelsRef.current);
-                /*
-                 * 2.5.269 (#2-es kérés): a magyar csatornák pontos száma és a
-                 * még hiányzó nevek (max 30) – hogy az EPG azonosítótáblát
-                 * (huEpgIds.ts) ki lehessen egészíteni.
-                 */
-                appLog(
-                  `EPG-ÁLLAPOT: lefedettség – lista=${coverage.total} csatorna, ebből műsort kapott=${coverage.withGuide}`
-                  + `; HU-EPG: magyar csatornák a listában pontosan=${coverage.huTotal}, műsort kapott=${coverage.huWithGuide}`
-                  + `; hiányzó nevek (max 30): ${coverage.huMissing.length ? coverage.huMissing.join(' | ') : '(nincs ilyen)'}.`
-                );
-              } catch { /* a naplózás soha ne akadályozzon */ }
-            } else {
-              /*
-               * 2.5.259 (#9): ha a teljes XMLTV üres volt ezen a panelen
-               * (#8 napló: 0 bájt), per-csatornás get_simple_data_table
-               * háttérrel töltjük az első 250 csatorna (élén a magyarok)
-               * műsorát – különben egyáltalán nem jelenne meg EPG.
-               */
-              void ensureChannelsEpg(plan.provider, channelsRef.current, 250)
-                .then((filled) => {
-                  if (filled > 0) setEpgRevision((revision) => revision + 1);
-                })
-                .catch(() => { /* a naplóban már ott az ok */ });
-            }
-          })
-          .catch(() => { /* a naplóban már ott a valódi ok */ });
-      }, 2500);
-    };
-    const startRestore = () => {
-      if (started) return;
-      started = true;
-      // 2.5.301: KIZÁRÓLAGOS VOD – INDULÁSKOR CSAK AZ ÉLŐ TÖLTŐDIK.
-      // Nincs 25+25 előnézet és nincs plakát-előmelegítés a háttérben.
-      // A Mozi/Sorozat csak akkor tölt vissza a tartós tárból, amikor
-      // a néző tényleg rákattint – akkor viszont MINDEN más leáll és
-      // villámgyorsan csak az a lista jön.
-      void runRestore(plan, 'live')
-        .catch(() => { /* a naplóban már ott a valódi ok */ })
-        .finally(() => {
-          markLiveReady();
-          // 2.5.301: EPG csak élő nézetben indul – Mozi/Sorozat alatt szünetel.
-          if (activeViewRef.current === 'live') scheduleGuide();
-        });
-    };
-    const revealNow = (): boolean => {
-      try {
-        return document.documentElement.className.indexOf('iptv-revealed') >= 0;
-      } catch { return false; }
-    };
-    /*
-     * RÖVID ÜRESJÁRAT A FELFEDÉS UTÁN (2.5.151).
-     *
-     * A dekódolás a TV-n 3 mp, a lista beírása a felületre további ~1,5 mp
-     * főszál-foglaltság. Ha ez a felfedés PILLANATÁRA esne, a felfedés két
-     * előfestő képkockája (afterPaint) egy 200–1500 ms-os képkocka-kihagyást
-     * mérne, a képkocka-őr pedig elhalasztaná a váltást – a 35. naplóban
-     * pontosan ez tolta 6,2 mp-re a felfedést.
-     *
-     * Ezért a teljes lista a felfedés UTÁN, 400 ms-mal indul – ekkor a kész
-     * főoldal már a képernyőn van, a videó pedig a saját síkján fut.
-     *
-     * A 4 mp-es tartalékot KIVETTEM: az a felfedés ELŐTT indította a
-     * dekódolást, és pont azzal késleltette a felfedést, amire vártunk. A
-     * biztonsági háló most 15 mp – ha a felfedés valamiért elmaradna, a
-     * teljes lista DB-ben is betöltődik.
-     */
-    const startAfterReveal = () => { timers.restoreTimer = window.setTimeout(startRestore, 1200); };
-    if (revealNow()) {
-      startAfterReveal();
-    } else {
-      window.addEventListener('iptv-app-ready', startAfterReveal, { once: true } as AddEventListenerOptions);
-      timers.restoreTimer = window.setTimeout(startRestore, 15000);
-    }
-    /*
-     * A TELJES MŰSORÚJSÁG (XMLTV) – CSAK AZ ÉLŐ LISTA UTÁN.
-     *
-     * A 19-es TV-napló szerint a rövid EPG végpont minden kérésre üres
-     * (19 bájtos) választ ad, ezért a műsort a szolgáltató teljes
-     * műsorújságjából töltjük be (62 MB, ~30 mp a TV-n). Ez a letöltés a
-     * 21–23. naplóban EGYÜTT futott az élő lista visszatöltésével, és
-     * mindkettőt a töredékére lassította (az élő lista 1 mp helyett 18 mp).
-     * Mostantól sorban, egymás után futnak; a műsorújság a háttérben,
-     * darabokban olvasva érkezik, a felület fölött.
-     */
-    // Ha a visszatöltés hibára fut, a jelzés DB-ben is elindul – de a
-    // műsorújságot ne várjuk örökre.
-    timers.safetyTimer = window.setTimeout(() => {
+    // FAST BOOT 2026-11-04: induláskor CSAK a magyar + kedvenc csatornák legyenek betöltve.
+    // A teljes élő lista, az EPG és a többi ország csak az Ország menü megnyitásakor töltődik – hálózat nélkül, a tartós tárból.
+    // Ezért itt NEM indítjuk a teljes visszatöltést, csak megjegyezzük a tervet és azonnal készre állítjuk a felületet.
+    pendingFullLivePlanRef.current = plan;
+    fullLiveRestoreStartedRef.current = false;
+    appLog('FAST BOOT: induláskor csak magyar + kedvenc csatornák – teljes lista az Ország menüre töltődik (letöltés nélkül).');
+    markLiveReady();
+    const fastTimers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0, restoreTimer: 0 } as { guideTimer: number; safetyTimer: number; refreshTimer: number; restoreTimer: number };
+    fastTimers.safetyTimer = window.setTimeout(() => {
       if (!liveReadyRef.current) markLiveReady();
     }, 12_000);
-    /*
-     * A műsorújság 3 óráig érvényes. Félóránként megnézzük: ha lejárt,
-     * csendben újratöltjük (a `ensureGuide` a friss gyorsítótárnál azonnal
-     * visszatér, hálózat nélkül). Kikapcsolt képernyőn és szolgáltatói
-     * frissítés alatt nem indítunk letöltést.
-     */
-    timers.refreshTimer = window.setInterval(() => {
-      // 2.5.301: Mozi/Sorozat alatt a periodikus EPG frissítés is szünetel.
+    // Periodikus EPG csak akkor, ha a teljes lista már betöltődött
+    fastTimers.refreshTimer = window.setInterval(() => {
       if (activeViewRef.current !== 'live') return;
       if (providerRefreshActiveRef.current) return;
+      if (!fullLiveRestoreStartedRef.current) return;
       if (typeof document !== 'undefined' && document.hidden) return;
-      setGuideHuProbe(channelsRef.current); // 2.5.269 (#2)
+      setGuideHuProbe(channelsRef.current);
       void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
     }, 30 * 60 * 1000);
-    return timers;
-  }, [runRestore, markLiveReady, guideStatusSafe, warmUpVodPosters]);
+    return fastTimers;
+  }, [markLiveReady]);
+
+
+  const triggerFullLiveRestore = useCallback(() => {
+    const plan = pendingFullLivePlanRef.current || catalogPlanRef.current;
+    if (!plan || fullLiveRestoreStartedRef.current) return;
+    fullLiveRestoreStartedRef.current = true;
+    appLog('Ország menü megnyitva – teljes élő lista visszatöltése indul a tartós tárból (letöltés nélkül).');
+    void runRestore(plan, 'live')
+      .catch(() => { /* a naplóban már ott a valódi ok */ })
+      .finally(() => {
+        if (activeViewRef.current === 'live' && !providerRefreshActiveRef.current) {
+          // EPG a teljes lista után, 2,5 mp késleltetéssel – csak élő nézetben
+          window.setTimeout(() => {
+            if (activeViewRef.current !== 'live') return;
+            if (providerRefreshActiveRef.current) return;
+            appLog(`EPG-ÁLLAPOT: ütemezett műsorújság indul – provider típus=${plan.provider?.type || '?'}, cím=${plan.provider?.serverUrl || '?'}.`);
+            setGuideHuProbe(channelsRef.current);
+            void ensureGuide(plan.provider)
+              .then(() => {
+                const status = guideStatusSafe();
+                if (status.channels > 0) {
+                  setEpgRevision((r) => r + 1);
+                  try {
+                    const coverage = guideChannelCoverage(channelsRef.current);
+                    appLog(
+                      `EPG-ÁLLAPOT: lefedettség – lista=${coverage.total} csatorna, ebből műsort kapott=${coverage.withGuide}` +
+                      `; HU-EPG: magyar csatornák a listában pontosan=${coverage.huTotal}, műsort kapott=${coverage.huWithGuide}` +
+                      `; hiányzó nevek (max 30): ${coverage.huMissing.length ? coverage.huMissing.join(' | ') : '(nincs ilyen)'}.`
+                    );
+                  } catch {}
+                } else {
+                  void ensureChannelsEpg(plan.provider, channelsRef.current, 250)
+                    .then((filled) => { if (filled > 0) setEpgRevision((r) => r + 1); })
+                    .catch(() => {});
+                }
+              })
+              .catch(() => {});
+          }, 2500);
+        }
+      });
+  }, [runRestore, guideStatusSafe]);
 
   /*
    * HIDEG INDÍTÁS – EGY ELLENŐRZÉS, AZONNALI INDULÁS, NINCS FELUGRÓ ABLAK.
@@ -2054,10 +1962,29 @@ export function App() {
         decided = 'content';
         markBootState('content');
         if (!bootChannels.length && plan.bootChannels.length) {
-          const prepared = restoreSavedChannelOrder(
+          let prepared = restoreSavedChannelOrder(
             hungaryFirst(dropDeletedChannels(plan.bootChannels, plan.provider.id)),
             plan.provider.id,
           );
+          // FAST BOOT: kedvenc mappák csatornáit is azonnal hozzáadjuk (még ha nem magyarok is) – hálózat nélkül, a tartós tárból
+          try {
+            const favIds = new Set<string>();
+            for (const f of storageService.getFolders()) for (const id of (f.channelIds || [])) favIds.add(id);
+            const missingFavIds = new Set<string>();
+            for (const id of favIds) if (!prepared.some((c) => c.id === id)) missingFavIds.add(id);
+            if (missingFavIds.size) {
+              const favChannels = await loadLiveChannelsByIds(plan.provider, missingFavIds);
+              if (favChannels.length && !cancelled) {
+                const seen = new Set(prepared.map((c) => c.id));
+                for (const ch of favChannels) if (!seen.has(ch.id)) { seen.add(ch.id); prepared.push(ch); }
+                prepared = restoreSavedChannelOrder(
+                  hungaryFirst(dropDeletedChannels(prepared, plan.provider.id)),
+                  plan.provider.id,
+                );
+                appLog(`FAST BOOT: ${favChannels.length} kedvenc csatorna hozzáadva az induló készlethez (nem-magyar is).`);
+              }
+            }
+          } catch {}
           setChannels(prepared);
           // 2.5.280 (#22/#23): az induló visszatöltés is „már mentettnek” számít.
           lastSavedRef.current = { ...lastSavedRef.current, channels: prepared };
@@ -2070,13 +1997,44 @@ export function App() {
             activeChannelIdRef.current = recoveredActiveId;
             setActiveChannelId(recoveredActiveId);
           }
-          appLog(`INDULÁS MENTETT ADATBÓL: ${prepared.length} csatorna azonnal, letöltés nélkül.`);
+          appLog(`INDULÁS MENTETT ADATBÓL: ${prepared.length} csatorna azonnal, letöltés nélkül (HU + kedvencek).`);
           // A betöltőképernyőn a VALÓBAN visszatöltött csatornák száma látszik.
           bootScreenChannels(prepared.length);
-          bootScreenPhase('restored', `${prepared.length} csatorna betöltve a tartós tárból.`);
+          bootScreenPhase('restored', `${prepared.length} csatorna betöltve a tartós tárból (HU + kedvencek).`);
         } else {
-          bootScreenChannels(bootChannels.length);
-          bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
+          // Már van bootChannels a modulból (localStorage HU) – kedvencek pótlása, ha hiányzik
+          try {
+            const favIds = new Set<string>();
+            for (const f of storageService.getFolders()) for (const id of (f.channelIds || [])) favIds.add(id);
+            const missingFavIds = new Set<string>();
+            for (const id of favIds) if (!bootChannels.some((c) => c.id === id)) missingFavIds.add(id);
+            if (missingFavIds.size && catalogPlanRef.current) {
+              const favChannels = await loadLiveChannelsByIds(catalogPlanRef.current.provider, missingFavIds);
+              if (favChannels.length && !cancelled) {
+                const merged = [...bootChannels];
+                const seen = new Set(merged.map((c) => c.id));
+                for (const ch of favChannels) if (!seen.has(ch.id)) { seen.add(ch.id); merged.push(ch); }
+                const prepared2 = restoreSavedChannelOrder(
+                  hungaryFirst(dropDeletedChannels(merged, catalogPlanRef.current.provider.id)),
+                  catalogPlanRef.current.provider.id,
+                );
+                setChannels(prepared2);
+                lastSavedRef.current = { ...lastSavedRef.current, channels: prepared2 };
+                appLog(`FAST BOOT (cache): ${favChannels.length} kedvenc csatorna pótolva az induló készlethez.`);
+                bootScreenChannels(prepared2.length);
+                bootScreenPhase('restored', `${prepared2.length} csatorna betöltve a helyi tárból (HU + kedvencek).`);
+              } else {
+                bootScreenChannels(bootChannels.length);
+                bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
+              }
+            } else {
+              bootScreenChannels(bootChannels.length);
+              bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
+            }
+          } catch {
+            bootScreenChannels(bootChannels.length);
+            bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
+          }
         }
         setActiveProvider(plan.provider);
         setProviderContentReady(true);
@@ -2488,7 +2446,13 @@ export function App() {
     seriesCategoryRef.current = categoryId;
   }, []);
 
-  const handleOpenCategories = useCallback(() => setIsCategoriesOpen(true), []);
+  const handleOpenCategories = useCallback(() => {
+    setIsCategoriesOpen(true);
+    // FAST BOOT: első Ország-megnyitáskor indul a teljes lista
+    try { (triggerFullLiveRestore as unknown as () => void)?.(); } catch {}
+  }, [triggerFullLiveRestore]);
+  useEffect(() => { if (isCategoriesOpen) { try { triggerFullLiveRestore(); } catch {} } }, [isCategoriesOpen, triggerFullLiveRestore]);
+
   const handleOpenSettings = useCallback((tab?: 'channels' | 'lists' | 'favorites' | 'system') => {
     // A Beállítások gomb alapból közvetlenül a Kedvencek fülre nyit.
     // Csak a kifejezetten kért fül (pl. Rendszer) nyíljon meg külön.

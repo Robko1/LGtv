@@ -814,14 +814,36 @@ function isHungarianForSave(channel: Channel): boolean {
     || /\b(magyarország|hungary|hungarian)\b/i.test(channel.categoryName || '');
 }
 
-/** Mentésnél a magyar csatornák kerülnek előre. */
-function hungarianFirstForSave(channels: Channel[]): Channel[] {
+/** Mentésnél a magyar csatornák kerülnek előre, utánuk a kedvenc nem-magyar csatornák. */
+function getFavoriteIdsFromStorage(): Set<string> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('iptv_rt_folders_v1') : null;
+    if (!raw) return new Set();
+    const folders = JSON.parse(raw);
+    if (!Array.isArray(folders)) return new Set();
+    const ids = new Set<string>();
+    for (const f of folders as any[]) {
+      const arr = (f && Array.isArray(f.channelIds)) ? f.channelIds : [];
+      for (const id of arr) if (typeof id === 'string' && id) ids.add(id);
+    }
+    return ids;
+  } catch {
+    return new Set();
+  }
+}
+
+function hungarianFirstForSave(channels: Channel[], favoriteIds?: Set<string>): Channel[] {
+  const fav = favoriteIds ?? getFavoriteIdsFromStorage();
   const hu: Channel[] = [];
+  const favNonHu: Channel[] = [];
   const rest: Channel[] = [];
   for (const channel of channels) {
-    (isHungarianForSave(channel) ? hu : rest).push(channel);
+    if (isHungarianForSave(channel)) hu.push(channel);
+    else if (fav.has(channel.id)) favNonHu.push(channel);
+    else rest.push(channel);
   }
-  return hu.length ? hu.concat(rest) : channels;
+  if (hu.length || favNonHu.length) return hu.concat(favNonHu).concat(rest);
+  return channels;
 }
 
 /**
@@ -842,12 +864,25 @@ function liveBootSubset(
   channels: Channel[],
   budget: number = LIVE_BOOT_BUDGET,
   hungarianOnly = true,
+  favoriteIds?: Set<string>,
 ): Channel[] {
   let source = channels;
   if (hungarianOnly) {
+    const fav = favoriteIds ?? getFavoriteIdsFromStorage();
     const hu: Channel[] = [];
-    for (const channel of channels) if (isHungarianForSave(channel)) hu.push(channel);
-    if (hu.length) source = hu;
+    const favNonHu: Channel[] = [];
+    for (const channel of channels) {
+      if (isHungarianForSave(channel)) hu.push(channel);
+      else if (fav.has(channel.id)) favNonHu.push(channel);
+    }
+    if (hu.length || favNonHu.length) {
+      // Kedvencek közvetlenül a magyarok után, még a budget előtt – így startupkor azonnal látszanak.
+      const seen = new Set<string>();
+      const merged: Channel[] = [];
+      for (const ch of hu) { if (!seen.has(ch.id)) { seen.add(ch.id); merged.push(ch); } }
+      for (const ch of favNonHu) { if (!seen.has(ch.id)) { seen.add(ch.id); merged.push(ch); } }
+      source = merged;
+    }
   }
   const subset: Channel[] = [];
   let chars = 0;
@@ -996,13 +1031,15 @@ function saveLiveBootWithRetry(
   channels: Channel[],
   startBudget: number = LIVE_BOOT_BUDGET,
   hungarianOnly = true,
+  favoriteIds?: Set<string>,
 ): Channel[] {
   let budget = startBudget;
+  const fav = favoriteIds ?? getFavoriteIdsFromStorage();
   // Legfeljebb 5 próba: 500k → 250k → 125k → 62k → 40k karakter. A ciklus
   // akkor is leáll, ha a készlet már nem csökkenthető tovább (nincs végtelen
   // újrapróbálkozás, ami a TV-t lefoglalná).
   for (let attempt = 0; attempt < 5; attempt++) {
-    const boot = liveBootSubset(channels, budget, hungarianOnly);
+    const boot = liveBootSubset(channels, budget, hungarianOnly, fav);
     if (!boot.length) return boot;
     if (saveLiveBootCache(content, boot)) return boot;
     if (boot.length <= LIVE_BOOT_MIN_CHANNELS) return [];
@@ -1023,8 +1060,9 @@ function saveLiveBootWithRetry(
  * a teljes lista a régi úton, a localStorage-ba megy – ott nem veszik el semmi.
  */
 export async function saveLiveContentAsync(content: ImportedContent): Promise<void> {
-  const channels = hungarianFirstForSave(content.channels);
-  const boot = saveLiveBootWithRetry(content, channels);
+  const fav = getFavoriteIdsFromStorage();
+  const channels = hungarianFirstForSave(content.channels, fav);
+  const boot = saveLiveBootWithRetry(content, channels, LIVE_BOOT_BUDGET, true, fav);
   try {
     if (!boot.length) appLog('Élő csatornák: az induló készlet nem fért be a localStorage-ba.');
   } catch (error) {
@@ -2340,6 +2378,44 @@ export async function loadLiveBoot(): Promise<LoadedLive> {
     },
     pendingFull: channels.length < liveTotal,
   };
+}
+
+/**
+ * Kedvenc + magyar csatornák betöltése az IndexedDB-ből induláskor – gyors.
+ *
+ * A teljes lista beolvasása NÉLKÜL is megtaláljuk a kedvenc mappákba mentett
+ * csatornákat: végigmegyünk az adagokon, de csak a keresett azonosítókat
+ * tartjuk meg. Így a startup nem tölti be az összes többi ország csatornáját,
+ * mégis azonnal látszanak a kedvencek.
+ */
+export async function loadLiveChannelsByIds(
+  provider: ProviderRef | null,
+  ids: Set<string>,
+): Promise<Channel[]> {
+  if (!ids.size || !provider) return [];
+  const store = await contentChunkStore();
+  if (!store) return [];
+  const chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
+  if (!chunked || !chunked.meta.provider) return [];
+  const storedProvider = chunked.meta.provider;
+  // Csak azonos providerhez tartozó listát fogadunk el – más fiók adata nem keveredhet.
+  if (provider.id && storedProvider.id !== provider.id) return [];
+  const wanted = ids;
+  const out: Channel[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < chunked.meta.chunks; index++) {
+    const rows = await chunked.readChunk(index);
+    for (const ch of decodeChannels(rows, storedProvider)) {
+      if (wanted.has(ch.id) && !seen.has(ch.id)) {
+        seen.add(ch.id);
+        out.push(ch);
+        if (seen.size >= wanted.size) break;
+      }
+    }
+    if (seen.size >= wanted.size) break;
+    if ((index + 1) % 4 === 0) await yieldToStorage();
+  }
+  return out;
 }
 
 /**
