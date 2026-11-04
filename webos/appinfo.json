@@ -1,6 +1,6 @@
 {
   "id": "hu.rt.iptv.webos",
-  "version": "2.5.300",
+  "version": "2.5.302",
   "vendor": "TV",
   "type": "web",
   "main": "index.html",
