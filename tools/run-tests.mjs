@@ -61,6 +61,7 @@ const tasks = [
   { name: 'provider-delete', args: ['tools/test-provider-delete.mjs'] },
   { name: 'provider-load', args: ['tools/test-provider-load.mjs'] },
   { name: 'epg-guide', args: ['tools/test-epg-guide.mjs'] },
+  { name: 'broadcast-time', args: ['tools/test-broadcast-time.mjs'] },
   // A régi próba a megszüntetett localStorage-os VOD-mentést várja.
   // A jelenlegi VOD/sorozat-tárolást az IndexedDB-s persistence és durable-restart tesztek fedik le.
   { name: 'import-stress', args: ['tools/test-import-stress.mjs'] },

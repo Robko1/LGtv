@@ -7,6 +7,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
+    version: '2.5.297',
+    date: '2026-11-04',
+    changes: [
+      'TV DOKTOR KI/BE KAPCSOLÓ (Beállítások → Rendszer): a menüben az OK gomb mostantól mindig végrehajtja a fókuszált gombot. A webOS távirányítójának OK gombja gyakran csak keyCode 13-ként érkezik (key = „Unidentified”), ilyenkor a böngésző nem váltotta ki a kattintást – ezért lehetett a kapcsolóra fókuszálni, de nem lehetett átkapcsolni. Ez minden menügombra érvényes, nem csak a TV Doktoréra.',
+      'MŰSORÚJSÁG IDŐZÓNA (a magyar műsorújság mostantól MINDEN országban magyar időt mutat): a panelek és az XMLTV gyakran időzóna nélkül adja a műsoridőket (pl. „20261104020000”). Ezeket eddig a készülék saját idejeként olvastuk, ezért Írországban (UTC+0) a magyar műsorújság egy órával csúszott, és a „most futó” a már lejárt, előző műsort jelölte.',
+      'Az időzóna nélküli időpontokat mostantól MAGYAR időként (CET/CEST, az EU nyári időszámítás szabályai szerint) értelmezzük, a műsoridőket pedig magyar időben írjuk ki – a magyar újsággal egyezően, a „most” jelölés a valóban futó műsorra esik. A megadott időzónát (+0100, Z) továbbra is tiszteletben tartjuk.',
+      'A régi, elcsúszott időpontokkal mentett műsorújság egyszer automatikusan újratöltődik magyar időben (a tartós gyorsítótár jelölést kap), így nem kell kézzel törölni semmit.',
+    ],
+  },
+  {
     version: '2.5.296',
     date: '2026-11-04',
     changes: [

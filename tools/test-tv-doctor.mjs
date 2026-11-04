@@ -1815,6 +1815,8 @@ try {
   const shortDesc = doc.querySelector('[data-tv-doctor-short-desc]');
   const pairingBox = doc.querySelector('[data-tv-doctor-pairing-box]');
   const pairingMenuBtn = doc.querySelector('[data-tv-doctor-pairing-menu]');
+  /** Távirányítós billentyűesemény (a valódi TV-hez hasonlóan buborékoltatva). */
+  const dpad = (el, key) => el.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 
   check(
     allBoxes[0] === doctorBox &&
@@ -1850,20 +1852,24 @@ try {
       doctorToggle.getAttribute('aria-checked') === 'true',
     'a Rendszer → TV Doktor dobozon az első OK a kapcsolóra viszi a fókuszt, de még nem kapcsolja ki',
   );
-  // jsdom nem szimulálja a böngésző natív Enter → click aktiválását,
-  // ezért a fókuszált kapcsoló click() hívása modellezi a második OK-t.
-  doctorToggle.click();
+  /*
+   * 2.5.297: a webOS távirányítójának OK gombja gyakran csak keyCode 13-ként
+   * érkezik (key = "Unidentified"), ilyenkor a böngésző nem váltja ki a gomb
+   * natív kattintását – ezért a menü maga végzi el a műveletet. Itt valódi
+   * Enter billentyűeseménnyel ellenőrizzük, hogy a kapcsoló tényleg átvált.
+   */
+  dpad(doctorToggle, 'Enter');
   await wait(45);
   check(
     window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === false &&
       doctorToggle.getAttribute('aria-checked') === 'false',
-    'a kapcsolón megnyomott második OK kikapcsolja a TV Doktort',
+    'a kapcsolón megnyomott OK (Enter) kikapcsolja a TV Doktort',
   );
   doctorBox.focus();
   doctorBox.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
   await wait(45);
   check(doc.activeElement === doctorToggle, 'visszakapcsolás előtt is a kapcsolóra kerül a fókusz');
-  doctorToggle.click();
+  dpad(doctorToggle, 'Enter');
   await wait(45);
   check(
     window.__DOCTOR_UI__.getSettings().tvDoctorEnabled === true &&
@@ -1877,7 +1883,6 @@ try {
    * vitte a fókuszt – a menüben nem lehetett továbbhaladni. Mostantól minden
    * doboz egy fókuszlépés, a kapcsoló pedig balra/jobbra vagy OK-val érhető el.
    */
-  const dpad = (el, key) => el.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   const doctorIndex = allBoxes.indexOf(doctorBox);
   const nextBox = allBoxes[doctorIndex + 1];
   doctorBox.focus();

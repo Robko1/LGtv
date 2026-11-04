@@ -708,8 +708,27 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       e.stopPropagation();
       onClose();
     } else if (key === 'Enter' && (e.target as HTMLElement)?.tagName !== 'INPUT' && (e.target as HTMLElement)?.tagName !== 'TEXTAREA') {
-      // Enter a fókuszált gombon
-      // A natív click már megy, de biztosítjuk
+      /*
+       * 2.5.297 – AZ OK GOMB MINDIG MŰKÖDJÖN.
+       *
+       * A webOS távirányítójának OK gombja gyakran `key = "Unidentified"`
+       * (vagy "Accept"/"Select") néven érkezik, csak a keyCode 13 utal rá, hogy
+       * Enter volt. Ilyenkor a böngésző NEM váltja ki a fókuszált gomb natív
+       * kattintását, ezért a TV Doktor Ki/Be kapcsolója (és más gombok) nem
+       * reagáltak. A normalizált Enter esetén ezért magunk végezzük el a
+       * műveletet; a preventDefault megakadályozza az esetleges dupla tüzelést.
+       */
+      const focused = document.activeElement as HTMLElement | null;
+      const inModal = Boolean(focused && modalRef.current && modalRef.current.contains(focused));
+      const clickable = Boolean(
+        focused &&
+          (focused.tagName === 'BUTTON' || focused.getAttribute('role') === 'button' || focused.tagName === 'A'),
+      );
+      if (inModal && clickable && !e.defaultPrevented && !focused!.hasAttribute('disabled')) {
+        e.preventDefault();
+        e.stopPropagation();
+        focused!.click();
+      }
     }
   };
 
