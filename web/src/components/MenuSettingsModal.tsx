@@ -368,14 +368,58 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   };
 
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
-    // A Rendszer fül dobozaiba OK-val belépve a nyilak nem ugorhatnak át
-    // közvetlenül egy másik dobozra. A doboz saját vezérlői között maradunk;
-    // vízszintes szélen a fókusz visszatér a saját doboz keretére.
+    /*
+     * 2.5.296 – FÓKUSZCSAPDA JAVÍTÁSA (Rendszer fül):
+     * A TV Doktor dobozon a LEFELÉ nyíl eddig a doboz saját Ki/Be kapcsolójára
+     * vitte a fókuszt, onnan pedig vissza a doboz keretére – így a menüben
+     * felfelé/lefelé haladva a fókusz örökre a doboz és a kapcsoló között
+     * pattogott, és a többi beállítás elérhetetlenné vált.
+     * Mostantól MINDEN doboz egységesen egy fókuszlépés:
+     *   • fel/le  → az előző / következő doboz (a legfelső dobozról fel a fülre),
+     *   • balra/jobbra vagy OK → a doboz belső vezérlői (kapcsoló, gombok),
+     *   • a belső vezérlők sorának végén fel/le → a szomszéd doboz (nem pattanás
+     *     vissza a saját keretre).
+     */
     if (activeTab === 'system') {
       const key = normalizeTvKey(e);
       const target = e.target as HTMLElement;
       const box = target.closest<HTMLElement>('[data-tv-box]');
       const active = document.activeElement as HTMLElement | null;
+      // A látható dobozok sorrendje a képernyőn (a rejtett fülök dobozai nélkül).
+      const visibleSystemBoxes = (): HTMLElement[] => {
+        const root = modalRef.current;
+        if (!root) return [];
+        // A láthatóságot a rajzolt területtel is ellenőrizzük: a TV böngészője
+        // mellett így a tesztkörnyezet (jsdom) is ugyanazt a sorrendet látja.
+        return Array.from(root.querySelectorAll<HTMLElement>('[data-tv-box]')).filter(
+          (el) =>
+            (el.offsetParent !== null || el.getClientRects().length > 0) &&
+            !el.closest('[data-view-hidden]'),
+        );
+      };
+      const focusSystemElement = (el?: HTMLElement | null): void => {
+        if (!el) return;
+        el.focus({ preventScroll: true } as any);
+        el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+      };
+      // Egy doboz belső vezérlőiről fel/le a szomszéd dobozra lépünk tovább.
+      const stepToNeighbourBox = (direction: 'up' | 'down'): boolean => {
+        if (!box) return false;
+        const boxes = visibleSystemBoxes();
+        const index = boxes.indexOf(box);
+        if (index < 0) return false;
+        const neighbour = boxes[direction === 'down' ? index + 1 : index - 1];
+        if (neighbour) {
+          focusSystemElement(neighbour);
+          return true;
+        }
+        if (direction === 'up') {
+          // A legfelső dobozról felfelé a saját fül kapja a fókuszt.
+          focusSystemElement(modalRef.current?.querySelector<HTMLElement>('[data-tv-tabid="system"]'));
+          return true;
+        }
+        return false;
+      };
       // Az LG webOS alkalmazás teljes kockáján a JOBBRA nyíl nem végez műveletet.
       // Az OK-val történő belépést és a többi nyíl működését változatlanul hagyjuk.
       if (box?.hasAttribute('data-system-app-container') && active === box && key === 'ArrowRight') {
@@ -384,9 +428,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         return;
       }
       if (box && (
-        ['ArrowLeft', 'ArrowRight'].includes(key) ||
-        (['ArrowUp', 'ArrowDown'].includes(key) && active !== box) ||
-        (box.hasAttribute('data-tv-doctor-box') && key === 'ArrowDown' && active === box) ||
+        ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) ||
         (key === 'Enter' && active === box)
       )) {
         const controls = Array.from(box.querySelectorAll<HTMLElement>(
@@ -400,8 +442,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           // következő OK kapcsolja át; nem aktiváljuk rejtetten a kapcsolót.
           if (box.hasAttribute('data-tv-doctor-box')) {
             const toggle = box.querySelector<HTMLElement>('[data-tv-doctor-toggle]');
-            toggle?.focus({ preventScroll: true } as any);
-            toggle?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            focusSystemElement(toggle || controls[0]);
             return;
           }
           if (controls.length === 1) {
@@ -415,37 +456,31 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           return;
         }
         if (key === 'ArrowUp' || key === 'ArrowDown') {
-          if (box.hasAttribute('data-tv-doctor-box') && active === box && key === 'ArrowDown') {
-            controls[0]?.focus({ preventScroll: true } as any);
-            controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-            return;
-          }
-          if (box.hasAttribute('data-tv-doctor-box') && active !== box) {
-            const index = controls.indexOf(active as HTMLElement);
-            if (index >= 0) {
-              const next = index + (key === 'ArrowDown' ? 1 : -1);
-              if (next >= 0 && next < controls.length) {
-                controls[next]?.focus({ preventScroll: true } as any);
-                controls[next]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-              } else {
-                box.focus({ preventScroll: true } as any);
-              }
+          /* A doboz belső vezérlőin fel/le lépkedünk, a sor végén viszont
+           * NEM pattanunk vissza a doboz keretére (ez okozta a csapdát),
+           * hanem a szomszéd dobozra lépünk tovább. */
+          const index = controls.indexOf(active as HTMLElement);
+          if (index >= 0) {
+            const next = index + (key === 'ArrowDown' ? 1 : -1);
+            if (next >= 0 && next < controls.length) {
+              focusSystemElement(controls[next]);
               return;
             }
-            box.focus({ preventScroll: true } as any);
+          }
+          if (!stepToNeighbourBox(key === 'ArrowDown' ? 'down' : 'up')) {
+            focusSystemElement(box);
           }
           return;
         }
         if (key === 'ArrowLeft' || key === 'ArrowRight') {
           const index = controls.indexOf(active as HTMLElement);
           if (index < 0) {
-            if (key === 'ArrowRight') controls[0]?.focus({ preventScroll: true } as any);
+            if (key === 'ArrowRight') focusSystemElement(controls[0]);
             return;
           } else {
             const next = index + (key === 'ArrowRight' ? 1 : -1);
             if (next >= 0 && next < controls.length) {
-              controls[next]?.focus({ preventScroll: true } as any);
-              controls[next]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+              focusSystemElement(controls[next]);
             } else {
               box.focus({ preventScroll: true } as any);
             }

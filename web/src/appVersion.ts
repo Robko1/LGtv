@@ -7,6 +7,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
+    version: '2.5.296',
+    date: '2026-11-04',
+    changes: [
+      'FÓKUSZCSAPDA A MENÜBEN (Beállítások → Rendszer): a TV Doktor dobozán a LEFELÉ nyíl eddig a doboz saját Ki/Be kapcsolójára vitte a fókuszt, onnan pedig vissza a doboz keretére – így a menüben felfelé/lefelé haladva a kijelölés a doboz és a kapcsoló között pattogott, a többi beállítás (Supabase-párosítás, OSD, Mozi & Sorozat, LG webOS) pedig elérhetetlenné vált.',
+      'EGYSÉGES MENÜNAVIGÁCIÓ: a Rendszer fülön mostantól minden doboz pontosan egy fókuszlépés – fel/le az előző/következő beállításra lép (a legfelső dobozról fel a Rendszer fülre), a doboz belső vezérlőit (Ki/Be kapcsoló, gombok, legördülő listák) pedig JOBBRA nyíllal vagy OK-val lehet elérni.',
+      'NINCS VISSZAPATTANÁS: ha a fókusz egy doboz belső vezérlőjén áll, a sor végén a fel/le nyíl tovább lép a szomszéd dobozra ahelyett, hogy visszaugrana a doboz keretére – így a kapcsolóról is azonnal tovább lehet menni.',
+    ],
+  },
+  {
     version: '2.5.295',
     date: '2026-11-04',
     changes: [

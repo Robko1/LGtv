@@ -1871,6 +1871,53 @@ try {
     'a kapcsolón megnyomott OK visszakapcsolja a TV Doktort',
   );
 
+  /*
+   * 3.1b FÓKUSZCSAPDA (2.5.296): a Rendszer fülön a TV Doktor dobozon a
+   * LEFELÉ nyíl eddig a saját Ki/Be kapcsolójára, onnan pedig vissza a dobozra
+   * vitte a fókuszt – a menüben nem lehetett továbbhaladni. Mostantól minden
+   * doboz egy fókuszlépés, a kapcsoló pedig balra/jobbra vagy OK-val érhető el.
+   */
+  const dpad = (el, key) => el.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  const doctorIndex = allBoxes.indexOf(doctorBox);
+  const nextBox = allBoxes[doctorIndex + 1];
+  doctorBox.focus();
+  dpad(doctorBox, 'ArrowDown');
+  await wait(40);
+  check(
+    doc.activeElement === nextBox && doc.activeElement !== doctorToggle,
+    'a Rendszer → TV Doktor dobozról LEFELÉ a következő beállításra lép a fókusz (nem ragad a Ki/Be kapcsolón)',
+  );
+  dpad(doc.activeElement, 'ArrowDown');
+  await wait(40);
+  check(doc.activeElement === allBoxes[doctorIndex + 2], 'onnan tovább lefelé is halad a fókusz a következő beállításra');
+  dpad(doc.activeElement, 'ArrowUp');
+  await wait(40);
+  check(doc.activeElement === nextBox, 'felfelé egy lépéssel visszajön az előző dobozra');
+  dpad(doc.activeElement, 'ArrowUp');
+  await wait(40);
+  check(doc.activeElement === doctorBox, 'a TV Doktor dobozra visszaérve megáll (nincs oda-vissza pattogás)');
+  doctorToggle.focus();
+  dpad(doctorToggle, 'ArrowDown');
+  await wait(40);
+  check(
+    doc.activeElement === nextBox && !doctorBox.contains(doc.activeElement),
+    'a Ki/Be kapcsolóról LEFELÉ is el lehet hagyni a TV Doktor dobozt',
+  );
+  doctorBox.focus();
+  dpad(doctorBox, 'ArrowUp');
+  await wait(40);
+  check(
+    doc.activeElement === doc.querySelector('[data-tv-tabid="system"]'),
+    'a legfelső dobozról felfelé a Rendszer fülre lép a fókusz',
+  );
+  doctorBox.focus();
+  dpad(doctorBox, 'ArrowRight');
+  await wait(40);
+  check(doc.activeElement === doctorToggle, 'a TV Doktor kapcsolója JOBBRA nyíllal továbbra is elérhető');
+  dpad(doctorToggle, 'ArrowLeft');
+  await wait(40);
+  check(doc.activeElement === doctorBox, 'a kapcsolóról BALRA visszajön a TV Doktor dobozra');
+
   // Különálló Supabase-párosítás menüpont távirányítós megnyitása és 0-kat tartalmazó 6 jegyű párosítás végigvitele:
   check(
     Boolean(pairingBox) && Boolean(pairingMenuBtn) && (pairingBox.textContent || '').includes('Supabase-párosítás'),
