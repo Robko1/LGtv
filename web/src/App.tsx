@@ -449,6 +449,8 @@ export function App() {
   });
   const catalogSavedCountsRef = useRef(catalogSavedCounts);
   useEffect(() => { catalogSavedCountsRef.current = catalogSavedCounts; }, [catalogSavedCounts]);
+  // VOD folyamatjelző – külön a filmekre és sorozatokra, csak helyi tárból (0-100%)
+  const [vodRestoreProgress, setVodRestoreProgress] = useState({ movies: 0, series: 0 });
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [diagnosticEvents, setDiagnosticEvents] = useState<NetworkDiagnosticEvent[]>([]);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
@@ -1420,9 +1422,26 @@ export function App() {
     // 2.5.253: az első visszatöltési adag rögtön kint legyen (lásd onVodPartial).
     let vodFirstPainted = false;
     let seriesFirstPainted = false;
+    // VOD kör folyamatjelző: induláskor 0% (csak ha még nincs kész)
+    if ((scope === 'movies' || scope === 'vod' || scope === 'all') && moviesRef.current.length < (catalogSavedCountsRef.current.vod || 0)) {
+      setVodRestoreProgress((prev: { movies: number; series: number }) => (prev.movies === 0 ? prev : { ...prev, movies: 0 }));
+    }
+    if ((scope === 'series' || scope === 'vod' || scope === 'all') && seriesRef.current.length < (catalogSavedCountsRef.current.series || 0)) {
+      setVodRestoreProgress((prev: { movies: number; series: number }) => (prev.series === 0 ? prev : { ...prev, series: 0 }));
+    }
     try {
       await restoreStoredContent(target, {
         onStage: (stage) => logPhase(stage),
+        onVodProgress: (loaded: number, total: number) => {
+          const expected = total > 0 ? total : (catalogSavedCountsRef.current.vod || 1);
+          const pct = Math.min(100, Math.max(0, Math.round((loaded / expected) * 100)));
+          setVodRestoreProgress((prev: { movies: number; series: number }) => (pct <= prev.movies ? prev : { ...prev, movies: pct }));
+        },
+        onSeriesProgress: (loaded: number, total: number) => {
+          const expected = total > 0 ? total : (catalogSavedCountsRef.current.series || 1);
+          const pct = Math.min(100, Math.max(0, Math.round((loaded / expected) * 100)));
+          setVodRestoreProgress((prev: { movies: number; series: number }) => (pct <= prev.series ? prev : { ...prev, series: pct }));
+        },
         onLive: (full) => {
           if (providerRefreshActiveRef.current) return;
           /*
@@ -1584,6 +1603,7 @@ export function App() {
           });
           catalogSavedCountsRef.current = { vod: filteredVod.length, series: catalogSavedCountsRef.current.series };
           appLog(`Filmek a felületen EGYBEN: ${filteredVod.length} (letöltés nélkül).`);
+          setVodRestoreProgress((prev: { movies: number; series: number }) => ({ ...prev, movies: 100 }));
           return true;
         },
         onSeries: (ser) => {
@@ -1612,6 +1632,7 @@ export function App() {
           });
           catalogSavedCountsRef.current = { vod: catalogSavedCountsRef.current.vod, series: filteredSeries.length };
           appLog(`Sorozatok a felületen EGYBEN: ${filteredSeries.length} (letöltés nélkül).`);
+          setVodRestoreProgress((prev: { movies: number; series: number }) => ({ ...prev, series: 100 }));
           return true;
         },
       }, {
@@ -2426,6 +2447,20 @@ export function App() {
       }
     }
   }, [activeView, movies.length, series.length]);
+
+  // VOD kör: ha a lista már a memóriában van, a kör 100%-on álljon
+  useEffect(() => {
+    if (catalogSavedCounts.vod > 0 && movies.length >= catalogSavedCounts.vod) {
+      setVodRestoreProgress((prev: { movies: number; series: number }) => (prev.movies === 100 ? prev : { ...prev, movies: 100 }));
+    } else if (movies.length > 0 && catalogSavedCounts.vod === 0) {
+      setVodRestoreProgress((prev: { movies: number; series: number }) => (prev.movies === 100 ? prev : { ...prev, movies: 100 }));
+    }
+    if (catalogSavedCounts.series > 0 && series.length >= catalogSavedCounts.series) {
+      setVodRestoreProgress((prev: { movies: number; series: number }) => (prev.series === 100 ? prev : { ...prev, series: 100 }));
+    } else if (series.length > 0 && catalogSavedCounts.series === 0) {
+      setVodRestoreProgress((prev: { movies: number; series: number }) => (prev.series === 100 ? prev : { ...prev, series: 100 }));
+    }
+  }, [movies.length, series.length, catalogSavedCounts.vod, catalogSavedCounts.series]);
 
   /* 2.5.273 (#5-ös kérés): teljes képernyő be/ki váltások időköze a naplóban. */
   useEffect(() => {
@@ -5225,6 +5260,7 @@ export function App() {
             categories={vodCategories}
             totalCount={totalCounts.vod}
             savedCount={catalogSavedCounts.vod || movies.length}
+            restoreProgress={vodRestoreProgress.movies}
             onPlayMovie={handlePlayMovie}
             selectedCategoryId={movieCategoryRef.current}
             onSelectedCategoryChange={handleMoviesCategoryChange}
@@ -5251,6 +5287,7 @@ export function App() {
             categories={seriesCategories}
             totalCount={totalCounts.series}
             savedCount={catalogSavedCounts.series || series.length}
+            restoreProgress={vodRestoreProgress.series}
             onPlayEpisode={handlePlayEpisode}
             selectedCategoryId={seriesCategoryRef.current}
             onSelectedCategoryChange={handleSeriesCategoryChange}

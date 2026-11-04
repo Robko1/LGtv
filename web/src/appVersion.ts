@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.308';
+export const WEB_VERSION = '2.5.309';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,13 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.309',
+    date: '2026-11-04',
+    changes: [
+      'MOZI/SOROZAT 3D KÖR FOLYAMATJELZŐ: a Mozi és Sorozat menü külön-külön, a megnyitáskor automatikusan a helyi tárból (IDB) kezdi a visszatöltést; a jobb oldalon már a betöltés előtt látszik a tárolóban lévő filmek/sorozatok pontos darabszáma; a darabszám-szöveg helyett modern, 3D hatású kör jelenik meg (filmeknél kék, sorozatoknál sárga), középen 0–100% felirattal; 100%-nál a teljes lista plusz a ténylegesen visszatöltött darabszám jelenik meg. Csak helyi tár, nincs új szolgáltatói letöltés, a két lista független.',
+    ],
+  },
   {
     version: '2.5.308',
     date: '2026-11-04',

@@ -3,7 +3,7 @@ import { Category, Series, Episode } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
-import { Sparkles, Filter, ChevronDown, Clock } from 'lucide-react';
+import { Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatRuntime, sortByReleaseYearDesc } from '../utils/vodDisplay';
 
@@ -17,6 +17,8 @@ interface SeriesViewProps {
    * lássa, mennyi a valós visszatöltés a szolgáltatói összlétszám mellett.
    */
   savedCount?: number;
+  /** 0-100% – helyi tárból történő visszatöltés folyamata (csak Sorozat nézethez, sárga kör) */
+  restoreProgress?: number;
   onPlayEpisode: (series: Series, episode: Episode) => void;
   selectedCategoryId?: string;
   onSelectedCategoryChange?: (categoryId: string) => void;
@@ -49,6 +51,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   categories: providerCategories,
   totalCount,
   savedCount = 0,
+  restoreProgress = 0,
   onPlayEpisode,
   onToggleFavoriteSeries,
   onDeleteSeries,
@@ -58,6 +61,7 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
   activeProvider,
   onVodItemEnriched,
 }) => {
+  void totalCount;
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   const [selectedSeriesId, setSelectedSeriesId] = useState<string>('');
   // A legfrissebb sorozatlista referenciában: a részletek-lekérő effekt
@@ -228,19 +232,61 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
             <span>Kategóriák</span>
           </button>
 
-          <div className="flex items-center gap-2 text-base font-black text-cyan-400">
-            <Sparkles className="w-4 h-4 text-cyan-400" />
-            {/*
-              * 2.5.298 – VALÓS DARABSZÁM A SAJÁT MEMÓRIÁBÓL.
-              *
-              * Eddig csak „500 / 25000” állt itt: a felületre került adag és
-              * a szolgáltató ígért összlétszáma. A néző kérése, hogy lássa a
-              * TÉNYLEGES visszatöltést a TV saját mentéséből is. Ezért:
-              *   látható / szolgáltatói össz  •  TV-memóriában: mentett darab
-              */}
-            <span data-vod-count="series">
-              {`SOROZATOK KÖNYVTÁR (${series.length}${totalCount && totalCount > series.length ? ` / ${totalCount}` : ''}${savedCount > 0 && savedCount !== series.length ? ` • TV-memóriában: ${savedCount}` : ''})`}
-            </span>
+          <div className="flex items-center gap-3 shrink-0" data-vod-count="series">
+            {/* 3D KÖR – SOROZATOK (sárga) – 0-100% a helyi tárból, csak Sorozathoz */}
+            <div className="relative w-14 h-14 shrink-0">
+              <svg width="56" height="56" viewBox="0 0 56 56" className="w-14 h-14 -rotate-90 drop-shadow-[0_4px_10px_rgba(202,138,4,0.45)]">
+                <defs>
+                  <linearGradient id="gradSeries" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#fde68a" />
+                    <stop offset="45%" stopColor="#facc15" />
+                    <stop offset="100%" stopColor="#ca8a04" />
+                  </linearGradient>
+                  <radialGradient id="innerSeries" cx="50%" cy="40%" r="55%">
+                    <stop offset="0%" stopColor="#3f2f00" />
+                    <stop offset="65%" stopColor="#1f1600" />
+                    <stop offset="100%" stopColor="#0f0d02" />
+                  </radialGradient>
+                  <filter id="shadowSeries" x="-50%" y="-50%" width="200%" height="200%">
+                    <feDropShadow dx="0" dy="3" stdDeviation="3" floodColor="#a16207" floodOpacity="0.55" />
+                  </filter>
+                </defs>
+                <circle cx="28" cy="28" r="22" fill="none" stroke="#0f172a" strokeWidth="6" />
+                <circle cx="28" cy="28" r="22" fill="none" stroke="#1e293b" strokeWidth="6" opacity="0.9" />
+                <circle
+                  cx="28"
+                  cy="28"
+                  r="22"
+                  fill="none"
+                  stroke="url(#gradSeries)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  strokeDasharray={138.23}
+                  strokeDashoffset={138.23 * (1 - Math.min(100, Math.max(0, restoreProgress)) / 100)}
+                  filter="url(#shadowSeries)"
+                  style={{ transition: 'stroke-dashoffset 0.45s ease' }}
+                />
+                <circle cx="28" cy="28" r="15" fill="url(#innerSeries)" stroke="#5a4100" strokeWidth="1.2" />
+                <ellipse cx="28" cy="19.5" rx="9" ry="3.2" fill="white" opacity="0.11" />
+                <ellipse cx="28" cy="21" rx="6" ry="1.8" fill="white" opacity="0.07" />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black tracking-wide text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                {Math.min(100, Math.max(0, Math.round(restoreProgress)))}%
+              </span>
+            </div>
+            <div className="flex flex-col items-end leading-tight min-w-[108px]">
+              <span className="text-[10px] font-bold tracking-[0.14em] text-amber-300/90">SOROZATOK</span>
+              <span className="text-xs font-black text-white">
+                {savedCount > 0 ? `${savedCount.toLocaleString('hu-HU')} a tárolóban` : '0 sorozat a tárolóban'}
+              </span>
+              <span className="text-[11px] font-bold text-amber-200">
+                {restoreProgress >= 100 && series.length > 0
+                  ? `${series.length.toLocaleString('hu-HU')} betöltve`
+                  : restoreProgress > 0
+                    ? `Betöltés… ${Math.round(restoreProgress)}%`
+                    : 'Betöltésre kész'}
+              </span>
+            </div>
           </div>
         </div>
 
