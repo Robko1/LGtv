@@ -42,7 +42,6 @@ import {
 import { fsNow, fsPerf, fsStep } from './services/fullscreenPerf';
 import { speedChannelCommit, speedSelect } from './services/speedDiagnostics';
 import { configureTvDoctorCloud } from './services/tvDoctorCloud';
-import { watchTvDoctorEpg } from './services/tvDoctor';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import { displayChannelPositions } from './utils/displayChannelOrder';
@@ -751,7 +750,6 @@ export function App() {
   // 2.5.294: a frissítés utáni pótláshoz a tényleges darabszámok kellenek.
   const totalCountsRef = useRef(totalCounts);
   const selectedCategoryIdRef = useRef(selectedCategoryId);
-  // 2.5.277: a TV Doktor EPG-őre (háttér-időzítő) a beállításokhoz is hozzáfér.
   const settingsRef = useRef(settings);
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId;
@@ -1954,15 +1952,6 @@ export function App() {
       if (typeof document !== 'undefined' && document.hidden) return;
       setGuideHuProbe(channelsRef.current); // 2.5.269 (#2)
       void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
-      /*
-       * 2.5.277 (#17-es kérés): a TV DOKTOR EPG-ŐRE is fut – az új műsorújság-
-       * tárolót (epgGuide) nézi, és csak akkor indít frissítést, ha hiányzik,
-       * elavult, vagy kevés magyar adót fed le. Egyébként csendben visszatér.
-       */
-      if (settingsRef.current.tvDoctorEnabled !== false) {
-        void watchTvDoctorEpg({ provider: plan.provider, channels: channelsRef.current })
-          .catch(() => { /* az őr soha nem akadályoz */ });
-      }
     }, 30 * 60 * 1000);
     return timers;
   }, [runRestore, markLiveReady, guideStatusSafe, warmUpVodPosters]);

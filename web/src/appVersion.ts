@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.303';
+export const WEB_VERSION = '2.5.304';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.304',
+    date: '2026-11-04',
+    changes: [
+      'TV DOKTOR 0-POPUP ÁTSZERVEZÉS: a bal oldali szövegek dobozokba kerültek ugyanazzal a látvánnyal mint jobb oldalt – felül külön Tanulás (minden tanult bejegyzés, ALL, nem 15) és Segítség (legfrissebb 15) doboz, alattuk Aktiválódás 15 és Hiba csatornánál 15 egymás mellett két oszlopban; mindegyik doboz fókuszálható, OK-ra nyílik/csukódik és laponként görgethető (PageUp/PageDown/nyilak/OK), jobb oldalon a maradék dobozok (Supabase, Működési állapot, Hibajelzés, Memória) feljebb tolódtak; a Tanult útvnalak sáv alul teljes szélességű 4 kockás sávként jelenik meg (nem nyitható).',
+      'EPG TELJES LEVÁLASZTÁSA A DOKTORRÓL: minden EPG-kezelés, naplózás és megjelenítés kikerült a TV Doktorból (watchTvDoctorEpg stub, epgStats, guide-műsorújság frissítések, disabled/assist számlálók, kategória-panel EPG sáv) – az EPG továbbra is megy a főoldalon, de a Doktornak semmilyen műsorújság-adat nem kell.',
+      'KÉZI SÁRGA TELEXT NAPLÓ (Sárga gomb) ELLENŐRZÉS: a két kézi napló (Nagy + TV DR) csak kézzel indítva naplóz a leállításig/küldésig, folyamatos 1 MB-os buffer (nem 15-korlát), a naplózott hibák elküldhetők saját Supabase funkcióba, a 0-popup bal dobozai külön: Tanulás mind, a többi 15 legfrissebb – a kézi napló és a 0-ablak 15-korlátja független.',
+      'PER-KATEGÓRIA MEGŐRZÉS: Tanulás legfeljebb 500 bejegyzésig mind megmarad (globál 800 védőkorlát), Segítség/Aktiválódás/Hiba csatornánként csak 15 legfrissebb; csak a magyar tanult útvnalak (max 8/csatorna) kerülnek tartós tárolóba/Supabase-be.',
+    ],
+  },
   {
     version: '2.5.303',
     date: '2026-11-04',
