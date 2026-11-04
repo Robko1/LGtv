@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.316';
+export const WEB_VERSION = '2.5.317';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.316',
+    version: '2.5.317',
     date: '2026-11-04',
     changes: [
       'MOZI — LEGFRISSEBB ELÖL (mint a Sorozatoknál): a Mozi nézet mostantól a legfrissebb filmeket mutatja elöl — év szerint csökkenő, azonos éven belül a nagyobb streamId (újabb a szolgáltatónál) előre, így a frissen felkerült filmek azonnal az első sorban látszanak (eddig az év nélküli filmek a végére kerültek).',
