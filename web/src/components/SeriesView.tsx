@@ -218,23 +218,23 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     /* Keresőmező és „Poszterek” gomb NÉLKÜL (kérés szerint) – csak a
        Kategóriák választó és a darabszám marad a nézet tetején. */
     <div className="flex-1 flex flex-col bg-[#070e1e] overflow-hidden select-none lg:select-auto" onKeyDown={(e) => { if (normalizeTvKey(e) === 'Escape' && isCategoryMenuOpen) { e.preventDefault(); e.stopPropagation(); setIsCategoryMenuOpen(false); } }}>
-      {/* Top Bar */}
+      {/* Top Bar — 2.5.315: kör + doboz a KÖZEPÉN a Kategória mellett (nem jobb sarok), a doboz a kör tetejétől az aljáig ér, a két szöveg felcserélve (középen betöltve, alul tárolóban) */}
       <div className="p-3 md:p-4 lg:p-4 xl:p-5 bg-[#09152e] border-b border-cyan-950/60 flex flex-col gap-2.5 md:gap-3">
-        <div className="relative flex items-center justify-end gap-2 min-h-[40px]">
+        <div className="flex items-center justify-center gap-3 md:gap-4 min-h-[80px] md:min-h-[96px]">
           <button
             data-category-trigger="series"
             onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'ArrowDown') { e.preventDefault(); if (!isCategoryMenuOpen) seriesGridRef.current?.querySelector<HTMLElement>('[data-poster-index="0"]')?.focus(); } else if (key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); document.querySelector<HTMLElement>('[data-tv-header-kind="series"]')?.focus(); } }}
             onClick={() => setIsCategoryMenuOpen((open) => !open)}
             aria-expanded={isCategoryMenuOpen}
-            className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0f2042] hover:bg-[#162d5a] text-cyan-300 border border-cyan-500/30 text-base font-bold active:scale-95 transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0f2042] hover:bg-[#162d5a] text-cyan-300 border border-cyan-500/30 text-base font-bold active:scale-95 transition-all shrink-0"
           >
             <ChevronDown className="w-4 h-4" />
             <span>Kategóriák</span>
           </button>
 
-          <div className="flex items-center gap-4 shrink-0" data-vod-count="series">
-            {/* 3D KÖR – SOROZATOK (sárga) – 0-100% a helyi tárból, csak Sorozathoz – 2.5.311: NAGYOBB, TV-n jól látható, kitölti a dobozt */}
-            <div className="relative w-20 h-20 md:w-24 md:h-24 shrink-0">
+          <div className="flex items-center gap-3 rounded-xl border border-cyan-800/50 bg-[#0f2042]/60 px-3 h-[80px] md:h-[96px] shrink-0" data-vod-count="series">
+            {/* 3D KÖR – SOROZATOK (sárga) – 0-100% a helyi tárból, csak Sorozathoz – 2.5.311: NAGYOBB, TV-n jól látható, doboz a kör tetejétől az aljáig */}
+            <div className="relative w-20 h-20 md:w-24 md:h-24 shrink-0 -ml-1">
               <svg width="96" height="96" viewBox="0 0 56 56" className="w-20 h-20 md:w-24 md:h-24 -rotate-90 drop-shadow-[0_5px_14px_rgba(202,138,4,0.55)]">
                 <defs>
                   <linearGradient id="gradSeries" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -274,17 +274,17 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
                 {Math.min(100, Math.max(0, Math.round(restoreProgress)))}%
               </span>
             </div>
-            <div className="flex flex-col items-end leading-tight min-w-[140px] md:min-w-[168px]">
+            <div className="flex flex-col items-start justify-center leading-tight min-w-[140px] md:min-w-[168px] py-1">
               <span className="text-xs md:text-sm font-bold tracking-[0.14em] text-amber-300/90">SOROZATOK</span>
               <span className="text-sm md:text-base lg:text-lg font-black text-white">
-                {savedCount > 0 ? `${savedCount.toLocaleString('hu-HU')} a tárolóban` : '0 sorozat a tárolóban'}
-              </span>
-              <span className="text-xs md:text-sm font-bold text-amber-200">
                 {restoreProgress >= 100 && series.length > 0
                   ? `${series.length.toLocaleString('hu-HU')} betöltve`
                   : restoreProgress > 0
                     ? `Betöltés… ${Math.round(restoreProgress)}%`
                     : 'Betöltésre kész'}
+              </span>
+              <span className="text-xs md:text-sm font-bold text-amber-200">
+                {savedCount > 0 ? `${savedCount.toLocaleString('hu-HU')} a tárolóban` : '0 sorozat a tárolóban'}
               </span>
             </div>
           </div>

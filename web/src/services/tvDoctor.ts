@@ -2830,10 +2830,59 @@ export function planDoctorRepairStep(params: {
       };
     }
 
+    // 2.5.315 FIX: MŰKÖDŐ CSATORNÁT SOHA NE JELÖLJÜNK HALOTTNAK — tanult útvonallal újraindítjuk, nem „nem elérhető”
+    const _recForCheck = channel ? getOrCreateRecord(store, channel, currentFormat, currentBufferProfile) : null;
+    const _hasPriorSuccessForHalt = Boolean(
+      (_recForCheck && ((_recForCheck.tsOk || 0) + (_recForCheck.hlsOk || 0) > 0 || (_recForCheck.consecutiveCleanStarts || 0) > 0 || Boolean(_recForCheck.lastWorkingFormat)))
+      || (record && ((record.tsOk || 0) + (record.hlsOk || 0) > 0 || (record.consecutiveCleanStarts || 0) > 0 || Boolean(record.lastWorkingFormat)))
+    );
+    if (_hasPriorSuccessForHalt && learnedAlternate) {
+      // Van tanult útvonal: ne halottnak jelöljük, hanem azzal próbáljuk újra — a csatorna működött, nem szabad „nem elérhető”-nek mutatni
+      logDoctor(
+        'warn',
+        channel,
+        `MŰKÖDŐ CSATORNA ÁTMENETI HIBÁJA (${effectiveMaxSteps}/${effectiveMaxSteps} sikertelen) – tanult útvonal újrapróbálása (${learnedAlternate.format.toUpperCase()} + ${learnedAlternate.bufferProfile}), nem jelöljük halottnak.`,
+        'activation',
+        storage,
+      );
+      if (cloudHook && record) {
+        cloudHook({
+          eventType: 'repair_exhausted',
+          record,
+          event: {
+            channelKey,
+            channelId: channel?.id,
+            channelName: channel?.name || channelKey,
+            playbackFormat: learnedAlternate.format,
+            bufferProfile: learnedAlternate.bufferProfile,
+            errorCode: 'RETRY_LEARNED_ROUTE',
+            errorReason: trigger,
+            recovered: false,
+          },
+        });
+      }
+      const safeCfgRetry = getDoctorBufferConfig(learnedAlternate.bufferProfile);
+      return {
+        step: 1,
+        maxSteps: effectiveMaxSteps,
+        strategyId: 'learned_route_retry_after_exhaustion',
+        description: `működő csatorna újrapróbálása tanult útvonallal (${learnedAlternate.format.toUpperCase()} + ${learnedAlternate.bufferProfile})`,
+        nextFormat: learnedAlternate.format,
+        nextUrl: urlFor(learnedAlternate.format),
+        nextBufferProfile: learnedAlternate.bufferProfile,
+        nextBufferTiming: safeCfgRetry,
+        delayMs: 90,
+        useFallbackUrl: false,
+        forceCleanReset: true,
+        stopRetrying: false,
+        exhausted: false,
+      };
+    }
+
     opHealth.deadChannelsHaltedCount += 1;
 
     if (channel) {
-      const rec = getOrCreateRecord(store, channel, currentFormat, currentBufferProfile);
+      const rec = _recForCheck || getOrCreateRecord(store, channel, currentFormat, currentBufferProfile);
       const nowMs = Date.now();
       /*
        * 2.5.277 (#17-es napló): a halott jelölés ismétlődő kimerülésnél
@@ -2845,10 +2894,9 @@ export function planDoctorRepairStep(params: {
        * és nem növeljük agresszíven a haltCount-ot – egy átmeneti hiba ne
        * zárja ki 30 percre a TV Doktort, a következő próbánál a tanult
        * útvonal újra esélyt kap.
+       * 2.5.315: de ha van tanult útvonal, már fentebb visszatértünk újrapróbálással, ide csak akkor jutunk, ha nincs tanult alternatíva — akkor is rövid hűtés.
        */
-      const recHasPriorSuccess = Boolean(
-        rec && ((rec.tsOk || 0) + (rec.hlsOk || 0) > 0 || (rec.consecutiveCleanStarts || 0) > 0 || Boolean(rec.lastWorkingFormat))
-      );
+      const recHasPriorSuccess = _hasPriorSuccessForHalt;
       const haltCount = recHasPriorSuccess ? Math.min(1, (rec.haltCount || 0) + 1) : (rec.haltCount || 0) + 1;
       rec.haltCount = haltCount;
       rec.lastExhaustedAt = nowMs;

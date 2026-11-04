@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.315';
+export const WEB_VERSION = '2.5.316';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.316',
+    date: '2026-11-04',
+    changes: [
+      'MOZI — LEGFRISSEBB ELÖL (mint a Sorozatoknál): a Mozi nézet mostantól a legfrissebb filmeket mutatja elöl — év szerint csökkenő, azonos éven belül a nagyobb streamId (újabb a szolgáltatónál) előre, így a frissen felkerült filmek azonnal az első sorban látszanak (eddig az év nélküli filmek a végére kerültek).',
+      'MOZI/SOROZAT % DOBOZ JAVÍTÁS — KÖZÉPEN A KATEGÓRIA MELLETT, DOBOZ A KÖR TETEJÉTŐL AZ ALJÁIG, SZÖVEG CSERE: a kék (Mozi) / sárga (Sorozat) 3D kör + darabszám mostantól NEM a jobb sarokban, hanem középen a Kategóriák gomb mellett van, egy közös dobozban (border + bg), a doboz magassága pontosan a kör magassága (h-20 md:h-24, a kör tetejétől az aljáig), a két szöveg felcserélve: középen „X betöltve” / „Betöltés…” , alul „Y a tárolóban” (eddig fordítva volt).',
+      'ORSZÁGOK LUSTA TÖLTÉSE ELLENŐRIZVE — FAST BOOT MEGMARADT: induláskor továbbra is csak a magyar + kedvenc csatornák töltődnek (localStorage boot készlet + 1 IDB adag), a teljes élő lista, az EPG és a többi ország csak az Ország menü megnyitásakor töltődik — hálózat nélkül, a tartós tárból (pendingFullLivePlanRef / triggerFullLiveRestore). A kód a c1c0c81-es alapon is megvan, nincs lemaradt merge.',
+      'TV DOKTOR — MŰKÖDŐ CSATORNA NEM LESZ „NEM ELÉRHETŐ”: a naplód (#2) szerint a Supabase kapcsolat él (connected 1129ms, 106 profil, 0 várólista, last_sync 2026-11-04), a legutóbbi futásban leállított_halott_csatorna=0 — a korábban működő csatornánál (M2 UHD) a javítási létra 3-5. lépésben a tanult útvnalat próbálja újra, és kimerüléskor csak 60 mp rövid hűtés (haltCount max 1) jár, nem 30 perc. Kiegészítve: ha van tanult útvonal, 5/5 után is újrapróbálja tanulttal (learned_route_retry_after_exhaustion) és nem jelöli halottnak.',
+    ],
+  },
   {
     version: '2.5.315',
     date: '2026-11-04',

@@ -5,7 +5,7 @@ import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
 import { Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { formatRuntime, sortByReleaseYearDesc } from '../utils/vodDisplay';
+import { formatRuntime, releaseYearOf, sortByReleaseYearDesc } from '../utils/vodDisplay';
 import { yearFromTitle } from '../services/catalogRows';
 import { enrichMovieDurationsInBackground } from '../services/vodEnrich';
 
@@ -132,7 +132,20 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
    * eredmény a `movies` tömb azonosságához kötött – így a rácsozás,
    * a lapozás és a kategóriaváltás ugyanezt a sorrendet látja.
    */
-  const yearSortedMovies = useMemo(() => sortByReleaseYearDesc(movies), [movies]);
+  // 2.5.315: Mozi — legfrissebb elöl, mint a Sorozatoknál (a felhasználó kérése). A year szerinti rendezés megmarad,
+  // de azonos éven belül (főleg év nélküli, 0-s csoportnál) a nagyobb streamId/id (újabb a szolgáltatónál) előre kerül,
+  // így a frissen felkerült filmek azonnal az első sorban látszanak, nem a lista végén.
+  const yearSortedMovies = useMemo(() => {
+    const base = sortByReleaseYearDesc(movies);
+    // Stabil másodlagos rendezés: azonos évnél a nagyobb id (újabb) elöl — nem bontja a year szerinti fő sorrendet.
+    const decorated = base.map((item, index) => ({ item, index, year: releaseYearOf(item), idNum: Number((item as unknown as { id?: string }).id || (item as unknown as { streamId?: number }).streamId || 0) }));
+    decorated.sort((a, b) => {
+      if (a.year !== b.year) return 0; // fő sorrend már jó (év csökkenő, 0 a végére)
+      if (a.idNum !== b.idNum) return b.idNum - a.idNum; // nagyobb id = frissebb
+      return a.index - b.index;
+    });
+    return decorated.map((d) => d.item);
+  }, [movies]);
   const filteredMovies = useMemo(
     () => (selectedCategory === 'all'
       ? yearSortedMovies
@@ -237,23 +250,23 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
      * jut, és a nézetváltáskor kevesebb elem épül fel.
      */
     <div className="flex-1 flex flex-col bg-[#070e1e] overflow-hidden select-none lg:select-auto" onKeyDown={(e) => { if (normalizeTvKey(e) === 'Escape' && isCategoryMenuOpen) { e.preventDefault(); e.stopPropagation(); setIsCategoryMenuOpen(false); } }}>
-      {/* Top Bar: Kategóriák + darabszám */}
+      {/* Top Bar: Kategóriák + darabszám — 2.5.315: kör + doboz a KÖZEPÉN a Kategória mellett (nem jobb sarok), a doboz a kör tetejétől az aljáig ér, a két szöveg felcserélve (középen betöltve, alul tárolóban) */}
       <div className="p-3 md:p-4 lg:p-4 xl:p-5 bg-[#09152e] border-b border-cyan-950/60 flex flex-col gap-2.5">
-        <div className="relative flex items-center justify-end gap-2 min-h-[40px]">
+        <div className="flex items-center justify-center gap-3 md:gap-4 min-h-[80px] md:min-h-[96px]">
           <button
             data-category-trigger="movies"
             onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'ArrowDown') { e.preventDefault(); if (!isCategoryMenuOpen) movieGridRef.current?.querySelector<HTMLElement>('[data-poster-index="0"]')?.focus(); } else if (key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); document.querySelector<HTMLElement>('[data-tv-header-kind="movies"]')?.focus(); } }}
             onClick={() => setIsCategoryMenuOpen((open) => !open)}
             aria-expanded={isCategoryMenuOpen}
-            className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0f2042] hover:bg-[#162d5a] text-amber-300 border border-amber-500/30 text-base font-bold active:scale-95 transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0f2042] hover:bg-[#162d5a] text-amber-300 border border-amber-500/30 text-base font-bold active:scale-95 transition-all shrink-0"
           >
             <ChevronDown className="w-4 h-4" />
             <span>Kategóriák</span>
           </button>
 
-          <div className="flex items-center gap-4 shrink-0" data-vod-count="movies">
-            {/* 3D KÖR – FILMEK (kék) – 0-100% a helyi tárból, csak Mozihoz – 2.5.311: NAGYOBB, TV-n jól látható, kitölti a dobozt */}
-            <div className="relative w-20 h-20 md:w-24 md:h-24 shrink-0">
+          <div className="flex items-center gap-3 rounded-xl border border-cyan-800/50 bg-[#0f2042]/60 px-3 h-[80px] md:h-[96px] shrink-0" data-vod-count="movies">
+            {/* 3D KÖR – FILMEK (kék) – 0-100% a helyi tárból, csak Mozihoz – 2.5.311: NAGYOBB, TV-n jól látható, doboz a kör tetejétől az aljáig */}
+            <div className="relative w-20 h-20 md:w-24 md:h-24 shrink-0 -ml-1">
               <svg width="96" height="96" viewBox="0 0 56 56" className="w-20 h-20 md:w-24 md:h-24 -rotate-90 drop-shadow-[0_5px_14px_rgba(37,99,235,0.55)]">
                 <defs>
                   <linearGradient id="gradMovies" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -296,17 +309,17 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                 {Math.min(100, Math.max(0, Math.round(restoreProgress)))}%
               </span>
             </div>
-            <div className="flex flex-col items-end leading-tight min-w-[140px] md:min-w-[168px]">
+            <div className="flex flex-col items-start justify-center leading-tight min-w-[140px] md:min-w-[168px] py-1">
               <span className="text-xs md:text-sm font-bold tracking-[0.14em] text-sky-300/90">FILMEK</span>
               <span className="text-sm md:text-base lg:text-lg font-black text-white">
-                {savedCount > 0 ? `${savedCount.toLocaleString('hu-HU')} a tárolóban` : '0 film a tárolóban'}
-              </span>
-              <span className="text-xs md:text-sm font-bold text-sky-200">
                 {restoreProgress >= 100 && movies.length > 0
                   ? `${movies.length.toLocaleString('hu-HU')} betöltve`
                   : restoreProgress > 0
                     ? `Betöltés… ${Math.round(restoreProgress)}%`
                     : 'Betöltésre kész'}
+              </span>
+              <span className="text-xs md:text-sm font-bold text-sky-200">
+                {savedCount > 0 ? `${savedCount.toLocaleString('hu-HU')} a tárolóban` : '0 film a tárolóban'}
               </span>
             </div>
           </div>
