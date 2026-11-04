@@ -3,7 +3,7 @@ import { Category, Movie } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
-import { Sparkles, Filter, ChevronDown, Clock, Trash2 } from 'lucide-react';
+import { Sparkles, Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatRuntime, sortByReleaseYearDesc } from '../utils/vodDisplay';
 import { yearFromTitle } from '../services/catalogRows';
@@ -365,28 +365,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                     * A kattintás NEM nyitja meg az adatlapot (stopPropagation),
                     * a fókuszált kukán az OK gomb (Enter) is töröl.
                     */}
-                  {onDeleteMovie && (
-                    <button
-                      type="button"
-                      data-vod-delete=""
-                      data-vod-delete-id={String(mov.id)}
-                      aria-label={`${mov.title} törlése a TV memóriájából`}
-                      title="Törlés a memóriából"
-                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDeleteMovie(mov.id); }}
-                      onKeyDown={(e) => {
-                        const key = normalizeTvKey(e);
-                        if (key === 'Enter' || key === ' ') {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onDeleteMovie(mov.id);
-                        }
-                      }}
-                      className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border-2 border-rose-200/80 bg-rose-600 text-white shadow-lg transition-colors hover:bg-rose-500 focus:outline-none focus-visible:ring-4 focus-visible:ring-rose-300"
-                    >
-                      <Trash2 className="h-5 w-5" aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
+</div>
                 <div className="p-3">
                   <h3 className="text-white font-black text-lg sm:text-xl truncate">{mov.title}</h3>
                   {/* 2.5.227: a filmkártya PONTOSAN a sorozatkártya elrendezését követi.

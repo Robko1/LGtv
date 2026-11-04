@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.298';
+export const WEB_VERSION = '2.5.299';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.299',
+    date: '2026-11-04',
+    changes: [
+      'JAVÍTÁS: MOZI VOD KÖNYVTÁR 0 IPK újraindítás után – a 0-s lista többé nem írja felül a 103k-s tartós mentést. Korábban a „movies.length === 0 || movies.length >= totalCounts.vod” ág miatt egy üres lista is complete-nek számított és felülírta az IDB-t; most stricter: teljes darabszám ismert esetén csak akkor mentünk, ha elértük azt (totalCounts.vod === 0 ? true : movies.length >= totalCounts.vod). A sorozatok már jól működtek, most a mozik is tartósan megmaradnak újraindítás után.',
+      'RÁCS TISZTÍTÁS – FÓKUSZ JAVÍTÁS (képernyőképek alapján): a Mozi és Sorozat fő poszterrácsáról lekerült a jobb felső piros kuka; a fókusz így nem akad a kukán, a D-pad nyilak végig a poszterek között mennek. A „Törlés a memóriából” továbbra is elérhető az adatlapban (poszterre OK → részletek → Törlés gomb), változatlanul a vodRemovals jegyzékbe ír.',
+    ],
+  },
   {
     version: '2.5.298',
     date: '2026-11-04',

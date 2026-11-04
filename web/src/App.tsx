@@ -2212,8 +2212,15 @@ export function App() {
        * Ezért csak akkor írunk film/sorozat listát, ha az eléri az ismert
        * teljes darabszámot.
        */
-      const moviesComplete = movies.length === 0 || movies.length >= totalCounts.vod;
-      const seriesComplete = series.length === 0 || series.length >= totalCounts.series;
+      /*
+       * 2.5.299: ÜRES LISTA SOSEM ÍRHATJA FELÜL A TELJEST – IPK újraindításkor
+       * a Mozi 0-val ne írja felül a 103k-s mentést. Korábban a 0 === 0 ág miatt
+       * egy 0-s lista is complete-nek számított, és felülírta a tartós tárat.
+       * Most csak akkor complete, ha a teljes darabszámot eléri, vagy ha eleve
+       * nincs ismert teljes darabszám (első mentés).
+       */
+      const moviesComplete = totalCounts.vod === 0 ? true : movies.length >= totalCounts.vod;
+      const seriesComplete = totalCounts.series === 0 ? true : series.length >= totalCounts.series;
       if (!moviesComplete || !seriesComplete) {
         appLog(`Részleges lista – a film/sorozat mentés kimarad (${movies.length}/${totalCounts.vod} film, ${series.length}/${totalCounts.series} sorozat).`);
       }
