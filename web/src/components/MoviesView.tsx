@@ -3,7 +3,7 @@ import { Category, Movie } from '../types/iptv';
 import type { ProviderRef } from '../services/contentStore';
 import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
-import { Sparkles, Filter, ChevronDown, Clock } from 'lucide-react';
+import { Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatRuntime, sortByReleaseYearDesc } from '../utils/vodDisplay';
 import { yearFromTitle } from '../services/catalogRows';
@@ -19,6 +19,8 @@ interface MoviesViewProps {
    * lássa, mennyi a valós visszatöltés a szolgáltatói összlétszám mellett.
    */
   savedCount?: number;
+  /** 0-100% – helyi tárból történő visszatöltés folyamata (csak Mozi nézethez, kék kör) */
+  restoreProgress?: number;
   onPlayMovie: (movie: Movie) => void;
   selectedCategoryId?: string;
   onSelectedCategoryChange?: (categoryId: string) => void;
@@ -51,6 +53,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   categories: providerCategories,
   totalCount,
   savedCount = 0,
+  restoreProgress = 0,
   onPlayMovie,
   selectedCategoryId: savedSelectedCategory = 'all',
   onSelectedCategoryChange,
@@ -60,6 +63,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   activeProvider,
   onVodItemEnriched,
 }) => {
+  void totalCount;
   const [selectedCategory, setSelectedCategory] = useState<string>(savedSelectedCategory);
   // A rács csak a megjelenített adag kártyáit tartalmazza.
   const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
@@ -247,19 +251,64 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
             <span>Kategóriák</span>
           </button>
 
-          <div className="flex items-center gap-2 text-base font-black text-amber-400">
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            {/*
-              * 2.5.298 – VALÓS DARABSZÁM A SAJÁT MEMÓRIÁBÓL.
-              *
-              * Eddig csak „500 / 103048” állt itt: a felületre került adag és
-              * a szolgáltató ígért összlétszáma. A néző kérése, hogy lássa a
-              * TÉNYLEGES visszatöltést a TV saját mentéséből is. Ezért:
-              *   látható / szolgáltatói össz  •  TV-memóriában: mentett darab
-              */}
-            <span data-vod-count="movies">
-              {`MOZI VOD KÖNYVTÁR (${movies.length}${totalCount && totalCount > movies.length ? ` / ${totalCount}` : ''}${savedCount > 0 && savedCount !== movies.length ? ` • TV-memóriában: ${savedCount}` : ''})`}
-            </span>
+          <div className="flex items-center gap-3 shrink-0" data-vod-count="movies">
+            {/* 3D KÖR – FILMEK (kék) – 0-100% a helyi tárból, csak Mozihoz */}
+            <div className="relative w-14 h-14 shrink-0">
+              <svg width="56" height="56" viewBox="0 0 56 56" className="w-14 h-14 -rotate-90 drop-shadow-[0_4px_10px_rgba(37,99,235,0.45)]">
+                <defs>
+                  <linearGradient id="gradMovies" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#60a5fa" />
+                    <stop offset="50%" stopColor="#3b82f6" />
+                    <stop offset="100%" stopColor="#1d4ed8" />
+                  </linearGradient>
+                  <radialGradient id="innerMovies" cx="50%" cy="40%" r="55%">
+                    <stop offset="0%" stopColor="#1e3a5f" />
+                    <stop offset="65%" stopColor="#0f1a2e" />
+                    <stop offset="100%" stopColor="#070e1e" />
+                  </radialGradient>
+                  <filter id="shadowMovies" x="-50%" y="-50%" width="200%" height="200%">
+                    <feDropShadow dx="0" dy="3" stdDeviation="3" floodColor="#1e40af" floodOpacity="0.55" />
+                  </filter>
+                </defs>
+                {/* háttér pálya – 3D perem */}
+                <circle cx="28" cy="28" r="22" fill="none" stroke="#0f172a" strokeWidth="6" />
+                <circle cx="28" cy="28" r="22" fill="none" stroke="#1e293b" strokeWidth="6" opacity="0.9" />
+                {/* haladás – kék, 3D fény */}
+                <circle
+                  cx="28"
+                  cy="28"
+                  r="22"
+                  fill="none"
+                  stroke="url(#gradMovies)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  strokeDasharray={138.23}
+                  strokeDashoffset={138.23 * (1 - Math.min(100, Math.max(0, restoreProgress)) / 100)}
+                  filter="url(#shadowMovies)"
+                  style={{ transition: 'stroke-dashoffset 0.45s ease' }}
+                />
+                {/* belső 3D mag */}
+                <circle cx="28" cy="28" r="15" fill="url(#innerMovies)" stroke="#1e3a5f" strokeWidth="1.2" />
+                <ellipse cx="28" cy="19.5" rx="9" ry="3.2" fill="white" opacity="0.09" />
+                <ellipse cx="28" cy="21" rx="6" ry="1.8" fill="white" opacity="0.06" />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black tracking-wide text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                {Math.min(100, Math.max(0, Math.round(restoreProgress)))}%
+              </span>
+            </div>
+            <div className="flex flex-col items-end leading-tight min-w-[108px]">
+              <span className="text-[10px] font-bold tracking-[0.14em] text-sky-300/90">FILMEK</span>
+              <span className="text-xs font-black text-white">
+                {savedCount > 0 ? `${savedCount.toLocaleString('hu-HU')} a tárolóban` : '0 film a tárolóban'}
+              </span>
+              <span className="text-[11px] font-bold text-sky-200">
+                {restoreProgress >= 100 && movies.length > 0
+                  ? `${movies.length.toLocaleString('hu-HU')} betöltve`
+                  : restoreProgress > 0
+                    ? `Betöltés… ${Math.round(restoreProgress)}%`
+                    : 'Betöltésre kész'}
+              </span>
+            </div>
           </div>
         </div>
 

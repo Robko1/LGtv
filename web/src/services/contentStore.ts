@@ -3039,6 +3039,9 @@ export interface RestoreHandlers {
   onVodPartial?: (partial: { movies: Movie[]; categories: Category[] }) => void;
   onSeriesPartial?: (partial: { series: Series[]; categories: Category[] }) => void;
   onStage?: (stage: string) => void;
+  /** VOD folyamatjelző – helyi tárból történő visszatöltés 0-100% (csak Mozi/Sorozat nézethez). */
+  onVodProgress?: (loaded: number, total: number) => void;
+  onSeriesProgress?: (loaded: number, total: number) => void;
 }
 
 async function hasStoredList(store: ChunkStore | null, metaKey: string, localMetaKey: string, legacyKey: string): Promise<boolean> {
@@ -3369,7 +3372,7 @@ export function restoreStoredContent(
       handlers.onStage?.(bootSubset ? 'filmek induló részhalmaza a tartós tárból' : 'filmlista a tartós tárból');
       const vod = await loadVodAsync(
         provider,
-        undefined,
+        (loaded, total) => handlers.onVodProgress?.(loaded, total),
         (partial) => handlers.onVodPartial?.(partial),
         bootSubset ? { maxItems: bootSubset } : undefined,
         options.shouldAbort,
@@ -3393,7 +3396,7 @@ export function restoreStoredContent(
       handlers.onStage?.(bootSubset ? 'sorozatok induló részhalmaza a tartós tárból' : 'sorozatlista a tartós tárból');
       const ser = await loadSeriesAsync(
         provider,
-        undefined,
+        (loaded, total) => handlers.onSeriesProgress?.(loaded, total),
         (partial) => handlers.onSeriesPartial?.(partial),
         bootSubset ? { maxItems: bootSubset } : undefined,
         options.shouldAbort,
