@@ -251,27 +251,29 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     void checkTvDoctorConnection();
 
+    const tryFocusLearning = () => {
+      const el = categoryHeaderRefs.current.learning;
+      if (el) {
+        try { el.focus({ preventScroll: true } as FocusOptions); } catch { el.focus(); }
+        return document.activeElement === el;
+      }
+      return false;
+    };
     const focusTimer = window.setTimeout(() => {
       if (largeCat && largeScrollRef.current) {
         try { largeScrollRef.current.focus({ preventScroll: true } as FocusOptions); } catch { largeScrollRef.current.focus(); }
         return;
       }
-      // 2.5.310: fókusz mindig a bal felső Tanulás dobozon legyen, ne a teljes bal panełen (fehér kijelölés javítása)
-      const first = categoryHeaderRefs.current.learning;
-      if (first) {
-        try { first.focus({ preventScroll: true } as FocusOptions); } catch { first.focus(); }
-        return;
-      }
-      // fallback: compat wrapper csak ha a Tanulás doboz még nem elérhető (pl. animáció közben)
-      const compat = compatLogScrollRef.current;
-      if (compat) {
-        try { compat.focus({ preventScroll: true } as FocusOptions); } catch { compat.focus(); }
-        return;
-      }
-      if (leftPaneRef.current) {
-        try { leftPaneRef.current.focus({ preventScroll: true } as FocusOptions); } catch { leftPaneRef.current.focus(); }
-      }
-    }, 0);
+      // 2.5.311: fókusz MINDIG a bal felső Tanulás dobozon legyen – a teljes bal oldal fehér kijelölése megszüntetve. Többszöri próbálkozás, mert a TV lassan csatolja a refeket.
+      if (tryFocusLearning()) return;
+      window.setTimeout(() => { tryFocusLearning(); }, 50);
+      window.setTimeout(() => { tryFocusLearning(); }, 150);
+      window.setTimeout(() => {
+        if (document.activeElement === compatLogScrollRef.current || document.activeElement === leftPaneRef.current) {
+          tryFocusLearning();
+        }
+      }, 250);
+    }, 30);
 
     return () => {
       window.clearTimeout(focusTimer);
@@ -790,6 +792,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
         aria-expanded={isExpanded}
         aria-label={`${vis.title} ${isExpanded ? 'bezárás' : 'megnyitás'} – ${totalForBadge} db, Enterrel nyitható – nagy ablakban olvasható`}
         data-tv-doctor-cat={cat}
+        {...(cat === 'learning' ? { 'data-tv-default': '', 'data-tv-open-focus': '' } : {})}
         data-cat-active={active ? 'true' : 'false'}
         data-cat-count={stat.count}
         onClick={() => toggleCategory(cat)}
@@ -863,7 +866,8 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             ref={leftPaneRef}
             data-tv-doctor-left-pane=""
             tabIndex={-1}
-            className="flex flex-col min-h-0 h-full overflow-hidden border-b-2 sm:border-b-0 sm:border-r-2 border-cyan-500/40 bg-[#050d1d] p-4 lg:p-5 gap-3"
+            className="flex flex-col min-h-0 h-full overflow-hidden border-b-2 sm:border-b-0 sm:border-r-2 border-cyan-500/40 bg-[#050d1d] p-4 lg:p-5 gap-3 outline-none focus:outline-none"
+            style={{ outline: 'none' }}
           >
             <div className="shrink-0 flex items-center justify-between gap-3">
               <h2 className="text-lg lg:text-xl font-black uppercase tracking-wide text-cyan-300">
@@ -881,15 +885,13 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             {/* Kompatibilis görgethető wrapper a tesztekhez (data-tv-doctor-log-scroll) – tartalmazza a 4 kategória-dobozt */}
             <div
               ref={compatLogScrollRef}
-              data-tv-default=""
-              data-tv-open-focus=""
               data-tv-scroll-pane=""
               data-tv-doctor-log-scroll=""
-              tabIndex={0}
+              tabIndex={-1}
               role="region"
               aria-label="Legutóbbi TV Doktor napló – görgethető (kompatibilis)"
-              className="flex-1 min-h-0 overflow-y-auto rounded-xl focus:outline-none p-1 -m-1 flex flex-col gap-3"
-              style={{ scrollBehavior: 'auto' }}
+              className="flex-1 min-h-0 overflow-y-auto rounded-xl focus:outline-none p-1 -m-1 flex flex-col gap-3 outline-none"
+              style={{ scrollBehavior: 'auto', outline: 'none' }}
             >
               {/* 1. vízszintes sor: Tanulás | Segítség/Javítás */}
               <div className="grid grid-cols-2 gap-3 items-start">
@@ -911,7 +913,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-2 text-base font-black text-emerald-200">
                     <Activity className="h-5 w-5 shrink-0 text-emerald-300" />
-                    <span>Tanult útvonalak (max. 8)</span>
+                    <span>Tanult útvonalak (max. 8){activeChannel ? ` — ${activeChannel.name}` : ''}</span>
                   </span>
                   <span
                     data-tv-doctor-routes-count=""
@@ -920,6 +922,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                     {activeRoutes.length} / {MAX_CHANNEL_ROUTES}
                   </span>
                 </div>
+                <p className="text-[11px] font-bold text-emerald-300/80 -mt-1">A tárolt adatokból dolgozik — valós mérések a hosszú memóriából/Supabase-ből (nem minta)</p>
                 {activeRoutes.length === 0 ? (
                   <p className="text-sm font-bold text-slate-300">
                     {activeChannel ? `${activeChannel.name}: még nincs tanult útvonal.` : 'Nincs kiválasztott élő csatorna.'}
@@ -960,7 +963,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               </div>
 
               <div className="text-xs font-semibold text-slate-500 mt-1 shrink-0">
-                Tanulás: minden bejegyzés (tartós) • többi: 15 legfrissebb (kijelző)
+                Tanulás (fent): összes tanulás az összes csatornáról (tartós) • Tanult útvnalak (lent): a kiválasztott csatorna 8 útvonala — a kettő nem ugyanaz, de mindkettő a tárolt adatokból dolgozik
               </div>
             </div>
           </section>
@@ -1119,6 +1122,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                   Memória állapot: <strong className="text-white font-black">{doctorMem.memoryHealth === 'optimal' ? 'Optimális' : doctorMem.memoryHealth === 'moderate' ? 'Mérsékelt' : 'Magas'}</strong>
                 </div>
               </div>
+              <p className="text-xs font-bold text-emerald-300/90">Minden szám valós — a hosszú memóriából és a védett Supabase-ből frissül, nem minta (2.5.311)</p>
             </div>
 
             {/* Hibajelzés vagy Minden rendben */}

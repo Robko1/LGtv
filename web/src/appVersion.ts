@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.310';
+export const WEB_VERSION = '2.5.311';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.311',
+    date: '2026-11-04',
+    changes: [
+      'MOZI/SOROZAT 3D KÖR NAGYÍTÁS TV-RE: a Mozi (kék) és Sorozat (sárga) visszatöltő kör mostantól sokkal nagyobb (80–96px vs 56px), kitölti a fejléc dobozt; a középső % felirat 11px → 16–18px, a mellette lévő darabszámok 10–12px → 14–18px (FILMEK/SOROZATOK, a tárolóban, betöltve) — nagy TV-n távolról is jól olvasható, a doboz mérete változatlan.',
+      'TV DOKTOR 0-POPUP FÓKUSZ ROBUSZTUSÍTÁS (fehér teljes bal oldal javítás): a 0 gombbal nyíló ablak fókusza mostantól MINDIG a bal felső Tanulás dobozon áll, többszöri próbálkozással (30ms + 50/150/250ms retry), a teljes bal oldal wrapper (data-tv-doctor-log-scroll) már nem fókuszálható (tabIndex -1, nincs amber gyűrű, outline:none) és a data-tv-default is a Tanulás dobozra került — a fehér kijelölés megszűnt, csak a kiválasztott doboz kap amber gyűrűt.',
+      'TV DOKTOR ADATOK VALÓDISÁGÁNAK TISZTÁZÁSA: a jobb oldalon minden szám valós (Tanult profilok 57/1600, Központi profilok 106, TV Doktor memória 94KB — a hosszú memóriából/Supabase-ből frissül, nem minta); a bal oldalon a felső Tanulás doboz az összes tanulás (globális, pl. 3 db), az alsó Tanult útvonalak lista a kiválasztott csatorna 8 útvonala (pl. 2/8) — a kettő nem ugyanaz, de mindkettő a tárolt adatokból dolgozik, felirattal tisztázva.',
+    ],
+  },
   {
     version: '2.5.310',
     date: '2026-11-04',
