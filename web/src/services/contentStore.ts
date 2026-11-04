@@ -3042,6 +3042,8 @@ export interface RestoreHandlers {
   /** VOD folyamatjelző – helyi tárból történő visszatöltés 0-100% (csak Mozi/Sorozat nézethez). */
   onVodProgress?: (loaded: number, total: number) => void;
   onSeriesProgress?: (loaded: number, total: number) => void;
+  /** 2.5.318: ORSZÁGOK folyamatjelző – teljes élő lista helyi tárból, csak Ország menüre (0-100%). */
+  onLiveProgress?: (loaded: number, total: number) => void;
 }
 
 async function hasStoredList(store: ChunkStore | null, metaKey: string, localMetaKey: string, legacyKey: string): Promise<boolean> {
@@ -3357,7 +3359,11 @@ export function restoreStoredContent(
         || liveMeta.meta.provider.id === plan.provider.id;
       if (sameProvider) {
         handlers.onStage?.('teljes élő csatornalista a tartós tárból');
-        const full = await loadLiveFull(provider, undefined, options.shouldAbort);
+        const liveTotal = plan.counts.live || liveMeta?.meta.liveTotal || 0;
+        // 2.5.318: Országok kör — adagonként jelentjük a haladást, hogy a CategoriesModal köre mozogjon
+        const full = await loadLiveFull(provider, (loaded) => {
+          try { handlers.onLiveProgress?.(loaded, liveTotal); } catch { /* ne akadályozza */ }
+        }, options.shouldAbort);
         if (full && full.channels.length && !aborted()) {
           handlers.onLive?.(full);
           loaded += ` élő=${full.channels.length}`;

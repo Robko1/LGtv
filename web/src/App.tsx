@@ -451,6 +451,9 @@ export function App() {
   useEffect(() => { catalogSavedCountsRef.current = catalogSavedCounts; }, [catalogSavedCounts]);
   // VOD folyamatjelző – külön a filmekre és sorozatokra, csak helyi tárból (0-100%)
   const [vodRestoreProgress, setVodRestoreProgress] = useState({ movies: 0, series: 0 });
+  // ORSZÁGOK folyamatjelző – a teljes élő lista visszatöltésekor (csak Ország menüre, helyi tárból) 0-100% — 2.5.318
+  const [liveRestoreProgress, setLiveRestoreProgress] = useState(0);
+  const liveRestoreTotalRef = useRef(0);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [diagnosticEvents, setDiagnosticEvents] = useState<NetworkDiagnosticEvent[]>([]);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
@@ -1429,9 +1432,20 @@ export function App() {
     if ((scope === 'series' || scope === 'vod' || scope === 'all') && seriesRef.current.length < (catalogSavedCountsRef.current.series || 0)) {
       setVodRestoreProgress((prev: { movies: number; series: number }) => (prev.series === 0 ? prev : { ...prev, series: 0 }));
     }
+    // ORSZÁGOK kör — 2.5.318: ha Ország menüre töltjük a teljes élő listát, a kör 0-ról indul
+    if ((scope === 'live' || scope === 'all') && channelsRef.current.length < (totalCountsRef.current.live || catalogSavedCountsRef.current.live || 0)) {
+      liveRestoreTotalRef.current = totalCountsRef.current.live || catalogSavedCountsRef.current.live || 0;
+      setLiveRestoreProgress((prev) => (prev === 0 ? prev : 0));
+    }
     try {
       await restoreStoredContent(target, {
         onStage: (stage) => logPhase(stage),
+        onLiveProgress: (loaded: number, total: number) => {
+          const expected = total > 0 ? total : (liveRestoreTotalRef.current || totalCountsRef.current.live || 1);
+          if (total > 0) liveRestoreTotalRef.current = total;
+          const pct = Math.min(100, Math.max(0, Math.round((loaded / expected) * 100)));
+          setLiveRestoreProgress((prev) => (pct <= prev ? prev : pct));
+        },
         onVodProgress: (loaded: number, total: number) => {
           const expected = total > 0 ? total : (catalogSavedCountsRef.current.vod || 1);
           const pct = Math.min(100, Math.max(0, Math.round((loaded / expected) * 100)));
@@ -1481,6 +1495,7 @@ export function App() {
               ? current : { ...current, live: full.totals.live }));
           });
           appLog(`Teljes élő lista a felületen: ${full.channels.length} csatorna (tartós tár).`);
+          setLiveRestoreProgress(100);
           /*
            * AZ UTOLJÁRA NÉZETT CSATORNA HELYREÁLLÍTÁSA (2.5.228).
            *
@@ -1902,8 +1917,18 @@ export function App() {
     let backgroundWork: ReturnType<typeof startBackgroundWork> = undefined;
     void (async () => {
       try {
-        // VALÓS lépés: a tároló ellenőrzése ténylegesen elindult.
-        bootScreenPhase('storage', 'A készülék tárolójának ellenőrzése…');
+        // 2.5.318 VILLÁM-INDÍTÁS: ha van helyi HU készlet (localStorage), a splash AZONNAL mehet — nem vár az IDB felmérésre
+        if (bootChannels.length > 0 && !cancelled) {
+          bootScreenChannels(bootChannels.length);
+          bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
+          try { markLiveReady(); } catch {}
+          // a bootProbeDone már igaz is lehet (initial), de biztosítjuk
+          setBootProbeDone(true);
+          markBootState('content');
+          decided = 'content';
+        }
+        // VALÓS lépés: a tároló ellenőrzése ténylegesen elindult — de ha már van HU, a splash már mehet, ezt nem mutatjuk visszafele
+        if (bootChannels.length === 0) bootScreenPhase('storage', 'A készülék tárolójának ellenőrzése…');
         const plan = await inspectStoredCatalogs();
         const report = plan?.report || lastStoredContentReport() || await describeStoredContent();
         bootScreenPhase('stored', `Tároló megnyitva: ${report.liveIdb} mentett csatorna a tartós tárban.`);
@@ -1983,31 +2008,12 @@ export function App() {
         decided = 'content';
         markBootState('content');
         if (!bootChannels.length && plan.bootChannels.length) {
+          // 2.5.318 FAST BOOT VILLÁM: a HU készlet AZONNAL a felületre, a kedvencek háttérben pótolódnak — nincs await a felfedés előtt
           let prepared = restoreSavedChannelOrder(
             hungaryFirst(dropDeletedChannels(plan.bootChannels, plan.provider.id)),
             plan.provider.id,
           );
-          // FAST BOOT: kedvenc mappák csatornáit is azonnal hozzáadjuk (még ha nem magyarok is) – hálózat nélkül, a tartós tárból
-          try {
-            const favIds = new Set<string>();
-            for (const f of storageService.getFolders()) for (const id of (f.channelIds || [])) favIds.add(id);
-            const missingFavIds = new Set<string>();
-            for (const id of favIds) if (!prepared.some((c) => c.id === id)) missingFavIds.add(id);
-            if (missingFavIds.size) {
-              const favChannels = await loadLiveChannelsByIds(plan.provider, missingFavIds);
-              if (favChannels.length && !cancelled) {
-                const seen = new Set(prepared.map((c) => c.id));
-                for (const ch of favChannels) if (!seen.has(ch.id)) { seen.add(ch.id); prepared.push(ch); }
-                prepared = restoreSavedChannelOrder(
-                  hungaryFirst(dropDeletedChannels(prepared, plan.provider.id)),
-                  plan.provider.id,
-                );
-                appLog(`FAST BOOT: ${favChannels.length} kedvenc csatorna hozzáadva az induló készlethez (nem-magyar is).`);
-              }
-            }
-          } catch {}
           setChannels(prepared);
-          // 2.5.280 (#22/#23): az induló visszatöltés is „már mentettnek” számít.
           lastSavedRef.current = { ...lastSavedRef.current, channels: prepared };
           if (plan.bootCategories.length) setCategories(plan.bootCategories);
           const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
@@ -2018,20 +2024,51 @@ export function App() {
             activeChannelIdRef.current = recoveredActiveId;
             setActiveChannelId(recoveredActiveId);
           }
-          appLog(`INDULÁS MENTETT ADATBÓL: ${prepared.length} csatorna azonnal, letöltés nélkül (HU + kedvencek).`);
-          // A betöltőképernyőn a VALÓBAN visszatöltött csatornák száma látszik.
+          // A felfedéshez elég a HU készlet — a kedvencek nélkül is 100% a boot
           bootScreenChannels(prepared.length);
-          bootScreenPhase('restored', `${prepared.length} csatorna betöltve a tartós tárból (HU + kedvencek).`);
+          bootScreenPhase('restored', `${prepared.length} csatorna betöltve a tartós tárból (HU).`);
+          // markLiveReady azonnal — a splash nem vár a fav IDB-keresésre
+          try { markLiveReady(); } catch {}
+          appLog(`INDULÁS MENTETT ADATBÓL: ${prepared.length} csatorna azonnal, letöltés nélkül (HU).`);
+          // Kedvencek pótlása HÁTTÉRBEN (nem blokkolja a boot-ot) — 2.5.318
+          try {
+            const favIds = new Set<string>();
+            for (const f of storageService.getFolders()) for (const id of (f.channelIds || [])) favIds.add(id);
+            const missingFavIds = new Set<string>();
+            for (const id of favIds) if (!prepared.some((c) => c.id === id)) missingFavIds.add(id);
+            if (missingFavIds.size) {
+              void loadLiveChannelsByIds(plan.provider, missingFavIds).then((favChannels) => {
+                if (cancelled || !favChannels.length) return;
+                const seen = new Set(prepared.map((c) => c.id));
+                for (const ch of favChannels) if (!seen.has(ch.id)) { seen.add(ch.id); prepared.push(ch); }
+                const merged = restoreSavedChannelOrder(
+                  hungaryFirst(dropDeletedChannels(prepared, plan.provider.id)),
+                  plan.provider.id,
+                );
+                setChannels((current) => {
+                  const curIds = new Set(current.map((c) => c.id));
+                  const toAdd = merged.filter((c) => !curIds.has(c.id));
+                  return toAdd.length ? [...current, ...toAdd] : current;
+                });
+                lastSavedRef.current = { ...lastSavedRef.current, channels: merged };
+                appLog(`FAST BOOT: ${favChannels.length} kedvenc csatorna hozzáadva az induló készlethez (nem-magyar is, háttérben).`);
+                bootScreenChannels(merged.length);
+              }).catch(() => {});
+            }
+          } catch {}
         } else {
-          // Már van bootChannels a modulból (localStorage HU) – kedvencek pótlása, ha hiányzik
+          // 2.5.318 FAST BOOT VILLÁM: a helyi HU már a képernyőn (bootChannels a modulból) — a splash azonnal mehet, a kedvencek háttérben
+          bootScreenChannels(bootChannels.length);
+          bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
+          try { markLiveReady(); } catch {}
           try {
             const favIds = new Set<string>();
             for (const f of storageService.getFolders()) for (const id of (f.channelIds || [])) favIds.add(id);
             const missingFavIds = new Set<string>();
             for (const id of favIds) if (!bootChannels.some((c) => c.id === id)) missingFavIds.add(id);
             if (missingFavIds.size && catalogPlanRef.current) {
-              const favChannels = await loadLiveChannelsByIds(catalogPlanRef.current.provider, missingFavIds);
-              if (favChannels.length && !cancelled) {
+              void loadLiveChannelsByIds(catalogPlanRef.current.provider, missingFavIds).then((favChannels) => {
+                if (cancelled || !favChannels.length) return;
                 const merged = [...bootChannels];
                 const seen = new Set(merged.map((c) => c.id));
                 for (const ch of favChannels) if (!seen.has(ch.id)) { seen.add(ch.id); merged.push(ch); }
@@ -2041,21 +2078,11 @@ export function App() {
                 );
                 setChannels(prepared2);
                 lastSavedRef.current = { ...lastSavedRef.current, channels: prepared2 };
-                appLog(`FAST BOOT (cache): ${favChannels.length} kedvenc csatorna pótolva az induló készlethez.`);
+                appLog(`FAST BOOT (cache): ${favChannels.length} kedvenc csatorna pótolva az induló készlethez (háttérben).`);
                 bootScreenChannels(prepared2.length);
-                bootScreenPhase('restored', `${prepared2.length} csatorna betöltve a helyi tárból (HU + kedvencek).`);
-              } else {
-                bootScreenChannels(bootChannels.length);
-                bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
-              }
-            } else {
-              bootScreenChannels(bootChannels.length);
-              bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
+              }).catch(() => {});
             }
-          } catch {
-            bootScreenChannels(bootChannels.length);
-            bootScreenPhase('restored', `${bootChannels.length} csatorna betöltve a helyi tárból.`);
-          }
+          } catch {}
         }
         setActiveProvider(plan.provider);
         setProviderContentReady(true);
@@ -5378,6 +5405,9 @@ export function App() {
         setIsOnlyFavorites={setIsOnlyFavorites}
         onSearchQueryChange={setCategorySearchQuery}
         onSelectSearchChannel={(channelId) => setActiveChannelId(channelId)}
+        liveRestoreProgress={liveRestoreProgress}
+        liveTotalCount={totalCounts.live}
+        liveLoadedCount={channels.length}
       />
 
       {/* 2. Menü & Beállítások Modal (4 Tabs) */}

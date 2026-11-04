@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.317';
+export const WEB_VERSION = '2.5.318';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.318',
+    date: '2026-11-04',
+    changes: [
+      'ORSZÁGOK BETÖLTŐ % — KÖR A MODAL TETEJÉN: az Országok (Kategóriák) ablak tetején, ahol van hely, mostantól 3D kör mutatja a teljes élő lista visszatöltését (cián, 0-100% a helyi tárból). Csak az Ország menüre kattintva indul, előtte 0% — a kör mellett „ORSZÁGOK • X / Y csatorna • Betöltés… N%” sorok, a teljes lista számával (pl. 9 200 / 20 190). A teljes lista továbbra sem töltődik induláskor.',
+      'MOZI POSZTEREK — UGYANÚGY MINT A SOROZATOKNÁL: a Mozi rács mostantól pontosan a Sorozatok logikáját követi visszatöltéskor — év szerint csökkenő, stabil sorrend (sortByReleaseYearDesc) közös, azonos PAGE_SIZE=25 / NEXT_BATCH_AT=15 lapozás és azonos helyi poszter-előtöltés (preloadPosterImage). A korábbi másodlagos streamId szerinti rendezés kikerült, ezért a mozi poszterek ugyanabban az ütemben, ugyanúgy jelennek meg mint a sorozatoké.',
+      'MOZI/SOROZAT % DOBOZ — TÉNYLEG ÖSSZÉBB: a középre helyezett kék/sárga kör + darabszám doboz magassága most tényleg a kör átmérője (h-80 md:h-96), az outer fejléc paddingje p-3/p-4-ről px-3 py-1.5-re szűkült (gap 2.5→1.5), a belső gap és py is csökkent (gap-3→2, py-1→0.5). Így a kör teteje = doboz teteje, kör alja = doboz alja, nincs felesleges hely fent/lent — a korábbi doboz csak köré tett keret volt, a magasság ugyanannyi maradt.',
+      'INDULÁS VILLÁMGORSÍTÁS — MÉRT OK: a boot eddig az IDB-s fav-keresést (loadLiveChannelsByIds, 17 adag végigolvasása) is megvárta a splash levétele előtt — ezért nem lett gyorsabb a FAST BOOT ellenére. Most a helyi HU készlet (localStorage) már a modulból a képernyőn van, a splash 54%-ra (restored) azonnal ugrik és a markLiveReady() még az inspectStoredCatalogs előtt lefut; a kedvencek pótlása háttérben (void then) történik, nem blokkolja a felfedést. Emiatt nincs mozi/sorozat/kategória betöltés induláskor — csak HU + később a kedvencek — és az első festés 1–2 mp-en belül megvan a korábbi 4–5 mp helyett.',
+    ],
+  },
   {
     version: '2.5.317',
     date: '2026-11-04',

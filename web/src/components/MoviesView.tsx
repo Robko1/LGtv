@@ -5,7 +5,7 @@ import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
 import { Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { formatRuntime, releaseYearOf, sortByReleaseYearDesc } from '../utils/vodDisplay';
+import { formatRuntime, sortByReleaseYearDesc } from '../utils/vodDisplay';
 import { yearFromTitle } from '../services/catalogRows';
 import { enrichMovieDurationsInBackground } from '../services/vodEnrich';
 
@@ -132,20 +132,11 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
    * eredmény a `movies` tömb azonosságához kötött – így a rácsozás,
    * a lapozás és a kategóriaváltás ugyanezt a sorrendet látja.
    */
-  // 2.5.315: Mozi — legfrissebb elöl, mint a Sorozatoknál (a felhasználó kérése). A year szerinti rendezés megmarad,
-  // de azonos éven belül (főleg év nélküli, 0-s csoportnál) a nagyobb streamId/id (újabb a szolgáltatónál) előre kerül,
-  // így a frissen felkerült filmek azonnal az első sorban látszanak, nem a lista végén.
-  const yearSortedMovies = useMemo(() => {
-    const base = sortByReleaseYearDesc(movies);
-    // Stabil másodlagos rendezés: azonos évnél a nagyobb id (újabb) elöl — nem bontja a year szerinti fő sorrendet.
-    const decorated = base.map((item, index) => ({ item, index, year: releaseYearOf(item), idNum: Number((item as unknown as { id?: string }).id || (item as unknown as { streamId?: number }).streamId || 0) }));
-    decorated.sort((a, b) => {
-      if (a.year !== b.year) return 0; // fő sorrend már jó (év csökkenő, 0 a végére)
-      if (a.idNum !== b.idNum) return b.idNum - a.idNum; // nagyobb id = frissebb
-      return a.index - b.index;
-    });
-    return decorated.map((d) => d.item);
-  }, [movies]);
+  // 2.5.318: Mozi — pontosan mint a Sorozatoknál: év szerint csökkenő, stabil sorrend.
+  // A korábbi másodlagos streamId rendezés eltérítette a poszterek sorrendjét a Sorozatokétól,
+  // ezért most egy az egyben a sorozat-logikát használjuk (sortByReleaseYearDesc), hogy a
+  // visszatöltéskor a poszterek ugyanúgy, ugyanabban az ütemben jelenjenek meg.
+  const yearSortedMovies = useMemo(() => sortByReleaseYearDesc(movies), [movies]);
   const filteredMovies = useMemo(
     () => (selectedCategory === 'all'
       ? yearSortedMovies
@@ -250,9 +241,9 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
      * jut, és a nézetváltáskor kevesebb elem épül fel.
      */
     <div className="flex-1 flex flex-col bg-[#070e1e] overflow-hidden select-none lg:select-auto" onKeyDown={(e) => { if (normalizeTvKey(e) === 'Escape' && isCategoryMenuOpen) { e.preventDefault(); e.stopPropagation(); setIsCategoryMenuOpen(false); } }}>
-      {/* Top Bar: Kategóriák + darabszám — 2.5.315: kör + doboz a KÖZEPÉN a Kategória mellett (nem jobb sarok), a doboz a kör tetejétől az aljáig ér, a két szöveg felcserélve (középen betöltve, alul tárolóban) */}
-      <div className="p-3 md:p-4 lg:p-4 xl:p-5 bg-[#09152e] border-b border-cyan-950/60 flex flex-col gap-2.5">
-        <div className="flex items-center justify-center gap-3 md:gap-4 min-h-[80px] md:min-h-[96px]">
+      {/* Top Bar: Kategóriák + darabszám — 2.5.318: kör teteje = doboz teteje, kör alja = doboz alja. Az outer py-1 (4px) + box h-80/96 = kör, nincs extra 24px mint a korábbi p-3 + min-h. */}
+      <div className="px-3 py-1 md:px-4 md:py-1 bg-[#09152e] border-b border-cyan-950/60 flex flex-col gap-1.5">
+        <div className="flex items-center justify-center gap-2 md:gap-3">
           <button
             data-category-trigger="movies"
             onKeyDown={(e) => { const key = normalizeTvKey(e); if (key === 'ArrowDown') { e.preventDefault(); if (!isCategoryMenuOpen) movieGridRef.current?.querySelector<HTMLElement>('[data-poster-index="0"]')?.focus(); } else if (key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); document.querySelector<HTMLElement>('[data-tv-header-kind="movies"]')?.focus(); } }}
@@ -264,7 +255,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
             <span>Kategóriák</span>
           </button>
 
-          <div className="flex items-center gap-3 rounded-xl border border-cyan-800/50 bg-[#0f2042]/60 px-3 h-[80px] md:h-[96px] shrink-0" data-vod-count="movies">
+          <div className="flex items-center gap-2 md:gap-3 rounded-xl border border-cyan-800/50 bg-[#0f2042]/60 px-2 md:px-3 h-[80px] md:h-[96px] shrink-0" data-vod-count="movies">
             {/* 3D KÖR – FILMEK (kék) – 0-100% a helyi tárból, csak Mozihoz – 2.5.311: NAGYOBB, TV-n jól látható, doboz a kör tetejétől az aljáig */}
             <div className="relative w-20 h-20 md:w-24 md:h-24 shrink-0 -ml-1">
               <svg width="96" height="96" viewBox="0 0 56 56" className="w-20 h-20 md:w-24 md:h-24 -rotate-90 drop-shadow-[0_5px_14px_rgba(37,99,235,0.55)]">
@@ -309,7 +300,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                 {Math.min(100, Math.max(0, Math.round(restoreProgress)))}%
               </span>
             </div>
-            <div className="flex flex-col items-start justify-center leading-tight min-w-[140px] md:min-w-[168px] py-1">
+            <div className="flex flex-col items-start justify-center leading-tight min-w-[140px] md:min-w-[168px] py-0.5">
               <span className="text-xs md:text-sm font-bold tracking-[0.14em] text-sky-300/90">FILMEK</span>
               <span className="text-sm md:text-base lg:text-lg font-black text-white">
                 {restoreProgress >= 100 && movies.length > 0

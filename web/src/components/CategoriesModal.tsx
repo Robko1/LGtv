@@ -20,6 +20,10 @@ interface CategoriesModalProps {
   setIsOnlyFavorites: (onlyFav: boolean) => void;
   onSearchQueryChange: (query: string) => void;
   onSelectSearchChannel: (channelId: string) => void;
+  /** 2.5.318: Országok/élő lista visszatöltésének folyamata (csak Ország menüre, helyi tárból) 0-100% */
+  liveRestoreProgress?: number;
+  liveTotalCount?: number;
+  liveLoadedCount?: number;
 }
 
 export const CategoriesModal: React.FC<CategoriesModalProps> = ({
@@ -38,6 +42,9 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
   setIsOnlyFavorites,
   onSearchQueryChange,
   onSelectSearchChannel,
+  liveRestoreProgress = 0,
+  liveTotalCount = 0,
+  liveLoadedCount = 0,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCountryId, setExpandedCountryId] = useState<string | null>(null);
@@ -242,6 +249,42 @@ export const CategoriesModal: React.FC<CategoriesModalProps> = ({
           </div>
 
         </div>
+
+        {/* 2.5.318: ORSZÁGOK BETÖLTŐ % — csak Ország menüre töltődik a teljes élő lista, itt látszik a kör (kattintás után) */}
+        {liveRestoreProgress > 0 && liveRestoreProgress < 100 ? (
+          <div className="px-3 py-2 bg-[#0f2042]/70 border-b border-cyan-800/40 flex items-center gap-3">
+            {/* 3D kör — ORSZÁGOK (cián), 0-100% a helyi tárból — illeszkedik a legfölülre ahol van hely */}
+            <div className="relative w-14 h-14 md:w-16 md:h-16 shrink-0 -ml-0.5">
+              <svg width="64" height="64" viewBox="0 0 56 56" className="w-14 h-14 md:w-16 md:h-16 -rotate-90 drop-shadow-[0_4px_10px_rgba(6,182,212,0.5)]">
+                <defs>
+                  <linearGradient id="gradCountries" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#67e8f9" />
+                    <stop offset="50%" stopColor="#06b6d4" />
+                    <stop offset="100%" stopColor="#0891b2" />
+                  </linearGradient>
+                  <radialGradient id="innerCountries" cx="50%" cy="40%" r="55%">
+                    <stop offset="0%" stopColor="#083344" />
+                    <stop offset="65%" stopColor="#0a2540" />
+                    <stop offset="100%" stopColor="#070e1e" />
+                  </radialGradient>
+                </defs>
+                <circle cx="28" cy="28" r="22" fill="none" stroke="#0f172a" strokeWidth="6" />
+                <circle cx="28" cy="28" r="22" fill="none" stroke="url(#gradCountries)" strokeWidth="6" strokeLinecap="round" strokeDasharray={138.23} strokeDashoffset={138.23 * (1 - Math.min(100, Math.max(0, liveRestoreProgress)) / 100)} style={{ transition: 'stroke-dashoffset 0.45s ease' }} />
+                <circle cx="28" cy="28" r="15" fill="url(#innerCountries)" stroke="#0e7490" strokeWidth="1.2" />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-[11px] md:text-[12px] font-black text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">{Math.round(liveRestoreProgress)}%</span>
+            </div>
+            <div className="flex flex-col leading-tight min-w-0">
+              <span className="text-[10px] md:text-xs font-bold tracking-[0.14em] text-cyan-300/90">ORSZÁGOK</span>
+              <span className="text-sm md:text-base font-black text-white truncate">
+                {liveRestoreProgress >= 100 ? `${liveLoadedCount.toLocaleString('hu-HU')} betöltve` : `Betöltés… ${Math.round(liveRestoreProgress)}%`}
+              </span>
+              <span className="text-xs font-bold text-cyan-200 truncate">
+                {liveTotalCount > 0 ? `${liveLoadedCount.toLocaleString('hu-HU')} / ${liveTotalCount.toLocaleString('hu-HU')} csatorna${liveLoadedCount < liveTotalCount ? ' • még tölt' : ''}` : `${liveLoadedCount.toLocaleString('hu-HU')} csatorna`}
+              </span>
+            </div>
+          </div>
+        ) : null}
 
         {/* Search Bar */}
         <div className="p-3 bg-[#081226] border-b border-cyan-950/50">
