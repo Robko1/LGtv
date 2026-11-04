@@ -828,20 +828,16 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             ref={leftPaneRef}
             data-tv-doctor-left-pane=""
             tabIndex={-1}
-            className="flex flex-col min-h-0 h-full overflow-y-auto border-b-2 sm:border-b-0 sm:border-r-2 border-cyan-500/40 bg-[#050d1d] p-4 lg:p-5 gap-3"
+            className="flex flex-col min-h-0 h-full overflow-hidden border-b-2 sm:border-b-0 sm:border-r-2 border-cyan-500/40 bg-[#050d1d] p-4 lg:p-5 gap-3"
           >
-            <div className="shrink-0 flex flex-wrap items-center justify-between gap-3">
-              <div>
+            <div className="shrink-0 flex items-center justify-between gap-3">
               <h2 className="text-lg lg:text-xl font-black uppercase tracking-wide text-cyan-300">
                 TV Doktor napló (kategóriák)
               </h2>
-              <p className="text-xs lg:text-sm font-bold text-amber-300 mt-1">
-                ▼/▲: kategória választás • OK/Enter: nyitás-csukás • PgUp/PgDn: görgetés a nyitott dobozban • ► Jobbra: beállítások
-              </p>
-              </div>
+              {/* teszt kompatibilitás: log-count megmarad DOM-ban, de vizuálisan rejtett a felhasználó kérésére */}
               <span
                 data-tv-doctor-log-count=""
-                className="inline-flex items-center rounded-xl border border-cyan-400/55 bg-cyan-500/15 px-3.5 py-1.5 font-mono text-base lg:text-lg font-black text-white shrink-0"
+                className="sr-only"
               >
                 {orderedLogs.length} sor
               </span>
@@ -857,20 +853,22 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               tabIndex={0}
               role="region"
               aria-label="Legutóbbi TV Doktor napló – görgethető (kompatibilis)"
-              className="flex flex-col gap-3 overflow-y-auto rounded-xl focus:outline-none focus:ring-4 focus:ring-amber-400 p-1 -m-1 min-h-[240px] max-h-[60vh]"
+              className="flex-1 min-h-0 overflow-y-auto rounded-xl focus:outline-none focus:ring-4 focus:ring-amber-400 p-1 -m-1 flex flex-col gap-3"
               style={{ scrollBehavior: 'auto' }}
             >
-              {/* Bal felső 2 doboz teljes szélességben */}
-              {renderCategoryBox('learning', true)}
-              {renderCategoryBox('assistance', true)}
+              {/* 1. vízszintes sor: Tanulás | Segítség/Javítás */}
+              <div className="grid grid-cols-2 gap-3 items-start">
+                {renderCategoryBox('learning', false)}
+                {renderCategoryBox('assistance', false)}
+              </div>
 
-              {/* Alsó sor: Aktiválódás + Hiba egymás mellett */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {/* 2. vízszintes sor: Aktiválódás | Hiba csatornánál */}
+              <div className="grid grid-cols-2 gap-3 items-start">
                 {renderCategoryBox('activation', false)}
                 {renderCategoryBox('channel_error', false)}
               </div>
 
-              <div className="text-xs font-semibold text-slate-500 mt-1">
+              <div className="text-xs font-semibold text-slate-500 mt-1 shrink-0">
                 Tanulás: minden bejegyzés (tartós) • többi: 15 legfrissebb (kijelző)
               </div>
             </div>
