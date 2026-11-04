@@ -169,6 +169,8 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     activation: false,
     channel_error: false,
   });
+  const [largeCat, setLargeCat] = useState<DoctorEventCategory | null>(null);
+  const largeScrollRef = useRef<HTMLDivElement | null>(null);
 
   const modalCardRef = useRef<HTMLDivElement | null>(null);
   const rightScrollRef = useRef<HTMLDivElement | null>(null);
@@ -233,6 +235,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
   useEffect(() => {
     if (!isOpen) {
       setResetFeedback(false);
+      setLargeCat(null);
       if (resetFeedbackTimerRef.current !== null) {
         window.clearTimeout(resetFeedbackTimerRef.current);
         resetFeedbackTimerRef.current = null;
@@ -244,6 +247,10 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     void checkTvDoctorConnection();
 
     const focusTimer = window.setTimeout(() => {
+      if (largeCat && largeScrollRef.current) {
+        try { largeScrollRef.current.focus({ preventScroll: true } as FocusOptions); } catch { largeScrollRef.current.focus(); }
+        return;
+      }
       // For test compatibility: focus the scrollable left wrapper first (data-tv-doctor-log-scroll)
       const compat = compatLogScrollRef.current;
       if (compat) {
@@ -281,6 +288,17 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       }
     };
   }, [isOpen]);
+
+
+  useEffect(() => {
+    if (largeCat && largeScrollRef.current) {
+      const timer = window.setTimeout(() => {
+        try { largeScrollRef.current?.focus({ preventScroll: true } as FocusOptions); } catch { largeScrollRef.current?.focus(); }
+      }, 30);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [largeCat]);
 
   if (!isOpen) return null;
 
@@ -391,18 +409,58 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     return list;
   };
 
-  const categoryOrder: DoctorEventCategory[] = ['learning', 'assistance', 'activation', 'channel_error'];
-
+  
   const focusCategory = (cat: DoctorEventCategory) => {
     const el = categoryHeaderRefs.current[cat];
     if (el) el.focus();
   };
 
   const toggleCategory = (cat: DoctorEventCategory) => {
+    // For user: open large overlay window instead of inline expansion
+    // Keep expanded for test compat but primary is largeCat
     setExpanded((prev) => ({ ...prev, [cat]: !prev[cat] }));
+    setLargeCat((prev) => (prev === cat ? null : cat));
   };
 
   const handleModalKeyDown = (e: KeyboardEvent | React.KeyboardEvent<HTMLDivElement>) => {
+    // Large overlay: Esc closes, arrows/Page scroll inside, focus stays in overlay
+    if (largeCat) {
+      const rawEvt2 = 'nativeEvent' in e ? e.nativeEvent : e;
+      const k2 = normalizeTvKey(rawEvt2 as KeyboardEvent);
+      if (k2 === 'Escape' || k2 === 'Backspace') {
+        e.preventDefault();
+        e.stopPropagation();
+        const prevCat = largeCat;
+        setLargeCat(null);
+        setExpanded((prev) => ({ ...prev, [prevCat]: false }));
+        const hdr = categoryHeaderRefs.current[prevCat];
+        window.setTimeout(() => {
+          try { hdr?.focus({ preventScroll: true } as FocusOptions); } catch { hdr?.focus(); }
+        }, 10);
+        return;
+      }
+      if (k2 === 'PageDown' || k2 === 'PageUp' || k2 === 'ArrowDown' || k2 === 'ArrowUp' || k2 === 'Home' || k2 === 'End') {
+        const pane = largeScrollRef.current;
+        if (pane) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (k2 === 'Home') { pane.scrollTop = 0; return; }
+          if (k2 === 'End') { pane.scrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight); return; }
+          const step = k2 === 'PageDown' || k2 === 'PageUp'
+            ? (pane.clientHeight > 0 ? Math.max(140, Math.round(pane.clientHeight * 0.85)) : 260)
+            : 96;
+          const delta = (k2 === 'PageDown' || k2 === 'ArrowDown') ? step : -step;
+          const maxScroll = Math.max(0, pane.scrollHeight - pane.clientHeight);
+          pane.scrollTop = Math.max(0, Math.min(maxScroll, pane.scrollTop + delta));
+          return;
+        }
+      }
+      // Any other key when overlay open should not propagate to underlying
+      if (k2 === 'Enter' || k2 === ' ' || k2 === 'NumpadEnter') {
+        e.preventDefault(); e.stopPropagation();
+        return;
+      }
+    }
     if (isZeroDigitKey(e)) {
       if (!(e as KeyboardEvent).repeat) {
         e.preventDefault();
@@ -607,46 +665,54 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       if (key === 'ArrowDown') {
         e.preventDefault();
         e.stopPropagation();
-        // scroll inside if expanded and scrollable? prioritize moving to next header
-        const idx = categoryOrder.indexOf(activeCat);
-        const nextCat = categoryOrder[Math.min(categoryOrder.length - 1, idx + 1)];
-        if (nextCat !== activeCat) focusCategory(nextCat);
+        // 2x2 rács: learning (0,0) assistenza (0,1) / aktiválódás (1,0) hiba (1,1)
+        const mapDown: Record<DoctorEventCategory, DoctorEventCategory> = {
+          learning: 'activation',
+          assistance: 'channel_error',
+          activation: 'activation',
+          channel_error: 'channel_error',
+        };
+        const nextCat = mapDown[activeCat];
+        if (nextCat && nextCat !== activeCat) focusCategory(nextCat);
         return;
       }
       if (key === 'ArrowUp') {
         e.preventDefault();
         e.stopPropagation();
-        const idx = categoryOrder.indexOf(activeCat);
-        const prevCat = categoryOrder[Math.max(0, idx - 1)];
-        if (prevCat !== activeCat) focusCategory(prevCat);
+        const mapUp: Record<DoctorEventCategory, DoctorEventCategory> = {
+          learning: 'learning',
+          assistance: 'assistance',
+          activation: 'learning',
+          channel_error: 'assistance',
+        };
+        const prevCat = mapUp[activeCat];
+        if (prevCat && prevCat !== activeCat) focusCategory(prevCat);
         return;
       }
       if (key === 'ArrowRight') {
-        // In the bottom row, activation(channel_error) are side-by-side: right moves to channel_error from activation
-        if (activeCat === 'activation') {
-          e.preventDefault();
-          e.stopPropagation();
-          focusCategory('channel_error');
-          return;
+        if (activeCat === 'learning') {
+          e.preventDefault(); e.stopPropagation(); focusCategory('assistance'); return;
         }
-        // otherwise move to right pane
-        const rightControls = getRightControls();
-        if (rightControls.length > 0) {
-          e.preventDefault();
-          e.stopPropagation();
-          rightControls[0].focus();
+        if (activeCat === 'activation') {
+          e.preventDefault(); e.stopPropagation(); focusCategory('channel_error'); return;
+        }
+        if (activeCat === 'assistance' || activeCat === 'channel_error') {
+          const rightControls = getRightControls();
+          if (rightControls.length > 0) {
+            e.preventDefault(); e.stopPropagation(); rightControls[0].focus();
+          }
+          return;
         }
         return;
       }
       if (key === 'ArrowLeft') {
-        if (activeCat === 'channel_error') {
-          e.preventDefault();
-          e.stopPropagation();
-          focusCategory('activation');
-          return;
+        if (activeCat === 'assistance') {
+          e.preventDefault(); e.stopPropagation(); focusCategory('learning'); return;
         }
-        e.preventDefault();
-        e.stopPropagation();
+        if (activeCat === 'channel_error') {
+          e.preventDefault(); e.stopPropagation(); focusCategory('activation'); return;
+        }
+        e.preventDefault(); e.stopPropagation();
         return;
       }
       if (key === 'Home') {
@@ -703,7 +769,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     const stat = categoryStats[cat];
     const active = stat.count > 0;
     const IconComp = vis.Icon;
-    const isExpanded = expanded[cat];
+    const isExpanded = largeCat === cat; // overlay open state
     const logs = displayLogsByCategory[cat];
     const totalForBadge = stat.count; // persisted count
     const showingText = cat === 'learning' ? `${logs.length} db` : `${logs.length} / 15 db`;
@@ -714,7 +780,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
         tabIndex={0}
         role="button"
         aria-expanded={isExpanded}
-        aria-label={`${vis.title} ${isExpanded ? 'bezárás' : 'megnyitás'} – ${totalForBadge} db, Enterrel nyitható`}
+        aria-label={`${vis.title} ${isExpanded ? 'bezárás' : 'megnyitás'} – ${totalForBadge} db, Enterrel nyitható – nagy ablakban olvasható`}
         data-tv-doctor-cat={cat}
         data-cat-active={active ? 'true' : 'false'}
         data-cat-count={stat.count}
@@ -727,7 +793,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             toggleCategory(cat);
           }
         }}
-        className={`rounded-xl border-2 px-3.5 py-2.5 transition-none focus:outline-none focus:ring-4 focus:ring-amber-400 cursor-pointer select-none ${
+        className={`relative rounded-xl border-2 px-3.5 py-2.5 transition-none focus:outline-none focus:ring-4 focus:ring-amber-400 cursor-pointer select-none ${
           active ? `${vis.cardBorder} ${vis.cardBg}` : 'border-slate-700/70 bg-slate-900/50 opacity-90'
         } ${fullWidth ? '' : ''}`}
       >
@@ -756,48 +822,9 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               : vis.subtitle}
           </span>
         </div>
-        {isExpanded && (
-          <div
-            ref={(el) => { categoryScrollRefs.current[cat] = el; }}
-            tabIndex={0}
-            role="region"
-            aria-label={`${vis.title} naplólista`}
-            data-tv-doctor-cat-logs={cat}
-            className="mt-3 max-h-[280px] overflow-y-auto rounded-xl border border-slate-700/60 bg-[#030915] p-2 space-y-2 focus:outline-none focus:border-amber-400"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {logs.length === 0 ? (
-              <div className="py-6 text-center text-slate-400 font-bold text-sm">
-                Nincs rögzített {vis.title.toLowerCase()} esemény.
-              </div>
-            ) : (
-              logs.map((entry, idx) => (
-                <div
-                  key={`${entry.at}-${idx}`}
-                  data-tv-doctor-log-item=""
-                  data-log-category={cat}
-                  className={`rounded-xl border p-2.5 space-y-1 ${vis.logBorder}`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-black text-white truncate">{entry.channelName}</span>
-                    <span className="font-mono text-xs font-bold text-slate-300 shrink-0">{formatLogClock(entry.at)}</span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-100 leading-snug break-words">{entry.message}</p>
-                </div>
-              ))
-            )}
-            <div className="text-xs text-slate-500 text-center pt-1">
-              {cat === 'learning'
-                ? `Összes tanulási bejegyzés: ${logs.length} db (minden tartósan mentve)`
-                : `Legfrissebb ${logs.length} bejegyzés (kijelző 15, görgethető)`}
-            </div>
-          </div>
-        )}
-        {!isExpanded && (
-          <div className="text-xs font-bold text-slate-400 mt-1">
-            OK / Enter: megnyitás • {cat === 'learning' ? 'minden bejegyzés' : '15 legfrissebb'}
-          </div>
-        )}
+        <div className="text-xs font-bold text-slate-400 mt-1">
+          OK / Enter: nagy ablak • {cat === 'learning' ? 'minden bejegyzés' : '15 legfrissebb'} • lapozható
+        </div>
       </div>
     );
   };
@@ -866,6 +893,62 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               <div className="grid grid-cols-2 gap-3 items-start">
                 {renderCategoryBox('activation', false)}
                 {renderCategoryBox('channel_error', false)}
+              </div>
+
+              {/* Tanult útvonalak (max. 8) – közvetlenül a 4 doboz alatt, csak bal oldalon, 4+4 elrendezés */}
+              <div
+                data-tv-doctor-routes=""
+                className="shrink-0 rounded-2xl border border-emerald-700/50 bg-[#04121c] p-3 space-y-2 mt-1"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-base font-black text-emerald-200">
+                    <Activity className="h-5 w-5 shrink-0 text-emerald-300" />
+                    <span>Tanult útvonalak (max. 8)</span>
+                  </span>
+                  <span
+                    data-tv-doctor-routes-count=""
+                    className="inline-flex items-center rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-2 py-0.5 font-mono text-xs font-black text-emerald-100"
+                  >
+                    {activeRoutes.length} / {MAX_CHANNEL_ROUTES}
+                  </span>
+                </div>
+                {activeRoutes.length === 0 ? (
+                  <p className="text-sm font-bold text-slate-300">
+                    {activeChannel ? `${activeChannel.name}: még nincs tanult útvonal.` : 'Nincs kiválasztott élő csatorna.'}
+                  </p>
+                ) : (
+                  <div data-tv-doctor-routes-list="" className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      {activeRoutes.slice(0, 4).map((route, idx) => (
+                        <div
+                          key={route.id}
+                          data-tv-doctor-route={route.id}
+                          className={`flex items-center justify-between gap-1 rounded-lg border px-2.5 py-1.5 font-mono text-xs font-bold ${
+                            idx === 0 ? 'border-emerald-400/70 bg-emerald-500/15 text-emerald-100' : 'border-slate-700/60 bg-slate-900/50 text-slate-200'
+                          }`}
+                        >
+                          <span className="truncate">{idx === 0 ? '★ ' : `${idx + 1}. `}{route.format.toUpperCase()} + {route.bufferProfile}</span>
+                          <span className="shrink-0 text-[10px] text-slate-400">{route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok}/{route.fail}{route.stalls ? `/${route.stalls}` : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="space-y-1.5">
+                      {activeRoutes.slice(4, 8).map((route, idx) => {
+                        const realIdx = idx + 4;
+                        return (
+                          <div
+                            key={route.id}
+                            data-tv-doctor-route={route.id}
+                            className="flex items-center justify-between gap-1 rounded-lg border border-slate-700/60 bg-slate-900/50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-200"
+                          >
+                            <span className="truncate">{realIdx + 1}. {route.format.toUpperCase()} + {route.bufferProfile}</span>
+                            <span className="shrink-0 text-[10px] text-slate-400">{route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok}/{route.fail}{route.stalls ? `/${route.stalls}` : ''}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="text-xs font-semibold text-slate-500 mt-1 shrink-0">
@@ -1114,63 +1197,94 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
           </section>
         </div>
 
-        {/* ================= ALSÓ SÁV: TANULT ÚTVONALAK (TELJES SZÉLESSÉG, 4-KOCKA BÁR, NEM NYITHATÓ) ================= */}
-        <div
-          data-tv-doctor-routes=""
-          data-tv-doctor-routes-bottom=""
-          className="shrink-0 border-t-2 border-emerald-700/60 bg-[#04121c] p-4 space-y-2 max-h-[32vh] overflow-y-auto"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2.5 text-lg lg:text-xl font-black text-emerald-200">
-              <Activity className="h-6 w-6 shrink-0 text-emerald-300" />
-              <span>Tanult útvonalak (max. {MAX_CHANNEL_ROUTES})</span>
-            </span>
-            <span
-              data-tv-doctor-routes-count=""
-              className="inline-flex items-center rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-2.5 py-0.5 font-mono text-sm lg:text-base font-black text-emerald-100"
+        {/* Nagy ablak a 4 dobozhoz – ha rákattintasz, itt jelenik meg mind a 15 bejegyzés, lapozható */}
+        {largeCat && (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4"
+            onClick={() => {
+              const cat = largeCat;
+              setLargeCat(null);
+              setExpanded((prev) => ({ ...prev, [cat]: false }));
+            }}
+          >
+            <div
+              className="w-full max-w-[760px] max-h-[82vh] rounded-2xl border-2 border-cyan-400/60 bg-[#061022] shadow-2xl flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
             >
-              {activeRoutes.length} / {MAX_CHANNEL_ROUTES}
-            </span>
-          </div>
-          <p className="text-base font-bold text-slate-200 leading-snug">
-            {!activeChannel
-              ? 'Nincs kiválasztott élő csatorna.'
-              : activeRoutes.length === 0
-                ? `${activeChannel.name}: még nincs tanult útvonal – az első adás után itt jelenik meg.`
-                : `${activeChannel.name} – a TV Doktor a legjobb útvonalat indítja, a többit javításkor próbálja.`}
-          </p>
-          {activeRoutes.length > 0 && (
-            <div data-tv-doctor-routes-list="" className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
-              {activeRoutes.map((route, idx) => (
-                <div
-                  key={route.id}
-                  data-tv-doctor-route={route.id}
-                  className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 font-mono text-sm lg:text-base font-bold ${
-                    idx === 0 ? 'border-emerald-400/70 bg-emerald-500/15 text-emerald-100' : 'border-slate-700/70 bg-slate-900/45 text-slate-200'
-                  }`}
-                >
-                  <span className="truncate">
-                    {idx === 0 ? '★ ' : `${idx + 1}. `}
-                    {route.format.toUpperCase()} + {route.bufferProfile}
-                  </span>
-                  <span className="shrink-0 text-slate-300">
-                    {route.avgStartupMs !== null ? `${route.avgStartupMs} ms` : 'nincs mérés'} • {route.ok} jó / {route.fail} hiba{route.stalls > 0 ? ` / ${route.stalls} akadás` : ''}
-                  </span>
+              <div className="shrink-0 flex items-center justify-between gap-3 border-b border-slate-700/60 bg-[#08152d] px-4 py-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  {(() => {
+                    const vis = CATEGORY_BY_ID[largeCat];
+                    const IconComp = vis.Icon;
+                    return (
+                      <>
+                        <IconComp className={`h-6 w-6 shrink-0 ${vis.titleColor}`} />
+                        <span className={`text-lg font-black truncate ${vis.titleColor}`}>{vis.title}</span>
+                        <span className={`ml-1 rounded-lg border px-2 py-0.5 font-mono text-xs font-black ${vis.countBadge}`}>
+                          {displayLogsByCategory[largeCat].length} {largeCat === 'learning' ? 'db' : '/ 15 db'}
+                        </span>
+                      </>
+                    );
+                  })()}
                 </div>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cat = largeCat;
+                    setLargeCat(null);
+                    setExpanded((prev) => ({ ...prev, [cat]: false }));
+                    const hdr = categoryHeaderRefs.current[cat];
+                    window.setTimeout(() => {
+                      try { hdr?.focus({ preventScroll: true } as FocusOptions); } catch { hdr?.focus(); }
+                    }, 10);
+                  }}
+                  className="shrink-0 rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm font-black text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                >
+                  ✕ Bezárás
+                </button>
+              </div>
+              <div
+                ref={largeScrollRef}
+                tabIndex={0}
+                role="region"
+                aria-label={`${CATEGORY_BY_ID[largeCat].title} nagy naplólista`}
+                data-tv-doctor-cat-logs={largeCat}
+                data-tv-doctor-cat-logs-large={largeCat}
+                className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2 focus:outline-none"
+              >
+                {displayLogsByCategory[largeCat].length === 0 ? (
+                  <div className="py-10 text-center text-slate-400 font-bold text-sm">
+                    Nincs rögzített {CATEGORY_BY_ID[largeCat].title.toLowerCase()} esemény.
+                  </div>
+                ) : (
+                  displayLogsByCategory[largeCat].map((entry, idx) => {
+                    const vis = CATEGORY_BY_ID[largeCat];
+                    return (
+                      <div
+                        key={`${entry.at}-${idx}`}
+                        data-tv-doctor-log-item=""
+                        data-log-category={largeCat}
+                        className={`rounded-xl border p-3 space-y-1 ${vis.logBorder}`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-black text-white truncate">{entry.channelName}</span>
+                          <span className="font-mono text-xs font-bold text-slate-300 shrink-0">{formatLogClock(entry.at)}</span>
+                        </div>
+                        <p className="text-sm font-semibold text-slate-100 leading-snug break-words">{entry.message}</p>
+                      </div>
+                    );
+                  })
+                )}
+                <div className="text-xs text-slate-500 text-center pt-2">
+                  {largeCat === 'learning' ? 'Összes tanulási bejegyzés' : 'Legfrissebb 15 bejegyzés'} • ↓/↑ vagy PgUp/PgDn a lapozáshoz • Esc a bezáráshoz
+                </div>
+              </div>
             </div>
-          )}
-          <p className="text-sm font-semibold text-slate-400">
-            Csak magyar csatornáról tanulunk; a nem magyar csatornákat segítjük, de róluk nem tárolunk adatot. A csatorna legjobb útvonala (★) indul először.
-          </p>
-          {/* Alsó 4 kocka jelzés – nem interaktív, csak vizuális sáv */}
-          <div className="grid grid-cols-4 gap-2 pt-1">
-            <div className="rounded-lg border border-emerald-700/50 bg-emerald-950/30 py-1 text-center text-xs font-black text-emerald-200">Tanulás</div>
-            <div className="rounded-lg border border-sky-700/50 bg-sky-950/30 py-1 text-center text-xs font-black text-sky-200">Segítség</div>
-            <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 py-1 text-center text-xs font-black text-amber-200">Aktiválódás</div>
-            <div className="rounded-lg border border-rose-700/50 bg-rose-950/30 py-1 text-center text-xs font-black text-rose-200">Hiba</div>
           </div>
-        </div>
+        )}
+
+        {/* Alsó sáv – a felhasználó kérésére üresen hagyva, a Tanult útvonalak már bal oldalon, 4+4 elrendezésben */}
+        <div data-tv-doctor-routes-bottom="" className="hidden" aria-hidden="true" />
       </div>
     </div>
   );
