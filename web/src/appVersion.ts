@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.306';
+export const WEB_VERSION = '2.5.307';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.306',
+    version: '2.5.307',
     date: '2026-11-04',
     changes: [
       'TV DOKTOR 0-POPUP ÁTSZERVEZÉS: a bal oldali szövegek dobozokba kerültek ugyanazzal a látvánnyal mint jobb oldalt – felül külön Tanulás (minden tanult bejegyzés, ALL, nem 15) és Segítség (legfrissebb 15) doboz, alattuk Aktiválódás 15 és Hiba csatornánál 15 egymás mellett két oszlopban; mindegyik doboz fókuszálható, OK-ra nyílik/csukódik és laponként görgethető (PageUp/PageDown/nyilak/OK), jobb oldalon a maradék dobozok (Supabase, Működési állapot, Hibajelzés, Memória) feljebb tolódtak; a Tanult útvnalak sáv alul teljes szélességű 4 kockás sávként jelenik meg (nem nyitható).',
