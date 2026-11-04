@@ -13,16 +13,9 @@ import {
   mediaProgressed,
 } from './playbackRecovery';
 import { appLog, isVerbosePlaybackLogging, isTvDoctorLogEnabled, startTvDoctorLogging, stopTvDoctorLogging, tvDoctorLog } from './appLog';
-/*
- * 2.5.277 (#17-es kérés): a TV Doktor EPG-őre az ÚJ műsorújság-tárolót (epgGuide)
- * figyeli és azon keresztül frissít – a régi url-tvg/saját EPG-kéréseket nem
- * használja. Nincs körkörös import: az epgGuide nem importálja a tvDoctor-t.
- */
-import { ensureGuide, guideChannelCoverage, guideStatus } from './epgGuide';
-import type { ProviderRef } from './contentStore';
 
 /**
- * TV Doktor – intelligens, önfejlesztő diagnosztikai, csatornaváltás-gyorsító és EPG-felügyelő rendszer.
+ * TV Doktor – intelligens, önfejlesztő diagnosztikai és csatornaváltás-gyorsító rendszer.
  *
  * Feladatai:
  *  1. Villámgyors csatornaváltás: csatornánként pontosan megjegyzi a legutóbb ténylegesen működő
@@ -32,11 +25,9 @@ import type { ProviderRef } from './contentStore';
  *     lassan ugyanazt a beállítást, hanem gyorsan végigpróbál több eltérő formátum- és pufferprofilt.
  *  3. Valóban nem működő csatornák leállítása: korlátozott számú gyors beállításpróba után leállítja
  *     az újrapróbálást, így soha nem pörög végtelen ciklusban egy halott csatornán.
- *  4. 1 MB (1024 KB) dedikált, aszinkron háttér-memória: bőséges hely a tanult csatornaprofiloknak és
- *     EPG-állapotoknak anélkül, hogy a localStorage írás valaha is megakasztaná a csatornaváltást.
- *  5. EPG-ellenőrzés és csatornánkénti lekapcsolás: figyeli az EPG betöltését, elakadásnál segíti az
- *     újratöltést, ha pedig egy csatornához igazoltan nincs EPG, lekapcsolja az EPG-keresést nála.
- *  6. Színkódolt eseménykategóriák: külön követi és jelzi a Tanulás, Segítség/Javítás, Aktiválódás
+ *  4. 1 MB (1024 KB) dedikált, aszinkron háttér-memória: bőséges hely a tanult csatornaprofiloknak
+ *     anélkül, hogy a localStorage írás valaha is megakasztaná a csatornaváltást.
+ *  5. Színkódolt eseménykategóriák: külön követi és jelzi a Tanulás, Segítség/Javítás, Aktiválódás
  *     és Csatornahiba eseményeket.
  */
 
@@ -46,7 +37,6 @@ export const TV_DOCTOR_DIAG_LOGGING_KEY = 'iptv_rt_tv_doctor_diag_log_v1';
 
 /** Korlátok a TV erőforrásainak és a localStorage kvótának a védelmére (1 MB dedikált keret). */
 export const MAX_LEARNED_CHANNELS = 1600;
-export const MAX_LEARNED_EPG_CHANNELS = 2400;
 export const MAX_SAFE_DOCTOR_STORAGE_BYTES = 1024 * 1024; // 1 MB (1024 KB)
 export const WEBOS_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024;
 export const DOCTOR_SLOW_OP_THRESHOLD_MS = 25;
@@ -64,9 +54,6 @@ export const DEAD_CHANNEL_COOLDOWN_MS = 3 * 60 * 1000;
 export const DOCTOR_REACTIVATION_COOLDOWN_MS = 8 * 60 * 1000;
 /** A halott-csatorna jelölés ismétlődő kimerülésnél skálázódik, max. ennyi ideig. */
 export const MAX_DEAD_CHANNEL_COOLDOWN_MS = 30 * 60 * 1000;
-export const EPG_DISABLED_TTL_MS = 12 * 60 * 60 * 1000;
-/** 2.5.277: a TV Doktor EPG-őre – a betöltött műsorújság ennyi idő után számít elavultnak. */
-export const GUIDE_STALE_MS = 3 * 60 * 60 * 1000;
 const STORE_PERSIST_DEBOUNCE_MS = 220;
 
 /** Szigorú biztonsági határok a pufferbeállításokhoz (soha nem nőhet korlátlanul). */
@@ -200,17 +187,16 @@ export type DoctorTriggerReason =
 
 /**
  * 4 elkülönített, színkódolt TV Doktor eseménykategória a 0-gombos ablakhoz és a naplóhoz:
- *  - learning: Tanulás (csatornasebesség, működő formátum/puffer, EPG-mentes csatorna megtanulása)
- *  - assistance: Segítség / Javítás (formátumváltás, pufferemelés, sikeres javítás, EPG újratöltés)
- *  - activation: Aktiválódás (TV Doktor közbelépés indulási hiba, fagyás vagy EPG-kimaradás miatt)
+ *  - learning: Tanulás (csatornasebesség, működő formátum/puffer megtanulása)
+ *  - assistance: Segítség / Javítás (formátumváltás, pufferemelés, sikeres javítás)
+ *  - activation: Aktiválódás (TV Doktor közbelépés indulási hiba vagy fagyás miatt)
  *  - channel_error: Csatornahiba (stream hiba, vagy valóban nem működő csatorna végleges leállítása)
  */
 export type DoctorEventCategory =
   | 'learning'
   | 'assistance'
   | 'activation'
-  | 'channel_error'
-  | 'epg_assist'; // 2.5.277: a TV Doktor EPG-őre
+  | 'channel_error';
 
 export interface DoctorCategoryBucket {
   count: number;
@@ -223,7 +209,6 @@ export interface DoctorCategoryStats {
   assistance: DoctorCategoryBucket;
   activation: DoctorCategoryBucket;
   channel_error: DoctorCategoryBucket;
-  epg_assist: DoctorCategoryBucket; // 2.5.277
 }
 
 export interface BufferProfileStats {
@@ -304,23 +289,6 @@ export interface ChannelDoctorRecord {
   source?: 'local' | 'cloud' | 'merged';
   confidence?: number;
   updatedAt: number;
-}
-
-export interface ChannelEpgDoctorRecord {
-  channelKey: string;
-  channelId?: string;
-  channelName: string;
-  state: 'ok' | 'empty' | 'disabled';
-  emptyChecks: number;
-  updatedAt: number;
-}
-
-export interface TvDoctorEpgStats {
-  disabledChannelCount: number;
-  okChannelCount: number;
-  assistCount: number;
-  lastAssistAt: number | null;
-  lastRecoveredAt: number | null;
 }
 
 export interface DoctorStreamStateSnapshot {
@@ -409,18 +377,12 @@ interface DoctorStoreData {
   v: 1;
   byKey: Record<string, ChannelDoctorRecord>;
   idIndex: Record<string, string>;
-  epgByKey: Record<string, ChannelEpgDoctorRecord>;
-  epgIdIndex: Record<string, string>;
   categoryStats: DoctorCategoryStats;
-  epgAssistCount: number;
-  epgLastAssistAt: number | null;
-  epgLastRecoveredAt: number | null;
 }
 
 export interface TvDoctorMemoryStats {
   learnedChannelCount: number;
   maxLearnedChannels: number;
-  disabledEpgChannelCount: number;
   doctorStoreBytes: number;
   cloudQueueBytes: number;
   inMemoryLogBytes: number;
@@ -447,13 +409,11 @@ export interface TvDoctorOperationHealth {
   repairsAttemptedCount: number;
   repairsVerifiedCount: number;
   deadChannelsHaltedCount: number;
-  epgDisabledCount: number;
-  epgAssistsCount: number;
   lastStorageError: { location: string; message: string; at: number } | null;
 }
 
-/* 2.5.277: a memóriában csak annyi naplót tartunk, ami hibakereséshez kell – ne nőjön feleslegesen. */
-const MAX_RECENT_LOGS = 48;
+/* 2.5.302: per-category retention – Tanulás ALL (max 500), Segítség/Aktiválódás/Hiba 15 each; global 800 hard cap */
+const MAX_RECENT_LOGS = 500; // retained for compatibility; actual per-category logic in logDoctor
 const recentDoctorLogs: DoctorLogEntry[] = [];
 const diagnosticPlugins: DoctorDiagnosticPlugin[] = [];
 const interventionTimestampsByChannel = new Map<string, number[]>();
@@ -474,8 +434,6 @@ const opHealth: TvDoctorOperationHealth = {
   repairsAttemptedCount: 0,
   repairsVerifiedCount: 0,
   deadChannelsHaltedCount: 0,
-  epgDisabledCount: 0,
-  epgAssistsCount: 0,
   lastStorageError: null,
 };
 
@@ -485,7 +443,6 @@ function createEmptyCategoryStats(): DoctorCategoryStats {
     assistance: { count: 0, lastAt: null, lastChannelName: null },
     activation: { count: 0, lastAt: null, lastChannelName: null },
     channel_error: { count: 0, lastAt: null, lastChannelName: null },
-    epg_assist: { count: 0, lastAt: null, lastChannelName: null },
   };
 }
 
@@ -512,7 +469,6 @@ function sanitizeCategoryStats(raw: unknown): DoctorCategoryStats {
     assistance: sanitizeCategoryBucket(obj.assistance),
     activation: sanitizeCategoryBucket(obj.activation),
     channel_error: sanitizeCategoryBucket(obj.channel_error),
-    epg_assist: sanitizeCategoryBucket(obj.epg_assist),
   };
 }
 
@@ -615,8 +571,6 @@ export function getTvDoctorOperationHealth(): TvDoctorOperationHealth {
     repairsAttemptedCount: opHealth.repairsAttemptedCount,
     repairsVerifiedCount: opHealth.repairsVerifiedCount,
     deadChannelsHaltedCount: opHealth.deadChannelsHaltedCount,
-    epgDisabledCount: opHealth.epgDisabledCount,
-    epgAssistsCount: opHealth.epgAssistsCount,
     lastStorageError: opHealth.lastStorageError ? { ...opHealth.lastStorageError } : null,
   };
 }
@@ -631,8 +585,6 @@ export function resetTvDoctorOperationCounters(): void {
   opHealth.repairsAttemptedCount = 0;
   opHealth.repairsVerifiedCount = 0;
   opHealth.deadChannelsHaltedCount = 0;
-  opHealth.epgDisabledCount = 0;
-  opHealth.epgAssistsCount = 0;
 }
 
 export function formatDoctorBytes(bytes: number): string {
@@ -656,8 +608,7 @@ type CloudEventHook = (payload: {
     | 'repair_exhausted'
     | 'freeze_detected'
     | 'channel_dead'
-    | 'epg_assist'
-    | 'epg_disabled';
+
   record?: ChannelDoctorRecord | null;
   event: Record<string, unknown>;
 }) => void;
@@ -838,12 +789,7 @@ function createEmptyStore(): DoctorStoreData {
     v: 1,
     byKey: {},
     idIndex: {},
-    epgByKey: {},
-    epgIdIndex: {},
     categoryStats: createEmptyCategoryStats(),
-    epgAssistCount: 0,
-    epgLastAssistAt: null,
-    epgLastRecoveredAt: null,
   };
 }
 
@@ -1145,27 +1091,11 @@ function persistedSnapshot(store: DoctorStoreData): DoctorStoreData {
     byKey[key] = routes.length > 0 ? { ...record, routes } : { ...record, routes: undefined };
     if (record.channelId) idIndex[record.channelId] = key;
   }
-  const epgByKey: Record<string, ChannelEpgDoctorRecord> = {};
-  const epgIdIndex: Record<string, string> = {};
-  for (const [key, record] of Object.entries(store.epgByKey)) {
-    /*
-     * Az EPG-őr eleve csak magyar csatornákra dolgozik (az EPG magyar), ezért
-     * az EPG-tudást nem szűkítjük – csak azt dobjuk el, amiről biztosan
-     * tudjuk, hogy nem magyar csatornához tartozik.
-     */
-    const known = store.byKey[key];
-    if (known && !isPersistableDoctorRecord(known)) continue;
-    epgByKey[key] = record;
-    if (record.channelId) epgIdIndex[record.channelId] = key;
-  }
   return {
     ...store,
     byKey,
     idIndex,
-    epgByKey,
-    epgIdIndex,
-  };
-}
+  };}
 
 function readStore(storage?: Storage | null): DoctorStoreData {
   if (!storage && memoryCache) return memoryCache;
@@ -1287,42 +1217,11 @@ function readStore(storage?: Storage | null): DoctorStoreData {
       }
     }
 
-    const cleanEpgByKey: Record<string, ChannelEpgDoctorRecord> = {};
-    const cleanEpgIdIndex: Record<string, string> = {};
-    if (parsed.epgByKey && typeof parsed.epgByKey === 'object') {
-      for (const [ek, ev] of Object.entries(parsed.epgByKey as Record<string, any>)) {
-        if (!ek || !ev || typeof ev !== 'object' || ek.startsWith('vod:')) continue;
-        const state = ev.state === 'disabled' || ev.state === 'ok' ? ev.state : 'empty';
-        const epgRec: ChannelEpgDoctorRecord = {
-          channelKey: String(ev.channelKey || ek).slice(0, 120),
-          channelId: typeof ev.channelId === 'string' ? ev.channelId.slice(0, 120) : undefined,
-          channelName: String(ev.channelName || ek).slice(0, 140),
-          state,
-          emptyChecks: Math.max(0, Number(ev.emptyChecks) || 0),
-          updatedAt: typeof ev.updatedAt === 'number' ? ev.updatedAt : 0,
-        };
-        cleanEpgByKey[epgRec.channelKey] = epgRec;
-        if (epgRec.channelId) cleanEpgIdIndex[epgRec.channelId] = epgRec.channelKey;
-      }
-    }
-    if (parsed.epgIdIndex && typeof parsed.epgIdIndex === 'object') {
-      for (const [cid, ckey] of Object.entries(parsed.epgIdIndex as Record<string, unknown>)) {
-        if (typeof ckey === 'string' && cleanEpgByKey[ckey]) {
-          cleanEpgIdIndex[cid] = ckey;
-        }
-      }
-    }
-
     const loaded: DoctorStoreData = {
       v: 1,
       byKey: cleanByKey,
       idIndex: cleanIdIndex,
-      epgByKey: cleanEpgByKey,
-      epgIdIndex: cleanEpgIdIndex,
       categoryStats: sanitizeCategoryStats(parsed.categoryStats),
-      epgAssistCount: Math.max(0, Number(parsed.epgAssistCount) || 0),
-      epgLastAssistAt: typeof parsed.epgLastAssistAt === 'number' ? parsed.epgLastAssistAt : null,
-      epgLastRecoveredAt: typeof parsed.epgLastRecoveredAt === 'number' ? parsed.epgLastRecoveredAt : null,
     };
     if (hadLegacyVod || hadForeign) {
       try {
@@ -1360,19 +1259,6 @@ function pruneStore(store: DoctorStoreData): void {
     }
   }
 
-  const epgKeys = Object.keys(store.epgByKey);
-  if (epgKeys.length > MAX_LEARNED_EPG_CHANNELS) {
-    const sortedEpg = epgKeys.sort(
-      (a, b) => (store.epgByKey[b]?.updatedAt || 0) - (store.epgByKey[a]?.updatedAt || 0),
-    );
-    const keepEpg = new Set(sortedEpg.slice(0, MAX_LEARNED_EPG_CHANNELS));
-    for (const ek of epgKeys) {
-      if (!keepEpg.has(ek)) delete store.epgByKey[ek];
-    }
-    for (const [cid, ckey] of Object.entries(store.epgIdIndex)) {
-      if (!keepEpg.has(ckey)) delete store.epgIdIndex[cid];
-    }
-  }
 }
 
 function persistStoreNow(store: DoctorStoreData, target: Storage): void {
@@ -1521,7 +1407,7 @@ export function clearTvDoctorMemory(storage?: Storage | null): void {
     /* ignore */
   }
   if (isTvDoctorDiagLoggingEnabled()) {
-    appLog('TV DOKTOR MEMÓRIA: a helyi tanuló memória, kategória-számlálók és EPG-tiltások 0 állapotra törölve.');
+    appLog('TV DOKTOR MEMÓRIA: a helyi tanuló memória és kategória-számlálók 0 állapotra törölve.');
   }
   notifyTvDoctorListeners();
 }
@@ -1533,88 +1419,20 @@ export function getTvDoctorCategoryStats(storage?: Storage | null): DoctorCatego
     assistance: { ...store.categoryStats.assistance },
     activation: { ...store.categoryStats.activation },
     channel_error: { ...store.categoryStats.channel_error },
-    epg_assist: { ...store.categoryStats.epg_assist },
-  };
-}
-
-export function getTvDoctorEpgStats(storage?: Storage | null): TvDoctorEpgStats {
-  const store = readStore(storage);
-  let disabledChannelCount = 0;
-  let okChannelCount = 0;
-  const now = Date.now();
-  for (const item of Object.values(store.epgByKey)) {
-    if (item.state === 'disabled' && now - item.updatedAt < EPG_DISABLED_TTL_MS) {
-      disabledChannelCount += 1;
-    } else if (item.state === 'ok') {
-      okChannelCount += 1;
-    }
-  }
-  return {
-    disabledChannelCount,
-    okChannelCount,
-    assistCount: store.epgAssistCount || 0,
-    lastAssistAt: store.epgLastAssistAt,
-    lastRecoveredAt: store.epgLastRecoveredAt,
   };
 }
 
 /**
- * 2.5.277 (#17-es kérés): a TV DOKTOR EPG-ŐRE.
- *
- * Az ÚJ műsorújság-tárolót (epgGuide, tartós IDB mentéssel) ellenőrzi – NEM a
- * régi url-tvg / get_simple_data_table útvonalakat. Ha az újság hiányzik,
- * elavult (> GUIDE_STALE_MS), vagy a magyar [HU] csatornák lefedettsége 90%
- * alatt van, EGYETLEN frissítést indít az ensureGuide-on keresztül. Ha minden
- * rendben van, csendben visszatér – nem dolgozik folyamatosan, és nem naplóz
- * feleslegesen. A memóriába csak két számláló + időbélyeg kerül.
+ * EPG-leválasztás: a TV Doktor már nem figyeli a műsorújságot.
+ * A hívóhely megmarad kompatibilitásból, de nem végez EPG-műveletet.
  */
-export async function watchTvDoctorEpg(params: {
-  provider: ProviderRef | null | undefined;
-  channels: Array<{ name?: string; epgChannelId?: string | null; countryCode?: string }>;
-  storage?: Storage | null;
-}): Promise<void> {
-  const { provider, channels, storage } = params;
-  try {
-    if (!provider) return;
-    const now = Date.now();
-    const status = guideStatus();
-    let reason = '';
-    if (status.channels === 0) {
-      reason = 'nincs betöltött műsorújság a tárolóban';
-    } else if (status.loadedAt > 0 && now - status.loadedAt > GUIDE_STALE_MS) {
-      reason = `elavult műsorújság (${Math.round((now - status.loadedAt) / 60000)} perce betöltve)`;
-    } else {
-      // 17. kérés: csak magyar csatornák számítanak (a régi szabály szerint).
-      const coverage = guideChannelCoverage(channels);
-      if (coverage.huTotal > 0 && coverage.huWithGuide < Math.max(1, Math.floor(coverage.huTotal * 0.9))) {
-        reason = `kevés magyar adó van az újságban (HU ${coverage.huWithGuide}/${coverage.huTotal})`;
-      }
-    }
-    if (!reason) return; // minden rendben – az őr nem dolgozik feleslegesen
-    const store = readStore(storage);
-    store.epgAssistCount = (store.epgAssistCount || 0) + 1;
-    store.epgLastAssistAt = now;
-    writeStore(store, storage);
-    logDoctor('info', null, `EPG-őr beavatkozás: ${reason} – műsorújság-frissítés indul (új tárolóút, ensureGuide)`, 'epg_assist', storage);
-    await ensureGuide(provider);
-    const after = guideStatus();
-    const cov = guideChannelCoverage(channels);
-    logDoctor(
-      'info',
-      null,
-      `EPG-őr kész: újság csatornák=${after.channels}, műsorok=${after.programmes}, HU lefedettség=${cov.huWithGuide}/${cov.huTotal}`,
-      'epg_assist',
-      storage,
-    );
-  } catch {
-    /* az EPG-őr soha nem akadályozhatja a lejátszást */
-  }
+export async function watchTvDoctorEpg(_params?: unknown): Promise<void> {
+  return;
 }
 
 export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemoryStats {
   const store = readStore(storage);
   const learnedChannelCount = Object.keys(store.byKey).length;
-  const epgStats = getTvDoctorEpgStats(storage);
   const target = getStorage(storage);
 
   let doctorStoreBytes = 0;
@@ -1622,7 +1440,6 @@ export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemory
   let tvStorageUsedBytes = 0;
   const hasAnyDoctorData =
     learnedChannelCount > 0 ||
-    Object.keys(store.epgByKey).length > 0 ||
     store.categoryStats.learning.count > 0 ||
     store.categoryStats.assistance.count > 0 ||
     store.categoryStats.activation.count > 0 ||
@@ -1706,7 +1523,6 @@ export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemory
   return {
     learnedChannelCount,
     maxLearnedChannels: MAX_LEARNED_CHANNELS,
-    disabledEpgChannelCount: epgStats.disabledChannelCount,
     doctorStoreBytes,
     cloudQueueBytes,
     inMemoryLogBytes,
@@ -1729,7 +1545,6 @@ export function getTvDoctorSummary(storage?: Storage | null): {
   totalVerifiedRepairs: number;
   recentLogs: DoctorLogEntry[];
   categoryStats: DoctorCategoryStats;
-  epgStats: TvDoctorEpgStats;
 } {
   const store = readStore(storage);
   const records = Object.values(store.byKey);
@@ -1740,9 +1555,8 @@ export function getTvDoctorSummary(storage?: Storage | null): {
   return {
     learnedChannelCount: records.length,
     totalVerifiedRepairs,
-    recentLogs: recentDoctorLogs.slice(-MAX_RECENT_LOGS),
+    recentLogs: recentDoctorLogs.slice(), // 2.5.302: keep all per-category (learning ALL; others 15) – summary returns full buffer
     categoryStats: getTvDoctorCategoryStats(storage),
-    epgStats: getTvDoctorEpgStats(storage),
   };
 }
 
@@ -1849,8 +1663,27 @@ function logDoctor(
     channelName,
     message,
   });
-  if (recentDoctorLogs.length > MAX_RECENT_LOGS) {
-    recentDoctorLogs.splice(0, recentDoctorLogs.length - MAX_RECENT_LOGS);
+  // 2.5.302: per-category retention – Tanulás (learning) ALL (max MAX_RECENT_LOGS=500), other 3 categories only 15 newest
+  // This keeps the left 0-popup boxes at 15-cap while Tanulás remains unbounded for the Doctor's work.
+  if (category === 'learning') {
+    const learningCount = recentDoctorLogs.reduce((c, e) => c + (e.category === 'learning' ? 1 : 0), 0);
+    if (learningCount > MAX_RECENT_LOGS) {
+      // drop oldest learning entry to keep memory bounded
+      for (let i = 0; i < recentDoctorLogs.length; i += 1) {
+        if (recentDoctorLogs[i].category === 'learning') { recentDoctorLogs.splice(i, 1); break; }
+      }
+    }
+  } else {
+    const catCount = recentDoctorLogs.reduce((c, e) => c + (e.category === category ? 1 : 0), 0);
+    if (catCount > 15) {
+      for (let i = 0; i < recentDoctorLogs.length; i += 1) {
+        if (recentDoctorLogs[i].category === category) { recentDoctorLogs.splice(i, 1); break; }
+      }
+    }
+  }
+  // safety: never let global buffer grow unbounded (> 800)
+  if (recentDoctorLogs.length > 800) {
+    recentDoctorLogs.splice(0, recentDoctorLogs.length - 800);
   }
   if (isTvDoctorDiagLoggingEnabled()) {
     const tag =
@@ -1860,8 +1693,6 @@ function logDoctor(
           ? 'SEGÍTSÉG/JAVÍTÁS'
           : category === 'activation'
             ? 'AKTIVÁLÓDÁS'
-            : category === 'epg_assist'
-              ? 'EPG-ŐR'
               : 'CSATORNAHIBA';
     appLog(`TV DOKTOR [${tag}] [${channelName}] ${message}`);
   }
