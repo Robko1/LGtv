@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.302';
+export const WEB_VERSION = '2.5.303';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.302',
+    version: '2.5.303',
     date: '2026-11-04',
     changes: [
       'EXKLUZÍV, VILLÁMGYORS MOZI/SOROZAT VISSZATÖLTÉS: Mozi vagy Sorozat fülre kattintva MINDEN háttérmunka (élő lista 20k, 25+25 előnézet, 500-as részletek, EPG/műsorújság, plakát-előmelegítés) azonnal leáll, és CSAK a kért lista tölt vissza a tartós IDB tárból – semmi más nem fut, amíg el nem kattint onnan. Nincs többé induláskori 25+25 plakát-előnézet és 500-as mentés, csak kattintásra töltünk, ezért az indulás könnyű és a váltás azonnali (nincs 1200 ms késleltetés). Az élő lista visszatöltése is megszakítható: ha közben Mozit nyit a néző, az élő a következő adaghatáron (≤100 ms) leáll – a VOD sorban következik, villámgyorsan.',
