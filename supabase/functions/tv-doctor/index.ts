@@ -1274,28 +1274,54 @@ export function createTvDoctorHandler(customEnv = {}) {
     if (!providerId) {
       return out(400, { ok: false, error: "provider_required", message: "Hiányzó szolgáltató azonosító." });
     }
-    if (!layout || typeof layout !== "object" || !Array.isArray(layout.channelOrder)) {
+    const hasChannelOrder = Array.isArray(layout && layout.channelOrder);
+    const hasFingerprintOrder = Array.isArray(layout && layout.fingerprintOrder);
+    if (!layout || typeof layout !== "object" || (!hasChannelOrder && !hasFingerprintOrder)) {
       return out(400, { ok: false, error: "invalid_layout", message: "Érvénytelen elrendezés adat." });
     }
     try {
       const snapshotStr = JSON.stringify(layout);
-      if (snapshotStr.length > 1_900_000) {
+      // Supabase Edge gateway body limit is close to 6 MB. Leave room for the
+      // request envelope and count UTF-8 bytes rather than JS characters.
+      const snapshotBytes = new TextEncoder().encode(snapshotStr).length;
+      if (snapshotBytes > 4_500_000) {
         return out(413, { ok: false, error: "layout_too_large", message: "Az elrendezés túl nagy a felhőhöz." });
       }
     } catch (_) {
       return out(400, { ok: false, error: "invalid_layout" });
     }
+    const rawFingerprints = hasFingerprintOrder ? layout.fingerprintOrder.slice(0, 100000) : [];
+    const fingerprintOrder = rawFingerprints.map((entry) => {
+      const item = entry && typeof entry === "object" ? entry : {};
+      const id = cleanText(item.id, 120);
+      const nameKey = cleanText(item.nameKey, 1000);
+      return {
+        ...(id ? { id } : {}),
+        ...(nameKey ? { nameKey } : {}),
+      };
+    });
+    const channelOrder = hasChannelOrder
+      ? layout.channelOrder.slice(0, 100000).map((x) => String(x).slice(0, 120))
+      : fingerprintOrder.map((item) => item.id).filter(Boolean);
+    const deletedChannels = Array.isArray(layout.deletedChannels)
+      ? layout.deletedChannels.slice(0, 10000).map((entry) => {
+          const item = entry && typeof entry === "object" ? entry : {};
+          const id = cleanText(item.id, 120);
+          const nameKey = cleanText(item.nameKey, 1000);
+          return { ...(id ? { id } : {}), ...(nameKey ? { nameKey } : {}) };
+        })
+      : [];
     const providerName = cleanText(layout.providerName || body.providerName, 120) || providerId.slice(0, 32);
     const nowIso = new Date(nowFn()).toISOString();
     const snapshot = {
-      version: cleanText(layout.version, 32) || "2.5.337",
+      version: cleanText(layout.version, 32) || "2.5.343",
       createdAt: layout.createdAt && Number.isFinite(Date.parse(layout.createdAt)) ? new Date(layout.createdAt).toISOString() : nowIso,
       providerId,
       providerName,
       totalChannels: clampInt(layout.totalChannels, 0, 100000, 0) || 0,
-      channelOrder: Array.isArray(layout.channelOrder) ? layout.channelOrder.slice(0, 100000).map((x) => String(x).slice(0, 120)) : [],
-      fingerprintOrder: Array.isArray(layout.fingerprintOrder) ? layout.fingerprintOrder.slice(0, 100000) : [],
-      deletedChannels: Array.isArray(layout.deletedChannels) ? layout.deletedChannels.slice(0, 10000) : [],
+      channelOrder,
+      fingerprintOrder,
+      deletedChannels,
       folders: Array.isArray(layout.folders) ? layout.folders.slice(0, 100) : [],
     };
     const layoutSnapshotsUrl = envUrl + "/rest/v1/tv_doctor_layout_snapshots";

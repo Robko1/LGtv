@@ -89,5 +89,43 @@ assert.equal(fetchResponse.status, 200);
 assert.equal(fetched.found, true);
 assert.deepEqual(fetched.layout.channelOrder, snapshot.channelOrder);
 assert.equal(fetched.layout.providerId, snapshot.providerId);
+assert.deepEqual(fetched.layout.fingerprintOrder.map(({ id, nameKey }) => ({ id, nameKey })), snapshot.fingerprintOrder.map(({ id, nameKey }) => ({ id, nameKey })));
+assert.equal('streamUrl' in fetched.layout.fingerprintOrder[0], false);
 
-console.log('OK – Supabase tv-doctor layout_upsert/layout_fetch hitelesített round-trip sikeres');
+// A kompakt kliens DTO a channelOrder tömböt kihagyhatja: a szerver a
+// fingerprint ID-kből állítja vissza a gyors sorrendet.
+const compactLayout = {
+  ...snapshot,
+  channelOrder: undefined,
+  fingerprintOrder: [
+    { id: 'compact-2', nameKey: 'második|hu', streamUrl: 'https://private.example/secret' },
+    { id: 'compact-1', nameKey: 'első|hu' },
+  ],
+};
+const compactResponse = await handler(request({ action: 'layout_upsert', providerId: snapshot.providerId, layout: compactLayout }));
+assert.equal(compactResponse.status, 200);
+const compactStored = savedRows.get(`${deviceId}:${snapshot.providerId}`).snapshot;
+assert.deepEqual(compactStored.channelOrder, ['compact-2', 'compact-1']);
+assert.equal('streamUrl' in compactStored.fingerprintOrder[0], false);
+
+// A régi, URL-eket is tartalmazó snapshotok 1.9 MB fölött sem kapnak többé
+// téves 413-at (a szerver továbbra is csak a visszaállításhoz szükséges adatot tárolja).
+const largeLayout = {
+  ...snapshot,
+  totalChannels: 140,
+  channelOrder: Array.from({ length: 140 }, (_, i) => `large-${i}`),
+  fingerprintOrder: Array.from({ length: 140 }, (_, i) => ({
+    id: `large-${i}`,
+    nameKey: `channel-${i}|hu`,
+    streamUrl: `https://provider.example/${'x'.repeat(14_000)}${i}`,
+    displayOrder: i,
+  })),
+};
+assert.ok(Buffer.byteLength(JSON.stringify(largeLayout)) > 1_900_000);
+const largeResponse = await handler(request({ action: 'layout_upsert', providerId: snapshot.providerId, layout: largeLayout }));
+assert.equal(largeResponse.status, 200);
+const largeStored = savedRows.get(`${deviceId}:${snapshot.providerId}`).snapshot;
+assert.equal(largeStored.fingerprintOrder.length, 140);
+assert.equal('streamUrl' in largeStored.fingerprintOrder[0], false);
+
+console.log('OK – Supabase layout round-trip, kompakt DTO és 1.9 MB fölötti mentés sikeres');

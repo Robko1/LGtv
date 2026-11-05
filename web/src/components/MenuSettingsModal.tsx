@@ -1510,7 +1510,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 <div data-layout-grid="" className="grid grid-cols-2 gap-2">
                   <button
                     onClick={handleSaveLayout}
-                    disabled={layoutSaving || layoutRestoring || !activeProviderForLayout}
+                    disabled={layoutRestoring || !activeProviderForLayout}
+                    aria-busy={layoutSaving}
                     className="flex items-center justify-center gap-1.5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black active:scale-95 transition-all disabled:opacity-60 shadow-md shadow-emerald-900/20"
                   >
                     <Save className="w-4 h-4" />

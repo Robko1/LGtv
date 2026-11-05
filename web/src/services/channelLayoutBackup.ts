@@ -12,7 +12,7 @@ import { appLog } from './appLog';
  * ha a szolgáltató új id-t ad ugyanannak a csatornának.
  *
  * Hely: Beállítások → Listák → legalsó doboz az „Összes lista törlése” alatt.
- * Mindkét tároló (helyi + Supabase felhő) UGYANAZT a JSON-t kapja — nincs eltérés.
+ * A helyi mentés megőrzi a teljes fingerprintet; a felhőbe tömörített, visszaállítható változat kerül.
  */
 
 const SNAPSHOT_PREFIX = 'iptv_rt_layout_snapshot_v1_';
@@ -312,13 +312,31 @@ async function postLayout(action: 'layout_upsert' | 'layout_fetch', body: Record
   }
 }
 
+function compactSnapshotForCloud(snapshot: LayoutSnapshot): Record<string, unknown> {
+  return {
+    version: snapshot.version,
+    createdAt: snapshot.createdAt,
+    providerId: snapshot.providerId,
+    providerName: snapshot.providerName,
+    totalChannels: snapshot.totalChannels,
+    // Az ID-only sorrend a már telepített Edge Function verziókkal is kompatibilis.
+    channelOrder: snapshot.channelOrder,
+    // A stream URL-ek érzékeny szolgáltatói adatot tartalmazhatnak és jellemzően ezek
+    // növelik meg több megabájtosra a snapshotot. A név|kategória kulcs megmarad
+    // tartalék illesztéshez, az ID pedig az elsődleges pontos visszaállításhoz.
+    fingerprintOrder: snapshot.fingerprintOrder.map(({ id, nameKey }) => ({ id, nameKey })),
+    deletedChannels: snapshot.deletedChannels.map(({ id, nameKey }) => ({ id, ...(nameKey ? { nameKey } : {}) })),
+    folders: snapshot.folders,
+  };
+}
+
 export async function saveSnapshotToCloud(snapshot: LayoutSnapshot): Promise<boolean> {
   const pairing = await getPairingWithFallback();
   if (!pairing) {
     appLog('Felhő mentés kihagyva: nincs párosítás.');
     return false;
   }
-  const res = await postLayout('layout_upsert', { layout: snapshot, providerId: snapshot.providerId }, 15000);
+  const res = await postLayout('layout_upsert', { layout: compactSnapshotForCloud(snapshot), providerId: snapshot.providerId }, 15000);
   if (res && (res.ok === true || res.saved === true)) {
     try {
       // A szinkron badge a snapshot idejét hasonlítja — tároljuk a createdAt-ot, ne a fetch idejét

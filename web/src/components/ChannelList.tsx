@@ -1262,7 +1262,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                   onClick={() => onSelectFavoriteFolder(folder.id)}
                   title={imageIcon.name}
                   aria-label={imageIcon.name}
-                  className={`p-0 rounded-2xl overflow-hidden shrink-0 border-2 transition-colors ${isSelected ? 'border-amber-400 ring-2 ring-amber-400/70' : folderBorder}`}
+                  className={`relative p-0 rounded-2xl overflow-hidden shrink-0 border-2 transition-all focus:outline-none focus:ring-[5px] focus:ring-amber-300 focus:ring-offset-2 focus:ring-offset-[#070f22] focus:scale-105 focus:z-10 focus:shadow-[0_0_24px_rgba(252,211,77,0.9)] ${isSelected ? 'border-amber-400 ring-2 ring-amber-400/70' : folderBorder}`}
                 >
                   <img
                     src={imageIcon.dataUrl}
@@ -1278,7 +1278,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                 type="button"
                 data-tv-folder=""
                 onClick={() => onSelectFavoriteFolder(folder.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-bold whitespace-nowrap border-2 transition-colors ${folderBorder} ${isSelected ? 'bg-amber-400 text-slate-950' : 'bg-[#0d1c3a] text-slate-300'}`}
+                className={`relative flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-bold whitespace-nowrap border-2 transition-all focus:outline-none focus:ring-[5px] focus:ring-amber-300 focus:ring-offset-2 focus:ring-offset-[#070f22] focus:scale-105 focus:z-10 focus:shadow-[0_0_24px_rgba(252,211,77,0.9)] ${folderBorder} ${isSelected ? 'bg-amber-400 text-slate-950' : 'bg-[#0d1c3a] text-slate-300'}`}
               >
                 <span className="text-xl leading-none" aria-hidden="true">{folder.icon || '📁'}</span>
                 <span>{folder.name}</span>

@@ -148,7 +148,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             data-tv-header=""
             data-tv-header-kind="settings"
             onClick={() => onOpenSettings()}
-            className={`flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer ${mirrorLayout ? 'order-first' : 'order-last'}`}
+            className={`flex flex-1 basis-0 min-w-0 max-w-[15rem] items-center justify-center gap-1 px-1 h-9 md:h-10 lg:h-11 rounded-lg text-[22px] font-bold transition-all border bg-[#0f1b35] text-slate-200 border-slate-700/60 hover:bg-[#152345] hover:text-cyan-300 focus:outline-none focus:ring-[5px] focus:ring-amber-300 focus:ring-offset-2 focus:ring-offset-[#070d1d] focus:scale-105 focus:z-10 focus:shadow-[0_0_24px_rgba(252,211,77,0.9)] cursor-pointer ${mirrorLayout ? 'order-first' : 'order-last'}`}
             title="Menü"
             aria-label="Menü"
           >
