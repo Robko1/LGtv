@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.323';
+export const WEB_VERSION = '2.5.324';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.323',
+    version: '2.5.324',
     date: '2026-11-05',
     changes: [
       'TV DOKTOR JOBB OLDAL FIXÁLT — NEM LAPOZHATÓ: a jobb oldali „TV Doktor állapot” panel (Supabase kapcsolat + Működési állapot + Memória) mostantól overflow-y-auto → overflow-hidden, rögzített. A Supabase: Teszt gombon állva lefelé nyílra az egész jobb oldal már nem gördül le/fel — a PageDown/PageUp és ArrowDown/Up/Home/End görgetés kikapcsolva, csak a jobb oldali 3 gomb közötti fókusz (Memória:0 → Teszt → Bezárás) + balra vissza a Tanulásra. Így nem kell lapozni, minden egy képernyőn látszik (005103-as kép).',
