@@ -624,7 +624,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       const active = document.activeElement as HTMLElement | null;
       // 2.5.329 — Layout mentés doboz külön 2×2 rács: ne keveredjen a provider dobozok fel/le járásával.
       if (box && box.hasAttribute('data-layout-backup')) {
-        const controls = Array.from(box.querySelectorAll<HTMLElement>('button:not(:disabled)')).filter((el) => el.getClientRects().length > 0);
+        const controls = Array.from(box.querySelectorAll<HTMLElement>('button:not(:disabled):not([data-layout-test])')).filter((el) => el.getClientRects().length > 0);
         const isBoxNavKey = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) || (key === 'Enter' && active === box);
         if (isBoxNavKey) {
           e.preventDefault();
@@ -648,18 +648,23 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           if (key === 'ArrowLeft') {
             if (idx === 1) controls[0]?.focus({ preventScroll: true } as any);
             else if (idx === 3) controls[2]?.focus({ preventScroll: true } as any);
+            else if (idx === 5) controls[4]?.focus({ preventScroll: true } as any);
             else box.focus({ preventScroll: true } as any);
           } else if (key === 'ArrowRight') {
             if (idx === 0) controls[1]?.focus({ preventScroll: true } as any);
             else if (idx === 2) controls[3]?.focus({ preventScroll: true } as any);
+            else if (idx === 4) controls[5]?.focus({ preventScroll: true } as any);
             else box.focus({ preventScroll: true } as any);
           } else if (key === 'ArrowUp') {
             if (idx === 2) controls[0]?.focus({ preventScroll: true } as any);
             else if (idx === 3) controls[1]?.focus({ preventScroll: true } as any);
+            else if (idx === 4) controls[2]?.focus({ preventScroll: true } as any);
+            else if (idx === 5) controls[3]?.focus({ preventScroll: true } as any);
             else box.focus({ preventScroll: true } as any);
           } else if (key === 'ArrowDown') {
             if (idx === 0) controls[2]?.focus({ preventScroll: true } as any);
             else if (idx === 1) controls[3]?.focus({ preventScroll: true } as any);
+            else if (idx === 4 || idx === 5) box.focus({ preventScroll: true } as any);
             else box.focus({ preventScroll: true } as any);
           }
           return;
@@ -1442,7 +1447,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                             </div>
                           )}
                           {isPaired && (
-                            <button onClick={handleTestCloud} disabled={layoutTesting} className="w-full py-1.5 rounded-lg bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-[11px] font-bold disabled:opacity-50">
+                            <button data-layout-test="" onClick={handleTestCloud} disabled={layoutTesting} className="w-full py-1.5 rounded-lg bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-[11px] font-bold disabled:opacity-50">
                               {layoutTesting ? 'Tesztelés…' : 'Kapcsolat teszt'}
                             </button>
                           )}
@@ -1465,7 +1470,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       {(() => {
                         const isPaired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
                         return isPaired ? (
-                          <button onClick={handleTestCloud} disabled={layoutTesting} className="w-full py-1.5 rounded-lg bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-[11px] font-bold disabled:opacity-50">
+                          <button data-layout-test="" onClick={handleTestCloud} disabled={layoutTesting} className="w-full py-1.5 rounded-lg bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-[11px] font-bold disabled:opacity-50">
                             {layoutTesting ? 'Tesztelés…' : 'Kapcsolat teszt'}
                           </button>
                         ) : null;
@@ -1483,7 +1488,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                 </div>
 
                 {/* Műveletek — 2×2 rács, TV-n is kényelmes */}
-                <div className="grid grid-cols-2 gap-2">
+                <div data-layout-grid="" className="grid grid-cols-2 gap-2">
                   <button
                     onClick={handleSaveLayout}
                     disabled={layoutSaving || layoutRestoring || !activeProviderForLayout}
