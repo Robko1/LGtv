@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.329';
+export const WEB_VERSION = '2.5.331';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,23 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.331',
+    date: '2026-11-05',
+    changes: [
+      'EGYESÍTÉS — Main 2.5.330 + arena 2.5.329: a main 2.5.330-as verzióbumpja és az arena 2.5.329 funkcionális javításai egyesítve (villám-mozgatás fókusz RAF+ref, Listák alján 2×2 rács + Supabase badge), 33/33 teszt zöld, build 1,773kB. Ez a kiadás kerül a main ágra.',
+      'JAVÍTÁS — Villám-mozgatás fókusz: kék mozgatás módban fel/le nyilat vagy piros gombot lenyomva tartva a sárga kurzor és a kijelölés már pontosan a mozgatott csatornán marad (setHighlightedId + requestAnimationFrame focusChannelRow + keepMovingRowVisible), határnál automatikusan megáll (45 ms interval, 260 ms késleltetés). Az interval most ref-eken (focusChannelRowRef/setHighlightedIdRef/keepMovingRowVisibleRef) át fut, így nem ragad be stale closure-be — a mozgatás végig zavartalan.',
+      'LISTÁK ALJÁN — Csatorna elrendezés mentése 2×2 rács: Beállítások → Listák legalján a mentés doboz (data-layout-backup) külön, távirányító-barát 2×2 rácsban kezeli a 4 gombot (0 Mentés most, 1 Visszaállítás, 2 Fájlba, 3 Fájlból) — nyilakkal pontos rácslépés, Enter a dobozról az első gombra, Összes lista törlése dobozról lefelé nyílra a mentés dobozra ugrik, fel nyílra vissza. A lista dobozok számlálása a mentés dobozt kizárja, így a provider-navigáció nem törik.',
+      'FELHŐ BADGE ÉS TESZT ZÖLD: Supabase párosításkor a badge „✓ Supabase felhőbe mentve — bármely készüléken visszaállítható • idő” emerald háttérrel, eltéréskor amber „⚠ Felhő eltér” jelzéssel, párosítatlanul „Nincs felhő mentés — párosítsd a Rendszer → Supabase-párosítás menüben” szürke fallbackkel. Javítva a channel-navigation-runtime 1 bukó teszteset (utolsó sorról LE mappasáv) — 33/33 tesztcsoport újra sikeres.',
+    ],
+  },
+  {
+    version: '2.5.330',
+    date: '2026-11-05',
+    changes: [
+      'JAVÍTÁS — Listák „Csatorna elrendezés mentése” hook sorrend: useMemo a korai return után volt, ezért Beállítások megnyitásakor a fejléc eltűnt és a TV Doktor 0-gomb 4 tesztje (Beállítások / párosító / input / VOD) megbukott. Javítva: useMemo a korai return elé mozgatva, így Beállítások stabil és mind a 33 tesztcsoport sikeres.',
+    ],
+  },
   {
     version: '2.5.329',
     date: '2026-11-05',
@@ -227,7 +244,7 @@ export const WEB_VERSION_HISTORY = [
     version: '2.5.293',
     date: '2026-11-03',
     changes: [
-      'GYORS ZAP tényleg működik (#24/#26-os napló, „csatornaváltás 5 mp, nem 1 mp"): a CH+/CH− mostantól a ref-ből (azonnal frissülő azonosítóból) számolja a következő csatornát, így gyors egymás utáni váltásnál nem ugrunk vissza ugyanarra, és az előkészítés (prefetch) mindig a valóban következő csatornát tölti előre – eddig egy lépéssel lemaradva a rossz csatornát töltötte, ezért a GYORS ZAP soha nem váltott be, és minden váltás hidegen 2-5 mp-ig tartott.',
+      'GYORS ZAP tényleg működik (#24/#26-os napló, „csatornaváltás 5 mp, nem 1 mp\"): a CH+/CH− mostantól a ref-ből (azonnal frissülő azonosítóból) számolja a következő csatornát, így gyors egymás utáni váltásnál nem ugrunk vissza ugyanarra, és az előkészítés (prefetch) mindig a valóban következő csatornát tölti előre – eddig egy lépéssel lemaradva a rossz csatornát töltötte, ezért a GYORS ZAP soha nem váltott be, és minden váltás hidegen 2-5 mp-ig tartott.',
       'Zap-őr: váltás után a webOS egy ideig még a régi csatorna pufferét jelenti – ezt mostantól nem számítjuk az új adás indulási adatának, és amíg az új cím töltődik (NETWORK_LOADING), nem indítunk felesleges formátum-újrapróbát (ez a #24-es naplóban 2 mp helyett 4,7 mp-es váltást okozott).',
       'Nézés közbeni leállások megszüntetése (#24-es napló: 81 mp-es VOD-visszatöltés futott végig élő TV közben, LEÁLLÁS 2,5-2,6 mp): a Mozi/Sorozat teljes visszatöltése mostantól adagonként megszakítható – ha a néző visszament élőbe, az olvasás a következő adagnál leáll; a film/sorozat mentési adagméret 2000-ről 500 sorra csökkent, így egy adag beolvasása ~0,6 mp a korábbi ~2,5 mp helyett.',
     ],
@@ -236,26 +253,26 @@ export const WEB_VERSION_HISTORY = [
     version: '2.5.280',
     date: '2026-11-03',
     changes: [
-      'GYORSULÁS NÉZÉS KÖZBEN (#22/#23-as napló, „minden kurva lassú, a távkapcsoló nem reagál azonnal"): a teljes listák újraírása (20 193 csatorna + 103 043 film + 25 046 sorozat = 22-50 mp főszál-foglalás a #22-es naplóban, LEÁLLÁS 2,5-3,3 mp) mostantól NEM fut lejátszás közben – a mentés 3 mp-enként újrapróbálkozik, és csak akkor ír, ha nincs aktív lejátszás (kilépéskor azonnal ment). Emellett a visszatöltött listák azonosítója rögtön „már mentettnek” számít, így egy későbbi változás (pl. egy ország betöltése) nem írja ki újra mind a három teljes listát.',
-      'HÁTTÉR-TÖLTÉS LEÁLLÍTÁSA (#22-es napló, „össze-vissza tölt be minden"): a Mozi/Sorozat teljes visszatöltése csak akkor indul, ha a menü 1,2 mp után is nyitva van (gyors átlapolásnál nem indul 40 mp-es IDB-olvasás), és ha a néző közben visszament élő TV-re, a 103 ezres lista NEM kerül a felületre (nincs teljes újrarajzolás, nincs fókuszugrás).',
-      'ORSZÁGOK A HELYÜKRE (#22-es napló, „az országok kategóriája nem jó helyre vannak berakva"): a csatornalista (keresési találatok, kedvenc mappák, vegyes kategóriák) mostantól ORSZÁGONKÉNT csoportosítva jelenik meg, a Kategóriák menü sorrendjében (Magyarország elöl, utána magyar ABC) – a CH+/CH− így nem ugrik át egyik országból a másikba (#22: [HU] TV2 UHD után rögtön [UK] CHU CHU TV jött). Az országkategóriák rendezése is magyar ABC-re váltott (a régi alapértelmezett locale máshogy rendezte őket).',
-      'FÓKUSZ (#22-es napló, „össze-vissza ugrál a fókusz"): a Kategóriák panel ha a lista újraépülése miatt a fókusz kikerült a panelből, automatikusan visszaáll az első sorra – a nyilak így mindig működnek, nem „ugrálnak össze-vissza". A nagy háttérmunkák megszűnésével a főoldali fókusz is stabil marad.',
-      'EPG továbbra is CSAK magyar (#22: „csak magyar EPG, nem 10 vagy 20 MB szarság" – ez a 2.5.279 óta így van, a #22-es napló szerint a tároló 215 csatorna/2511 műsor, a 30+ MB-os újbóli letöltés kihagyva).',
+      'GYORSULÁS NÉZÉS KÖZBEN (#22/#23-as napló, „minden kurva lassú, a távkapcsoló nem reagál azonnal\"): a teljes listák újraírása (20 193 csatorna + 103 043 film + 25 046 sorozat = 22-50 mp főszál-foglalás a #22-es naplóban, LEÁLLÁS 2,5-3,3 mp) mostantól NEM fut lejátszás közben – a mentés 3 mp-enként újrapróbálkozik, és csak akkor ír, ha nincs aktív lejátszás (kilépéskor azonnal ment). Emellett a visszatöltött listák azonosítója rögtön „már mentettnek” számít, így egy későbbi változás (pl. egy ország betöltése) nem írja ki újra mind a három teljes listát.',
+      'HÁTTÉR-TÖLTÉS LEÁLLÍTÁSA (#22-es napló, „össze-vissza tölt be minden\"): a Mozi/Sorozat teljes visszatöltése csak akkor indul, ha a menü 1,2 mp után is nyitva van (gyors átlapolásnál nem indul 40 mp-es IDB-olvasás), és ha a néző közben visszament élő TV-re, a 103 ezres lista NEM kerül a felületre (nincs teljes újrarajzolás, nincs fókuszugrás).',
+      'ORSZÁGOK A HELYÜKRE (#22-es napló, „az országok kategóriája nem jó helyre vannak berakva\"): a csatornalista (keresési találatok, kedvenc mappák, vegyes kategóriák) mostantól ORSZÁGONKÉNT csoportosítva jelenik meg, a Kategóriák menü sorrendjében (Magyarország elöl, utána magyar ABC) – a CH+/CH− így nem ugrik át egyik országból a másikba (#22: [HU] TV2 UHD után rögtön [UK] CHU CHU TV jött). Az országkategóriák rendezése is magyar ABC-re váltott (a régi alapértelmezett locale máshogy rendezte őket).',
+      'FÓKUSZ (#22-es napló, „össze-vissza ugrál a fókusz\"): a Kategóriák panel ha a lista újraépülése miatt a fókusz kikerült a panelből, automatikusan visszaáll az első sorra – a nyilak így mindig működnek, nem „ugrálnak össze-vissza\". A nagy háttérmunkák megszűnésével a főoldali fókusz is stabil marad.',
+      'EPG továbbra is CSAK magyar (#22: „csak magyar EPG, nem 10 vagy 20 MB szarság\" – ez a 2.5.279 óta így van, a #22-es napló szerint a tároló 215 csatorna/2511 műsor, a 30+ MB-os újbóli letöltés kihagyva).',
     ],
   },
   {
     version: '2.5.279',
     date: '2026-11-03',
     changes: [
-      'EPG CSAK magyar csatornákra (#20/#21-es napló, „az EPG csak a magyar csatornákra kell, a többi csak lassítja a TV-t"): a műsorújság feldolgozásnál és a tartós tárolónál is csak a magyar (HU) csatornákat vesszük figyelembe – a nem magyar blokkokat kihagyjuk, így a tároló 10-50 MB helyett pár MB lesz, és a csatornaváltás közbeni főszál-leállások (LEÁLLÁS 2,5 mp a #20-as naplóban) megszűnnek. A szolgáltató teljes (minden országos) xmltv.php letöltése 32 MB-nál leáll, és korábban megáll, amint elég magyar csatorna érkezett – nem töltünk le minden országot.',
-      'GYORS CSATORNAVÁLTÁS (#20/#21-es napló, „1 másodperc alatt meg kell történnie, ne a TV Doktort javítsd"): (1) előkészítés (prefetch) – a lejátszó rejtett második videóeleme előre betölti a következő/előző csatornát; váltáskor ezt a kész pufferű elemet veszi át a fő lejátszó, így a kép már a váltás pillanatában ott van; (2) a zap-őr nem indítja újra az éppen pufferelő streamet („már van puffer, mégis újratöltöttük" – a #20-as naplóban ebből lett 4,4-5,8 mp-es váltás); most csak akkor próbál újra, ha tényleg nincs adat, egyébként a lejátszás-őrig vár; (3) az indulási őr 2 mp helyett 1,5 mp.',
+      'EPG CSAK magyar csatornákra (#20/#21-es napló, „az EPG csak a magyar csatornákra kell, a többi csak lassítja a TV-t\"): a műsorújság feldolgozásnál és a tartós tárolónál is csak a magyar (HU) csatornákat vesszük figyelembe – a nem magyar blokkokat kihagyjuk, így a tároló 10-50 MB helyett pár MB lesz, és a csatornaváltás közbeni főszál-leállások (LEÁLLÁS 2,5 mp a #20-as naplóban) megszűnnek. A szolgáltató teljes (minden országos) xmltv.php letöltése 32 MB-nál leáll, és korábban megáll, amint elég magyar csatorna érkezett – nem töltünk le minden országot.',
+      'GYORS CSATORNAVÁLTÁS (#20/#21-es napló, „1 másodperc alatt meg kell történnie, ne a TV Doktort javítsd\"): (1) előkészítés (prefetch) – a lejátszó rejtett második videóeleme előre betölti a következő/előző csatornát; váltáskor ezt a kész pufferű elemet veszi át a fő lejátszó, így a kép már a váltás pillanatában ott van; (2) a zap-őr nem indítja újra az éppen pufferelő streamet („már van puffer, mégis újratöltöttük\" – a #20-as naplóban ebből lett 4,4-5,8 mp-es váltás); most csak akkor próbál újra, ha tényleg nincs adat, egyébként a lejátszás-őrig vár; (3) az indulási őr 2 mp helyett 1,5 mp.',
     ],
   },
   {
     version: '2.5.278',
     date: '2026-11-03',
     changes: [
-      'GYORSÍTÁS (#18/#19-es napló, „retten lassú/fagy minden"): az EPG (műsorújság) feldolgozás inkrementálissá vált – korábban minden beérkező blokkra újra végigfutott a zárójel-keresés a teljes (akár 8 MB-os) pufferen, ami egy 10-20 MB-os újságnál önmagában 2,7-3,1 mp-es főszál-leállást okozott (LEÁLLÁS a #18-as naplóban). Most csak az új szöveget dolgozzuk fel lépésenként, a leállások megszűnnek.',
+      'GYORSÍTÁS (#18/#19-es napló, „retten lassú/fagy minden\"): az EPG (műsorújság) feldolgozás inkrementálissá vált – korábban minden beérkező blokkra újra végigfutott a zárójel-keresés a teljes (akár 8 MB-os) pufferen, ami egy 10-20 MB-os újságnál önmagában 2,7-3,1 mp-es főszál-leállást okozott (LEÁLLÁS a #18-as naplóban). Most csak az új szöveget dolgozzuk fel lépésenként, a leállások megszűnnek.',
       'EPG magyar adók ELŐRE (#18-as napló): ha a visszatöltött újság kevés magyar adót fed le, most előbb a kis, gyors nyilvános HU újságokat töltjük le (másodpercek alatt), és csak utána indul a nagy szolgáltatói XMLTV a háttérben – a magyar sárga műsorsor így azonnal megjelenik, nem 2-3 perc múlva.',
       'Felhőszinkron ritkítás (#19-es napló): a TV Doktor Supabase szinkronja 14 mp-es debouncing helyett most 60 mp után, de két küldés között legalább 3 perc telik el – a #19-es naplóban 15-60 másodpercenként ment ki szinkron 5,4 mp-es válaszidővel nézés közben; most ritkábban, nagyobb kötegekben megy.',
       'Pufferőr: 8 mp-nél nagyobb előrenyúffer esetén már nem várunk 750 ms megerősítő szünetet – ott biztosan akadás van, a beavatkozás azonnal indul (#18: 11 mp előrenél is vártunk).',
@@ -342,7 +359,7 @@ export const WEB_VERSION_HISTORY = [
     version: '2.5.260',
     date: '2026-11-02',
     changes: [
-      'HU csatornalogók (#9): ha egy magyar csatornához nincs saját logó a tárolóban, mostantól a szolgáltatói logót használjuk tartalékként (a #8 napló szerint mind a 107 HU csatornának van szolgáltatói logója, csak kb. 80-nak saját) – így a „többi" csatorna sem marad app-ikonon; a saját logó hibája után is megpróbáljuk a szolgáltatóit. Minden HU logókép (saját vagy szolgáltatói) data-URL-ként a localStorage-ba kerül, újraindítás után azonnal, hálózat nélkül.',
+      'HU csatornalogók (#9): ha egy magyar csatornához nincs saját logó a tárolóban, mostantól a szolgáltatói logót használjuk tartalékként (a #8 napló szerint mind a 107 HU csatornának van szolgáltatói logója, csak kb. 80-nak saját) – így a „többi\" csatorna sem marad app-ikonon; a saját logó hibája után is megpróbáljuk a szolgáltatóit. Minden HU logókép (saját vagy szolgáltatói) data-URL-ként a localStorage-ba kerül, újraindítás után azonnal, hálózat nélkül.',
       'EPG (#9): a #8 napló szerint ezen a panelen a teljes XMLTV letöltés üres (0 bájt, 0 csatorna), ezért nem jelent meg műsor. Most ha a nagy XMLTV üres, háttérben per-csatornás get_simple_data_table kéréssel töltjük az első 250 csatorna (élén a magyarok) műsorát a műsorújság-indexbe és a tartós tárba; a válasz státusza/fejléce és a végpont-verdiktek (EPG-ÁLLAPOT előtag) mostantól látszanak a kézi naplóban is (a mérési szűrő eddig kidobta az „EPG:” sorokat).',
     ],
   },
