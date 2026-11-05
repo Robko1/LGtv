@@ -625,7 +625,23 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       // 2.5.329 — Layout mentés doboz külön 2×2 rács: ne keveredjen a provider dobozok fel/le járásával.
       if (box && box.hasAttribute('data-layout-backup')) {
         const controls = Array.from(box.querySelectorAll<HTMLElement>('button:not(:disabled):not([data-layout-test])')).filter((el) => el.getClientRects().length > 0);
+        const isLayoutTestButton = Boolean(target.closest('[data-layout-test]'));
         const isBoxNavKey = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) || (key === 'Enter' && active === box);
+        if (isLayoutTestButton && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
+          // A tesztgomb nincs a műveleti rácsban. Ha mégis ezen áll a fókusz
+          // (például a régebbi IPK-kból továbbvitt fókusz miatt), lefelé lépve
+          // közvetlenül az első műveletre kell jutni, nem a dobozra visszaugrani.
+          e.preventDefault();
+          e.stopPropagation();
+          if (key === 'ArrowDown') {
+            const firstAction = box.querySelector<HTMLElement>('[data-layout-grid] button:not(:disabled)');
+            firstAction?.focus({ preventScroll: true } as any);
+            firstAction?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          } else if (key === 'ArrowUp') {
+            box.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
         if (isBoxNavKey) {
           e.preventDefault();
           e.stopPropagation();

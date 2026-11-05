@@ -11,10 +11,11 @@ import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {MoviesView} from './web/src/components/MoviesView';
 import {SeriesView} from './web/src/components/SeriesView';
-const movie={id:'m1',streamId:1,title:'Teszt film',categoryId:'c1',categoryName:'Filmek',poster:'',rating:7,year:2024,durationMinutes:100,plot:'Teljes mentett tartalom',genres:['Dráma'],streamUrl:'http://x/movie.mp4',audioLanguages:['Magyar'],subtitleLanguages:['Angol'],providerData:{custom_list:'LISTA-MARAD'},detailProviderData:{info:{custom_detail:'DETAIL-MARAD',director:'Rendező'}}};
+const movie={id:'m1',streamId:1,title:'Teszt film',categoryId:'hu',categoryName:'VOD - HUNGARIA [HU]',poster:'',rating:7,year:2024,durationMinutes:100,plot:'Teljes mentett tartalom',genres:['Dráma'],streamUrl:'http://x/movie.mp4',audioLanguages:['Magyar'],subtitleLanguages:['Angol'],providerData:{custom_list:'LISTA-MARAD'},detailProviderData:{info:{custom_detail:'DETAIL-MARAD',director:'Rendező'}}};
+const foreignMovie={id:'m2',streamId:2,title:'Külföldi film',categoryId:'nl',categoryName:'VOD - ACTIE [NL]',poster:'',rating:7,year:2026,durationMinutes:90,plot:'',genres:[],streamUrl:'http://x/foreign.mp4',audioLanguages:[],subtitleLanguages:[]};
 const series={id:'s1',seriesId:2,title:'Teszt sorozat',categoryId:'c2',categoryName:'Sorozatok',poster:'',rating:8,year:2023,seasonsCount:1,episodesCount:1,plot:'Sorozat tartalom',genres:[],seasons:[{seasonNumber:1,name:'1. évad',episodeCount:1,episodes:[{id:'e1',episodeNumber:1,seasonNumber:1,title:'Pilot',durationMinutes:42,streamUrl:'http://x/e1.mp4',plot:'',thumbnail:'',providerData:{custom_episode:'EPIZOD-MARAD'}}]}],providerData:{custom_series:'SERIES-MARAD'},detailProviderData:{info:{custom_series_detail:'SERIES-DETAIL'}}};
 window.roots=[];
-const r1=createRoot(document.getElementById('movies'));r1.render(<MoviesView movies={[movie]} isActive={true} onPlayMovie={()=>{}} onBackToLive={()=>{}} onToggleFavoriteMovie={()=>{}}/>);window.roots.push(r1);
+const r1=createRoot(document.getElementById('movies'));r1.render(<MoviesView movies={[foreignMovie,movie]} categories={[{id:'nl',name:'VOD - ACTIE [NL]',channelCount:1},{id:'hu',name:'VOD - HUNGARIA [HU]',channelCount:1}]} isActive={true} onPlayMovie={()=>{}} onBackToLive={()=>{}} onToggleFavoriteMovie={()=>{}}/>);window.roots.push(r1);
 const r2=createRoot(document.getElementById('series'));r2.render(<SeriesView series={[series]} isActive={true} onPlayEpisode={()=>{}} onBackToLive={()=>{}} onToggleFavoriteSeries={()=>{}}/>);window.roots.push(r2);
 `;
 const plugin = {
@@ -40,8 +41,10 @@ try {
   await wait(450);
   assert.deepEqual(w.__providerCalls, [], 'a nézet megnyitása nem kér szolgáltatói adatot');
   // 2.5.245: a listakártya csak posztert + címet + év/játékidő sort mutat (nincs csillag/értékelés).
-  const movieCard = doc.querySelector('#movies [data-poster-index]');
+  const movieCards = [...doc.querySelectorAll('#movies [data-poster-index]')];
+  const movieCard = movieCards[0];
   assert.ok(movieCard && movieCard.textContent.includes('Teszt film') && movieCard.textContent.includes('2024'), 'a kártyán cím és év látszik');
+  assert.ok(movieCard.textContent.includes('Teszt film') && movieCards[1]?.textContent.includes('Külföldi film'), 'az Összes film első poszterei között a HU kategória kerül a külföldi elé, a későbbi év ellenére');
   assert.ok(movieCard && !movieCard.querySelector('.fill-amber-400'), 'a kártyán nincs csillag/értékelés jelvény');
   doc.querySelector('#movies [data-poster-index]').click();
   await until(() => doc.querySelector('[role="dialog"]'), 'movie sheet');

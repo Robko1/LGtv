@@ -110,7 +110,7 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [selectedMovie]);
 
-  // HU kategóriák elöl, a többi alatt (2.5.339)
+  // HU kategóriák elöl, a többi alatt; a filmrács ugyanazt a besorolást használja.
   const sortedProviderCats = (providerCategories || [])
     .filter((cat) => cat.channelCount > 0)
     .sort((a, b) => {
@@ -120,6 +120,11 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
       if (!aHu && bHu) return 1;
       return a.name.localeCompare(b.name, 'hu');
     });
+  const categoryNameById = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const category of providerCategories || []) names.set(category.id, category.name);
+    return names;
+  }, [providerCategories]);
   const categories = [
     { id: 'all', name: 'Összes film' },
     ...sortedProviderCats.map((cat) => ({ id: cat.id, name: `${cat.name} (${cat.channelCount})` })),
@@ -146,11 +151,23 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   // ezért most egy az egyben a sorozat-logikát használjuk (sortByReleaseYearDesc), hogy a
   // visszatöltéskor a poszterek ugyanúgy, ugyanabban az ütemben jelenjenek meg.
   const yearSortedMovies = useMemo(() => sortByReleaseYearDesc(movies), [movies]);
+  // A teljes katalógus első oldalán a magyar poszterek jelenjenek meg először,
+  // ne csak a kategórialistában legyen elöl a HU. A két csoporton belül megmarad
+  // a meglévő legújabb-éves rendezés és az eredeti stabil sorrend.
+  const hungaryFirstMovies = useMemo(() => {
+    const hungarian: Movie[] = [];
+    const other: Movie[] = [];
+    for (const movie of yearSortedMovies) {
+      const categoryName = categoryNameById.get(movie.categoryId) || movie.categoryName || '';
+      (flagFor(categoryName).countryCode === 'HU' ? hungarian : other).push(movie);
+    }
+    return hungarian.length ? hungarian.concat(other) : yearSortedMovies;
+  }, [yearSortedMovies, categoryNameById]);
   const filteredMovies = useMemo(
     () => (selectedCategory === 'all'
-      ? yearSortedMovies
+      ? hungaryFirstMovies
       : yearSortedMovies.filter((m) => m.categoryId === selectedCategory)),
-    [yearSortedMovies, selectedCategory],
+    [hungaryFirstMovies, yearSortedMovies, selectedCategory],
   );
 
   /*
