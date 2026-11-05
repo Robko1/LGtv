@@ -95,6 +95,10 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   // KÉK gomb: távirányítós mozgatás mód. A sárga kurzor a piros fel nyílon
   // indul, jobbra/balra nyíllal lép a le nyílra, majd a kukára; OK végrehajt.
   const [moveCursor, setMoveCursor] = useState<'up' | 'down' | 'trash'>('up');
+  // VILLÁM-MOZGATÁS: lenyomva tartott fel/le nyíl vagy piros gomb folyamatos, gyors mozgatás.
+  const moveHoldDelayRef = useRef<number | null>(null);
+  const moveHoldIntervalRef = useRef<number | null>(null);
+  const moveHoldDirRef = useRef<'up' | 'down' | null>(null);
   // SÁRGA gomb: kedvenc mappa választó felugró a kijelölt csatornához.
   const [favoritePickChannelId, setFavoritePickChannelId] = useState<string | null>(null);
   const longPressTimer = useRef<number | null>(null);
@@ -204,6 +208,63 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     visibleChannels.forEach((channel, i) => index.set(channel.id, i));
     return index;
   }, [visibleChannels]);
+
+  // VILLÁM-MOZGATÁS segédek: lenyomva tartott fel/le villámsebességgel mozgat.
+  const clearMoveHold = React.useCallback(() => {
+    if (moveHoldDelayRef.current !== null) {
+      window.clearTimeout(moveHoldDelayRef.current);
+      moveHoldDelayRef.current = null;
+    }
+    if (moveHoldIntervalRef.current !== null) {
+      window.clearInterval(moveHoldIntervalRef.current);
+      moveHoldIntervalRef.current = null;
+    }
+    moveHoldDirRef.current = null;
+  }, []);
+  // A mozgatás maga – a legfrissebb visibleChannels/movingChannelId alapján.
+  const visibleChannelsRef = useRef(visibleChannels);
+  const movingChannelIdRef = useRef(movingChannelId);
+  const onMoveChannelRef = useRef(onMoveChannel);
+  useEffect(() => { visibleChannelsRef.current = visibleChannels; }, [visibleChannels]);
+  useEffect(() => { movingChannelIdRef.current = movingChannelId; }, [movingChannelId]);
+  useEffect(() => { onMoveChannelRef.current = onMoveChannel; }, [onMoveChannel]);
+  // keepMovingRowVisible később definiált – ref-fel hidaljuk át a sorrendet.
+  const keepMovingRowVisibleRef = useRef<((id: string) => void) | null>(null);
+  const startMoveHold = React.useCallback((direction: 'up' | 'down') => {
+    clearMoveHold();
+    moveHoldDirRef.current = direction;
+    // 260 ms után indul a villám: ~22 lépés/mp (45 ms), gyorsulás érezhető.
+    moveHoldDelayRef.current = window.setTimeout(() => {
+      moveHoldDelayRef.current = null;
+      // Azonnal egy lépés a késleltetés után, majd folyamatos.
+      moveHoldIntervalRef.current = window.setInterval(() => {
+        const mid = movingChannelIdRef.current;
+        const list = visibleChannelsRef.current;
+        if (!mid) { clearMoveHold(); return; }
+        const idx = list.findIndex((c) => c.id === mid);
+        if (direction === 'up') {
+          if (idx > 0) {
+            onMoveChannelRef.current?.(mid, 'up');
+            keepMovingRowVisibleRef.current?.(mid);
+          } else {
+            clearMoveHold();
+          }
+        } else {
+          if (idx >= 0 && idx < list.length - 1) {
+            onMoveChannelRef.current?.(mid, 'down');
+            keepMovingRowVisibleRef.current?.(mid);
+          } else {
+            clearMoveHold();
+          }
+        }
+      }, 45);
+    }, 260);
+  }, [clearMoveHold]);
+  // Ha kilép a mozgatás módból, azonnal álljon le a villám.
+  useEffect(() => {
+    if (!movingChannelId) clearMoveHold();
+  }, [movingChannelId, clearMoveHold]);
+  useEffect(() => () => clearMoveHold(), [clearMoveHold]);
 
   // A fő OSD ugyanazt a megjelenítési sorszámot használja, mint a lista –
   // a kedvenc mappák sorszám szerinti rendezésénél is.
@@ -804,6 +865,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       else if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
     });
   };
+  useEffect(() => { keepMovingRowVisibleRef.current = keepMovingRowVisible; }, []);
 
   // Egy régi, ritka virtualizációs tartalék ne ránthassa vissza a fókuszt
   // egy későbbi gombnyomás vagy navigáció után.
@@ -838,23 +900,37 @@ const ChannelListView: React.FC<ChannelListProps> = ({
     }
     // MOZGATÁS MÓD (KÉK gomb): a sárga kurzor a piros nyilak/kuka között jár,
     // az OK végrehajtja a kijelölt műveletet, a Vissza kilép a módból.
+    // VILLÁM: fel/le lenyomva tartva folyamatosan, villámgyorsan mozgat.
     if (movingChannelId) {
       const movingIndex = visibleChannels.findIndex((c) => c.id === movingChannelId);
       e.preventDefault();
       e.stopPropagation();
       if (key === 'ArrowRight') {
+        clearMoveHold();
         setMoveCursor((c) => (c === 'up' ? 'down' : 'trash'));
       } else if (key === 'ArrowLeft') {
+        clearMoveHold();
         setMoveCursor((c) => (c === 'trash' ? 'down' : 'up'));
       } else if (key === 'ArrowUp') {
+        // OS ismétlés → villám-interval már fut, ne duplázzunk.
+        const isRepeat = (e as unknown as { repeat?: boolean }).repeat || (e.nativeEvent as unknown as { repeat?: boolean })?.repeat;
+        if (isRepeat) return;
+        clearMoveHold();
         if (movingIndex > 0) {
+          setMoveCursor('up');
           onMoveChannel?.(movingChannelId, 'up');
           keepMovingRowVisible(movingChannelId);
+          startMoveHold('up');
         }
       } else if (key === 'ArrowDown') {
+        const isRepeat = (e as unknown as { repeat?: boolean }).repeat || (e.nativeEvent as unknown as { repeat?: boolean })?.repeat;
+        if (isRepeat) return;
+        clearMoveHold();
         if (movingIndex >= 0 && movingIndex < visibleChannels.length - 1) {
+          setMoveCursor('down');
           onMoveChannel?.(movingChannelId, 'down');
           keepMovingRowVisible(movingChannelId);
+          startMoveHold('down');
         }
       } else if (key === 'Enter' || key === ' ') {
         if (moveCursor === 'up') {
@@ -996,6 +1072,26 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       }
     }
   };
+  const handleListKeyUp = (e: React.KeyboardEvent) => {
+    const key = normalizeTvKey(e);
+    if (key === 'ArrowUp' || key === 'ArrowDown') {
+      clearMoveHold();
+    }
+  };
+  // Ablak szinten is figyeljük a felengedést – a webOS néha nem a listára küldi a keyup-ot.
+  useEffect(() => {
+    const onWindowKeyUp = (ev: KeyboardEvent) => {
+      const k = normalizeTvKey(ev as unknown as React.KeyboardEvent);
+      if (k === 'ArrowUp' || k === 'ArrowDown') clearMoveHold();
+    };
+    const onWindowBlur = () => clearMoveHold();
+    window.addEventListener('keyup', onWindowKeyUp);
+    window.addEventListener('blur', onWindowBlur);
+    return () => {
+      window.removeEventListener('keyup', onWindowKeyUp);
+      window.removeEventListener('blur', onWindowBlur);
+    };
+  }, [clearMoveHold]);
 
   /**
    * Teljes képernyőről visszatérve a kiválasztott csatorna sora kapja a sárga
@@ -1185,6 +1281,7 @@ const ChannelListView: React.FC<ChannelListProps> = ({
            az ELSŐ sorra lépett, és a következő OK már másik csatornára váltott. */
         data-selected-id={selectedChannelId || undefined}
         onKeyDown={handleListKeyDown}
+        onKeyUp={handleListKeyUp}
         onScroll={(event) => saveChannelScrollPosition(event.currentTarget)}
         className="flex-1 min-h-0 overflow-y-auto focus:outline-none md:scrollbar-thin lg:scrollbar-thin xl:scrollbar-thin"
         role="listbox"
@@ -1478,21 +1575,40 @@ const ChannelListView: React.FC<ChannelListProps> = ({
                         <>
                           <button
                             disabled={index === 0}
-                            onClick={(e) => { e.stopPropagation(); onMoveChannel(ch.id, 'up'); }}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 hover:bg-red-700 disabled:opacity-20 active:scale-90 ${moveCursor === 'up' ? 'ring-4 ring-amber-400 scale-110' : ''}`}
-                            title="Mozgatás felfelé"
-                            aria-label="Csatorna mozgatása felfelé"
+                            onClick={(e) => { e.stopPropagation(); if (moveHoldIntervalRef.current || moveHoldDelayRef.current) return; onMoveChannel(ch.id, 'up'); keepMovingRowVisible(ch.id); }}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
+                              // Egyszeri kattintás helyett lenyomva tartva villám
+                              clearMoveHold();
+                              setMoveCursor('up');
+                              startMoveHold('up');
+                            }}
+                            onPointerUp={(e) => { e.stopPropagation(); try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); } catch {} clearMoveHold(); }}
+                            onPointerLeave={() => clearMoveHold()}
+                            onPointerCancel={() => clearMoveHold()}
+                            className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 hover:bg-red-700 disabled:opacity-20 active:scale-90 select-none touch-manipulation ${moveCursor === 'up' ? 'ring-4 ring-amber-400 scale-110' : ''}`}
+                            title="Mozgatás felfelé — nyomva tartva villámgyorsan"
+                            aria-label="Csatorna mozgatása felfelé — nyomva tartva villámgyorsan"
                           >
                             <ArrowUp className="w-4 h-4" />
                           </button>
                           <button
                             disabled={index === visibleChannels.length - 1}
-                            onClick={(e) => { e.stopPropagation(); onMoveChannel(ch.id, 'down'); }}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 hover:bg-red-700 disabled:opacity-20 active:scale-90 ${moveCursor === 'down' ? 'ring-4 ring-amber-400 scale-110' : ''}`}
-                            title="Mozgatás lefelé"
-                            aria-label="Csatorna mozgatása lefelé"
+                            onClick={(e) => { e.stopPropagation(); if (moveHoldIntervalRef.current || moveHoldDelayRef.current) return; onMoveChannel(ch.id, 'down'); keepMovingRowVisible(ch.id); }}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
+                              clearMoveHold();
+                              setMoveCursor('down');
+                              startMoveHold('down');
+                            }}
+                            onPointerUp={(e) => { e.stopPropagation(); try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); } catch {} clearMoveHold(); }}
+                            onPointerLeave={() => clearMoveHold()}
+                            onPointerCancel={() => clearMoveHold()}
+                            className={`p-1.5 rounded-xl text-white bg-red-800/90 border border-red-400/70 hover:bg-red-700 disabled:opacity-20 active:scale-90 select-none touch-manipulation ${moveCursor === 'down' ? 'ring-4 ring-amber-400 scale-110' : ''}`}
+                            title="Mozgatás lefelé — nyomva tartva villámgyorsan"
+                            aria-label="Csatorna mozgatása lefelé — nyomva tartva villámgyorsan"
                           >
                             <ArrowDown className="w-4 h-4" />
                           </button>
