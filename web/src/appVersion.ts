@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.338';
+export const WEB_VERSION = '2.5.339';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.339',
+    date: '2026-11-06',
+    changes: [
+      'EPG — MAGYAR KÜLÖN EPG SAJÁT TÁRBÓL (countryCode=HU): a magyar csatornák műsorújsága külön, saját IDB-tárból (epg-hu-guide-v1) jön – kizárólag a jó helyről: epgshare01 HU1 (epg_ripper_HU1.xml.gz) / aldork04 lgtv-epg (guide.xml) / iptv-epg.org HU (epg-hu.xml.gz). A szolgáltató EPG-je (xmltv.php / get_short_epg / get_simple_data_table) HU-ra NEM keveredik, IPK-újraindításkor nem tölt újra, csak a beállított frissítési idő szerint (12 órás TTL + 12 órás ablak, KEEP_AFTER), a „kevés magyar adót fed le → 90%” küszöbbel és az „elég magyar csatorna (110)” miatti korai leállás most teljesnek számít (nem részleges). A régi közös epg-guide-v1 mentés automatikusan átmozgatódik az új HU tárba.',
+      'KARBANTARTÁS — 2.5.338 felhő 400 fókusz után, build 1,782kB, 33/33 teszt zöld.',
+    ],
+  },
   {
     version: '2.5.338',
     date: '2026-11-05',
