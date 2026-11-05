@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.328';
+export const WEB_VERSION = '2.5.329';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.329',
+    date: '2026-11-05',
+    changes: [
+      'JAVÍTÁS — Villám-mozgatás fókusz: kék mozgatás módban fel/le nyilat vagy piros gombot lenyomva tartva a sárga kurzor és a kijelölés már pontosan a mozgatott csatornán marad (setHighlightedId + requestAnimationFrame focusChannelRow + keepMovingRowVisible), határnál automatikusan megáll (45 ms interval, 260 ms késleltetés). Az interval most ref-eken (focusChannelRowRef/setHighlightedIdRef/keepMovingRowVisibleRef) át fut, így nem ragad be stale closure-be — a mozgatás végig zavartalan.',
+      'LISTÁK ALJÁN — Csatorna elrendezés mentése 2×2 rács: Beállítások → Listák legalján a mentés doboz (data-layout-backup) külön, távirányító-barát 2×2 rácsban kezeli a 4 gombot (0 Mentés most, 1 Visszaállítás, 2 Fájlba, 3 Fájlból) — nyilakkal pontos rácslépés, Enter a dobozról az első gombra, Összes lista törlése dobozról lefelé nyílra a mentés dobozra ugrik, fel nyílra vissza. A lista dobozok számlálása a mentés dobozt kizárja, így a provider-navigáció nem törik.',
+      'FELHŐ BADGE ÉS TESZT ZÖLD: Supabase párosításkor a badge „✓ Supabase felhőbe mentve — bármely készüléken visszaállítható • idő” emerald háttérrel, eltéréskor amber „⚠ Felhő eltér” jelzéssel, párosítatlanul „Nincs felhő mentés — párosítsd a Rendszer → Supabase-párosítás menüben” szürke fallbackkel. Javítva a channel-navigation-runtime 1 bukó teszteset (utolsó sorról LE mappasáv) — 33/33 tesztcsoport újra sikeres.',
+    ],
+  },
   {
     version: '2.5.328',
     date: '2026-11-05',
