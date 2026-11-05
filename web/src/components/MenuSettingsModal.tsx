@@ -171,7 +171,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     if (!isOpen || activeTab !== 'lists') return;
     setLayoutLastBackup(getLastBackupInfo());
     setLayoutCloudInfo(getCloudLastFetchInfo());
-  }, [isOpen, activeTab, providers.length, folders.length, channels.length]);
+  }, [isOpen, activeTab, providers, folders, channels]);
+  // 2.5.326 — Elrendezés mentése / visszaállítása (helyi + felhő szinkronban, nincs eltérés)
+  const activeProviderForLayout = useMemo(() => {
+    const list = Array.isArray(providers) ? providers : [];
+    return list.find((p) => p.isActive) || list[0] || null;
+  }, [providers]);
   // A kék teletextgomb a Kedvencek fülön nem indíthat csatornamozgatást.
   // A globális távirányító-kezelés más nézetekben változatlan marad.
 
@@ -796,11 +801,6 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       .then(() => window.location.reload());
   };
 
-  // 2.5.326 — Elrendezés mentése / visszaállítása (helyi + felhő szinkronban, nincs eltérés)
-  const activeProviderForLayout = useMemo(() => {
-    return providers.find((p) => p.isActive) || providers[0] || null;
-  }, [providers]);
-
   const formatLayoutTime = (iso?: string | null): string => {
     if (!iso) return '—';
     try {
@@ -1380,6 +1380,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   • Ha változás van a szolgáltatónál, a visszaállítás megőrzi a mentett sorrendet és jelzi az új csatornákat.
                 </p>
               </div>
+
             </div>
           )}
 
