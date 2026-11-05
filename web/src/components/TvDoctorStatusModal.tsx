@@ -905,10 +905,10 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 {renderCategoryBox('channel_error', false)}
               </div>
 
-              {/* Tanult útvonalak (max. 8) – függőleges oszlop, 8 doboz egymás alatt, nagy középre igazított írással, kitölti a bal oldal szabad részét egyenletesen */}
+              {/* Tanult útvonalak (max. 8) – 2.5.320: zöld doboz végig leér, háttérszöveg törölve, 8 doboz egységesen kitölti a szabad helyet — írás nagy, olvasható, egymás mellett is elfér */}
               <div
                 data-tv-doctor-routes=""
-                className="flex-1 min-h-0 flex flex-col rounded-2xl border border-emerald-700/50 bg-[#04121c] p-3 gap-2 mt-1"
+                className="flex-1 min-h-[360px] flex flex-col rounded-2xl border-2 border-emerald-600/60 bg-[#04121c] p-3.5 gap-2.5 mt-1"
               >
                 <div className="flex items-center justify-between gap-2 shrink-0">
                   <span className="flex items-center gap-2 text-base lg:text-lg font-black text-emerald-200">
@@ -924,24 +924,24 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 </div>
                 <p className="text-xs lg:text-sm font-bold text-emerald-300/90 text-center -mt-1 shrink-0">A tárolt adatokból dolgozik — valós mérések a hosszú memóriából/Supabase-ből</p>
                 {activeRoutes.length === 0 ? (
-                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-2">
+                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-2.5">
                     {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => (
                       <div
                         key={`empty-${idx}`}
                         data-tv-doctor-route-empty={`${idx + 1}`}
-                        className="flex-1 min-h-[46px] flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700/60 bg-slate-900/30 px-3 py-2 text-center"
+                        className="flex-1 min-h-[58px] lg:min-h-[64px] flex flex-row items-center justify-between rounded-xl border-2 border-dashed border-slate-700/60 bg-slate-900/30 px-4 py-3 gap-3"
                       >
-                        <span className="font-mono text-sm md:text-base lg:text-lg font-black tracking-wide text-slate-500">
+                        <span className="font-mono text-base md:text-lg lg:text-xl font-black tracking-wide text-slate-500 shrink-0">
                           {idx + 1}. — üres —
                         </span>
-                        <span className="text-[11px] md:text-xs font-bold text-slate-600">
+                        <span className="text-sm md:text-base lg:text-lg font-bold text-slate-500 text-right truncate">
                           {activeChannel ? 'még nincs tanult útvonal' : 'nincs kiválasztott élő csatorna'}
                         </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-1.5">
+                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-2.5">
                     {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => {
                       const route = activeRoutes[idx] || null;
                       if (!route) {
@@ -949,12 +949,12 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                           <div
                             key={`empty-${idx}`}
                             data-tv-doctor-route-empty={`${idx + 1}`}
-                            className="flex-1 min-h-[46px] flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700/40 bg-slate-900/20 px-3 py-2 text-center"
+                            className="flex-1 min-h-[58px] lg:min-h-[64px] flex flex-row items-center justify-between rounded-xl border-2 border-dashed border-slate-700/40 bg-slate-900/20 px-4 py-3 gap-3"
                           >
-                            <span className="font-mono text-sm md:text-base lg:text-lg font-black tracking-wide text-slate-600">
+                            <span className="font-mono text-base md:text-lg lg:text-xl font-black tracking-wide text-slate-600 shrink-0">
                               {idx + 1}. — üres —
                             </span>
-                            <span className="text-[11px] md:text-xs font-bold text-slate-600">még nincs adat ehhez a helyhez</span>
+                            <span className="text-sm md:text-base lg:text-lg font-bold text-slate-600 text-right truncate">még nincs adat ehhez a helyhez</span>
                           </div>
                         );
                       }
@@ -963,16 +963,16 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                         <div
                           key={route.id}
                           data-tv-doctor-route={route.id}
-                          className={`flex-1 min-h-[52px] flex flex-col items-center justify-center rounded-xl border-2 px-3 py-2 text-center ${
+                          className={`flex-1 min-h-[58px] lg:min-h-[64px] flex flex-row items-center justify-between rounded-xl border-2 px-4 py-3 gap-3 ${
                             isBest
                               ? 'border-emerald-400/80 bg-emerald-500/20 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
                               : 'border-slate-600/60 bg-slate-800/70'
                           }`}
                         >
-                          <span className={`font-mono text-sm md:text-[15px] lg:text-lg xl:text-xl font-black tracking-wide leading-tight ${isBest ? 'text-emerald-100' : 'text-slate-100'}`}>
+                          <span className={`font-mono text-base md:text-lg lg:text-xl xl:text-2xl font-black tracking-wide leading-tight shrink-0 ${isBest ? 'text-emerald-100' : 'text-slate-100'}`}>
                             {isBest ? '★ ' : `${idx + 1}. `}{safeDoctorFormat(route.format)} + {route.bufferProfile}
                           </span>
-                          <span className={`font-mono text-xs md:text-sm lg:text-base font-bold leading-tight ${isBest ? 'text-emerald-200/90' : 'text-slate-300'}`}>
+                          <span className={`font-mono text-sm md:text-base lg:text-lg xl:text-xl font-bold leading-tight text-right truncate ${isBest ? 'text-emerald-200/90' : 'text-slate-300'}`}>
                             {route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok} ok / {route.fail} hiba{route.stalls ? ` • ${route.stalls} akadás` : ''}
                           </span>
                         </div>
@@ -980,10 +980,6 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                     })}
                   </div>
                 )}
-              </div>
-
-              <div className="text-xs font-semibold text-slate-500 mt-1 shrink-0">
-                Tanulás (fent): összes tanulás az összes csatornáról (tartós) • Tanult útvnalak (lent): a kiválasztott csatorna 8 útvonala — a kettő nem ugyanaz, de mindkettő a tárolt adatokból dolgozik
               </div>
             </div>
           </section>
@@ -1118,13 +1114,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 <CheckCircle2 className={`h-6 w-6 shrink-0 ${!tvDoctorEnabled ? 'text-slate-400' : hasAnyIssue ? 'text-amber-300' : 'text-emerald-400'}`} />
                 <span>Működési állapot</span>
               </div>
-              <p className="text-base lg:text-lg text-slate-100 font-bold leading-snug">
-                {!tvDoctorEnabled
-                  ? 'Kikapcsolva – az alap lejátszó üzemel.'
-                  : hasAnyIssue
-                    ? 'Működik, de figyelmeztetés van (lásd alább).'
-                    : 'Jól működik minden – gyors csatornaváltás aktív.'}
-              </p>
+              {/* 2.5.320: „Jól működik minden – gyors csatornaváltás aktív.” törölve — jobb oldal összébb, nem kell lapozni */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1.5 pt-1 text-base lg:text-lg text-slate-200">
                 <div>
                   Tanult profilok: <strong className="text-white font-black">{doctorMem.learnedChannelCount} / {doctorMem.maxLearnedChannels}</strong>
@@ -1142,7 +1132,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                   Memória állapot: <strong className="text-white font-black">{doctorMem.memoryHealth === 'optimal' ? 'Optimális' : doctorMem.memoryHealth === 'moderate' ? 'Mérsékelt' : 'Magas'}</strong>
                 </div>
               </div>
-              <p className="text-xs font-bold text-emerald-300/90">Minden szám valós — a hosszú memóriából és a védett Supabase-ből frissül, nem minta (2.5.311)</p>
+              {/* 2.5.320: „Minden szám valós … (2.5.311)” zöld sor törölve — jobb oldal összébb */}
             </div>
 
             {/* Hibajelzés vagy Minden rendben */}
@@ -1224,7 +1214,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                   </strong>
                 </div>
               </div>
-              <p className="text-base font-semibold text-slate-300">{doctorMem.memoryHealthLabel}</p>
+              {/* 2.5.320: „Optimális (1 MB keret) …” sor törölve — jobb oldal összébb, nem kell lapozni */}
             </div>
           </section>
         </div>

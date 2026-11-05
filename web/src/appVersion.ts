@@ -8,6 +8,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 export const WEB_VERSION_HISTORY = [
   {
     version: '2.5.320',
+    date: '2026-11-05',
+    changes: [
+      'TV DOKTOR 8 DOBOZ JAVÍTÁSA — HÁTTÉRSZÖVEG TÖRÖLVE ÉS ZÖLD DOBOZ VÉGIG LEÉR: a Tanult útvonalak 8 doboza mögötti „Tanulás (fent): összes tanulás … (tartós) • Tanult útvnalak (lent): …” háttérszöveg teljesen kikerült (a 002254-es képen a dobozok mögött látszott és a zöld keret nem ért le). A zöld doboz most végig leér (flex-1 min-h-[360px], border-2, p-3.5 gap-2.5), a 8 doboz egységesen kitölti a szabad helyet.',
+      'TV DOKTOR 8 DOBOZ ÍRÁS NAGYOBB ÉS EGYMÁS MELLETT: mind a 8 doboz (teli és üres) mostantól flex-row, egymás mellé rendezett, nagyobb és egységes — cím: text-base→xl:text-2xl (★ TS + balanced), részletek: text-xs→xl:text-xl (1482ms • 2 ok / 1 hiba • 1 akadás) — van elég hely jobbról-balról, nem kell görgetni, távolról is olvasható. Min-height 46/52px → 58/64px, gap 1.5→2.5.',
+      'JOBB OLDAL ÖSSZÉBB — 3 SZÖVEG TÖRÖLVE (002421-es kép): „Jól működik minden – gyors csatornaváltás aktív.” + „Minden szám valós — a hosszú memóriából és a védett Supabase-ből frissül, nem minta (2.5.311)” zöld sor + „Optimális (1 MB keret) – bőséges szabad hely, nem lassítja a TV-t” legalsó sor mind kikerült. Így a jobb oldal összébb megy, nem kell lapozni, az infók egy képernyőn látszanak.',
+    ],
+  },
+  {
+    version: '2.5.319',
     date: '2026-11-04',
     changes: [
       'ORSZÁG % KÖR VÉGIG LÁTSZIK NAGYOBBAN: az Országok betöltő 3D kör mostantól 100%-nál sem tűnik el, hanem végig látszik a modal tetején. Átmérő 56px (w-14 md:w-16) → 80-96px (w-20 md:w-24), felirat 11px → 16-18px, ugyanott középen — a 100% utáni nagyobb kör jelzi a teljes 20 197-es lista beragadását, nem tűnik el.',
