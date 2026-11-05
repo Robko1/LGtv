@@ -138,6 +138,10 @@ export function getCloudLastFetchInfo(): { at: string; snapshot: LayoutSnapshot 
 const DEFAULT_API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
 const PAIRING_KEY = 'iptv_rt_tv_doctor_pairing_v1';
+const IDB_NAME_LAYOUT = 'iptv_tv_doctor_pairing_db_v1';
+const IDB_STORE_LAYOUT = 'pairing';
+const IDB_PRIMARY_KEY_LAYOUT = 'primary';
+const LAST_CLOUD_ERROR_KEY = 'iptv_rt_layout_cloud_last_error_v1';
 
 function getPairing(): { deviceId: string; deviceToken: string | null } | null {
   try {
@@ -151,14 +155,111 @@ function getPairing(): { deviceId: string; deviceToken: string | null } | null {
   }
 }
 
-async function postLayout(action: 'layout_upsert' | 'layout_fetch', body: Record<string, unknown>, timeoutMs = 9000): Promise<any | null> {
-  const pairing = getPairing();
-  if (!pairing) return null;
-  if (typeof fetch !== 'function') return null;
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+function sanitizeDeviceIdLayout(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const c = raw.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  return c.length >= 6 ? c : null;
+}
+function sanitizeDeviceTokenLayout(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const c = raw.trim();
+  if (c.length < 32 || c.length > 160) return null;
+  if (!/^[a-zA-Z0-9_-]+$/.test(c)) return null;
+  return c;
+}
+
+async function idbReadPairingLayout(): Promise<{ deviceId: string; deviceToken: string } | null> {
+  try {
+    if (typeof indexedDB === 'undefined' || !indexedDB) return null;
+    const db: IDBDatabase = await new Promise((resolve, reject) => {
+      try {
+        const req = indexedDB.open(IDB_NAME_LAYOUT, 1);
+        req.onupgradeneeded = () => {
+          try {
+            const d = req.result;
+            if (!d.objectStoreNames.contains(IDB_STORE_LAYOUT)) d.createObjectStore(IDB_STORE_LAYOUT);
+          } catch {}
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+        req.onblocked = () => reject(new Error('blocked'));
+      } catch (e) { reject(e as any); }
+    });
+    const val: any = await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE_LAYOUT, 'readonly');
+        const rq = tx.objectStore(IDB_STORE_LAYOUT).get(IDB_PRIMARY_KEY_LAYOUT);
+        rq.onsuccess = () => { try { db.close(); } catch {} resolve(rq.result); };
+        rq.onerror = () => { try { db.close(); } catch {} resolve(null); };
+      } catch { try { db.close(); } catch {} resolve(null); }
+    });
+    if (val && typeof val === 'object') {
+      const did = sanitizeDeviceIdLayout((val as any).deviceId);
+      const tok = sanitizeDeviceTokenLayout((val as any).deviceToken);
+      if (did && tok) return { deviceId: did, deviceToken: tok };
+    }
+  } catch {}
+  return null;
+}
+
+async function getPairingWithFallback(): Promise<{ deviceId: string; deviceToken: string } | null> {
+  const direct = getPairing();
+  if (direct && direct.deviceToken) return direct as { deviceId: string; deviceToken: string };
+  // localStorage üres de IDB-ben még megvan (TV újraindítás / tárhelyürítés után) — hidratáljuk
+  const fromIdb = await idbReadPairingLayout();
+  if (fromIdb) {
+    try {
+      localStorage.setItem(PAIRING_KEY, JSON.stringify({
+        deviceId: fromIdb.deviceId,
+        deviceToken: fromIdb.deviceToken,
+        pairedAt: new Date().toISOString(),
+        tokenExpiresAt: null,
+      }));
+    } catch {}
+    return fromIdb;
+  }
+  return null;
+}
+
+function setLastCloudError(msg: string): void {
+  try { localStorage.setItem(LAST_CLOUD_ERROR_KEY, JSON.stringify({ at: new Date().toISOString(), error: msg.slice(0, 300) })); } catch {}
+}
+export function getLastCloudError(): { at: string; error: string } | null {
+  try {
+    const raw = localStorage.getItem(LAST_CLOUD_ERROR_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p?.error) return null;
+    return p;
+  } catch { return null; }
+}
+export function clearLastCloudError(): void {
+  try { localStorage.removeItem(LAST_CLOUD_ERROR_KEY); } catch {}
+}
+
+async function postLayout(action: 'layout_upsert' | 'layout_fetch', body: Record<string, unknown>, timeoutMs = 15000): Promise<any | null> {
+  const pairing = await getPairingWithFallback();
+  if (!pairing) {
+    const msg = 'Nincs párosítás (deviceToken hiányzik) — párosítsd újra a Rendszer → Supabase-párosításban.';
+    setLastCloudError(msg);
+    appLog(`Felhő elrendezés hiba (${action}): ${msg}`);
+    return null;
+  }
+  if (typeof fetch !== 'function') {
+    const msg = 'fetch nem elérhető ezen a TV böngészőn.';
+    setLastCloudError(msg);
+    return null;
+  }
+  if (typeof navigator !== 'undefined' && (navigator as any).onLine === false) {
+    const msg = 'Offline — nincs internetkapcsolat.';
+    setLastCloudError(msg);
+    appLog(`Felhő elrendezés offline (${action})`);
+    return null;
+  }
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const t = controller ? setTimeout(() => { try { controller.abort(); } catch {} }, timeoutMs) : null;
   try {
+    const started = Date.now();
     const res = await fetch(DEFAULT_API_URL, {
       method: 'POST',
       headers: {
@@ -172,15 +273,35 @@ async function postLayout(action: 'layout_upsert' | 'layout_fetch', body: Record
       signal: controller?.signal as any,
     });
     const text = await res.text().catch(() => '');
-    if (!res.ok) return null;
-    try {
-      const parsed = text ? JSON.parse(text) : null;
-      if (!parsed || parsed.ok === false) return null;
+    let parsed: any = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { parsed = { raw: text.slice(0, 200) }; }
+    const latency = Date.now() - started;
+    if (!res.ok) {
+      const detail = (parsed && (parsed.error || parsed.message || parsed.reason || parsed.hint)) ? String(parsed.error || parsed.message || parsed.reason).slice(0, 160) : `HTTP ${res.status}`;
+      const loc = res.status === 401 ? 'Supabase párosítás (401)' : res.status === 404 ? 'Edge Function (404)' : res.status === 429 ? 'Rate limit (429)' : res.status >= 500 ? 'Supabase szerver (5xx)' : `Supabase (${res.status})`;
+      const msg = `${loc}: ${detail}`;
+      setLastCloudError(msg);
+      appLog(`Felhő elrendezés hiba (${action} HTTP ${res.status} ${latency}ms): ${detail} — nyers: ${text.slice(0, 180)}`);
+      // 401 esetén a token érvénytelen — ne próbálkozzunk csendben
+      if (res.status === 401) appLog('Felhő 401: párosítás érvénytelen — új párosítás szükséges.');
+      // parsed-t visszaadjuk hogy a hívó lássa az ok:false-t
       return parsed;
-    } catch {
-      return null;
     }
-  } catch {
+    if (!parsed || parsed.ok === false) {
+      const detail = parsed ? String(parsed.error || parsed.message || 'ismeretlen hiba').slice(0, 180) : 'üres válasz';
+      const msg = `Szerver hiba: ${detail}`;
+      setLastCloudError(msg);
+      appLog(`Felhő elrendezés hiba (${action} ok:false ${latency}ms): ${detail}`);
+      return parsed;
+    }
+    clearLastCloudError();
+    if (latency > 3500) appLog(`Felhő elrendezés lassú (${action} ${latency}ms) — de sikeres.`);
+    return parsed;
+  } catch (e: any) {
+    const isAbort = e?.name === 'AbortError' || String(e).includes('abort');
+    const msg = isAbort ? `Időtúllépés ${timeoutMs}ms után — a Supabase hidegindítása lassú lehet, próbáld újra.` : `Hálózati hiba: ${String(e?.message || e).slice(0, 160)}`;
+    setLastCloudError(msg);
+    appLog(`Felhő elrendezés hiba (${action} throw): ${msg}`);
     return null;
   } finally {
     if (t) clearTimeout(t as any);
@@ -188,32 +309,43 @@ async function postLayout(action: 'layout_upsert' | 'layout_fetch', body: Record
 }
 
 export async function saveSnapshotToCloud(snapshot: LayoutSnapshot): Promise<boolean> {
-  const pairing = getPairing();
-  if (!pairing) return false;
-  const res = await postLayout('layout_upsert', { layout: snapshot, providerId: snapshot.providerId });
-  if (res && (res.ok === true || res.saved === true || typeof res === 'object')) {
+  const pairing = await getPairingWithFallback();
+  if (!pairing) {
+    appLog('Felhő mentés kihagyva: nincs párosítás.');
+    return false;
+  }
+  const res = await postLayout('layout_upsert', { layout: snapshot, providerId: snapshot.providerId }, 15000);
+  if (res && (res.ok === true || res.saved === true)) {
     try {
       // A szinkron badge a snapshot idejét hasonlítja — tároljuk a createdAt-ot, ne a fetch idejét
       localStorage.setItem(CLOUD_LAST_FETCH_KEY, JSON.stringify({ at: snapshot.createdAt, snapshot }));
     } catch {}
+    clearLastCloudError();
     appLog(`Elrendezés mentve a felhőbe (Supabase): ${snapshot.providerName}`);
     return true;
   }
   // Ha a szerver nem ismeri a layout akciót, 200-as ok nélkül tér vissza — ekkor helyi marad
+  // A hiba részlete már a postLayout-ban naplózva + localStorage-ban
   return false;
 }
 
 export async function fetchSnapshotFromCloud(providerId: string): Promise<LayoutSnapshot | null> {
-  const pairing = getPairing();
+  const pairing = await getPairingWithFallback();
   if (!pairing) return null;
-  const res = await postLayout('layout_fetch', { providerId }, 8000);
+  const res = await postLayout('layout_fetch', { providerId }, 10000);
   if (!res) return null;
+  // Sikertelen válasz (ok:false) esetén nincs snapshot
+  if (res.ok === false || res.found === false) {
+    if (res.found === false) clearLastCloudError();
+    return null;
+  }
   // Válasz formátumok: { ok:true, layout:{...}} vagy { ok:true, snapshot:{...}} vagy tömb
   const snap = (res.layout || res.snapshot || res.data || null) as LayoutSnapshot | null;
   if (snap && Array.isArray((snap as any).channelOrder)) {
     try {
       localStorage.setItem(CLOUD_LAST_FETCH_KEY, JSON.stringify({ at: (snap as LayoutSnapshot).createdAt || new Date().toISOString(), snapshot: snap }));
     } catch {}
+    clearLastCloudError();
     return snap as LayoutSnapshot;
   }
   // Ha a felhő még nem támogatja, próbáljuk a tv-doctor REST fallback-et

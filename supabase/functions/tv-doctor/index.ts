@@ -1288,7 +1288,7 @@ export function createTvDoctorHandler(customEnv = {}) {
     const providerName = cleanText(layout.providerName || body.providerName, 120) || providerId.slice(0, 32);
     const nowIso = new Date(nowFn()).toISOString();
     const snapshot = {
-      version: cleanText(layout.version, 32) || "2.5.333",
+      version: cleanText(layout.version, 32) || "2.5.335",
       createdAt: layout.createdAt && Number.isFinite(Date.parse(layout.createdAt)) ? new Date(layout.createdAt).toISOString() : nowIso,
       providerId,
       providerName,

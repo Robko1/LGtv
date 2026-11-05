@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.334';
+export const WEB_VERSION = '2.5.335';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.335',
+    date: '2026-11-05',
+    changes: [
+      'JAVÍTÁS — Felhő mentés diagnosztika + RLS fix: ha a „Mentés most” után továbbra is „Nincs felhő mentés” maradt, a kliens most részletes hibát mutat (Supabase 401/404/5xx, időtúllépés, offline) és „Kapcsolat teszt” gombbal ellenőrizhető. channelLayoutBackup postLayout már nem nyeli el a szerver hibaüzenetét, 15s timeout (hidegindítás), IDB→localStorage fallback párosításhoz, RLS force esetén service_role permissive policy (20261107 migráció) hogy az Edge Function biztosan írjon — eddig NOBYPASSRLS-en tiltva lehetett.',
+      'FŐOLDAL — Utolsó csatornánál lefelé ne ugorjon mappasávra: főoldali ChannelList alján LE nyílra a fókusz az utolsó elért csatornán marad (korábban a mappasávra ugrott). Felfelé továbbra is a mappasávra lép. Teszt tools/test-channel-navigation-runtime frissítve: utolsó sorról LE most az utolsó csatornán marad.',
+      'KARBANTARTÁS — 2.5.334 utáni hibajavítások egyesítve, build 1,775kB, 33/33 teszt zöld.',
+    ],
+  },
   {
     version: '2.5.334',
     date: '2026-11-05',

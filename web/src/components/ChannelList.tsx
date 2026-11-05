@@ -1060,12 +1060,11 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       e.stopPropagation();
       if (!focusFolderBar()) focusHeaderMenu();
     } else if (key === 'ArrowDown' && hasRealCurrentRow && currentIndex === visibleChannels.length - 1) {
-      // A lista ALJÁN lefelé: át a kedvencek mappasávjára. Ez a határátmenet
-      // csak érvényes, valódi sorindexnél engedélyezett; stale/virtualizált
-      // állapotnál előbb a következő valódi csatornasorra rögzítünk.
+      // Főoldal: az utolsó csatornánál lefelé ne ugorjon sehová (mappasávra sem) – maradjon az utolsón.
+      // A mappasáv a tetejéről FEL nyíllal érhető el; az alján LE-re a fókusz stabil marad.
       e.preventDefault();
       e.stopPropagation();
-      focusFolderBar();
+      // nincs moveHighlight — az utolsó elért csatornán marad
     } else if (key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation();
