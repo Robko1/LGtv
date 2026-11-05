@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.338';
+export const WEB_VERSION = '2.5.339';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.338',
+    version: '2.5.339',
     date: '2026-11-05',
     changes: [
       'JAVÍTÁS — FELHŐ 400 unknown_action + fókusz: a TV-n „Felhő hiba: Supabase (400): unknown_action” és „nincs kapcsolat” valójában a deployolatlan Edge Function jele — a kliens most „A szerver még nem támogatja a felhő mentést (unknown_action) — Edge Function újra-deploy szükséges” üzenetet mutat és nem piros kapcsolat-hibaként. A „Mentés most” utáni helyi mentés OK marad, felhő később szinkronizál. Supabase projektben: supabase functions deploy tv-doctor + supabase db push.',
