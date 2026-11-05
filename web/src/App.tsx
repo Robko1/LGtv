@@ -1710,6 +1710,7 @@ export function App() {
           window.clearTimeout(timers.guideTimer);
           window.clearTimeout(timers.safetyTimer);
           window.clearTimeout(timers.restoreTimer);
+          window.clearInterval(timers.refreshTimer);
         }
       } catch {}
       void runRestore(plan, view);
@@ -1848,6 +1849,20 @@ export function App() {
     fastTimers.safetyTimer = window.setTimeout(() => {
       if (!liveReadyRef.current) markLiveReady();
     }, 12_000);
+    // 2.5.339: FAST BOOT EPG — a magyar EPG-t előre indítjuk a főoldalra,
+    // mielőtt a felhasználó az Ország menüt megnyitaná. A plan.bootChannels
+    // tartalmazza a HU csatornákat, ezeket szűrjük a HU-probe-hoz.
+    const huBootChannels = (plan.bootChannels || [])
+      .filter((ch) => (ch.countryCode || '').toUpperCase() === 'HU');
+    if (huBootChannels.length > 0) {
+      fastTimers.guideTimer = window.setTimeout(() => {
+        if (providerRefreshActiveRef.current) return;
+        if (typeof document !== 'undefined' && document.hidden) return;
+        appLog(`FAST BOOT EPG: ${huBootChannels.length} magyar csatorna a főoldalra – EPG indul (HU forrásokból).`);
+        setGuideHuProbe(huBootChannels);
+        void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
+      }, 300);
+    }
     // Periodikus EPG csak akkor, ha a teljes lista már betöltődött
     fastTimers.refreshTimer = window.setInterval(() => {
       if (activeViewRef.current !== 'live') return;
