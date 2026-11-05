@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.333';
+export const WEB_VERSION = '2.5.334';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.333',
+    version: '2.5.334',
     date: '2026-11-05',
     changes: [
       'JAVÍTÁS — FELHŐ MENTÉS NEM MŰKÖDÖTT: a Supabase tv-doctor Edge Function nem kezelte a layout_upsert/layout_fetch akciókat, ezért a „Mentés most” csak helyben mentett és a badge párosítva is mindig „Nincs felhő mentés”-t mutatott. Javítva: új tv_doctor_layout_snapshots tábla + migráció (device_id+provider_id PK, RLS service_role, prune 90 nap), Edge Function bővítve layput_upsert/fetch handlerrel (auth + validáció + 1,9 MB limit + prune), kliens cloud at javítva snapshot.createdAt-ra, így a szinkron badge jól hasonlít.',
