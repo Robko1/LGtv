@@ -1267,6 +1267,96 @@ export function createTvDoctorHandler(customEnv = {}) {
     }, auth));
   }
 
+  // 2.5.333 — Csatorna elrendezés mentése: Supabase felhő layout_upsert / layout_fetch
+  async function handleLayoutUpsert(body, auth) {
+    const providerId = cleanText(body && body.providerId, 120) || cleanText(body && body.layout && body.layout.providerId, 120);
+    const layout = body && body.layout;
+    if (!providerId) {
+      return out(400, { ok: false, error: "provider_required", message: "Hiányzó szolgáltató azonosító." });
+    }
+    if (!layout || typeof layout !== "object" || !Array.isArray(layout.channelOrder)) {
+      return out(400, { ok: false, error: "invalid_layout", message: "Érvénytelen elrendezés adat." });
+    }
+    try {
+      const snapshotStr = JSON.stringify(layout);
+      if (snapshotStr.length > 1_900_000) {
+        return out(413, { ok: false, error: "layout_too_large", message: "Az elrendezés túl nagy a felhőhöz." });
+      }
+    } catch (_) {
+      return out(400, { ok: false, error: "invalid_layout" });
+    }
+    const providerName = cleanText(layout.providerName || body.providerName, 120) || providerId.slice(0, 32);
+    const nowIso = new Date(nowFn()).toISOString();
+    const snapshot = {
+      version: cleanText(layout.version, 32) || "2.5.333",
+      createdAt: layout.createdAt && Number.isFinite(Date.parse(layout.createdAt)) ? new Date(layout.createdAt).toISOString() : nowIso,
+      providerId,
+      providerName,
+      totalChannels: clampInt(layout.totalChannels, 0, 100000, 0) || 0,
+      channelOrder: Array.isArray(layout.channelOrder) ? layout.channelOrder.slice(0, 100000).map((x) => String(x).slice(0, 120)) : [],
+      fingerprintOrder: Array.isArray(layout.fingerprintOrder) ? layout.fingerprintOrder.slice(0, 100000) : [],
+      deletedChannels: Array.isArray(layout.deletedChannels) ? layout.deletedChannels.slice(0, 10000) : [],
+      folders: Array.isArray(layout.folders) ? layout.folders.slice(0, 100) : [],
+    };
+    const layoutSnapshotsUrl = envUrl + "/rest/v1/tv_doctor_layout_snapshots";
+    const upsertResp = await rest(layoutSnapshotsUrl + "?on_conflict=device_id,provider_id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify([{
+        device_id: auth.deviceId,
+        provider_id: providerId,
+        provider_name: providerName,
+        snapshot,
+        updated_at: nowIso,
+        created_at: nowIso,
+      }]),
+    });
+    if (!upsertResp.ok) {
+      const reason = await responseReason(upsertResp);
+      console.error("layout upsert failed", reason);
+      return out(upsertResp.status >= 500 ? 503 : 502, { ok: false, error: "layout_upsert_failed", reason });
+    }
+    // Prune old layouts best-effort
+    try {
+      await rest(envUrl + "/rest/v1/rpc/prune_tv_doctor_layout_snapshots", {
+        method: "POST",
+        body: JSON.stringify({ max_age_days: 90 }),
+      });
+    } catch (_) { /* ignore */ }
+    return out(200, attachAuthMeta({ ok: true, saved: true, providerId, providerName, updatedAt: nowIso, serverTime: nowIso }, auth));
+  }
+
+  async function handleLayoutFetch(body, auth) {
+    const providerId = cleanText(body && body.providerId, 120) || cleanText(body && body.layout && body.layout.providerId, 120);
+    if (!providerId) {
+      return out(400, { ok: false, error: "provider_required" });
+    }
+    const layoutSnapshotsUrl = envUrl + "/rest/v1/tv_doctor_layout_snapshots";
+    const resp = await rest(
+      layoutSnapshotsUrl + "?device_id=eq." + encodeURIComponent(auth.deviceId) + "&provider_id=eq." + encodeURIComponent(providerId) + "&select=snapshot,provider_id,provider_name,updated_at,created_at&limit=1",
+    );
+    if (!resp.ok) {
+      const reason = await responseReason(resp);
+      return out(resp.status >= 500 ? 503 : 502, { ok: false, error: "layout_fetch_failed", reason });
+    }
+    const rows = await jsonOrEmpty(resp);
+    const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    if (!row || !row.snapshot) {
+      return out(200, attachAuthMeta({ ok: true, found: false, layout: null, snapshot: null, serverTime: new Date(nowFn()).toISOString() }, auth));
+    }
+    return out(200, attachAuthMeta({
+      ok: true,
+      found: true,
+      layout: row.snapshot,
+      snapshot: row.snapshot,
+      providerId: row.provider_id,
+      providerName: row.provider_name,
+      updatedAt: row.updated_at,
+      createdAt: row.created_at,
+      serverTime: new Date(nowFn()).toISOString(),
+    }, auth));
+  }
+
   return async function handle(req) {
     if (req.method === "OPTIONS") return new Response("ok", { headers });
     if (req.method !== "POST") return out(405, { error: "method_not_allowed" });
@@ -1289,6 +1379,8 @@ export function createTvDoctorHandler(customEnv = {}) {
       || action === "bootstrap"
       || action === "sync"
       || action === "status"
+      || action === "layout_upsert"
+      || action === "layout_fetch"
     ) {
       const auth = await authenticatePairedDevice(req, body);
       if (!auth.ok) return auth.response;
@@ -1297,6 +1389,8 @@ export function createTvDoctorHandler(customEnv = {}) {
       if (action === "bootstrap") return await handleBootstrap(body, auth);
       if (action === "sync") return await handleSync(body, auth);
       if (action === "status") return await handleStatus(auth);
+      if (action === "layout_upsert") return await handleLayoutUpsert(body, auth);
+      if (action === "layout_fetch") return await handleLayoutFetch(body, auth);
     }
 
     return out(400, { error: "unknown_action" });

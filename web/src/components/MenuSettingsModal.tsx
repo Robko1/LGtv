@@ -167,17 +167,30 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       setDoctorUiTick((n) => n + 1);
     });
   }, [isOpen, activeTab]);
-  // 2.5.326 — Elrendezés mentés állapot frissítése a Listák fül megnyitásakor
-  useEffect(() => {
-    if (!isOpen || activeTab !== 'lists') return;
-    setLayoutLastBackup(getLastBackupInfo());
-    setLayoutCloudInfo(getCloudLastFetchInfo());
-  }, [isOpen, activeTab, providers, folders, channels]);
   // 2.5.326 — Elrendezés mentése / visszaállítása (helyi + felhő szinkronban, nincs eltérés)
   const activeProviderForLayout = useMemo(() => {
     const list = Array.isArray(providers) ? providers : [];
     return list.find((p) => p.isActive) || list[0] || null;
   }, [providers]);
+  // 2.5.333 — Elrendezés mentés állapot + felhő ellenőrzés a Listák fül megnyitásakor
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'lists') return;
+    setLayoutLastBackup(getLastBackupInfo());
+    setLayoutCloudInfo(getCloudLastFetchInfo());
+    // Ha párosítva van és van aktív szolgáltató, próbáljuk lekérni a felhő mentést is
+    // (hogy a „Nincs felhő mentés” ne maradjon beragva, ha a felhőben már van adat)
+    if (activeProviderForLayout?.id) {
+      try {
+        const raw = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1');
+        const paired = raw ? JSON.parse(raw) : null;
+        if (paired?.deviceToken) {
+          void fetchSnapshotFromCloud(activeProviderForLayout.id).then((snap) => {
+            if (snap) setLayoutCloudInfo(getCloudLastFetchInfo());
+          }).catch(() => {});
+        }
+      } catch {}
+    }
+  }, [isOpen, activeTab, providers, folders, channels, activeProviderForLayout?.id]);
   // A kék teletextgomb a Kedvencek fülön nem indíthat csatornamozgatást.
   // A globális távirányító-kezelés más nézetekben változatlan marad.
 
@@ -1362,13 +1375,23 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                           : `⚠ Felhő eltér: ${formatLayoutTime(layoutCloudInfo.at)} — következő mentés szinkronizál`}
                       </span>
                     </div>
-                  ) : layoutLastBackup && !layoutCloudInfo ? (
-                    <div className="flex items-center gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border bg-slate-800/60 border-slate-700/50 text-slate-400">
-                      <Cloud className="w-4 h-4 shrink-0 opacity-60" />
-                      <span>Nincs felhő mentés — párosítsd a Rendszer → Supabase-párosítás menüben, majd ments újra</span>
+                  ) : layoutCloudInfo && !layoutLastBackup ? (
+                    <div className="flex items-center gap-2 text-xs font-black px-3 py-2 rounded-xl border bg-emerald-500/15 border-emerald-500/30 text-emerald-200">
+                      <Cloud className="w-4 h-4 shrink-0" />
+                      <span>✓ Felhőben van mentés — visszaállítható • {formatLayoutTime(layoutCloudInfo.at)} • Nyomd meg a Visszaállítást</span>
                     </div>
+                  ) : layoutLastBackup && !layoutCloudInfo ? (
+                    (() => {
+                      const isPaired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+                      return (
+                        <div className={`flex items-center gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border ${isPaired ? 'bg-amber-500/15 border-amber-500/30 text-amber-200' : 'bg-slate-800/60 border-slate-700/50 text-slate-400'}`}>
+                          <Cloud className="w-4 h-4 shrink-0 opacity-60" />
+                          <span>{isPaired ? 'Nincs felhő mentés — nyomd meg a „Mentés most” gombot a felhőbe mentéshez' : 'Nincs felhő mentés — párosítsd a Rendszer → Supabase-párosítás menüben, majd ments újra'}</span>
+                        </div>
+                      );
+                    })()
                   ) : null}
-                  {!layoutLastBackup && (
+                  {!layoutLastBackup && !layoutCloudInfo && (
                     <p className="text-[11px] text-slate-500">Tipp: nyomd meg a „Mentés most” gombot — utána újratöltés / új IPK / szolgáltató újratöltés után is egy gombbal visszaáll.</p>
                   )}
                   {activeProviderForLayout && (
