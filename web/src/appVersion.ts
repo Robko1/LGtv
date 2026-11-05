@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.331';
+export const WEB_VERSION = '2.5.332';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.331',
+    version: '2.5.332',
     date: '2026-11-05',
     changes: [
       'EGYESÍTÉS — Main 2.5.330 + arena 2.5.329: a main 2.5.330-as verzióbumpja és az arena 2.5.329 funkcionális javításai egyesítve (villám-mozgatás fókusz RAF+ref, Listák alján 2×2 rács + Supabase badge), 33/33 teszt zöld, build 1,773kB. Ez a kiadás kerül a main ágra.',
