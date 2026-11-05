@@ -70,6 +70,7 @@ const tasks = [
   { name: 'tv-device', args: ['tools/test-tv-device.mjs'] },
   { name: 'tv-doctor', args: ['tools/test-tv-doctor.mjs'] },
   { name: 'tv-doctor-routes', args: ['tools/test-tv-doctor-routes.mjs'] },
+  { name: 'tv-doctor-layout', args: ['tools/test-tv-doctor-layout.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');

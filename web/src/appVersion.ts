@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.340';
+export const WEB_VERSION = '2.5.341';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.341',
+    date: '2026-11-05',
+    changes: [
+      'CSATORNA ELRENDEZÉS FELHŐ — A Supabase tv-doctor Edge Function frissítve kezeli a layout_upsert/layout_fetch kéréseket, a hiányzó layout snapshot tábla és service_role RLS engedélyezés telepítve. A „Mentés most” így helyi mentés mellett a párosított TV Supabase felhőjébe is ír.',
+      'FÓKUSZ — Listák → Csatorna elrendezés mentése: a Kapcsolat teszt gombról LE nyíl közvetlenül a Mentés most gombra visz; a 2×2 műveleti rács és a külön megerősítő gombok fókusza elkülönül.',
+      'MOZI — Az Összes film első oldalán a magyar kategóriák poszterei kerülnek legfelülre; a HU és a többi posztercsoporton belüli év szerinti sorrend változatlan.',
+    ],
+  },
   {
     version: '2.5.340',
     date: '2026-11-06',

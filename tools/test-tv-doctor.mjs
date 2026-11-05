@@ -27,6 +27,13 @@ function check(condition, label) {
   }
 }
 
+const layoutUiSource = fs.readFileSync(path.join(ROOT, 'web/src/components/MenuSettingsModal.tsx'), 'utf8');
+check(
+  layoutUiSource.includes("const isLayoutTestButton = Boolean(target.closest('[data-layout-test]'))") &&
+    layoutUiSource.includes("if (key === 'ArrowDown') {\n            const firstAction = box.querySelector<HTMLElement>('[data-layout-grid] button:not(:disabled)');"),
+  'a Kapcsolat teszt gombról LE nyíl az első layout műveletre visz, nem ragad a doboz fókuszán',
+);
+
 class MemoryStorage {
   constructor(maxChars = Infinity) {
     this.map = new Map();
