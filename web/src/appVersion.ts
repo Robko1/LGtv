@@ -10,6 +10,14 @@ export const WEB_VERSION_HISTORY = [
     version: '2.5.322',
     date: '2026-11-05',
     changes: [
+      'TV DOKTOR JOBB OLDAL FIXÁLT — NEM LAPOZHATÓ: a jobb oldali „TV Doktor állapot” panel (Supabase kapcsolat + Működési állapot + Memória) mostantól overflow-y-auto → overflow-hidden, rögzített. A Supabase: Teszt gombon állva lefelé nyílra az egész jobb oldal már nem gördül le/fel — a PageDown/PageUp és ArrowDown/Up/Home/End görgetés kikapcsolva, csak a jobb oldali 3 gomb közötti fókusz (Memória:0 → Teszt → Bezárás) + balra vissza a Tanulásra. Így nem kell lapozni, minden egy képernyőn látszik (005103-as kép).',
+      'TV DOKTOR BAL OLDAL TOVÁBB FIXÁLVA: a bal oldali kompatibilis wrapper PageDown/PageUp/Home/End/Arrow görgetése is kikapcsolva (korábban a 4 kategória alatti lista még próbált scrollozni). Most már sem a bal, sem a jobb oldal nem mozog, pontos a számolás és fixált mint a képen.',
+    ],
+  },
+  {
+    version: '2.5.321',
+    date: '2026-11-05',
+    changes: [
       'TV DOKTOR BAL OLDAL FIXÁLT — NEM LAPOZHATÓ: a bal oldali „TV Doktor napló (kategóriák)” + 8 dobozos zöld panel mostantól teljesen rögzített, nem mozog lefelé sehová. A kompatibilis wrapper overflow-y-auto → overflow-hidden, aria „rögzített”, gap-3→2, zöld doboz flex-1 min-h-[360px] → flex-1 min-h-0 overflow-hidden. Már nincs 2 fókuszolható lapozás — a 4 kategória doboz (2×2) az egyetlen mozgás, a 8 útvonal nem görget.',
       'TV DOKTOR 8 DOBOZ VÉGIG LÁTSZIK — KIS MÉRET, DE OLVASHATÓ: a 8 doboz min-h 58/64px → 42/46px, padding px-4 py-3 → px-3 py-2, gap 2.5→1.5, írás text-base→sm/md:text-base/lg:text-[15px] + text-sm→xs/md:text-sm/lg:text-sm egymás mellett (flex-row). Így mind a 8 doboz egy képernyőn, levágás nélkül látszik (a 005123-as képen csak 6-ig ért a zöld vonal), nincs lapozás, mégis szép nagy és egységes.',
       'TV DOKTOR 8 DOBOZ HÁTTÉRSZÖVEG TÖRÖLVE ÉS ZÖLD DOBOZ VÉGIG LEÉR (2.5.320 folyt.): a „Tanulás (fent): …” háttérszöveg már kikerült, a zöld keret most már mind a 8 dobozt körbeveszi, nincs lógó vonal.',

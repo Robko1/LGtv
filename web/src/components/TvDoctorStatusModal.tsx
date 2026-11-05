@@ -512,40 +512,11 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     );
     const onCompatScroll = Boolean(active && compatLogScrollRef.current && active === compatLogScrollRef.current);
 
-    // Compat wrapper (single logScroll) – for legacy test: ArrowDown/Up scrolls, PageUp/PageDown, ArrowRight to reset
+    // Compat wrapper – 2.5.322: bal oldal fixált, nem lapozható – Arrow/Page/Home/End nem görget
     if (onCompatScroll) {
-      if (key === 'ArrowDown' || key === 'ArrowUp') {
+      if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'PageDown' || key === 'PageUp' || key === 'Home' || key === 'End') {
         e.preventDefault();
         e.stopPropagation();
-        const pane = compatLogScrollRef.current;
-        if (pane) {
-          const step = 120;
-          const hasLayout = pane.scrollHeight > 0 || pane.clientHeight > 0;
-          const maxScroll = hasLayout ? Math.max(0, pane.scrollHeight - pane.clientHeight) : Number.POSITIVE_INFINITY;
-          pane.scrollTop = Math.max(0, Math.min(maxScroll, pane.scrollTop + (key === 'ArrowDown' ? step : -step)));
-        }
-        return;
-      }
-      if (key === 'PageDown' || key === 'PageUp') {
-        e.preventDefault();
-        e.stopPropagation();
-        const pane = compatLogScrollRef.current;
-        if (pane) {
-          const pageStep = pane.clientHeight > 0 ? Math.max(140, Math.round(pane.clientHeight * 0.85)) : 260;
-          const maxScroll = Math.max(0, pane.scrollHeight - pane.clientHeight);
-          pane.scrollTop = Math.max(0, Math.min(maxScroll, pane.scrollTop + (key === 'PageDown' ? pageStep : -pageStep)));
-        }
-        return;
-      }
-      if (key === 'Home') {
-        e.preventDefault(); e.stopPropagation();
-        if (compatLogScrollRef.current) compatLogScrollRef.current.scrollTop = 0;
-        return;
-      }
-      if (key === 'End') {
-        e.preventDefault(); e.stopPropagation();
-        const pane = compatLogScrollRef.current;
-        if (pane) pane.scrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
         return;
       }
       if (key === 'ArrowRight') {
@@ -578,17 +549,10 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
         return;
       }
       if (onRightPane) {
-        const pane = rightScrollRef.current;
-        const pageStep = pane && pane.clientHeight > 0 ? Math.max(180, Math.round(pane.clientHeight * 0.75)) : 320;
-        scrollRightBy(key === 'PageDown' ? pageStep : -pageStep);
+        // 2.5.322: jobb oldal fixált, nem lapozható
         return;
       }
-      // default: right pane
-      const pane = rightScrollRef.current;
-      if (pane) {
-        const pageStep = pane.clientHeight > 0 ? Math.max(180, Math.round(pane.clientHeight * 0.75)) : 320;
-        scrollRightBy(key === 'PageDown' ? pageStep : -pageStep);
-      }
+      // default: right pane – 2.5.322: nem lapozható
       return;
     }
 
@@ -600,25 +564,12 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     }
 
     if (onRightPane) {
-      if (key === 'ArrowDown' || key === 'ArrowUp') {
+      // 2.5.322: jobb oldal fixált – nem görget. Ha jobb gombon vagyunk, engedjük a jobb gombok közötti fókuszmozgást (lentebb).
+      const rightControls = getRightControls();
+      const isRightControl = active ? rightControls.includes(active as HTMLButtonElement) : false;
+      if (!isRightControl && (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Home' || key === 'End')) {
         e.preventDefault();
         e.stopPropagation();
-        const step = 120;
-        scrollRightBy(key === 'ArrowDown' ? step : -step);
-        return;
-      }
-      if (key === 'Home') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (rightScrollRef.current) rightScrollRef.current.scrollTop = 0;
-        return;
-      }
-      if (key === 'End') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (rightScrollRef.current) {
-          rightScrollRef.current.scrollTop = Math.max(0, rightScrollRef.current.scrollHeight - rightScrollRef.current.clientHeight);
-        }
         return;
       }
       if (key === 'ArrowLeft') {
@@ -984,12 +935,12 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
             </div>
           </section>
 
-          {/* ================= JOBB OLDAL: BEÁLLÍTÁSOK + ÁLLAPOTOK (TANULT ÚTVONALAK HÍJÁN FELCSÚSZVA) ================= */}
+          {/* ================= JOBB OLDAL: BEÁLLÍTÁSOK + ÁLLAPOTOK — 2.5.322: FIXÁLT, NEM LAPOZHATÓ – Supabase Teszt-en nem mozog */}
           <section
             ref={rightScrollRef}
             data-tv-doctor-right-pane=""
             data-tv-doctor-right-scroll=""
-            className="flex flex-col min-h-0 h-full overflow-y-auto bg-[#08152d] p-5 lg:p-6 gap-3.5"
+            className="flex flex-col min-h-0 h-full overflow-hidden bg-[#08152d] p-5 lg:p-6 gap-3.5"
           >
             {/* Felső fejléc: ikon + cím + élő csatorna, jobb sarokban Memória:0 */}
             <div className="flex items-start justify-between gap-4 shrink-0">
