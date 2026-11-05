@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.321';
+export const WEB_VERSION = '2.5.322';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.321',
+    version: '2.5.322',
     date: '2026-11-05',
     changes: [
       'TV DOKTOR BAL OLDAL FIXÁLT — NEM LAPOZHATÓ: a bal oldali „TV Doktor napló (kategóriák)” + 8 dobozos zöld panel mostantól teljesen rögzített, nem mozog lefelé sehová. A kompatibilis wrapper overflow-y-auto → overflow-hidden, aria „rögzített”, gap-3→2, zöld doboz flex-1 min-h-[360px] → flex-1 min-h-0 overflow-hidden. Már nincs 2 fókuszolható lapozás — a 4 kategória doboz (2×2) az egyetlen mozgás, a 8 útvonal nem görget.',
