@@ -1374,7 +1374,10 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   if (event.target !== event.currentTarget) return;
                   const key = normalizeTvKey(event);
                   if (key === 'Enter' || key === ' ') {
-                    const firstAction = event.currentTarget.querySelector<HTMLElement>('button:not(:disabled)');
+                    // 2.5.339: a "Kapcsolat teszt" gomb (data-layout-test) ne
+                    // tűnjön be a navigációba – a 2×2 rács első elemére
+                    // kerüljön a fókusz.
+                    const firstAction = event.currentTarget.querySelector<HTMLElement>('button:not(:disabled):not([data-layout-test])');
                     if (firstAction) {
                       event.preventDefault();
                       firstAction.focus({ preventScroll: true } as any);

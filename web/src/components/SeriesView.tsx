@@ -6,6 +6,7 @@ import { VodDetailSheet } from './VodDetailSheet';
 import { Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
 import { formatRuntime, sortByReleaseYearDesc } from '../utils/vodDisplay';
+import { flagFor } from '../utils/flags';
 
 interface SeriesViewProps {
   series: Series[];
@@ -116,11 +117,19 @@ const SeriesViewComponent: React.FC<SeriesViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [selectedSeriesId]);
 
+  // HU kategóriák elöl, a többi alatt (2.5.339)
+  const sortedProviderCats = (providerCategories || [])
+    .filter((cat) => cat.channelCount > 0)
+    .sort((a, b) => {
+      const aHu = flagFor(a.name).countryCode === 'HU';
+      const bHu = flagFor(b.name).countryCode === 'HU';
+      if (aHu && !bHu) return -1;
+      if (!aHu && bHu) return 1;
+      return a.name.localeCompare(b.name, 'hu');
+    });
   const categories = [
     { id: 'all', name: 'Összes sorozat' },
-    ...(providerCategories || [])
-      .filter((cat) => cat.channelCount > 0)
-      .map((cat) => ({ id: cat.id, name: `${cat.name} (${cat.channelCount})` })),
+    ...sortedProviderCats.map((cat) => ({ id: cat.id, name: `${cat.name} (${cat.channelCount})` })),
   ];
 
   // FONTOS (fagyás): a szűrés memoizálva van; korábban minden kirajzoláskor

@@ -922,6 +922,18 @@ const GUIDE_IDB_PREFIX = 'epg-guide-v1-';
 /** Ennél nagyobb mentést nem írunk ki (a tár ne teljen meg feleslegesen). */
 const GUIDE_IDB_MAX_CHARS = 6 * 1024 * 1024;
 /*
+ * 2.5.338 (HU külön EPG): a magyar (countryCode=HU) csatornák műsorújsága
+ * KÜLÖN, SAJÁT tárolóból jön – nem a szolgáltató xmltv.php / get_short_epg /
+ * get_simple_data_table végpontjából. A HU EPG-t kizárólag a beépített
+ * nyilvános HU forrásokból töltjük (epgshare01 HU1, aldork04 lgtv-epg,
+ * iptv-epg.org HU), és CSAK HU csatornákra. A szolgáltató EPG-jével nem
+ * keverjük, és IPK-újraindításkor nem töltjük újra, csak a beállított
+ * frissítési idő (12 óra / 12 órás ablak) szerint.
+ */
+const HU_GUIDE_IDB_PREFIX = 'epg-hu-guide-v1-';
+const HU_GUIDE_TTL_MS = 12 * 60 * 60 * 1000;
+const HU_GUIDE_IDB_MAX_CHARS = GUIDE_IDB_MAX_CHARS;
+/*
  * 2.5.275 (#11-es napló): „a panel EPG végpontjai üresek" jelző. Ha egy teljes
  * próba után az xmltv.php üres volt és a get.php M3U-ban sincs url-tvg (és a
  * jelölt /epg.xml, /guide.xml, /xmltv.xml útvonalak is üresek/404-esek), ezt
@@ -1163,6 +1175,155 @@ async function clearPersistedGuide(): Promise<void> {
   }
 }
 
+/*
+ * 2.5.338 (HU külön EPG): SAJÁT, KÜLÖN TÁROLÓ a magyar csoportnak.
+ * A HU EPG-t KIZÁRÓLAG a nyilvános HU forrásokból töltjük
+ * (epgshare01 HU1, aldork04 lgtv-epg, iptv-epg.org HU), és CSAK
+ * countryCode=HU csatornákra. A szolgáltató xmltv.php / get_short_epg /
+ * get_simple_data_table NEM keveredik. A HU EPG frissítése CSAK a
+ * beállított idő szerint történik (HU_GUIDE_TTL_MS = 12h + 12h ablak),
+ * IPK-újraindításkor nem töltjük újra, ha érvényes.
+ */
+function huGuideChunkKey(providerId: string, index: number): string {
+  return `${HU_GUIDE_IDB_PREFIX}${providerId}-${index}`;
+}
+function huGuideMetaKey(providerId: string): string {
+  return `${HU_GUIDE_IDB_PREFIX}${providerId}-meta`;
+}
+function huGuideNamesKey(providerId: string): string {
+  return `${HU_GUIDE_IDB_PREFIX}${providerId}-names`;
+}
+async function persistHuGuide(providerId: string, complete: boolean): Promise<void> {
+  try {
+    const store = await openIdbStore();
+    if (!store) return;
+    const rows = serializeGuide();
+    if (!rows.length) return;
+    // 2.5.338: a HU EPG-nél az „elég magyar csatorna” miatti korai leállás
+    // NEM részleges, hanem sikeres – teljes értékű mentés (különben minden
+    // újraindításkor „részleges→lejárt→újra letölt” ciklus lenne).
+    const isHuEnoughAbort = /elég magyar csatorna/i.test(abortReason);
+    const effectiveComplete = complete || isHuEnoughAbort;
+    const chunkSize = 200;
+    let chunks = 0;
+    let programmes = 0;
+    for (let offset = 0; offset < rows.length; offset += chunkSize) {
+      const part = rows.slice(offset, offset + chunkSize);
+      const ok = await store.put(huGuideChunkKey(providerId, chunks), part.join('\n'));
+      if (!ok) return;
+      chunks += 1;
+    }
+    await store.put(huGuideNamesKey(providerId), serializeNameMap());
+    index.forEach((list) => { programmes += list.length; });
+    const meta: PersistedGuideMeta = {
+      providerId,
+      savedAt: Date.now(),
+      channels: index.size,
+      programmes,
+      bytes: lastBytes,
+      chunks,
+      complete: effectiveComplete,
+      timeMode: GUIDE_TIME_MODE,
+    };
+    await store.put(huGuideMetaKey(providerId), JSON.stringify(meta));
+    appLog(
+      `EPG-ÁLLAPOT (HU külön): a magyar műsorújság elmentve a saját tárba (${meta.channels} csatorna, `
+      + `${meta.programmes} műsor, ${nameToId.size} név-azonosító, ${chunks} adag${effectiveComplete ? '' : ', RÉSZLEGES'}); a következő `
+      + `${effectiveComplete ? 'indulás ebből indul (12h ablakon belül nem tölt újra)' : 'indulás ezt ismét frissíti'}.`
+    );
+  } catch {
+    // A mentés hibája nem akadály.
+  }
+}
+async function restoreHuGuide(
+  providerId: string,
+): Promise<{ savedAt: number; channels: number; programmes: number; bytes: number; complete: boolean } | null> {
+  try {
+    const store = await openIdbStore();
+    if (!store) return null;
+    const rawMeta = await store.get(huGuideMetaKey(providerId));
+    if (!rawMeta) return null;
+    const meta = JSON.parse(rawMeta) as PersistedGuideMeta;
+    if (!meta || meta.providerId !== providerId || !meta.chunks) return null;
+    if (meta.timeMode !== GUIDE_TIME_MODE) {
+      appLog(
+        'EPG-ÁLLAPOT (HU külön): a mentett HU műsorújság régi időzóna-kezeléssel készült – egyszer újratöltjük magyar időben.',
+      );
+      return null;
+    }
+    let restored = 0;
+    for (let chunk = 0; chunk < meta.chunks; chunk++) {
+      const raw = await store.get(huGuideChunkKey(providerId, chunk));
+      if (!raw) return null;
+      for (const line of raw.split('\n')) {
+        if (!line) continue;
+        const [channel, entries] = JSON.parse(line) as [string, Array<[number, number, string]>];
+        if (!channel || !Array.isArray(entries) || !entries.length) continue;
+        if (!isHuGuideChannelId(channel)) continue;
+        huChannelIdSet.add(channelIdBase(channel).toLowerCase());
+        index.set(channel, entries.map(([start, end, title]) => ({ s: start, e: end, t: title })));
+        restored += 1;
+      }
+    }
+    if (!restored) return null;
+    let restoredNamesCount = 0;
+    try {
+      const rawNames = await store.get(huGuideNamesKey(providerId));
+      if (rawNames) {
+        const parsedNames = JSON.parse(rawNames) as Array<[string, string]>;
+        if (Array.isArray(parsedNames)) {
+          for (let i = 0; i < parsedNames.length; i += 1) {
+            const pair = parsedNames[i];
+            if (Array.isArray(pair) && pair[0] && pair[1]) {
+              if (!isHuGuideChannelId(String(pair[1]))) continue;
+              nameToId.set(String(pair[0]), String(pair[1]));
+              restoredNamesCount += 1;
+            }
+          }
+        }
+      }
+    } catch {
+      /* Régi mentés névtérkép nélkül */
+    }
+    finishParsing();
+    if (index.size === 0 || statKept === 0) return null;
+    const hasNameMap = restoredNamesCount > 0;
+    return {
+      savedAt: meta.savedAt,
+      channels: index.size,
+      programmes: statKept,
+      bytes: meta.bytes,
+      complete: meta.complete === true && hasNameMap,
+    };
+  } catch {
+    return null;
+  }
+}
+async function clearHuGuide(providerId: string): Promise<void> {
+  try {
+    const store = await openIdbStore();
+    if (!store) return;
+    const keys = await store.keys();
+    const prefix = `${HU_GUIDE_IDB_PREFIX}${providerId}`;
+    for (const key of keys) {
+      if (key.startsWith(prefix)) await store.remove(key);
+    }
+  } catch {
+    // ignore
+  }
+}
+function isHuGuideFresh(savedAt: number, complete: boolean, thick: boolean, huLow: boolean): boolean {
+  if (!thick || huLow) return false;
+  // 2.5.338: a HU EPG-nél az „elég magyar csatorna” miatti leállás teljesnek számít,
+  // ezért a !complete itt nem kizáró, csak a thick+huLow számít. A 12 órás TTL
+  // és a 12 órás ablak (KEEP_AFTER) együtt adja a „beállított frissítési idő”-t.
+  const huCompleteEnough = complete || huChannelIdSet.size >= HU_ENOUGH_CHANNELS;
+  if (!huCompleteEnough) return false;
+  const age = Date.now() - savedAt;
+  const windowStillValid = Date.now() < savedAt + (KEEP_AFTER_SEC - 3600) * 1000;
+  return age < HU_GUIDE_TTL_MS || windowStillValid;
+}
+
 /* ─────────────────────────────── nyilvános API ─────────────────────────── */
 
 /**
@@ -1210,7 +1371,13 @@ async function loadPublicHuGuides(
     );
     if (index.size > 0) {
       loadedAt = Date.now();
-      void persistGuide(provider.id, !abortReason);
+      // 2.5.338 (HU külön): a HU EPG-t a saját HU tárba mentjük, nem a közös/provider tárba.
+      // Az „elég magyar csatorna” miatti leállás itt nem részleges, hanem teljes HU fedés.
+      const isHuEnough = /elég magyar csatorna/i.test(abortReason);
+      void persistHuGuide(provider.id, !abortReason || isHuEnough);
+      // Visszafelé kompatibilitás: a régi közös tárba is kiírjuk egyszer, hogy
+      // a régi mentésből frissítő kliensek is lássák, de a HU frissességét a HU tár dönti.
+      void persistGuide(provider.id, !abortReason || isHuEnough);
     }
     // Ha már elég magyar adó kapott műsort, nem kell végigpróbálni a többit.
     if (hu.total > 0 && hu.hit >= Math.max(1, Math.floor(hu.total * 0.9))) break;
@@ -1324,56 +1491,151 @@ export async function ensureGuide(provider: {
    * háttérben, észrevétlenül fut.
    */
   // 2.5.266 (#13): a visszatöltés hibája ne akassza ki a zárat örökre.
-  const restored = skipRestore ? false : await restorePersistedGuide(provider.id).catch(() => false as const);
-  skipRestore = false;
-  if (restored) {
-    loadedAt = restored.savedAt;
-    loadedProviderId = provider.id;
-    lastProgrammes = restored.programmes;
-    lastBytes = restored.bytes;
-    statKept = statKept || restored.programmes;
-    restoredPartial = !restored.complete;
-    appLog(
-      `EPG-ÁLLAPOT: a műsorújság a tartós tárból betöltve – ${restored.channels} csatorna, `
-      + `${restored.programmes} műsor (mentve: ${new Date(restored.savedAt).toLocaleTimeString('hu-HU')}` +
-      `${restored.complete ? '' : ', RÉSZLEGES'}).`
-    );
-    /*
-     * CSAK a TELJES és ELÉG SŰRŰ mentés számít frissnek. A részleges mentés
-     * azonnal megjelenik a felületen (ezért jó, hogy van), de a frissítés
-     * elindul – különben a hiányos műsorújság órákig „érvényes” maradna.
-     */
-    const thick = restored.channels > 0
-      && restored.programmes >= restored.channels * USABLE_PROGRAMMES_PER_CHANNEL;
-    /* 2.5.273 (#5-ös napló): kevés magyar adó esetén a mentés akkor sem „friss”. */
-    const huLow = huCoverageLow();
-    if (huLow) {
-      const hu = huProbeCoverage();
-      appLog(`EPG-ÁLLAPOT: a visszatöltött újság csak ${hu.hit}/${hu.total} magyar adót fed le – nem tekintjük frissnek, frissítjük + nyilvános HU újságok.`);
-    }
-    /*
-     * 2.5.275 (#11-es napló): a mentett újság akkor is „friss”, ha az IDŐABLKA
-     * még érvényes (a mentéssavedAt + KEEP_AFTER_SEC még a jövőbe mutat) – így
-     * nem töltjük le újra a 30+ MB-os nyilvános HU újságokat 3 óránként, csak
-     * amikor a mentett műsorok már tényleg kifutnának. A 3 órás TTL továbbra
-     * is él (gyorsabb frissülés friss indulásnál).
-     */
-    const windowStillValid = Date.now() < restored.savedAt + (KEEP_AFTER_SEC - 3600) * 1000;
-    if (restored.complete && thick && !huLow
-      && (Date.now() - restored.savedAt < GUIDE_TTL_MS || windowStillValid)) {
+  // 2.5.338 (HU külön): ELŐSZÖR a HU külön tárolót próbáljuk – ez a
+  // „saját tároló” (nem szolgáltató). Ha a HU EPG érvényes (12h TTL +
+  // 12h ablak), IPK-újraindításkor NEM töltjük újra, csak a beállított
+  // idő szerint. A szolgáltató EPG-vel nem keverjük.
+  let huRestored: { savedAt: number; channels: number; programmes: number; bytes: number; complete: boolean } | null = null;
+  let providerRestored: { savedAt: number; channels: number; programmes: number; bytes: number; complete: boolean } | null = null;
+  if (!skipRestore) {
+    // HU külön tároló (countryCode=HU, nyilvános HU források)
+    try { huRestored = await restoreHuGuide(provider.id); } catch { huRestored = null; }
+    if (huRestored) {
+      loadedAt = huRestored.savedAt;
+      loadedProviderId = provider.id;
+      lastProgrammes = huRestored.programmes;
+      lastBytes = huRestored.bytes;
+      statKept = statKept || huRestored.programmes;
+      restoredPartial = !huRestored.complete;
       appLog(
-        `EPG-ÁLLAPOT: a mentett műsorújság még érvényes (${restored.channels} csatorna, ablaka ${(KEEP_AFTER_SEC / 3600).toFixed(0)} órás) `
-        + `– a 30+ MB-os újbóli letöltés kihagyva, a meglévő műsorok maradnak.`
+        `EPG-ÁLLAPOT (HU külön): a magyar műsorújság a saját tárból betöltve – ${huRestored.channels} csatorna, `
+        + `${huRestored.programmes} műsor (mentve: ${new Date(huRestored.savedAt).toLocaleTimeString('hu-HU')}` +
+        `${huRestored.complete ? '' : ', RÉSZLEGES'}).`
       );
-      // 2.5.266 (#13): a szinkron zárat minden kilépésnél el kell engedni.
-      finishLoading();
-      return;
+      const thick = huRestored.channels > 0
+        && huRestored.programmes >= huRestored.channels * USABLE_PROGRAMMES_PER_CHANNEL;
+      const huLow = huCoverageLow();
+      if (huLow) {
+        const hu = huProbeCoverage();
+        appLog(`EPG-ÁLLAPOT (HU külön): a visszatöltött HU újság csak ${hu.hit}/${hu.total} magyar adót fed le – nem tekintjük frissnek, frissítjük (kizárólag HU forrásokból).`);
+      }
+      if (isHuGuideFresh(huRestored.savedAt, huRestored.complete, thick, huLow)) {
+        appLog(
+          `EPG-ÁLLAPOT (HU külön): a mentett HU műsorújság még érvényes (${huRestored.channels} csatorna, ablaka ${(KEEP_AFTER_SEC / 3600).toFixed(0)} órás, TTL ${(HU_GUIDE_TTL_MS / 3600000).toFixed(0)}h) `
+          + `– IPK-újraindításkor nem töltjük újra, a meglévő HU műsorok maradnak (csak a beállított idő szerint frissül).`
+        );
+        // HU friss, nincs teendő – a szolgáltató EPG-től függetlenül kész.
+        // A szolgáltató EPG-t nem keverjük: HU-ra csak a saját HU források.
+        finishLoading();
+        return;
+      }
+      appLog(
+        'EPG-ÁLLAPOT (HU külön): a mentett HU műsorújság '
+        + `${!huRestored.complete && huChannelIdSet.size < HU_ENOUGH_CHANNELS ? 'részleges' : (!thick ? 'túl kevés műsort tartalmaz' : (huLow ? 'kevés magyar adót fed le' : 'lejárt'))} `
+        + '– a háttérben frissítjük kizárólag HU forrásokból, a már látható HU műsorok addig is megmaradnak.'
+      );
+      // HU nem friss – folytatjuk HU frissítéssel, de az indexet már
+      // feltöltöttük a régi HU adatokkal (finishParsing után), így a
+      // felület azonnal mutatja a régi műsort, amíg az új töltődik.
+      // A szolgáltatói (nem HU) EPG-t most nem vizsgáljuk külön – HU-ra
+      // csak HU források, provider EPG nem keveredik.
+    } else {
+      // Nincs HU mentés – próbáljuk a régi, közös tárolót (visszafelé kompatibilitás)
+      // de azt HU-ként kezeljük: ha van benne HU adat, átmozgatjuk HU tárba.
+      try { providerRestored = await restorePersistedGuide(provider.id); } catch { providerRestored = null; }
+      if (providerRestored) {
+        loadedAt = providerRestored.savedAt;
+        loadedProviderId = provider.id;
+        lastProgrammes = providerRestored.programmes;
+        lastBytes = providerRestored.bytes;
+        statKept = statKept || providerRestored.programmes;
+        restoredPartial = !providerRestored.complete;
+        appLog(
+          `EPG-ÁLLAPOT: a műsorújság a tartós (közös) tárból betöltve – ${providerRestored.channels} csatorna, `
+          + `${providerRestored.programmes} műsor (mentve: ${new Date(providerRestored.savedAt).toLocaleTimeString('hu-HU')}` +
+          `${providerRestored.complete ? '' : ', RÉSZLEGES'}).`
+        );
+        const thick = providerRestored.channels > 0
+          && providerRestored.programmes >= providerRestored.channels * USABLE_PROGRAMMES_PER_CHANNEL;
+        const huLow = huCoverageLow();
+        if (huLow) {
+          const hu = huProbeCoverage();
+          appLog(`EPG-ÁLLAPOT: a visszatöltött újság csak ${hu.hit}/${hu.total} magyar adót fed le – nem tekintjük frissnek, frissítjük + nyilvános HU újságok.`);
+        }
+        const windowStillValid = Date.now() < providerRestored.savedAt + (KEEP_AFTER_SEC - 3600) * 1000;
+        // Régi közös mentésnél is a HU szabályt alkalmazzuk, ha HU-ról van szó:
+        const isHuFreshLegacy = isHuGuideFresh(providerRestored.savedAt, providerRestored.complete, thick, huLow);
+        if (isHuFreshLegacy) {
+          appLog(
+            `EPG-ÁLLAPOT: a közös mentés HU-ként még érvényes (${providerRestored.channels} csatorna, ablaka ${(KEEP_AFTER_SEC / 3600).toFixed(0)} órás) `
+            + `– IPK-újraindításkor nem töltjük újra, a HU műsorok maradnak.`
+          );
+          // Átmozgatjuk HU külön tárba, hogy legközelebb már onnan jöjjön
+          void persistHuGuide(provider.id, providerRestored.complete);
+          finishLoading();
+          return;
+        }
+        // Ha nem HU-friss, de a régi provider-es logika szerint friss lenne,
+        // akkor is HU-ként kezeljük – HU-ra csak HU forrásból frissítünk.
+        if (providerRestored.complete && thick && !huLow
+          && (Date.now() - providerRestored.savedAt < GUIDE_TTL_MS || windowStillValid)) {
+          appLog(
+            `EPG-ÁLLAPOT: a mentett (közös) műsorújság még érvényes (${providerRestored.channels} csatorna, ablaka ${(KEEP_AFTER_SEC / 3600).toFixed(0)} órás) `
+            + `– a 30+ MB-os újbóli letöltés kihagyva, a meglévő műsorok maradnak.`
+          );
+          void persistHuGuide(provider.id, providerRestored.complete);
+          finishLoading();
+          return;
+        }
+        appLog(
+          'EPG-ÁLLAPOT: a mentett (közös) műsorújság '
+          + `${!providerRestored.complete ? 'részleges' : (!thick ? 'túl kevés műsort tartalmaz' : (huLow ? 'kevés magyar adót fed le' : 'lejárt'))} `
+          + '– a háttérben frissítjük (HU külön forrásokból), a már látható műsorok addig is megmaradnak.'
+        );
+      }
     }
+  }
+  skipRestore = false;
+
+  // 2.5.338 (HU külön): ha van HU csatorna a szondában (countryCode=HU)
+  // és a nyilvános HU források elérhetők (böngésző, nem teszt), akkor
+  // CSAK a HU külön EPG-t kezeljük – kizárólag a nyilvános HU
+  // forrásokból (epgshare01 HU1 / aldork04 / iptv-epg.org HU), a
+  // szolgáltató xmltv.php / get_short_epg / get_simple_data_table
+  // NEM keveredik. IPK-újraindításkor nem töltjük újra, csak a
+  // beállított HU frissítési idő (12h TTL + 12h ablak) szerint.
+  // Tesztkörnyezetben (PUBLIC_GUIDES_ENABLED=false) a HU szűrés
+  // megmarad, de a letöltés a szolgáltatótól jön (hogy a tesztek
+  // hermetikus mock szerverüket használják).
+  const isHuMode = huProbeChannels.length > 0 && PUBLIC_GUIDES_ENABLED;
+  if (isHuMode) {
     appLog(
-      'EPG-ÁLLAPOT: a mentett műsorújság '
-      + `${!restored.complete ? 'részleges' : (!thick ? 'túl kevés műsort tartalmaz' : (huLow ? 'kevés magyar adót fed le' : 'lejárt'))} `
-      + '– a háttérben frissítjük, a már látható műsorok addig is megmaradnak.'
+      'EPG-ÁLLAPOT (HU külön): a magyar EPG frissítése indul – kizárólag HU forrásokból '
+      + '(epgshare01 HU1 / aldork04 lgtv-epg / iptv-epg.org HU), szolgáltató EPG nélkül.'
     );
+    // A visszatöltött HU index már az előző blokkban a memóriában van.
+    // Ha kevés magyar adót fed le, ELŐBB a kis nyilvános HU újságokat
+    // töltjük – másodpercek alatt megvan a magyar sárga csík.
+    if (huCoverageLow() || index.size === 0) {
+      await loadPublicHuGuides(provider);
+    }
+    const huChannels = index.size;
+    const huProgrammeCount = statKept;
+    if (huChannels > 0) {
+      // HU EPG mentése a saját HU tárba (nem a provider közös tárba)
+      const isHuEnough = /elég magyar csatorna/i.test(abortReason);
+      void persistHuGuide(provider.id, !abortReason || isHuEnough);
+      // Visszafelé kompatibilitás: a régi közös tárba is egyszer kiírjuk
+      void persistGuide(provider.id, !abortReason || isHuEnough);
+      loadedAt = Date.now();
+      loadedProviderId = provider.id;
+      appLog(`EPG-ÁLLAPOT (HU külön): HU EPG frissítés kész – ${huChannels} csatorna, ${huProgrammeCount} műsor (csak HU forrásokból).`);
+    } else {
+      appLog('EPG-ÁLLAPOT (HU külön): a HU források nem adtak műsort – a HU EPG üres maradt (nem próbálunk szolgáltatói EPG-t HU-ra).');
+      if (index.size === 0) lastEmptyGuideAt = Date.now();
+    }
+    finishLoading();
+    return;
   }
 
   appLog(
@@ -1397,6 +1659,8 @@ export async function ensureGuide(provider: {
    * 2.5.278 (#18-as napló): ha kevés magyar adót fed le az aktuális (visszatöltött)
    * újság, ELŐBB a kis nyilvános HU újságokat töltjük le – a magyar EPG így
    * másodpercek alatt megjelenik, nem csak a nagy szolgáltatói fájl után.
+   * MEGJEGYZÉS 2.5.338: ez az ág csak nem-HU módra vonatkozik; HU módban
+   * már fentebb lefutott a HU külön frissítés, itt nem kell újra.
    */
   if (huCoverageLow()) {
     await loadPublicHuGuides(provider);
@@ -1766,6 +2030,7 @@ export function guideChannelCoverage(
  * az újnál), és a következő letöltés nem a mentésből indul.
  */
 export function clearGuide(): void {
+  const prevProviderId = loadedProviderId;
   index.clear();
   nameToId.clear();
   buffer = '';
@@ -1778,6 +2043,19 @@ export function clearGuide(): void {
   lastBytes = 0;
   skipRestore = true;
   void clearPersistedGuide();
+  // 2.5.338 (HU külön): a HU saját tárát is töröljük provider-váltáskor.
+  // Ha van prevProviderId, csak azt töröljük; különben az összes HU kulcsot.
+  void (async () => {
+    try {
+      if (prevProviderId) await clearHuGuide(prevProviderId);
+      else {
+        const store = await openIdbStore();
+        if (!store) return;
+        const keys = await store.keys();
+        for (const key of keys) if (key.startsWith(HU_GUIDE_IDB_PREFIX)) await store.remove(key);
+      }
+    } catch { /* ignore */ }
+  })();
 }
 
 /*
@@ -1801,6 +2079,17 @@ export async function ensureChannelsEpg(
     return 0;
   }
   if (loading) return 0; // épp töltődik a teljes műsorújság
+  // 2.5.338 (HU külön): a magyar külön EPG-re (countryCode=HU) a szolgáltató
+  // get_simple_data_table NEM keveredik – HU-ra kizárólag a nyilvános HU
+  // források (epgshare01 HU1 / aldork04 / iptv-epg.org HU) adnak műsort.
+  // Ezért HU módban (van HU szonda és a nyilvános HU források élnek) a
+  // per-csatornás szolgáltatói tartalékot kihagyjuk. Tesztben
+  // (PUBLIC_GUIDES_ENABLED=false) a régi viselkedés marad, hogy a
+  // tesztek a mock per-csatornás választ használhassák.
+  if (PUBLIC_GUIDES_ENABLED && huProbeChannels.length > 0) {
+    appLog('EPG-ÁLLAPOT (HU külön): per-csatornás get_simple_data_table kihagyva – HU-ra csak HU források (nem szolgáltató).');
+    return 0;
+  }
   /*
    * 2.5.269 (#2-es napló): teljes újság már van – csak akkor kérünk per-csatornás
    * EPG-t, ha az csak RÉSZLEGES visszatöltésből áll (üres xmltv.php után).
