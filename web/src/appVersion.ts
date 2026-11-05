@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.320';
+export const WEB_VERSION = '2.5.321';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.320',
+    version: '2.5.321',
     date: '2026-11-05',
     changes: [
       'TV DOKTOR 8 DOBOZ JAVÍTÁSA — HÁTTÉRSZÖVEG TÖRÖLVE ÉS ZÖLD DOBOZ VÉGIG LEÉR: a Tanult útvonalak 8 doboza mögötti „Tanulás (fent): összes tanulás … (tartós) • Tanult útvnalak (lent): …” háttérszöveg teljesen kikerült (a 002254-es képen a dobozok mögött látszott és a zöld keret nem ért le). A zöld doboz most végig leér (flex-1 min-h-[360px], border-2, p-3.5 gap-2.5), a 8 doboz egységesen kitölti a szabad helyet.',
