@@ -277,9 +277,11 @@ async function postLayout(action: 'layout_upsert' | 'layout_fetch', body: Record
     try { parsed = text ? JSON.parse(text) : null; } catch { parsed = { raw: text.slice(0, 200) }; }
     const latency = Date.now() - started;
     if (!res.ok) {
-      const detail = (parsed && (parsed.error || parsed.message || parsed.reason || parsed.hint)) ? String(parsed.error || parsed.message || parsed.reason).slice(0, 160) : `HTTP ${res.status}`;
+      const rawDetail = (parsed && (parsed.error || parsed.message || parsed.reason || parsed.hint)) ? String(parsed.error || parsed.message || parsed.reason).slice(0, 160) : `HTTP ${res.status}`;
+      const isUnknownAction = rawDetail.includes('unknown_action');
+      const detail = isUnknownAction ? 'A szerver még nem támogatja a felhő mentést (unknown_action) — Supabase Edge Function újra-deploy szükséges (functions/tv-doctor). A helyi mentés OK.' : rawDetail;
       const loc = res.status === 401 ? 'Supabase párosítás (401)' : res.status === 404 ? 'Edge Function (404)' : res.status === 429 ? 'Rate limit (429)' : res.status >= 500 ? 'Supabase szerver (5xx)' : `Supabase (${res.status})`;
-      const msg = `${loc}: ${detail}`;
+      const msg = isUnknownAction ? detail : `${loc}: ${detail}`;
       setLastCloudError(msg);
       appLog(`Felhő elrendezés hiba (${action} HTTP ${res.status} ${latency}ms): ${detail} — nyers: ${text.slice(0, 180)}`);
       // 401 esetén a token érvénytelen — ne próbálkozzunk csendben
@@ -288,8 +290,10 @@ async function postLayout(action: 'layout_upsert' | 'layout_fetch', body: Record
       return parsed;
     }
     if (!parsed || parsed.ok === false) {
-      const detail = parsed ? String(parsed.error || parsed.message || 'ismeretlen hiba').slice(0, 180) : 'üres válasz';
-      const msg = `Szerver hiba: ${detail}`;
+      const rawDetail = parsed ? String(parsed.error || parsed.message || 'ismeretlen hiba').slice(0, 180) : 'üres válasz';
+      const isUnknownAction = rawDetail.includes('unknown_action');
+      const detail = isUnknownAction ? 'A szerver még nem támogatja a felhő mentést (unknown_action) — Edge Function újra-deploy szükséges.' : rawDetail;
+      const msg = isUnknownAction ? detail : `Szerver hiba: ${detail}`;
       setLastCloudError(msg);
       appLog(`Felhő elrendezés hiba (${action} ok:false ${latency}ms): ${detail}`);
       return parsed;

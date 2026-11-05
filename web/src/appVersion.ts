@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.336';
+export const WEB_VERSION = '2.5.337';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.337',
+    date: '2026-11-05',
+    changes: [
+      'JAVÍTÁS — FELHŐ 400 unknown_action + fókusz: a TV-n „Felhő hiba: Supabase (400): unknown_action” és „nincs kapcsolat” valójában a deployolatlan Edge Function jele — a kliens most „A szerver még nem támogatja a felhő mentést (unknown_action) — Edge Function újra-deploy szükséges” üzenetet mutat és nem piros kapcsolat-hibaként. A „Mentés most” utáni helyi mentés OK marad, felhő később szinkronizál. Supabase projektben: supabase functions deploy tv-doctor + supabase db push.',
+      'FÓKUSZ — Menü & Beállítások → Listák → Csatorna elrendezés mentése dobozban a fókusz nem működött: a „Kapcsolat teszt” gomb beleszámolt a 2×2 rács 4 gombjába és elrontotta a D-pad rácslépést (ArrowUp/Down/Left/Right). Javítva: a teszt gombok [data-layout-test] kizárva a rácsból, a rács csak a 4 fő gombot kezeli (Mentés most 0, Visszaállítás 1, Mentés fájlba 2, Visszaállítás fájlból 3), a 2 gombos megerősítés (Igen/Mégse) külön kezelve — TV távirányítóval újra rendesen bejárható.',
+      'KARBANTARTÁS — 2.5.336 diagnosztika + RLS fix után, build 1,781kB, 33/33 teszt zöld.',
+    ],
+  },
   {
     version: '2.5.336',
     date: '2026-11-05',
