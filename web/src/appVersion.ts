@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.319';
+export const WEB_VERSION = '2.5.320';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.319',
+    version: '2.5.320',
     date: '2026-11-04',
     changes: [
       'ORSZÁG % KÖR VÉGIG LÁTSZIK NAGYOBBAN: az Országok betöltő 3D kör mostantól 100%-nál sem tűnik el, hanem végig látszik a modal tetején. Átmérő 56px (w-14 md:w-16) → 80-96px (w-20 md:w-24), felirat 11px → 16-18px, ugyanott középen — a 100% utáni nagyobb kör jelzi a teljes 20 197-es lista beragadását, nem tűnik el.',
