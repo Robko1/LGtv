@@ -882,15 +882,15 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               </span>
             </div>
 
-            {/* Kompatibilis görgethető wrapper a tesztekhez (data-tv-doctor-log-scroll) – tartalmazza a 4 kategória-dobozt */}
+            {/* Kompatibilis wrapper a tesztekhez (data-tv-doctor-log-scroll) – 2.5.321: FIXÁLT, NEM LAPOZHATÓ – a bal oldal rögzítve, nem mozog lefelé */}
             <div
               ref={compatLogScrollRef}
               data-tv-scroll-pane=""
               data-tv-doctor-log-scroll=""
               tabIndex={-1}
               role="region"
-              aria-label="Legutóbbi TV Doktor napló – görgethető (kompatibilis)"
-              className="flex-1 min-h-0 overflow-y-auto rounded-xl focus:outline-none p-1 -m-1 flex flex-col gap-3 outline-none"
+              aria-label="TV Doktor napló – rögzített"
+              className="flex-1 min-h-0 overflow-hidden rounded-xl focus:outline-none p-1 -m-1 flex flex-col gap-2 outline-none"
               style={{ scrollBehavior: 'auto', outline: 'none' }}
             >
               {/* 1. vízszintes sor: Tanulás | Segítség/Javítás */}
@@ -905,10 +905,10 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 {renderCategoryBox('channel_error', false)}
               </div>
 
-              {/* Tanult útvonalak (max. 8) – 2.5.320: zöld doboz végig leér, háttérszöveg törölve, 8 doboz egységesen kitölti a szabad helyet — írás nagy, olvasható, egymás mellett is elfér */}
+              {/* Tanult útvonalak (max. 8) – 2.5.321: FIXÁLT, NEM LAPOZHATÓ – zöld doboz végig leér, 8 doboz egy képernyőn, nincs görgetés */}
               <div
                 data-tv-doctor-routes=""
-                className="flex-1 min-h-[360px] flex flex-col rounded-2xl border-2 border-emerald-600/60 bg-[#04121c] p-3.5 gap-2.5 mt-1"
+                className="flex-1 min-h-0 flex flex-col rounded-2xl border-2 border-emerald-600/60 bg-[#04121c] p-2.5 gap-2 mt-1 overflow-hidden"
               >
                 <div className="flex items-center justify-between gap-2 shrink-0">
                   <span className="flex items-center gap-2 text-base lg:text-lg font-black text-emerald-200">
@@ -924,24 +924,24 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 </div>
                 <p className="text-xs lg:text-sm font-bold text-emerald-300/90 text-center -mt-1 shrink-0">A tárolt adatokból dolgozik — valós mérések a hosszú memóriából/Supabase-ből</p>
                 {activeRoutes.length === 0 ? (
-                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-2.5">
+                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
                     {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => (
                       <div
                         key={`empty-${idx}`}
                         data-tv-doctor-route-empty={`${idx + 1}`}
-                        className="flex-1 min-h-[58px] lg:min-h-[64px] flex flex-row items-center justify-between rounded-xl border-2 border-dashed border-slate-700/60 bg-slate-900/30 px-4 py-3 gap-3"
+                        className="flex-1 min-h-[42px] lg:min-h-[46px] flex flex-row items-center justify-between rounded-xl border-2 border-dashed border-slate-700/60 bg-slate-900/30 px-3 py-2 gap-2 overflow-hidden"
                       >
-                        <span className="font-mono text-base md:text-lg lg:text-xl font-black tracking-wide text-slate-500 shrink-0">
+                        <span className="font-mono text-sm md:text-base lg:text-[15px] font-black tracking-wide text-slate-500 shrink-0">
                           {idx + 1}. — üres —
                         </span>
-                        <span className="text-sm md:text-base lg:text-lg font-bold text-slate-500 text-right truncate">
+                        <span className="text-xs md:text-sm lg:text-sm font-bold text-slate-500 text-right truncate">
                           {activeChannel ? 'még nincs tanult útvonal' : 'nincs kiválasztott élő csatorna'}
                         </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-2.5">
+                  <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
                     {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => {
                       const route = activeRoutes[idx] || null;
                       if (!route) {
@@ -949,12 +949,12 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                           <div
                             key={`empty-${idx}`}
                             data-tv-doctor-route-empty={`${idx + 1}`}
-                            className="flex-1 min-h-[58px] lg:min-h-[64px] flex flex-row items-center justify-between rounded-xl border-2 border-dashed border-slate-700/40 bg-slate-900/20 px-4 py-3 gap-3"
+                            className="flex-1 min-h-[42px] lg:min-h-[46px] flex flex-row items-center justify-between rounded-xl border-2 border-dashed border-slate-700/40 bg-slate-900/20 px-3 py-2 gap-2 overflow-hidden"
                           >
-                            <span className="font-mono text-base md:text-lg lg:text-xl font-black tracking-wide text-slate-600 shrink-0">
+                            <span className="font-mono text-sm md:text-base lg:text-[15px] font-black tracking-wide text-slate-600 shrink-0">
                               {idx + 1}. — üres —
                             </span>
-                            <span className="text-sm md:text-base lg:text-lg font-bold text-slate-600 text-right truncate">még nincs adat ehhez a helyhez</span>
+                            <span className="text-xs md:text-sm lg:text-sm font-bold text-slate-600 text-right truncate">még nincs adat ehhez a helyhez</span>
                           </div>
                         );
                       }
@@ -963,16 +963,16 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                         <div
                           key={route.id}
                           data-tv-doctor-route={route.id}
-                          className={`flex-1 min-h-[58px] lg:min-h-[64px] flex flex-row items-center justify-between rounded-xl border-2 px-4 py-3 gap-3 ${
+                          className={`flex-1 min-h-[42px] lg:min-h-[46px] flex flex-row items-center justify-between rounded-xl border-2 px-3 py-2 gap-2 overflow-hidden ${
                             isBest
                               ? 'border-emerald-400/80 bg-emerald-500/20 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
                               : 'border-slate-600/60 bg-slate-800/70'
                           }`}
                         >
-                          <span className={`font-mono text-base md:text-lg lg:text-xl xl:text-2xl font-black tracking-wide leading-tight shrink-0 ${isBest ? 'text-emerald-100' : 'text-slate-100'}`}>
+                          <span className={`font-mono text-sm md:text-base lg:text-[15px] font-black tracking-wide leading-tight shrink-0 ${isBest ? 'text-emerald-100' : 'text-slate-100'}`}>
                             {isBest ? '★ ' : `${idx + 1}. `}{safeDoctorFormat(route.format)} + {route.bufferProfile}
                           </span>
-                          <span className={`font-mono text-sm md:text-base lg:text-lg xl:text-xl font-bold leading-tight text-right truncate ${isBest ? 'text-emerald-200/90' : 'text-slate-300'}`}>
+                          <span className={`font-mono text-xs md:text-sm lg:text-sm font-bold leading-tight text-right truncate ${isBest ? 'text-emerald-200/90' : 'text-slate-300'}`}>
                             {route.avgStartupMs !== null ? `${route.avgStartupMs}ms` : '—'} • {route.ok} ok / {route.fail} hiba{route.stalls ? ` • ${route.stalls} akadás` : ''}
                           </span>
                         </div>
