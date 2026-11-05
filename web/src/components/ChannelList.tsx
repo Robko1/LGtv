@@ -228,8 +228,10 @@ const ChannelListView: React.FC<ChannelListProps> = ({
   useEffect(() => { visibleChannelsRef.current = visibleChannels; }, [visibleChannels]);
   useEffect(() => { movingChannelIdRef.current = movingChannelId; }, [movingChannelId]);
   useEffect(() => { onMoveChannelRef.current = onMoveChannel; }, [onMoveChannel]);
-  // keepMovingRowVisible később definiált – ref-fel hidaljuk át a sorrendet.
+  // keepMovingRowVisible és focusChannelRow később definiált – ref-fel hidaljuk át a sorrendet.
   const keepMovingRowVisibleRef = useRef<((id: string) => void) | null>(null);
+  const focusChannelRowRef = useRef<((id: string) => boolean) | null>(null);
+  const setHighlightedIdRef = useRef<((id: string) => void) | null>(null);
   const startMoveHold = React.useCallback((direction: 'up' | 'down') => {
     clearMoveHold();
     moveHoldDirRef.current = direction;
@@ -245,14 +247,22 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         if (direction === 'up') {
           if (idx > 0) {
             onMoveChannelRef.current?.(mid, 'up');
-            keepMovingRowVisibleRef.current?.(mid);
+            setHighlightedIdRef.current?.(mid);
+            window.requestAnimationFrame(() => {
+              focusChannelRowRef.current?.(mid);
+              keepMovingRowVisibleRef.current?.(mid);
+            });
           } else {
             clearMoveHold();
           }
         } else {
           if (idx >= 0 && idx < list.length - 1) {
             onMoveChannelRef.current?.(mid, 'down');
-            keepMovingRowVisibleRef.current?.(mid);
+            setHighlightedIdRef.current?.(mid);
+            window.requestAnimationFrame(() => {
+              focusChannelRowRef.current?.(mid);
+              keepMovingRowVisibleRef.current?.(mid);
+            });
           } else {
             clearMoveHold();
           }
@@ -865,7 +875,9 @@ const ChannelListView: React.FC<ChannelListProps> = ({
       else if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
     });
   };
-  useEffect(() => { keepMovingRowVisibleRef.current = keepMovingRowVisible; }, []);
+  useEffect(() => { keepMovingRowVisibleRef.current = keepMovingRowVisible; }, [keepMovingRowVisible]);
+  useEffect(() => { focusChannelRowRef.current = focusChannelRow; }, [focusChannelRow]);
+  useEffect(() => { setHighlightedIdRef.current = setHighlightedId as unknown as (id: string) => void; }, []);
 
   // Egy régi, ritka virtualizációs tartalék ne ránthassa vissza a fókuszt
   // egy későbbi gombnyomás vagy navigáció után.
@@ -918,8 +930,13 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         clearMoveHold();
         if (movingIndex > 0) {
           setMoveCursor('up');
+          setHighlightedId(movingChannelId);
           onMoveChannel?.(movingChannelId, 'up');
-          keepMovingRowVisible(movingChannelId);
+          // Fókusz maradjon a mozgatott csatornán, ne csússzon le és ne ugorjon a tetejére.
+          window.requestAnimationFrame(() => {
+            focusChannelRow(movingChannelId);
+            keepMovingRowVisible(movingChannelId);
+          });
           startMoveHold('up');
         }
       } else if (key === 'ArrowDown') {
@@ -928,8 +945,12 @@ const ChannelListView: React.FC<ChannelListProps> = ({
         clearMoveHold();
         if (movingIndex >= 0 && movingIndex < visibleChannels.length - 1) {
           setMoveCursor('down');
+          setHighlightedId(movingChannelId);
           onMoveChannel?.(movingChannelId, 'down');
-          keepMovingRowVisible(movingChannelId);
+          window.requestAnimationFrame(() => {
+            focusChannelRow(movingChannelId);
+            keepMovingRowVisible(movingChannelId);
+          });
           startMoveHold('down');
         }
       } else if (key === 'Enter' || key === ' ') {

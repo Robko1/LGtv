@@ -68,7 +68,8 @@ import { checkLatestWebOSRelease, type WebOSReleaseInfo } from '../services/webo
  */
 function visibleListBoxes(root: HTMLElement | null): HTMLElement[] {
   if (!root) return [];
-  return Array.from(root.querySelectorAll<HTMLElement>('[data-tv-box]'))
+  // A layout mentés doboza (data-layout-backup) nem provider-doboz, külön kezeljük.
+  return Array.from(root.querySelectorAll<HTMLElement>('[data-tv-box]:not([data-layout-backup])'))
     .filter((el) => el.getClientRects().length > 0 && el.offsetParent !== null);
 }
 
@@ -587,6 +588,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
           const boxes = visibleListBoxes(modalRef.current);
           const lastBox = boxes[boxes.length - 1];
           (lastBox || modalRef.current?.querySelector<HTMLElement>('[data-tv-box]'))?.focus({ preventScroll: true } as any);
+        } else if (key === 'ArrowDown') {
+          const backupBox = modalRef.current?.querySelector<HTMLElement>('[data-layout-backup]');
+          if (backupBox) {
+            backupBox.focus({ preventScroll: true } as any);
+            backupBox.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          }
         }
         return;
       }
@@ -594,6 +601,49 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       // A Provider doboz és a belső műveleti gombok külön fókuszterületet alkotnak.
       const box = target.closest<HTMLElement>('[data-tv-box]');
       const active = document.activeElement as HTMLElement | null;
+      // 2.5.329 — Layout mentés doboz külön 2×2 rács: ne keveredjen a provider dobozok fel/le járásával.
+      if (box && box.hasAttribute('data-layout-backup')) {
+        const controls = Array.from(box.querySelectorAll<HTMLElement>('button:not(:disabled)')).filter((el) => el.getClientRects().length > 0);
+        const isBoxNavKey = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) || (key === 'Enter' && active === box);
+        if (isBoxNavKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (key === 'Enter' && active === box) {
+            controls[0]?.focus({ preventScroll: true } as any);
+            controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            return;
+          }
+          if (active === box) {
+            if (key === 'ArrowUp') {
+              modalRef.current?.querySelector<HTMLElement>('[data-tv-clear-all]')?.focus({ preventScroll: true } as any);
+            }
+            return;
+          }
+          const idx = controls.indexOf(active as HTMLElement);
+          if (idx < 0) {
+            box.focus({ preventScroll: true } as any);
+            return;
+          }
+          if (key === 'ArrowLeft') {
+            if (idx === 1) controls[0]?.focus({ preventScroll: true } as any);
+            else if (idx === 3) controls[2]?.focus({ preventScroll: true } as any);
+            else box.focus({ preventScroll: true } as any);
+          } else if (key === 'ArrowRight') {
+            if (idx === 0) controls[1]?.focus({ preventScroll: true } as any);
+            else if (idx === 2) controls[3]?.focus({ preventScroll: true } as any);
+            else box.focus({ preventScroll: true } as any);
+          } else if (key === 'ArrowUp') {
+            if (idx === 2) controls[0]?.focus({ preventScroll: true } as any);
+            else if (idx === 3) controls[1]?.focus({ preventScroll: true } as any);
+            else box.focus({ preventScroll: true } as any);
+          } else if (key === 'ArrowDown') {
+            if (idx === 0) controls[2]?.focus({ preventScroll: true } as any);
+            else if (idx === 1) controls[3]?.focus({ preventScroll: true } as any);
+            else box.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+      }
       if (box && (
         ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) ||
         (key === 'Enter' && active === box)
@@ -1254,6 +1304,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
               {/* 2.5.326 — Elrendezés mentése: Magyarok + Kedvencek, helyi + felhő szinkronban, nincs eltérés */}
               <div
                 data-tv-box=""
+                data-layout-backup=""
                 tabIndex={0}
                 onKeyDown={(event) => {
                   if (event.target !== event.currentTarget) return;
@@ -1302,11 +1353,21 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                       Forrás: {layoutLastBackup.source === 'local' ? 'helyi' : layoutLastBackup.source} • Szolgáltató: {layoutLastBackup.providerName} • Visszaállításkor ez áll helyre
                     </div>
                   )}
-                  {layoutCloudInfo && layoutLastBackup && (
-                    <div className={`text-[11px] font-bold ${layoutCloudInfo.at === layoutLastBackup.at ? 'text-emerald-400' : 'text-amber-400'}`}>
-                      {layoutCloudInfo.at === layoutLastBackup.at ? '✓ Felhő szinkronban a helyivel' : `⚠ Felhő eltér: ${formatLayoutTime(layoutCloudInfo.at)} — következő mentés szinkronizál`}
+                  {layoutCloudInfo && layoutLastBackup ? (
+                    <div className={`flex items-center gap-2 text-xs font-black px-3 py-2 rounded-xl border ${layoutCloudInfo.at === layoutLastBackup.at ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-200' : 'bg-amber-500/15 border-amber-500/30 text-amber-200'}`}>
+                      <Cloud className="w-4 h-4 shrink-0" />
+                      <span>
+                        {layoutCloudInfo.at === layoutLastBackup.at
+                          ? `✓ Supabase felhőbe mentve — bármely készüléken visszaállítható • ${formatLayoutTime(layoutCloudInfo.at)}`
+                          : `⚠ Felhő eltér: ${formatLayoutTime(layoutCloudInfo.at)} — következő mentés szinkronizál`}
+                      </span>
                     </div>
-                  )}
+                  ) : layoutLastBackup && !layoutCloudInfo ? (
+                    <div className="flex items-center gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border bg-slate-800/60 border-slate-700/50 text-slate-400">
+                      <Cloud className="w-4 h-4 shrink-0 opacity-60" />
+                      <span>Nincs felhő mentés — párosítsd a Rendszer → Supabase-párosítás menüben, majd ments újra</span>
+                    </div>
+                  ) : null}
                   {!layoutLastBackup && (
                     <p className="text-[11px] text-slate-500">Tipp: nyomd meg a „Mentés most” gombot — utána újratöltés / új IPK / szolgáltató újratöltés után is egy gombbal visszaáll.</p>
                   )}
