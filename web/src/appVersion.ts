@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.341';
+export const WEB_VERSION = '2.5.342';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.341',
+    version: '2.5.342',
     date: '2026-11-05',
     changes: [
       'CSATORNA ELRENDEZÉS FELHŐ — A Supabase tv-doctor Edge Function frissítve kezeli a layout_upsert/layout_fetch kéréseket, a hiányzó layout snapshot tábla és service_role RLS engedélyezés telepítve. A „Mentés most” így helyi mentés mellett a párosított TV Supabase felhőjébe is ír.',
