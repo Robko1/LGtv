@@ -73,9 +73,9 @@ assert.ok(star); star.focus(); press('ArrowDown');
 assert.equal(focused(), 'ch-6', 'a csillagról LE továbbra is a következő sor');
 for (let n = 7; n < 80; n++) { press('ArrowDown', true); assert.equal(focused(), `ch-${n}`, `LE ${n}`); }
 press('ArrowDown');
-assert.ok(doc.activeElement.hasAttribute('data-tv-folder'), 'utolsó sorról LE: mappasáv');
+assert.equal(focused(), 'ch-79', 'utolsó sorról LE: maradjon az utolsó csatornán');
 await tick(100);
-assert.ok(doc.activeElement.hasAttribute('data-tv-folder'), 'a lista vége után nem tér vissza régi fókusz');
+assert.equal(focused(), 'ch-79', 'az alján LE után sem ugrik mappasávra');
 // A listához az utolsó sorra visszatérve a FEL pontosan a sorokon át halad.
 getRow(79).focus();
 for (let n = 78; n >= 0; n--) { press('ArrowUp', true); assert.equal(focused(), `ch-${n}`, `FEL ${n}`); }

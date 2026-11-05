@@ -41,6 +41,8 @@ import {
   loadSnapshotLocal,
   getLastBackupInfo,
   getCloudLastFetchInfo,
+  getLastCloudError,
+  clearLastCloudError,
   saveSnapshotToCloud,
   fetchSnapshotFromCloud,
   exportSnapshotToFile,
@@ -152,6 +154,8 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   // 2.5.326 — Elrendezés mentése: helyi + felhő + fájl, szinkronban
   const [layoutLastBackup, setLayoutLastBackup] = useState(() => getLastBackupInfo());
   const [layoutCloudInfo, setLayoutCloudInfo] = useState(() => getCloudLastFetchInfo());
+  const [layoutCloudError, setLayoutCloudError] = useState(() => getLastCloudError());
+  const [layoutTesting, setLayoutTesting] = useState(false);
   const [layoutSaving, setLayoutSaving] = useState(false);
   const [layoutRestoring, setLayoutRestoring] = useState(false);
   const [layoutMessage, setLayoutMessage] = useState('');
@@ -172,11 +176,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     const list = Array.isArray(providers) ? providers : [];
     return list.find((p) => p.isActive) || list[0] || null;
   }, [providers]);
-  // 2.5.333 — Elrendezés mentés állapot + felhő ellenőrzés a Listák fül megnyitásakor
+  // 2.5.335 — Elrendezés mentés állapot + felhő ellenőrzés a Listák fül megnyitásakor
   useEffect(() => {
     if (!isOpen || activeTab !== 'lists') return;
     setLayoutLastBackup(getLastBackupInfo());
     setLayoutCloudInfo(getCloudLastFetchInfo());
+    setLayoutCloudError(getLastCloudError());
     // Ha párosítva van és van aktív szolgáltató, próbáljuk lekérni a felhő mentést is
     // (hogy a „Nincs felhő mentés” ne maradjon beragva, ha a felhőben már van adat)
     if (activeProviderForLayout?.id) {
@@ -185,8 +190,11 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
         const paired = raw ? JSON.parse(raw) : null;
         if (paired?.deviceToken) {
           void fetchSnapshotFromCloud(activeProviderForLayout.id).then((snap) => {
-            if (snap) setLayoutCloudInfo(getCloudLastFetchInfo());
-          }).catch(() => {});
+            setLayoutCloudInfo(getCloudLastFetchInfo());
+            setLayoutCloudError(getLastCloudError());
+          }).catch(() => {
+            setLayoutCloudError(getLastCloudError());
+          });
         }
       } catch {}
     }
@@ -886,20 +894,58 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       const snap = createLayoutSnapshot(activeProviderForLayout.id, activeProviderForLayout.name || activeProviderForLayout.serverUrl || 'Szolgáltató', channels, folders);
       saveSnapshotLocal(snap);
       let cloudOk = false;
+      let cloudErr: string | null = null;
       try {
         cloudOk = await saveSnapshotToCloud(snap);
-      } catch {}
+        if (!cloudOk) {
+          const last = getLastCloudError();
+          cloudErr = last?.error || null;
+        } else {
+          clearLastCloudError();
+        }
+      } catch (e: any) {
+        cloudErr = String(e?.message || e).slice(0, 160);
+      }
       setLayoutLastBackup(getLastBackupInfo());
       setLayoutCloudInfo(getCloudLastFetchInfo());
+      setLayoutCloudError(getLastCloudError());
       const t = formatLayoutTime(snap.createdAt);
       if (cloudOk) {
         setLayoutMessage(`✓ Mentve: helyi + felhő — ${t} • ${snap.totalChannels} csatorna, ${snap.deletedChannels.length} törölt, ${snap.folders.length} mappa`);
       } else {
         const paired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
-        setLayoutMessage(paired ? `✓ Mentve helyben — ${t} (felhő szinkron próbálva)` : `✓ Mentve helyben — ${t} • Felhőhöz párosíts a Rendszer → Supabase-párosításban`);
+        if (!paired) {
+          setLayoutMessage(`✓ Mentve helyben — ${t} • Felhőhöz párosíts a Rendszer → Supabase-párosításban`);
+        } else if (cloudErr) {
+          setLayoutMessage(`✓ Mentve helyben — ${t} • Felhő hiba: ${cloudErr.slice(0, 120)} — próbáld újra vagy nézd a Kapcsolat tesztet`);
+        } else {
+          setLayoutMessage(`✓ Mentve helyben — ${t} (felhő szinkron próbálva — ellenőrizd a Rendszer → Supabase kapcsolatot)`);
+        }
       }
     } finally {
       setLayoutSaving(false);
+    }
+  };
+
+  const handleTestCloud = async (): Promise<void> => {
+    if (!activeProviderForLayout?.id || layoutTesting) return;
+    setLayoutTesting(true);
+    setLayoutMessage('Felhő kapcsolat tesztelése…');
+    try {
+      const snap = await fetchSnapshotFromCloud(activeProviderForLayout.id);
+      setLayoutCloudInfo(getCloudLastFetchInfo());
+      setLayoutCloudError(getLastCloudError());
+      if (snap) {
+        setLayoutMessage(`✓ Felhő kapcsolat OK — mentés van: ${formatLayoutTime((snap as any).createdAt)} • ${snap.totalChannels} csatorna`);
+      } else {
+        const err = getLastCloudError();
+        if (err?.error) setLayoutMessage(`Felhő teszt: ${err.error.slice(0, 140)}`);
+        else setLayoutMessage('Felhő teszt: nincs mentés a felhőben — nyomd meg a Mentés mostot.');
+      }
+    } catch (e: any) {
+      setLayoutMessage(`Felhő teszt hiba: ${String(e?.message || e).slice(0, 120)}`);
+    } finally {
+      setLayoutTesting(false);
     }
   };
 
@@ -1383,16 +1429,53 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   ) : layoutLastBackup && !layoutCloudInfo ? (
                     (() => {
                       const isPaired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+                      const err = layoutCloudError?.error;
                       return (
-                        <div className={`flex items-center gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border ${isPaired ? 'bg-amber-500/15 border-amber-500/30 text-amber-200' : 'bg-slate-800/60 border-slate-700/50 text-slate-400'}`}>
-                          <Cloud className="w-4 h-4 shrink-0 opacity-60" />
-                          <span>{isPaired ? 'Nincs felhő mentés — nyomd meg a „Mentés most” gombot a felhőbe mentéshez' : 'Nincs felhő mentés — párosítsd a Rendszer → Supabase-párosítás menüben, majd ments újra'}</span>
+                        <div className="space-y-2">
+                          <div className={`flex items-center gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border ${isPaired ? 'bg-amber-500/15 border-amber-500/30 text-amber-200' : 'bg-slate-800/60 border-slate-700/50 text-slate-400'}`}>
+                            <Cloud className="w-4 h-4 shrink-0 opacity-60" />
+                            <span>{isPaired ? 'Nincs felhő mentés — nyomd meg a „Mentés most” gombot a felhőbe mentéshez' : 'Nincs felhő mentés — párosítsd a Rendszer → Supabase-párosítás menüben, majd ments újra'}</span>
+                          </div>
+                          {isPaired && err && (
+                            <div className="flex items-start gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border bg-red-900/30 border-red-700/40 text-red-200">
+                              <span>⚠ Felhő hiba: {err.slice(0, 160)}</span>
+                            </div>
+                          )}
+                          {isPaired && (
+                            <button onClick={handleTestCloud} disabled={layoutTesting} className="w-full py-1.5 rounded-lg bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-[11px] font-bold disabled:opacity-50">
+                              {layoutTesting ? 'Tesztelés…' : 'Kapcsolat teszt'}
+                            </button>
+                          )}
                         </div>
                       );
                     })()
                   ) : null}
                   {!layoutLastBackup && !layoutCloudInfo && (
-                    <p className="text-[11px] text-slate-500">Tipp: nyomd meg a „Mentés most” gombot — utána újratöltés / új IPK / szolgáltató újratöltés után is egy gombbal visszaáll.</p>
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-slate-500">Tipp: nyomd meg a „Mentés most” gombot — utána újratöltés / új IPK / szolgáltató újratöltés után is egy gombbal visszaáll.</p>
+                      {(() => {
+                        const isPaired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+                        const err = layoutCloudError?.error;
+                        return isPaired && err ? (
+                          <div className="flex items-start gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border bg-red-900/30 border-red-700/40 text-red-200">
+                            <span>⚠ Felhő hiba: {err.slice(0, 160)}</span>
+                          </div>
+                        ) : null;
+                      })()}
+                      {(() => {
+                        const isPaired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+                        return isPaired ? (
+                          <button onClick={handleTestCloud} disabled={layoutTesting} className="w-full py-1.5 rounded-lg bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-[11px] font-bold disabled:opacity-50">
+                            {layoutTesting ? 'Tesztelés…' : 'Kapcsolat teszt'}
+                          </button>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
+                  {layoutCloudInfo && layoutCloudError?.error && layoutCloudInfo.at !== layoutLastBackup?.at && (
+                    <div className="flex items-start gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border bg-red-900/30 border-red-700/40 text-red-200">
+                      <span>⚠ Utolsó felhő hiba: {layoutCloudError.error.slice(0, 160)}</span>
+                    </div>
                   )}
                   {activeProviderForLayout && (
                     <p className="text-[11px] text-slate-500">Aktív szolgáltató: <span className="text-slate-300 font-bold">{activeProviderForLayout.name || activeProviderForLayout.serverUrl}</span></p>
