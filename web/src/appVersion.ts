@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.326';
+export const WEB_VERSION = '2.5.327';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,14 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.327',
+    date: '2026-11-05',
+    changes: [
+      'CSATORNA ELRENDEZÉS MENTÉSE — HELYE: Beállítások → Listák legalján, az „Összes lista törlése” alatt. Magyarok sorrendje + törölt csatornák + kedvenc mappák egyben, fingerprint (streamUrl + név|kategória) alapján — újratöltés / üres IPK / IPK újratelepítés után is egy gombbal pontosan visszaáll, új csatornák a végére, töröltek nem jönnek vissza.',
+      'HELYI + FELHŐ SZINKRONBAN, NINCS ELTÉRÉS: „Mentés most” helyi tárba + (ha párosítva) Supabase felhőbe UGYANAZ a JSON megy; „Mentés fájlba” / „Visszaállítás fájlból” is ugyanaz a formátum. Utolsó mentés ideje + forrás + „melyik áll vissza” jelzés, megerősítéses visszaállítás. Mindkettő kézzel kezelhető.',
+    ],
+  },
   {
     version: '2.5.326',
     date: '2026-11-05',

@@ -28,8 +28,27 @@ import {
   KeyRound,
   ShieldCheck,
   ShieldAlert,
+  Save,
+  Download,
+  Upload,
+  Cloud,
+  HardDrive,
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
+import {
+  createLayoutSnapshot,
+  saveSnapshotLocal,
+  loadSnapshotLocal,
+  getLastBackupInfo,
+  getCloudLastFetchInfo,
+  saveSnapshotToCloud,
+  fetchSnapshotFromCloud,
+  exportSnapshotToFile,
+  importSnapshotFromFile,
+  applySnapshotToChannels,
+  persistRestoredLayout,
+  type LayoutSnapshot,
+} from '../services/channelLayoutBackup';
 import {
   getTvDoctorMemoryStats,
   subscribeTvDoctorUpdates,
@@ -129,6 +148,14 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   const [pendingClearCache, setPendingClearCache] = useState(false);
   /** Folyamatban lévő teljes törlés – a gomb ezalatt nem nyomható meg újra. */
   const [clearingCache, setClearingCache] = useState(false);
+  // 2.5.326 — Elrendezés mentése: helyi + felhő + fájl, szinkronban
+  const [layoutLastBackup, setLayoutLastBackup] = useState(() => getLastBackupInfo());
+  const [layoutCloudInfo, setLayoutCloudInfo] = useState(() => getCloudLastFetchInfo());
+  const [layoutSaving, setLayoutSaving] = useState(false);
+  const [layoutRestoring, setLayoutRestoring] = useState(false);
+  const [layoutMessage, setLayoutMessage] = useState('');
+  const [pendingLayoutRestore, setPendingLayoutRestore] = useState(false);
+  const layoutFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSupabasePairingOpen, setIsSupabasePairingOpen] = useState(false);
   const pairingBoxRef = useRef<HTMLDivElement | null>(null);
   const [, setDoctorUiTick] = useState(0);
@@ -139,6 +166,12 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       setDoctorUiTick((n) => n + 1);
     });
   }, [isOpen, activeTab]);
+  // 2.5.326 — Elrendezés mentés állapot frissítése a Listák fül megnyitásakor
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'lists') return;
+    setLayoutLastBackup(getLastBackupInfo());
+    setLayoutCloudInfo(getCloudLastFetchInfo());
+  }, [isOpen, activeTab, providers.length, folders.length, channels.length]);
   // A kék teletextgomb a Kedvencek fülön nem indíthat csatornamozgatást.
   // A globális távirányító-kezelés más nézetekben változatlan marad.
 
@@ -763,6 +796,141 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       .then(() => window.location.reload());
   };
 
+  // 2.5.326 — Elrendezés mentése / visszaállítása (helyi + felhő szinkronban, nincs eltérés)
+  const activeProviderForLayout = useMemo(() => {
+    return providers.find((p) => p.isActive) || providers[0] || null;
+  }, [providers]);
+
+  const formatLayoutTime = (iso?: string | null): string => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString('hu-HU', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return String(iso).slice(0, 16).replace('T', ' ');
+    }
+  };
+
+  const handleSaveLayout = async (): Promise<void> => {
+    if (!activeProviderForLayout) {
+      setLayoutMessage('Nincs aktív szolgáltató — előbb adj hozzá egy listát.');
+      return;
+    }
+    if (layoutSaving || layoutRestoring) return;
+    setLayoutSaving(true);
+    setLayoutMessage('');
+    try {
+      const snap = createLayoutSnapshot(activeProviderForLayout.id, activeProviderForLayout.name || activeProviderForLayout.serverUrl || 'Szolgáltató', channels, folders);
+      saveSnapshotLocal(snap);
+      let cloudOk = false;
+      try {
+        cloudOk = await saveSnapshotToCloud(snap);
+      } catch {}
+      setLayoutLastBackup(getLastBackupInfo());
+      setLayoutCloudInfo(getCloudLastFetchInfo());
+      const t = formatLayoutTime(snap.createdAt);
+      if (cloudOk) {
+        setLayoutMessage(`✓ Mentve: helyi + felhő — ${t} • ${snap.totalChannels} csatorna, ${snap.deletedChannels.length} törölt, ${snap.folders.length} mappa`);
+      } else {
+        const paired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+        setLayoutMessage(paired ? `✓ Mentve helyben — ${t} (felhő szinkron próbálva)` : `✓ Mentve helyben — ${t} • Felhőhöz párosíts a Rendszer → Supabase-párosításban`);
+      }
+    } finally {
+      setLayoutSaving(false);
+    }
+  };
+
+  const handleExportFile = (): void => {
+    if (!activeProviderForLayout) {
+      setLayoutMessage('Nincs aktív szolgáltató.');
+      return;
+    }
+    // Mindig ugyanaz a JSON megy fájlba és felhőbe — nincs eltérés
+    let snap: LayoutSnapshot | null = loadSnapshotLocal(activeProviderForLayout.id);
+    if (!snap) {
+      snap = createLayoutSnapshot(activeProviderForLayout.id, activeProviderForLayout.name || 'Szolgáltató', channels, folders);
+      saveSnapshotLocal(snap);
+      void saveSnapshotToCloud(snap).catch(() => {});
+      setLayoutLastBackup(getLastBackupInfo());
+    }
+    if (snap) {
+      exportSnapshotToFile(snap);
+      setLayoutMessage(`⬇ Fájl letöltve: elrendezes-${snap.providerName.slice(0, 12)}-${snap.createdAt.slice(0, 10)}.json`);
+    }
+  };
+
+  const doRestoreFromSnapshot = (snap: LayoutSnapshot): void => {
+    if (!activeProviderForLayout) return;
+    setLayoutRestoring(true);
+    try {
+      const { orderedChannels, remappedFolders } = applySnapshotToChannels(snap, channels);
+      persistRestoredLayout(snap, orderedChannels, remappedFolders, activeProviderForLayout.id);
+      setLayoutMessage(`↺ Visszaállítva: ${formatLayoutTime(snap.createdAt)} — ${snap.totalChannels} csatorna, ${snap.folders.length} mappa. Újratöltés...`);
+      setTimeout(() => window.location.reload(), 900);
+    } finally {
+      setLayoutRestoring(false);
+      setPendingLayoutRestore(false);
+    }
+  };
+
+  const handleRestoreLayout = async (): Promise<void> => {
+    if (!activeProviderForLayout) {
+      setLayoutMessage('Nincs aktív szolgáltató.');
+      return;
+    }
+    if (layoutSaving || layoutRestoring) return;
+    // Legfrissebb helyi és felhő közül a legújabb — de felhasználó látja melyik
+    const localSnap = loadSnapshotLocal(activeProviderForLayout.id);
+    let cloudSnap: LayoutSnapshot | null = null;
+    try {
+      cloudSnap = await fetchSnapshotFromCloud(activeProviderForLayout.id);
+    } catch {}
+    const candidates: Array<{ snap: LayoutSnapshot; source: 'helyi' | 'felhő' }> = [];
+    if (localSnap) candidates.push({ snap: localSnap, source: 'helyi' });
+    if (cloudSnap) candidates.push({ snap: cloudSnap, source: 'felhő' });
+    if (candidates.length === 0) {
+      setLayoutMessage('Nincs mentett elrendezés — előbb mentsd el a jelenlegi beállítást.');
+      return;
+    }
+    // Legfrissebb createdAt
+    candidates.sort((a, b) => new Date(b.snap.createdAt).getTime() - new Date(a.snap.createdAt).getTime());
+    const newest = candidates[0];
+    // Ha nincs megerősítés, kérjük meg
+    if (!pendingLayoutRestore) {
+      setPendingLayoutRestore(true);
+      setLayoutMessage(`Visszaállítás innen: ${newest.source} — ${formatLayoutTime(newest.snap.createdAt)} • ${newest.snap.totalChannels} csatorna. Nyomj újra a megerősítéshez.`);
+      return;
+    }
+    doRestoreFromSnapshot(newest.snap);
+  };
+
+  const handleImportFileClick = (): void => {
+    layoutFileInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const snap = await importSnapshotFromFile(file);
+    // reset input
+    try { e.target.value = ''; } catch {}
+    if (!snap) {
+      setLayoutMessage('Hibás fájl — nem elrendezés JSON.');
+      return;
+    }
+    if (!activeProviderForLayout) {
+      setLayoutMessage('Nincs aktív szolgáltató.');
+      return;
+    }
+    // Fájlból érkezett pillanatkép is bekerül helyi+felhőbe, hogy ne legyen eltérés
+    saveSnapshotLocal(snap);
+    void saveSnapshotToCloud(snap).catch(() => {});
+    setLayoutLastBackup(getLastBackupInfo());
+    setLayoutCloudInfo(getCloudLastFetchInfo());
+    // Azonnal vissza is állítjuk (fingerprint illesztéssel a jelenlegi listára)
+    doRestoreFromSnapshot(snap);
+  };
+
   /**
    * A PANEL MÉRETE MINDKÉT OLDALON AZONOS.
    *
@@ -1082,6 +1250,136 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* 2.5.326 — Elrendezés mentése: Magyarok + Kedvencek, helyi + felhő szinkronban, nincs eltérés */}
+              <div
+                data-tv-box=""
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  const key = normalizeTvKey(event);
+                  if (key === 'Enter' || key === ' ') {
+                    const firstAction = event.currentTarget.querySelector<HTMLElement>('button:not(:disabled)');
+                    if (firstAction) {
+                      event.preventDefault();
+                      firstAction.focus({ preventScroll: true } as any);
+                    }
+                  }
+                }}
+                className="p-4 rounded-2xl bg-[#0a1630] border-2 border-emerald-800/50 shadow-md space-y-3 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                    <Save className="w-5 h-5 text-emerald-300" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-black text-emerald-300 tracking-wide uppercase flex items-center gap-2">
+                      Csatorna elrendezés mentése
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-200">
+                        <HardDrive className="w-3 h-3" /> helyi
+                        <span className="opacity-60">+</span>
+                        <Cloud className="w-3 h-3" /> felhő
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-300 leading-relaxed mt-1">
+                      Magyarok sorrendje + törölt csatornák + kedvenc mappák — egyben. Mentés helyi tárba és (ha párosítva) Supabase felhőbe UGYANAZ a JSON, nincs eltérés.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Állapot: mikor mentve, melyik áll vissza */}
+                <div className="rounded-xl bg-[#0e1d3b]/80 border border-emerald-900/30 p-3 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1.5 text-slate-400">
+                      <Clock className="w-3.5 h-3.5" /> Utolsó mentés:
+                    </span>
+                    <span className={`font-bold ${layoutLastBackup ? 'text-emerald-300' : 'text-slate-500'}`}>
+                      {layoutLastBackup ? `${formatLayoutTime(layoutLastBackup.at)} • ${layoutLastBackup.totalChannels} csatorna, ${layoutLastBackup.deletedCount} törölt, ${layoutLastBackup.folderCount} mappa` : 'még nincs mentés'}
+                    </span>
+                  </div>
+                  {layoutLastBackup && (
+                    <div className="text-[11px] text-slate-400">
+                      Forrás: {layoutLastBackup.source === 'local' ? 'helyi' : layoutLastBackup.source} • Szolgáltató: {layoutLastBackup.providerName} • Visszaállításkor ez áll helyre
+                    </div>
+                  )}
+                  {layoutCloudInfo && layoutLastBackup && (
+                    <div className={`text-[11px] font-bold ${layoutCloudInfo.at === layoutLastBackup.at ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {layoutCloudInfo.at === layoutLastBackup.at ? '✓ Felhő szinkronban a helyivel' : `⚠ Felhő eltér: ${formatLayoutTime(layoutCloudInfo.at)} — következő mentés szinkronizál`}
+                    </div>
+                  )}
+                  {!layoutLastBackup && (
+                    <p className="text-[11px] text-slate-500">Tipp: nyomd meg a „Mentés most” gombot — utána újratöltés / új IPK / szolgáltató újratöltés után is egy gombbal visszaáll.</p>
+                  )}
+                  {activeProviderForLayout && (
+                    <p className="text-[11px] text-slate-500">Aktív szolgáltató: <span className="text-slate-300 font-bold">{activeProviderForLayout.name || activeProviderForLayout.serverUrl}</span></p>
+                  )}
+                </div>
+
+                {/* Műveletek — 2×2 rács, TV-n is kényelmes */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleSaveLayout}
+                    disabled={layoutSaving || layoutRestoring || !activeProviderForLayout}
+                    className="flex items-center justify-center gap-1.5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black active:scale-95 transition-all disabled:opacity-60 shadow-md shadow-emerald-900/20"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{layoutSaving ? 'Mentés...' : 'Mentés most'}</span>
+                  </button>
+                  <button
+                    onClick={handleRestoreLayout}
+                    disabled={layoutSaving || layoutRestoring || !layoutLastBackup}
+                    className={`flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-black active:scale-95 transition-all disabled:opacity-60 border ${
+                      pendingLayoutRestore
+                        ? 'bg-amber-400 text-slate-950 border-amber-300 ring-2 ring-amber-400/60'
+                        : 'bg-[#0e1f3f] text-emerald-200 border-emerald-700/50 hover:bg-[#132a52]'
+                    }`}
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{pendingLayoutRestore ? 'Megerősít?' : layoutRestoring ? 'Visszaállítás...' : 'Visszaállítás'}</span>
+                  </button>
+                  <button
+                    onClick={handleExportFile}
+                    disabled={layoutSaving || layoutRestoring || !activeProviderForLayout}
+                    className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-xs font-bold active:scale-95 transition-all disabled:opacity-60"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Mentés fájlba</span>
+                  </button>
+                  <button
+                    onClick={handleImportFileClick}
+                    disabled={layoutSaving || layoutRestoring}
+                    className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-xs font-bold active:scale-95 transition-all disabled:opacity-60"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Visszaállítás fájlból</span>
+                  </button>
+                </div>
+                <input ref={layoutFileInputRef} type="file" accept=".json,application/json" onChange={handleImportFileChange} className="hidden" aria-hidden="true" />
+
+                {pendingLayoutRestore && (
+                  <div className="rounded-xl border border-amber-700/50 bg-amber-950/20 p-3 flex flex-col gap-2">
+                    <p className="text-xs font-bold text-amber-200">Biztosan visszaállítod? A jelenlegi sorrend és mappák felülíródnak a legfrissebb mentésre.</p>
+                    <div className="flex gap-2">
+                      <button autoFocus onClick={handleRestoreLayout} disabled={layoutRestoring} className="flex-1 py-2 rounded-xl bg-amber-500 text-slate-950 text-xs font-black active:scale-95 disabled:opacity-60">
+                        Igen, visszaállítás
+                      </button>
+                      <button onClick={() => { setPendingLayoutRestore(false); setLayoutMessage('Mégse — visszaállítás megszakítva.'); }} className="flex-1 py-2 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95">
+                        Mégse
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {layoutMessage && (
+                  <div className={`rounded-xl border p-2.5 text-xs font-bold leading-relaxed ${layoutMessage.startsWith('✓') || layoutMessage.startsWith('↺') ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-200' : layoutMessage.startsWith('⬇') ? 'bg-cyan-950/20 border-cyan-800/40 text-cyan-200' : 'bg-amber-950/20 border-amber-800/40 text-amber-200'}`}>
+                    {layoutMessage}
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  • <b>Újra letöltve a szolgáltatótól</b> / <b>üres IPK</b> / <b>IPK újratelepítés</b> után is működik — fingerprint (streamUrl + név|kategória) alapján illeszt, új csatornák a végére, töröltek nem jönnek vissza.<br />
+                  • Ha változás van a szolgáltatónál, a visszaállítás megőrzi a mentett sorrendet és jelzi az új csatornákat.
+                </p>
+              </div>
             </div>
           )}
 
