@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.325';
+export const WEB_VERSION = '2.5.326';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.325',
+    version: '2.5.326',
     date: '2026-11-05',
     changes: [
       'KÉK TELETEXT GOMB VILLÁM-MOZGATÁS: kijelölt csatornát kékkel mozgatásra téve (mozgatás mód) a fel/le nyilat vagy a piros nyíl gombot lenyomva tartva már nem egyesével ugrik, hanem villámgyorsan, folyamatosan (260 ms után ~22 lépés/mp, 45 ms interval) megy arra a helyre ahová szeretnéd — elengedésre azonnal megáll, pointerrel nyomva tartva is villám, határnál automatikusan megáll, a sárga kurzor követi.',
