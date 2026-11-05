@@ -193,7 +193,8 @@ export async function saveSnapshotToCloud(snapshot: LayoutSnapshot): Promise<boo
   const res = await postLayout('layout_upsert', { layout: snapshot, providerId: snapshot.providerId });
   if (res && (res.ok === true || res.saved === true || typeof res === 'object')) {
     try {
-      localStorage.setItem(CLOUD_LAST_FETCH_KEY, JSON.stringify({ at: new Date().toISOString(), snapshot }));
+      // A szinkron badge a snapshot idejét hasonlítja — tároljuk a createdAt-ot, ne a fetch idejét
+      localStorage.setItem(CLOUD_LAST_FETCH_KEY, JSON.stringify({ at: snapshot.createdAt, snapshot }));
     } catch {}
     appLog(`Elrendezés mentve a felhőbe (Supabase): ${snapshot.providerName}`);
     return true;
@@ -211,7 +212,7 @@ export async function fetchSnapshotFromCloud(providerId: string): Promise<Layout
   const snap = (res.layout || res.snapshot || res.data || null) as LayoutSnapshot | null;
   if (snap && Array.isArray((snap as any).channelOrder)) {
     try {
-      localStorage.setItem(CLOUD_LAST_FETCH_KEY, JSON.stringify({ at: new Date().toISOString(), snapshot: snap }));
+      localStorage.setItem(CLOUD_LAST_FETCH_KEY, JSON.stringify({ at: (snap as LayoutSnapshot).createdAt || new Date().toISOString(), snapshot: snap }));
     } catch {}
     return snap as LayoutSnapshot;
   }
