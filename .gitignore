@@ -1,0 +1,13 @@
+# Építési melléktermékek
+__pycache__/
+*.pyc
+build/
+node_modules/
+web/node_modules/
+*.log
+dist/
+.DS_Store
+
+# Az IPK csak build- és Release-artefakt; ne kerüljön vissza a forráságba.
+webos/*.ipk
+apk/*.ipk
