@@ -371,9 +371,24 @@ jobs:
               if [[ "$REMOTE_WEB_VERSION" == "$NEXT" && "$REMOTE_MANIFEST_VERSION" == "$NEXT" ]]; then
                 echo "OK: a v$NEXT verzióemelés már megvan a friss main ágon; a meglévő commitot használjuk."
                 git reset --hard origin/main
+              elif [[ "$(git rev-parse HEAD^^{tree})" == "$(git rev-parse origin/main^{tree})" ]]; then
+                # A main ág időközben új, gyökér (history-reset) commitot kapott,
+                # de a forrásfája bitre pontosan ugyanaz, mint amiből ez a build
+                # indult. Ilyenkor nincs közös git-előzmény, ezért a sima rebase
+                # tévesen több száz régi commitot próbál újrajátszani.
+                # Csak a két verziófájl saját változtatását visszük át az új
+                # main tetejére; a forrásfát és minden más fájlt érintetlenül hagyunk.
+                echo "OK: a main előzménye újra lett indítva, de a forrásfa változatlan; csak a verzióemelést visszük át."
+                VERSION_COMMIT_MESSAGE="$(git log -1 --format=%B HEAD)"
+                git diff HEAD^ HEAD -- web/src/appVersion.ts webos/appinfo.json > /tmp/version-bump.patch
+                git reset --hard origin/main
+                git apply /tmp/version-bump.patch
+                git add web/src/appVersion.ts webos/appinfo.json
+                git commit -m "$VERSION_COMMIT_MESSAGE"
               else
                 echo "HIBA: valódi verzióütközés történt. A main ágat nem írjuk felül." >&2
                 echo "Saját buildverzió: $NEXT; távoli WEB_VERSION: $REMOTE_WEB_VERSION; távoli appinfo: $REMOTE_MANIFEST_VERSION." >&2
+                echo "A távoli main forrásfája eltér attól, amiből ez a build indult; automatikus összeolvasztás nem biztonságos." >&2
                 exit 1
               fi
             fi
