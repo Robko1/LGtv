@@ -1594,31 +1594,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
-  const showDoctorStatus = useCallback((next: TvDoctorActiveStatus | null, autoHideMs?: number) => {
-    clearDoctorStatusTimer();
+  const showDoctorStatus = useCallback((next: TvDoctorActiveStatus | null) => {
     if (!tvDoctorEnabledRef.current || !next) {
+      clearDoctorStatusTimer();
       setDoctorStatus(null);
       return;
     }
+    // Normál csatorna-/VOD-indítás nem hiba és nem TV Doktor-beavatkozás.
+    // Ezeket az állapotokat soha nem jelenítjük meg; csak valódi pufferelés,
+    // javítás, újracsatlakozás vagy hiba kerülhet a képernyőre.
+    if (next.phase === 'loading') return;
+    clearDoctorStatusTimer();
     setDoctorStatus((prev) => (
       prev && prev.phase === next.phase && prev.title === next.title && prev.detail === next.detail
         ? prev
         : next
     ));
-    // A sima „Csatorna betöltése / Mentett profil” csak rövid tájékoztató.
-    // Ha a webOS a playing/timeupdate eseményt a felirat kiírása előtt küldi,
-    // az eseményalapú törlés már lefuthatott, és a loading jelzés beragadhat.
-    // Ezért a loading állapotnak saját, TV Doktoron belüli felső időkorlátja van.
-    // A valódi javítási/hiba/ellenőrzési állapotokat ez nem rejti el.
-    const effectiveAutoHideMs = typeof autoHideMs === 'number' && autoHideMs > 0
-      ? autoHideMs
-      : next.phase === 'loading' ? 1800 : 0;
-    if (effectiveAutoHideMs > 0) {
-      doctorStatusHideTimerRef.current = window.setTimeout(() => {
-        doctorStatusHideTimerRef.current = null;
-        setDoctorStatus(null);
-      }, effectiveAutoHideMs);
-    }
   }, [clearDoctorStatusTimer]);
 
   const scheduleClearDoctorStatus = useCallback((delayMs = 600) => {
@@ -4505,34 +4496,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         );
       }
       setIsPlaying(true);
-      if (!customStreamUrl) {
-        const isRecAttempt = Boolean(
-          !isVodRef.current && (forceReload || liveRecoveryOnlyRef.current || liveRetrySequenceRef.current.index > 0)
-        );
-        if (!isRecAttempt && !doctorSessionRef.current.repairInFlight) {
-          const docState = doctorSessionRef.current;
-          const fmtLabel = formatOfUrl(url)?.toUpperCase() || 'MPEG-TS';
-          const chTitle = String(channel?.name || 'Csatorna').slice(0, 34);
-          showDoctorStatus({
-            phase: 'loading',
-            title: 'Csatorna betöltése',
-            detail: docState.hasLearnedProfile
-              ? `Mentett profil (${DOCTOR_BUFFER_CONFIGS[docState.activeBufferProfile].label}, ${fmtLabel})…`
-              : `${chTitle} vizsgálata és indítása…`,
-          });
-        }
-      } else if (!doctorSessionRef.current.repairInFlight) {
-        const docState = doctorSessionRef.current;
-        const vodTarget = buildVodDoctorTarget(url);
-        const vodKindLabel = vodTarget.mediaKind === 'series' ? 'Sorozat betöltése' : 'Film betöltése';
-        showDoctorStatus({
-          phase: 'loading',
-          title: vodKindLabel,
-          detail: docState.hasLearnedProfile
-            ? `Mentett stabil profil (${DOCTOR_BUFFER_CONFIGS[docState.activeBufferProfile].label})…`
-            : 'Adatfolyam vizsgálata és indítása…',
-        });
-      }
+      // Normál csatorna-/VOD-indításkor nincs TV Doktor-állapotablak.
+      // Az állapotablak kizárólag tényleges hibánál vagy beavatkozásnál jelenik meg.
       // ZAP-ŐR: ha az élő adás nem indul el időben (a HLS-próba csak "lóg",
       // se hiba, se kép), nem várunk a végtelenségig pörgő töltésre -
       // automatikusan a következő formátumra (MPEG-TS) váltunk.
@@ -5510,11 +5475,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         docState.verifyTimer = null;
                         if (
                           verifyGen !== streamLoadGenerationRef.current ||
-                          verifyVideo !== htmlVideoRef.current ||
-                          verifyVideo.paused ||
-                          verifyVideo.ended ||
-                          Boolean(verifyVideo.error)
+                          verifyVideo !== htmlVideoRef.current
                         ) {
+                          return;
+                        }
+                        if (verifyVideo.paused || verifyVideo.ended || Boolean(verifyVideo.error)) {
+                          docState.repairInFlight = false;
+                          scheduleClearDoctorStatus(0);
                           return;
                         }
                         if (measuredStartupMs !== null) {
@@ -5576,11 +5543,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     docState.verifyTimer = null;
                     if (
                       verifyGen !== streamLoadGenerationRef.current ||
-                      verifyVideo !== htmlVideoRef.current ||
-                      verifyVideo.paused ||
-                      verifyVideo.ended ||
-                      Boolean(verifyVideo.error)
+                      verifyVideo !== htmlVideoRef.current
                     ) {
+                      return;
+                    }
+                    if (verifyVideo.paused || verifyVideo.ended || Boolean(verifyVideo.error)) {
+                      docState.repairInFlight = false;
+                      scheduleClearDoctorStatus(0);
                       return;
                     }
                     docState.vodStartupRecorded = true;
