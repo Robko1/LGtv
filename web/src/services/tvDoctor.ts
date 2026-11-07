@@ -972,6 +972,11 @@ type CloudEventHook = (payload: {
 }) => void;
 
 let cloudHook: CloudEventHook | null = null;
+let baselineCloudHook: (() => void) | null = null;
+
+export function setTvDoctorBaselineCloudHook(hook: (() => void) | null): void {
+  baselineCloudHook = hook;
+}
 
 export function setTvDoctorCloudHook(hook: CloudEventHook | null): void {
   cloudHook = hook;
@@ -1223,6 +1228,7 @@ export function recordDoctorBaseline(params: {
   store[key] = baseline;
   try {
     target.setItem(TV_DOCTOR_BASELINE_STORAGE_KEY, JSON.stringify(store));
+    baselineCloudHook?.();
     return baseline;
   } catch {
     return null;
