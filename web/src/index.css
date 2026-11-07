@@ -721,7 +721,7 @@ body [data-track-panel="vod"] button[data-track-option][data-vod-menu-selected="
 [data-system-settings] [role="switch"][aria-checked="false"]:focus-visible {
   background-color: #334155 !important;
 }
-[data-system-settings] button[class*="bg-\\[\\#0e1f3f\\]"]:focus,
-[data-system-settings] button[class*="bg-\\[\\#0e1f3f\\]"]:focus-visible {
+[data-system-settings] button[class*="bg-[#0e1f3f]"]:focus,
+[data-system-settings] button[class*="bg-[#0e1f3f]"]:focus-visible {
   background-color: #0e1f3f !important;
 }
