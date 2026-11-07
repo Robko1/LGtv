@@ -5730,7 +5730,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       wasRepair: false,
                     });
                     scheduleClearDoctorStatus(650);
-                  } else {
+                  } else if (doctorStatus && doctorStatusHideTimerRef.current === null) {
+                    // Az ismétlődő webOS „playing” események nem tolhatják
+                    // folyamatosan későbbre a már beállított státusztörlést.
                     scheduleClearDoctorStatus(450);
                   }
                 }
