@@ -3,6 +3,7 @@ import { AudioTrack, Channel, AppSettings, SubtitleTrack } from '../types/iptv';
 import {
   appLog,
   appLogCritical,
+  registerLoggingLifecycleHooks,
   tvDoctorLog,
   isVerbosePlaybackLogging,
   logPlaybackQuality,
@@ -1395,7 +1396,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const can = (type: string): string => {
         try { return probeVideo.canPlayType(type) || 'nem'; } catch { return 'ismeretlen'; }
       };
-      const dpr = Number(window.devicePixelRatio) || 1;
       const gamut = (() => {
         try {
           if (window.matchMedia('(color-gamut: p3)').matches) return 'P3';
@@ -1404,7 +1404,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return 'ismeretlen';
       })();
       logPlaybackQualityEvent(
-        `KÉPESSÉG; TV=${tvDeviceText()}; képernyő=${window.screen?.width || 0}x${window.screen?.height || 0} CSS px; DPR=${dpr} (fizikai panel≈${Math.round((window.screen?.width || 0) * dpr)}x${Math.round((window.screen?.height || 0) * dpr)}); ` +
+        `KÉPESSÉG; TV=${tvDeviceText()}; ablak=${window.innerWidth}x${window.innerHeight} CSS px; ` +
         `ablak=${window.innerWidth}x${window.innerHeight}; színtér=${gamut}; panel HDR=${hdrPanelSupported() === true ? 'igen (dynamic-range: high)' : hdrPanelSupported() === false ? 'nem jelzett' : 'a motor nem árulja el'}; ` +
         `canPlayType: H264="${can('video/mp4; codecs="avc1.640033"')}", HEVC="${can('video/mp4; codecs="hvc1.2.4.L150.B0"')}", VP9="${can('video/webm; codecs="vp09.00.51.08"')}", AV1="${can('video/mp4; codecs="av01.0.31M.10"')}", HLS="${can('application/vnd.apple.mpegurl')}", TS="${can('video/mp2t')}".`
       );
@@ -1558,9 +1558,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     state.detach();
   }, []);
 
-  // A meglévő képminőségi diagnosztika nincs elindítva a sebességtesztben.
-  void startQualitySampler;
-  void stopQualitySampler;
+  // A képminőség-mérés kizárólag a kézi napló életciklusához kapcsolódik.
+  // A normál lejátszás és csatornaváltás alatt nem fut.
+  useEffect(() => registerLoggingLifecycleHooks({
+    onStart: startQualitySampler,
+    onStop: stopQualitySampler,
+  }), [startQualitySampler, stopQualitySampler]);
   // Hibaképernyőn a sárga kijelölés automatikusan az Újrapróbálás gombra
   // ugrik - eddig távirányítóval nem lehetett elérni (a gomb hiányzott).
   const retryButtonRef = useRef<HTMLButtonElement | null>(null);
