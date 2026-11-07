@@ -697,3 +697,31 @@ body [data-track-panel="vod"] button[data-track-option][data-vod-menu-selected="
   border-color: #22d3ee !important;
   color: #ffffff !important;
 }
+
+
+/* Rendszer menü fókusz: a kijelölt doboz és a belső vezérlők eredeti
+   kék/szürke kitöltése maradjon látható; a fókuszt csak a sárga körvonal jelzi. */
+[data-system-settings] [data-tv-box]:focus,
+[data-system-settings] [data-tv-box]:focus-visible {
+  background-color: #0e1d3b !important;
+}
+[data-system-settings] [data-system-app-container]:focus,
+[data-system-settings] [data-system-app-container]:focus-visible {
+  background-color: #0a1630 !important;
+}
+[data-system-settings] button[class*="bg-cyan-400"]:focus,
+[data-system-settings] button[class*="bg-cyan-400"]:focus-visible,
+[data-system-settings] [role="switch"][aria-checked="true"]:focus,
+[data-system-settings] [role="switch"][aria-checked="true"]:focus-visible {
+  background-color: #22d3ee !important;
+}
+[data-system-settings] button[class*="bg-slate-700"]:focus,
+[data-system-settings] button[class*="bg-slate-700"]:focus-visible,
+[data-system-settings] [role="switch"][aria-checked="false"]:focus,
+[data-system-settings] [role="switch"][aria-checked="false"]:focus-visible {
+  background-color: #334155 !important;
+}
+[data-system-settings] button[class*="bg-\\[\\#0e1f3f\\]"]:focus,
+[data-system-settings] button[class*="bg-\\[\\#0e1f3f\\]"]:focus-visible {
+  background-color: #0e1f3f !important;
+}
