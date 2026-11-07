@@ -373,11 +373,19 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       })()
     : 'Még nem történt szinkron';
 
-  const orderedLogs = [...doctorSummary.recentLogs].reverse();
+  const activeChannelRecord = activeChannel ? getChannelDoctorRecord(activeChannel) : null;
+  const activeChannelKey = activeChannelRecord?.channelKey || '';
+  const activeChannelId = activeChannel?.id ? String(activeChannel.id) : '';
+  const orderedLogs = [...doctorSummary.recentLogs]
+    .filter((entry) => Boolean(activeChannel) && (
+      (Boolean(activeChannelKey) && entry.channelKey === activeChannelKey) ||
+      (Boolean(activeChannelId) && String(entry.channelId || '') === activeChannelId)
+    ))
+    .reverse();
   const activeChannelHandled = Boolean(activeChannel && tvDoctorEnabled && isChannelHandledByDoctor(activeChannel));
   const activeRoutes = cloudRoutes || [];
 
-  // Mind a négy kategóriában legfeljebb 8 bejegyzés jelenik meg; a javítások a legjobb eredmény szerint rendezve.
+  // A négy kártya kizárólag a jelenleg megnyitott csatorna saját naplóbejegyzéseit mutatja.
   const logsByCategory: Record<DoctorEventCategory, DoctorLogEntry[]> = {
     learning: [],
     assistance: [],
@@ -752,12 +760,11 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
 
   const renderCategoryBox = (cat: DoctorEventCategory, fullWidth: boolean) => {
     const vis = CATEGORY_BY_ID[cat];
-    const stat = categoryStats[cat];
-    const active = stat.count > 0;
+    const logs = displayLogsByCategory[cat];
+    const active = logs.length > 0;
     const IconComp = vis.Icon;
     const isExpanded = largeCat === cat; // overlay open state
-    const logs = displayLogsByCategory[cat];
-    const totalForBadge = stat.count; // persisted count
+    const totalForBadge = logs.length;
     const showingText = cat === 'learning' ? `${logs.length} db` : `${logs.length} / 8 db`;
     return (
       <div
