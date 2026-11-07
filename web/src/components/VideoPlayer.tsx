@@ -5568,52 +5568,54 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     const measuredStartupMs = diag
                       ? Math.max(20, Date.now() - diag.attemptStartedAt)
                       : null;
-                    const verifyGen = streamLoadGenerationRef.current;
-                    const verifyVideo = event.currentTarget;
-                    if (docState.verifyTimer !== null) {
-                      window.clearTimeout(docState.verifyTimer);
-                      docState.verifyTimer = null;
-                    }
                     if (docState.repairInFlight) {
-                      const verifiedProfile = docState.activeBufferProfile;
-                      showDoctorStatus({
-                        phase: 'verifying',
-                        title: 'Javítás ellenőrzése',
-                        detail: 'Stabil adás visszaigazolása…',
-                      });
-                      docState.verifyTimer = window.setTimeout(() => {
-                        docState.verifyTimer = null;
-                        if (
-                          verifyGen !== streamLoadGenerationRef.current ||
-                          verifyVideo !== htmlVideoRef.current
-                        ) {
-                          // A régi ellenőrzés érvényét vesztette. Ne hagyjuk
-                          // aktívan a javításjelzőt, mert a következő playing
-                          // esemény újra és újra megjelenítené a státuszt.
+                      // A webOS többször is küldhet „playing” eseményt ugyanarra
+                      // a folyamatos lejátszásra. Az ellenőrzést csak egyszer indítjuk,
+                      // nem indítjuk újra minden eseménynél.
+                      if (docState.verifyTimer === null) {
+                        const verifiedProfile = docState.activeBufferProfile;
+                        const verifyGen = streamLoadGenerationRef.current;
+                        const verifyVideo = event.currentTarget;
+                        showDoctorStatus({
+                          phase: 'verifying',
+                          title: 'Javítás ellenőrzése',
+                          detail: 'Stabil adás visszaigazolása…',
+                        });
+                        docState.verifyTimer = window.setTimeout(() => {
+                          docState.verifyTimer = null;
+                          if (
+                            verifyGen !== streamLoadGenerationRef.current ||
+                            verifyVideo !== htmlVideoRef.current
+                          ) {
+                            docState.repairInFlight = false;
+                            docState.repairStep = 0;
+                            scheduleClearDoctorStatus(0);
+                            return;
+                          }
+                          if (verifyVideo.paused || verifyVideo.ended || Boolean(verifyVideo.error)) {
+                            docState.repairInFlight = false;
+                            scheduleClearDoctorStatus(0);
+                            return;
+                          }
+                          if (measuredStartupMs !== null) {
+                            recordDoctorChannelSuccess({
+                              channel: target,
+                              format,
+                              bufferProfile: verifiedProfile,
+                              startupMs: measuredStartupMs,
+                              wasRepair: true,
+                            });
+                          }
                           docState.repairInFlight = false;
                           docState.repairStep = 0;
-                          scheduleClearDoctorStatus(0);
-                          return;
-                        }
-                        if (verifyVideo.paused || verifyVideo.ended || Boolean(verifyVideo.error)) {
-                          docState.repairInFlight = false;
-                          scheduleClearDoctorStatus(0);
-                          return;
-                        }
-                        if (measuredStartupMs !== null) {
-                          recordDoctorChannelSuccess({
-                            channel: target,
-                            format,
-                            bufferProfile: verifiedProfile,
-                            startupMs: measuredStartupMs,
-                            wasRepair: true,
-                          });
-                        }
-                        docState.repairInFlight = false;
-                        docState.repairStep = 0;
-                        scheduleClearDoctorStatus(350);
-                      }, DOCTOR_VERIFY_STABLE_MS);
+                          scheduleClearDoctorStatus(350);
+                        }, DOCTOR_VERIFY_STABLE_MS);
+                      }
                     } else {
+                      if (docState.verifyTimer !== null) {
+                        window.clearTimeout(docState.verifyTimer);
+                        docState.verifyTimer = null;
+                      }
                       if (measuredStartupMs !== null) {
                         recordDoctorChannelSuccess({
                           channel: target,
@@ -5642,58 +5644,63 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 const measuredVodStartupMs = docState.vodLoadStartedAt > 0
                   ? Math.max(25, Date.now() - docState.vodLoadStartedAt)
                   : 300;
-                const verifyGen = streamLoadGenerationRef.current;
-                const verifyVideo = event.currentTarget;
-                if (docState.verifyTimer !== null) {
-                  window.clearTimeout(docState.verifyTimer);
-                  docState.verifyTimer = null;
-                }
                 if (docState.repairInFlight) {
-                  const verifiedProfile = docState.activeBufferProfile;
-                  showDoctorStatus({
-                    phase: 'verifying',
-                    title: 'VOD javítás ellenőrzése',
-                    detail: 'Folyamatos lejátszás visszaigazolása…',
-                  });
-                  docState.verifyTimer = window.setTimeout(() => {
-                    docState.verifyTimer = null;
-                    if (
-                      verifyGen !== streamLoadGenerationRef.current ||
-                      verifyVideo !== htmlVideoRef.current
-                    ) {
-                      // A régi VOD-ellenőrzés már nem ehhez az adatfolyamhoz tartozik.
+                  // A VOD „playing” esemény ismétlődése sem indíthatja újra
+                  // a már futó stabilitás-ellenőrzés időzítőjét.
+                  if (docState.verifyTimer === null) {
+                    const verifiedProfile = docState.activeBufferProfile;
+                    const verifyGen = streamLoadGenerationRef.current;
+                    const verifyVideo = event.currentTarget;
+                    showDoctorStatus({
+                      phase: 'verifying',
+                      title: 'VOD javítás ellenőrzése',
+                      detail: 'Folyamatos lejátszás visszaigazolása…',
+                    });
+                    docState.verifyTimer = window.setTimeout(() => {
+                      docState.verifyTimer = null;
+                      if (
+                        verifyGen !== streamLoadGenerationRef.current ||
+                        verifyVideo !== htmlVideoRef.current
+                      ) {
+                        docState.repairInFlight = false;
+                        docState.repairStep = 0;
+                        scheduleClearDoctorStatus(0);
+                        return;
+                      }
+                      if (verifyVideo.paused || verifyVideo.ended || Boolean(verifyVideo.error)) {
+                        docState.repairInFlight = false;
+                        scheduleClearDoctorStatus(0);
+                        return;
+                      }
+                      docState.vodStartupRecorded = true;
+                      recordDoctorVodSuccess({
+                        target: vodTarget,
+                        bufferProfile: verifiedProfile,
+                        startupMs: measuredVodStartupMs,
+                        wasRepair: true,
+                      });
                       docState.repairInFlight = false;
                       docState.repairStep = 0;
-                      scheduleClearDoctorStatus(0);
-                      return;
-                    }
-                    if (verifyVideo.paused || verifyVideo.ended || Boolean(verifyVideo.error)) {
-                      docState.repairInFlight = false;
-                      scheduleClearDoctorStatus(0);
-                      return;
-                    }
+                      scheduleClearDoctorStatus(350);
+                    }, DOCTOR_VOD_VERIFY_STABLE_MS);
+                  }
+                } else {
+                  if (docState.verifyTimer !== null) {
+                    window.clearTimeout(docState.verifyTimer);
+                    docState.verifyTimer = null;
+                  }
+                  if (!docState.vodStartupRecorded) {
                     docState.vodStartupRecorded = true;
                     recordDoctorVodSuccess({
                       target: vodTarget,
-                      bufferProfile: verifiedProfile,
+                      bufferProfile: docState.activeBufferProfile,
                       startupMs: measuredVodStartupMs,
-                      wasRepair: true,
+                      wasRepair: false,
                     });
-                    docState.repairInFlight = false;
-                    docState.repairStep = 0;
-                    scheduleClearDoctorStatus(350);
-                  }, DOCTOR_VOD_VERIFY_STABLE_MS);
-                } else if (!docState.vodStartupRecorded) {
-                  docState.vodStartupRecorded = true;
-                  recordDoctorVodSuccess({
-                    target: vodTarget,
-                    bufferProfile: docState.activeBufferProfile,
-                    startupMs: measuredVodStartupMs,
-                    wasRepair: false,
-                  });
-                  scheduleClearDoctorStatus(650);
-                } else {
-                  scheduleClearDoctorStatus(450);
+                    scheduleClearDoctorStatus(650);
+                  } else {
+                    scheduleClearDoctorStatus(450);
+                  }
                 }
               }
               clearZapWatchdog();
