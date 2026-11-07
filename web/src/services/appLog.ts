@@ -140,19 +140,12 @@ let stampFormatter: Intl.DateTimeFormat | null = null;
 function localFormatter(): Intl.DateTimeFormat {
   if (!stampFormatter) {
     /*
-     * 2.5.239: a napló a TV SAJÁT időzónájában ír (nincs beégetett zóna).
-     * Korábban fixen Europe/Dublin volt, ezért a magyar TV-n minden
-     * időbélyeg 1 órával korábbinak látszott a falióránál.
-     *
-     * 2.5.273 (#5-ös napló): ennél a TV-nél a rendszer-időzóna +01:00-t ad
-     * vissza, miközben a falióra Europe/Dublin (téli időben GMT, +00:00) –
-     * ezért a napló minden sora 1 órával KÉSŐBBinek látszott (00:25 helyett
-     * 23:29 volt a valódi idő). Mivel a készülék Dublinban jár, az időbélyegek
-     * újra fixen Europe/Dublin időzónában készülnek (a nyári időt az Intl
-     * automatikusan +01:00-ra váltja).
+     * Minden időpont ugyanazt a helyi időzónát használja, mint a főoldali
+     * Header óra és a teljes képernyős óra (new Date().getHours()).
+     * Nem rögzítünk Dublin/Budapest időzónát: a TV rendszerének helyi
+     * időzónája és nyári/téli időszámítása az egyetlen közös forrás.
      */
     stampFormatter = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Europe/Dublin',
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hourCycle: 'h23',
