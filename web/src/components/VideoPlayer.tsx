@@ -1901,6 +1901,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       // A kimerülés utáni biztonságos visszatérés új javítási kört kezd.
       docState.repairStep = proposal.step;
+      if (proposal.strategyId.endsWith('_retry_after_exhaustion')) {
+        // Az előző kör próbái ne zárják ki a formátumokat az új körből.
+        docState.triedFormats = [];
+      }
       docState.activeBufferProfile = proposal.nextBufferProfile;
       docState.activeBufferTiming = proposal.nextBufferTiming;
       docState.fallbackUrlOverride = proposal.useFallbackUrl ? proposal.nextUrl : null;
