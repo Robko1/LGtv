@@ -4547,7 +4547,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Ez megakadályozza, hogy a webOS a korábbi pufferelt szegmensből
       // játssza újra az utolsó 5–6 másodpercet. MPEG-TS-nél nincs seekelhető
       // idővonal; ott a szerver aktuális élő adatfolyamát folytatjuk.
-      if (recoverRunningLive) {
+      if (recoverRunningLive && formatOfUrl(url) === 'hls') {
         let liveEdgeHandled = false;
         const jumpToLiveEdge = () => {
           if (liveEdgeHandled || !isCurrentLoad() || video !== htmlVideoRef.current) return;
@@ -4555,10 +4555,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (!ranges || ranges.length < 1) return;
           try {
             const edge = ranges.end(ranges.length - 1);
+            const previousPosition = video.currentTime;
             const target = Math.max(ranges.start(ranges.length - 1), edge - 0.75);
-            if (Number.isFinite(target) && target > 0 && video.currentTime < target - 1.5) {
+            if (Number.isFinite(target) && target > 0 && previousPosition < target - 1.5) {
               video.currentTime = target;
-              appLog(`ÉLŐ HELYREÁLLÍTÁS: ugrás a HLS élő ablak végére; régi-pozíció=${video.currentTime.toFixed(2)} s; élő-él=${target.toFixed(2)} s.`);
+              appLog(`ÉLŐ HELYREÁLLÍTÁS: ugrás a HLS élő ablak végére; régi-pozíció=${previousPosition.toFixed(2)} s; élő-él=${target.toFixed(2)} s.`);
             }
             liveEdgeHandled = true;
             video.removeEventListener('loadedmetadata', jumpToLiveEdge);
