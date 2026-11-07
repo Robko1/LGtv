@@ -7,6 +7,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
+    version: '2.5.377',
+    date: '2026-11-07',
+    changes: [
+      'JAVÍTÁS (HANGSÁV MENTÉSE) — A MENTÉS eddig mindig az 1. (alap) hangsávot tárolta, mert a fejlécig felnyilazva a kurzor visszaállt az első sorra. Mostantól a MENTÉS azt a sávot menti, amelyet a néző kiválasztott – a gombon látszik is a mentendő sáv neve.',
+      'JAVÍTÁS (VISSZAÁLLÍTÁS) — A mentett hangsáv visszaállítása azonos vagy üres sávcímkék mellett is a helyes sávot találja meg (a mentett listahely alapján), így nem az első sáv indul újra.',
+      'JAVÍTÁS (MEGNYITÁS) — Az ablak a legutóbb kiválasztott hangsávnál nyílik, nem ugrik vissza az első sorra.',
+    ],
+  },
+  {
     version: '2.5.376',
     date: '2026-11-07',
     changes: [

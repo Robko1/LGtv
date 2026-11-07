@@ -26,7 +26,7 @@ const subtitles: SubtitleTrack[] = [
 
 const calls: { saved: string[]; closed: number } = { saved: [], closed: 0 };
 
-function Harness() {
+function Harness({ activeAudioTrackId }: { activeAudioTrackId?: string }) {
   const [open, setOpen] = useState(true);
   return (
     <AudioSubtitlesModal
@@ -40,7 +40,7 @@ function Harness() {
       onSelectAudioTrack={() => {}}
       onSelectSubtitleTrack={() => {}}
       onSaveAudioTrack={(track) => { calls.saved.push(String(track.id)); return true; }}
-      savedAudioLabel="Magyar"
+      activeAudioTrackId={activeAudioTrackId}
     />
   );
 }
@@ -57,11 +57,11 @@ window.audioMemTest = {
   clearAudioMemory,
   normalizeAudioLang,
   savedAudioLabel,
-  show() {
+  show(activeAudioTrackId?: string) {
     calls.saved.length = 0;
     calls.closed = 0;
     generation++;
-    root.render(<Harness key={generation} />);
+    root.render(<Harness key={generation} activeAudioTrackId={activeAudioTrackId} />);
   },
   unmount() { root.unmount(); },
 };

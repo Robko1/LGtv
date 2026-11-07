@@ -22,13 +22,19 @@ interface AudioSubtitlesModalProps {
    * (film/sorozat választó) az ablak változatlan marad.
    */
   onSaveAudioTrack?: (track: AudioTrack) => boolean | void;
-  /** A csatornához már mentett hangsáv rövid címkéje (a gomb alatt jelenik meg). */
-  savedAudioLabel?: string;
+  /**
+   * Az adáson LEGUTÓBB kiválasztott hangsáv azonosítója.
+   *
+   * A TV nem minden esetben jelöli meg a listában, melyik sáv fut, ezért az
+   * App megjegyzi a felhasználó választását: az ablak ezzel a sávval nyílik
+   * (a mentés célpontja is ez lesz), nem az első sorral.
+   */
+  activeAudioTrackId?: string;
 }
 
 type LiveAudioCcSelectorProps = Pick<AudioSubtitlesModalProps,
   'isOpen' | 'onClose' | 'audioTracks' | 'onSelectAudioTrack' | 'subtitleTracks' | 'onSelectSubtitleTrack'
-  | 'onSaveAudioTrack' | 'savedAudioLabel'
+  | 'onSaveAudioTrack' | 'activeAudioTrackId'
 > & { preferOffWhenUnselected?: boolean };
 
 /** A logikai TV-kijelölés kövesse a kisebb, görgethető listát is. */
@@ -45,7 +51,7 @@ function revealFocusedTrack(panel: HTMLElement | null): void {
 /** Élő TV: egyetlen, kétoszlopos távirányítós hangsáv- és CC-választó. */
 export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
   isOpen, onClose, audioTracks = [], onSelectAudioTrack, subtitleTracks = [], onSelectSubtitleTrack, preferOffWhenUnselected = false,
-  onSaveAudioTrack, savedAudioLabel,
+  onSaveAudioTrack, activeAudioTrackId,
 }) => {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [column, setColumn] = React.useState<'audio' | 'subtitle'>('audio');
@@ -54,18 +60,55 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
   const [pendingAudioId, setPendingAudioId] = React.useState<string | null>(null);
   const [pendingSubtitleId, setPendingSubtitleId] = React.useState<string | null>(null);
   /*
-   * MENTÉS gomb (2.5.376): csak élő TV-n, csak akkor jelenik meg, ha a hívó
-   * tudja, melyik csatornához kell menteni. A távirányítóval a hangsáv-lista
-   * legtetejéről FEL nyíllal érhető el, ENTER pedig menti a kijelölt sávot.
+   * MENTÉS gomb: csak élő TV-n, csak akkor jelenik meg, ha a hívó tudja,
+   * melyik csatornához kell menteni. A távirányítóval a hangsáv-lista
+   * legtetejéről FEL nyíllal érhető el, ENTER pedig menti a kiválasztott sávot.
+   *
+   * FONTOS (2.5.377): a MENTÉS NEM a kurzor sorát menti, hanem azt a sávot,
+   * amelyen a néző megállt. A fejlécig felnyilazva ugyanis a kurzor
+   * óhatatlanul átfut a felső sorokon – korábban ezért mentődött mindig az
+   * 1. (alap) hangsáv, akármelyik sávot választotta a néző.
    */
   const [focusZone, setFocusZone] = React.useState<'list' | 'save'>('list');
   const [saveState, setSaveState] = React.useState<'idle' | 'saved' | 'error'>('idle');
+  /** A MENTÉS célpontja: az a hangsáv, amelyen a néző megállt („elidőzött”). */
+  const [saveTargetId, setSaveTargetId] = React.useState<string>('');
+  /**
+   * A felfelé navigálás kezdete (2.5.377).
+   *
+   * A néző levisz a kurzort a kívánt sávra, majd FEL nyíllal felmegy a
+   * fejléc MENTÉS gombjára. Eközben a kurzor átfut a felső sorokon – a
+   * mentés célpontja viszont az marad, ahonnan a felfelé lépkedés indult.
+   */
+  const upRunRef = React.useRef<{ startId: string; lastAt: number } | null>(null);
   const canSaveAudio = typeof onSaveAudioTrack === 'function';
   const subtitleItems = React.useMemo<Array<SubtitleTrack | null>>(() => [...subtitleTracks, null], [subtitleTracks]);
 
+  /**
+   * A megnyitáskor kijelölendő hangsáv: az App által megjegyzett utolsó
+   * választás, különben a TV által aktívnak jelölt sáv, különben az első.
+   * (A TV nem minden adásnál jelöli meg, melyik sáv fut.)
+   */
+  const preferredAudioId = React.useCallback((): string => {
+    if (activeAudioTrackId && audioTracks.some((track) => String(track.id) === String(activeAudioTrackId))) {
+      return String(activeAudioTrackId);
+    }
+    return String(audioTracks.find((track) => track.selected)?.id ?? audioTracks[0]?.id ?? '');
+  }, [activeAudioTrackId, audioTracks]);
+
+  /** A kiválasztott (mentendő) sáv: a megállt sor, különben az aktív sáv. */
+  const resolveSaveTarget = React.useCallback((): AudioTrack | null => {
+    return audioTracks.find((item) => String(item.id) === saveTargetId)
+      || audioTracks.find((item) => item.selected)
+      || audioTracks[0]
+      || null;
+  }, [audioTracks, saveTargetId]);
+
+  const saveTargetTrack = React.useMemo(() => resolveSaveTarget(), [resolveSaveTarget]);
+
   const saveCurrentAudio = React.useCallback(() => {
     if (!canSaveAudio) return;
-    const track = audioTracks.find((item) => String(item.id) === audioId) || audioTracks.find((item) => item.selected);
+    const track = resolveSaveTarget();
     if (!track) { setSaveState('error'); return; }
     let result: boolean | void = undefined;
     try {
@@ -74,7 +117,7 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
       result = false;
     }
     setSaveState(result === false ? 'error' : 'saved');
-  }, [canSaveAudio, audioTracks, audioId, onSaveAudioTrack]);
+  }, [canSaveAudio, resolveSaveTarget, onSaveAudioTrack]);
 
   React.useEffect(() => {
     if (!isOpen) {
@@ -82,11 +125,14 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
       setPendingSubtitleId(null);
       return;
     }
-    setAudioId(String(audioTracks.find((track) => track.selected)?.id ?? audioTracks[0]?.id ?? ''));
+    const initialAudioId = preferredAudioId();
+    setAudioId(initialAudioId);
+    setSaveTargetId(initialAudioId);
     setSubtitleId(String(subtitleTracks.find((track) => track.selected)?.id ?? (!preferOffWhenUnselected && subtitleTracks.length ? subtitleTracks[0].id : 'off')));
     setColumn('audio');
     setFocusZone('list');
     setSaveState('idle');
+    upRunRef.current = null;
   // A listák gyakran új tömbként érkeznek újrarendereléskor. Ne állítsuk
   // ilyenkor vissza a távirányító kijelölését az első sávra.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -95,8 +141,32 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
   React.useEffect(() => {
     if (!isOpen) return;
     if (audioId && audioTracks.some((track) => String(track.id) === audioId)) return;
-    if (audioTracks.length) setAudioId(String(audioTracks.find((track) => track.selected)?.id ?? audioTracks[0].id));
-  }, [isOpen, audioId, audioTracks]);
+    if (audioTracks.length) setAudioId(preferredAudioId());
+  }, [isOpen, audioId, audioTracks, preferredAudioId]);
+
+  /*
+   * A MENTÉS célpontja akkor vált, amikor a néző MEGÁLL egy hangsávon
+   * (kb. 0,7 mp). A fejlécig felnyilazás közben a kurzor átfut a felső
+   * sorokon, a célpont viszont azon a sávon marad, amelyet kiválasztott –
+   * ezért menti a MENTÉS a 3. hangsávot is, nem az 1. (alap) sávot.
+   */
+  React.useEffect(() => {
+    if (!isOpen || focusZone !== 'list' || column !== 'audio' || !audioId) return;
+    const timer = window.setTimeout(() => setSaveTargetId(audioId), 700);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, focusZone, column, audioId]);
+
+  // Új célpont (másik hangsáv) után a gomb ismét MENTÉS-t mutat, nem MENTVE-t.
+  React.useEffect(() => {
+    setSaveState('idle');
+  }, [saveTargetId]);
+
+  // Ha a sávlista közben megváltozik, a célpont ne mutasson nem létező sávra.
+  React.useEffect(() => {
+    if (!isOpen) return;
+    if (saveTargetId && audioTracks.some((track) => String(track.id) === saveTargetId)) return;
+    setSaveTargetId(preferredAudioId());
+  }, [isOpen, saveTargetId, audioTracks, preferredAudioId]);
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -125,7 +195,7 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
       if (focusZone === 'save') {
         // A MENTÉS gomb fókuszáról LE/OLDALRA visszatérünk a hangsáv-listára.
         if (key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
-          event.preventDefault(); event.stopPropagation(); setFocusZone('list'); return;
+          event.preventDefault(); event.stopPropagation(); upRunRef.current = null; setFocusZone('list'); return;
         }
         if (key === 'Enter' || key === ' ') {
           event.preventDefault(); event.stopPropagation(); saveCurrentAudio(); return;
@@ -139,7 +209,14 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
         // A hangsáv-lista legtetejéről FEL nyíllal a fejléc MENTÉS gombjára lépünk.
         const currentIndex = audioTracks.findIndex((track) => String(track.id) === audioId);
         if (currentIndex <= 0) {
-          event.preventDefault(); event.stopPropagation(); setFocusZone('save'); return;
+          event.preventDefault(); event.stopPropagation();
+          // A felfelé lépkedés kiinduló sávja a mentés célpontja (pl. a 3. sáv).
+          const run = upRunRef.current;
+          if (run && Date.now() - run.lastAt <= 1500 && audioTracks.some((track) => String(track.id) === run.startId)) {
+            setSaveTargetId(run.startId);
+          }
+          setFocusZone('save');
+          return;
         }
       }
       if (key === 'ArrowUp' || key === 'ArrowDown') {
@@ -149,6 +226,17 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
         if (column === 'audio') {
           const index = audioTracks.findIndex((track) => String(track.id) === audioId);
           const next = key === 'ArrowDown' ? Math.min(audioTracks.length - 1, Math.max(0, index) + 1) : Math.max(0, (index < 0 ? 0 : index) - 1);
+          if (key === 'ArrowUp') {
+            // Felfelé lépkedés: az első lépés sávja a „honnan indultunk”.
+            const run = upRunRef.current;
+            if (!run || Date.now() - run.lastAt > 1500) {
+              upRunRef.current = { startId: String(audioTracks[Math.max(0, index)]?.id ?? audioId), lastAt: Date.now() };
+            } else {
+              run.lastAt = Date.now();
+            }
+          } else {
+            upRunRef.current = null;
+          }
           setAudioId(String(audioTracks[next].id));
         } else {
           const index = subtitleItems.findIndex((track) => String(track?.id ?? 'off') === subtitleId);
@@ -162,6 +250,7 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
         if (column === 'audio') {
           const track = audioTracks.find((item) => String(item.id) === audioId);
           if (!track) return;
+          setSaveTargetId(String(track.id));
           setPendingAudioId(String(track.id)); onSelectAudioTrack?.(track);
           if (track.selected) { setPendingAudioId(null); onClose(); }
         } else {
@@ -214,8 +303,10 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
                 ? <CircleCheck className="w-4 h-4 stroke-[2.5]" />
                 : <Save className="w-4 h-4 stroke-[2.5]" />}
               <span>{saveState === 'saved' ? 'MENTVE' : saveState === 'error' ? 'NINCS SÁV' : 'MENTÉS'}</span>
-              {savedAudioLabel && saveState !== 'saved' && (
-                <span data-saved-audio-label="" className="max-w-[9rem] truncate text-[10px] font-bold text-cyan-300/80">{savedAudioLabel}</span>
+              {saveTargetTrack && (
+                <span data-save-target-label="" className="max-w-[10rem] truncate text-[10px] font-bold text-cyan-300/80">
+                  {trackLabel(saveTargetTrack.name, saveTargetTrack.lang)}
+                </span>
               )}
             </button>
           )}
@@ -224,7 +315,7 @@ export const LiveAudioCcSelector: React.FC<LiveAudioCcSelectorProps> = ({
           <section data-track-column="" className={panel}><h3 className="text-sm font-black text-rose-400 uppercase tracking-wider flex items-center justify-center gap-1.5 text-center"><Mic2 className="w-4 h-4" />HANGSÁV</h3>
             <div data-track-list="" className="overflow-y-auto min-h-0 space-y-1.5">
               {audioTracks.length === 0 && <p className="rounded-xl border border-slate-700 bg-[#0a152d] p-3 text-xs text-slate-400">Nincs jelzett választható hangsáv.</p>}
-              {audioTracks.map((track) => { const id = String(track.id); const selected = track.selected === true; return <button key={id} data-track-option="" data-track-focused={column === 'audio' && audioId === id ? '1' : undefined} onClick={() => { setFocusZone('list'); setColumn('audio'); setAudioId(id); setPendingAudioId(id); onSelectAudioTrack?.(track); if (selected) { setPendingAudioId(null); onClose(); } }} className={rowClass(column === 'audio' && audioId === id, selected)} aria-pressed={selected}>
+              {audioTracks.map((track) => { const id = String(track.id); const selected = track.selected === true; return <button key={id} data-track-option="" data-track-focused={column === 'audio' && audioId === id ? '1' : undefined} onClick={() => { setFocusZone('list'); setColumn('audio'); setAudioId(id); setSaveTargetId(id); setPendingAudioId(id); onSelectAudioTrack?.(track); if (selected) { setPendingAudioId(null); onClose(); } }} data-save-target={saveTargetId === id ? '1' : undefined} className={`${rowClass(column === 'audio' && audioId === id, selected)}${saveTargetId === id && focusZone === 'save' ? ' ring-2 ring-emerald-400/80' : ''}`} aria-pressed={selected}>
                 <span data-track-content="" className="min-w-0 flex-1 text-center break-words"><span data-track-title="">{trackLabel(track.name, track.lang)}</span></span>
                 {selected && <span data-track-check="" className="w-6 h-6 shrink-0 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center"><Check className="w-4 h-4 stroke-[3]" /></span>}
               </button>; })}
@@ -260,7 +351,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
   subtitleTracks = [],
   onSelectSubtitleTrack,
   onSaveAudioTrack,
-  savedAudioLabel,
+  activeAudioTrackId,
 }) => {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [pendingAudioTrackId, setPendingAudioTrackId] = React.useState<string | null>(null);
@@ -404,7 +495,7 @@ export const AudioSubtitlesModal: React.FC<AudioSubtitlesModalProps> = ({
   }, [isOpen, mode, focusedAudioTrackId, audioTracks]);
 
   if (!isOpen) return null;
-  if (mode === 'live') return <LiveAudioCcSelector isOpen={isOpen} onClose={onClose} audioTracks={audioTracks} onSelectAudioTrack={onSelectAudioTrack} subtitleTracks={subtitleTracks} onSelectSubtitleTrack={onSelectSubtitleTrack} onSaveAudioTrack={onSaveAudioTrack} savedAudioLabel={savedAudioLabel} />;
+  if (mode === 'live') return <LiveAudioCcSelector isOpen={isOpen} onClose={onClose} audioTracks={audioTracks} onSelectAudioTrack={onSelectAudioTrack} subtitleTracks={subtitleTracks} onSelectSubtitleTrack={onSelectSubtitleTrack} onSaveAudioTrack={onSaveAudioTrack} activeAudioTrackId={activeAudioTrackId} />;
 
   // Csak a lejátszó által ténylegesen felismert sávokat mutatjuk.
   // A korábbi „Magyar/Angol/Automatikus” tartaléklista csak a preferenciát
