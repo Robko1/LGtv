@@ -1247,7 +1247,7 @@ function isValidBufferProfile(value: unknown): value is DoctorBufferProfileId {
 }
 
 /* ============================================================================
- * 2.5.294: TANULT ÚTVONALAK (csatornánként max. 8) – a TV Doktor memóriája
+ * 2.5.294: TANULT ÚTVONALAK (külön 1-es alap + 7 tanult hely) – a TV Doktor memóriája
  * ============================================================================
  * A cél: NE csak visszaváltáskor javítson, hanem MINDEN adásból tanuljon, és
  * a csatorna saját, elmentett tapasztalatából indítson – a lehető leggyorsabb
@@ -1315,7 +1315,7 @@ export function sanitizeDoctorRoutes(raw: unknown): DoctorRoute[] {
 }
 
 /**
- * Sorrendezés + 8-as korlát. A „sosem sikerült” útvonalak mindig a lista aljára
+ * Sorrendezés + 7 tanult útvonalas korlát. A „sosem sikerült” útvonalak mindig a lista aljára
  * kerülnek, így hely szűkében először azok esnek ki.
  */
 export function rankDoctorRouteList(routes: DoctorRoute[], now = Date.now()): DoctorRoute[] {
@@ -1376,7 +1376,7 @@ export function learnedRouteCandidates(
     .filter((route) => route.ok > 0 && route.id !== excludeId);
 }
 
-/** Egy adás eredményének beírása a csatorna útvonal-táblájába (max. 8 sor). */
+/** Egy adás eredményének beírása a csatorna útvonal-táblájába (max. 7 tanult sor). */
 export function recordDoctorRouteOutcome(params: {
   record: ChannelDoctorRecord;
   /** Az 1-es vész-tartalék útvonalát nem duplikáljuk a 2–8. tanult helyen. */
@@ -1434,7 +1434,7 @@ export function recordDoctorRouteOutcome(params: {
 }
 
 /**
- * 2.5.294: a felhőbe küldhető, tömör útvonal-lista (max. 8 sor, csak a
+ * 2.5.294: a felhőbe küldhető, tömör útvonal-lista (max. 7 tanult sor, csak a
  * szükséges mezők – nincs benne stream URL, csatornanév vagy személyes adat).
  */
 export function compactDoctorRoutes(routes?: DoctorRoute[] | null): Array<{
@@ -1466,7 +1466,7 @@ export function compactDoctorRoutes(routes?: DoctorRoute[] | null): Array<{
  * 2.5.294: a Supabase memóriába feltölthető, tömör útvonal-csomag.
  *
  * Csak a magyar, élő csatornák tanult útvonalai kerülnek bele (a Mozi/Sorozat
- * és a külföldi csatornák soha), csatornánként legfeljebb 8 sor, és összesen
+ * és a külföldi csatornák soha), csatornánként legfeljebb 7 tanult sor, és összesen
  * legfeljebb 400 csatorna – így egy csomag a ~100 kB-os sávban marad.
  */
 export function collectDoctorRoutePayload(storage?: Storage | null): Array<{
@@ -1545,7 +1545,7 @@ export function isPersistableDoctorRecord(record?: { countryCode?: string; chann
  * 2.5.294: CSAK A SZÜKSÉGESET TÁROLJUK – automatikus újraírás/tisztítás
  * ============================================================================
  * A tárolt (és felhőbe küldött) kép csak a magyar csatornák rekordjait
- * tartalmazza, csatornánként legfeljebb 8 útvonallal és a legszükségesebb
+ * tartalmazza, csatornánként legfeljebb 7 tanult útvonallal és a legszükségesebb
  * számlálókkal. A régi, „minden országról tanult” mentéseket az első olvasás
  * automatikusan lecseréli a szűkített változatra – így hosszú távon sem
  * keletkezik felesleges adat.
@@ -3799,7 +3799,7 @@ export interface CloudChannelProfileInput {
   stallCount?: number;
   repairSuccessCount?: number;
   bufferScores?: Partial<Record<DoctorBufferProfileId, BufferProfileStats>>;
-  /* 2.5.294: a felhőből visszakapott tanult útvonalak (max. 8). */
+  /* 2.5.294: a felhőből visszakapott tanult útvonalak (max. 7 tanult hely). */
   routes?: unknown;
   confidenceScore?: number;
 }
@@ -3948,7 +3948,7 @@ export function mergeCloudProfilesIntoLocal(
 /**
  * 2.5.294: a Supabase felhő-memóriából visszaolvasott tanult útvonalak
  * összefésülése. Csak magyar, már ismert csatornákhoz írunk (a nem magyar és a
- * Mozi/Sorozat bejegyzések kimaradnak), csatornánként legfeljebb 8 útvonal
+ * Mozi/Sorozat bejegyzések kimaradnak), csatornánként legfeljebb 7 tanult útvonal
  * marad. A helyi mérés soha nem veszik el: a számlálók maximuma, az indulási
  * idők minimuma érvényesül.
  */
