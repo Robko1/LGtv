@@ -48,6 +48,7 @@ import {
   planVodDoctorRepairStep,
   recordDoctorChannelFailure,
   recordDoctorChannelSuccess,
+  getDoctorBaseline,
   recordDoctorBaseline,
   recordDoctorVodSuccess,
   selectChannelLaunchPlan,
@@ -5574,13 +5575,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     const baseMode = (bufferModeRef.current || settings.bufferMode || 'balanced') as DoctorBufferProfileId;
                     const baseTiming = bufferTiming();
                     const diag = channelSwitchDiagnosticRef.current;
-                    recordDoctorBaseline({
-                      channel: target,
-                      format,
-                      bufferProfile: baseMode,
-                      bufferTiming: baseTiming,
-                      startupMs: diag ? Math.max(25, Date.now() - diag.attemptStartedAt) : null,
-                    });
+                    if (!getDoctorBaseline(target)) {
+                      const baseline = recordDoctorBaseline({
+                        channel: target,
+                        format,
+                        bufferProfile: baseMode,
+                        bufferTiming: baseTiming,
+                        startupMs: diag ? Math.max(25, Date.now() - diag.attemptStartedAt) : null,
+                      });
+                      if (baseline) {
+                        appLog(
+                          `TV DOKTOR 1-ES ALAPPROFIL RÖGZÍTVE; csatorna=${baseline.channelName}; ` +
+                          `formátum=${baseline.format.toUpperCase()}; puffer=${baseline.bufferProfile}; ` +
+                          `indulás=${baseline.startupMs ?? 'nem mérhető'}ms; watchdog=${baseline.bufferTiming.startupWatchdogMs}ms.`,
+                        );
+                      }
+                    }
                   }
                   if (tvDoctorEnabledRef.current && target) {
                     const docState = doctorSessionRef.current;
