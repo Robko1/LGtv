@@ -151,6 +151,69 @@ check(
   'a hibátlan és gyors profilnál a Gyors (1.5 mp) pufferprofil kerül kiválasztásra',
 );
 
+// 1.2a A felhasználó által rögzített 1-es alapbeállítás külön és felülírhatatlan.
+const baselineStore = new MemoryStorage();
+const baselineChannel = {
+  id: 'ch-baseline-1', name: '[HU] Rögzített alapcsatorna', countryCode: 'HU',
+  streamUrl: 'http://panel.example:8080/live/u/p/996.ts',
+};
+const baselineTiming = core.bufferProfileTiming('balanced');
+const baselineProfile = core.recordDoctorBaseline({
+  channel: baselineChannel, format: 'ts', bufferProfile: 'balanced',
+  bufferTiming: baselineTiming, startupMs: 920, storage: baselineStore,
+});
+const attemptedBaselineOverwrite = core.recordDoctorBaseline({
+  channel: baselineChannel, format: 'hls', bufferProfile: 'fast',
+  bufferTiming: core.bufferProfileTiming('fast'), startupMs: 250, storage: baselineStore,
+});
+const baselineReadBack = core.getDoctorBaseline(baselineChannel, baselineStore);
+check(
+  baselineProfile?.slot === 1 && attemptedBaselineOverwrite?.format === 'ts' &&
+    baselineReadBack?.format === 'ts' && baselineReadBack?.bufferProfile === 'balanced' &&
+    baselineReadBack?.startupMs === 920,
+  'az 1-es kézi alapbeállítás külön tárolódik, és sem új siker, sem jobb tanult profil nem írhatja felül',
+);
+const baselineOnlyPlan = core.selectChannelLaunchPlan(
+  baselineChannel, baselineChannel.streamUrl, core.INITIAL_SETTINGS, baselineStore,
+);
+check(
+  baselineOnlyPlan.hasBaselineProfile === true && baselineOnlyPlan.hasLearnedProfile === false &&
+    baselineOnlyPlan.primaryFormat === 'ts' &&
+    baselineOnlyPlan.bufferTiming.startupWatchdogMs === baselineTiming.startupWatchdogMs &&
+    baselineOnlyPlan.bufferTiming.retryMs === baselineTiming.retryMs,
+  'tanult rekord nélkül is pontosan az 1-es alapformátum és az eredeti normál pufferidőzítés indul',
+);
+for (const ms of [520, 480]) {
+  core.recordDoctorChannelSuccess({
+    channel: baselineChannel, format: 'hls', bufferProfile: 'fast', startupMs: ms, storage: baselineStore,
+  });
+}
+const provenBetterPlan = core.selectChannelLaunchPlan(
+  baselineChannel, baselineChannel.streamUrl, core.INITIAL_SETTINGS, baselineStore,
+);
+check(
+  provenBetterPlan.primaryFormat === 'hls' && provenBetterPlan.bufferProfileId === 'fast' &&
+    core.getDoctorBaseline(baselineChannel, baselineStore)?.format === 'ts',
+  'csak két hibátlan és az 1-esnél gyorsabb mérés után válthat a Doktor jobb tanult profilra, az 1-es közben változatlan marad',
+);
+const baselineFallback = core.planDoctorRepairStep({
+  channel: baselineChannel, trigger: 'buffer_stall', step: 2,
+  currentFormat: 'hls', currentBufferProfile: 'fast',
+  currentBufferTiming: core.DOCTOR_BUFFER_CONFIGS.fast,
+  baselineProfile: baselineReadBack,
+  streamUrl: baselineChannel.streamUrl,
+  tsUrl: baselineChannel.streamUrl,
+  hlsUrl: baselineChannel.streamUrl.replace(/\\.ts$/, '.m3u8'),
+  storage: baselineStore,
+});
+check(
+  baselineFallback.strategyId === 'baseline_profile_1_fallback' &&
+    baselineFallback.nextFormat === 'ts' && baselineFallback.nextBufferProfile === 'balanced' &&
+    baselineFallback.nextBufferTiming.startupWatchdogMs === baselineTiming.startupWatchdogMs &&
+    baselineFallback.nextBufferTiming.retryMs === baselineTiming.retryMs,
+  'pufferelakadáskor a második javítási próba visszaállítja az 1-es profilt annak pontos normál időzítésével',
+);
+
 // 1.2b A már megtanult útvonal pufferprofilját indításkor nem írjuk felül új, még nem mért profillal.
 const rampStore = new MemoryStorage();
 const rampChannel = {
