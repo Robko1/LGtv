@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.373';
+export const WEB_VERSION = '2.5.374';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.373',
+    version: '2.5.374',
     date: '2026-11-05',
     changes: [
       'FŐOLDALI FÓKUSZ — Kedvencmappák (Mr Bean, HBO Max, UK stb.) és a Menü gomb 5px-es, sárga, árnyékos fókuszkeretet kapott, csak fókuszban.',
