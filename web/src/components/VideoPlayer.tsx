@@ -108,6 +108,14 @@ import {
   rememberedAudioFor,
   type SavedLiveAudioTrack,
 } from '../services/liveAudioMemory';
+import {
+  chooseLiveQualityFormat,
+  getLiveQualityRecord,
+  liveQualityKey,
+  qualityLabelOf,
+  recordLiveQualityFailure,
+  recordLiveQualityMeasurement,
+} from '../services/liveQualityMemory';
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
@@ -377,6 +385,33 @@ function hdrPanelSupported(): boolean | null {
   } catch {
     return null;
   }
+}
+
+/** A panel becsült magassága pixelben (a 4K kijelzőket is felismeri). */
+function panelMaxHeightPx(): number {
+  try {
+    const dpr = Number(window.devicePixelRatio) || 1;
+    const screenHeight = Number(window.screen?.height) || 0;
+    const innerHeight = Number(window.innerHeight) || 0;
+    const physical = Math.round(Math.max(screenHeight, innerHeight) * dpr);
+    if (physical >= 2000) return 2160;
+    if (physical >= 1000) return 1080;
+    if (physical >= 700) return 720;
+    return 1080;
+  } catch {
+    return 1080;
+  }
+}
+
+/** A HDR-színmetaadat rövid, képernyőre tehető jelölése ('HDR10', 'HLG', …). */
+function hdrBadgeLabel(raw: string | null | undefined): string {
+  const text = String(raw || '').toLowerCase();
+  if (!text) return '';
+  if (/dolby|dovi|\bdv\b/.test(text)) return 'Dolby Vision';
+  if (/hlg/.test(text)) return 'HLG';
+  if (/\bpq\b|hdr10\+?|smpte2084|st2084|bt\.?2020/.test(text)) return 'HDR10';
+  if (/hdr/.test(text)) return 'HDR';
+  return '';
 }
 
 /**
@@ -1808,6 +1843,113 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setVodSessionAssisted(false);
   }, [customStreamUrl]);
 
+  /* ════════════════════════════════════════════════════════════════════════
+   * 2.5.383 – KÉPMINŐSÉG-MÉRÉS ÉS HDR-JELZÉS
+   *
+   * A lejátszó a TÉNYLEGESEN dekódolt kép méretét csatornánként és
+   * formátumonként elmenti (livemQualityMemory), hogy a következő indításnál
+   * a szebb képű formátumot válassza. Ugyanitt kérdezi le egyszer a TV
+   * médiaszolgáltatásától a kép HDR-színmetaadatát, hogy a felületen
+   * megjelenhessen a HDR-jelzés (a napló #30 tanúsága szerint a TV ezt az
+   * adatot el is küldi, csak eddig kizárólag kézi naplózásnál kértük le).
+   * ════════════════════════════════════════════════════════════════════════ */
+  const [streamHdrLabel, setStreamHdrLabel] = useState('');
+  const [streamQualityLabel, setStreamQualityLabel] = useState('');
+  const liveQualityTimerRef = useRef<number | null>(null);
+  const hdrProbedForRef = useRef<string>('');
+  // Új csatorna / film: a régi jelzések és a függő mérés nem öröklődik.
+  useEffect(() => {
+    setStreamHdrLabel('');
+    setStreamQualityLabel('');
+    hdrProbedForRef.current = '';
+    if (liveQualityTimerRef.current !== null) {
+      window.clearTimeout(liveQualityTimerRef.current);
+      liveQualityTimerRef.current = null;
+    }
+  }, [customStreamUrl, channel?.id]);
+
+  /** A dekódolt kép méretének rögzítése a csatorna + formátum emlékezetébe. */
+  const recordLiveQualityFromVideo = (video: HTMLVideoElement | null): void => {
+    if (!video || isVodRef.current) return;
+    const width = Number(video.videoWidth || 0);
+    const height = Number(video.videoHeight || 0);
+    if (width < 64 || height < 64) return;
+    const format = formatOfUrl(activeMediaUrlRef.current || video.currentSrc || video.src || '');
+    if (!format) return;
+    const target = channelRef.current;
+    const key = liveQualityKey(target);
+    if (!key) return;
+    const record = recordLiveQualityMeasurement({ key, name: target?.name, format, width, height });
+    const label = `${qualityLabelOf({ width, height, at: 0 })} · ${format.toUpperCase()}`;
+    setStreamQualityLabel(label);
+    if (record) {
+      appLog(
+        `KÉPMINŐSÉG-MÉRÉS; csatorna=${String(target?.name || 'élő adás').slice(0, 100)}; `
+        + `formátum=${format.toUpperCase()}; kép=${width}x${height}; TS=${qualityLabelOf(record.ts)}; HLS=${qualityLabelOf(record.hls)}.`,
+      );
+    }
+  };
+
+  /** A mérés ütemezése (a képstabilizálás után, streamenként egyszer). */
+  const scheduleLiveQualityMeasurement = (delayMs = 3500): void => {
+    if (liveQualityTimerRef.current !== null) {
+      window.clearTimeout(liveQualityTimerRef.current);
+      liveQualityTimerRef.current = null;
+    }
+    if (isVodRef.current) return;
+    const generation = streamLoadGenerationRef.current;
+    liveQualityTimerRef.current = window.setTimeout(() => {
+      liveQualityTimerRef.current = null;
+      if (generation !== streamLoadGenerationRef.current) return;
+      const video = htmlVideoRef.current;
+      if (!video || video.paused || video.ended) return;
+      recordLiveQualityFromVideo(video);
+    }, Math.max(300, delayMs));
+  };
+
+  /**
+   * Egyszeri HDR-próba a TV médiaszolgáltatásától (com.webos.media).
+   * A napló szerint a TV a HDR-mezőt (`hdr: 'none'` / `'pq'` / …) el is küldi;
+   * ezért most már nem csak kézi naplózásnál, hanem minden streamnél egyszer
+   * lekérdezzük – így a HDR-jelzés a képernyőn is megjelenhet.
+   * Hiba esetén csendben semmi nem történik (a lejátszást nem érinti).
+   */
+  const probeStreamHdr = (video: HTMLVideoElement | null, streamKey: string): void => {
+    if (!video || !streamKey) return;
+    // Csak valódi webOS TV-n van értelme (asztali böngészőben nincs Luna-szolgáltatás).
+    try {
+      const win = window as unknown as {
+        webOS?: { service?: { request?: unknown } };
+        PalmServiceBridge?: unknown;
+      };
+      if (!win.webOS?.service?.request && typeof win.PalmServiceBridge !== 'function') return;
+    } catch {
+      return;
+    }
+    if (hdrProbedForRef.current === streamKey) return;
+    hdrProbedForRef.current = streamKey;
+    const generation = streamLoadGenerationRef.current;
+    void probeSourceInfoQuality(video, 6000)
+      .then((info) => {
+        if (generation !== streamLoadGenerationRef.current) return;
+        if (!info) return;
+        const hdr = hdrBadgeLabel(info.hdr);
+        if (info.width > 0 && info.height > 0) {
+          setStreamQualityLabel(
+            `${qualityLabelOf({ width: info.width, height: info.height, at: 0 })}${hdr ? ` · ${hdr}` : ''}`,
+          );
+        }
+        if (hdr) {
+          setStreamHdrLabel(hdr);
+          logPlaybackQualityEvent(
+            `HDR JELZÉS; cím=${isVodRef.current ? (customTitleRef.current || 'VOD') : (channelRef.current?.name || 'élő adás')}; `
+            + `színmetaadat=${info.hdr}; a képernyőn „${hdr}” jelzés jelenik meg.`,
+          );
+        }
+      })
+      .catch(() => { /* a TV nem ad adatot – nincs jelzés, a lejátszás megy tovább */ });
+  };
+
   const doctorSessionRef = useRef<{
     channelKey: string;
     hasLearnedProfile: boolean;
@@ -2408,6 +2550,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
         if (nextIndex === 1) {
           appLog(`FORMÁTUM-VISSZAESÉS; csatorna=${channelName}; ${nextFormat === 'hls' ? 'HLS (.m3u8)' : 'MPEG-TS (.ts)'} próba következik.`);
+        }
+        /*
+         * 2.5.383: az elhalt formátum rögzítése a képmínőség-emlékezetben.
+         * A formátumváltás így nem ütközik a „szebb kép” döntéssel: a
+         * többször elhalt formátumot a választó nem erőlteti vissza.
+         */
+        if (!isVodRef.current) {
+          const failedFormat = formatOfUrl(sequence.urls[Math.max(0, nextIndex - 1)]);
+          const failedKey = liveQualityKey(channelRef.current);
+          if (failedFormat && failedKey) {
+            recordLiveQualityFailure({ key: failedKey, format: failedFormat });
+          }
         }
         // A következő formátumot rövid késleltetéssel próbáljuk; az ismétlések fokozatosan várnak többet.
         const retryDelayMs = Math.min(100 * (2 ** Math.max(0, nextIndex - 1)), 400);
@@ -5442,9 +5596,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // formátumát, közvetlenül azt indítjuk (akkor is, ha az általános alapbeállítás más!).
     // Még nem tanult csatornánál a kézi beállítás / formátumemlék dönt.
     const configuredFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
-    const primaryFormat = (doctorPlan?.hasLearnedProfile || doctorPlan?.hasBaselineProfile)
+    const plannedFormat: LiveFormat = (doctorPlan?.hasLearnedProfile || doctorPlan?.hasBaselineProfile)
       ? doctorPlan.primaryFormat
       : (configuredFormat === 'hls' ? 'hls' : (channelMemory || sourceFormat || 'ts'));
+    /*
+     * 2.5.383 – A LEGSZEBB KÉPŰ FORMÁTUM VÁLASZTÁSA (mért felbontás alapján).
+     *
+     * A napló (#30) bizonyította, hogy ugyanannak a csatornának a két
+     * formátuma eltérő felbontású lehet (pl. [HU] HBO UHD: TS = 1024x576,
+     * HLS = 1920x1080, illetve fordítva). A formátum kiválasztása eddig csak
+     * az indítási sebességet és a hibákat nézte, a felbontást soha.
+     * Itt a korábban MÉRT képméret dönt: ha a másik formátum bizonyítottan
+     * szebb képet ad (vagy a mostani mért képe Full HD alatti és a másik még
+     * ismeretlen), akkor azt indítjuk – a beállítási/TV Doktor döntést csak
+     * akkor írjuk felül, ha a felbontás mérhetően jobb.
+     */
+    const qualityKey = !isVod ? liveQualityKey(channel) : '';
+    const qualityChoice = !isVod
+      ? chooseLiveQualityFormat({
+        record: qualityKey ? getLiveQualityRecord(qualityKey) : null,
+        plannedFormat,
+        configuredFormat,
+        panelMaxHeight: panelMaxHeightPx(),
+      })
+      : null;
+    const primaryFormat: LiveFormat = qualityChoice && qualityChoice.changed ? qualityChoice.format : plannedFormat;
+    if (!isVod && qualityChoice) {
+      appLog(
+        `KÉPMINŐSÉG-VÁLASZTÁS; csatorna=${String(channel?.name || 'élő adás').slice(0, 100)}; `
+        + `tervezett=${plannedFormat.toUpperCase()}; indított=${primaryFormat.toUpperCase()}; `
+        + `döntés=${qualityChoice.changed ? 'VÁLTÁS' : 'marad'}; indok=${qualityChoice.reason}.`,
+      );
+    }
     const primaryUrl = isVod ? streamUrl : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
     pendingStreamUrlRef.current = primaryUrl;
     liveFallbackRef.current = isVod ? null : alternativeUrl(primaryUrl);
@@ -5739,6 +5922,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             aria-hidden={isLead ? undefined : true}
 
 
+            onResize={(event) => {
+              /*
+               * 2.5.383: a kép felbontása menet közben is változhat (a szolgáltató
+               * átkapcsolhat másik szintre, vagy a lejátszó másik HLS-változatra
+               * vált). A mért értéket ilyenkor is rögzítjük, hogy a következő
+               * indítás a legjobbnak mért formátummal történjen.
+               */
+              if (!isActiveMediaEvent(event.currentTarget)) return;
+              recordLiveQualityFromVideo(event.currentTarget);
+            }}
             onDurationChange={(event) => {
               const video = event.currentTarget;
 
@@ -5844,6 +6037,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               // 2.5.381: az adás újraindult – a késleltetett/aktuális pufferelési
               // felirat azonnal lekerül, nem marad a képen.
               clearDoctorBufferingStatus();
+              /*
+               * 2.5.383: a ténylegesen dekódolt kép méretének rögzítése (élő) és
+               * a HDR-színmetaadat egyszeri lekérdezése. A mérés csak a kép
+               * stabilizálódása után fut, így nem méri az első (esetleg
+               * alacsonyabb) képkockát, és nem terheli az indulást.
+               */
+              scheduleLiveQualityMeasurement();
+              probeStreamHdr(
+                event.currentTarget,
+                `${isVodRef.current ? 'vod' : 'live'}:${isVodRef.current ? (customStreamUrl || '') : (channelRef.current?.id || channelRef.current?.name || '')}:${activeMediaUrlRef.current || ''}`,
+              );
               // A főoldal ebből tudja, hogy a TV-kép kész (nincs fekete doboz).
               try {
                 (window as any).__IPTV_VIDEO_READY__ = true;
@@ -6596,6 +6800,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               onToggleMute={onToggleMute}
               onActivity={handleVodOsdActivity}
               rootRef={vodOsdRef}
+              hdrLabel={streamHdrLabel}
+              qualityLabel={streamQualityLabel}
             />
             <LiveAudioCcSelector
               isOpen={vodTrackMenu === 'combined'}

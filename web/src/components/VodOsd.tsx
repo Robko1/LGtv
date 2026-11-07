@@ -51,6 +51,13 @@ interface VodOsdProps {
   onActivity?: () => void;
   /** A hívó (VideoPlayer) ezen keresztül éri el az OSD gyökerét (fókusz, mérés). */
   rootRef?: React.RefObject<HTMLDivElement | null>;
+  /**
+   * HDR-jelzés a cím mellett (`HDR10`, `HLG`, `Dolby Vision`), ha a lejátszott
+   * film színmetaadata HDR. Üres/`null`, ha nem HDR (vagy a TV nem ad adatot).
+   */
+  hdrLabel?: string | null;
+  /** Mért képminőség a cím mellett (pl. `1920×1080 (Full HD)`). */
+  qualityLabel?: string | null;
 }
 
 function formatTime(seconds: number): string {
@@ -91,6 +98,8 @@ export const VodOsd: React.FC<VodOsdProps> = ({
   audioTracks,
   subtitleTracks,
   activeSubtitleId,
+  hdrLabel,
+  qualityLabel,
   menu,
   onMenuChange,
   onTogglePlay,
@@ -349,6 +358,32 @@ export const VodOsd: React.FC<VodOsdProps> = ({
         >
           {title || 'Film / Sorozat'}
         </span>
+        {/*
+          HDR- ÉS KÉPMINŐSÉG-JELZÉS (2.5.383).
+          A HDR-színmetaadatot a TV médiaszolgáltatása küldi (com.webos.media);
+          eddig csak kézi naplózásnál kérdeztük le, ezért a felületen soha nem
+          jelent meg. A jelzés csak AKTUÁLIS adatból kerül ki: ha a film SDR
+          (vagy a TV nem ad adatot), a címke egyszerűen nem látszik – nem
+          írunk ki találgatást.
+        */}
+        {hdrLabel ? (
+          <span
+            data-vod-osd-hdr=""
+            className="shrink-0 rounded-md border border-amber-300/70 bg-amber-500/25 px-[0.5rem] py-[0.15rem] text-[0.8rem] md:text-[0.9rem] font-extrabold tracking-wide text-amber-100 drop-shadow-[0_1px_6px_rgba(0,0,0,0.85)]"
+            title={`HDR színmetaadat: ${hdrLabel}`}
+          >
+            {hdrLabel}
+          </span>
+        ) : null}
+        {qualityLabel ? (
+          <span
+            data-vod-osd-quality=""
+            className="shrink-0 rounded-md border border-white/25 bg-black/45 px-[0.5rem] py-[0.15rem] text-[0.8rem] md:text-[0.9rem] font-semibold text-white/85 drop-shadow-[0_1px_6px_rgba(0,0,0,0.85)]"
+            title={`Mért kép: ${qualityLabel}`}
+          >
+            {qualityLabel}
+          </span>
+        ) : null}
       </div>
 
       {/* ── ALSÓ SÁV: idővonal + vezérlők ─────────────────────────────────── */}
