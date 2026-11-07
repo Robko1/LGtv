@@ -22,6 +22,9 @@ import {
   mergeCloudDoctorLogs,
   DoctorLogEntry,
   DoctorRoute,
+  DoctorBaselineProfile,
+  getAllDoctorBaselines,
+  restoreDoctorBaselinesFromCloud,
   normalizeChannelDoctorKey,
   sanitizeDoctorRoutes,
   setTvDoctorHungarianChannelScope,
@@ -788,7 +791,7 @@ function restBaseUrl(): string {
 }
 
 async function postTvDoctorRpc(
-  fn: 'tv_doctor_routes_upsert' | 'tv_doctor_routes_fetch',
+  fn: 'tv_doctor_routes_upsert' | 'tv_doctor_routes_fetch' | 'tv_doctor_baselines_upsert' | 'tv_doctor_baselines_fetch' | 'tv_doctor_baselines_clear',
   params: Record<string, unknown>,
   timeoutMs = STATUS_CHECK_TIMEOUT_MS,
 ): Promise<any | null> {
@@ -928,6 +931,45 @@ export async function fetchTvDoctorRoutesFromCloud(): Promise<number> {
   return merged;
 }
 
+
+/**
+ * Az 1-es, kézzel rögzített alapbeállítások külön felhőmentése.
+ * Feltöltéskor a szerver csak INSERT-et enged (ON CONFLICT DO NOTHING),
+ * ezért a később tanult 2-es útvonal soha nem írhatja felül az 1-est.
+ */
+async function syncTvDoctorBaselinesWithCloud(): Promise<void> {
+  if (!cloudEnabled || !isTvDoctorPaired()) return;
+  const pairing = readPairingState();
+  const local = getAllDoctorBaselines();
+  for (let offset = 0; offset < local.length; offset += 100) {
+    const payload = local.slice(offset, offset + 100).map((baseline: DoctorBaselineProfile) => ({
+      channelKey: baseline.channelKey,
+      channelId: baseline.channelId,
+      channelName: baseline.channelName,
+      baseline,
+    }));
+    if (payload.length) {
+      await postTvDoctorRpc('tv_doctor_baselines_upsert', {
+        p_device_id: pairing.deviceId,
+        p_device_token: pairing.deviceToken,
+        p_payload: payload,
+      });
+    }
+  }
+  const rows = await postTvDoctorRpc('tv_doctor_baselines_fetch', {
+    p_device_id: pairing.deviceId,
+    p_device_token: pairing.deviceToken,
+  });
+  if (Array.isArray(rows)) {
+    const restored = restoreDoctorBaselinesFromCloud(
+      rows.map((row: any) => ({ channelKey: String(row.channel_key || ''), baseline: row.baseline })),
+    );
+    if (isTvDoctorDiagLoggingEnabled()) {
+      tvDoctorLog(`TV DOKTOR 1-ES ALAP SZINKRON: helyi=${local.length}; felhő=${rows.length}; hiányzó helyi alap visszaállítva=${restored}; az 1-es alap zárolt, a tanult útvonal csak a 2-es helyre kerül.`);
+    }
+  }
+}
+
 /** A tanult útvonalak teljes visszatöltése akkor is, ha a profil-szinkron csak az újabb módosításokat kéri. */
 async function restoreTvDoctorCloudState(): Promise<void> {
   if (!cloudEnabled || !isTvDoctorPaired()) return;
@@ -936,6 +978,7 @@ async function restoreTvDoctorCloudState(): Promise<void> {
   // Ezután a külön RPC a teljes útvonal-memóriát kéri le; a bootstrap since
   // szűrése önmagában kihagyhatja a korábban mentett, változatlan csatornákat.
   await fetchTvDoctorRoutesFromCloud();
+  await syncTvDoctorBaselinesWithCloud();
   const state = readSyncState();
   if (Object.keys(state.pendingProfiles).length > 0 || state.pendingEvents.length > 0) {
     await flushTvDoctorCloudQueue();
@@ -1482,6 +1525,12 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
     try {
       const resetResponse = await postTvDoctor({ action: 'reset_memory' }, REQUEST_TIMEOUT_MS, true);
       if (!resetResponse || !resetResponse.ok || resetResponse.reset !== true) return false;
+      const pairing = readPairingState();
+      const baselinesCleared = await postTvDoctorRpc('tv_doctor_baselines_clear', {
+        p_device_id: pairing.deviceId,
+        p_device_token: pairing.deviceToken,
+      });
+      if (baselinesCleared !== true) return false;
       state.pendingCloudReset = false;
       state.pendingProfiles = {};
       state.pendingEvents = [];
