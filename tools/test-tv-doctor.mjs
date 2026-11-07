@@ -171,7 +171,7 @@ check(
   baselineProfile?.slot === 1 && attemptedBaselineOverwrite?.format === 'ts' &&
     baselineReadBack?.format === 'ts' && baselineReadBack?.bufferProfile === 'balanced' &&
     baselineReadBack?.startupMs === 920,
-  'az 1-es kézi alapbeállítás külön tárolódik, és sem új siker, sem jobb tanult profil nem írhatja felül',
+  'az 1-es kézi alapbeállítás külön vész-tartalék marad, miközben a jobb tanult profil külön helyre kerül',
 );
 const baselineOnlyPlan = core.selectChannelLaunchPlan(
   baselineChannel, baselineChannel.streamUrl, core.INITIAL_SETTINGS, baselineStore,
@@ -194,8 +194,25 @@ const provenBetterPlan = core.selectChannelLaunchPlan(
 check(
   provenBetterPlan.primaryFormat === 'hls' && provenBetterPlan.bufferProfileId === 'fast' &&
     core.getDoctorBaseline(baselineChannel, baselineStore)?.format === 'ts',
-  'csak két hibátlan és az 1-esnél gyorsabb mérés után válthat a Doktor jobb tanult profilra, az 1-es közben változatlan marad',
+  'két gyors, hibátlan mérés után a jobb tanult profil kerül előre, az 1-es vész-tartalék változatlan marad',
 );
+// 1.2aa Az 1-es tartalék mellett pontosan 7 tanult hely marad: a 2–8. pozíció.
+const rollingProfiles = ['instant', 'turbo', 'fast', 'balanced', 'stable', 'adaptive-1', 'adaptive-2', 'adaptive-3'];
+const rollingTimes = [1800, 1500, 1200, 900, 700, 500, 350, 220];
+for (let i = 0; i < rollingProfiles.length; i += 1) {
+  core.recordDoctorChannelSuccess({
+    channel: baselineChannel, format: 'hls', bufferProfile: rollingProfiles[i],
+    startupMs: rollingTimes[i], storage: baselineStore,
+  });
+}
+const rollingRecord = core.getChannelDoctorRecord(baselineChannel, baselineStore);
+check(
+  rollingRecord?.routes?.length === 7 && rollingRecord.routes[0].id === 'hls:adaptive-3' &&
+    !rollingRecord.routes.some((route) => route.id === 'ts:balanced') &&
+    !rollingRecord.routes.some((route) => route.id === 'hls:instant'),
+  'az 1-es TS+balanced külön vész-tartalék; a 2–8. helyen a 7 legjobb tanult útvonal marad, a legrosszabb kiesik',
+);
+
 const baselineFallback = core.planDoctorRepairStep({
   channel: baselineChannel, trigger: 'buffer_stall', step: 2,
   currentFormat: 'hls', currentBufferProfile: 'fast',
