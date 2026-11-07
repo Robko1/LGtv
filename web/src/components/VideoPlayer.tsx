@@ -5100,7 +5100,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // formátumát, közvetlenül azt indítjuk (akkor is, ha az általános alapbeállítás más!).
     // Még nem tanult csatornánál a kézi beállítás / formátumemlék dönt.
     const configuredFormat = settings.streamFormat === 'hls' ? 'hls' : 'ts';
-    const primaryFormat = doctorPlan?.hasLearnedProfile
+    const primaryFormat = (doctorPlan?.hasLearnedProfile || doctorPlan?.hasBaselineProfile)
       ? doctorPlan.primaryFormat
       : (configuredFormat === 'hls' ? 'hls' : (channelMemory || sourceFormat || 'ts'));
     const primaryUrl = isVod ? streamUrl : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
