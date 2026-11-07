@@ -395,6 +395,34 @@ check(
   'okos fagyásfigyelő: aktív hang-/rádiócsatornán (0x0 videó, egészséges puffer) NEM avatkozik be tévesen',
 );
 
+// webOS-en a videó futhat úgy is, hogy a currentTime és a dekódolt képkockaszám
+// nem mérhető. A readyState=4 + nincs waiting/stalled + nincs hálózati hiba
+// mellett a 0 mp-es előrepuffer önmagában nem indíthat javítási ciklust.
+const unmeasurableButPlaying = core.evaluateSmartFreeze({
+  prevSnapshot: { at: 1000, time: 0, frames: null, bufferedEnd: 0, readyState: 4 },
+  currentSnapshot: { at: 9000, time: 0, frames: null, bufferedEnd: 0, readyState: 4 },
+  streamState: {
+    readyState: 4,
+    networkState: 2,
+    paused: false,
+    ended: false,
+    currentTime: 0,
+    duration: null,
+    bufferedAheadSeconds: 0,
+    decodedFrames: null,
+    droppedFrames: null,
+    videoWidth: 1920,
+    videoHeight: 1080,
+    waitingOrStalled: false,
+  },
+  consecutiveStallTicks: 8,
+  minBufferAheadSeconds: 3,
+});
+check(
+  unmeasurableButPlaying.intervene === false,
+  'readyState=4 és igazolt hálózati/pufferhiba nélküli, de nem mérhető webOS lejátszásnál a TV Doktor nem indít hamis javítást',
+);
+
 const staticSlideFirstTick = core.evaluateSmartFreeze({
   prevSnapshot: { at: 1000, time: 0, frames: 120, bufferedEnd: 8, readyState: 4 },
   currentSnapshot: { at: 5000, time: 0, frames: 120, bufferedEnd: 12, readyState: 4 },
