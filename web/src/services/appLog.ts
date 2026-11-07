@@ -1050,6 +1050,11 @@ export interface PlaybackQualitySample {
   boxWidth?: number;
   boxHeight?: number;
   devicePixelRatio?: number;
+  /** A TV kijelző/viewport logikai mérete; nem a panel natív fizikai felbontása. */
+  screenWidth?: number;
+  screenHeight?: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
   /** Mért képkockasebesség (képkocka/mp), ha már van elég adat. */
   fps?: number | null;
   /** Az utolsó mérési ablakban eldobott képkockák száma és aránya. */
@@ -1081,10 +1086,15 @@ export function logPlaybackQuality(sample: PlaybackQualitySample): void {
   const parts: string[] = [`mód=${sample.mode}`, `cím=${sample.title || 'ismeretlen'}`, `formátum=${sample.format || 'ismeretlen'}`];
   parts.push(`forrás=${Math.round(sample.width)}x${Math.round(sample.height)} (${resolutionClassOf(sample.width, sample.height)})`);
   const dpr = Number(sample.devicePixelRatio) || 1;
+  if (sample.screenWidth && sample.screenHeight) {
+    parts.push(`TV kijelző logikai méret=${Math.round(sample.screenWidth)}x${Math.round(sample.screenHeight)}; viewport=${Math.round(sample.viewportWidth || 0)}x${Math.round(sample.viewportHeight || 0)} CSS px`);
+  } else {
+    parts.push(`TV kijelző méret=nem mérhető; viewport=${Math.round(sample.viewportWidth || 0)}x${Math.round(sample.viewportHeight || 0)} CSS px`);
+  }
   if (sample.boxWidth && sample.boxHeight) {
     const physicalW = Math.round(sample.boxWidth * dpr);
     const physicalH = Math.round(sample.boxHeight * dpr);
-    parts.push(`doboz=${Math.round(sample.boxWidth)}x${Math.round(sample.boxHeight)} CSS px (≈${physicalW}x${physicalH} fizikai, DPR ${dpr})`);
+    parts.push(`megjelenített videóterület=${Math.round(sample.boxWidth)}x${Math.round(sample.boxHeight)} CSS px (DPR-rel becsült raszterméret ${physicalW}x${physicalH}; nem panelmérés)`);
     if (sample.width > 0) {
       const scale = physicalW / sample.width;
       if (scale >= 0.97 && scale <= 1.03) parts.push('skálázás=1:1');
