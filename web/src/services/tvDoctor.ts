@@ -2851,11 +2851,13 @@ export function recordDoctorChannelSuccess(params: {
       startupMs: safeMs,
     });
     if (routeResult?.isNew && routeResult.route.ok === 1) {
+      const learnedPosition = (rec.routes || []).findIndex((item) => item.id === routeResult.route.id) + 2;
       logDoctor(
         'info',
         channel,
         `Új tanult útvonal: ${format.toUpperCase()} + ${bufferProfile} (${safeMs} ms) – `
-        + `${Math.min(MAX_CHANNEL_ROUTES, (rec.routes || []).length)}/${MAX_CHANNEL_ROUTES} útvonal a csatorna memóriájában`
+        + `tanult hely=${learnedPosition > 1 ? learnedPosition : 'kiesett'}; `
+        + `${Math.min(MAX_CHANNEL_ROUTES, (rec.routes || []).length)}/${MAX_CHANNEL_ROUTES} tanult útvonal (2–8. hely)`
         + (routeResult.dropped ? `; kiesett a leggyengébb: ${routeResult.dropped.id}` : '') + '.',
         'learning',
         storage,
