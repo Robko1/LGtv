@@ -32,7 +32,7 @@ import {
   storedRestorePending,
 } from './services/contentStore';
 import { clearRemovedVod, filterRemovedVod, getRemovedVodIds, removeVodFromMemory } from './services/vodRemovals';
-import { rememberedAudioFor, rememberAudioFor, savedAudioLabel as savedAudioLabelOf } from './services/liveAudioMemory';
+import { rememberAudioFor } from './services/liveAudioMemory';
 import { appLog, appLogError, logPhase } from './services/appLog';
 import { persistHuLogoOverrides, logHuLogoStore } from './services/huChannelLogos';
 import {
@@ -1302,19 +1302,22 @@ export function App() {
   );
   const activeChannelDisplayNumber = displayedChannelPositions.get(activeChannelId);
   /**
-   * A zöld gombos ablak MENTÉS gombja: a kijelölt hangsáv eltárolása az
-   * aktuális csatornához. A mentés után a hangsáv csatornaváltás és az IPK
-   * újraindítása után is visszaáll (lásd services/liveAudioMemory).
+   * Az adáson LEGUTÓBB kiválasztott hangsáv.
+   *
+   * A TV nem minden adásnál jelöli meg, melyik hangsáv fut, ezért az App
+   * megjegyzi a néző választását: a zöld gombos ablak ezzel a sávval nyílik
+   * (és ezt ajánlja fel mentésre). Enélkül visszanyíláskor mindig az első
+   * sorra ugrana, és a MENTÉS is azt venné alapul.
    */
-  const [savedAudioVersion, setSavedAudioVersion] = useState(0);
-  const savedLiveAudioLabel = useMemo(
-    () => savedAudioLabelOf(rememberedAudioFor(activeChannel?.id)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeChannel?.id, savedAudioVersion],
-  );
+  const lastLiveAudioChoiceRef = useRef<{ channelId: string; trackId: string } | null>(null);
+  const activeLiveAudioTrackId = (() => {
+    const choice = lastLiveAudioChoiceRef.current;
+    if (!choice) return undefined;
+    return choice.channelId === String(activeChannel?.id ?? '') ? choice.trackId : undefined;
+  })();
 
   /**
-   * MENTÉS az élő hangsáv-ablakból: a kijelölt sávot eltárolja az adott
+   * MENTÉS az élő hangsáv-ablakból: a kiválasztott sávot eltárolja az adott
    * csatornához, és ha még nem az fut, azonnal át is kapcsol rá. A mentett
    * beállítást a lejátszó csatornaváltáskor és IPK-újraindítás után is
    * visszaállítja (web/src/services/liveAudioMemory.ts).
@@ -1330,7 +1333,7 @@ export function App() {
       appLog('Hangsáv mentése nem sikerült (tároló hiba).');
       return false;
     }
-    setSavedAudioVersion((value) => value + 1);
+    lastLiveAudioChoiceRef.current = { channelId: String(channel.id), trackId: String(track.id) };
     // A mentés egyben érvényesítés is: a néző azonnal azt a sávot hallja.
     if (track.selected !== true) {
       mainPlayerAudioSelectRef.current?.(track);
@@ -5579,6 +5582,8 @@ export function App() {
         onUpdateSettings={handleUpdateSettings}
         audioTracks={liveAudioTracks}
         onSelectAudioTrack={(track) => {
+          // A választás megjegyzése: ezzel a sávval nyílik legközelebb az ablak.
+          lastLiveAudioChoiceRef.current = { channelId: String(activeChannel?.id ?? ''), trackId: String(track.id) };
           const selector = mainPlayerAudioSelectRef.current;
           if (selector) {
             selector(track);
@@ -5589,7 +5594,7 @@ export function App() {
         subtitleTracks={liveSubtitleTracks}
         onSelectSubtitleTrack={(track) => mainPlayerSubtitleSelectRef.current?.(track)}
         onSaveAudioTrack={handleSaveLiveAudioTrack}
-        savedAudioLabel={savedLiveAudioLabel}
+        activeAudioTrackId={activeLiveAudioTrackId}
       />
 
       {/* 6. Add Provider / Xtream Codes Modal */}

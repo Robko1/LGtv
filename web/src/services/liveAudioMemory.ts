@@ -29,6 +29,10 @@ export interface SavedLiveAudioTrack {
   nativeIndex?: number;
   /** Hányadik sáv azonos nyelven belül (pl. két magyar hangsáv). */
   ordinalInLang?: number;
+  /** A sáv helye a mentéskor látott listában (0-tól). */
+  listIndex?: number;
+  /** A mentéskor látott lista hossza – az index csak egyező hossznál biztos. */
+  trackCount?: number;
   savedAt: number;
 }
 
@@ -105,6 +109,8 @@ function readMemory(): Memory {
         channels: entry.channels ? String(entry.channels) : undefined,
         nativeIndex: Number.isFinite(Number(entry.nativeIndex)) ? Number(entry.nativeIndex) : undefined,
         ordinalInLang: Number.isFinite(Number(entry.ordinalInLang)) ? Number(entry.ordinalInLang) : undefined,
+        listIndex: Number.isFinite(Number(entry.listIndex)) ? Number(entry.listIndex) : undefined,
+        trackCount: Number.isFinite(Number(entry.trackCount)) ? Number(entry.trackCount) : undefined,
         savedAt: Number.isFinite(Number(entry.savedAt)) ? Number(entry.savedAt) : 0,
       };
     }
@@ -171,6 +177,7 @@ export function rememberAudioFor(
   const ordinalInLang = sameLang.length > 1
     ? sameLang.findIndex((item) => String(item.id) === String(track.id))
     : undefined;
+  const listIndex = allTracks.findIndex((item) => String(item.id) === String(track.id));
   const entry: SavedLiveAudioTrack = {
     lang,
     name,
@@ -178,6 +185,8 @@ export function rememberAudioFor(
     channels: source.channels ? String(source.channels) : undefined,
     nativeIndex: Number.isFinite(nativeIndexRaw) ? nativeIndexRaw : undefined,
     ordinalInLang: ordinalInLang !== undefined && ordinalInLang >= 0 ? ordinalInLang : undefined,
+    listIndex: listIndex >= 0 ? listIndex : undefined,
+    trackCount: allTracks.length > 0 ? allTracks.length : undefined,
     savedAt: Date.now(),
   };
   const memory = readMemory();
@@ -191,8 +200,14 @@ export function rememberAudioFor(
  * A mentett bejegyzéshez tartozó tényleges sáv megkeresése az ÉPPEN
  * elérhető listában.
  *
- * Sorrend: azonos nyelv (egy találat → az), azonos nyelv + név, azonos
- * nyelven belüli sorszám, majd név, végül a lejátszó sorszáma.
+ * Sorrend:
+ *   1. azonos nyelv (egyetlen találat → az),
+ *   2. azonos nyelv + név, majd a nyelven belüli sorszám,
+ *   3. egyértelmű név,
+ *   4. a mentéskor látott LISTAHELY (ha a lista hossza ugyanaz) – ez fogja
+ *      meg az olyan adásokat, ahol minden sáv neve azonos vagy üres
+ *      (korábban ilyenkor mindig az ELSŐ sávot találta meg),
+ *   5. a lejátszó saját sorszáma.
  */
 export function matchSavedAudioTrack(
   tracks: AudioTrack[] | null | undefined,
@@ -213,8 +228,18 @@ export function matchSavedAudioTrack(
     return sameLang[0];
   }
   if (wantName) {
-    const byName = tracks.find((track) => normalizeName(track.name) === wantName);
-    if (byName) return byName;
+    const named = tracks.filter((track) => normalizeName(track.name) === wantName);
+    if (named.length === 1) return named[0];
+    if (named.length > 1) {
+      // Azonos nevű sávok: a mentéskor látott hely dönt, ne az első találat.
+      const atSavedPlace = placeMatch(named, tracks, saved);
+      return atSavedPlace || named[0];
+    }
+  }
+  if (!wantName) {
+    // Nincs név-információ (a TV üres címkéket ad): a listahely a biztos fogódzó.
+    const byPlace = placeMatch(tracks, tracks, saved);
+    if (byPlace) return byPlace;
   }
   const savedIndex = Number(saved.nativeIndex);
   if (Number.isFinite(savedIndex)) {
@@ -223,6 +248,20 @@ export function matchSavedAudioTrack(
     if (byNative) return byNative;
   }
   return null;
+}
+
+/** A mentéskor látott listahely (csak azonos hosszúságú listánál biztos). */
+function placeMatch(
+  candidates: AudioTrack[],
+  tracks: AudioTrack[],
+  saved: SavedLiveAudioTrack,
+): AudioTrack | null {
+  const place = Number(saved.listIndex);
+  const count = Number(saved.trackCount);
+  if (!Number.isInteger(place) || place < 0 || place >= tracks.length) return null;
+  if (!Number.isInteger(count) || count !== tracks.length) return null;
+  const target = tracks[place];
+  return candidates.includes(target) ? target : null;
 }
 
 /** Rövid, felületen is használható címke (pl. „Német”). */

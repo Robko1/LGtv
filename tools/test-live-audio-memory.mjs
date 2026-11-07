@@ -91,6 +91,36 @@ assert.equal(api.matchSavedAudioTrack(tracks, { lang: 'xx', name: 'Nincs ilyen' 
 assert.equal(api.matchSavedAudioTrack([], { lang: 'hu', name: 'hu' }), null);
 assert.equal(api.savedAudioLabel({ lang: 'de', name: 'Audio 2' }), 'Audio 2');
 
+/*
+ * A TV gyakran AZONOS (vagy üres) címkét ad minden hangsávra. Ilyenkor a
+ * listában elfoglalt hely dönt – korábban mindig az ELSŐ sávot találta meg.
+ */
+const sameNames = [
+  { id: 0, name: 'Audio', lang: '' },
+  { id: 1, name: 'Audio', lang: '' },
+  { id: 2, name: 'Audio', lang: '' },
+];
+assert.equal(
+  api.matchSavedAudioTrack(sameNames, { lang: '', name: 'Audio', listIndex: 2, trackCount: 3 }).id, 2,
+  'azonos nevű sávoknál a mentett listahely nyer',
+);
+const blindNames = [{ id: 0, name: '', lang: '' }, { id: 1, name: '', lang: '' }, { id: 2, name: '', lang: '' }];
+assert.equal(
+  api.matchSavedAudioTrack(blindNames, { lang: '', name: '', listIndex: 1, trackCount: 3 }).id, 1,
+  'üres címkéknél is a mentett listahely nyer',
+);
+// Ha a lista hossza megváltozott, a hely nem biztos → nem erőltetünk találgatást.
+assert.equal(
+  api.matchSavedAudioTrack(blindNames.slice(0, 2), { lang: '', name: '', listIndex: 2, trackCount: 3 }), null,
+  'megváltozott listánál nincs találgatás',
+);
+// A mentés eltárolja a listahelyet és a lista hosszát.
+const savedWithPlace = api.rememberAudioFor('ch-place', { id: 'b', name: 'Audio', lang: '' },
+  [{ id: 'a', name: 'Audio', lang: '' }, { id: 'b', name: 'Audio', lang: '' }, { id: 'c', name: 'Audio', lang: '' }]);
+assert.equal(savedWithPlace.listIndex, 1);
+assert.equal(savedWithPlace.trackCount, 3);
+api.forgetAudioFor('ch-place');
+
 /* ─────────── 3. A MENTÉS gomb az élő ablak tetején ─────────── */
 
 const press = async (key) => {
@@ -129,6 +159,61 @@ assert.deepEqual([...api.calls.saved], ['1'], 'a kijelölt hangsáv mentődik');
 assert.equal(api.calls.closed, 0, 'mentés után az ablak nem zárul be');
 assert.match(doc.querySelector('[data-save-audio]').textContent, /MENTVE/);
 assert.equal(doc.querySelector('[data-save-audio]').getAttribute('data-save-state'), 'saved');
+
+/*
+ * A BEJELENTETT HIBA: a néző a 3. hangsávra lép, majd FEL nyíllal felmegy a
+ * MENTÉS gombra – ilyenkor korábban mindig az 1. (alap) sáv mentődött.
+ */
+api.show();
+for (let i = 0; i < 80 && !doc.querySelector('[data-track-panel="live"]'); i++) await tick(20);
+await tick(80);
+await press('ArrowDown');   // 1 → 2
+await press('ArrowDown');   // 2 → 3
+await tick(800);            // a néző megáll a 3. sávon
+const targetLabel = doc.querySelector('[data-save-target-label]');
+assert.ok(targetLabel && /Angol/.test(targetLabel.textContent), 'a MENTÉS gomb a 3. sávot ajánlja fel');
+await press('ArrowUp');     // 3 → 2
+await press('ArrowUp');     // 2 → 1
+await press('ArrowUp');     // 1 → MENTÉS gomb
+assert.equal(doc.activeElement, doc.querySelector('[data-save-audio]'), 'a MENTÉS gombra lépés sikerült');
+assert.equal(doc.querySelector('[data-save-target="1"]').textContent.includes('Angol'), true,
+  'a mentés célpontja a 3. sáv marad');
+await press('Enter');
+await tick(60);
+assert.deepEqual([...api.calls.saved], ['3'], 'a 3. hangsávot menti, nem az alap 1. sávot');
+
+/*
+ * Ugyanez MEGÁLLÁS NÉLKÜL: a néző legörget a 3. sávra, majd azonnal
+ * felnyilazik a MENTÉS gombra (nincs várakozás).
+ */
+api.show();
+for (let i = 0; i < 80 && !doc.querySelector('[data-track-panel="live"]'); i++) await tick(20);
+await tick(80);
+await press('ArrowDown');   // 1 → 2
+await press('ArrowDown');   // 2 → 3
+await press('ArrowUp');     // 3 → 2
+await press('ArrowUp');     // 2 → 1
+await press('ArrowUp');     // 1 → MENTÉS gomb
+await press('Enter');
+await tick(60);
+assert.deepEqual([...api.calls.saved], ['3'], 'megállás nélküli felnyilazásnál is a 3. sáv mentődik');
+
+/*
+ * Ha az App megjegyzi a legutóbb kiválasztott hangsávot, az ablak azzal
+ * nyílik – így visszanyitás után sem ugrik vissza az első sorra.
+ */
+api.show('3');
+for (let i = 0; i < 80 && !doc.querySelector('[data-track-panel="live"]'); i++) await tick(20);
+await tick(80);
+const focusedRow = doc.querySelector('[data-track-focused="1"]');
+assert.ok(focusedRow && focusedRow.textContent.includes('Angol'), 'az ablak a legutóbb választott sávnál nyílik');
+await press('ArrowUp');   // 3 → 2
+await press('ArrowUp');   // 2 → 1
+await press('ArrowUp');   // 1 → MENTÉS gomb
+assert.equal(doc.activeElement, doc.querySelector('[data-save-audio]'), 'a MENTÉS gombra lépés sikerült');
+await press('Enter');
+await tick(60);
+assert.deepEqual([...api.calls.saved], ['3'], 'visszanyitás után is a 3. sáv mentődik');
 
 // Egérrel/kattintással is működik.
 api.show();
