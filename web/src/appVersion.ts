@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.383';
+export const WEB_VERSION = '2.5.384';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,13 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.384',
+    date: '2026-11-07',
+    changes: [
+      'JAVÍTÁS (NAPLÓZÁS — „ÚJ MÉRÉS” INDÍTÁSA) — A mérés indításakor a napló egy nem létező függvényt (`dublinTimestamp`) hívott, ezért a SÁRGA gombos kézi mérés indítása ReferenceError-ral megszakadt. A hiányzó Dublin-időbélyeg-függvény pótolva (Europe/Dublin, óra:perc:másodperc), így a mérés indítása és a nagy napló feltöltése ismét hibátlanul működik.',
+    ],
+  },
   {
     version: '2.5.383',
     date: '2026-11-07',

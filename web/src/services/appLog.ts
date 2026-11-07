@@ -1218,6 +1218,30 @@ export function clockText(at: number = Date.now()): string {
   return `${value('hour')}:${value('minute')}:${value('second')}`;
 }
 
+/**
+ * Teljes időbélyeg Dublin (Europe/Dublin) időzónában: `2026-11-07 17:25:22`.
+ *
+ * 2.5.383: a `resetMeasurements` ezt használta, de a függvény valójában nem
+ * létezett – az „ÚJ MÉRÉS KEZDETE” sor ezért ReferenceError-t dobott, és a
+ * kézi mérés (SÁRGA gomb) indítása megszakadt. A hiányzó függvény itt van,
+ * a `clockText`-tel azonos (Dublin) időzónával, hibatűrő kivitellel.
+ */
+export function dublinTimestamp(at: number = Date.now()): string {
+  const date = new Date(at);
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Dublin',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date);
+    const value = (type: string) => parts.find((part) => part.type === type)?.value || '00';
+    return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
+  } catch {
+    // Régi motor (nincs időzóna-támogatás): ISO alak, hogy a naplósor ne vesszen el.
+    return date.toISOString().replace('T', ' ').slice(0, 19);
+  }
+}
+
 /** A pillanatnyi mérés-ablak (a nullázás óta mért értékek). */
 export function measurementSnapshot(): MeasurementSnapshot {
   const now = Date.now();
