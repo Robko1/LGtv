@@ -1951,7 +1951,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           docState.deadRetryCount += 1;
           const haltedChannelKey = docState.channelKey;
           const retryUrl = baseStreamUrl;
-          appLog(`TV DOKTOR: ${targetChannel.name} – 30 másodperc múlva egyszeri újracsatlakozási ellenőrzés.`);
+          appLog(`TV DOKTOR: ${targetChannel.name} – 2 másodperc múlva egyszeri újracsatlakozási ellenőrzés.`);
           autoRetryTimerRef.current = window.setTimeout(() => {
             autoRetryTimerRef.current = null;
             const currentChannel = channelRef.current;
