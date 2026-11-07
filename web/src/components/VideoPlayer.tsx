@@ -1832,7 +1832,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           + `stratégia=${proposal.strategyId}; puffer=${proposal.nextBufferProfile}; folytatás=${Math.round(resumePos)} mp.`
         );
         showDoctorStatus({
-          phase: trigger === 'media_error' || trigger === 'play_rejected' ? 'error' : 'repair',
+          // A médiahiba javítási esemény, nem végleges csatornahiba.
+          phase: 'repair',
           title: statusTitleForTrigger(true),
           detail: proposal.exhausted
             ? 'Kímélő újrapróbálkozás a mentett pozíciótól…'
@@ -1898,6 +1899,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         triedFormats: docState.triedFormats.slice(),
       });
 
+      // A kimerülés utáni biztonságos visszatérés új javítási kört kezd.
+      docState.repairStep = proposal.step;
       docState.activeBufferProfile = proposal.nextBufferProfile;
       docState.activeBufferTiming = proposal.nextBufferTiming;
       docState.fallbackUrlOverride = proposal.useFallbackUrl ? proposal.nextUrl : null;
@@ -1905,7 +1908,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         tvDoctorLog(`TV DOKTOR JAVÍTÁSI DÖNTÉS: csatorna=${targetChannel.name}; lépés=${proposal.step}/${proposal.maxSteps}; stratégia=${proposal.strategyId}; következő_formátum=${proposal.nextFormat.toUpperCase()}; következő_puffer=${proposal.nextBufferProfile}; pufferküszöb=${proposal.nextBufferTiming.minBufferAheadSeconds}s; várakozás=${proposal.delayMs}ms; fallback=${proposal.useFallbackUrl}; leállít=${proposal.stopRetrying}; kimerült=${proposal.exhausted}; ok=${trigger}.`);
       }
 
-      if (proposal.stopRetrying || proposal.exhausted) {
+      if (proposal.stopRetrying && !proposal.exhausted) {
+        // Biztonsági limit vagy rövidített ellenőrzés: ez nem bizonyít csatornahibát.
+        // A javítási kört lezárjuk, de nem állítjuk le a lejátszót és nem jelöljük halottnak.
+        docState.repairInFlight = false;
+        docState.lastProposal = null;
+        setIsLoading(false);
+        setIsRecovering(false);
+        setHasError(false);
+        setErrorMessage('');
+        showDoctorStatus({
+          phase: 'repair',
+          title: 'Javítás szüneteltetve',
+          detail: proposal.description,
+        });
+        scheduleClearDoctorStatus(2200);
+        return;
+      }
+
+      if (proposal.exhausted) {
+        // Csak a teljes létra igazolt kimerülése és a bizonyított működés hiánya
+        // vezethet ide; ismert, korábban működő csatornát a magmodul visszairányít.
         // A csatorna valóban nem működik: leállítunk minden automatikus újrapróbálást,
         // hogy SOHA ne pörögjön végtelen ciklusban!
         docState.channelHaltedDead = true;
@@ -1989,7 +2012,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       docState.repairInFlight = true;
       docState.lastProposal = proposal;
       showDoctorStatus({
-        phase: trigger === 'media_error' || trigger === 'play_rejected' ? 'error' : 'repair',
+        // A media_error / play_rejected csak az aktuális kísérlet hibája.
+        phase: 'repair',
         title: statusTitleForTrigger(false),
         detail: `${proposal.description}…`,
       });
