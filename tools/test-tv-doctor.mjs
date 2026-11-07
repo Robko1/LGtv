@@ -231,6 +231,34 @@ check(
   'pufferelakadáskor a második javítási próba visszaállítja az 1-es profilt annak pontos normál időzítésével',
 );
 
+
+const exportedBaselineRows = core.getAllDoctorBaselines(baselineStore).map((baseline) => ({
+  channelKey: baseline.channelKey, baseline,
+}));
+const restoredBaselineStore = new MemoryStorage();
+const restoredBaselineCount = core.restoreDoctorBaselinesFromCloud(exportedBaselineRows, restoredBaselineStore);
+const restoredBaseline = core.getDoctorBaseline(baselineChannel, restoredBaselineStore);
+check(
+  restoredBaselineCount === 1 && restoredBaseline?.slot === 1 &&
+    restoredBaseline.format === 'ts' && restoredBaseline.bufferProfile === 'balanced' &&
+    restoredBaseline.startupMs === 920,
+  'a Supabase-ből visszatöltött 1-es alap hiányzó helyi tárhelyre pontosan visszaállítható',
+);
+core.restoreDoctorBaselinesFromCloud([{
+  channelKey: baselineProfile.channelKey,
+  baseline: { ...baselineProfile, format: 'hls', bufferProfile: 'fast' },
+}], restoredBaselineStore);
+check(
+  core.getDoctorBaseline(baselineChannel, restoredBaselineStore)?.format === 'ts' &&
+    core.getDoctorBaseline(baselineChannel, restoredBaselineStore)?.bufferProfile === 'balanced',
+  'a felhőből érkező későbbi/jobb tanult útvonal nem írhatja felül a már mentett 1-es alapot',
+);
+core.clearTvDoctorMemory(restoredBaselineStore);
+check(
+  core.getDoctorBaseline(baselineChannel, restoredBaselineStore) === null,
+  'a TV Doktor teljes memória-nullázása az 1-es alapbeállításokat is törli a helyi tárhelyről',
+);
+
 // 1.2a/1: Az 1-es bizonyított alap önmagában is kizárja a halott minősítést.
 const baselineOnlyStore = new MemoryStorage();
 const baselineOnlyChannel = {
