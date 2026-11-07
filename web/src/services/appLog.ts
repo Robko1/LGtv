@@ -162,7 +162,7 @@ export function dateTimeText(at: number = Date.now()): string {
 }
 
 /** A napló minden abszolút időpontját a TV saját időzónájában írjuk ki, explicit UTC-eltolással. */
-function dublinTimestamp(at: number = Date.now()): string {
+function localTimestamp(at: number = Date.now()): string {
   // A TV rendszeróráját használjuk korrekció nélkül; a relatív idők monotón mérésből jönnek.
   const logAt = at;
   const date = new Date(logAt);
@@ -184,7 +184,7 @@ function dublinTimestamp(at: number = Date.now()): string {
 }
 
 function nowStamp(): string {
-  return dublinTimestamp();
+  return localTimestamp();
 }
 
 /** Csak a dátummal ellátott, elmúlt 24 órán belüli sorokat tartjuk meg. */
