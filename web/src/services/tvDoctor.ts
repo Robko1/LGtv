@@ -2457,13 +2457,14 @@ export function selectChannelLaunchPlan(
     const now = Date.now();
     const isRecentlyDead = Boolean(record.deadUntil && record.deadUntil > now);
     const totalLifetimeOk = (record.tsOk || 0) + (record.hlsOk || 0);
+    const hasProvenWorkingRoute = Boolean(record.routes?.some((route) => route.ok > 0));
     /*
      * 2.5.277 (#17-es napló, NAT GEO WILD UHD): kézi újraválasztásnál a halott
      * jelölés AZONNAL törlődik, ha a csatorna korábban már működött – a
      * csatorna „önmagától is” újraindulhat, a doktor ezt nem blokkolhatja.
      * A flapping ellen NEM ez, hanem az újraaktiválási hűtő védekezik lásd lejjebb.
      */
-    if (isRecentlyDead && (totalLifetimeOk > 0 || Boolean(baselineProfile))) {
+    if (isRecentlyDead && (totalLifetimeOk > 0 || Boolean(baselineProfile) || hasProvenWorkingRoute)) {
       record.deadUntil = undefined;
       record.updatedAt = now;
       /* 2.5.277: explicit storage-nál a readStore új objektumot ad – a módosítást
