@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.377';
+export const WEB_VERSION = '2.5.378';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.377',
+    version: '2.5.378',
     date: '2026-11-07',
     changes: [
       'JAVÍTÁS (HANGSÁV MENTÉSE) — A MENTÉS eddig mindig az 1. (alap) hangsávot tárolta, mert a fejlécig felnyilazva a kurzor visszaállt az első sorra. Mostantól a MENTÉS azt a sávot menti, amelyet a néző kiválasztott – a gombon látszik is a mentendő sáv neve.',
