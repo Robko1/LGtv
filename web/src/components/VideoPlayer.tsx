@@ -1974,7 +1974,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             setErrorMessage('');
             appLog(`TV DOKTOR: ${currentChannel.name} – egyszeri újracsatlakozási ellenőrzés indul.`);
             loadStreamRef.current(retryUrl, true);
-          }, 30000);
+          }, 2000);
         }
         return;
       }
@@ -5055,7 +5055,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       doctorSessionRef.current.directFastStart = Boolean(doctorPlan?.directFastStart);
       doctorSessionRef.current.maxRepairSteps = doctorPlan?.maxRepairSteps || MAX_DOCTOR_REPAIR_STEPS;
       doctorSessionRef.current.channelHaltedDead = false;
-      doctorSessionRef.current.deadRetryCount = 0;
       doctorSessionRef.current.lastProposal = null;
       doctorSessionRef.current.activeBufferProfile = doctorPlan?.bufferProfileId || settings.bufferMode || 'balanced';
       doctorSessionRef.current.activeBufferTiming = doctorPlan?.enabled ? doctorPlan.bufferTiming : null;
