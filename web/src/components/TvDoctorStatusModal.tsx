@@ -339,7 +339,6 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
   const doctorOp = getTvDoctorOperationHealth();
   const doctorCloud = getTvDoctorCloudStatus();
   const pairingInfo = getTvDoctorPairingInfo();
-  const categoryStats = doctorSummary.categoryStats;
 
   const hasCloudError = Boolean(doctorCloud.lastErrorSummary) && doctorCloud.connectionState !== 'unpaired';
   const hasStorageError = Boolean(doctorMem.lastStorageError);
