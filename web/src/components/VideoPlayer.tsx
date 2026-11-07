@@ -1560,10 +1560,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // A képminőség-mérés kizárólag a kézi napló életciklusához kapcsolódik.
   // A normál lejátszás és csatornaváltás alatt nem fut.
-  useEffect(() => registerLoggingLifecycleHooks({
-    onStart: startQualitySampler,
-    onStop: stopQualitySampler,
-  }), [startQualitySampler, stopQualitySampler]);
+  useEffect(() => {
+    const unregister = registerLoggingLifecycleHooks({
+      onStart: startQualitySampler,
+      onStop: stopQualitySampler,
+    });
+    return () => {
+      stopQualitySampler();
+      unregister();
+    };
+  }, [startQualitySampler, stopQualitySampler]);
   // Hibaképernyőn a sárga kijelölés automatikusan az Újrapróbálás gombra
   // ugrik - eddig távirányítóval nem lehetett elérni (a gomb hiányzott).
   const retryButtonRef = useRef<HTMLButtonElement | null>(null);
