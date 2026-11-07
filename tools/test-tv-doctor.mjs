@@ -2511,8 +2511,16 @@ try {
       playedUrls.every((u) => u.endsWith('/9001.mkv')),
     'a VOD helyreállítás megtartja az eredeti .mkv címet, és ellenőrzi a javított filmlejátszás stabilitását',
   );
-  // A VOD javítás csak 8 másodperc stabil lejátszás után zárható le; a tesztnek ezt ki kell várnia.
-  await wait(8500);
+  // Ismétlődő webOS „playing” események mellett is le kell zárulnia
+  // az egyszer elindított stabilitás-ellenőrzésnek; nem indulhat újra minden eseménynél.
+  for (let i = 0; i < 42; i += 1) {
+    await wait(200);
+    vodVideo.dispatchEvent(new window.Event('playing'));
+  }
+  check(
+    !doc.querySelector('[data-tv-doctor-status-window]'),
+    'az ismétlődő playing események nem indítják újra a TV Doktor stabilitás-ellenőrzését, az állapotablak eltűnik',
+  );
   const logsAfterMovie = window.__DOCTOR_UI__.getTvDoctorSummary().recentLogs;
   const memAfterMovie = window.__DOCTOR_UI__.getTvDoctorMemoryStats();
   check(
