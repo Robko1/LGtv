@@ -4961,6 +4961,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const doctorPlan = !isVod && tvDoctorEnabledRef.current
       ? selectChannelLaunchPlan(channel, streamUrl, settings)
       : null;
+    // Új csatorna/film indításakor az előző adatfolyam ellenőrzése már nem
+    // érvényes. A régi verifyTimer eddig generációváltáskor egyszerűen
+    // visszatért, és a „Javítás ellenőrzése” feliratot a képernyőn hagyhatta.
+    // Az új betöltés előtt ezért lezárjuk az előző ellenőrzést és státuszt.
+    if (tvDoctorEnabledRef.current) {
+      const previousDoctorState = doctorSessionRef.current;
+      if (previousDoctorState.verifyTimer !== null) {
+        window.clearTimeout(previousDoctorState.verifyTimer);
+        previousDoctorState.verifyTimer = null;
+      }
+      previousDoctorState.repairInFlight = false;
+      showDoctorStatus(null);
+    }
     if (!isVod) {
       doctorSessionRef.current.channelKey = doctorPlan?.channelKey || normalizeChannelDoctorKey(channel);
       doctorSessionRef.current.hasLearnedProfile = Boolean(doctorPlan?.hasLearnedProfile);
