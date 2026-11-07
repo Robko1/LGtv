@@ -94,6 +94,11 @@ import {
   rememberGlobalFormat,
   rememberedFormatFor,
 } from '../services/liveFormatMemory';
+import {
+  matchSavedAudioTrack,
+  rememberedAudioFor,
+  type SavedLiveAudioTrack,
+} from '../services/liveAudioMemory';
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
@@ -3271,6 +3276,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const selectTvAudio = useCallback((track: AudioTrack) => {
+    /*
+     * Ha NEM a csatornához mentett sáv visszaállítása hívja (hanem a néző),
+     * akkor a folyamatban lévő visszaállítás leáll: a kézi választás mindig
+     * erősebb a mentett beállításnál.
+     */
+    if (!restoringSavedAudioRef.current) savedLiveAudioRef.current.applied = true;
     const mpvId = typeof track.id === 'number' ? track.id : Number(track.id);
     const api = nativeApi();
     if (!api) {
@@ -3366,6 +3377,72 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onRegisterAudioTrackSelector?.(selectTvAudio);
     return () => onRegisterAudioTrackSelector?.(null);
   }, [onRegisterAudioTrackSelector, selectTvAudio]);
+
+  /*
+   * CSATORNÁNKÉNT MENTETT HANGSÁV VISSZAÁLLÍTÁSA (2.5.376).
+   *
+   * A zöld gombos „Hangsáv / CC” ablak MENTÉS gombja a kijelölt hangsávot az
+   * adott csatornához tárolja. Csatornaváltáskor – és az IPK újraindítása
+   * után is – ezt a sávot állítjuk be, amint a TV közzéteszi az adás
+   * hangsávlistáját. A próbálkozás korlátozott ideig és alkalommal fut, hogy
+   * egy eltűnt sáv miatt ne pörögjön a végtelenségig, és hogy a néző későbbi
+   * kézi választását ne írja felül.
+   */
+  const savedLiveAudioRef = useRef<{
+    channelKey: string;
+    saved: SavedLiveAudioTrack | null;
+    applied: boolean;
+    attempts: number;
+    startedAt: number;
+  }>({ channelKey: '', saved: null, applied: true, attempts: 0, startedAt: 0 });
+  /** Csak a visszaállító útvonal állítja igazra – így a kézi választás elkülönül. */
+  const restoringSavedAudioRef = useRef(false);
+  const [savedAudioTick, setSavedAudioTick] = useState(0);
+
+  useEffect(() => {
+    if (isVod || customStreamUrl) return;
+    const channelKey = String(channel?.id ?? '').trim();
+    if (!channelKey) return;
+    const state = savedLiveAudioRef.current;
+    if (state.channelKey !== channelKey) {
+      // Új csatorna: egyszer beolvassuk a mentett hangsávot, majd a következő
+      // körben (amikor a sávlista megérkezik) be is állítjuk.
+      savedLiveAudioRef.current = {
+        channelKey,
+        saved: rememberedAudioFor(channelKey),
+        applied: false,
+        attempts: 0,
+        startedAt: Date.now(),
+      };
+      setSavedAudioTick((value) => value + 1);
+      return;
+    }
+    const saved = state.saved;
+    if (!saved) { state.applied = true; return; }
+    if (state.applied) return;
+    if (state.attempts >= 4 || Date.now() - state.startedAt > 15000) {
+      // A mentett sáv ehhez az adáshoz nem érhető el (más a sávkínálat):
+      // ilyenkor nem erőltetjük tovább, az adás a TV alapértelmezésén marad.
+      state.applied = true;
+      return;
+    }
+    const match = matchSavedAudioTrack(tvAudioTracks, saved);
+    if (!match) {
+      const timer = window.setTimeout(() => setSavedAudioTick((value) => value + 1), 700);
+      return () => window.clearTimeout(timer);
+    }
+    if (match.selected === true) {
+      state.applied = true;
+      appLog(`Mentett csatorna-hangsáv aktív: ${saved.name || saved.lang || ' ismeretlen'}.`);
+      return;
+    }
+    state.attempts += 1;
+    appLog(`Mentett csatorna-hangsáv visszaállítása: ${saved.name || saved.lang || 'ismeretlen'} (próba ${state.attempts}).`);
+    restoringSavedAudioRef.current = true;
+    try { selectTvAudio(match); } finally { restoringSavedAudioRef.current = false; }
+    const timer = window.setTimeout(() => setSavedAudioTick((value) => value + 1), 900);
+    return () => window.clearTimeout(timer);
+  }, [channel?.id, isVod, customStreamUrl, tvAudioTracks, selectTvAudio, savedAudioTick]);
 
   /*
    * Az élő feliratválasztás érvényesítése a TV médiaszolgáltatásán. A

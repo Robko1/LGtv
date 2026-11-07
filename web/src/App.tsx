@@ -32,6 +32,7 @@ import {
   storedRestorePending,
 } from './services/contentStore';
 import { clearRemovedVod, filterRemovedVod, getRemovedVodIds, removeVodFromMemory } from './services/vodRemovals';
+import { rememberedAudioFor, rememberAudioFor, savedAudioLabel as savedAudioLabelOf } from './services/liveAudioMemory';
 import { appLog, appLogError, logPhase } from './services/appLog';
 import { persistHuLogoOverrides, logHuLogoStore } from './services/huChannelLogos';
 import {
@@ -1300,6 +1301,43 @@ export function App() {
     [filteredChannels, displayedChannelOrder],
   );
   const activeChannelDisplayNumber = displayedChannelPositions.get(activeChannelId);
+  /**
+   * A zöld gombos ablak MENTÉS gombja: a kijelölt hangsáv eltárolása az
+   * aktuális csatornához. A mentés után a hangsáv csatornaváltás és az IPK
+   * újraindítása után is visszaáll (lásd services/liveAudioMemory).
+   */
+  const [savedAudioVersion, setSavedAudioVersion] = useState(0);
+  const savedLiveAudioLabel = useMemo(
+    () => savedAudioLabelOf(rememberedAudioFor(activeChannel?.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeChannel?.id, savedAudioVersion],
+  );
+
+  /**
+   * MENTÉS az élő hangsáv-ablakból: a kijelölt sávot eltárolja az adott
+   * csatornához, és ha még nem az fut, azonnal át is kapcsol rá. A mentett
+   * beállítást a lejátszó csatornaváltáskor és IPK-újraindítás után is
+   * visszaállítja (web/src/services/liveAudioMemory.ts).
+   */
+  const handleSaveLiveAudioTrack = useCallback((track: AudioTrack): boolean => {
+    const channel = activeChannel;
+    if (!channel) {
+      appLog('Hangsáv mentése nem lehetséges: nincs aktív csatorna.');
+      return false;
+    }
+    const saved = rememberAudioFor(channel.id, track, liveAudioTracks);
+    if (!saved) {
+      appLog('Hangsáv mentése nem sikerült (tároló hiba).');
+      return false;
+    }
+    setSavedAudioVersion((value) => value + 1);
+    // A mentés egyben érvényesítés is: a néző azonnal azt a sávot hallja.
+    if (track.selected !== true) {
+      mainPlayerAudioSelectRef.current?.(track);
+    }
+    appLog(`Élő hangsáv elmentve a csatornához: ${channel.name || channel.id} → ${track.name || track.lang || 'ismeretlen sáv'}.`);
+    return true;
+  }, [activeChannel, liveAudioTracks]);
 
   // A ChannelList kezeli a látható csatornák EPG-jét a referencia mintájára.
   // Itt csak a gyorsítótárból frissítjük a csatornaállapotot; nincs második előtöltő sor.
@@ -5550,6 +5588,8 @@ export function App() {
         }}
         subtitleTracks={liveSubtitleTracks}
         onSelectSubtitleTrack={(track) => mainPlayerSubtitleSelectRef.current?.(track)}
+        onSaveAudioTrack={handleSaveLiveAudioTrack}
+        savedAudioLabel={savedLiveAudioLabel}
       />
 
       {/* 6. Add Provider / Xtream Codes Modal */}
