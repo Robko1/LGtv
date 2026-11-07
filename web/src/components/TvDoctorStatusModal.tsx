@@ -761,6 +761,22 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     const vis = CATEGORY_BY_ID[cat];
     const logs = displayLogsByCategory[cat];
     const active = logs.length > 0;
+    /*
+     * A kategória-doboz statisztikája a megjelenített naplóbejegyzésekből
+     * számol (2.5.381): a korábbi globális „stat” hivatkozás már nem létezett,
+     * ezért a TV Doktor állapotablak (0-ás gomb) rendereléskor elszállt.
+     */
+    const stat = (() => {
+      let latest: DoctorLogEntry | null = null;
+      for (const entry of logs) {
+        if (!latest || entry.at > latest.at) latest = entry;
+      }
+      return {
+        count: logs.length,
+        lastAt: latest ? latest.at : null,
+        lastChannelName: latest ? (latest.channelName || '') : '',
+      };
+    })();
     const IconComp = vis.Icon;
     const isExpanded = largeCat === cat; // overlay open state
     const totalForBadge = logs.length;

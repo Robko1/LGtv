@@ -749,6 +749,111 @@ check(
   'a biztonsági beavatkozási limit elérése nem jelöli hibásnak vagy halottnak a csatornát',
 );
 
+/*
+ * 1.6b BEAVATKOZÁSI KAPU (2.5.381): egy fizikai hibából egyetlen javítási lépés,
+ * és semmilyen felirat/javítás nem indul egy bizonyítottan haladó adásra.
+ * Az éles naplóban ugyanis a `pause` és az `ended` DOM-esemény 20–26 ms-on
+ * belül KÉT `repair_attempt` sort adott ugyanarra az adáslezárulásra.
+ */
+const gateNow = 1_000_000;
+const gateBase = { trigger: 'unexpected_end', channelKey: 'hu:spektrum-uhd', now: gateNow };
+check(
+  core.evaluateDoctorIncidentGate(gateBase).act === true,
+  'a beavatkozási kapu az első, valódi hibára engedélyezi a javítást',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    lastIncidentAt: gateNow - 26,
+    lastIncidentChannelKey: 'hu:spektrum-uhd',
+    lastIncidentTrigger: 'unexpected_end',
+  }).act === false,
+  'a 26 ms-mal későbbi pause+ended ismétlés már NEM indít második javítási lépést (nincs 1. és 2. lépés ugyanarra az eseményre)',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    trigger: 'unexpected_pause',
+    lastIncidentAt: gateNow - 400,
+    lastIncidentChannelKey: 'hu:spektrum-uhd',
+    lastIncidentTrigger: 'unexpected_end',
+  }).act === false,
+  'ugyanazon csatorna másik lezárulás-jelzése a burst ablakon belül szintén kimarad',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    lastIncidentAt: gateNow - 3000,
+    lastIncidentChannelKey: 'hu:spektrum-uhd',
+    lastIncidentTrigger: 'unexpected_end',
+  }).act === false,
+  'ugyanaz a hibaok a hűtési ablakon belül (3 mp) sem indít új javítást',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    lastIncidentAt: gateNow - 3000,
+    lastIncidentChannelKey: 'hu:spektrum-uhd',
+    lastIncidentTrigger: 'media_error',
+  }).act === true,
+  'más hibaok a burst ablakon túl ismét javítható (nincs örökös blokk)',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    lastIncidentChannelKey: 'hu:ozone-network',
+    lastIncidentAt: gateNow - 100,
+  }).act === true,
+  'egy MÁSIK csatorna eseménye nem blokkolja az új csatorna javítását',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    trigger: 'unexpected_end',
+    lastIncidentAt: gateNow - 3200,
+    lastIncidentChannelKey: 'hu:spektrum-uhd',
+    lastIncidentTrigger: 'unexpected_end',
+    repairInFlight: true,
+  }).act === false,
+  'folyamatban lévő javítás alatt nem indul újabb fokozat (nincs létra-ugrás)',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    trigger: 'buffer_stall',
+    recoveryPending: true,
+  }).act === false,
+  'már ütemezett újratöltés mellett nem indul második javítás',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    trigger: 'buffer_stall',
+    mediaHealthy: true,
+  }).act === false &&
+    core.evaluateDoctorIncidentGate({
+      ...gateBase,
+      trigger: 'playback_stall',
+      mediaHealthy: true,
+    }).act === false,
+  'bizonyítottan haladó adásnál a pufferelési/fagyás jelzés nem indít javítást (nincs hamis „javítás”)',
+);
+check(
+  core.evaluateDoctorIncidentGate({
+    ...gateBase,
+    trigger: 'media_error',
+    mediaHealthy: true,
+  }).act === true,
+  'valódi médiahibát a „haladó adás” jelzés nem nyomhat el – ott a javítás mindig indul',
+);
+check(
+  core.DOCTOR_BUFFERING_STATUS_DELAY_MS >= 1000 &&
+    core.DOCTOR_VOD_BUFFERING_STATUS_DELAY_MS > core.DOCTOR_BUFFERING_STATUS_DELAY_MS &&
+    core.DOCTOR_PAUSE_CONFIRM_MS >= 500 &&
+    core.DOCTOR_REPAIR_STALE_MS > core.DOCTOR_VERIFY_STABLE_MS,
+  'a pufferelési felirat késleltetése, a pause-megerősítés és az elavult javítás őre értelmes időzítést kap',
+);
+
 // 1.7 VOD (Filmek és Sorozatok) TV Doktor támogatás: valós idejű lejátszássegítés MEMÓRIA- ÉS NAPLÓMENTÉS NÉLKÜL
 const vodStore = new MemoryStorage();
 const sampleMovie = {
@@ -2683,15 +2788,21 @@ try {
     'sikeres csatornaindulás után az óra előtti ikon zöld (kezelt) állapotra vált, az állapotablak automatikusan eltűnik, az ikon pedig látható marad',
   );
 
-  // Élő pufferelési probléma -> állapotablak megjelenik a doktor ikon alatt, majd helyreálláskor eltűnik:
+  // Élő pufferelési probléma -> állapotablak csak IGAZOLT, tartós megakadásnál
+  // jelenik meg (2.5.381), rövid szegmenshatár-várakozásnál nem villan fel:
   videoEl.dispatchEvent(new window.Event('waiting'));
   await wait(60);
+  check(
+    !doc.querySelector('[data-tv-doctor-status-window]'),
+    'egy rövid (magától megoldódó) pufferelésnél NEM villan fel a sárga állapotablak',
+  );
+  await wait(Math.max(300, (window.__DOCTOR_CORE__?.DOCTOR_BUFFERING_STATUS_DELAY_MS || 1400) + 300));
   const liveBufWindow = doc.querySelector('[data-tv-doctor-status-window]');
   check(
     Boolean(liveBufWindow) &&
       liveBufWindow.getAttribute('data-doctor-phase') === 'buffering' &&
       (liveBufWindow.textContent || '').includes('Pufferelési probléma'),
-    'élő adás pufferelési problémájánál az óra előtti doktor ikon alatt megjelenik a rövid magyar állapotablak',
+    'élő adás tartós pufferelési problémájánál az óra előtti doktor ikon alatt megjelenik a rövid magyar állapotablak',
   );
   videoEl.dispatchEvent(new window.Event('playing'));
   await wait(780);
