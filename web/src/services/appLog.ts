@@ -816,8 +816,8 @@ export function appLog(message: string): void {
   // A normál tévézés közben nincs diagnosztikai naplózás, nincs localStorage-
   // írás és nincs extra szövegfeldolgozás. Ez a csatornaváltást is gyorsítja.
   if (!loggingEnabled) return;
-  // A mostani tesztben az indulási, import-, EPG-, felirat- és képminőségi
-  // részletek nem szükségesek. A lejátszás hibái/újrapróbái megmaradnak.
+  // Az indulási, import-, EPG- és felirat-részletek nem szükségesek.
+  // A képminőség-mérés külön engedélyezett; a lejátszás hibái/újrapróbái megmaradnak.
   if (/^(?:SZOLGÁLTATÓ|EPG:|Felirat|CC |Élő felirat|ERŐFORRÁS-DIAG|HANGDIAG|ÉLŐ MÉDIAESEMÉNY|ÉLŐ IDŐVONAL|STREAM ADATÉRKEZÉS)/i.test(message)) return;
   const safe = redactLogUrls(String(message ?? '')).replace(/\s+/g, ' ');
   restore();
