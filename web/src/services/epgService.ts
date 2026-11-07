@@ -245,11 +245,12 @@ export async function loadShortEpg(
  */
 export function formatTime24(seconds: number): string {
   /*
-   * 2.5.297: a műsoridőt MAGYAR időben írjuk ki (nem a készülék helyi
-   * idejében), így a magyar műsorújság minden országban ugyanazt mutatja,
-   * mint a magyar újság – és a „most” jelölés a valóban futó műsorra esik.
+   * A műsoridő ugyanabban a helyi időzónában jelenjen meg, mint a főoldali
+   * és a teljes képernyős óra. A szolgáltatói Unix-időbélyeg abszolút időpont,
+   * ezért csak a megjelenítéskor alakítjuk át a TV helyi idejére.
    */
-  return formatBudapestTime(seconds);
+  const date = new Date(seconds * 1000);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function fmtRange(start: number, end: number): string {
