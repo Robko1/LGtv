@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.375';
+export const WEB_VERSION = '2.5.376';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.375',
+    version: '2.5.376',
     date: '2026-11-07',
     changes: [
       'HANGSÁV MENTÉSE — A zöld gombos „Hangsáv / CC” ablak tetején új MENTÉS gomb van. A kiválasztott hangsávot a csatornához menti, így másik adásra váltva és visszatérve, valamint az IPK újraindítása után is ugyanaz a hangsáv töltődik be.',
