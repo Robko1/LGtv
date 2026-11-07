@@ -12,7 +12,7 @@
 import { ProviderRef } from './contentStore';
 import { appLog } from './appLog';
 import { xtreamService } from './xtreamService';
-import { formatBudapestTime, parseBroadcastTime } from '../utils/broadcastTime';
+import { parseBroadcastTime } from '../utils/broadcastTime';
 
 export interface EpgEntry {
   id: string;
