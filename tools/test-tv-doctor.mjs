@@ -2438,9 +2438,8 @@ try {
   );
   check(
     fsDocIcon.getAttribute('data-doctor-handled') === 'false' &&
-      Boolean(fsStatusOnLiveLoad) &&
-      (fsStatusOnLiveLoad.textContent || '').includes('Csatorna betöltése'),
-    'új élő csatornára váltáskor az óra előtti ikon jelzi, hogy még nem kezelt, alatta pedig megjelenik a félig átlátszó állapotablak',
+      !fsStatusOnLiveLoad,
+    'normál élő csatornaváltáskor az ikon jelzi a még nem kezelt csatornát, de betöltési állapotablak nem jelenik meg',
   );
 
   // A lejátszás elindul (playing esemény) -> az ikon zöldre vált (handled=true), az állapotablak pedig automatikusan eltűnik, miközben az ikon látható marad!
@@ -2484,9 +2483,8 @@ try {
   const movieStatusLoad = doc.querySelector('[data-tv-doctor-status-window]');
   check(
     movieIconBefore?.getAttribute('data-doctor-handled') === 'false' &&
-      Boolean(movieStatusLoad) &&
-      (movieStatusLoad.textContent || '').includes('Film betöltése'),
-    'film indításakor a teljes képernyős doktor ikon jelzi az alap állapotot, alatta pedig „Film betöltése” látszik',
+      !movieStatusLoad,
+    'normál filmindításkor a doktor ikon alapállapotú marad, betöltési állapotablak nem jelenik meg',
   );
 
   // Film közbeni hiba -> a TV Doktor valós időben közbelép és újrapróbálja (.mkv marad!), de NEM menti memóriába/naplóba!
@@ -2536,9 +2534,8 @@ try {
   const seriesStatusLoad = doc.querySelector('[data-tv-doctor-status-window]');
   check(
     seriesIconBefore?.getAttribute('data-doctor-handled') === 'false' &&
-      Boolean(seriesStatusLoad) &&
-      (seriesStatusLoad.textContent || '').includes('Sorozat betöltése'),
-    'sorozat indításakor a teljes képernyős doktor ikon jelzi az új epizódot, alatta pedig „Sorozat betöltése” jelenik meg',
+      !seriesStatusLoad,
+    'normál sorozatindításkor a doktor ikon az új epizódot jelzi, betöltési állapotablak nem jelenik meg',
   );
   doc.querySelector('video').dispatchEvent(new window.Event('playing'));
   await wait(780);
