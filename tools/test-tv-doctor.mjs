@@ -846,6 +846,161 @@ check(
   }).act === true,
   'valódi médiahibát a „haladó adás” jelzés nem nyomhat el – ott a javítás mindig indul',
 );
+/*
+ * 1.6c MŰKÖDŐ CSATORNA VÉDELME (2.5.386): az éles TLC-eset.
+ *
+ * A felhőbe feltöltött aktiválódási napló szerint a TV Doktor egy hibátlanul
+ * futó adást leállított és „nem elérhető”-nek jelölt: a létra a SAJÁT
+ * újraindításai közben keletkezett hibákat (media_error, startup_timeout) is a
+ * csatorna hibájának vette, majd a végén lezárta a csatornát.
+ */
+check(
+  core.isUnfoundedDoctorIncident({
+    trigger: 'unexpected_end',
+    ended: false,
+    paused: false,
+    mediaError: false,
+    progressAgoMs: 320,
+  }) === true,
+  'ha a kép 320 ms-on belül haladt, az „adás vége” riasztás hamis – nincs javítás',
+);
+check(
+  core.isUnfoundedDoctorIncident({
+    trigger: 'unexpected_end',
+    ended: true,
+    paused: true,
+    mediaError: false,
+    progressAgoMs: 200,
+  }) === false,
+  'igazolt `ended` + `paused` állapotnál a riasztás valódi (a haladás nem nyomhatja el)',
+);
+check(
+  core.isUnfoundedDoctorIncident({
+    trigger: 'unexpected_end',
+    ended: false,
+    paused: false,
+    mediaError: true,
+    progressAgoMs: 300,
+  }) === false,
+  'igazolt médiahia (`video.error`) mellett nincs „hamis riasztás” kimentés',
+);
+check(
+  core.isUnfoundedDoctorIncident({
+    trigger: 'unexpected_end',
+    ended: false,
+    paused: false,
+    mediaError: false,
+    progressAgoMs: 4000,
+  }) === false,
+  '4 másodperce álló képnél a lezárulás valódi (nincs kimentés)',
+);
+check(
+  core.isUnfoundedDoctorIncident({
+    trigger: 'buffer_stall',
+    ended: false,
+    paused: false,
+    mediaError: false,
+    progressAgoMs: 100,
+  }) === false,
+  'pufferelési riasztásnál a haladás-minta nem menti ki az eseményt',
+);
+
+check(
+  core.shouldSkipDoctorLadderForProvenChannel({
+    trigger: 'unexpected_end',
+    healthyPlaybackMs: 40000,
+    mediaError: false,
+  }) === true,
+  '40 mp bizonyított lejátszás után az „adás vége” nem indít javítási létrát (csak újracsatlakozás)',
+);
+check(
+  core.shouldSkipDoctorLadderForProvenChannel({
+    trigger: 'unexpected_end',
+    healthyPlaybackMs: 4000,
+    mediaError: false,
+  }) === false,
+  '4 mp lejátszás után a létra még jogos (a csatorna nem bizonyított)',
+);
+check(
+  core.shouldSkipDoctorLadderForProvenChannel({
+    trigger: 'media_error',
+    healthyPlaybackMs: 40000,
+    mediaError: true,
+  }) === false,
+  'igazolt médiahibánál a bizonyított működés sem tiltja a javítást',
+);
+
+check(
+  core.canDeclareChannelDead({ healthyPlaybackMs: 0 }) === true,
+  'soha nem játszott csatornát a létra végén le lehet állítani (nincs végtelen ciklus)',
+);
+check(
+  core.canDeclareChannelDead({ healthyPlaybackMs: 40000 }) === false,
+  'bizonyítottan 40 mp-ig működő csatorna SOHA nem nyilvánítható „nem elérhetőnek” (TLC-eset)',
+);
+check(
+  core.canDeclareChannelDead({ healthyPlaybackMs: core.DOCTOR_HEALTHY_PLAYBACK_MS - 1 }) === true &&
+    core.canDeclareChannelDead({ healthyPlaybackMs: core.DOCTOR_HEALTHY_PLAYBACK_MS }) === false,
+  'a „bizonyított működés” küszöbe pontosan a DOCTOR_HEALTHY_PLAYBACK_MS (15 mp)',
+);
+
+/*
+ * 1.6d CSATORNAVÁLTÁS HIBAÁLLAPOTBAN (2.5.386): a TLC-eset második hibája.
+ *
+ * Teljes képernyőn a néző nem tudott csatornát váltani, amíg a TV Doktor
+ * hibaállapota futott (a fókusz az „Újrapróbálás” gombra került, a CH+/CH− pedig
+ * csak akkor ért el a lejátszóhoz, ha a fókusz az oldalon állt).
+ */
+const playerSource = fs.readFileSync(path.join(ROOT, 'web/src/components/VideoPlayer.tsx'), 'utf8');
+check(
+  playerSource.includes("key === 'ArrowUp' || key === 'PageUp'") &&
+    playerSource.includes("key === 'ArrowDown' || key === 'PageDown'"),
+  'a lejátszó a CH+/CH− (PageUp/PageDown) billentyűt is csatornaváltásra használja – fókusztól függetlenül',
+);
+check(
+  playerSource.includes('FEL / LE (CH+ / CH−): másik csatorna'),
+  'a hibaképernyő megmutatja, hogy FEL/LE gombbal is lehet csatornát váltani',
+);
+const webosSource = fs.readFileSync(path.join(ROOT, 'webos/webos.js'), 'utf8');
+check(
+  webosSource.includes('var fsChannelKey = key === \'PageUp\' || key === \'PageDown\';') &&
+    webosSource.includes('fsPlayer.contains(fsFocus)'),
+  'a webOS gombkezelő a lejátszón BELÜLI fókusznál is átirányítja a CH+/CH− gombot a lejátszóhoz',
+);
+check(
+  playerSource.includes('shouldSkipDoctorLadderForProvenChannel(') &&
+    playerSource.includes('canDeclareChannelDead('),
+  'a lejátszó bekötötte a „működő csatorna” védelmet (nincs téves „nem elérhető” ítélet)',
+);
+
+/*
+ * 1.6e AZ UTOLSÓ KIMENETEL SZÁMÍT (2.5.386): a TLC tanult profilja.
+ *
+ * A felhőben a HLS útvonal állt az élen (1 siker / 1 hiba, 1769 ms), a TS
+ * mögötte (2 siker / 3 hiba, 1407 ms) – pedig a legutóbbi HLS-próba HIBAZOTT,
+ * utána a TS sikeresen elindult. A Doktor így újra a hibás HLS-sel indított.
+ */
+const routeNow = 1_794_072_600_000;
+const tlcRoutes = core.sanitizeDoctorRoutes([
+  { format: 'hls', bufferProfile: 'balanced', ok: 1, fail: 1, stalls: 0, avgStartupMs: 1769, lastOkAt: routeNow - 3_600_000, lastFailAt: routeNow - 60_000 },
+  { format: 'ts', bufferProfile: 'balanced', ok: 2, fail: 3, stalls: 0, avgStartupMs: 1407, lastOkAt: routeNow - 5_000_000, lastFailAt: routeNow - 7_200_000 },
+]);
+const rankedTlc = core.rankDoctorRouteList(tlcRoutes, routeNow);
+check(
+  rankedTlc[0]?.format === 'ts',
+  'a legutóbb MŰKÖDŐ útvonal (TS) kerül az élre a legutóbb hibázó HLS helyett – TLC-eset',
+);
+check(
+  core.doctorRouteScore(tlcRoutes.find((route) => route.format === 'ts'), routeNow) >
+    core.doctorRouteScore(tlcRoutes.find((route) => route.format === 'hls'), routeNow),
+  'az utolsó hiba 0,25 pontos levonást ér (a friss siker pedig jóváírást kap)',
+);
+check(
+  core.doctorRouteScore({ ...tlcRoutes[0], fail: 0, lastFailAt: null }, routeNow) >
+    core.doctorRouteScore({ ...tlcRoutes[0], lastFailAt: routeNow }, routeNow),
+  'ugyanaz az útvonal hiba nélkül mindig jobb, mint az utolsó hibával',
+);
+
 check(
   core.DOCTOR_BUFFERING_STATUS_DELAY_MS >= 1000 &&
     core.DOCTOR_VOD_BUFFERING_STATUS_DELAY_MS > core.DOCTOR_BUFFERING_STATUS_DELAY_MS &&

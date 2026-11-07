@@ -233,6 +233,107 @@ export const WEBOS_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024;
 export const DOCTOR_SLOW_OP_THRESHOLD_MS = 25;
 export const MAX_DOCTOR_REPAIR_STEPS = 8;
 export const MAX_DEAD_CHANNEL_QUICK_STEPS = 2;
+/*
+ * 2.5.386 – „MŰKÖDŐ CSATORNA” VÉDELEM (éles hiba, TLC).
+ *
+ * A néző egy hibátlanul futó adást nézett, a TV Doktor mégis leállította és
+ * „nem elérhető”-nek jelölte. A felhőbe feltöltött aktiválódási napló szerint
+ * a Doktor a SAJÁT újraindításai közben keletkezett hibákat (media_error,
+ * startup_timeout) is a csatorna hibájának számolta, majd a létra végén
+ * véglegesen leállította a csatornát.
+ *
+ * Két védelmet vezetünk be:
+ *   1) HAMIS RIASZTÁS: ha a kép/idővonal az elmúlt 1,5 mp-ben HALADT, és a
+ *      médiaelemnek nincs hibája, akkor az „adás vége / váratlan pause”
+ *      esemény nem indíthat javítást (csak naplózzuk).
+ *   2) BIZONYÍTOTT MŰKÖDÉS: ha a csatorna ebben a nézési szakaszban már
+ *      legalább 15 mp-ig bizonyítottan játszott, akkor a javítási létra
+ *      kimerülése NEM jelentheti azt, hogy a csatorna nem elérhető.
+ */
+export const DOCTOR_HEALTHY_PLAYBACK_MS = 15000;
+export const DOCTOR_PROGRESS_WINDOW_MS = 1500;
+
+/**
+ * Igaz, ha a jelzett hiba NEM áll fenn: a kép/idővonal az elmúlt
+ * `progressWindowMs`-en belül haladt, az elem nincs leállítva és nincs
+ * médiahia. Ilyenkor a Doktor nem avatkozik be (nincs fölösleges újratöltés).
+ */
+export function isUnfoundedDoctorIncident(input: {
+  /** 'unexpected_end' | 'unexpected_pause' | 'buffer_stall' | 'playback_stall' | … */
+  trigger: DoctorTriggerReason;
+  /** Az elem `ended` állapota. */
+  ended?: boolean;
+  /** Az elem `paused` állapota. */
+  paused?: boolean;
+  /** Van-e `video.error` (igazolt médiahia). */
+  mediaError?: boolean;
+  /** Az utolsó igazolt idővonal-haladás óta eltelt idő (ms); null = soha nem haladt. */
+  progressAgoMs?: number | null;
+  progressWindowMs?: number;
+}): boolean {
+  const {
+    trigger,
+    ended = false,
+    paused = false,
+    mediaError = false,
+    progressAgoMs = null,
+    progressWindowMs = DOCTOR_PROGRESS_WINDOW_MS,
+  } = input;
+  // Csak a lejátszás-megszakadás típusú riasztásoknál értelmezhető a veto:
+  // a pufferelési/indítási hibáknál a haladás hiánya épp a hiba bizonyítéka.
+  if (trigger !== 'unexpected_end' && trigger !== 'unexpected_pause') return false;
+  if (mediaError || ended || paused) return false;
+  if (progressAgoMs === null || !Number.isFinite(progressAgoMs)) return false;
+  return progressAgoMs <= Math.max(250, progressWindowMs);
+}
+
+/**
+ * Igaz, ha a Doktor NE indítsa el a több lépéses javítási létrát, mert a
+ * csatorna ebben a nézési szakaszban már bizonyítottan működött.
+ *
+ * A TLC-esetben a néző hibátlan adást nézett; egy pillanatnyi lezárulás után a
+ * Doktor formátum- és pufferváltó lépésekbe kezdett, amelyek maguk is hibáztak,
+ * és a létra végén a csatorna „nem elérhető” lett. Bizonyítottan működő
+ * csatornánál ilyenkor elég EGY újracsatlakozás ugyanazon a beállításon – ezt a
+ * `requestRecovery` végzi, létra nélkül.
+ */
+export function shouldSkipDoctorLadderForProvenChannel(input: {
+  trigger: DoctorTriggerReason;
+  healthyPlaybackMs?: number;
+  /** Igazolt médiahia (`video.error`) – ilyenkor a létra jogos. */
+  mediaError?: boolean;
+  healthyThresholdMs?: number;
+}): boolean {
+  const {
+    trigger,
+    healthyPlaybackMs = 0,
+    mediaError = false,
+    healthyThresholdMs = DOCTOR_HEALTHY_PLAYBACK_MS,
+  } = input;
+  if (trigger !== 'unexpected_end' && trigger !== 'unexpected_pause') return false;
+  if (mediaError) return false;
+  return healthyPlaybackMs >= healthyThresholdMs;
+}
+
+/**
+ * Igaz, ha a Doktor véglegesen leállíthatja a csatornát („nem elérhető”).
+ * Bizonyítottan működő csatornát soha nem állítunk le véglegesen: ilyenkor
+ * csak újracsatlakozunk, a felület nem hirdet „nem működik” állapotot.
+ */
+export function canDeclareChannelDead(input: {
+  /** A csatorna bizonyított lejátszási ideje ebben a nézési szakaszban (ms). */
+  healthyPlaybackMs?: number;
+  healthyThresholdMs?: number;
+}): boolean {
+  const { healthyPlaybackMs = 0, healthyThresholdMs = DOCTOR_HEALTHY_PLAYBACK_MS } = input;
+  /*
+   * A bizonyítottan működő csatorna (≥ 15 mp tényleges lejátszás) SOHA nem
+   * „nem elérhető”: a javítási létra kimerülése ilyenkor csak azt jelenti,
+   * hogy a Doktor saját próbái nem jártak sikerrel – a csatorna a valóságban
+   * működik (a felhasználó ezt látja is). Ilyenkor újracsatlakozunk tovább.
+   */
+  return healthyPlaybackMs < healthyThresholdMs;
+}
 export const MAX_INTERVENTIONS_PER_MINUTE = 8;
 export const DOCTOR_VERIFY_STABLE_MS = 2200;
 /*
@@ -1336,6 +1437,16 @@ export function doctorRouteScore(route: DoctorRoute, now = Date.now()): number {
   const total = ok + fail;
   // Sosem sikerült útvonal: csak akkor marad a listában, ha van hely.
   if (total <= 0 || ok <= 0) return -1 - Math.min(0.9, fail * 0.1);
+  /*
+   * 2.5.386 – AZ UTOLSÓ KIMENETEL IS SZÁMÍT (TLC-eset).
+   *
+   * A tanult útvonalak élén a HLS maradt (1 siker / 1 hiba, 0,756 pont), a TS
+   * (2 siker / 3 hiba, 0,694 pont) mögötte – pedig a legutóbbi HLS-próba
+   * HIBAZOTT (17:20:52), utána a TS sikeresen elindult (17:20:58). A Doktor így
+   * újra a hibás HLS-sel indított, ami megint hibázott, és a javítási létra a
+   * működő csatornát „nem elérhető” felé vitte. Ezért:
+   *   • az utolsó HIBA 0,25 pont levonás, az utolsó siker 0,03 pont jóváírás.
+   */
   const reliability = ok / total;
   const stallPenalty = Math.min(0.8, ((route.stalls || 0) / Math.max(1, ok)) * 0.45);
   const speed = route.avgStartupMs !== null && route.avgStartupMs > 20
@@ -1344,7 +1455,12 @@ export function doctorRouteScore(route: DoctorRoute, now = Date.now()): number {
   // A régen sikerült útvonal kicsit veszít az értékéből (max. 0,04 – nem döntő).
   const ageDays = route.lastOkAt ? Math.max(0, (now - route.lastOkAt) / 86_400_000) : 0;
   const freshness = Math.max(0, 0.04 - Math.min(0.04, ageDays * 0.002));
-  return reliability - stallPenalty + speed + freshness;
+  const lastOkAt = Number(route.lastOkAt) || 0;
+  const lastFailAt = Number(route.lastFailAt) || 0;
+  const failedLast = lastFailAt > lastOkAt;
+  const recencyPenalty = failedLast ? 0.25 : 0;
+  const recencyBonus = !failedLast && lastOkAt > 0 ? 0.03 : 0;
+  return reliability - stallPenalty + speed + freshness + recencyBonus - recencyPenalty;
 }
 
 /** Tárolt/felhőből érkező nyers útvonalak biztonságos átalakítása. */

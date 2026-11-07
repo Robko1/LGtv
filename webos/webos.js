@@ -1126,6 +1126,33 @@
       } catch (eFs) { fsPlayer = null; }
       if (fsPlayer) {
         var fsFocus = document.activeElement;
+        /*
+         * 2.5.386 – CH+/CH- MINDIG ÉRJEN EL A LEJÁTSZÓHOZ.
+         *
+         * A TLC-esetben a TV Doktor hibaállapotában a fókusz az „Újrapróbálás”
+         * gombra került. A CH+/CH- (PageUp/PageDown) átirányítása viszont csak
+         * akkor futott, ha a fókusz az oldalon (body) állt – gombon állva a
+         * gomb nem továbbította, így teljes képernyőn NEM lehetett csatornát
+         * váltani. Most a lejátszón BELÜLI fókusz is átirányítást kap a
+         * csatornagombokra, és a nyilakra akkor, ha a fókuszált elem nem
+         * kezeli maga (a lejátszó React-kezelője a fókusztól függetlenül is
+         * ellátja a csatornaváltást).
+         */
+        var fsInside = false;
+        try {
+          fsInside = Boolean(fsFocus && fsPlayer.contains && fsPlayer.contains(fsFocus));
+        } catch (eInside) { fsInside = false; }
+        var fsChannelKey = key === 'PageUp' || key === 'PageDown';
+        if (fsInside && fsChannelKey) {
+          var fwdKey = key === 'PageUp' ? 'ArrowUp' : 'ArrowDown';
+          var fwdEv = makeKeyEvent(fwdKey, KEY_TO_KEYCODE[fwdKey] || kc);
+          if (fwdEv) {
+            e.preventDefault();
+            e.stopPropagation();
+            fsFocus.dispatchEvent(fwdEv);
+            return;
+          }
+        }
         if (!fsFocus || fsFocus === document.body || fsFocus === document.documentElement || isHiddenEl(fsFocus)) {
           try { fsPlayer.focus({preventScroll:true}); } catch (eFocus) {}
           // A CH+/CH- (PageUp/PageDown) a lejátszóban FEL/LE nyíl, mert ott a

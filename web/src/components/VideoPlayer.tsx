@@ -36,6 +36,9 @@ import {
   DOCTOR_VOD_BUFFERING_STATUS_DELAY_MS,
   DOCTOR_PAUSE_CONFIRM_MS,
   DOCTOR_REPAIR_STALE_MS,
+  canDeclareChannelDead,
+  isUnfoundedDoctorIncident,
+  shouldSkipDoctorLadderForProvenChannel,
   MAX_DOCTOR_REPAIR_STEPS,
   DoctorBufferProfileId,
   DoctorBaselineProfile,
@@ -1972,6 +1975,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     fallbackUrlOverride: string | null;
     /* 2.5.277: egy javítási létrán belül már sikertelen formátumok – a létra ezeket nem próbálja újra (nincs HLS↔TS ingadozás). */
     triedFormats: LiveFormat[];
+    /*
+     * 2.5.386 – BIZONYÍTOTT MŰKÖDÉS (a téves „nem elérhető” ítélet ellen).
+     *
+     * A felhasználó esete: a TV Doktor egy MŰKÖDŐ csatornát (TLC) leállított és
+     * „nem elérhető”-nek jelölt, pedig a műsor ment. A napló szerint a Doktor a
+     * saját újraindításai közben gyűjtött hibákat (media_error, startup_timeout)
+     * is a csatorna rovására írta. Ezért mostantól mérjük a csatorna TÉNYLEGES
+     * lejátszási idejét: ha egy csatorna ebben a nézési szakaszban már bizonyítottan
+     * lejátszott (≥ HEALTHY_PLAYBACK_MS), akkor soha nem nyilvánítjuk véglegesen
+     * halottnak – legfeljebb újracsatlakozunk.
+     */
+    healthyPlaybackMs: number;
+    lastProgressAt: number;
+    lastProgressTime: number;
   }>({
     channelKey: '',
     hasLearnedProfile: false,
@@ -1993,6 +2010,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     verifyTimer: null,
     fallbackUrlOverride: null,
     triedFormats: [],
+    healthyPlaybackMs: 0,
+    lastProgressAt: 0,
+    lastProgressTime: 0,
   });
   /**
    * LG webOS TV-n a támogatott webes lejátszási út a HTMLVideoElement.
@@ -2077,6 +2097,53 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const docState = doctorSessionRef.current;
       const gate = doctorIncidentRef.current;
       const nowMs = Date.now();
+
+      /*
+       * 2.5.386 – HAMIS RIASZTÁS KISZŰRÉSE (TLC-eset).
+       *
+       * A néző egy hibátlanul futó adást nézett, miközben a Doktor
+       * „megszakadt adatfolyam” riasztást kapott és elkezdte újraindítgatni a
+       * csatornát – a saját próbái hibáztak, a létra végén pedig a csatornát
+       * „nem elérhető”-nek jelölte. Az ilyen téves ítélet megelőzése:
+       * ha a kép/idővonal az elmúlt 1,5 mp-ben HALADT, az elem nincs
+       * leállítva és nincs médiahia, akkor nincs mit javítani.
+       */
+      const alarmElement = video || htmlVideoRef.current;
+      const unfounded = alarmElement
+        ? isUnfoundedDoctorIncident({
+          trigger,
+          ended: alarmElement.ended,
+          paused: alarmElement.paused,
+          mediaError: Boolean(alarmElement.error),
+          progressAgoMs: docState.lastProgressAt > 0 ? nowMs - docState.lastProgressAt : null,
+        })
+        : false;
+      if (unfounded) {
+        const falseAlarmLine = `TV DOKTOR: HAMIS RIASZTÁS – a kép halad, nincs javítás; csatorna=${isVodRef.current ? (customTitleRef.current || 'VOD') : (channelRef.current?.name || 'élő adás')}; ok=${trigger}; utolsó-haladás=${Math.round(nowMs - docState.lastProgressAt)} ms; bizonyított-lejátszás=${Math.round(docState.healthyPlaybackMs / 1000)} s.`;
+        appLog(falseAlarmLine);
+        if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(falseAlarmLine);
+        return;
+      }
+      /*
+       * 2.5.386 – BIZONYÍTOTTAN MŰKÖDŐ CSATORNÁN NINCS JAVÍTÁSI LÉTRA.
+       *
+       * Ha a csatorna ebben a nézési szakaszban már legalább 15 mp-ig
+       * bizonyítottan játszott (és nincs igazolt médiahia), akkor egy
+       * pillanatnyi lezárulás/váratlan pause után NEM indítunk formátum- és
+       * pufferváltó lépéseket (ezek maguk is hibázhatnak, és a létra végén
+       * téves „nem elérhető” ítélet született a TLC-nél). Az újracsatlakozást
+       * a hívó `requestRecovery` útvonala végzi, ugyanazon a beállításon.
+       */
+      if (!isVodRef.current && shouldSkipDoctorLadderForProvenChannel({
+        trigger,
+        healthyPlaybackMs: docState.healthyPlaybackMs,
+        mediaError: Boolean((video || htmlVideoRef.current)?.error),
+      })) {
+        const provenLine = `TV DOKTOR: BIZONYÍTOTTAN MŰKÖDŐ CSATORNA – nincs javítási létra, csak újracsatlakozás; csatorna=${channelRef.current?.name || 'élő adás'}; ok=${trigger}; bizonyított-lejátszás=${Math.round(docState.healthyPlaybackMs / 1000)} s.`;
+        appLog(provenLine);
+        if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(provenLine);
+        return;
+      }
 
       /*
        * 2.5.381 – 1. MEGERŐSÍTÉS VÁRATLAN PAUSE-NÁL.
@@ -2320,10 +2387,52 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
 
       if (proposal.exhausted) {
-        // Csak a teljes létra igazolt kimerülése és a bizonyított működés hiánya
-        // vezethet ide; ismert, korábban működő csatornát a magmodul visszairányít.
-        // A csatorna valóban nem működik: leállítunk minden automatikus újrapróbálást,
-        // hogy SOHA ne pörögjön végtelen ciklusban!
+        /*
+         * 2.5.386 – MŰKÖDŐ CSATORNA NEM NYILVÁNÍTHATÓ „NEM ELÉRHETŐNEK”.
+         *
+         * TLC-eset: a néző hibátlanul nézte az adást, a Doktor a saját
+         * újraindításai közben hibákat gyűjtött, majd a létra végén leállította
+         * a csatornát és „A csatorna jelenleg nem működik” üzenetet tett ki.
+         * Ha a csatorna ebben a nézési szakaszban már bizonyítottan játszott
+         * (≥ DOCTOR_HEALTHY_PLAYBACK_MS), akkor NINCS végleges leállítás:
+         * csak újracsatlakozunk, a képernyőn pedig jelzés (nem hibaüzenet)
+         * látszik, a kép pedig a helyén marad.
+         */
+        if (!canDeclareChannelDead({ healthyPlaybackMs: docState.healthyPlaybackMs })) {
+          docState.channelHaltedDead = false;
+          docState.repairStep = 0;
+          docState.triedFormats = [];
+          docState.lastProposal = null;
+          docState.repairInFlight = false;
+          if (autoRetryTimerRef.current !== null) {
+            window.clearTimeout(autoRetryTimerRef.current);
+            autoRetryTimerRef.current = null;
+          }
+          if (bufferWatchdogRef.current !== null) {
+            window.clearTimeout(bufferWatchdogRef.current);
+            bufferWatchdogRef.current = null;
+          }
+          setHasError(false);
+          setErrorMessage('');
+          setIsLoading(false);
+          setIsPlaying(false);
+          liveRecoveryOnlyRef.current = true;
+          appLog(
+            `TV DOKTOR: MŰKÖDŐ CSATORNA – NINCS VÉGLEGES LEÁLLÍTÁS; csatorna=${String(targetChannel.name || 'élő adás').slice(0, 100)}; `
+            + `bizonyított-lejátszás=${Math.round(docState.healthyPlaybackMs / 1000)} s; utolsó-ok=${trigger}; `
+            + `a képernyőn csak jelzés látszik, a csatorna újracsatlakozik.`,
+          );
+          showDoctorStatus({
+            phase: 'retry',
+            title: 'Újracsatlakozás',
+            detail: 'A csatorna működött – automatikus újracsatlakozás (FEL/LE: csatornaváltás).',
+          });
+          scheduleClearDoctorStatus(4000);
+          requestRecoveryRef.current('a javítási létra kimerült, de a csatorna bizonyítottan működött');
+          return;
+        }
+        // Valóban nem működő csatorna (ebben a szakaszban soha nem játszott):
+        // az újrapróbálást leállítjuk, hogy ne pörögjön végtelen ciklusban.
         docState.channelHaltedDead = true;
         docState.repairInFlight = false;
         docState.lastProposal = null;
@@ -2337,10 +2446,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
         clearRecovery();
         if (video) {
+          /*
+           * 2.5.386: NEM vesszük el a forrást és NEM feketítjük ki a képet –
+           * a néző lássa, hol tartott (a lenti állapotsáv mondja meg, hogy a
+           * csatorna nem indítható). A forrás eltávolítása korábban üres fekete
+           * dobozt hagyott, ami „lefagyott” benyomást keltett.
+           */
           try {
             video.pause();
-            video.removeAttribute('src');
-            video.load();
           } catch {
             /* ignore */
           }
@@ -3178,11 +3291,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       e.stopPropagation();
       const list = document.querySelector<HTMLElement>('[role="listbox"]');
       if (list) list.focus({ preventScroll: true } as any);
-    } else if (key === 'ArrowUp') {
+    } else if (key === 'ArrowUp' || key === 'PageUp') {
+      /*
+       * 2.5.386 – A TV TÁVIRÁNYÍTÓ CSATORNAGOMBJA (CH+ / CH−, keyCode 33/34)
+       * eddig csak a webos.js átirányításán keresztül működött, és ott is csak
+       * akkor, ha a fókusz épp nem egy gombon állt. Ezért hibaüzenet (TV Doktor
+       * „nem elérhető”) alatt – amikor a fókusz az Újrapróbálás gombra kerül –
+       * a néző NEM tudott csatornát váltani teljes képernyőn. Most a lejátszó
+       * maga is kezeli a CH+/CH− billentyűt, fókusztól függetlenül.
+       */
       e.preventDefault();
       e.stopPropagation();
       if (isLive) onPrevChannel?.();
-    } else if (key === 'ArrowDown') {
+    } else if (key === 'ArrowDown' || key === 'PageDown') {
       e.preventDefault();
       e.stopPropagation();
       if (isLive) onNextChannel?.();
@@ -5568,6 +5689,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       doctorSessionRef.current.waitingOrStalledFlag = false;
       doctorSessionRef.current.consecutiveStallTicks = 0;
       doctorSessionRef.current.fallbackUrlOverride = null;
+      // 2.5.386: új csatorna = új nézési szakasz → a működés-mérés nulláról indul.
+      doctorSessionRef.current.healthyPlaybackMs = 0;
+      doctorSessionRef.current.lastProgressAt = 0;
+      doctorSessionRef.current.lastProgressTime = 0;
     } else {
       const vodTarget = buildVodDoctorTarget(streamUrl);
       const vodPlan = tvDoctorEnabledRef.current
@@ -5591,6 +5716,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       doctorSessionRef.current.waitingOrStalledFlag = false;
       doctorSessionRef.current.consecutiveStallTicks = 0;
       doctorSessionRef.current.fallbackUrlOverride = null;
+      doctorSessionRef.current.healthyPlaybackMs = 0;
+      doctorSessionRef.current.lastProgressAt = 0;
+      doctorSessionRef.current.lastProgressTime = 0;
     }
     // Ha a TV Doktor már igazoltan megtanulta a csatorna leggyorsabb, működő
     // formátumát, közvetlenül azt indítjuk (akkor is, ha az általános alapbeállítás más!).
@@ -6497,6 +6625,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               const video = event.currentTarget as HTMLVideoElement;
               if (!isActiveMediaEvent(video)) return;
               if (!isVod) {
+                /*
+                 * 2.5.386 – BIZONYÍTOTT LEJÁTSZÁS MÉRÉSE.
+                 *
+                 * A Doktor döntéseihez mérjük, mennyit játszott TÉNYLEGESEN a
+                 * csatorna ebben a nézési szakaszban: ez védi meg a működő
+                 * adást a téves „nem elérhető” ítélettől (TLC-eset), és ez
+                 * alapja a hamis riasztás kiszűrésének is.
+                 */
+                const docHealth = doctorSessionRef.current;
+                const nowProgress = Date.now();
+                const currentTime = Number(video.currentTime || 0);
+                if (currentTime > docHealth.lastProgressTime + 0.05) {
+                  if (docHealth.lastProgressAt > 0) {
+                    const delta = nowProgress - docHealth.lastProgressAt;
+                    if (delta > 0 && delta < 2000) {
+                      docHealth.healthyPlaybackMs = Math.min(24 * 60 * 60 * 1000, docHealth.healthyPlaybackMs + delta);
+                    }
+                  }
+                  docHealth.lastProgressAt = nowProgress;
+                  docHealth.lastProgressTime = currentTime;
+                }
                 // A timeupdate csak akkor érkezik, ha az élő lejátszás idővonala
                 // ténylegesen halad. A STALLED önmagában nem bizonyít pufferelést:
                 // ha a kép közben továbbmegy, oldjuk fel a beragadt jelzőt.
@@ -6681,6 +6830,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           >
             Újrapróbálás
           </button>
+          {/*
+            2.5.386 – A hibaképernyő nem „csapdázhatja” a távirányítót.
+            A TLC-esetben a néző csak úgy tudott továbblépni, hogy kilépett a
+            főoldalra; teljes képernyőn a CH+/CH− nem működött. A gombok itt
+            is látszanak, és a lejátszó a CH+/CH− billentyűt fókusztól
+            függetlenül kezeli.
+          */}
+          <div className="mt-3 text-[11px] md:text-xs font-semibold text-white/70 whitespace-pre-line">
+            {'FEL / LE (CH+ / CH−): másik csatorna\nOK: újrapróbálás • VISSZA: főoldal'}
+          </div>
         </div>
       )}
 

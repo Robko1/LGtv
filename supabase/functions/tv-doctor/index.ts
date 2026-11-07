@@ -261,6 +261,18 @@ function sanitizeRoutes(raw) {
   return out;
 }
 
+/*
+ * 2.5.386 – AZ ÚTVONAL-ÉRTÉKELÉS MOSTANTÓL AZ UTOLSÓ KIMENETELT IS SZÁMOLJA.
+ *
+ * Éles eset (TLC): a tanult profilban a HLS útvonal 1 siker / 1 hiba mellett az
+ * élen maradt (0,756 pont), a TS pedig 2 siker / 3 hiba mellett hátraszorult
+ * (0,694) – holott a legutóbbi próbák sorrendje ez volt: HLS HIBA (17:20:52),
+ * majd TS SIKER (17:20:58). A Doktor emiatt újra HLS-sel indított, az megint
+ * hibázott, és a javítási létra a működő csatornát is „nem elérhető” felé
+ * vitte. Mostantól:
+ *   • ha az utolsó kimenetel HIBA volt, az útvonal 0,25 pontot veszít,
+ *   • ha az utolsó kimenetel siker, 0,03 pontot kap.
+ */
 function routeScore(route) {
   const ok = Math.max(0, route.ok || 0);
   const fail = Math.max(0, route.fail || 0);
@@ -269,7 +281,12 @@ function routeScore(route) {
   const reliability = ok / total;
   const stallPenalty = Math.min(0.8, ((route.stalls || 0) / Math.max(1, ok)) * 0.45);
   const speed = route.avgStartupMs && route.avgStartupMs > 20 ? Math.max(0, (4200 - route.avgStartupMs) / 9500) : 0;
-  return reliability - stallPenalty + speed;
+  const lastOkAt = Number(route.lastOkAt) || 0;
+  const lastFailAt = Number(route.lastFailAt) || 0;
+  const failedLast = lastFailAt > lastOkAt;
+  const recencyPenalty = failedLast ? 0.25 : 0;
+  const recencyBonus = !failedLast && lastOkAt > 0 ? 0.03 : 0;
+  return reliability - stallPenalty + speed + recencyBonus - recencyPenalty;
 }
 
 /** A legjobb 8 útvonal megtartása (a „sosem sikerült” sorok esnek ki először). */
@@ -1222,7 +1239,15 @@ export function createTvDoctorHandler(customEnv = {}) {
           /* 2.5.294: a tanult útvonalak egyesítése (max. 8, a legjobbak maradnak). */
           const mergedRoutes = mergeRoutes(prev && prev.routes, inc.routes);
           const incomingFormat = VALID_FORMATS.has(inc.bestFormat) ? inc.bestFormat : "ts";
-          const bestFormat = chooseBestFormat(tsOk, tsFail, tsAvg, hlsOk, hlsFail, hlsAvg, incomingFormat);
+          /*
+           * 2.5.386: a `best_format` MINDIG a legjobbra rangsorolt tanult
+           * útvonallal egyezzen – különben a profil HLS-t hirdetett, miközben a
+           * tanult útvonalak élén (és a gyakorlatban) a TS működött (TLC-eset).
+           */
+          const topRoute = mergedRoutes.find((route) => Number(route.ok) > 0);
+          const bestFormat = topRoute && VALID_FORMATS.has(topRoute.format)
+            ? topRoute.format
+            : chooseBestFormat(tsOk, tsFail, tsAvg, hlsOk, hlsFail, hlsAvg, incomingFormat);
           const incomingBufProfile = VALID_BUFFER_PROFILES.has(inc.bestBufferProfile) ? inc.bestBufferProfile : "balanced";
           const bestBufferProfile = chooseBestBufferProfile(mergedBufScores, incomingBufProfile);
           const defaultAhead = BUFFER_PROFILE_DEFAULT_SECONDS[bestBufferProfile] || 3.0;
