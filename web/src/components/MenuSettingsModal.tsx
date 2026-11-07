@@ -1807,7 +1807,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
           {/* ================= TAB 4: RENDSZER ================= */}
           {activeTab === 'system' && (
-            <div className="space-y-5 animate-fadeIn">
+            <div data-system-settings="" className="space-y-5 animate-fadeIn">
 
               {/* 1. SECTION: TV DOKTOR (legelső a Rendszer felsorolásban) */}
               {(() => {
