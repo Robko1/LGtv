@@ -2463,7 +2463,7 @@ export function selectChannelLaunchPlan(
      * csatorna „önmagától is” újraindulhat, a doktor ezt nem blokkolhatja.
      * A flapping ellen NEM ez, hanem az újraaktiválási hűtő védekezik lásd lejjebb.
      */
-    if (isRecentlyDead && totalLifetimeOk > 0) {
+    if (isRecentlyDead && (totalLifetimeOk > 0 || Boolean(baselineProfile))) {
       record.deadUntil = undefined;
       record.updatedAt = now;
       /* 2.5.277: explicit storage-nál a readStore új objektumot ad – a módosítást
@@ -3004,7 +3004,8 @@ export function recordDoctorChannelFailure(params: {
       if (rec.lastWorkingFormat === format) {
         // Ha a korábban működő formátum zsinórban legalább 2x elbukott, engedjük át a másiknak
         const consec = format === 'hls' ? (rec.hlsConsecutiveFail || 0) : (rec.tsConsecutiveFail || 0);
-        if (consec >= 2) rec.lastWorkingFormat = undefined;
+        // Az 1-es alap formátumát a próbák nem törölhetik a korábbi működési bizonyítékból.
+        if (consec >= 2 && (!baseline || baseline.format !== format)) rec.lastWorkingFormat = undefined;
       }
       rec.bestFormat = pickFastestReliableFormat(rec, altFmt);
       rec.bestBufferProfile = evaluateBestBufferProfile(rec.bufferStats, rec.bestBufferProfile);
@@ -3091,14 +3092,17 @@ export function collectDoctorDiagnostics(params: {
   };
 
   if (!channelKey.startsWith('vod:') && channel?.countryCode !== 'VOD' && channel?.countryCode !== 'SER') {
-    const isHardError = trigger === 'media_error' || trigger === 'play_rejected';
+    // A médiaelem hibája csak egy lejátszási kísérlet hibája, nem csatornahiba.
+    // A végleges csatornahiba kizárólag a teljes, bizonyítékot is figyelembe vevő
+    // javítási döntésből származhat.
+    const isMediaAttemptError = trigger === 'media_error' || trigger === 'play_rejected';
     logDoctor(
-      isHardError ? 'error' : 'warn',
+      'warn',
       channel,
-      isHardError
-        ? `CSATORNAHIBA (${report.errorCode || trigger}): mód=${format.toUpperCase()} • puffer=${bufferProfile} • eltelt=${report.loadElapsedMs}ms`
+      isMediaAttemptError
+        ? `MÉDIAHIBA ÉSZLELVE – TV DOKTOR JAVÍTÁS INDUL (${report.errorCode || trigger}): mód=${format.toUpperCase()} • puffer=${bufferProfile} • eltelt=${report.loadElapsedMs}ms`
         : `AKTIVÁLÁS ok=${trigger} • mód=${format.toUpperCase()} • puffer=${bufferProfile} • betöltés=${report.loadElapsedMs}ms • hiba=${report.errorCode || 'nincs'} • tartalék=${streamState.bufferedAheadSeconds.toFixed(1)}mp`,
-      isHardError ? 'channel_error' : 'activation',
+      'activation',
       storage,
     );
   }
@@ -3318,6 +3322,9 @@ export function planDoctorRepairStep(params: {
   const urlFor = (fmt: LiveFormat) => (fmt === 'hls' ? hlsUrl : tsUrl) || streamUrl;
   const store = readStore(storage);
   const record = getChannelDoctorRecord(channel, storage);
+  // Az 1-es kézi alapbeállítás önálló, megváltoztathatatlan működési bizonyíték.
+  // Akkor is véd, ha a tanuló rekord vagy a route-lista még üres.
+  const baselineForProtection = baselineProfile || getDoctorBaseline(channel, storage);
   /*
    * 2.5.298: ha a csatorna korábban MÁR működött (van sikeres indítása),
    * nem adjuk fel 8 lépés után: a tanult útvonalat és a progresszív puffert
@@ -3329,8 +3336,9 @@ export function planDoctorRepairStep(params: {
     record && (
       (record.tsOk || 0) + (record.hlsOk || 0) > 0 ||
       (record.consecutiveCleanStarts || 0) > 0 ||
-      Boolean(record.lastWorkingFormat)
-    ),
+      Boolean(record.lastWorkingFormat) ||
+      Boolean(record.routes?.some((route) => route.ok > 0))
+    ) || Boolean(baselineForProtection),
   );
   let effectiveMaxSteps = Math.max(
     1,
@@ -3427,15 +3435,45 @@ export function planDoctorRepairStep(params: {
     // 2.5.315 FIX: MŰKÖDŐ CSATORNÁT SOHA NE JELÖLJÜNK HALOTTNAK — tanult útvonallal újraindítjuk, nem „nem elérhető”
     const _recForCheck = channel ? getOrCreateRecord(store, channel, currentFormat, currentBufferProfile) : null;
     const _hasPriorSuccessForHalt = Boolean(
-      (_recForCheck && ((_recForCheck.tsOk || 0) + (_recForCheck.hlsOk || 0) > 0 || (_recForCheck.consecutiveCleanStarts || 0) > 0 || Boolean(_recForCheck.lastWorkingFormat)))
-      || (record && ((record.tsOk || 0) + (record.hlsOk || 0) > 0 || (record.consecutiveCleanStarts || 0) > 0 || Boolean(record.lastWorkingFormat)))
+      baselineForProtection
+      || (_recForCheck && (
+        (_recForCheck.tsOk || 0) + (_recForCheck.hlsOk || 0) > 0
+        || (_recForCheck.consecutiveCleanStarts || 0) > 0
+        || Boolean(_recForCheck.lastWorkingFormat)
+        || Boolean(_recForCheck.routes?.some((route) => route.ok > 0))
+      ))
+      || (record && (
+        (record.tsOk || 0) + (record.hlsOk || 0) > 0
+        || (record.consecutiveCleanStarts || 0) > 0
+        || Boolean(record.lastWorkingFormat)
+        || Boolean(record.routes?.some((route) => route.ok > 0))
+      ))
     );
-    if (_hasPriorSuccessForHalt && learnedAlternate) {
-      // Van tanult útvonal: ne halottnak jelöljük, hanem azzal próbáljuk újra — a csatorna működött, nem szabad „nem elérhető”-nek mutatni
+    // Bármilyen korábbi, bizonyított siker kizárja a végleges halott minősítést.
+    // Ha nincs további tanult útvonal, visszatérünk az érinthetetlen 1-es alapra.
+    const protectedRetryRoute = learnedAlternate
+      || (baselineForProtection ? {
+        format: baselineForProtection.format,
+        bufferProfile: baselineForProtection.bufferProfile,
+      } : null)
+      || (_recForCheck?.lastWorkingFormat ? {
+        format: _recForCheck.lastWorkingFormat,
+        bufferProfile: _recForCheck.lastWorkingBufferProfile || _recForCheck.bestBufferProfile,
+      } : null)
+      || learnedRouteFor(_recForCheck || record);
+    if (_hasPriorSuccessForHalt) {
+      const retryFormat = protectedRetryRoute?.format || currentFormat;
+      const retryBufferProfile = protectedRetryRoute?.bufferProfile || currentBufferProfile;
+      const retryStrategy = learnedAlternate
+        ? 'learned_route_retry_after_exhaustion'
+        : baselineForProtection
+          ? 'baseline_route_retry_after_exhaustion'
+          : 'known_working_route_retry_after_exhaustion';
+      // Korábban működött: nincs CHANNEL_UNREACHABLE, csak biztonságos újrapróbálás.
       logDoctor(
         'warn',
         channel,
-        `MŰKÖDŐ CSATORNA ÁTMENETI HIBÁJA (${effectiveMaxSteps}/${effectiveMaxSteps} sikertelen) – tanult útvonal újrapróbálása (${learnedAlternate.format.toUpperCase()} + ${learnedAlternate.bufferProfile}), nem jelöljük halottnak.`,
+        `KORÁBBAN MŰKÖDŐ CSATORNA ÁTMENETI HIBÁJA (${effectiveMaxSteps}/${effectiveMaxSteps} sikertelen) – újrapróbálás (${retryFormat.toUpperCase()} + ${retryBufferProfile}), nem jelöljük halottnak.`,
         'activation',
         storage,
       );
@@ -3447,23 +3485,23 @@ export function planDoctorRepairStep(params: {
             channelKey,
             channelId: channel?.id,
             channelName: channel?.name || channelKey,
-            playbackFormat: learnedAlternate.format,
-            bufferProfile: learnedAlternate.bufferProfile,
-            errorCode: 'RETRY_LEARNED_ROUTE',
+            playbackFormat: retryFormat,
+            bufferProfile: retryBufferProfile,
+            errorCode: 'RETRY_KNOWN_WORKING_ROUTE',
             errorReason: trigger,
             recovered: false,
           },
         });
       }
-      const safeCfgRetry = getDoctorBufferConfig(learnedAlternate.bufferProfile);
+      const safeCfgRetry = getDoctorBufferConfig(retryBufferProfile);
       return {
         step: 1,
         maxSteps: effectiveMaxSteps,
-        strategyId: 'learned_route_retry_after_exhaustion',
-        description: `működő csatorna újrapróbálása tanult útvonallal (${learnedAlternate.format.toUpperCase()} + ${learnedAlternate.bufferProfile})`,
-        nextFormat: learnedAlternate.format,
-        nextUrl: urlFor(learnedAlternate.format),
-        nextBufferProfile: learnedAlternate.bufferProfile,
+        strategyId: retryStrategy,
+        description: `korábban működő csatorna újrapróbálása (${retryFormat.toUpperCase()} + ${retryBufferProfile})`,
+        nextFormat: retryFormat,
+        nextUrl: urlFor(retryFormat),
+        nextBufferProfile: retryBufferProfile,
         nextBufferTiming: safeCfgRetry,
         delayMs: 90,
         useFallbackUrl: false,
