@@ -1417,7 +1417,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }).mediaCapabilities;
       if (capabilities?.decodingInfo) {
         const configs: Array<[string, unknown]> = [
-          ['H.264 1080p', { type: 'file', video: { contentType: 'video/mp4; codecs="avc1.640033"', width: 1920, height: 1080, bitrate: 8000000, framerate: 50 } }],
+          ['H.264 720p (HD)', { type: 'file', video: { contentType: 'video/mp4; codecs="avc1.4d401f"', width: 1280, height: 720, bitrate: 4000000, framerate: 50 } }],
+          ['H.264 1080p (Full HD)', { type: 'file', video: { contentType: 'video/mp4; codecs="avc1.640033"', width: 1920, height: 1080, bitrate: 8000000, framerate: 50 } }],
           ['HEVC 2160p Main10', { type: 'file', video: { contentType: 'video/mp4; codecs="hvc1.2.4.L150.B0"', width: 3840, height: 2160, bitrate: 20000000, framerate: 60 } }],
           ['VP9 2160p', { type: 'file', video: { contentType: 'video/webm; codecs="vp09.02.51.10.01.09.16.09.01"', width: 3840, height: 2160, bitrate: 20000000, framerate: 60 } }],
           ['AV1 2160p', { type: 'file', video: { contentType: 'video/mp4; codecs="av01.0.31M.10"', width: 3840, height: 2160, bitrate: 16000000, framerate: 60 } }],
