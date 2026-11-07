@@ -2260,7 +2260,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let confirmationUsed = false;
     const effectiveWatchdogMs = (): number => {
       const base = bufferTiming().bufferWatchdogMs;
-      return isVodRef.current ? Math.max(5500, base + 1500) : base;
+      // Élő adásnál a rövid, 5–6 mp-es szolgáltatói/HLS szegmenskimaradás
+      // után a stream gyakran magától folytatódik. Ne töltsük újra közben a
+      // forrást, mert az újracsatlakozás régebbi élő szegmensből indíthatja
+      // újra a képet. Csak tartós, legalább 9 mp-es teljes megállásnál lépjünk közbe.
+      return isVodRef.current ? Math.max(5500, base + 1500) : Math.max(9000, base);
     };
     // A módváltás nem indítja újra a forrást. A következő ellenőrzés ezért
     // mindig újraolvassa a profilt, és nem engedi, hogy egy régi, rövidebb
@@ -2342,7 +2346,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!isPlaying) return;
     const video = htmlVideoRef.current;
     if (!video) return;
-    const detector = new StallDetector(isVod ? 7000 : bufferTiming().stallDetectorMs);
+    // Élő TV-n a rövid szegmensváltási/pufferelési szünet nem javítási ok:
+    // várjuk meg, hogy a lejátszó magától felvegye a legfrissebb élő adást.
+    // A 9 mp-es alsó korlát megakadályozza az 5–6 mp utáni visszaugró újratöltést.
+    const detector = new StallDetector(isVod ? 7000 : Math.max(9000, bufferTiming().stallDetectorMs));
     stallDetectorRef.current = detector;
     let previousSample: MediaProgressSample | null = null;
     const generation = streamLoadGenerationRef.current;
