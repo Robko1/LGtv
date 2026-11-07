@@ -515,8 +515,23 @@ export interface DoctorDiagnosticReport {
   extraMetrics: Record<string, string | number | boolean>;
 }
 
+export interface DoctorBaselineProfile {
+  /** A felhasználó által rögzített, soha felül nem írható 1-es alapprofil. */
+  slot: 1;
+  channelKey: string;
+  channelId?: string;
+  channelName: string;
+  format: LiveFormat;
+  bufferProfile: DoctorBufferProfileId;
+  bufferTiming: BufferProfileTiming;
+  startupMs: number | null;
+  recordedAt: number;
+}
+
 export interface ChannelLaunchPlan {
   enabled: boolean;
+  hasBaselineProfile?: boolean;
+  baselineProfile?: DoctorBaselineProfile | null;
   hasLearnedProfile: boolean;
   directFastStart: boolean;
   skipSameFormatRetry: boolean;
@@ -1122,6 +1137,93 @@ function getStorage(storage?: Storage | null): Storage | null {
   if (storage !== undefined) return storage;
   try {
     return typeof localStorage !== 'undefined' ? localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Az 1-es alapprofil külön tárban él: a tanulás, a hibák és a felhőszinkron nem írhatja át. */
+export const TV_DOCTOR_BASELINE_STORAGE_KEY = 'iptv_rt_tv_doctor_baseline_v1';
+const MAX_DOCTOR_BASELINE_CHANNELS = 3000;
+
+function readDoctorBaselineStore(storage?: Storage | null): Record<string, DoctorBaselineProfile> {
+  const target = getStorage(storage);
+  if (!target) return {};
+  try {
+    const raw = target.getItem(TV_DOCTOR_BASELINE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const clean: Record<string, DoctorBaselineProfile> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, any>)) {
+      if (!key || !value || typeof value !== 'object') continue;
+      if (value.slot !== 1 || !isValidFormat(value.format) || !isValidBufferProfile(value.bufferProfile)) continue;
+      const timing = value.bufferTiming;
+      if (!timing || typeof timing !== 'object') continue;
+      clean[key] = {
+        slot: 1,
+        channelKey: key,
+        channelId: typeof value.channelId === 'string' ? value.channelId.slice(0, 120) : undefined,
+        channelName: String(value.channelName || key).slice(0, 140),
+        format: value.format,
+        bufferProfile: value.bufferProfile,
+        bufferTiming: clampBufferTiming(timing as BufferProfileTiming),
+        startupMs: Number.isFinite(Number(value.startupMs)) && Number(value.startupMs) > 0
+          ? Math.round(Number(value.startupMs)) : null,
+        recordedAt: Number.isFinite(Number(value.recordedAt)) && Number(value.recordedAt) > 0
+          ? Math.round(Number(value.recordedAt)) : 0,
+      };
+    }
+    return clean;
+  } catch {
+    return {};
+  }
+}
+
+/** Az adott csatorna rögzített 1-es alapprofilja. */
+export function getDoctorBaseline(
+  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
+  storage?: Storage | null,
+): DoctorBaselineProfile | null {
+  if (!channel) return null;
+  const key = normalizeChannelDoctorKey(channel);
+  const found = readDoctorBaselineStore(storage)[key];
+  return found ? { ...found, bufferTiming: { ...found.bufferTiming } } : null;
+}
+
+/** Első sikeres, TV Doktor nélküli kézi lejátszás rögzítése. A már létező 1-es profil érinthetetlen. */
+export function recordDoctorBaseline(params: {
+  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null;
+  format: LiveFormat;
+  bufferProfile: DoctorBufferProfileId;
+  bufferTiming: BufferProfileTiming;
+  startupMs?: number | null;
+  storage?: Storage | null;
+}): DoctorBaselineProfile | null {
+  const { channel, format, bufferProfile, bufferTiming, startupMs, storage } = params;
+  if (!channel || !isValidFormat(format) || !isValidBufferProfile(bufferProfile)) return null;
+  const target = getStorage(storage);
+  if (!target) return null;
+  const store = readDoctorBaselineStore(target);
+  const key = normalizeChannelDoctorKey(channel);
+  if (store[key]) return store[key];
+  if (Object.keys(store).length >= MAX_DOCTOR_BASELINE_CHANNELS) return null;
+  const baseline: DoctorBaselineProfile = {
+    slot: 1,
+    channelKey: key,
+    channelId: channel.id ? String(channel.id).slice(0, 120) : undefined,
+    channelName: String(channel.name || channel.id || key).slice(0, 140),
+    format,
+    bufferProfile,
+    bufferTiming: clampBufferTiming(bufferTiming),
+    startupMs: Number.isFinite(Number(startupMs)) && Number(startupMs) > 0
+      ? Math.round(Number(startupMs)) : null,
+    recordedAt: Date.now(),
+  };
+  store[key] = baseline;
+  try {
+    target.setItem(TV_DOCTOR_BASELINE_STORAGE_KEY, JSON.stringify(store));
+    return baseline;
   } catch {
     return null;
   }
@@ -2266,6 +2368,7 @@ export function selectChannelLaunchPlan(
   const baseBufferMode: BufferMode = settings.bufferMode || 'balanced';
   const defaultTiming = bufferProfileTiming(baseBufferMode);
   const channelKey = normalizeChannelDoctorKey(channel);
+  const baselineProfile = getDoctorBaseline(channel, storage);
   const legacyFormat = !storage ? rememberedFormatFor(channel?.id) : null;
 
   const fallbackPrimary: LiveFormat = legacyFormat || (sourceFormat === 'hls' ? 'hls' : configuredFormat);
@@ -2293,6 +2396,28 @@ export function selectChannelLaunchPlan(
 
   try {
     const record = getChannelDoctorRecord(channel, storage);
+    if (!record && baselineProfile) {
+      const baselineTiming = clampBufferTiming(baselineProfile.bufferTiming);
+      const plan: ChannelLaunchPlan = {
+        enabled: true,
+        hasLearnedProfile: false,
+        hasBaselineProfile: true,
+        baselineProfile,
+        directFastStart: false,
+        skipSameFormatRetry: true,
+        isRecentlyDead: false,
+        maxRepairSteps: MAX_DOCTOR_REPAIR_STEPS,
+        channelKey,
+        primaryFormat: baselineProfile.format,
+        alternateFormat: supportsDualFormat ? (baselineProfile.format === 'hls' ? 'ts' : 'hls') : null,
+        bufferProfileId: baselineProfile.bufferProfile,
+        bufferTiming: baselineTiming,
+        expectedStartupMs: baselineProfile.startupMs,
+        reason: '1-es rögzített alapbeállítás',
+      };
+      recordDoctorOpTiming('selectChannelLaunchPlan', nowPerfMs() - startedAt, channel.name);
+      return plan;
+    }
     if (!record) {
       // Még nem ismert csatornánál is gyorsabb indulási őrt adunk, hogy egy
       // nem válaszoló első formátum ne tartsa vissza másodpercekig a másodikat!
@@ -2387,12 +2512,27 @@ export function selectChannelLaunchPlan(
      * nem szakítjuk meg az indulást időszakos TS/HLS-próbával.
      */
     const bestLearnedRoute = learnedRouteFor(record);
+    const baselineRouteId = baselineProfile
+      ? doctorRouteId(baselineProfile.format, baselineProfile.bufferProfile)
+      : null;
+    // A baseline-tól eltérő útvonal csak legalább két hibátlan, gyorsabb mérés után veheti át az első helyet.
+    const learnedRouteBetterThanBaseline = Boolean(
+      baselineProfile && bestLearnedRoute
+      && bestLearnedRoute.id !== baselineRouteId
+      && bestLearnedRoute.ok >= 2
+      && bestLearnedRoute.fail === 0
+      && bestLearnedRoute.stalls === 0
+      && (baselineProfile.startupMs === null
+        || (bestLearnedRoute.avgStartupMs !== null && bestLearnedRoute.avgStartupMs < baselineProfile.startupMs)),
+    );
+    const useBaselineAsPrimary = Boolean(baselineProfile && !learnedRouteBetterThanBaseline);
     const routeReliable = Boolean(
       bestLearnedRoute
       && bestLearnedRoute.ok >= 1
       && (bestLearnedRoute.format === fallbackPrimary || supportsDualFormat),
     );
     const shouldProbeAlternateFormat = supportsDualFormat
+      && !baselineProfile
       && !inCooldown
       // Ha már van legalább egy sikeres, használható csatornasaját útvonal,
       // azt választjuk; nem szakítjuk meg az indulást alternatív formátumpróbával.
@@ -2418,14 +2558,18 @@ export function selectChannelLaunchPlan(
       : storedBestBufferProfile;
     // A kötelező egyszeri alternatív formátumpróbát a csillagos tanult útvonal
     // sem írhatja felül. A próba után ismét a legjobb tanult útvonal az első.
-    const chosenFormat: LiveFormat = shouldProbeAlternateFormat
-      ? chosenFormatBase
-      : (routeReliable && bestLearnedRoute ? bestLearnedRoute.format : chosenFormatBase);
+    const chosenFormat: LiveFormat = useBaselineAsPrimary && baselineProfile
+      ? baselineProfile.format
+      : shouldProbeAlternateFormat
+        ? chosenFormatBase
+        : (routeReliable && bestLearnedRoute ? bestLearnedRoute.format : chosenFormatBase);
     // Próba közben a stabil alap-pufferrel mérünk; egyébként a tanult útvonal
-    // saját pufferprofilját tartjuk meg.
-    const chosenBufferProfile: DoctorBufferProfileId = shouldProbeAlternateFormat
-      ? chosenBufferProfileBase
-      : (routeReliable && bestLearnedRoute ? bestLearnedRoute.bufferProfile : chosenBufferProfileBase);
+    // saját pufferprofilját tartjuk meg. Az 1-es profil pontos időzítése változatlan.
+    const chosenBufferProfile: DoctorBufferProfileId = useBaselineAsPrimary && baselineProfile
+      ? baselineProfile.bufferProfile
+      : shouldProbeAlternateFormat
+        ? chosenBufferProfileBase
+        : (routeReliable && bestLearnedRoute ? bestLearnedRoute.bufferProfile : chosenBufferProfileBase);
 
     // Szinkronban tartjuk a VideoPlayer helyi formátum-emlékével is (csak ha a TV Doktor be van kapcsolva!).
     if (channel.id && !storage && totalLifetimeOk > 0) {
@@ -2440,15 +2584,17 @@ export function selectChannelLaunchPlan(
       totalLifetimeOk > 0;
 
     const doctorCfg = getDoctorBufferConfig(chosenBufferProfile);
-    const rawExpectedMs = !shouldProbeAlternateFormat && routeReliable && bestLearnedRoute && bestLearnedRoute.avgStartupMs !== null
-      ? bestLearnedRoute.avgStartupMs
-      : (chosenFormat === 'hls' ? record.hlsAvgStartupMs : record.tsAvgStartupMs);
+    const rawExpectedMs = useBaselineAsPrimary && baselineProfile
+      ? baselineProfile.startupMs
+      : !shouldProbeAlternateFormat && routeReliable && bestLearnedRoute && bestLearnedRoute.avgStartupMs !== null
+        ? bestLearnedRoute.avgStartupMs
+        : (chosenFormat === 'hls' ? record.hlsAvgStartupMs : record.tsAvgStartupMs);
     const expectedStartupMs = rawExpectedMs !== null && rawExpectedMs > 20 ? rawExpectedMs : null;
 
     const chosenOkCount = chosenFormat === 'hls' ? record.hlsOk : record.tsOk;
     const chosenConsecFail = chosenFormat === 'hls' ? (record.hlsConsecutiveFail || 0) : (record.tsConsecutiveFail || 0);
     // Hűtőben nincs közvetlen gyorsindítás; a hibajavítás ettől függetlenül 8 lépéses marad.
-    const directFastStart = !isRecentlyDead && !inReactivationCooldown && chosenOkCount >= 1 && chosenConsecFail === 0;
+    const directFastStart = !useBaselineAsPrimary && !isRecentlyDead && !inReactivationCooldown && chosenOkCount >= 1 && chosenConsecFail === 0;
 
     // Kalibrált indulási őr: ha a csatorna pl. 450 ms alatt szokott indulni,
     // nem várunk 2000 ms-ot hiba esetén, hanem ~900 ms után már lépünk is!
@@ -2459,7 +2605,9 @@ export function selectChannelLaunchPlan(
         )
       : doctorCfg.startupWatchdogMs;
 
-    const chosenTiming: BufferProfileTiming = hasCustomBufferExperience
+    const chosenTiming: BufferProfileTiming = useBaselineAsPrimary && baselineProfile
+      ? clampBufferTiming(baselineProfile.bufferTiming)
+      : hasCustomBufferExperience
       ? clampBufferTiming({
           ...doctorCfg,
           startupWatchdogMs: calibratedWatchdogMs,
@@ -2473,6 +2621,8 @@ export function selectChannelLaunchPlan(
     const plan: ChannelLaunchPlan = {
       enabled: true,
       hasLearnedProfile: true,
+      hasBaselineProfile: Boolean(baselineProfile),
+      baselineProfile,
       directFastStart,
       skipSameFormatRetry: true,
       isRecentlyDead: inCooldown,
@@ -2483,9 +2633,11 @@ export function selectChannelLaunchPlan(
       bufferProfileId: hasCustomBufferExperience ? chosenBufferProfile : baseBufferMode,
       bufferTiming: chosenTiming,
       expectedStartupMs,
-      reason: shouldProbeAlternateFormat
-        ? `időszakos formátum-sebességpróba (${chosenFormat.toUpperCase()})`
-        : inCooldown
+      reason: useBaselineAsPrimary
+        ? '1-es rögzített alapbeállítás – tanult profil nem bizonyult bizonyítottan jobbnak'
+        : shouldProbeAlternateFormat
+          ? `időszakos formátum-sebességpróba (${chosenFormat.toUpperCase()})`
+          : inCooldown
           ? (inReactivationCooldown
             ? `újraaktiválási hűtőben (${Math.max(1, Math.round((DOCTOR_REACTIVATION_COOLDOWN_MS - (now - (record.lastExhaustedAt || now))) / 60000))} perc hátra) – teljes (${maxRepairSteps} lépéses) javítási létra`
             : `korábban nem működő csatorna – teljes (${maxRepairSteps} lépéses) javítási létra`)
@@ -3097,6 +3249,9 @@ export function planDoctorRepairStep(params: {
    * HLS↔TS oda-vissza ugrálás egyetlen javítási körön belül.
    */
   triedFormats?: LiveFormat[];
+  /** Az érinthetetlen, felhasználó által rögzített 1-es alapprofil. */
+  baselineProfile?: DoctorBaselineProfile | null;
+  currentBufferTiming?: BufferProfileTiming | null;
   /* 2.5.294: a létrán belül már kipróbált tanult útvonalak (`format:puffer`). */
   triedRoutes?: string[];
   storage?: Storage | null;
@@ -3112,6 +3267,8 @@ export function planDoctorRepairStep(params: {
     tsUrl,
     hlsUrl,
     triedFormats,
+    baselineProfile,
+    currentBufferTiming,
     triedRoutes,
     storage,
   } = params;
@@ -3533,9 +3690,35 @@ export function planDoctorRepairStep(params: {
     useFallbackUrl = false;
   }
 
+  const baselineTiming = baselineProfile ? clampBufferTiming(baselineProfile.bufferTiming) : null;
+  const sameAsBaselineTiming = Boolean(baselineTiming && currentBufferTiming
+    && baselineTiming.startupWatchdogMs === currentBufferTiming.startupWatchdogMs
+    && baselineTiming.bufferWatchdogMs === currentBufferTiming.bufferWatchdogMs
+    && baselineTiming.stallDetectorMs === currentBufferTiming.stallDetectorMs
+    && baselineTiming.retryMs === currentBufferTiming.retryMs
+    && baselineTiming.minBufferAheadSeconds === currentBufferTiming.minBufferAheadSeconds);
+  const baselineDiffers = Boolean(baselineProfile && (
+    baselineProfile.format !== currentFormat
+    || baselineProfile.bufferProfile !== currentBufferProfile
+    || !sameAsBaselineTiming
+  ));
+  // A hiba utáni második próbálkozás mindig az érinthetetlen 1-es alapbeállítás, ha az eltér az aktuális tanult profiltól.
+  if (step === 2 && baselineProfile && baselineDiffers) {
+    nextFormat = baselineProfile.format;
+    nextUrl = urlFor(baselineProfile.format);
+    nextBufferProfile = baselineProfile.bufferProfile;
+    strategyId = 'baseline_profile_1_fallback';
+    description = `1-es alapbeállítás visszaállítása (${nextFormat.toUpperCase()} + ${nextBufferProfile})`;
+    delayMs = 70;
+    useFallbackUrl = false;
+    forceCleanReset = true;
+  }
+
   const baseCfg = getDoctorBufferConfig(nextBufferProfile);
   // A gyors beállításpróbáknál feszes indulási őrt tartunk, hogy a 8 lépés se húzódjon el feleslegesen!
-  const nextTiming = !isStallTrigger && step <= 2
+  const nextTiming = strategyId === 'baseline_profile_1_fallback' && baselineTiming
+    ? baselineTiming
+    : !isStallTrigger && step <= 2
     ? clampBufferTiming({
         ...baseCfg,
         startupWatchdogMs: Math.min(baseCfg.startupWatchdogMs, 1150),
