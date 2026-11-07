@@ -416,10 +416,10 @@ export interface BufferProfileStats {
  * Útvonal = lejátszási formátum (TS/HLS) + pufferprofil (instant…adaptive-3)
  * együtt, a hozzá tartozó mért indulási idővel és megbízhatósággal.
  *
- * CSATORNÁNKÉNT LEGFELJEBB 8 ÚTVONALAT tartunk meg (MAX_CHANNEL_ROUTES):
- * a legjobb nyolcat, pontszám szerint rendezve. Minden adás (sikeres indulás,
- * hiba, megakadás) után újramérjük és átrendezzük a listát; ha egy új útvonal
- * jobb, mint a nyolcadik, akkor AZ LÉP BE, A LEGROSSZABB PEDIG KIESIK.
+ * Az 1-es kézi alapbeállítás külön, vész-tartalék profil. Emellett a 2–8.
+ * helyen legfeljebb 7 tanult útvonalat tartunk meg, pontszám szerint rendezve.
+ * Minden siker/hiba után újramérjük és átrendezzük; az új jobb útvonal előre
+ * kerül, a korábbiak hátrébb csúsznak, a 8. helyen túli legrosszabb kiesik.
  *
  * Csak annyit tárolunk, ami a gyors, pontos csatornaváltáshoz kell – nincs
  * itt stream URL, sem személyes adat.
@@ -440,8 +440,8 @@ export interface DoctorRoute {
   lastFailAt: number | null;
 }
 
-/** Csatornánként megtartott tanult útvonalak maximális száma. */
-export const MAX_CHANNEL_ROUTES = 8;
+/** Az 1-es vész-tartalékon felül a 2–8. helyen tartott tanult útvonalak száma. */
+export const MAX_CHANNEL_ROUTES = 7;
 
 export interface ChannelDoctorRecord {
   channelKey: string;
@@ -474,7 +474,7 @@ export interface ChannelDoctorRecord {
   stalls: number;
   repairsOk: number;
   bufferStats: Partial<Record<DoctorBufferProfileId, BufferProfileStats>>;
-  /** 2.5.294: a csatorna legfeljebb 8 legjobb tanult útvonala (pontszám szerint). */
+  /** A csatorna legfeljebb 7 tanult útvonala a külön tárolt 1-es alapbeállítás mellett. */
   routes?: DoctorRoute[];
   lastErrorCode?: string;
   lastErrorReason?: string;
@@ -1379,17 +1379,20 @@ export function learnedRouteCandidates(
 /** Egy adás eredményének beírása a csatorna útvonal-táblájába (max. 8 sor). */
 export function recordDoctorRouteOutcome(params: {
   record: ChannelDoctorRecord;
+  /** Az 1-es vész-tartalék útvonalát nem duplikáljuk a 2–8. tanult helyen. */
+  excludeRouteId?: string | null;
   format: LiveFormat;
   bufferProfile: DoctorBufferProfileId;
   outcome: 'ok' | 'fail' | 'stall';
   startupMs?: number | null;
   now?: number;
 }): { route: DoctorRoute; dropped: DoctorRoute | null; isNew: boolean } | null {
-  const { record, format, bufferProfile, outcome } = params;
+  const { record, format, bufferProfile, outcome, excludeRouteId } = params;
   if (!record || !isValidFormat(format) || !isValidBufferProfile(bufferProfile)) return null;
   const now = params.now ?? Date.now();
   const id = doctorRouteId(format, bufferProfile);
-  const list = Array.isArray(record.routes) ? sanitizeDoctorRoutes(record.routes) : [];
+  const list = (Array.isArray(record.routes) ? sanitizeDoctorRoutes(record.routes) : [])
+    .filter((item) => item.id !== excludeRouteId);
   let route = list.find((item) => item.id === id) || null;
   const isNew = !route;
   if (!route) {
@@ -2836,10 +2839,12 @@ export function recordDoctorChannelSuccess(params: {
     /*
      * 2.5.294: MINDEN ADÁSBÓL TANULUNK – a sikeres indulás bekerül a csatorna
      * saját útvonal-táblájába (formátum + pufferprofil együtt mérve).
-     * Ha egy új útvonal jobb, mint a nyolcadik, bekerül, a legrosszabb kiesik.
+     * A 2–8. tanult helyekre kerül; az 1-es alapútvonal külön vész-tartalék.
      */
+    const baseline = getDoctorBaseline(channel, storage);
     const routeResult = recordDoctorRouteOutcome({
       record: rec,
+      excludeRouteId: baseline ? doctorRouteId(baseline.format, baseline.bufferProfile) : null,
       format,
       bufferProfile,
       outcome: 'ok',
@@ -2979,8 +2984,10 @@ export function recordDoctorChannelFailure(params: {
      * így a következő indításnál már a csatorna legjobb mért útvonala élvez
      * elsőbbséget, nem kell újra ugyanazt a rosszat kipróbálni.
      */
+    const baseline = getDoctorBaseline(channel, storage);
     recordDoctorRouteOutcome({
       record: rec,
+      excludeRouteId: baseline ? doctorRouteId(baseline.format, baseline.bufferProfile) : null,
       format,
       bufferProfile,
       outcome: isStall ? 'stall' : 'fail',
