@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.386';
+export const WEB_VERSION = '2.5.387';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.386',
+    version: '2.5.387',
     date: '2026-11-07',
     changes: [
       'JAVÍTÁS (TV DOKTOR — MŰKÖDŐ CSATORNÁT NEM ÁLLÍT LE) — A TLC-nél a Doktor egy hibátlanul futó adást leállított és „nem elérhető”-nek jelölt: a felhőbe feltöltött aktiválódási napló szerint a javítási létra a SAJÁT újraindításai közben keletkezett hibákat (media_error, startup_timeout) is a csatorna hibájának vette. Mostantól: (1) ha a kép/idővonal az elmúlt 1,5 mp-ben haladt és nincs médiahia, az „adás vége / váratlan pause” riasztás HAMIS – nincs javítás, csak napló; (2) ha a csatorna ebben a nézési szakaszban már legalább 15 mp-ig bizonyítottan játszott, akkor bizonyítottan működő csatornán nincs több lépéses javítási létra, és a létra végén SOHA nem nyilvánítjuk „nem elérhetőnek” – helyette újracsatlakozás és semleges jelzés; (3) a hibaállapot nem feketíti ki a képet (marad az utolsó képkocka).',
