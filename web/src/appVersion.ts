@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.382';
+export const WEB_VERSION = '2.5.383';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.383',
+    date: '2026-11-07',
+    changes: [
+      'JAVÍTÁS (KÉPMINŐSÉG — A LEGSZEBB KÉPŰ FORMÁTUM) — A szolgáltató ugyanazt a csatornát MPEG-TS és HLS formátumban is adja, és a kettő felbontása eltérhet (a napló szerint pl. [HU] HBO UHD TS-en 1024×576, HLS-en 1920×1080). A lejátszó eddig csak az indítási sebességet és a hibákat nézte, a felbontást soha – ezért fordult elő, hogy egy Full HD adás SD képként jelent meg. Mostantól a lejátszó a ténylegesen dekódolt kép méretét csatornánként és formátumonként megméri, eltárolja, és a következő indításnál a bizonyítottan szebb képű formátumot választja (a döntés és a mért értékek a naplóba kerülnek: „KÉPMINŐSÉG-VÁLASZTÁS”, „KÉPMINŐSÉG-MÉRÉS”).',
+      'JAVÍTÁS (KÉPMINŐSÉG — NINCS FORMATUM-VILLOGÁS) — A váltás csak érdemi különbségnél történik (1,2× területarány), a többször elhalt formátumot a lejátszó nem erőlteti vissza, és ha a mért kép már Full HD, nincs fölösleges újraindítás. A formátumváltás ideje alatt a kép nem takaródik el.',
+      'ÚJ (HDR-JELZÉS FILM / SOROZAT) — A film OSD-jében a cím mellett megjelenik a HDR-jelzés (HDR10 / HLG / Dolby Vision) és a mért képminőség, ha a TV médiaszolgáltatása HDR-színmetaadatot jelez. A lekérdezés eddig csak kézi naplózásnál futott, ezért a felületen soha nem látszott. SDR adásnál – és ha a TV nem ad adatot – a jelzés nem jelenik meg (nincs találgatás).',
+      'JAVÍTÁS (HDR-FELISMERÉS) — A TV a „nincs HDR” esetet is elküldheti szövegesen (pl. `hdr: none`), amit eddig valódi értékként naplóztunk. Mostantól a none/sdr/false típusú értékek semlegesek, így a napló és a jelzés is a valóságot mutatja.',
+    ],
+  },
   {
     version: '2.5.382',
     date: '2026-11-07',

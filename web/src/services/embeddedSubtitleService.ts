@@ -778,6 +778,18 @@ function sourceInfoText(record: Record<string, unknown>, keys: string[]): string
 }
 
 /**
+ * A HDR-mező „nincs HDR” értékeit üresre alakítja (`none`, `sdr`, `false`, …).
+ * Fontos: NE tekintsünk minden nem üres szöveget HDR-nek – a TV a sima SDR
+ * adásnál is kitölti a mezőt (`none`), amit korábban HDR-ként naplóztunk.
+ */
+export function normalizeHdrText(raw: string | null | undefined): string {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  if (/^(none|n\/?a|null|undefined|false|0|-+|off|no|sdr|standard|unknown|ismeretlen)$/i.test(text)) return '';
+  return text;
+}
+
+/**
  * A médiaszolgáltatás `sourceInfo` válaszából a képadatokat keresi ki.
  *
  * A webOS a feliratsávok mellett sok modellen a képsáv adatait is elküldi
@@ -804,7 +816,11 @@ export function extractSourceInfoQuality(payload: unknown, depth = 0): SourceInf
     const rawBitrate = sourceInfoNumber(entry, ['bitRate', 'bitrate', 'bit_rate', 'bandwidth']);
     // A TV bit/s-ban szokta adni; a gyanúsan kicsi értéket kbit/s-nak vesszük.
     const bitrateKbps = rawBitrate === null ? null : rawBitrate > 50000 ? Math.round(rawBitrate / 1000) : Math.round(rawBitrate);
-    const hdr = sourceInfoText(entry, ['hdr', 'hdrType', 'dynamicRange', 'videoRange', 'dolbyVision']);
+    // A TV a „nincs HDR” esetet is KÜLDHETI, szövegesen (pl. `hdr: 'none'`).
+    // A napló #30-ban pontosan ez szerepelt (`HDR=none`), ezért a semleges
+    // értékeket üresre normalizáljuk – így a felület nem jelez HDR-t ott,
+    // ahol nincs, a napló pedig „nem jelzett”-et ír.
+    const hdr = normalizeHdrText(sourceInfoText(entry, ['hdr', 'hdrType', 'dynamicRange', 'videoRange', 'dolbyVision']));
     return {
       videoCodec: codecText,
       audioCodec: '',
