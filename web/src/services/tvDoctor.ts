@@ -3145,15 +3145,37 @@ export function evaluateSmartFreeze(input: FreezeCheckInput): FreezeCheckDecisio
     return { intervene: false, reason: 'aktív hangalapú adatfolyam (0x0 videó), nincs hamis beavatkozás' };
   }
 
-  const healthyBuffer = streamState.bufferedAheadSeconds >= Math.max(1.5, minBufferAheadSeconds * 0.75);
-  const hardTransportFailure = streamState.waitingOrStalled
-    || streamState.networkState === 3
-    || streamState.bufferedAheadSeconds < 0.3;
-
   // A már leállított/leálló médiaelem nem bizonyít élő lejátszási fagyást.
   if (streamState.paused || streamState.ended) {
     return { intervene: false, reason: 'a lejátszó szünetel vagy már befejeződött' };
   }
+
+  // Régi webOS TV-ken előfordul, hogy a videó láthatóan fut, de sem a
+  // currentTime, sem a dekódolt képkockák számlálója nem mérhető. Ilyenkor
+  // a 0 mp-es bufferedAhead NEM bizonyíték hálózati hibára: ne indítsunk
+  // ismétlődő javítási ciklust pusztán a hiányzó mérési adatok miatt.
+  const hasReliableProgressMetric = Boolean(
+    (prevSnapshot?.frames !== null && prevSnapshot?.frames !== undefined
+      && currentSnapshot.frames !== null && currentSnapshot.frames !== undefined)
+    || prevSnapshot && prevSnapshot.time > 0
+    || currentSnapshot.time > 0,
+  );
+  if (
+    !hasReliableProgressMetric
+    && streamState.readyState >= 3
+    && !streamState.waitingOrStalled
+    && streamState.networkState !== 3
+  ) {
+    return { intervene: false, reason: 'a webOS nem ad mérhető idővonal-/képkockaadatot; nincs igazolt hálózati hiba' };
+  }
+
+  const healthyBuffer = streamState.bufferedAheadSeconds >= Math.max(1.5, minBufferAheadSeconds * 0.75);
+  // A kevés előrepuffer csak akkor önálló transport-hiba, ha a lejátszó
+  // még nem rendelkezik elegendő médiával (readyState < 3). Futó, readyState
+  // 3/4 állapotú adásnál ezt a waiting/stalled vagy networkState=3 igazolja.
+  const hardTransportFailure = streamState.waitingOrStalled
+    || streamState.networkState === 3
+    || (streamState.bufferedAheadSeconds < 0.3 && streamState.readyState < 3);
 
   // Ha nincs egyértelmű hálózati/pufferhiba, a webOS readyState-ingadozása
   // vagy a nem frissülő képkockaszámláló önmagában nem indíthat forráscserét.
