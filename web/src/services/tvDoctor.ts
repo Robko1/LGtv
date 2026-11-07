@@ -1229,6 +1229,44 @@ export function recordDoctorBaseline(params: {
   }
 }
 
+
+/** Az összes rögzített 1-es alapbeállítás exportja a párosított Supabase-eszközhöz. */
+export function getAllDoctorBaselines(storage?: Storage | null): DoctorBaselineProfile[] {
+  return Object.values(readDoctorBaselineStore(storage)).map((item) => ({ ...item, bufferTiming: { ...item.bufferTiming } }));
+}
+
+/** Felhőből visszaállítás: csak hiányzó helyi 1-es alapot vesz át, meglévőt soha nem ír felül. */
+export function restoreDoctorBaselinesFromCloud(items: Array<{ channelKey: string; baseline: unknown }>, storage?: Storage | null): number {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  const target = getStorage(storage);
+  if (!target) return 0;
+  const store = readDoctorBaselineStore(target);
+  let restored = 0;
+  for (const item of items) {
+    const key = String(item?.channelKey || '').slice(0, 120);
+    const value = item?.baseline as Partial<DoctorBaselineProfile> | null;
+    if (!key || key.startsWith('vod:') || !value || value.slot !== 1
+      || !isValidFormat(value.format) || !isValidBufferProfile(value.bufferProfile)
+      || !value.bufferTiming || typeof value.bufferTiming !== 'object') continue;
+    if (store[key]) continue;
+    store[key] = {
+      slot: 1, channelKey: key,
+      channelId: typeof value.channelId === 'string' ? value.channelId.slice(0, 120) : undefined,
+      channelName: String(value.channelName || key).slice(0, 140),
+      format: value.format, bufferProfile: value.bufferProfile,
+      bufferTiming: clampBufferTiming(value.bufferTiming as BufferProfileTiming),
+      startupMs: Number.isFinite(Number(value.startupMs)) && Number(value.startupMs) > 0 ? Math.round(Number(value.startupMs)) : null,
+      recordedAt: Number.isFinite(Number(value.recordedAt)) && Number(value.recordedAt) > 0 ? Math.round(Number(value.recordedAt)) : Date.now(),
+    };
+    restored += 1;
+  }
+  if (restored > 0) {
+    try { target.setItem(TV_DOCTOR_BASELINE_STORAGE_KEY, JSON.stringify(store)); }
+    catch { return 0; }
+  }
+  return restored;
+}
+
 function createEmptyStore(): DoctorStoreData {
   return {
     v: 1,
@@ -1916,6 +1954,7 @@ export function clearTvDoctorMemory(storage?: Storage | null): void {
   const target = getStorage(storage);
   try {
     target?.removeItem(TV_DOCTOR_STORAGE_KEY);
+    target?.removeItem(TV_DOCTOR_BASELINE_STORAGE_KEY);
   } catch {
     /* ignore */
   }
