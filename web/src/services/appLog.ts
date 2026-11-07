@@ -818,7 +818,7 @@ export function appLog(message: string): void {
   if (!loggingEnabled) return;
   // A mostani tesztben az indulási, import-, EPG-, felirat- és képminőségi
   // részletek nem szükségesek. A lejátszás hibái/újrapróbái megmaradnak.
-  if (/^(?:SZOLGÁLTATÓ|EPG:|Felirat|CC |Élő felirat|KÉPMINŐSÉG|ERŐFORRÁS-DIAG|HANGDIAG|ÉLŐ MÉDIAESEMÉNY|ÉLŐ IDŐVONAL|STREAM ADATÉRKEZÉS)/i.test(message)) return;
+  if (/^(?:SZOLGÁLTATÓ|EPG:|Felirat|CC |Élő felirat|ERŐFORRÁS-DIAG|HANGDIAG|ÉLŐ MÉDIAESEMÉNY|ÉLŐ IDŐVONAL|STREAM ADATÉRKEZÉS)/i.test(message)) return;
   const safe = redactLogUrls(String(message ?? '')).replace(/\s+/g, ' ');
   restore();
   measurementCounters.logLines += 1;
