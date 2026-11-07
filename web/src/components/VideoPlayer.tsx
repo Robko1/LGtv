@@ -1667,6 +1667,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     directFastStart: boolean;
     maxRepairSteps: number;
     channelHaltedDead: boolean;
+    deadRetryCount: number;
     lastProposal: DoctorRepairProposal | null;
     activeBufferProfile: DoctorBufferProfileId;
     activeBufferTiming: BufferProfileTiming | null;
@@ -1687,6 +1688,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     directFastStart: false,
     maxRepairSteps: MAX_DOCTOR_REPAIR_STEPS,
     channelHaltedDead: false,
+    deadRetryCount: 0,
     lastProposal: null,
     activeBufferProfile: settings.bufferMode || 'balanced',
     activeBufferTiming: null,
@@ -1943,6 +1945,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           detail: `${proposal.maxSteps} beállítás sikertelen – újrapróbálás leállítva.`,
         });
         scheduleClearDoctorStatus(4200);
+        // Egyetlen, késleltetett újraellenőrzés minden csatornára: a végleges
+        // letiltás ne maradjon örökre, de hibás forrás esetén ne induljon végtelen ciklus.
+        if (docState.deadRetryCount < 1 && tvDoctorEnabledRef.current) {
+          docState.deadRetryCount += 1;
+          const haltedChannelKey = docState.channelKey;
+          const retryUrl = baseStreamUrl;
+          appLog(`TV DOKTOR: ${targetChannel.name} – 30 másodperc múlva egyszeri újracsatlakozási ellenőrzés.`);
+          autoRetryTimerRef.current = window.setTimeout(() => {
+            autoRetryTimerRef.current = null;
+            const currentChannel = channelRef.current;
+            const currentState = doctorSessionRef.current;
+            if (
+              !tvDoctorEnabledRef.current ||
+              isVodRef.current ||
+              !currentChannel ||
+              currentState.channelKey !== haltedChannelKey ||
+              normalizeChannelDoctorKey(currentChannel) !== haltedChannelKey
+            ) return;
+            currentState.channelHaltedDead = false;
+            currentState.repairStep = 0;
+            currentState.triedFormats = [];
+            currentState.lastProposal = null;
+            currentState.repairInFlight = false;
+            currentState.waitingOrStalledFlag = false;
+            currentState.consecutiveStallTicks = 0;
+            setHasError(false);
+            setErrorMessage('');
+            appLog(`TV DOKTOR: ${currentChannel.name} – egyszeri újracsatlakozási ellenőrzés indul.`);
+            loadStreamRef.current(retryUrl, true);
+          }, 30000);
+        }
         return;
       }
 
@@ -5022,6 +5055,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       doctorSessionRef.current.directFastStart = Boolean(doctorPlan?.directFastStart);
       doctorSessionRef.current.maxRepairSteps = doctorPlan?.maxRepairSteps || MAX_DOCTOR_REPAIR_STEPS;
       doctorSessionRef.current.channelHaltedDead = false;
+      doctorSessionRef.current.deadRetryCount = 0;
       doctorSessionRef.current.lastProposal = null;
       doctorSessionRef.current.activeBufferProfile = doctorPlan?.bufferProfileId || settings.bufferMode || 'balanced';
       doctorSessionRef.current.activeBufferTiming = doctorPlan?.enabled ? doctorPlan.bufferTiming : null;
