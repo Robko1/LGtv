@@ -33,6 +33,7 @@ import {
   DOCTOR_VOD_VERIFY_STABLE_MS,
   MAX_DOCTOR_REPAIR_STEPS,
   DoctorBufferProfileId,
+  DoctorBaselineProfile,
   DoctorRepairProposal,
   DoctorStreamStateSnapshot,
   DoctorTriggerReason,
@@ -47,6 +48,7 @@ import {
   planVodDoctorRepairStep,
   recordDoctorChannelFailure,
   recordDoctorChannelSuccess,
+  recordDoctorBaseline,
   recordDoctorVodSuccess,
   selectChannelLaunchPlan,
   selectVodLaunchPlan,
@@ -1671,6 +1673,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastProposal: DoctorRepairProposal | null;
     activeBufferProfile: DoctorBufferProfileId;
     activeBufferTiming: BufferProfileTiming | null;
+    baselineProfile: DoctorBaselineProfile | null;
     vodStartupWatchdogMs: number;
     vodLoadStartedAt: number;
     vodStartupRecorded: boolean;
@@ -1692,6 +1695,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastProposal: null,
     activeBufferProfile: settings.bufferMode || 'balanced',
     activeBufferTiming: null,
+    baselineProfile: null,
     vodStartupWatchdogMs: 8500,
     vodLoadStartedAt: 0,
     vodStartupRecorded: false,
@@ -1885,6 +1889,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         maxStepsOverride: docState.maxRepairSteps,
         currentFormat: currentFmt,
         currentBufferProfile: docState.activeBufferProfile,
+        currentBufferTiming: docState.activeBufferTiming || bufferTiming(),
+        baselineProfile: docState.baselineProfile,
         streamUrl: baseStreamUrl,
         tsUrl: tsCandidate,
         hlsUrl: hlsCandidate,
@@ -5058,6 +5064,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       doctorSessionRef.current.lastProposal = null;
       doctorSessionRef.current.activeBufferProfile = doctorPlan?.bufferProfileId || settings.bufferMode || 'balanced';
       doctorSessionRef.current.activeBufferTiming = doctorPlan?.enabled ? doctorPlan.bufferTiming : null;
+      doctorSessionRef.current.baselineProfile = doctorPlan?.baselineProfile || null;
       doctorSessionRef.current.vodStartupRecorded = false;
       doctorSessionRef.current.repairStep = 0;
       doctorSessionRef.current.triedFormats = [];
@@ -5078,6 +5085,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       doctorSessionRef.current.lastProposal = null;
       doctorSessionRef.current.activeBufferProfile = vodPlan?.bufferProfileId || settings.bufferMode || 'balanced';
       doctorSessionRef.current.activeBufferTiming = vodPlan?.hasLearnedProfile ? vodPlan.bufferTiming : null;
+      doctorSessionRef.current.baselineProfile = null;
       doctorSessionRef.current.vodStartupWatchdogMs = vodPlan?.startupWatchdogMs || 8500;
       doctorSessionRef.current.vodLoadStartedAt = Date.now();
       doctorSessionRef.current.vodStartupRecorded = false;
@@ -5559,6 +5567,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       `FORMÁTUM-EMLÉK MENTVE; csatorna=${String(target.name || '').slice(0, 100)}; ` +
                       `formátum=${format.toUpperCase()}; előző=${previousFormat ? previousFormat.toUpperCase() : 'nem volt'}.`
                     );
+                  }
+                  if (!tvDoctorEnabledRef.current && target) {
+                    // A normál, TV Doktor nélküli sikeres kézi váltás az 1-es profil első rögzítése.
+                    // Ez csak memóriába ír; a normál lejátszás formátumát és időzítését nem módosítja.
+                    const baseMode = (bufferModeRef.current || settings.bufferMode || 'balanced') as DoctorBufferProfileId;
+                    const baseTiming = bufferTiming();
+                    const diag = channelSwitchDiagnosticRef.current;
+                    recordDoctorBaseline({
+                      channel: target,
+                      format,
+                      bufferProfile: baseMode,
+                      bufferTiming: baseTiming,
+                      startupMs: diag ? Math.max(25, Date.now() - diag.attemptStartedAt) : null,
+                    });
                   }
                   if (tvDoctorEnabledRef.current && target) {
                     const docState = doctorSessionRef.current;
