@@ -31,6 +31,10 @@ import {
   DOCTOR_BUFFER_CONFIGS,
   DOCTOR_VERIFY_STABLE_MS,
   DOCTOR_VOD_VERIFY_STABLE_MS,
+  DOCTOR_BUFFERING_STATUS_DELAY_MS,
+  DOCTOR_VOD_BUFFERING_STATUS_DELAY_MS,
+  DOCTOR_PAUSE_CONFIRM_MS,
+  DOCTOR_REPAIR_STALE_MS,
   MAX_DOCTOR_REPAIR_STEPS,
   DoctorBufferProfileId,
   DoctorBaselineProfile,
@@ -39,6 +43,7 @@ import {
   DoctorTriggerReason,
   VodDoctorTarget,
   collectDoctorDiagnostics,
+  evaluateDoctorIncidentGate,
   evaluateSmartFreeze,
   isChannelHandledByDoctor,
   isVodHandledByDoctor,
@@ -1587,6 +1592,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   customStreamUrlLocalRef.current = customStreamUrl;
   const [doctorStatus, setDoctorStatus] = useState<TvDoctorActiveStatus | null>(null);
   const doctorStatusHideTimerRef = useRef<number | null>(null);
+  /* 2.5.381: a késleltetett pufferelési felirat és a beavatkozási kapu állapota. */
+  const doctorStatusRef = useRef<TvDoctorActiveStatus | null>(null);
+  doctorStatusRef.current = doctorStatus;
+  const doctorBufferingStatusTimerRef = useRef<number | null>(null);
+  const doctorIncidentRef = useRef<{
+    lastAt: number;
+    lastChannelKey: string;
+    lastTrigger: DoctorTriggerReason | null;
+    pauseConfirmTimer: number | null;
+    pauseConfirmed: boolean;
+    repairWatchTimer: number | null;
+    lastHealthSample: MediaProgressSample | null;
+    lastHealthAt: number;
+  }>({
+    lastAt: 0,
+    lastChannelKey: '',
+    lastTrigger: null,
+    pauseConfirmTimer: null,
+    pauseConfirmed: false,
+    repairWatchTimer: null,
+    lastHealthSample: null,
+    lastHealthAt: 0,
+  });
   const [doctorStoreRevision, setDoctorStoreRevision] = useState<number>(0);
 
   useEffect(() => {
@@ -1628,9 +1656,102 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, Math.max(0, delayMs));
   }, [clearDoctorStatusTimer]);
 
+  /*
+   * 2.5.381: PUFFERELÉSI FELIRAT CSAK IGAZOLT MEGAKADÁSNÁL.
+   *
+   * Az éles használatban a sárga „Pufferelési probléma” felirat szinte minden
+   * csatornán felvillant, mert a webOS élő adásnál a szegmenshatárokon
+   * rendszeresen küld `waiting` eseményt, ami magától megoldódik. A rövid
+   * várakozás nem hiba: a feliratot csak akkor mutatjuk, ha a lejátszás a
+   * késleltetés letelte után sem haladt tovább. A megszűnést a lejátszás
+   * haladása (idővonal/képkocka) azonnal elrejti.
+   */
+  const clearDoctorBufferingStatusTimer = useCallback(() => {
+    if (doctorBufferingStatusTimerRef.current !== null) {
+      window.clearTimeout(doctorBufferingStatusTimerRef.current);
+      doctorBufferingStatusTimerRef.current = null;
+    }
+  }, []);
+
+  const clearDoctorBufferingStatus = useCallback(() => {
+    clearDoctorBufferingStatusTimer();
+    if (doctorStatusRef.current && doctorStatusRef.current.phase === 'buffering') {
+      clearDoctorStatusTimer();
+      setDoctorStatus(null);
+    }
+  }, [clearDoctorBufferingStatusTimer, clearDoctorStatusTimer]);
+
+  const scheduleDoctorBufferingStatus = useCallback(() => {
+    if (!tvDoctorEnabledRef.current) return;
+    if (doctorBufferingStatusTimerRef.current !== null) return;
+    const video = htmlVideoRef.current;
+    // A `waiting` esemény csak futó lejátszásnál értelmezhető; a néző
+    // szándékát (`desiredPlaying`) nézzük, mert a webOS a `paused` jelzőt
+    // pillanatokra pontatlanul is adhatja.
+    if (!video || !playbackStartedRef.current || !desiredPlayingRef.current || video.ended) return;
+    const capturedGeneration = streamLoadGenerationRef.current;
+    const capturedVod = isVodRef.current;
+    const startSample = readMediaProgress(video, Date.now());
+    const delayMs = capturedVod ? DOCTOR_VOD_BUFFERING_STATUS_DELAY_MS : DOCTOR_BUFFERING_STATUS_DELAY_MS;
+    doctorBufferingStatusTimerRef.current = window.setTimeout(() => {
+      doctorBufferingStatusTimerRef.current = null;
+      if (capturedGeneration !== streamLoadGenerationRef.current) return;
+      const current = htmlVideoRef.current;
+      if (!current || !playbackStartedRef.current || !desiredPlayingRef.current || current.ended) return;
+      if (mediaProgressed(startSample, readMediaProgress(current, Date.now()))) {
+        // Közben magától továbbment: szegmenshatár volt, nem pufferelési hiba.
+        return;
+      }
+      showDoctorStatus({
+        phase: 'buffering',
+        title: 'Pufferelési probléma',
+        detail: capturedVod
+          ? 'Film / sorozat pufferének feltöltése…'
+          : 'Élő adás pufferének stabilizálása…',
+      });
+    }, delayMs);
+  }, [showDoctorStatus]);
+
+  /*
+   * 2.5.381: az elavult „javítás folyamatban” jelző őre.
+   *
+   * Ha egy javítási terv elkészült, de a lejátszó nem ad `playing` eseményt és
+   * ellenőrző időzítő sem fut, a jelző örökre bekapcsolva maradhatott, és a
+   * következő pufferelésnél hamis „Javítás ellenőrzése” feliratot rajzolt ki
+   * egy sosem történt javítás után.
+   */
+  const armDoctorRepairWatch = useCallback(() => {
+    if (doctorIncidentRef.current.repairWatchTimer !== null) {
+      window.clearTimeout(doctorIncidentRef.current.repairWatchTimer);
+      doctorIncidentRef.current.repairWatchTimer = null;
+    }
+    doctorIncidentRef.current.repairWatchTimer = window.setTimeout(() => {
+      doctorIncidentRef.current.repairWatchTimer = null;
+      const state = doctorSessionRef.current;
+      if (!state.repairInFlight || state.verifyTimer !== null) return;
+      state.repairInFlight = false;
+      state.repairStep = 0;
+      state.lastProposal = null;
+      appLog('TV DOKTOR: a javítási jelző megerősítés nélkül lejárt – visszaállítva (nincs hamis „Javítás ellenőrzése” felirat).');
+      const status = doctorStatusRef.current;
+      if (status && (status.phase === 'repair' || status.phase === 'verifying')) {
+        scheduleClearDoctorStatus(0);
+      }
+    }, DOCTOR_REPAIR_STALE_MS);
+  }, [scheduleClearDoctorStatus]);
+
   useEffect(() => () => {
     clearDoctorStatusTimer();
-  }, [clearDoctorStatusTimer]);
+    clearDoctorBufferingStatusTimer();
+    if (doctorIncidentRef.current.pauseConfirmTimer !== null) {
+      window.clearTimeout(doctorIncidentRef.current.pauseConfirmTimer);
+      doctorIncidentRef.current.pauseConfirmTimer = null;
+    }
+    if (doctorIncidentRef.current.repairWatchTimer !== null) {
+      window.clearTimeout(doctorIncidentRef.current.repairWatchTimer);
+      doctorIncidentRef.current.repairWatchTimer = null;
+    }
+  }, [clearDoctorStatusTimer, clearDoctorBufferingStatusTimer]);
 
   useEffect(() => {
     if (settings.tvDoctorEnabled !== false) return;
@@ -1655,7 +1776,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     doctorState.activeBufferTiming = null;
     doctorState.fallbackUrlOverride = null;
     doctorState.triedFormats = [];
-  }, [settings.tvDoctorEnabled, clearDoctorStatusTimer]);
+    clearDoctorBufferingStatusTimer();
+    if (doctorIncidentRef.current.pauseConfirmTimer !== null) {
+      window.clearTimeout(doctorIncidentRef.current.pauseConfirmTimer);
+      doctorIncidentRef.current.pauseConfirmTimer = null;
+    }
+    if (doctorIncidentRef.current.repairWatchTimer !== null) {
+      window.clearTimeout(doctorIncidentRef.current.repairWatchTimer);
+      doctorIncidentRef.current.repairWatchTimer = null;
+    }
+  }, [settings.tvDoctorEnabled, clearDoctorStatusTimer, clearDoctorBufferingStatusTimer]);
 
   // VOD (film / sorozat) lejátszássegítés kizárólag az aktuális munkamenetben,
   // memória- vagy naplómentés nélkül (bezáráskor / forrásváltáskor törlődik).
@@ -1789,6 +1919,95 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!tvDoctorEnabledRef.current) return;
     try {
       const docState = doctorSessionRef.current;
+      const gate = doctorIncidentRef.current;
+      const nowMs = Date.now();
+
+      /*
+       * 2.5.381 – 1. MEGERŐSÍTÉS VÁRATLAN PAUSE-NÁL.
+       *
+       * A webOS néha magától küld `pause` eseményt egy pillanatra, majd
+       * folytatja a lejátszást. Korábban ez azonnal javítási lépést indított
+       * („Megszakadt adatfolyam”), és a fölösleges újratöltés miatt akadozott
+       * egy egyébként hibátlan csatorna. Itt rövid megerősítési ablakot adunk:
+       * csak akkor számít hibának, ha a lejátszás nem indult újra.
+       */
+      if (trigger === 'unexpected_pause' && !gate.pauseConfirmed) {
+        if (gate.pauseConfirmTimer !== null) return;
+        const capturedGeneration = streamLoadGenerationRef.current;
+        const capturedVideo = video || htmlVideoRef.current;
+        gate.pauseConfirmTimer = window.setTimeout(() => {
+          gate.pauseConfirmTimer = null;
+          if (capturedGeneration !== streamLoadGenerationRef.current) return;
+          const current = capturedVideo && capturedVideo === htmlVideoRef.current
+            ? capturedVideo
+            : htmlVideoRef.current;
+          if (!current) return;
+          if (!current.paused && !current.ended) {
+            appLog(`TV DOKTOR: a váratlan pause megszűnt a megerősítési idő alatt (${DOCTOR_PAUSE_CONFIRM_MS} ms) – nincs javítás.`);
+            return;
+          }
+          gate.pauseConfirmed = true;
+          try {
+            notifyTvDoctorIncident(trigger, current, errorCode, errorDetail, stallMs);
+          } finally {
+            gate.pauseConfirmed = false;
+          }
+        }, DOCTOR_PAUSE_CONFIRM_MS);
+        return;
+      }
+
+      /*
+       * 2.5.381 – 2. BEAVATKOZÁSI KAPU.
+       *
+       * Egy fizikai hibát a lejátszó több DOM-eseménnyel is jelezhet
+       * (pause+ended, waiting+stalled, error+ended), és a webOS másodperceken
+       * belül megismételheti ugyanazt. Az éles naplóban ez két javítási
+       * lépést fogyasztott 20–26 ms alatt ugyanarra az eseményre, így a létra
+       * fölöslegesen formátum-/pufferváltó fokozatba lépett egy olyan
+       * csatornán, ahol csak egy újracsatlakozás kellett volna.
+       */
+      const gateChannelKey = isVodRef.current
+        ? (docState.channelKey || 'vod')
+        : (docState.channelKey || normalizeChannelDoctorKey(channelRef.current));
+      const mediaHealthy = (() => {
+        if (trigger !== 'buffer_stall' && trigger !== 'playback_stall') return false;
+        const element = video || htmlVideoRef.current;
+        if (!element || element.paused || element.ended || element.error) return false;
+        /*
+         * Csak FRISS (< 1,5 mp) összehasonlítási minta számít „haladásnak”.
+         * A puffer megléte önmagában NEM bizonyíték: a watchdog épp azt a
+         * esetet rögzíti, amikor van puffer, de a dekóder áll (néma fagyás),
+         * ezért a puszta puffer-mutatót itt nem fogadjuk el.
+         */
+        const previous = gate.lastHealthSample && nowMs - gate.lastHealthAt <= 1500
+          ? gate.lastHealthSample
+          : null;
+        const current = readMediaProgress(element, nowMs);
+        gate.lastHealthSample = current;
+        gate.lastHealthAt = nowMs;
+        return Boolean(previous && mediaProgressed(previous, current));
+      })();
+      const decision = evaluateDoctorIncidentGate({
+        trigger,
+        channelKey: gateChannelKey,
+        now: nowMs,
+        lastIncidentAt: gate.lastAt > 0 ? gate.lastAt : null,
+        lastIncidentChannelKey: gate.lastChannelKey || null,
+        lastIncidentTrigger: gate.lastTrigger,
+        repairInFlight: docState.repairInFlight,
+        recoveryPending: recoveryTimerRef.current !== null,
+        mediaHealthy,
+      });
+      if (!decision.act) {
+        const skipLine = `TV DOKTOR BEAVATKOZÁS KIHAGYVA; csatorna=${isVodRef.current ? (customTitleRef.current || 'VOD') : (channelRef.current?.name || 'élő adás')}; ok=${trigger}; indok=${decision.reason}.`;
+        appLog(skipLine);
+        if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(skipLine);
+        return;
+      }
+      gate.lastAt = nowMs;
+      gate.lastChannelKey = gateChannelKey;
+      gate.lastTrigger = trigger;
+
       if (docState.verifyTimer !== null) {
         window.clearTimeout(docState.verifyTimer);
         docState.verifyTimer = null;
@@ -1826,6 +2045,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         docState.activeBufferProfile = proposal.nextBufferProfile;
         docState.activeBufferTiming = proposal.nextBufferTiming;
         docState.repairInFlight = !proposal.exhausted;
+        if (docState.repairInFlight) armDoctorRepairWatch();
         docState.fallbackUrlOverride = null;
         appLog(
           `TV DOKTOR VOD JAVÍTÁS; ok=${trigger}; lépés=${proposal.step}/${proposal.maxSteps}; `
@@ -1921,6 +2141,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setIsRecovering(false);
         setHasError(false);
         setErrorMessage('');
+        /*
+         * 2.5.381: a percenkénti beavatkozási korlát elérése NEM hiba a
+         * nézőnek – az adás megy tovább. Korábban ilyenkor is megjelent a
+         * „Javítás szüneteltetve” felirat, ami a valóban hibátlan csatornán
+         * csak fölösleges villogás volt. Most csak naplózzuk.
+         */
+        if (proposal.strategyId === 'intervention_rate_limited') {
+          appLog(`TV DOKTOR: percenkénti beavatkozási korlát elérve – a javítási kör naplózva lezárva, a lejátszás változatlanul megy tovább (${trigger}).`);
+          if (isTvDoctorDiagLoggingEnabled()) {
+            tvDoctorLog(`TV DOKTOR BEAVATKOZÁSI KORLÁT: ${proposal.description}; ok=${trigger}; a lejátszó állapotát nem módosítjuk.`);
+          }
+          return;
+        }
         showDoctorStatus({
           phase: 'repair',
           title: 'Javítás szüneteltetve',
@@ -2015,6 +2248,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       docState.repairInFlight = true;
       docState.lastProposal = proposal;
+      armDoctorRepairWatch();
+      // A pufferelési felirat helyét a valódi javítási állapot veszi át.
+      clearDoctorBufferingStatusTimer();
       showDoctorStatus({
         // A media_error / play_rejected csak az aktuális kísérlet hibája.
         phase: 'repair',
@@ -2381,6 +2617,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       } else if (previousSample && mediaProgressed(previousSample, sample)) {
         doctorSessionRef.current.consecutiveStallTicks = 0;
         doctorSessionRef.current.waitingOrStalledFlag = false;
+        // 2.5.381: a lejátszás ténylegesen halad – a pufferelési felirat
+        // (és a még nem megjelent, késleltetett felirat) tárgytalan.
+        clearDoctorBufferingStatus();
       }
       previousSample = sample;
       if (!detector.observe(sample, now)) return;
@@ -2423,7 +2662,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.clearInterval(timer);
       if (stallDetectorRef.current === detector) stallDetectorRef.current = null;
     };
-  }, [isVod, isPlaying, channel?.id, customStreamUrl, settings.bufferMode]);
+  }, [isVod, isPlaying, channel?.id, customStreamUrl, settings.bufferMode, clearDoctorBufferingStatus]);
 
   // A HTML5 videót a React-komponens eltűnésekor nézetváltáskor
   // ténylegesen leállítjuk, és elrejtjük a natív videófelületet. Visszatéréskor
@@ -5120,6 +5359,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       previousDoctorState.repairInFlight = false;
       showDoctorStatus(null);
+      /*
+       * 2.5.381: az előző adás késleltetett pufferelési/pause-ellenőrzése sem
+       * szólhat bele az új csatornába (különben az új adáson jelenne meg egy
+       * régi esemény felirata vagy javítási lépése).
+       */
+      clearDoctorBufferingStatusTimer();
+      if (doctorIncidentRef.current.pauseConfirmTimer !== null) {
+        window.clearTimeout(doctorIncidentRef.current.pauseConfirmTimer);
+        doctorIncidentRef.current.pauseConfirmTimer = null;
+      }
+      if (doctorIncidentRef.current.repairWatchTimer !== null) {
+        window.clearTimeout(doctorIncidentRef.current.repairWatchTimer);
+        doctorIncidentRef.current.repairWatchTimer = null;
+      }
+      /*
+       * A beavatkozási kapu időbélyegeit SZÁNDÉKOSAN nem nullázzuk: a kapu
+       * csatornakulcsra szűr, így egy másik csatorna eseménye nem öröklődik,
+       * ugyanazon a csatornán viszont egy javítás közbeni újratöltés után
+       * érkező ismételt esemény továbbra is ugyanahhoz a fizikai hibához
+       * tartozik, és nem indíthat újabb javítási lépést.
+       */
+      doctorIncidentRef.current.lastHealthSample = null;
+      doctorIncidentRef.current.lastHealthAt = 0;
     }
     if (!isVod) {
       doctorSessionRef.current.channelKey = doctorPlan?.channelKey || normalizeChannelDoctorKey(channel);
@@ -5565,6 +5827,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
               setIsRecovering(false);
               clearBufferWatchdog();
+              // 2.5.381: az adás újraindult – a késleltetett/aktuális pufferelési
+              // felirat azonnal lekerül, nem marad a képen.
+              clearDoctorBufferingStatus();
               // A főoldal ebből tudja, hogy a TV-kép kész (nincs fekete doboz).
               try {
                 (window as any).__IPTV_VIDEO_READY__ = true;
@@ -5839,13 +6104,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
               if (playbackStartedRef.current) {
                 setIsLoading(true);
-                showDoctorStatus({
-                  phase: 'buffering',
-                  title: 'Pufferelési probléma',
-                  detail: isVod
-                    ? 'Film / sorozat pufferének feltöltése…'
-                    : 'Élő adás pufferének stabilizálása…',
-                });
+                /*
+                 * 2.5.381: NEM jelenítünk meg azonnal feliratot. A webOS élő
+                 * adásnál minden szegmenshatáron küld `waiting` eseményt,
+                 * ami magától megoldódik; a korábbi azonnali felirat ezért
+                 * villogott folyamatosan. A felirat csak igazolt, tartós
+                 * megakadásnál jelenik meg (lásd scheduleDoctorBufferingStatus).
+                 */
+                scheduleDoctorBufferingStatus();
                 armBufferWatchdog();
               }
               if (!isVod && isVerbosePlaybackLogging()) {
@@ -5870,6 +6136,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 // illetve a watchdog által igazolt lejátszási megállás mutatja.
                 // Az alap lejátszó loading- és watchdog-viselkedését változatlanul hagyjuk.
                 setIsLoading(true);
+                scheduleDoctorBufferingStatus();
                 armBufferWatchdog();
               }
               if (!isVod && isVerbosePlaybackLogging()) {

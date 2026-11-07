@@ -7,6 +7,15 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
+    version: '2.5.381',
+    date: '2026-11-07',
+    changes: [
+      'JAVÍTÁS (TV DOKTOR — NINCS HAMIS JAVÍTÁS) — A Doktor egyetlen fizikai hibára már csak EGYSZER avatkozik be: a lejátszó ugyanazt az adáslezárulást több eseménnyel is jelzi (pause + ended, waiting + stalled), és a korábbi kód 20–26 ms alatt két javítási lépést fogyasztott ugyanarra az eseményre, így a létra fölöslegesen formátum-/pufferváltásba lépett egy hibátlan csatornán. Új beavatkozási kapu: azonos esemény 1,6 mp-en belül, ugyanaz a hibaok 5 mp-en belül, futó javítás vagy már ütemezett újratöltés alatt nem indít új lépést (csak naplózza).',
+      'JAVÍTÁS (TV DOKTOR — FELIRATOK) — A sárga „Pufferelési probléma” felirat eddig minden `waiting` eseménynél azonnal felvillant; mostantól csak IGAZOLT, tartós megakadásnál (1,4 mp élő / 2,5 mp film) jelenik meg, és a lejátszás haladásakor azonnal eltűnik. A „Javítás ellenőrzése” felirat pedig csak valóban lezajlott javítás után jön elő: az elavult „javítás folyamatban” jelző 12 mp után magától nullázódik, a percenkénti beavatkozási korlát elérésekor pedig nincs többé „Javítás szüneteltetve” felirat.',
+      'JAVÍTÁS (TV DOKTOR — VÁRATLAN PAUSE) — A webOS időnként magától küld `pause` eseményt, ami eddig azonnal javítást indított. A Doktor most 0,9 mp-es megerősítési ablakot ad: ha a lejátszás közben újraindul, nincs javítás és nincs felirat. Emellett a TV Doktor állapot- és naplóablaka (0-ás gomb) renderelési hibája is javítva (a kategória-dobozok statisztikája a megjelenített naplóból számol).',
+    ],
+  },
+  {
     version: '2.5.380',
     date: '2026-11-07',
     changes: [

@@ -235,6 +235,33 @@ export const MAX_DOCTOR_REPAIR_STEPS = 8;
 export const MAX_DEAD_CHANNEL_QUICK_STEPS = 2;
 export const MAX_INTERVENTIONS_PER_MINUTE = 8;
 export const DOCTOR_VERIFY_STABLE_MS = 2200;
+/*
+ * 2.5.381 (TV Doktor hangolás, éles napló alapján): a DOKTOR NEM INDÍTHAT
+ * JAVÍTÁST UGYANARRA A FIZIKAI ESEMÉNYRE TÖBBSZÖR.
+ *
+ * Az éles naplóban ([HU] SPEKTRUM UHD, HU - TRAVEL CHANNEL) egyetlen
+ * adáslezárulás KÉT `repair_attempt` sort adott 20–26 ms-on belül (1. és
+ * 2. lépés), vagyis a `pause` és az `ended` DOM-esemény külön-külön
+ * fogyasztotta a javítási létrát. A létra így fél másodperc alatt a
+ * formátum-/puffer-váltó lépésekig ugorhatott egy olyan csatornán, amely
+ * valójában csak egyetlen újracsatlakozást igényelt.
+ */
+export const DOCTOR_INCIDENT_BURST_WINDOW_MS = 1600;
+/** Ugyanarra a hibaokra ennyi ideig nem indul új javítás ugyanazon a csatornán. */
+export const DOCTOR_INCIDENT_SAME_TRIGGER_COOLDOWN_MS = 5000;
+/** Egy már folyamatban lévő javítás/újratöltés alatt nem lépünk a következő fokozatra. */
+export const DOCTOR_REPAIR_IN_PROGRESS_WINDOW_MS = 6000;
+/**
+ * Ha a „javítás folyamatban” jelző ennyi ideig nem kap megerősítést (nem jött
+ * `playing` esemény és nem fut ellenőrző időzítő), akkor elavult: nullázzuk,
+ * különben a következő pufferelésnél hamis „Javítás ellenőrzése” felirat jelenne meg.
+ */
+export const DOCTOR_REPAIR_STALE_MS = 12000;
+/** Rövid `waiting` esemény nem jeleníthet azonnal pufferelési feliratot – ennyit várunk. */
+export const DOCTOR_BUFFERING_STATUS_DELAY_MS = 1400;
+export const DOCTOR_VOD_BUFFERING_STATUS_DELAY_MS = 2500;
+/** Váratlan `pause` csak ennyi után számít valódi hibának (ha közben nem indul újra). */
+export const DOCTOR_PAUSE_CONFIRM_MS = 900;
 // VOD-nál hosszabb stabil lejátszást várunk, mert a rövid canplay/playing után még visszaeshet a stream.
 export const DOCTOR_VOD_VERIFY_STABLE_MS = 8000;
 export const DEAD_CHANNEL_COOLDOWN_MS = 3 * 60 * 1000;
@@ -3310,6 +3337,82 @@ function markIntervention(channelKey: string, now = Date.now()): void {
   const list = (interventionTimestampsByChannel.get(channelKey) || []).filter((t) => t >= windowStart);
   list.push(now);
   interventionTimestampsByChannel.set(channelKey, list);
+}
+
+/**
+ * 2.5.381: BEAVATKOZÁSI KAPU – egy fizikai hibából egyetlen javítási lépés.
+ *
+ * A lejátszó egyetlen valós hibát több DOM-eseménnyel is jelez (pause+ended,
+ * waiting+stalled, error+ended), és a webOS néha másodperceken belül
+ * megismétli ugyanazt. A kapu ezeket egyetlen beavatkozásnak számítja, így a
+ * javítási létra nem ugrik feleslegesen formátum-/pufferváltó fokozatokra egy
+ * olyan csatornán, amely valójában csak egy újracsatlakozást igényelt.
+ *
+ * Tiszta függvény (nincs mellékhatás), ezért egységteszttel ellenőrizhető.
+ */
+export type DoctorIncidentGateDecision = {
+  act: boolean;
+  reason: string;
+};
+
+export function evaluateDoctorIncidentGate(input: {
+  trigger: DoctorTriggerReason;
+  channelKey: string;
+  now?: number;
+  lastIncidentAt?: number | null;
+  lastIncidentChannelKey?: string | null;
+  lastIncidentTrigger?: DoctorTriggerReason | null;
+  repairInFlight?: boolean;
+  /** Már ütemezett újratöltés/helyreállítás fut – nem indítunk még egyet. */
+  recoveryPending?: boolean;
+  /** Az adás bizonyítottan halad (van képkocka-/idővonal-haladás, elég puffer). */
+  mediaHealthy?: boolean;
+}): DoctorIncidentGateDecision {
+  const {
+    trigger,
+    channelKey,
+    now = Date.now(),
+    lastIncidentAt = null,
+    lastIncidentChannelKey = null,
+    lastIncidentTrigger = null,
+    repairInFlight = false,
+    recoveryPending = false,
+    mediaHealthy = false,
+  } = input;
+
+  // 1) Már fut egy újratöltés: a második esemény nem indíthat még egyet.
+  if (recoveryPending) {
+    return { act: false, reason: 'újratöltés már ütemezve van' };
+  }
+
+  const sameChannel = Boolean(
+    lastIncidentChannelKey && channelKey && lastIncidentChannelKey === channelKey,
+  );
+  const sinceLast = lastIncidentAt === null ? Number.POSITIVE_INFINITY : Math.max(0, now - lastIncidentAt);
+
+  // 2) Ugyanaz a fizikai esemény több DOM-eseménye (pause+ended stb.).
+  if (sameChannel && sinceLast < DOCTOR_INCIDENT_BURST_WINDOW_MS) {
+    return { act: false, reason: 'ugyanazon esemény ismétlődő jelzése' };
+  }
+
+  // 3) Ugyanaz a hibaok hűtési ablakon belül.
+  if (sameChannel && lastIncidentTrigger === trigger && sinceLast < DOCTOR_INCIDENT_SAME_TRIGGER_COOLDOWN_MS) {
+    return { act: false, reason: 'ismétlődő hiba a hűtési ablakban' };
+  }
+
+  // 4) Javítás van folyamatban: hagyjuk lezárulni, ne lépjünk fokozatot.
+  if (repairInFlight && sinceLast < DOCTOR_REPAIR_IN_PROGRESS_WINDOW_MS) {
+    return { act: false, reason: 'javítás már folyamatban van' };
+  }
+
+  // 5) Az adás mérhetően halad (pillanatnyi pufferelés / késleltetett esemény):
+  //    ilyenkor nincs mit javítani, csak a felirat zavarna.
+  const softTrigger = trigger === 'buffer_stall' || trigger === 'playback_stall';
+  if (mediaHealthy && softTrigger) {
+    return { act: false, reason: 'az adás bizonyítottan halad' };
+  }
+
+  return { act: true, reason: 'valódi, megerősített hiba' };
 }
 
 /**
