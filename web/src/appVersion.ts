@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.381';
+export const WEB_VERSION = '2.5.382';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.381',
+    version: '2.5.382',
     date: '2026-11-07',
     changes: [
       'JAVÍTÁS (TV DOKTOR — NINCS HAMIS JAVÍTÁS) — A Doktor egyetlen fizikai hibára már csak EGYSZER avatkozik be: a lejátszó ugyanazt az adáslezárulást több eseménnyel is jelzi (pause + ended, waiting + stalled), és a korábbi kód 20–26 ms alatt két javítási lépést fogyasztott ugyanarra az eseményre, így a létra fölöslegesen formátum-/pufferváltásba lépett egy hibátlan csatornán. Új beavatkozási kapu: azonos esemény 1,6 mp-en belül, ugyanaz a hibaok 5 mp-en belül, futó javítás vagy már ütemezett újratöltés alatt nem indít új lépést (csak naplózza).',
