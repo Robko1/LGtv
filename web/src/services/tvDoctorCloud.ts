@@ -25,6 +25,7 @@ import {
   DoctorBaselineProfile,
   getAllDoctorBaselines,
   restoreDoctorBaselinesFromCloud,
+  setTvDoctorBaselineCloudHook,
   normalizeChannelDoctorKey,
   sanitizeDoctorRoutes,
   setTvDoctorHungarianChannelScope,
@@ -1758,6 +1759,7 @@ export function configureTvDoctorCloud(enabled: boolean): void {
   if (!enabled) {
     setTvDoctorCloudHook(null);
     setTvDoctorCloudLogHook(null);
+    setTvDoctorBaselineCloudHook(null);
     cancelTimer(flushTimer);
     cancelTimer(bootstrapTimer);
     flushTimer = null;
@@ -1773,6 +1775,7 @@ export function configureTvDoctorCloud(enabled: boolean): void {
   }
   setTvDoctorCloudHook(enqueueFromHook);
   setTvDoctorCloudLogHook(enqueueDoctorLog);
+  setTvDoctorBaselineCloudHook(() => { void syncTvDoctorBaselinesWithCloud(); });
   if (!connectivityListenersAttached && typeof window !== 'undefined') {
     connectivityListenersAttached = true;
     window.addEventListener('online', () => {
