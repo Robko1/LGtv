@@ -1369,7 +1369,7 @@ export function App() {
       const { now, next } = nowNextFromEpg(entries, Date.now());
       const nextNow = now || channel.epgNow;
       const nextNext = next || channel.epgNext;
-      const upcoming = entries.filter((entry) => entry.start >= (nextNow?.endTimestamp || 0)).slice(0, 3).map((entry) => ({ title: entry.title, time: new Date(entry.start * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }));
+      const upcoming = entries.filter((entry) => entry.start >= (nextNow?.endTimestamp || 0)).slice(0, 3).map((entry) => ({ title: entry.title, time: formatTime24(entry.start) }));
       if (
         nextNow?.title === channel.epgNow?.title &&
         nextNow?.time === channel.epgNow?.time &&
