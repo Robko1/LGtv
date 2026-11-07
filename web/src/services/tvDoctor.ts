@@ -2511,10 +2511,12 @@ export function selectChannelLaunchPlan(
      * amíg nincs megbízható, csatornaspecifikus útvonal. Ha már van ilyen,
      * nem szakítjuk meg az indulást időszakos TS/HLS-próbával.
      */
-    const bestLearnedRoute = learnedRouteFor(record);
     const baselineRouteId = baselineProfile
       ? doctorRouteId(baselineProfile.format, baselineProfile.bufferProfile)
       : null;
+    const bestLearnedRoute = baselineProfile
+      ? (learnedRouteCandidates(record, baselineRouteId)[0] || null)
+      : learnedRouteFor(record);
     // A baseline-tól eltérő útvonal csak legalább két hibátlan, gyorsabb mérés után veheti át az első helyet.
     const learnedRouteBetterThanBaseline = Boolean(
       baselineProfile && bestLearnedRoute
