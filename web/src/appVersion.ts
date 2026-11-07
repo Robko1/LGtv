@@ -8,10 +8,11 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 export const WEB_VERSION_HISTORY = [
   {
     version: '2.5.375',
-    date: '2026-11-05',
+    date: '2026-11-07',
     changes: [
-      'FŐOLDALI FÓKUSZ — Kedvencmappák (Mr Bean, HBO Max, UK stb.) és a Menü gomb 5px-es, sárga, árnyékos fókuszkeretet kapott, csak fókuszban.',
-      'FELHŐ MENTÉS — Supabase layout mentésnél a kliens kompakt fingerprinteket küld a nagy stream URL-ek nélkül; az Edge Function szükség esetén a sorrendet fingerprint ID-kből visszaépíti, kezeli a 4,5 MB-os UTF-8 méretkorlátot, és elmenti a kompakt, visszaállítható adatot. A mentés gomb aktív/fókuszban marad mentés közben is.',
+      'HANGSÁV MENTÉSE — A zöld gombos „Hangsáv / CC” ablak tetején új MENTÉS gomb van. A kiválasztott hangsávot a csatornához menti, így másik adásra váltva és visszatérve, valamint az IPK újraindítása után is ugyanaz a hangsáv töltődik be.',
+      'HANGSÁV VISSZAÁLLÍTÁS — A lejátszó csatornainduláskor megkeresi a csatornához mentett hangsávot (nyelv + név alapján) és beállítja; ha az adás nem kínálja, csendben a TV alapértelmezésén marad.',
+      'TÁVIRÁNYÍTÓ — A hangsáv-lista legtetejéről FEL nyíllal a MENTÉS gombra lehet lépni, OK-val menteni, LE nyíllal pedig visszatérni a listára.',
     ],
   },
   {

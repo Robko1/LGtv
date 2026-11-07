@@ -1,5 +1,6 @@
 import { AppSettings, FavoriteFolder, ProviderAccount, WatchHistoryItem } from '../types/iptv';
 import { clearFormatMemory } from './liveFormatMemory';
+import { clearAudioMemory } from './liveAudioMemory';
 import { clearTvDoctorMemory } from './tvDoctor';
 import { clearTvDoctorCloudQueue } from './tvDoctorCloud';
 import { clearContentAsync } from './contentStore';
@@ -322,6 +323,8 @@ export const storageService = {
     // A csatornánkénti formátum-emlékezet is a gyorsítótár része: törlés után
     // minden csatorna a beállított alapformátummal indul.
     clearFormatMemory();
+    // A csatornánként mentett hangsávok is a gyorsítótár részei.
+    clearAudioMemory();
     clearTvDoctorMemory();
     clearTvDoctorCloudQueue();
     localStorage.removeItem(SETTINGS_KEY);

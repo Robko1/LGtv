@@ -46,6 +46,7 @@ const tasks = [
   { name: 'tv-only-runtime', args: ['tools/test-tv-only-runtime.mjs'] },
   { name: 'vod-controls-runtime', args: ['tools/test-vod-controls-runtime.mjs'] },
   { name: 'track-selectors', args: ['tools/test-track-selectors.mjs'] },
+  { name: 'live-audio-memory', args: ['tools/test-live-audio-memory.mjs'] },
   { name: 'bridge', args: ['tools/test-bridge.mjs'] },
   { name: 'channel-logos', args: ['tools/test-channel-logos.mjs'] },
   { name: 'import', args: ['tools/test-import.mjs'] },
