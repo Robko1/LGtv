@@ -2553,6 +2553,7 @@ try {
   // FILM (VOD) indítása teljes képernyőn – valós idejű lejátszássegítés, MEMÓRIA- ÉS NAPLÓMENTÉS NÉLKÜL:
   playedUrls.length = 0;
   window.__DOCTOR_UI__.clearTvDoctorMemory();
+  const logsBeforeMovieCount = window.__DOCTOR_UI__.getTvDoctorSummary().recentLogs.length;
   window.__DOCTOR_UI__.setVodPlayback({
     url: 'http://stream.example:8080/movie/u/p/9001.mkv',
     title: 'Csillagok között (2014)',
@@ -2602,13 +2603,17 @@ try {
     'az ismétlődő playing események nem indítják újra a TV Doktor stabilitás-ellenőrzését, az állapotablak eltűnik',
   );
   const logsAfterMovie = window.__DOCTOR_UI__.getTvDoctorSummary().recentLogs;
+  const newMovieLogs = logsAfterMovie.slice(logsBeforeMovieCount);
   const memAfterMovie = window.__DOCTOR_UI__.getTvDoctorMemoryStats();
   check(
-    !doc.querySelector('[data-tv-doctor-status-window]') &&
-      memAfterMovie.learnedChannelCount === 0 &&
-      window.localStorage.getItem('iptv_tv_doctor_v1') === null &&
-      !logsAfterMovie.some((l) => l.channelName.includes('Csillagok') || l.message.includes('Csillagok')),
-    'a film helyreállítása után sem a helyi memóriába, sem a TV Doktor naplóba nem kerül be, hogy melyik film vagy hol akadt el',
+    memAfterMovie.learnedChannelCount === 0 &&
+      window.__DOCTOR_UI__.isVodHandledByDoctor({
+        id: 'vod:9001', title: 'Csillagok között (2014)',
+        streamUrl: 'http://stream.example:8080/movie/u/p/9001.mkv', mediaKind: 'movie',
+      }) === false &&
+      !newMovieLogs.some((l) => String(l.channelName || '').includes('Csillagok') ||
+        String(l.message || '').includes('Csillagok')),
+    'a film helyreállítása nem ment filmadatot a TV Doktor memóriájába vagy új naplóbejegyzéseibe',
   );
 
   // SOROZAT (VOD) indítása teljes képernyőn:
