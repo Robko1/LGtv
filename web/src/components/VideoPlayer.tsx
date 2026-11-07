@@ -5587,6 +5587,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                           verifyGen !== streamLoadGenerationRef.current ||
                           verifyVideo !== htmlVideoRef.current
                         ) {
+                          // A régi ellenőrzés érvényét vesztette. Ne hagyjuk
+                          // aktívan a javításjelzőt, mert a következő playing
+                          // esemény újra és újra megjelenítené a státuszt.
+                          docState.repairInFlight = false;
+                          docState.repairStep = 0;
+                          scheduleClearDoctorStatus(0);
                           return;
                         }
                         if (verifyVideo.paused || verifyVideo.ended || Boolean(verifyVideo.error)) {
@@ -5655,6 +5661,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       verifyGen !== streamLoadGenerationRef.current ||
                       verifyVideo !== htmlVideoRef.current
                     ) {
+                      // A régi VOD-ellenőrzés már nem ehhez az adatfolyamhoz tartozik.
+                      docState.repairInFlight = false;
+                      docState.repairStep = 0;
+                      scheduleClearDoctorStatus(0);
                       return;
                     }
                     if (verifyVideo.paused || verifyVideo.ended || Boolean(verifyVideo.error)) {
