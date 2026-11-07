@@ -153,6 +153,21 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
     try { window.localStorage.setItem('iptv_rt_meres_naplo', '1'); } catch { /* nem elérhető */ }
     const spy = { play: 0, pause: 0, load: 0, setIsPlaying: [], onEnded: 0 };
     window.__MEDIA_SPY__ = spy;
+    // A képminőség-mintavevő 4 másodperces időzítőjének életciklusát külön
+    // figyeljük: kézi naplózáskor létrejön, leállításkor törlődik.
+    const qualityIntervals = { created: [], cleared: [] };
+    window.__QUALITY_INTERVAL_SPY__ = qualityIntervals;
+    const originalSetInterval = window.setInterval.bind(window);
+    const originalClearInterval = window.clearInterval.bind(window);
+    window.setInterval = (callback, delay, ...args) => {
+      const id = originalSetInterval(callback, delay, ...args);
+      if (Number(delay) === 4000) qualityIntervals.created.push(id);
+      return id;
+    };
+    window.clearInterval = (id) => {
+      if (qualityIntervals.created.includes(id)) qualityIntervals.cleared.push(id);
+      return originalClearInterval(id);
+    };
     const proto = window.HTMLMediaElement.prototype;
     Object.defineProperty(proto, 'paused', {
       configurable: true,
@@ -405,6 +420,7 @@ window.__IPTV_TEST__.mount({ channel: LIVE });
 check(await waitFor(() => Boolean(video()), 5000, 'sebességmérés videó'), 'a sebességméréshez létrejön a videóelem');
 const testVideo = video();
 fire(testVideo, 'playing');
+const qualityIntervalsBefore = window.__QUALITY_INTERVAL_SPY__.created.length;
 window.__IPTV_TEST__.startLogging();
 fire(testVideo, 'waiting');
 await tick(50);
@@ -412,8 +428,12 @@ fire(testVideo, 'playing');
 const speedLog = window.__IPTV_TEST__.logText();
 check(/már futó lejátszás megfigyelése/.test(speedLog), 'a kézi indítás megfigyeli a már futó adást');
 check(/média waiting/.test(speedLog) && /média playing.*várakozás=/.test(speedLog), 'a pufferelés kezdete és időtartama bekerül a naplóba');
-check(!/KÉPMINŐSÉG;/.test(speedLog), 'a felesleges képminőség-mintavétel nem fut');
+const qualityIntervalIds = window.__QUALITY_INTERVAL_SPY__.created.slice(qualityIntervalsBefore);
+check(qualityIntervalIds.length > 0, 'a kézi naplózás elindítja a 4 másodperces képminőség-mintavételt');
+check(/KÉPMINŐSÉG;/.test(speedLog), 'a futó adásról képminőség-minta kerül a kézi naplóba');
 window.__IPTV_TEST__.stopLogging();
+check(qualityIntervalIds.every((id) => window.__QUALITY_INTERVAL_SPY__.cleared.includes(id)),
+  'a kézi naplózás leállításakor a képminőség-mintavétel időzítője is leáll');
 window.__IPTV_TEST__.unmount();
 await tick(80);
 
