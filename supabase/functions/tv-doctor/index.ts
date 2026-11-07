@@ -1344,7 +1344,15 @@ export function createTvDoctorHandler(customEnv = {}) {
       }
     }
 
-    // Minden szinkron után az eszköz mind a négy TV Doktor kategóriáját 8 rekordra korlátozzuk.\n    try {\n      await pruneDeviceDoctorEvents(deviceHash);\n    } catch (pruneError) {\n      console.error("tv-doctor event retention failed", String(pruneError));\n      return out(503, { error: "event_retention_failed" });\n    }\n\n    // A felhő az összesített csatornaprofilokat, a csatornánkénti útvonalakat és a négy napló legfrissebb bejegyzéseit tárolja.
+    // Minden szinkron után az eszköz mind a négy TV Doktor kategóriáját 8 rekordra korlátozzuk.
+    try {
+      await pruneDeviceDoctorEvents(deviceHash);
+    } catch (pruneError) {
+      console.error("tv-doctor event retention failed", String(pruneError));
+      return out(503, { error: "event_retention_failed" });
+    }
+
+    // A felhő az összesített csatornaprofilokat, a csatornánkénti útvonalakat és a négy napló legfrissebb bejegyzéseit tárolja.
 
     // Bounded table maintenance (best-effort, non-fatal).
     if (mergedProfiles.length > 0 || syncedEvents > 0) {
