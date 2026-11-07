@@ -231,6 +231,77 @@ check(
   'pufferelakadáskor a második javítási próba visszaállítja az 1-es profilt annak pontos normál időzítésével',
 );
 
+// 1.2a/1: Az 1-es bizonyított alap önmagában is kizárja a halott minősítést.
+const baselineOnlyStore = new MemoryStorage();
+const baselineOnlyChannel = {
+  id: 'ch-baseline-only',
+  name: '[HU] Csak alapbeállítással bizonyított csatorna',
+  countryCode: 'HU',
+  streamUrl: 'http://panel.example:8080/live/u/p/999.ts',
+};
+core.recordDoctorBaseline({
+  channel: baselineOnlyChannel,
+  format: 'ts',
+  bufferProfile: 'balanced',
+  bufferTiming: { ...core.DOCTOR_BUFFER_CONFIGS.balanced },
+  startupMs: 850,
+  storage: baselineOnlyStore,
+});
+const baselineOnlyExhausted = core.planDoctorRepairStep({
+  channel: baselineOnlyChannel,
+  trigger: 'media_error',
+  step: core.MAX_DOCTOR_REPAIR_STEPS + 1,
+  currentFormat: 'hls',
+  currentBufferProfile: 'fast',
+  streamUrl: baselineOnlyChannel.streamUrl,
+  tsUrl: baselineOnlyChannel.streamUrl,
+  hlsUrl: baselineOnlyChannel.streamUrl.replace(/\\.ts$/, '.m3u8'),
+  storage: baselineOnlyStore,
+});
+const baselineOnlyRecord = core.getChannelDoctorRecord(baselineOnlyChannel, baselineOnlyStore);
+check(
+  baselineOnlyExhausted.strategyId === 'baseline_route_retry_after_exhaustion' &&
+    baselineOnlyExhausted.nextFormat === 'ts' &&
+    baselineOnlyExhausted.nextBufferProfile === 'balanced' &&
+    baselineOnlyExhausted.stopRetrying === false &&
+    baselineOnlyExhausted.exhausted === false &&
+    baselineOnlyRecord?.lastErrorCode !== 'CHANNEL_UNREACHABLE' &&
+    baselineOnlyRecord?.deadUntil === undefined,
+  'a bizonyított 1-es alap önmagában is megvédi a csatornát: a 8 próba után visszatér az alapra, nem jelöli halottnak',
+);
+
+// A bizonyított 1-es formátumot két sikertelen próbálkozás sem törölheti.
+const baselineFailureStore = new MemoryStorage();
+const baselineFailureChannel = {
+  id: 'ch-baseline-failure',
+  name: '[HU] Alapformátum védelmi próba',
+  countryCode: 'HU',
+  streamUrl: 'http://panel.example:8080/live/u/p/998.ts',
+};
+core.recordDoctorBaseline({
+  channel: baselineFailureChannel,
+  format: 'ts',
+  bufferProfile: 'balanced',
+  bufferTiming: { ...core.DOCTOR_BUFFER_CONFIGS.balanced },
+  startupMs: 900,
+  storage: baselineFailureStore,
+});
+core.recordDoctorChannelSuccess({
+  channel: baselineFailureChannel, format: 'ts', bufferProfile: 'balanced',
+  startupMs: 900, storage: baselineFailureStore,
+});
+for (let i = 0; i < 2; i += 1) {
+  core.recordDoctorChannelFailure({
+    channel: baselineFailureChannel, format: 'ts', bufferProfile: 'balanced',
+    trigger: 'media_error', errorCode: 'MEDIA_ERR_4', storage: baselineFailureStore,
+  });
+}
+check(
+  core.getChannelDoctorRecord(baselineFailureChannel, baselineFailureStore)?.lastWorkingFormat === 'ts' &&
+    core.getDoctorBaseline(baselineFailureChannel, baselineFailureStore)?.format === 'ts',
+  'két sikertelen TS-próba sem törli a korábban bizonyított 1-es TS alapot',
+);
+
 // 1.2b A már megtanult útvonal pufferprofilját indításkor nem írjuk felül új, még nem mért profillal.
 const rampStore = new MemoryStorage();
 const rampChannel = {
@@ -827,6 +898,29 @@ unregisterDiag();
 check(
   diagReport.extraMetrics.customRttMs === 42 && diagReport.extraMetrics.frameDropPercent === 5,
   'a bővíthető diagnosztikai plugin-rendszer (custom + beépített képminőség-mérő) hibátlanul fut',
+);
+const mediaErrorLogStore = new MemoryStorage();
+core.collectDoctorDiagnostics({
+  channel: fallbackChannel,
+  trigger: 'media_error',
+  format: 'ts',
+  bufferProfile: 'balanced',
+  loadElapsedMs: 450,
+  errorCode: 'MEDIA_ERR_4',
+  errorDetail: 'átmeneti médiaelem-hiba',
+  streamState: {
+    readyState: 0, networkState: 3, paused: true, ended: false,
+    currentTime: 0, duration: null, bufferedAheadSeconds: 0,
+    decodedFrames: null, droppedFrames: null, videoWidth: 0, videoHeight: 0,
+    waitingOrStalled: false,
+  },
+  storage: mediaErrorLogStore,
+});
+const mediaErrorSummary = core.getTvDoctorSummary(mediaErrorLogStore);
+check(
+  mediaErrorSummary.categoryStats.channel_error.count === 0 &&
+    mediaErrorSummary.categoryStats.activation.count === 1,
+  'egy MEDIA_ERR_4 csak aktiválási/javítási esemény, nem kerül a végleges csatornahiba kategóriába',
 );
 
 // 1.7 Adatbiztonság és hitelesítő adatok szűrése (9. követelmény)
