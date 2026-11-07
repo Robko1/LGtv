@@ -970,19 +970,23 @@ export function createTvDoctorHandler(customEnv = {}) {
   async function pruneDeviceDoctorEvents(deviceHash) {
     const types = "measurement,diagnostic,speed_test,buffer_test,repair_attempt,repair_verified,repair_exhausted,freeze_detected,channel_dead";
     const response = await rest(eventsUrl
-      + "?select=event_uid,details"
+      + "?select=event_uid,details,channel_key,channel_id"
       + "&device_hash=eq." + encodeURIComponent(deviceHash)
       + "&event_type=in.(" + types + ")"
-      + "&order=created_at.desc&limit=1000");
+      + "&order=created_at.desc&limit=5000");
     if (!response.ok) throw new Error("doctor_event_limit_read_failed");
     const rows = await jsonOrEmpty(response);
-    const counts = { learning: 0, assistance: 0, activation: 0, channel_error: 0 };
+    const counts = new Map();
     const removeIds = [];
     for (const row of Array.isArray(rows) ? rows : []) {
       const category = row && row.details && row.details.category;
-      if (!Object.prototype.hasOwnProperty.call(counts, category)) continue;
-      counts[category] += 1;
-      if (counts[category] > 8 && row.event_uid) removeIds.push(String(row.event_uid));
+      if (!["learning", "assistance", "activation", "channel_error"].includes(category)) continue;
+      const channelKey = String(row.channel_key || row.channel_id || "");
+      if (!channelKey) continue;
+      const key = channelKey + "|" + category;
+      const count = (counts.get(key) || 0) + 1;
+      counts.set(key, count);
+      if (count > 8 && row.event_uid) removeIds.push(String(row.event_uid));
     }
     for (let offset = 0; offset < removeIds.length; offset += 100) {
       const batch = removeIds.slice(offset, offset + 100);
