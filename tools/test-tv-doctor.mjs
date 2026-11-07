@@ -157,14 +157,14 @@ const baselineChannel = {
   id: 'ch-baseline-1', name: '[HU] Rögzített alapcsatorna', countryCode: 'HU',
   streamUrl: 'http://panel.example:8080/live/u/p/996.ts',
 };
-const baselineTiming = core.bufferProfileTiming('balanced');
+const baselineTiming = { ...core.DOCTOR_BUFFER_CONFIGS.balanced };
 const baselineProfile = core.recordDoctorBaseline({
   channel: baselineChannel, format: 'ts', bufferProfile: 'balanced',
   bufferTiming: baselineTiming, startupMs: 920, storage: baselineStore,
 });
 const attemptedBaselineOverwrite = core.recordDoctorBaseline({
   channel: baselineChannel, format: 'hls', bufferProfile: 'fast',
-  bufferTiming: core.bufferProfileTiming('fast'), startupMs: 250, storage: baselineStore,
+  bufferTiming: { ...core.DOCTOR_BUFFER_CONFIGS.fast }, startupMs: 250, storage: baselineStore,
 });
 const baselineReadBack = core.getDoctorBaseline(baselineChannel, baselineStore);
 check(
