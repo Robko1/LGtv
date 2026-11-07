@@ -189,6 +189,42 @@ check(
   'a „HDR=none” típusú semleges érték nem számít HDR-nek',
 );
 
+/* ─────────── 11. A mérés indítása nem dob hibát (2.5.383 javítás) ─────────── */
+
+const appLogBuilt = await esbuild.build({
+  entryPoints: [resolve('web/src/services/appLog.ts')],
+  bundle: true, write: false, platform: 'browser', format: 'iife', globalName: 'AppLog',
+  nodePaths: [resolve('web/node_modules')], define: { 'process.env.NODE_ENV': '"production"' },
+  logLevel: 'silent',
+});
+const logDom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole,
+});
+const logScript = logDom.window.document.createElement('script');
+logScript.textContent = appLogBuilt.outputFiles[0].text;
+logDom.window.document.body.appendChild(logScript);
+const appLogApi = logDom.window.AppLog;
+check(
+  typeof appLogApi?.dublinTimestamp === 'function',
+  'a napló „dublinTimestamp” időbélyeg-függvénye létezik (korábban hiányzott → ReferenceError)',
+);
+check(
+  appLogApi.dublinTimestamp(Date.UTC(2026, 10, 7, 17, 25, 22)) === '2026-11-07 17:25:22',
+  'a Dublin-időbélyeg a várt alakot adja (Europe/Dublin)',
+);
+let measurementResetOk = false;
+let measurementSnapshot = null;
+try {
+  measurementSnapshot = appLogApi.resetMeasurements('teszt: képmínőség kiadás');
+  measurementResetOk = true;
+} catch {
+  measurementResetOk = false;
+}
+check(measurementResetOk, 'az „ÚJ MÉRÉS” indítása nem dob hibát (a kézi naplózás működik)');
+check(measurementSnapshot?.logLines === 0, 'az új mérés számlálói nullázódnak');
+logDom.window.close();
+
 console.log(`\nKépmínőség-tesztek: ${passed} sikeres, ${failed} hibás.`);
 if (failed > 0) process.exit(1);
-console.log('OK: a képmínőség-választó és a HDR-jelzés tesztjei sikeresek ✅');
+console.log('OK: a képmínőség-választó, a HDR-jelzés és a mérés indításának tesztjei sikeresek ✅');
+process.exit(0);
