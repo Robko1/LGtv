@@ -2260,11 +2260,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let confirmationUsed = false;
     const effectiveWatchdogMs = (): number => {
       const base = bufferTiming().bufferWatchdogMs;
-      // Élő adásnál a rövid, 5–6 mp-es szolgáltatói/HLS szegmenskimaradás
-      // után a stream gyakran magától folytatódik. Ne töltsük újra közben a
-      // forrást, mert az újracsatlakozás régebbi élő szegmensből indíthatja
-      // újra a képet. Csak tartós, legalább 9 mp-es teljes megállásnál lépjünk közbe.
-      return isVodRef.current ? Math.max(5500, base + 1500) : Math.max(9000, base);
+      // Élő adásnál a beállított watchdog-idő letelte után azonnal javítunk.
+      // A helyreállítás az új HLS élő ablakának végére ugrik, nem a régi szegmensre.
+      return isVodRef.current ? Math.max(5500, base + 1500) : base;
     };
     // A módváltás nem indítja újra a forrást. A következő ellenőrzés ezért
     // mindig újraolvassa a profilt, és nem engedi, hogy egy régi, rövidebb
@@ -2346,10 +2344,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!isPlaying) return;
     const video = htmlVideoRef.current;
     if (!video) return;
-    // Élő TV-n a rövid szegmensváltási/pufferelési szünet nem javítási ok:
-    // várjuk meg, hogy a lejátszó magától felvegye a legfrissebb élő adást.
-    // A 9 mp-es alsó korlát megakadályozza az 5–6 mp utáni visszaugró újratöltést.
-    const detector = new StallDetector(isVod ? 7000 : Math.max(9000, bufferTiming().stallDetectorMs));
+    // Élő TV-n is a ténylegesen beállított fagyásérzékelési idő érvényesül;
+    // nincs mesterséges 9 mp-es késleltetés. A recovery külön az élő élre áll vissza.
+    const detector = new StallDetector(isVod ? 7000 : bufferTiming().stallDetectorMs);
     stallDetectorRef.current = detector;
     let previousSample: MediaProgressSample | null = null;
     const generation = streamLoadGenerationRef.current;
@@ -4466,6 +4463,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Egyetlen lejátszómotor: LG webOS-en a TV HTML5/HLS videóeleme játssza le az adatfolyamot.
   const loadStream = useCallback((url: string, forceReload = false) => {
+    // Rögzítjük, hogy ez már futó élő adás hibajavítása-e; csatornaváltáskor
+    // nem szabad a régi csatorna élő ablakára seekelni.
+    const recoverRunningLive = !isVodRef.current && playbackStartedRef.current && forceReload;
     // A lejátszási szándékot a forrásváltás végéig zároljuk.
     beginSwitch();
     // Az előző adást azonnal megállítjuk, és elvetjük az esetleges régi időzítőt.
@@ -4543,6 +4543,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       void otherSlot;
     }
     try {
+      // HLS újracsatlakozáskor a frissen letöltött élő ablak legvégére állunk.
+      // Ez megakadályozza, hogy a webOS a korábbi pufferelt szegmensből
+      // játssza újra az utolsó 5–6 másodpercet. MPEG-TS-nél nincs seekelhető
+      // idővonal; ott a szerver aktuális élő adatfolyamát folytatjuk.
+      if (recoverRunningLive) {
+        let liveEdgeHandled = false;
+        const jumpToLiveEdge = () => {
+          if (liveEdgeHandled || !isCurrentLoad() || video !== htmlVideoRef.current) return;
+          const ranges = video.seekable;
+          if (!ranges || ranges.length < 1) return;
+          try {
+            const edge = ranges.end(ranges.length - 1);
+            const target = Math.max(ranges.start(ranges.length - 1), edge - 0.75);
+            if (Number.isFinite(target) && target > 0 && video.currentTime < target - 1.5) {
+              video.currentTime = target;
+              appLog(`ÉLŐ HELYREÁLLÍTÁS: ugrás a HLS élő ablak végére; régi-pozíció=${video.currentTime.toFixed(2)} s; élő-él=${target.toFixed(2)} s.`);
+            }
+            liveEdgeHandled = true;
+            video.removeEventListener('loadedmetadata', jumpToLiveEdge);
+            video.removeEventListener('canplay', jumpToLiveEdge);
+            video.removeEventListener('playing', jumpToLiveEdge);
+          } catch (error) {
+            appLog('ÉLŐ HELYREÁLLÍTÁS: az élő ablak végére állás nem támogatott ezen a webOS lejátszón: ' + String(error));
+          }
+        };
+        video.addEventListener('loadedmetadata', jumpToLiveEdge);
+        video.addEventListener('canplay', jumpToLiveEdge);
+        video.addEventListener('playing', jumpToLiveEdge);
+      }
       if (!customStreamUrl) {
         const channelName = String(channel?.name || 'Ismeretlen csatorna');
         const channelId = String(channel?.id ?? channelName);
