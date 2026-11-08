@@ -222,21 +222,32 @@ let writeSequence = 0;
  */
 const decodedCache = new Map<string, unknown>();
 /*
- * A RAM-gyorsítótár csak a beállításokhoz és kis, gyakran használt adatokhoz való.
+ * 2.5.388 (#31 napló – LASSÚ MOZI-VISSZATÉRÉS).
+ *
+ * Korábban az 5000 elemnél nagyobb listát NEM tartottuk meg a gyorsítótárban
+ * („nagy lista: nem tartjuk RAM-ban”), pedig a teljes 100 ezres filmlista
+ * eleve az App `movies` state-jében él. A gyorsítótár tehát nem foglalt volna
+ * extra memóriát: csak egy ÚJABB HIVATKOZÁST tartott volna ugyanarra a
+ * tömbre. A következmény: a Mozi fül minden elhagyása után a teljes IDB
+ * visszaolvasás + dekódolás újra lefutott (a #31-es naplóban a sorozatoknál
+ * mérve 7,27 mp / 25 057 sorozat / 13 adag), és a visszatérés ezért volt lassú.
+ *
+ * Mostantól a már visszafejtett listát MINDIG megőrizzük, csak a BEJEGYZÉSEK
+ * számát korlátozzuk (szolgáltatónként egy film + egy sorozat, plusz néhány
+ * régi generáció). Új mentéskor a `decodedCache.clear()` úgyis érvénytelenít.
  */
-const DECODED_CACHE_MAX_ITEMS = 5000;
-function decodedItemCount(value: unknown): number {
-  const v = value as { movies?: unknown[]; series?: unknown[] } | null | undefined;
-  if (!v || typeof v !== 'object') return 0;
-  return Math.max(Array.isArray(v.movies) ? v.movies.length : 0, Array.isArray(v.series) ? v.series.length : 0);
-}
+const DECODED_CACHE_MAX_ENTRIES = 8;
 function rememberDecoded<T>(providerId: string, kind: 'vod' | 'series', key: string, value: T): void {
   const prefix = `${kind}|${providerId}|`;
   for (const existing of decodedCache.keys()) {
     if (existing.startsWith(prefix)) decodedCache.delete(existing);
   }
-  if (decodedItemCount(value) > DECODED_CACHE_MAX_ITEMS) return; // nagy lista: nem tartjuk RAM-ban
   decodedCache.set(key, value);
+  while (decodedCache.size > DECODED_CACHE_MAX_ENTRIES) {
+    const oldest = decodedCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    decodedCache.delete(oldest);
+  }
 }
 
 /*

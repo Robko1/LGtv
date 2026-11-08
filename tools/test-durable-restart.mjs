@@ -410,6 +410,15 @@ try {
   const afterReopen = await app5.loadVodAsync(provider);
   check(afterReopen.movies.length === 20000,
     'a lezárás utáni mentés valóban visszaolvasható', `${afterReopen.movies.length} film, ${Date.now() - reopenStart} ms`);
+  /* 2.5.388 (#31 napló): a NAGY (20 ezres) film lista is a gyorsítótárban
+     marad, így a Mozi fülre való visszatérés nem dekódolja újra a teljes
+     katalógust. A gyorsítótár ugyanarra a tömbre tart hivatkozást, amelyet az
+     App amúgy is a memóriában tart. */
+  const secondReadStart = Date.now();
+  const secondRead = await app5.loadVodAsync(provider);
+  check(secondRead.movies === afterReopen.movies && secondRead.categories === afterReopen.categories,
+    '2.5.388: a 20 ezres filmlista visszatéréskor CACHE-ből jön, nincs újra dekódolás',
+    `${Date.now() - secondReadStart} ms; azonos tömb=${secondRead.movies === afterReopen.movies}`);
 
   /* 6. FÉLBESZAKADT ÍRÁS – a RÉGI, ÉP lista marad (fejléc utolsó) ──────── */
   const app6 = await boot(6);

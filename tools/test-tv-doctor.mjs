@@ -3106,13 +3106,15 @@ try {
 
   // 5.2 Teljes képernyős élő TV közben: 0 megnyitja, Escape bezárja, és teljes képernyőn maradunk:
   window.dispatchEvent(new window.CustomEvent('iptv-enter-fullscreen'));
-  await wait(90);
+  await wait(150);
   check(
     Boolean(doc.querySelector('[data-fullscreen-doctor-icon]')),
     'az élő TV átváltott teljes képernyőre',
   );
   pressZeroOnWindow(doc.body);
-  await wait(90);
+  // A modalReact-effektusainak (fókusz, Escape-kezelő) is be kell állniuk,
+  // különben az Escape a teljes képernyőt zárja be a TV Doktor ablak helyett.
+  await wait(150);
   check(
     Boolean(doc.querySelector('[data-tv-doctor-modal]')),
     'teljes képernyős élő TV lejátszás közben is előhívható a 0-ás gombbal a TV Doktor ablak',
@@ -3120,7 +3122,7 @@ try {
   (doc.activeElement || doc.body).dispatchEvent(
     new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
   );
-  await wait(70);
+  await wait(110);
   check(
     !doc.querySelector('[data-tv-doctor-modal]') &&
       Boolean(doc.querySelector('[data-fullscreen-doctor-icon]')),

@@ -77,6 +77,8 @@ const {
   StallDetector, mediaProgressed, readMediaProgress,
   bufferProfileTiming, bufferedAheadSeconds, liveRecoveryUrl, liveRecoveryDelayMs, vodRecoveryDelayMs, isPrematureVodEnd,
   isUnexpectedLiveEnd,
+  isVodRecoveryExhausted, VOD_MAX_NEVER_STARTED_ATTEMPTS,
+  shouldAllowDiagnosticProbe, checkVodHttpStatus,
 } = mod;
 
 /* ── 1. Mintavétel: a webOS nem minden API-t adja ki ─────────────────── */
@@ -174,6 +176,67 @@ check(liveDelays.every((value, i) => i === 0 || value >= liveDelays[i - 1]) && l
 const vodDelays = [0, 1, 2, 3, 4, 20].map((n) => vodRecoveryDelayMs(n, 200));
 check(vodDelays.every((value, i) => i === 0 || value >= vodDelays[i - 1]) && vodDelays.at(-1) <= 8000,
   'a VOD újrapróbák is korlátosak (max. 8 mp)');
+
+/* ── 3/b. 2.5.388 (#31 napló): egykapcsolatos szolgáltató, VOD-indítás ── */
+check(VOD_MAX_NEVER_STARTED_ATTEMPTS === 4,
+  'egy soha el nem indult film legfeljebb 4 automatikus próbát kap');
+check([0, 1, 2, 3, 4, 20].every((n) => !isVodRecoveryExhausted(n, true)),
+  'a MÁR JÁTSZOTT filmnél marad a folyamatos visszaállítás (nincs végleges feladás)');
+check(!isVodRecoveryExhausted(3, false) && isVodRecoveryExhausted(4, false)
+  && isVodRecoveryExhausted(9, false),
+  'a soha el nem indult film a 4. próbánál megáll, kézi Újrapróbálás kell');
+const neverStarted = [0, 1, 2, 3, 4, 20].map((n) => vodRecoveryDelayMs(n, 180, 8000, false));
+const alreadyStarted = [0, 1, 2, 3, 4, 20].map((n) => vodRecoveryDelayMs(n, 180, 8000, true));
+check(neverStarted[0] >= 2000 && neverStarted[1] >= 4000 && neverStarted[2] >= 6000
+  && neverStarted.every((v, i) => i === 0 || v >= neverStarted[i - 1])
+  && neverStarted.every((v) => v <= 8000),
+  'a #31-ben mért 180/360/720/1440 ms helyett 2/4/6 mp-es, fokozatos, korlátos próbák jönnek');
+check(alreadyStarted[0] === 800 && alreadyStarted[1] < neverStarted[1],
+  'egy MÁR játszott film pufferelési megakadása továbbra is gyorsan visszaáll');
+
+const stableProbe = {
+  playbackStarted: true, readyState: 4,
+  msSinceLastWaiting: null, msSinceMediaError: null, msSincePlaybackStart: 20000,
+};
+check(!shouldAllowDiagnosticProbe({ ...stableProbe, playbackStarted: false }),
+  'fejléc-próba nem indul, mielőtt a videó ténylegesen elindult');
+check(!shouldAllowDiagnosticProbe({ ...stableProbe, readyState: 0 }),
+  'readyState=0 (kész=0) mellett nincs második kapcsolat');
+check(!shouldAllowDiagnosticProbe({ ...stableProbe, msSincePlaybackStart: 900 }),
+  'a film indítása után 900 ms-mal még nem próbálunk (a videóelem kapja a kapcsolatot)');
+check(!shouldAllowDiagnosticProbe({ ...stableProbe, msSinceLastWaiting: 1200 }),
+  'friss waiting/stalled után nem nyitunk második kapcsolatot');
+check(!shouldAllowDiagnosticProbe({ ...stableProbe, msSinceMediaError: 5000 }),
+  'friss médiahiba után nem nyitunk második kapcsolatot');
+check(shouldAllowDiagnosticProbe(stableProbe)
+  && !shouldAllowDiagnosticProbe(stableProbe, { minStableMs: 30000 }),
+  '15 mp stabil lejátszás után engedélyezett a diagnosztika, a szigorúbb kapu pedig tilt');
+check(shouldAllowDiagnosticProbe({ ...stableProbe, msSincePlaybackStart: 5000 },
+  { minStableMs: 4000, minSinceErrorMs: 8000, minSinceWaitingMs: 4000 }),
+  'a CC-felderítés rövidebb (4 mp) kaput használ, hogy a felirat ne késsen sokat');
+
+// A webOS-en XHR fut; Node-ban a fetch-tartalékot ellenőrizzük.
+const originalFetch = globalThis.fetch;
+const fakeResponse = (status, headers = {}) => ({
+  status,
+  headers: { get: (key) => headers[key.toLowerCase()] ?? null },
+  body: undefined,
+});
+globalThis.fetch = async () => fakeResponse(403, { 'content-type': 'text/html' });
+const deniedCheck = await checkVodHttpStatus('http://panel.example/movie/1.mkv', 1000);
+check(deniedCheck.status === 403 && /egykapcsolatos/.test(deniedCheck.verdict),
+  'a 403-as válasz a naplóban egykapcsolatos/jogosultsági elutításként jelenik meg');
+globalThis.fetch = async () => fakeResponse(206, { 'content-type': 'video/x-matroska', 'content-range': 'bytes 0-1/1745323008' });
+const okCheck = await checkVodHttpStatus('http://panel.example/movie/1.mkv', 1000);
+check(okCheck.status === 206 && okCheck.rangeSupported && /dekódolni/.test(okCheck.verdict),
+  'a 206-os válasz megmondja: a fájl elérhető, a TV dekódolása a gond');
+globalThis.fetch = async () => fakeResponse(404);
+check((await checkVodHttpStatus('http://panel.example/movie/1.mkv', 1000)).verdict.includes('nem található'),
+  'a 404-es válasz hiányzó filmfájlként jelenik meg');
+globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+check((await checkVodHttpStatus('http://panel.example/movie/1.mkv', 1000)).error.length > 0,
+  'a hálózati hiba sem dob kivételt a lejátszó felé');
+globalThis.fetch = originalFetch;
 
 /* ── 4. Korai `ended` esemény ────────────────────────────────────────── */
 check(isPrematureVodEnd(100, 3600), 'a film közben érkező ended = kapcsolat-szakadás');
@@ -317,6 +380,31 @@ check(/data-player-retry=""/.test(PLAYER) && /retryButtonRef/.test(PLAYER),
   'a hibaképernyő végre tartalmaz távirányítóval elérhető Újrapróbálás gombot');
 check(!/A csatorna négy indítási próbálkozás után sem indult el/.test(PLAYER),
   'nincs többé végleges, négy próba utáni feladás');
+
+/* 2.5.388: a #31-es napló négy hibája a TÉNYLEGES kódban is javítva van. */
+const SUBTITLES = fs.readFileSync(path.resolve('web/src/services/embeddedSubtitleService.ts'), 'utf8');
+const RECOVERY = fs.readFileSync(path.resolve('web/src/services/playbackRecovery.ts'), 'utf8');
+check(/isVodRecoveryExhausted\(/.test(PLAYER) && /vodRecoveryBlockedRef/.test(PLAYER)
+  && /VOD NEM INDULT EL – AUTOMATIKUS ÚJRAPRÓBÁLÁS LEÁLLÍTVA/.test(PLAYER)
+  && /setErrorMessage\(\s*'Ez a film most nem indítható el/.test(PLAYER),
+  'a soha el nem indult film 4 próba után tiszta „film nem elérhető” állapotot kap (nincs 40 mp-es kör)');
+check(/vodHttpCheckedUrlRef/.test(PLAYER) && /VOD ELÉRHETŐSÉG-ELLENŐRZÉS/.test(PLAYER)
+  && /export async function checkVodHttpStatus/.test(RECOVERY),
+  'egyetlen HTTP-ellenőrzés dönti el a naplóban: 403/429, 404 vagy dekódolási hiba');
+check(/if \(video\.readyState < 2\) hasVodData = false/.test(PLAYER)
+  && !/hasVodData = hasVodData \|\| video\.buffered\.length > 0/.test(PLAYER),
+  'a VOD indulási őr nem ad 3,5 mp türelmet a kész=0 / üres puffer állapotra');
+check(/abortActiveStreamProbes/.test(PLAYER) && /export function abortActiveStreamProbes/.test(SUBTITLES)
+  && /inFlightProbes/.test(SUBTITLES) && /bytes=0-\$\{PROBE_MAX_BYTES - 1\}/.test(SUBTITLES)
+  && /xhr\.timeout = 8000/.test(SUBTITLES),
+  'a fejléc-próbák címenként egyetlen Range-kérést nyitnak, 8 mp-es időkorláttal, forrásváltáskor megszakadnak');
+check(/diagnosticProbeAllowedRef/.test(PLAYER) && /PROBE_STABLE_DELAY_MS = 15000/.test(PLAYER)
+  && /BEÁGYAZOTT FELIRAT \(CC\) PRÓBA KIHAGYVA/.test(PLAYER)
+  && /export function shouldAllowDiagnosticProbe/.test(RECOVERY),
+  'a képminőség- és CC-próbák csak stabil lejátszás után nyitnak kapcsolatot (egykapcsolatos szolgáltató)');
+check(/if \(vodRecoveryBlockedRef\.current\)/.test(PLAYER)
+  && /NINCS ÚJABB JAVÍTÁSI LÉPÉS/.test(PLAYER),
+  'a TV Doktor a leállított filmnél nem indít több 8 lépéses javítási létrát');
 
 try { fs.rmSync(outFile, { force: true }); } catch { /* nem kritikus */ }
 finish();

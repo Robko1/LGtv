@@ -317,6 +317,31 @@ export function parseMatroskaTracks(bytes: Uint8Array): MatroskaProbeResult | nu
 const PROBE_MAX_BYTES = 1572864; // 1,5 MB – a Tracks elem ennél jóval előbb érkezik
 const PROBE_THRESHOLDS = [131072, 393216, 917504, PROBE_MAX_BYTES];
 const probeCache = new Map<string, MatroskaProbeResult>();
+/*
+ * 2.5.388 (#31 napló): a szolgáltató EGY kapcsolatot engedélyez. Korábban a
+ * beágyazott felirat-próba és a képminőség-próba UGYANARRA a filmcímre két
+ * külön XHR-t is indíthatott, és a GET-nek nem volt Range fejléce – vagyis a
+ * második kapcsolat a teljes (több GB-os) filmfájlt kezdte el húzni, amíg a
+ * fejléc-feldolgozó meg nem szakította. Most:
+ *   - egy címre egyszerre CSAK EGY fejléc-próba fut (inFlightProbes),
+ *   - a kérés Range: bytes=0-… (legfeljebb 1,5 MB), időtúllépés 8 mp,
+ *   - forrásváltáskor / film elhagyásakor az összes élő próba megszakítható.
+ */
+const activeProbes = new Set<XMLHttpRequest>();
+const inFlightProbes = new Map<string, Promise<MatroskaProbeResult | null>>();
+
+/** Forrásváltáskor azonnal felszabadítja a próbák által fogott kapcsolatokat. */
+export function abortActiveStreamProbes(reason = 'forrásváltás'): number {
+  const count = activeProbes.size;
+  if (count === 0) return 0;
+  for (const xhr of Array.from(activeProbes)) {
+    try { xhr.abort(); } catch { /* már lezárult */ }
+  }
+  activeProbes.clear();
+  inFlightProbes.clear();
+  appLog(`Beágyazott felirat (CC): ${count} futó fejléc-próba megszakítva (ok=${reason}; egykapcsolatos szolgáltató védelme).`);
+  return count;
+}
 
 function extensionOf(url: string): string {
   const clean = String(url || '').split(/[?#]/)[0];
@@ -332,15 +357,29 @@ function shouldProbeMatroska(url: string): boolean {
   return ext === 'mkv' || ext === 'webm' || ext === 'mka';
 }
 
+/** Ugyanarra a címre párhuzamosan NEM nyitunk második kapcsolatot. */
+function probeFileHead(url: string): Promise<MatroskaProbeResult | null> {
+  const pending = inFlightProbes.get(url);
+  if (pending) return pending;
+  const task = fetchFileHead(url).finally(() => {
+    // Csak akkor töröljük, ha még mindig ez a futó próba (abort után már üres).
+    if (inFlightProbes.get(url) === task) inFlightProbes.delete(url);
+  });
+  inFlightProbes.set(url, task);
+  return task;
+}
+
 function fetchFileHead(url: string): Promise<MatroskaProbeResult | null> {
   return new Promise((resolve) => {
     let settled = false;
     let thresholdIndex = 0;
     const xhr = new XMLHttpRequest();
+    activeProbes.add(xhr);
 
     const finish = (value: MatroskaProbeResult | null) => {
       if (settled) return;
       settled = true;
+      activeProbes.delete(xhr);
       try { xhr.abort(); } catch { /* már lezárult */ }
       resolve(value);
     };
@@ -380,7 +419,10 @@ function fetchFileHead(url: string): Promise<MatroskaProbeResult | null> {
       xhr.open('GET', url, true);
       // Régi webOS Chrome-on is működő bináris olvasás (részleges válasszal).
       xhr.overrideMimeType('text/plain; charset=x-user-defined');
-      xhr.timeout = 20000;
+      // 2.5.388: a próba NEM húzhatja a teljes filmfájlt, és nem tarthat
+      // fogva egy kapcsolatot 20 mp-ig (egykapcsolatos szolgáltató).
+      try { xhr.setRequestHeader('Range', `bytes=0-${PROBE_MAX_BYTES - 1}`); } catch { /* régi motor */ }
+      xhr.timeout = 8000;
       xhr.onprogress = () => {
         if (settled) return;
         const text = xhr.responseText || '';
@@ -400,15 +442,23 @@ function fetchFileHead(url: string): Promise<MatroskaProbeResult | null> {
         finish(null);
       };
       xhr.onerror = () => {
+        if (settled) return;
         appLog('Beágyazott felirat (CC): a film fejléce hálózati hiba miatt nem olvasható.');
         finish(null);
       };
       xhr.ontimeout = () => {
+        if (settled) return;
         appLog('Beágyazott felirat (CC): a film fejlécének olvasása időtúllépésbe futott.');
+        finish(null);
+      };
+      xhr.onabort = () => {
+        if (settled) return;
+        appLog('Beágyazott felirat (CC): fejléc-próba megszakítva (a filmkapcsolat elsőbbséget kap).');
         finish(null);
       };
       xhr.send();
     } catch (error) {
+      activeProbes.delete(xhr);
       appLog('Beágyazott felirat (CC): fejlécpróba hiba: ' + String(error));
       resolve(null);
     }
@@ -424,7 +474,7 @@ export async function probeEmbeddedSubtitles(streamUrl: string): Promise<Embedde
   const url = String(streamUrl || '');
   if (!url || !shouldProbeMatroska(url)) return [];
   const cached = probeCache.get(url);
-  const result = cached || (await fetchFileHead(url));
+  const result = cached || (await probeFileHead(url));
   if (!result) return [];
   if (!cached) probeCache.set(url, result);
   if (result.subtitles.length > 0) {
@@ -457,7 +507,7 @@ export async function probeMatroskaVideoInfo(streamUrl: string): Promise<Matrosk
   const url = String(streamUrl || '');
   if (!url || !shouldProbeMatroska(url)) return null;
   const cached = probeCache.get(url);
-  const result = cached || (await fetchFileHead(url));
+  const result = cached || (await probeFileHead(url));
   if (!result) return null;
   if (!cached) probeCache.set(url, result);
   return {
