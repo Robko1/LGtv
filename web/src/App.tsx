@@ -4703,9 +4703,9 @@ export function App() {
       // Szövegmezőben ne vegyük át a távirányító gombjait.
       const target = e.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
-      // A beállítások és a TV Doktor ablak saját navigációja kezeli a nyilakat; a globális
-      // kezelő itt sem fókuszt, sem csatornát, sem hangerőt nem módosíthat.
-      if (target?.closest?.('[data-tv-navigation-owner="settings"], [data-tv-navigation-owner="tv-doctor"]')) return;
+      // A TV Doktor saját ablakában az Escape/Vissza bezárása elsőbbséget élvez:
+      // ezt a globális navigáció tulajdonos-szűrője előtt kell kezelni, különben
+      // a data-tv-navigation-owner miatt a bezáró ág soha nem fut le.
       if (isTvDoctorModalOpen) {
         if (key === 'Escape' || key === 'Backspace') {
           e.preventDefault();
@@ -4714,6 +4714,9 @@ export function App() {
         }
         return;
       }
+      // A beállítások és a TV Doktor ablak saját navigációja kezeli a nyilakat; a globális
+      // kezelő itt sem fókuszt, sem csatornát, sem hangerőt nem módosíthat.
+      if (target?.closest?.('[data-tv-navigation-owner="settings"], [data-tv-navigation-owner="tv-doctor"]')) return;
 
       // Teljes képernyőben bármely gomb visszahozza az OSD-t (és újraindítja
       // az eltűnési időzítőt) – a set-top box-ok szokása. A hívás akkor sem
