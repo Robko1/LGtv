@@ -83,6 +83,8 @@ const tasks = [
   { name: 'tv-doctor-cloud-v18-compat', args: ['tools/test-tv-doctor-cloud-v18-compat.mjs'] },
   // 2.5.397: automata IPK-napló, valódi tanult útvonal, bal doboz nélkül, pontosan 8 doboz.
   { name: 'boot-log-and-doctor-panel', args: ['tools/test-boot-log-and-doctor-panel.mjs'] },
+  // 2.5.399: #39/#40 naplók alapján gyors IPK-indulás + valódi, csatornánkénti, Supabase-első tanulás.
+  { name: 'tv-doctor-learning-399', args: ['tools/test-tv-doctor-learning-399.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');

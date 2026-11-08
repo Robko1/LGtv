@@ -191,22 +191,24 @@ check(bootResult.json.layoutChannels?.[0]?.channelKey === 'hu:bbc-earth-uhd'
   'bootstrap: a központi profilok a mentett sorrendben, stabil névkulccsal jönnek');
 check(Array.isArray(bootResult.json.baselines) && bootResult.json.baselines.length === 1
   && bootResult.json.baselines[0].baseline.slot === 1,
-  'bootstrap: az 1-es, megváltoztathatatlan alapbeállítás is visszajön a Supabase-ből');
+  'bootstrap: az első sikeres megnyitás 1-es alapbeállítása is visszajön a Supabase-ből');
 const edgeSrc = read('supabase/functions/tv-doctor/index.ts');
-check(!/baselinesUrl\s*\?.*method:\s*"DELETE"/.test(edgeSrc), 'reset_memory NEM törli az 1-es alapbeállításokat');
+check(!/baselinesUrl\s*\?.*method:\s*"DELETE"/.test(edgeSrc), 'az Edge Function reset_memory önmagában nem törli az alapot; a TELJES nullázást a kliens külön RPC-vel végzi');
 check(!/startsWith\("hu:"\)/.test(edgeSrc), 'a szerver CSAK a mentett magyar csatornát tanulja, tetszőleges hu: kulcsot nem');
 check(/const keyMatches = allowedChannelKeys\.has\(channelKey\)/.test(edgeSrc),
   'a szinkron a mentett stabil névkulcs alapján enged, nem az elavult ID alapján');
 check(/allowedChannelKeys\.has\(channelKey\)\) continue/.test(edgeSrc),
   'a naplóeseményeket sem veszíti el az elavult ID-szűrő');
 
-// 1.3: Memória: 0 csak a TANULT adatot törli; a mentett elrendezés + alap marad.
+// 1.3: az Edge Function reset_memory a tanult profilokat/eseményeket törli;
+// a mentett elrendezés marad. A TELJES nullázás 1-es alapjait a kliens
+// tv_doctor_baselines_clear RPC-je törli (2.5.399 / 10. pont).
 const resetResult = await post({ action: 'reset_memory' });
 check(resetResult.status === 200 && resetResult.json.ok === true, 'reset_memory sikeres');
 check(db.deletes.includes('profiles') && db.deletes.includes('events'), 'reset_memory törli a tanult profilokat és eseményeket');
-check(db.baselines.length === 1, 'reset_memory UTÁN az 1-es alap MEGMARAD a Supabase-ben');
+check(db.baselines.length === 1, 'reset_memory után az Edge Function az alapot még megőrzi (a teljes törlés a kliens RPC-je)');
 check(resetResult.json.baselinesPreserved === true && resetResult.json.layoutPreserved === true,
-  'reset_memory válasza egyértelműen jelzi, hogy az alap + elrendezés megmaradt');
+  'reset_memory válasza egyértelműen jelzi az Edge Function által megőrzött adatokat');
 check(!db.deletes.includes('profiles_by_id'), 'reset_memory nem próbál ID-szűrős törlést a profilokon');
 
 /* ========================================================================== *
@@ -305,40 +307,44 @@ check(centralState.channels.length === 3 && centralState.channels[0].channelKey 
 // 2.4: teljes kör – nullázás után a Supabase-ből minden visszaépül.
 doctor.clearTvDoctorMemory(storage);
 check(doctor.getTvDoctorMemoryStats(storage).learnedChannelCount === 0, 'Memória: 0 valóban kinullázza a tanult adatot');
-check(doctor.getDoctorBaseline(currentBbc, storage)?.slot === 1,
-  'Memória: 0 az 1-es, megváltoztathatatlan alapot HELYBEN is megőrzi (nem kell hálózat a visszatéréshez)');
-const restored = doctor.restoreDoctorBaselinesFromCloud(
-  (Array.isArray(bootResult.json.baselines) ? bootResult.json.baselines : []).map((b) => ({ channelKey: b.channel_key, baseline: b.baseline })), storage);
-check(restored === 0 && doctor.getDoctorBaseline(currentBbc, storage)?.slot === 1,
-  'a Supabase 1-es alapja nem írhatja felül a helyben megőrzött alapot');
+/* 2.5.399 / 10. pont: a felhasználó VISSZAVONTA a „halhatatlan 1-es alap”
+   döntést – teljes nullázáskor az alap is törlődik, minden elölről indul. */
+check(!doctor.getDoctorBaseline(currentBbc, storage),
+  'Memória: 0 az 1-es alapot HELYBEN is törli (minden csatorna elölről tanul)');
+const restored = doctor.restoreDoctorBaselinesFromCloud([], storage);
+check(restored === 0 && !doctor.getDoctorBaseline(currentBbc, storage),
+  'teljes nullázás után a Supabase alapjai sem töltődnek vissza automatikusan');
 if (typeof doctor.restoreTvDoctorCentralProfiles === 'function') {
   doctor.restoreTvDoctorCentralProfiles({ layoutChannels, baselines: [], profiles: [], routes: [] }, storage);
 }
 check(doctor.getTvDoctorMemoryStats(storage).learnedChannelCount === 3,
   'tv → Supabase → tv: nullázás után a 3 mentett központi profil automatikusan visszatöltődik');
-check(doctor.getDoctorBaseline(currentBbc, storage)?.slot === 1,
-  'tv → Supabase → tv: nullázás után is van hová visszatérni (1-es alap)');
+check(!doctor.getDoctorBaseline(currentBbc, storage),
+  'tv → Supabase → tv: nullázás után a csatorna tiszta lappal, ÚJ első sikeres megnyitással indul');
 
 /* ========================================================================== *
- * 3. FORRÁS – a nullázás NEM törölheti a Supabase 1-es alapjait, és
- *             azonnal vissza kell tölteni a teljes kört.
+ * 3. FORRÁS – 2.5.399 / 10. pont: a Memória: 0 TELJES nullázás. Az 1-es
+ *    alap HELYBEN és a Supabase-ben is törlődik; és a #40 `0 csatorna mentve`
+ *    hibáját a valódi INSERT ... ON CONFLICT UPSERT javítja.
  * ========================================================================== */
-console.log('\n=== 3. Forrás: Memória: 0 = tanult adat törlése + azonnali visszatöltés ===\n');
+console.log('\n=== 3. Forrás: Memória: 0 = TELJES nullázás + valódi UPSERT ===\n');
 const cloud = read('web/src/services/tvDoctorCloud.ts');
-check(!cloud.includes("'tv_doctor_baselines_clear'"), 'a kliens NEM hívja a tv_doctor_baselines_clear RPC-t (az 1-es alap halhatatlan)');
-check(!/postTvDoctorRpc\(\s*'tv_doctor_baselines_clear'/.test(cloud), 'a tv_doctor_baselines_clear RPC-t sehol nem HÍVJUK a nullázási úton');
+check(cloud.includes("'tv_doctor_baselines_clear'"), 'a kliens meghívja a tv_doctor_baselines_clear RPC-t (10. pont)');
+check(/postTvDoctorRpc\(\s*'tv_doctor_baselines_clear'/.test(cloud), 'a tv_doctor_baselines_clear RPC a nullázási úton van');
 const doctorSrcForBaseline = read('web/src/services/tvDoctor.ts');
 const clearBody = doctorSrcForBaseline.slice(
   doctorSrcForBaseline.indexOf('export function clearTvDoctorMemory'),
   doctorSrcForBaseline.indexOf('export function getTvDoctorCategoryStats'),
 );
-check(!/removeItem\(TV_DOCTOR_BASELINE_STORAGE_KEY\)/.test(clearBody),
-  'a helyi Memória: 0 sem törli az 1-es alap tárolóját');
+check(/removeItem\(TV_DOCTOR_BASELINE_STORAGE_KEY\)/.test(clearBody),
+  'a helyi Memória: 0 törli az 1-es alap tárolóját');
 const migrationDir = path.join(ROOT, 'supabase/migrations');
-const guardFiles = fs.readdirSync(migrationDir).filter((f) => /immutable_baseline_no_delete/.test(f));
-const guardSql = guardFiles.length ? read(`supabase/migrations/${guardFiles[0]}`) : '';
-check(guardFiles.length === 1 && /return true;/.test(guardSql) && !/delete from public\.tv_doctor_channel_baselines/.test(guardSql),
-  'az 1-es alap ADATBÁZIS-SZINTEN is halhatatlan: a tv_doctor_baselines_clear RPC már nem töröl');
+const resetFiles = fs.readdirSync(migrationDir).filter((f) => /full_reset_true_upsert/.test(f));
+const resetSql = resetFiles.length ? read(`supabase/migrations/${resetFiles[0]}`) : '';
+check(resetFiles.length === 1
+  && /delete from public\.tv_doctor_channel_baselines/.test(resetSql)
+  && /on conflict \(channel_key\) do update/.test(resetSql),
+  'az új migráció törli az 1-es alapot ÉS valódi UPSERT-et ad (0 csatorna mentve hiba javítva)');
 const deployScript = fs.existsSync(path.join(ROOT, 'tools/deploy-tv-doctor.sh'))
   ? read('tools/deploy-tv-doctor.sh') : '';
 check(/supabase functions deploy/.test(deployScript) && /FUNCTION_SLUG="tv-doctor"/.test(deployScript)

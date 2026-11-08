@@ -32,6 +32,8 @@ import {
   isChannelHandledByDoctor,
   logTvDoctorPanel,
   normalizeDoctorRoutesForDisplay,
+  mergeCloudRoutesIntoLocal,
+  normalizeChannelDoctorKey,
   DoctorRoute,
   subscribeTvDoctorUpdates,
 } from '../services/tvDoctor';
@@ -234,9 +236,28 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       setCloudRoutes([]);
       return undefined;
     }
-    void fetchTvDoctorRoutesForChannelFromCloud(activeChannel, getChannelDoctorRecord(activeChannel)?.channelKey)
+    const channelKey = getChannelDoctorRecord(activeChannel)?.channelKey
+      || normalizeChannelDoctorKey(activeChannel);
+    void fetchTvDoctorRoutesForChannelFromCloud(activeChannel, channelKey)
       .then((routes) => {
-        if (!cancelled) setCloudRoutes(normalizeDoctorRoutesForDisplay(routes).filter((route) => route.ok > 0));
+        if (cancelled) return;
+        const learned = normalizeDoctorRoutesForDisplay(routes).filter((route) => route.ok > 0);
+        /* 2.5.399 – SUPABASE AZ ELSŐDLEGES. A #40 naplóban a 0-ablak
+           `supabase=0`-t írt, miközben a felhőben 39 profil és 40 útvonal
+           volt. A letöltött, VALÓDI tanult útvonalakat nemcsak megjelenítjük,
+           hanem a HELYI rekordba is beépítjük: a `selectChannelLaunchPlan`
+           (a következő csatornaindítás) így tényleg a mentett legjobbat
+           használja, nem egy üres helyi pillanatképet. */
+        if (channelKey && learned.length) {
+          try {
+            mergeCloudRoutesIntoLocal([{
+              channel_key: channelKey,
+              country_code: activeChannel.countryCode || 'HU',
+              routes: learned,
+            }]);
+          } catch { /* a megjelenítés akkor is él, ha a helyi tár pillanatnyilag nem írható */ }
+        }
+        setCloudRoutes(learned);
       })
       .catch(() => {
         if (!cancelled) setCloudRoutes([]);
@@ -274,7 +295,12 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       tanultÚtvonalak: `${snap.routes.length}/${MAX_CHANNEL_ROUTES}`,
       helyi: snap.localRouteCount,
       supabase: snap.cloudRouteCount,
-      legjobb: snap.routes[0] ? `${safeDoctorFormat(snap.routes[0].format)}+${snap.routes[0].bufferProfile}` : 'még nincs',
+      /* 2.5.399: a #40 napló `legjobb=—+undefined` sorát a normalizált,
+         leggyorsabb tanult útvonal váltja fel – mindkét mező valódi adat. */
+      legjobb: snap.bestRoute
+        ? `${safeDoctorFormat(snap.bestRoute.format)}+${safeDoctorBufferLabel(snap.bestRoute.bufferProfile)}`
+          + ` (${snap.bestRoute.avgStartupMs ?? snap.bestRoute.bestStartupMs ?? 'nincs mérés'}ms; ${snap.bestRoute.ok} ok)`
+        : 'még nincs',
       mód: settings.tvDoctorEnabled === false ? 'kikapcsolva' : 'aktív',
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
