@@ -221,6 +221,31 @@ await esbuild.build({
 });
 const doctor = await import(pathToFileURL(clientOut).href + `?v=${Date.now()}`);
 
+/* ÉLŐ SUPABASE-ADAT (2026-11-08, LG-4ZYG-W5XP): az első 5 mentett magyar
+   nameKey kisbetűs `[hu] ...|lc-827` alakú, a TV viszont nagybetűs nevet kap.
+   A két normalizálónak PONTOSAN ugyanazt a stabil kulcsot kell adnia. */
+const liveSavedNameKeys = [
+  '[hu] bbc earth uhd|lc-827', '[hu] mozi plus uhd|lc-827', '[hu] hbo uhd|lc-827',
+  '[hu] hbo 2 uhd|lc-827', '[hu] hbo 3 uhd|lc-827',
+];
+const liveTvNames = [
+  '[HU] BBC Earth UHD', '[HU] MOZI PLUS UHD', '[HU] HBO UHD', '[HU] HBO 2 UHD', '[HU] HBO 3 UHD',
+];
+const clientBundleForKeys = doctor;
+const liveKeyMismatches = liveSavedNameKeys.filter((nameKey, i) => {
+  const saved = clientBundleForKeys.normalizeSavedLayoutChannelKey(nameKey);
+  const current = clientBundleForKeys.normalizeChannelDoctorKey({
+    id: `${NEW}-${16889 + i}`, name: liveTvNames[i], countryCode: 'HU',
+  });
+  return !saved || saved !== current;
+});
+check(liveKeyMismatches.length === 0,
+  'élő Supabase-nameKey és az aktuális TV-csatornanév UGYANAZT a stabil hu: kulcsot adja (5/5)');
+check(Array.isArray(bootResult.json.channelKeys)
+  && bootResult.json.channelKeys.includes('hu:bbc-earth-uhd')
+  && bootResult.json.channelKeys.includes('hu:hbo-uhd'),
+  'a szerver által visszaadott channelKeys is ezeket a stabil kulcsokat tartalmazza');
+
 class MemoryStorage {
   constructor() { this.map = new Map(); }
   get length() { return this.map.size; }
@@ -280,9 +305,12 @@ check(centralState.channels.length === 3 && centralState.channels[0].channelKey 
 // 2.4: teljes kör – nullázás után a Supabase-ből minden visszaépül.
 doctor.clearTvDoctorMemory(storage);
 check(doctor.getTvDoctorMemoryStats(storage).learnedChannelCount === 0, 'Memória: 0 valóban kinullázza a tanult adatot');
+check(doctor.getDoctorBaseline(currentBbc, storage)?.slot === 1,
+  'Memória: 0 az 1-es, megváltoztathatatlan alapot HELYBEN is megőrzi (nem kell hálózat a visszatéréshez)');
 const restored = doctor.restoreDoctorBaselinesFromCloud(
   (Array.isArray(bootResult.json.baselines) ? bootResult.json.baselines : []).map((b) => ({ channelKey: b.channel_key, baseline: b.baseline })), storage);
-check(restored === 1, 'nullázás után az 1-es alap visszajön a Supabase-ből');
+check(restored === 0 && doctor.getDoctorBaseline(currentBbc, storage)?.slot === 1,
+  'a Supabase 1-es alapja nem írhatja felül a helyben megőrzött alapot');
 if (typeof doctor.restoreTvDoctorCentralProfiles === 'function') {
   doctor.restoreTvDoctorCentralProfiles({ layoutChannels, baselines: [], profiles: [], routes: [] }, storage);
 }
@@ -299,6 +327,26 @@ console.log('\n=== 3. Forrás: Memória: 0 = tanult adat törlése + azonnali vi
 const cloud = read('web/src/services/tvDoctorCloud.ts');
 check(!cloud.includes("'tv_doctor_baselines_clear'"), 'a kliens NEM hívja a tv_doctor_baselines_clear RPC-t (az 1-es alap halhatatlan)');
 check(!/postTvDoctorRpc\(\s*'tv_doctor_baselines_clear'/.test(cloud), 'a tv_doctor_baselines_clear RPC-t sehol nem HÍVJUK a nullázási úton');
+const doctorSrcForBaseline = read('web/src/services/tvDoctor.ts');
+const clearBody = doctorSrcForBaseline.slice(
+  doctorSrcForBaseline.indexOf('export function clearTvDoctorMemory'),
+  doctorSrcForBaseline.indexOf('export function getTvDoctorCategoryStats'),
+);
+check(!/removeItem\(TV_DOCTOR_BASELINE_STORAGE_KEY\)/.test(clearBody),
+  'a helyi Memória: 0 sem törli az 1-es alap tárolóját');
+const migrationDir = path.join(ROOT, 'supabase/migrations');
+const guardFiles = fs.readdirSync(migrationDir).filter((f) => /immutable_baseline_no_delete/.test(f));
+const guardSql = guardFiles.length ? read(`supabase/migrations/${guardFiles[0]}`) : '';
+check(guardFiles.length === 1 && /return true;/.test(guardSql) && !/delete from public\.tv_doctor_channel_baselines/.test(guardSql),
+  'az 1-es alap ADATBÁZIS-SZINTEN is halhatatlan: a tv_doctor_baselines_clear RPC már nem töröl');
+const deployScript = fs.existsSync(path.join(ROOT, 'tools/deploy-tv-doctor.sh'))
+  ? read('tools/deploy-tv-doctor.sh') : '';
+check(/supabase functions deploy/.test(deployScript) && /FUNCTION_SLUG="tv-doctor"/.test(deployScript)
+  && /--project-ref/.test(deployScript)
+  && /SUPABASE_ACCESS_TOKEN/.test(deployScript)
+  && !/sbp_[A-Za-z0-9]{10,}/.test(deployScript)
+  && !/\b(delete from|truncate table|drop table)\b/i.test(deployScript),
+  'a v19 Edge Function egy paranccsal deployolható, token nincs a repóban, adatot nem töröl');
 const resetFn = cloud.slice(cloud.indexOf('export async function resetTvDoctorAllToZero'), cloud.indexOf('/**\n * Csatlakoztatja a TV Doktor'));
 check(/restoreTvDoctorCloudState\(\)/.test(resetFn), 'Memória: 0 UTÁN azonnal fut a teljes Supabase-visszatöltés (tv → Supabase → tv)');
 check(/restoreTvDoctorCentralProfiles/.test(cloud), 'a bootstrap a mentett központi profilokat is visszaépíti a TV-n');
