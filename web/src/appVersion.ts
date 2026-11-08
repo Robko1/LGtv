@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.388';
+export const WEB_VERSION = '2.5.389';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.388',
+    version: '2.5.389',
     date: '2026-11-07',
     changes: [
       'JAVÍTÁS (FILMEK NEM INDULNAK EL — EGY KAPCSOLATOS SZOLGÁLTATÓ) — A 31. naplóban a Mandalorian, a Mike & Nick és a The Wizard of the Kremlin megnyitásakor a videóelem `kész=0` (egy bájt sem érkezett) médiahibát adott, a lejátszó pedig 180/360/720/1440/… ms-onként újra és újra ugyanazt a címet nyitotta meg; a TV Doktor 8 lépéses puffer-létrája közben elölről indult, így ~40 mp-ig tartott a hiba. Mostantól: (1) aki egyszer sem indult el, legfeljebb 4, egymástól 2/4/6 mp-re eső próbát kap, utána tiszta „film nem érhető el” képernyő és kézi Újrapróbálás jelenik meg (nincs végtelen kör); (2) a VOD indulási őr nem ad többé 3,5 mp türelmet a `readyState=0` + üres puffer állapotra; (3) a már játszott film megszakadásánál marad a folyamatos, gyors visszaállítás. Nem beállítási hiba: a filmek címe és a szolgáltató válasza rendben volt, a saját újracsatlakozási és próba-kapcsolataink ütötték el a lejátszást.',
