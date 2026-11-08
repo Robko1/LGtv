@@ -1043,6 +1043,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     url: string;
     probedUrl: string;
     summaryLogged: boolean;
+    /**
+     * 2.5.390: a mód/cím/formátum a stream INDULÁSAKOR rögzül. A #33 naplóban
+     * a záró összesítés az ÚJ nézet címét írta a RÉGI stream adatai mellé
+     * (`mód=VOD … formátum=HLS (.m3u8)`, illetve `mód=élő … Matroska (.mkv)`),
+     * mert a váltás pillanatában a ref-ek már átálltak.
+     */
+    mode: string;
+    title: string;
+    format: string;
     lastFrames: QualityFrameBase | null;
     streamFrames: QualityFrameBase | null;
     rvfcId: number;
@@ -1086,6 +1095,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const frames = readPlaybackFrameStats(video);
     state.streamStartedAt = now;
     state.url = url;
+    state.mode = isVodRef.current ? 'VOD' : 'élő';
+    state.title = qualityTitle();
+    state.format = qualityFormatLabel(url);
     // Új stream = új (egyszeri) fejléc-próba; a régi címre ütemezett próbát
     // a scheduleProbes törli. 2.5.388: streamenként CSAK EGY kapcsolat.
     state.probedUrl = '';
@@ -1138,9 +1150,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     const bufferingMs = state.bufferingMs + (state.waitingSince ? now - state.waitingSince : 0);
     logPlaybackQualitySummary({
-      mode: isVodRef.current ? 'VOD' : 'élő',
-      title: qualityTitle(),
-      format: qualityFormatLabel(state.url),
+      mode: state.mode || (isVodRef.current ? 'VOD' : 'élő'),
+      title: state.title || qualityTitle(),
+      format: state.format || qualityFormatLabel(state.url),
       seconds,
       resolutionsSeen: state.sizesSeen.length
         ? state.sizesSeen.map((size) => {
@@ -1542,6 +1554,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       url: '',
       probedUrl: '',
       summaryLogged: false,
+      mode: '',
+      title: '',
+      format: '',
       lastFrames: null,
       streamFrames: null,
       rvfcId: 0,
@@ -5923,6 +5938,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         record: qualityKey ? getLiveQualityRecord(qualityKey) : null,
         plannedFormat,
         configuredFormat,
+        // 2.5.390: a TV Doktor tanult formátumát nem bolygatja egy méretlen
+        // „hátha szebb kép” próba (lásd #34: CINEMAX / VIASAT 3 körforgás).
+        learnedFormat: doctorPlan?.hasLearnedProfile ? doctorPlan.primaryFormat : undefined,
         panelMaxHeight: panelMaxHeightPx(),
       })
       : null;
@@ -6695,6 +6713,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
               lastMediaErrorAtRef.current = Date.now();
               clearBufferWatchdog();
+              /*
+               * 2.5.390: a médiahibát a képmínőség-emlékezetbe is rögzítjük.
+               * Eddig csak a formátum-visszaesés írt hibát, a TV Doktor
+               * „gyors azonos formátumú újrapróbája” viszont nem – ezért a
+               * HLS minden csatornaváltásnál újra és újra megpróbálkozott a
+               * már elhalt formátummal (#34: VIASAT 6 kilencszer).
+               */
+              if (!isVod) {
+                const failedFormat = formatOfUrl(activeMediaUrlRef.current || video.currentSrc || video.src || '');
+                const failedKey = liveQualityKey(channelRef.current);
+                if (failedFormat && failedKey) {
+                  recordLiveQualityFailure({ key: failedKey, format: failedFormat });
+                }
+              }
               const diagnostic = channelSwitchDiagnosticRef.current;
               if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
               if (!isVod && diagnostic) {

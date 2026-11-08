@@ -260,6 +260,15 @@ export function chooseLiveQualityFormat(params: {
   panelMaxHeight?: number;
   /** A felhasználó által kért (Beállítások) formátum – ehhez képest kímélőbb a váltás. */
   configuredFormat?: LiveQualityFormat;
+  /**
+   * 2.5.390: a TV Doktor által MÁR IGAZOLTAN MEGTANULT, működő formátum.
+   * Ha ez meg van adva, egy MÉRETlen (csak kipróbálásra szánt) másik
+   * formátummal NEM írjuk felül: a #34 naplóban a CINEMAX, CINEMAX 2,
+   * VIASAT 3 és VIASAT 6 csatornákon a doktor TS-t tanult, a választó mégis
+   * HLS-sel indított → MEDIA_ERR_4 → javítási létra → újra HLS-próba.
+   * Két MÉRT felbontás összehasonlítását ez NEM tiltja (2.5.383 megmarad).
+   */
+  learnedFormat?: LiveQualityFormat;
 }): LiveQualityChoice {
   const planned = params.plannedFormat === 'hls' ? 'hls' : 'ts';
   const record = params.record;
@@ -304,6 +313,13 @@ export function chooseLiveQualityFormat(params: {
   if (plannedSample && !otherSample) {
     const target = Math.min(targetHeight, FULL_HD_HEIGHT);
     const belowTarget = plannedSample.height < target;
+    const doctorVerified = params.learnedFormat === planned;
+    if (doctorVerified) {
+      return {
+        ...keep,
+        reason: `a TV Doktor igazoltan működő ${planned.toUpperCase()} formátumát nem cseréljük méretlen ${other.toUpperCase()} próbára`,
+      };
+    }
     if (belowTarget && otherFails === 0) {
       return {
         format: other,
