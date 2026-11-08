@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.392';
+export const WEB_VERSION = '2.5.393';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.392',
+    version: '2.5.393',
     date: '2026-11-08',
     changes: [
       'JAVÍTÁS (TV DOKTOR 0-ABLAK ÉS A NAPLÓ UGYANAZT MUTATJA, AMI A SUPABASE-BEN VAN) — A „Memória: 0” után a bal felső doboz 4 tanulást írt, az alsó „Tanult útvonalak” lista mégis 0/7-et, a kézi napló pedig egy harmadik, GLOBÁLIS számlálót („kategóriák=(tanulás=4…)”). Az ok: a négy doboz a HELYI, csatornához tartozó friss naplóbejegyzéseket számolta, az útvonallista KIZÁRÓLAG a Supabase-ből olvasott és ok>0-ra szűrt sorokat, a napló pedig az összesített kumulált számlálót. Mostantól egyetlen pillanatkép („getTvDoctorChannelSnapshot”) adja mindhármat: a helyi tanulás az elsődleges, a felhő csak a hiányzó útvonalakat pótolja, így a frissen tanult, még fel nem töltött útvonal azonnal látszik. A nullázás után a képernyő AZONNAL 0-t mutat, újraolvassa a Supabase-t, és egy „TV DOKTOR NULLÁZÁS ELLENŐRZÉS” sorba kiírja a dobozok, a helyi/felhő útvonalak és a törlés tényleges állapotát. A kézi napló külön jelöli az ÖSSZESÍTETT kategóriákat és a „TV DOKTOR 0-ABLAK ELLENŐRZÉS” sorban a képernyőn látható négy számot; a korábbi fix „a 8 tanult útvonal/csatorna visszatöltődik” állítás is mért adatra lett cserélve. A Supabase-ben a nullázás után 35 profil, 5 alapbeállítás és 71 esemény él valós, újonnan tanult adatokkal.',
