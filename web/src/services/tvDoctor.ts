@@ -2251,9 +2251,14 @@ export function clearTvDoctorMemory(storage?: Storage | null): void {
   opHealth.lastStorageError = null;
   resetTvDoctorOperationCounters();
   const target = getStorage(storage);
+  /*
+   * 2.5.394: a Memória: 0 CSAK a TANULT adatot nullázza. Az 1-es,
+   * megváltoztathatatlan alapbeállítás HELYBEN is megmarad, így a TV
+   * internet és Supabase-visszatöltés nélkül is mindig tud hová visszatérni.
+   * A 2.5.392 itt törölte a baseline tárolót – ezt a felhasználó elutasította.
+   */
   try {
     target?.removeItem(TV_DOCTOR_STORAGE_KEY);
-    target?.removeItem(TV_DOCTOR_BASELINE_STORAGE_KEY);
   } catch {
     /* ignore */
   }

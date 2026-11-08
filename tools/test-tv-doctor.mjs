@@ -264,8 +264,10 @@ check(
 );
 core.clearTvDoctorMemory(restoredBaselineStore);
 check(
-  core.getDoctorBaseline(baselineChannel, restoredBaselineStore) === null,
-  'a TV Doktor teljes memória-nullázása az 1-es alapbeállításokat is törli a helyi tárhelyről',
+  core.getDoctorBaseline(baselineChannel, restoredBaselineStore)?.slot === 1 &&
+    core.getDoctorBaseline(baselineChannel, restoredBaselineStore)?.format === 'ts' &&
+    core.getDoctorBaseline(baselineChannel, restoredBaselineStore)?.bufferProfile === 'balanced',
+  '2.5.394: a Memória: 0 CSAK a tanult memóriát törli, az 1-es alap HELYBEN is megmarad (mindig van hová visszatérni)',
 );
 
 // 1.2a/1: Az 1-es bizonyított alap önmagában is kizárja a halott minősítést.

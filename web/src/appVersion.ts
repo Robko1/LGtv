@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.394';
+export const WEB_VERSION = '2.5.395';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.395',
+    date: '2026-11-08',
+    changes: [
+      'JAVÍTÁS (AZ 1-ES ALAP MOST TÉNYLEG HALHATATLAN, HELYBEN ÉS A SUPABASE-BEN IS) — A 2.5.394 ugyan már nem hívta a `tv_doctor_baselines_clear` RPC-t, de a `clearTvDoctorMemory()` HELYBEN mégis törölte az alap tárolóját; ha a felhőben még nem volt mentett alap (jelenleg 0 sor), a „Memória: 0” után nem volt hová visszatérni, csak egy újabb első lejátszás tudott új alapot rögzíteni. Most a nullázás kizárólag a TANULT profilokat, útvonalakat és naplókat törli; a slot-1 alap a TV-n akkor is megmarad, ha nincs internet. A Supabase-ben is zároltuk: a `20261108173312_tv_doctor_immutable_baseline_no_delete` migráció a törlő RPC-t kompatibilitási no-op-ra cserélte (a régi 2.5.392 IPK nullázása továbbra is sikerrel jelez vissza, de EGY SORT SEM TÖRÖL). Ezt a változást az élő adatbázison is ellenőriztük.',
+      'ELLENŐRZÉS ÉLŐ SUPABASE-ADATON (LG-4ZYG-W5XP) — A mentett pillanatkép első öt magyar `nameKey`-e kisbetűs, `[hu] bbc earth uhd|lc-827` alakú, a TV viszont nagybetűs `[HU] BBC Earth UHD` nevet kap, ráadásul MÁS `live-qr_…` ID-prefixszel. A szerver `layoutChannelKey()` és a kliens `normalizeSavedLayoutChannelKey()` / `normalizeChannelDoctorKey()` mind az öt csatornára PONTOSAN ugyanazt a stabil `hu:` kulcsot adja (`hu:bbc-earth-uhd`, `hu:mozi-plus-uhd`, `hu:hbo-uhd`, `hu:hbo-2-uhd`, `hu:hbo-3-uhd`). Ez a teljes tv → Supabase → tv illesztés alapja; az öt élő minta bekerült a regressziós tesztbe. Az adatbázis jelenleg 1 elrendezés (80 magyar / 156 összesen), 0 tanult profil, 0 alap, 0 esemény, és a párosított eszköz él.',
+      'EDGE FUNCTION DEPLOY SEGÉDESZKÖZ — A `tools/deploy-tv-doctor.sh` a saját `SUPABASE_ACCESS_TOKEN` és a Supabase CLI segítségével egy paranccsal élesíti a `tv-doctor` v19 forrását (`supabase functions deploy tv-doctor --project-ref hlklmcujvqsatwvdygqp --no-verify-jwt`). A futó függvény egyelőre v18; a kliens visszafelé kompatibilis, ezért az IPK már így is működik, de a szerveroldali névkulcsos hatókör, a `layoutChannels`/`baselines` bootstrap és a megőrző `reset_memory` csak a deploy után él. A script nem tartalmaz és nem naplóz tokent, és nem töröl adatot.',
+      'TESZTEK — Új bukó-teszt-előre ellenőrzések: a helyi nullázás megőrzi a slot-1 alapot, a Supabase 1-es alapja nem írhatja felül, a destruktív RPC adatbázis-szinten is no-op, és az öt élő magyar nameKey/TV-név ugyanazt a stabil kulcsot adja. A `tools/test-tv-supabase-tv-roundtrip.mjs` 53/53, a teljes `npm test` 41/41 tesztcsoport.',
+    ],
+  },
   {
     version: '2.5.394',
     date: '2026-11-08',
