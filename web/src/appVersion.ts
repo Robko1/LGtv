@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.399';
+export const WEB_VERSION = '2.5.400';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.399',
+    version: '2.5.400',
     date: '2026-11-08',
     changes: [
       'GYORS IPK-INDULÁS A #39 NAPLÓ BIZONYÍTÉKAI ALAPJÁN — A 19:43-as indításnál a takarókép 1838 ms-ig fent volt (first-paint 167 ms, bundle 355 ms, React +1285 ms, notifyAppLoaded +842 ms), egy 1017 ms-es főszál-fagyás és összesen 29 képkocka-kihagyás mellett, és 7 perc alatt 1180 naplósor keletkezett. A `main.tsx` most a `listReady() || (liveListReady() && vanCsatornaSor)` kaput használja: +847 ms-nél az élő lista már kész volt, csak a 3. csatornasor hiányzott, ezért nem várunk tovább. Új 1,5 s-es `BOOT_FAST_REVEAL_MS` gyors biztonsági háló felfedi a tartalmat akkor is, ha a fagyás miatt a 40 ms-os ellenőrző ciklus kiesik. A `TAKARÓKÉP ELLENŐRZÉS` és a `TAKARÓKÉP ÖSSZEGZÉS` sorok változatlanok. A #39 `BOOT-DIAG ÖSSZEGZÉS: felület megjelent=nem történt meg` hibáját is javítottuk: a HTML indítószkript `__IPTV_BOOT_MARK__` tömbjébe eddig SOHA nem került `REVEAL` jelzés, most a tényleges felfedéskor rögzül, és a 25 mp-es összegző időzítő a megfigyelők 12 mp-es lecsatlakozása után is lefut. A HU EPG-próba 5 s-ről 9 s-re tolódott, hogy az első adás (2775 ms) nyugodtan indulhasson.',
