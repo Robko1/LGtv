@@ -27,6 +27,10 @@ import {
   mediaProgressed,
   readMediaProgress,
   vodRecoveryDelayMs,
+  isVodRecoveryExhausted,
+  VOD_MAX_NEVER_STARTED_ATTEMPTS,
+  checkVodHttpStatus,
+  shouldAllowDiagnosticProbe,
 } from '../services/playbackRecovery';
 import {
   DOCTOR_BUFFER_CONFIGS,
@@ -85,6 +89,7 @@ import {
   subscribeSourceInfoSubtitles,
   probeMatroskaVideoInfo,
   probeSourceInfoQuality,
+  abortActiveStreamProbes,
 } from '../services/embeddedSubtitleService';
 import {
   selectLiveSubtitle,
@@ -908,6 +913,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const vodPositionKnownRef = useRef(false);
   /** Csak a FELHASZNÁLÓ által kért hangsávváltás nyithassa újra a forrást. */
   const vodAutoAudioSwitchRef = useRef(false);
+  /*
+   * 2.5.388 (#31 napló): egy soha el nem indult filmet nem próbálgatunk
+   * végtelenül. Az egykapcsolatos szolgáltatónál a 180/360/720/1440/… ms-os
+   * újracsatlakozások egymásba értek, és mindegyiket elutasította a szerver.
+   */
+  const vodEverStartedRef = useRef(false);
+  const vodRecoveryBlockedRef = useRef(false);
+  /** A film elérhetőségének egyszeri HTTP-ellenőrzése (diagnosztika). */
+  const vodHttpCheckedUrlRef = useRef('');
+  /** A diagnosztikai fejléc-próbák kapujának időbélyegei. */
+  const playbackStartedAtRef = useRef(0);
+  const lastMediaErrorAtRef = useRef(0);
+  const lastWaitingAtRef = useRef(0);
   const clearRecovery = useCallback(() => {
     if (recoveryTimerRef.current !== null) {
       window.clearTimeout(recoveryTimerRef.current);
@@ -1068,6 +1086,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const frames = readPlaybackFrameStats(video);
     state.streamStartedAt = now;
     state.url = url;
+    // Új stream = új (egyszeri) fejléc-próba; a régi címre ütemezett próbát
+    // a scheduleProbes törli. 2.5.388: streamenként CSAK EGY kapcsolat.
+    state.probedUrl = '';
     state.summaryLogged = false;
     state.lastFrames = frames ? { ...frames, at: now } : null;
     state.streamFrames = state.lastFrames;
@@ -1303,12 +1324,45 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const sampleQualityRef = useRef(sampleQuality);
   sampleQualityRef.current = sampleQuality;
 
+  /*
+   * 2.5.388 (#31 napló – EGYKAPCSOLATOS SZOLGÁLTATÓ).
+   *
+   * A képminőség- és a beágyazott felirat-próba is XHR GET-et indít a
+   * LEJÁTSZOTT címmel megegyező stream URL-re. A 31. naplóban 41 ilyen
+   * xmlhttprequest szerepel (film .mkv és élő .ts címekre), 1–2 mp-ig tartó,
+   * 0,0 kB-os kérésekkel – a próbák tehát a lejátszás mellett is rendszeresen
+   * nyitottak kapcsolatot a szolgáltató felé. A „Beágyazott felirat (CC): …
+   * nincs feliratsáv” sor 06:52:03.594-kor, 1,2 mp-pel a film megnyitása
+   * után és közvetlenül a `kész=0` médiahiba (06:52:03.705) ELŐTT olvasta ki
+   * a fájl fejlécét: a fájl elérhető volt, a videóelem nem kapott adatot.
+   * Ezért a próbák CSAK bizonyítottan stabil lejátszás után
+   * indulhatnak, és soha nem a film indítása közben.
+   */
+  const diagnosticProbeAllowed = (options?: { minStableMs?: number; minSinceErrorMs?: number; minSinceWaitingMs?: number }): boolean => {
+    const video = htmlVideoRef.current;
+    const now = Date.now();
+    return shouldAllowDiagnosticProbe({
+      playbackStarted: playbackStartedRef.current,
+      readyState: video ? video.readyState : 0,
+      msSinceLastWaiting: lastWaitingAtRef.current > 0 ? now - lastWaitingAtRef.current : null,
+      msSinceMediaError: lastMediaErrorAtRef.current > 0 ? now - lastMediaErrorAtRef.current : null,
+      msSincePlaybackStart: playbackStartedAtRef.current > 0 ? now - playbackStartedAtRef.current : 0,
+    }, options);
+  };
+  const diagnosticProbeAllowedRef = useRef(diagnosticProbeAllowed);
+  diagnosticProbeAllowedRef.current = diagnosticProbeAllowed;
+
   /**
    * Streamenként egyszeri fejléc-próbák: mit KÍNÁL a szolgáltató.
    * Csak a mintavevő futása alatt (kézi naplózás), a lejátszás elindulása
    * után – ugyanaz a kíméletes minta, mint a felirat-fejlécpróbáknál.
    */
   const runQualityProbes = useCallback(async (url: string): Promise<void> => {
+    // 2.5.388: a próba SOHA nem nyithat második kapcsolatot induláskor.
+    if (!diagnosticProbeAllowedRef.current()) {
+      appLog('KÉPMINŐSÉG FEJLÉC-PRÓBA LETILTVA; ok=a lejátszás nem stabil.');
+      return;
+    }
     const state = qualityRef.current;
     const video = htmlVideoRef.current;
     if (!state || !video || state.url !== url) return;
@@ -1514,6 +1568,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     qualityRef.current = state;
     resetQualityStream(state, qualityCurrentUrl(video), video);
 
+    /* 2.5.388: a próba NEM indulhat a film/ados indításakor – a szolgáltató
+       egyetlen kapcsolatát a videóelem kapja. 15 mp stabil lejátszás után
+       engedjük, és akkor is csak egyszer, streamenként. */
+    const PROBE_STABLE_DELAY_MS = 15000;
     const scheduleProbes = () => {
       const url = state.url || qualityCurrentUrl(video);
       if (!url || state.probedUrl === url) return;
@@ -1521,10 +1579,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (state.probeTimer !== null) window.clearTimeout(state.probeTimer);
       state.probeTimer = window.setTimeout(() => {
         state.probeTimer = null;
+        if (qualityRef.current !== state || state.url !== url) return;
+        if (!diagnosticProbeAllowedRef.current()) {
+          appLog('KÉPMINŐSÉG FEJLÉC-PRÓBA ELHALASZTVA; ok=a lejátszás még nem stabil (egykapcsolatos szolgáltató védelme).');
+          state.probeTimer = window.setTimeout(() => {
+            state.probeTimer = null;
+            if (qualityRef.current !== state || state.url !== url) return;
+            if (!diagnosticProbeAllowedRef.current()) {
+              appLog('KÉPMINŐSÉG FEJLÉC-PRÓBA KIHAGYVA; ok=nincs 15 mp stabil lejátszás.');
+              return;
+            }
+            void runQualityProbes(url);
+          }, PROBE_STABLE_DELAY_MS);
+          return;
+        }
         void runQualityProbes(url);
-      }, 1200);
+      }, PROBE_STABLE_DELAY_MS);
     };
     const onWaitingLike = () => {
+      lastWaitingAtRef.current = Date.now();
       if (!state.waitingSince) {
         state.waitingSince = Date.now();
         state.waitingCount += 1;
@@ -2246,6 +2319,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       };
 
       if (isVodRef.current) {
+        // 2.5.388: ha a film végleges hibával leállt, a Doktor NEM indíthat
+        // több javítási lépést (új pufferprofil = új kapcsolat = új elutasítás).
+        if (vodRecoveryBlockedRef.current) {
+          appLog(`TV DOKTOR VOD: NINCS ÚJABB JAVÍTÁSI LÉPÉS; ok=${trigger}; a film el nem indulása miatt az automatikus próbák leálltak.`);
+          return;
+        }
         const vodTarget = buildVodDoctorTarget();
         const vodUrl = customStreamUrlLocalRef.current || activeMediaUrlRef.current || pendingStreamUrlRef.current || '';
         if (!vodUrl && !vodTarget.title) return;
@@ -4555,8 +4634,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!isVod) return;
     let cancelled = false;
     let cancelSourceInfo: (() => void) | null = null;
+    let timer: number | null = null;
+    let checks = 0;
     setEmbeddedSubtitleTracks([]);
-    const timer = window.setTimeout(() => {
+    /*
+     * 2.5.388: NEM 900 ms után, és NEM a film indítása közben nyitunk XHR-t
+     * ugyanarra a filmcímre. A szolgáltató egy kapcsolatot engedélyez; a
+     * 31. naplóban a fejléc-próba még olvasott, a videóelem viszont
+     * `kész=0`-lal hibázott. Várjuk meg, amíg a kép tényleg, stabilan megy,
+     * és akkor is csak egy rövid (legfeljebb 1,5 MB-os) Range-kérést küldünk.
+     */
+    const subtitleProbeGate = { minStableMs: 4000, minSinceErrorMs: 8000, minSinceWaitingMs: 4000 };
+    const tryProbe = () => {
+      if (cancelled) return;
+      if (!diagnosticProbeAllowedRef.current(subtitleProbeGate)) {
+        checks += 1;
+        if (checks < 6) {
+          timer = window.setTimeout(tryProbe, 3000);
+        } else {
+          appLog('BEÁGYAZOTT FELIRAT (CC) PRÓBA KIHAGYVA; ok=a film nem jutott stabil lejátszásig (egykapcsolatos szolgáltató védelme).');
+        }
+        return;
+      }
       void probeEmbeddedSubtitles(streamUrl).then((list) => {
         if (cancelled) return;
         if (list.length > 0) {
@@ -4569,11 +4668,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
         });
       });
-    }, 900);
+    };
+    timer = window.setTimeout(tryProbe, 4000);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      if (timer !== null) window.clearTimeout(timer);
       cancelSourceInfo?.();
+      // A régi filmre mutató, még futó XHR azonnal felszabadul, hogy az új
+      // film videóeleme kaphassa meg az egyetlen kapcsolatot.
+      abortActiveStreamProbes('filmváltás / CC-felderítés');
     };
   }, [isVod, streamUrl, subtitleSearchNonce]);
 
@@ -5279,8 +5382,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
           if (isCurrentLoad() && !playbackStartedRef.current && isVodRef.current) {
+            /*
+             * 2.5.388 (#31 napló): a `buffered.length > 0` ÖNMAGÁBAN nem
+             * haladás. A hibás filmeknél `kész=0` (readyState=0, egyetlen
+             * bájt sem érkezett) mellett a webOS mégis üres puffer-tartományt
+             * jelzett, ezért az őr +3,5 mp türelmet adott, majd újabb
+             * kapcsolatot nyitott. Metaadat nélkül NINCS türelmi idő.
+             */
             let hasVodData = video.readyState >= 2;
-            try { hasVodData = hasVodData || video.buffered.length > 0; } catch { /* régi motor */ }
+            try {
+              if (video.readyState < 2) hasVodData = false;
+              else if (video.buffered.length > 0
+                && video.buffered.end(video.buffered.length - 1) <= 0) hasVodData = false;
+            } catch { /* régi motor: a readyState dönt */ }
             if (hasVodData) {
               const vodGraceMs = 3500;
               appLog(`VOD indulási őr: már érkezik metaadat/puffer, türelmi idő indul (${vodGraceMs} ms).`);
@@ -5504,12 +5618,66 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    */
   vodRecoveryRef.current = (reason: string) => {
     if (!isVodRef.current || recoveryTimerRef.current !== null) return;
+    if (vodRecoveryBlockedRef.current) {
+      appLog(`VOD VISSZAÁLLÍTÁS LETILTVA; ok=${reason}; a film ${VOD_MAX_NEVER_STARTED_ATTEMPTS} próbában sem indult el, csak a kézi Újrapróbálás indíthat újra.`);
+      return;
+    }
     const video = htmlVideoRef.current;
     const url = streamUrl;
     if (!video || !url) return;
+    const everStarted = vodEverStartedRef.current || playbackStartedRef.current;
     const attempt = recoveryAttemptRef.current++;
-    speedStep('VOD újraindítás ütemezése', `ok=${reason}; kísérlet=${attempt + 1}`);
-    const delayMs = vodRecoveryDelayMs(attempt, Math.max(150, bufferTiming().retryMs));
+    /* A régi filmre mutató fejléc-próba azonnal felszabadul: az új kapcsolatot
+       a videóelem kapja, nem a diagnosztika (egykapcsolatos szolgáltató). */
+    abortActiveStreamProbes('VOD újracsatlakozás');
+    /*
+     * 2.5.388 (#31 napló): VÉGLEGES HIBA. A 31. naplóban a Mandalorian 8
+     * lépésben, ~40 mp alatt 8 új kapcsolatot nyitott, mindegyik azonnal
+     * `kész=0` médiahibával végződött, majd a létra elölről indult. Nincs
+     * több automatikus próba: tiszta hibaállapot + kézi Újrapróbálás.
+     */
+    if (isVodRecoveryExhausted(attempt + 1, everStarted)) {
+      vodRecoveryBlockedRef.current = true;
+      clearAutoRetry();
+      clearBufferWatchdog();
+      clearZapWatchdog();
+      doctorSessionRef.current.repairInFlight = false;
+      doctorSessionRef.current.repairStep = 0;
+      setIsRecovering(false);
+      setIsLoading(false);
+      setIsPlaying(false);
+      setHasError(true);
+      setErrorMessage(
+        'Ez a film most nem indítható el.\nA szolgáltató nem adott lejátszható adatot.\nNyomj Újrapróbálást, vagy válassz másik filmet.'
+      );
+      showDoctorStatus({
+        phase: 'error',
+        title: 'Film nem érhető el',
+        detail: `${VOD_MAX_NEVER_STARTED_ATTEMPTS} próba után leállítva – kézi újrapróbálás lehetséges.`,
+      });
+      appLogCritical(
+        `VOD NEM INDULT EL – AUTOMATIKUS ÚJRAPRÓBÁLÁS LEÁLLÍTVA; cím=${String(customTitle || 'film').slice(0, 80)}; ` +
+        `próbák=${attempt + 1}; ok=${reason}; kép=${video.videoWidth}x${video.videoHeight}; readyState=${video.readyState}; ` +
+        `hiba=${video.error ? 'MEDIA_ERR_' + video.error.code : 'nincs'}; forrás=${url}.`
+      );
+      /* EGYETLEN apró Range-kérés: megmondja, hogy a szolgáltató utasította
+         el a kapcsolatot (403/429), hiányzik a fájl (404), vagy a fájl rendben
+         van és a TV nem tudta dekódolni. Ez a kérdés dönti el a 4. pontot. */
+      if (vodHttpCheckedUrlRef.current !== url) {
+        vodHttpCheckedUrlRef.current = url;
+        void checkVodHttpStatus(url).then((check) => {
+          appLog(
+            `VOD ELÉRHETŐSÉG-ELLENŐRZÉS; cím=${String(customTitle || 'film').slice(0, 60)}; ` +
+            `HTTP=${check.status ?? 'nincs válasz'}; tartalom=${check.contentType || 'ismeretlen'}; ` +
+            `méret=${check.contentLength ?? 'ismeretlen'} B; Range=${check.rangeSupported ? 'igen' : 'nem'}; ` +
+            `eltelt=${check.elapsedMs} ms; hiba=${check.error || 'nincs'}; következtetés=${check.verdict}.`
+          );
+        });
+      }
+      return;
+    }
+    speedStep('VOD újraindítás ütemezése', `ok=${reason}; kísérlet=${attempt + 1}; elindult-e=${everStarted ? 'igen' : 'nem'}`);
+    const delayMs = vodRecoveryDelayMs(attempt, Math.max(150, bufferTiming().retryMs), 8000, everStarted);
     // Ha még nem jött timeupdate, a folytatási pozícióról indulunk; ha már
     // igen, akkor a VALÓDI utolsó helyről (a 0 mp-re tekerést is tiszteletben tartva).
     const position = Math.max(0, Number(
@@ -5532,7 +5700,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     });
     appLog(
       `VOD VISSZAÁLLÍTÁS; cím=${String(customTitle || 'film').slice(0, 80)}; próba=${attempt + 1}; ` +
-      `várakozás=${delayMs} ms; folytatás=${Math.round(position)} mp; `
+      `várakozás=${delayMs} ms; folytatás=${Math.round(position)} mp; elindult-e=${everStarted ? 'igen' : 'nem'}; `
+      + `hátralévő-próbák=${everStarted ? 'korlátlan' : Math.max(0, VOD_MAX_NEVER_STARTED_ATTEMPTS - attempt - 1)}; `
       + `TV-Doktor-lépés=${doctorSessionRef.current.repairStep}; puffer=${doctorSessionRef.current.activeBufferProfile}; ok=${reason}.`
     );
     recoveryTimerRef.current = window.setTimeout(() => {
@@ -5590,6 +5759,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     clearAutoRetry();
     clearRecovery();
+    // 2.5.388: új forrásnál a régi filmre/adosra mutató fejléc-próbák
+    // azonnal felszabadulnak (a szolgáltató egy kapcsolatot engedélyez).
+    abortActiveStreamProbes('új forrás betöltése');
+    vodEverStartedRef.current = false;
+    vodRecoveryBlockedRef.current = false;
+    vodHttpCheckedUrlRef.current = '';
+    playbackStartedAtRef.current = 0;
+    lastMediaErrorAtRef.current = 0;
+    lastWaitingAtRef.current = 0;
     recoveryAttemptRef.current = 0;
     liveEndRecoveryAttemptRef.current = 0;
     stallDetectorRef.current?.reset();
@@ -6132,6 +6310,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
               playbackStartedRef.current = true;
               initialFormatRetryRef.current = false;
+              // 2.5.388: a film BIZONYÍTOTTAN elindult – innentől a
+              // megszakadásokat a folyamatos visszaállítás kezeli, és a
+              // fejléc-próbák is engedélyezhetők.
+              playbackStartedAtRef.current = Date.now();
+              if (isVod) {
+                // Ha mégis elindult (pl. késői, de érvényes playing esemény),
+                // a végleges hibaállapot nem maradhat a képernyőn.
+                if (vodRecoveryBlockedRef.current) {
+                  setHasError(false);
+                  setErrorMessage('');
+                  showDoctorStatus(null);
+                }
+                vodEverStartedRef.current = true;
+                vodRecoveryBlockedRef.current = false;
+              }
               doctorSessionRef.current.channelHaltedDead = false;
               doctorSessionRef.current.lastProposal = null;
               if (!isVod) {
@@ -6443,6 +6636,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onWaiting={(event) => {
               if (!isActiveMediaEvent(event.currentTarget)) return;
+              lastWaitingAtRef.current = Date.now();
               doctorSessionRef.current.waitingOrStalledFlag = true;
               if (tvDoctorEnabledRef.current && isTvDoctorDiagLoggingEnabled()) {
                 const v = event.currentTarget;
@@ -6470,6 +6664,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onStalled={(event) => {
               if (!isActiveMediaEvent(event.currentTarget)) return;
+              lastWaitingAtRef.current = Date.now();
               doctorSessionRef.current.waitingOrStalledFlag = true;
               if (tvDoctorEnabledRef.current && isTvDoctorDiagLoggingEnabled()) {
                 const v = event.currentTarget;
@@ -6498,6 +6693,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 appLog('CSATORNAVÁLTÁS RÉGI MÉDIAESEMÉNY KIHAGYVA; ok=az előző src error eseménye nem írhatja át az új próbát.');
                 return;
               }
+              lastMediaErrorAtRef.current = Date.now();
               clearBufferWatchdog();
               const diagnostic = channelSwitchDiagnosticRef.current;
               if (!isVod && (!diagnostic || diagnostic.generation !== streamLoadGenerationRef.current)) return;
@@ -6813,6 +7009,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onClick={(e) => {
               e.stopPropagation();
               clearRecovery();
+              // 2.5.388: a kézi Újrapróbálás FELOLDJA a végleges VOD-hibát.
+              abortActiveStreamProbes('kézi újrapróbálás');
+              vodEverStartedRef.current = false;
+              vodRecoveryBlockedRef.current = false;
+              vodHttpCheckedUrlRef.current = '';
+              playbackStartedAtRef.current = 0;
+              lastMediaErrorAtRef.current = 0;
+              lastWaitingAtRef.current = 0;
               recoveryAttemptRef.current = 0;
               liveEndRecoveryAttemptRef.current = 0;
               liveRecoveryOnlyRef.current = false;

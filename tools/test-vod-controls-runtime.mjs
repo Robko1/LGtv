@@ -33,6 +33,7 @@ const plugin = {
    export function subscribeSourceInfoSubtitles(){return ()=>{}}
    export async function probeMatroskaVideoInfo(){return null}
    export async function probeSourceInfoQuality(){return null}
+   export function abortActiveStreamProbes(){return 0}
    export function selectEmbeddedSubtitle(){window.state.lunaSelect++; return new Promise(resolve=>window.state.finishLuna=resolve)}
    export async function disableEmbeddedSubtitle(){window.state.lunaDisable++}
   ` : `
@@ -52,6 +53,9 @@ const dom=new JSDOM('<!doctype html><html><body><div data-view-pane="movies"></d
  Object.defineProperty(p,'textTracks',{configurable:true,get(){return w.tracks}});
  Object.defineProperty(p,'audioTracks',{configurable:true,get(){return w.audioTracks}});
  Object.defineProperty(p,'paused',{configurable:true,get(){return false}});
+ // 2.5.388: a fejléc-próbákhoz stabilan játszó, readyState=4 médiát modellezünk.
+ Object.defineProperty(p,'readyState',{configurable:true,get(){return 4}});
+ Object.defineProperty(p,'networkState',{configurable:true,get(){return 2}});
  p.play=()=>Promise.resolve(); p.pause=()=>{}; p.load=()=>{}; p.canPlayType=()=> 'maybe';
  w.HTMLElement.prototype.getClientRects=function(){return [{}]};
  w.fetch=()=>new Promise(()=>{});
@@ -60,12 +64,18 @@ const w=dom.window, doc=w.document;
 w.eval(readFileSync(resolve('webos/webos.js'),'utf8'));
 const script=doc.createElement('script');script.textContent=bundle.outputFiles[0].text;doc.body.appendChild(script);
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-const until=async (fn,label)=>{for(let i=0;i<200;i++){if(fn())return;await wait(20)}assert.fail(label)};
+// 2.5.388: a CC-felderítés 4 mp stabil lejátszás után fut, ezért a várakozás
+// ablaka 8 mp (a többi ellenőrzés változatlanul az első körben teljesül).
+const until=async (fn,label)=>{for(let i=0;i<400;i++){if(fn())return;await wait(20)}assert.fail(label)};
 const press=async (code,key)=>{(doc.activeElement||doc.body).dispatchEvent(new w.KeyboardEvent('keydown',{key,keyCode:code,bubbles:true,cancelable:true}));await wait(50)};
 const row=(scope,text)=>[...doc.querySelectorAll(`${scope} [data-track-option]`)].find(el=>el.textContent.trim()===text);
 const clickRow=async (scope,text)=>{await until(()=>row(scope,text),`missing row ${text}`);row(scope,text).click();await wait(70)};
 try {
  await until(()=>doc.querySelector('[data-tv-player][data-vod-active]'),'VOD player');
+ await wait(600); // 2.5.388: a mount useEffect-ek (forrásbetöltés) fussanak le előbb
+ // 2.5.388: jelzezzük, hogy a film ténylegesen, stabilan játszik – csak ezután
+ // szabad fejléc-próbát (második kapcsolatot) nyitni.
+ doc.querySelector('video').dispatchEvent(new w.Event('playing',{bubbles:true}));
  // Blue does not dispatch anything during playback, even if an OSD menu is visible.
  await press(406,'ColorF3Blue');assert.deepEqual([...w.state.actions],[]);
  await press(404,'ColorF1Green');await until(()=>doc.querySelector('[data-track-panel="live"]'),'green opens combined selector');

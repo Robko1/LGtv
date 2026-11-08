@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.387';
+export const WEB_VERSION = '2.5.388';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,16 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.388',
+    date: '2026-11-07',
+    changes: [
+      'JAVÍTÁS (FILMEK NEM INDULNAK EL — EGY KAPCSOLATOS SZOLGÁLTATÓ) — A 31. naplóban a Mandalorian, a Mike & Nick és a The Wizard of the Kremlin megnyitásakor a videóelem `kész=0` (egy bájt sem érkezett) médiahibát adott, a lejátszó pedig 180/360/720/1440/… ms-onként újra és újra ugyanazt a címet nyitotta meg; a TV Doktor 8 lépéses puffer-létrája közben elölről indult, így ~40 mp-ig tartott a hiba. Mostantól: (1) aki egyszer sem indult el, legfeljebb 4, egymástól 2/4/6 mp-re eső próbát kap, utána tiszta „film nem érhető el” képernyő és kézi Újrapróbálás jelenik meg (nincs végtelen kör); (2) a VOD indulási őr nem ad többé 3,5 mp türelmet a `readyState=0` + üres puffer állapotra; (3) a már játszott film megszakadásánál marad a folyamatos, gyors visszaállítás. Nem beállítási hiba: a filmek címe és a szolgáltató válasza rendben volt, a saját újracsatlakozási és próba-kapcsolataink ütötték el a lejátszást.',
+      'JAVÍTÁS (NINCS MÁSODIK HÁTTÉRKAPCSOLAT) — A képminőség-mérés és a beágyazott felirat (CC) felderítése XHR GET-et nyitott a LEJÁTSZOTT filmmel azonos címre, mindössze 0,9–1,2 mp-pel az indítás után; a kérésnek nem volt Range fejléce, így a több GB-os filmfájlt kezdte húzni, és 20 mp-ig is foghatta a kapcsolatot. A 31. naplóban 41 ilyen, 1–2 mp-ig tartó, 0,0 kB-os xmlhttprequest szerepel (film .mkv és élő .ts címekre), és a CC-próba 1,2 mp-pel a film megnyitása után, közvetlenül a videóelem `kész=0` hibája előtt sikeresen kiolvasta a fájl fejlécét. Mostantól a próbák csak 15 mp (CC: 4 mp) bizonyítottan stabil lejátszás után indulhatnak, címenként CSAK EGY, legfeljebb 1,5 MB-os Range-kérést nyitnak 8 mp-es időkorláttal, és forrásváltáskor / újracsatlakozáskor azonnal megszakadnak. A TV Doktornak nincs rejtett háttér-lejátszója: a második videó-slot üres, az élő nézet elhagyásakor a forrás lebontódik.',
+      'JAVÍTÁS (LASSÚ MOZI-VISSZATÉRÉS) — A visszafejtett filmlistát az 5000 elemnél nagyobb méret miatt eddig eldobtuk a munkamenet-gyorsítótárból, noha a teljes 100 ezres lista amúgy is a memóriában (az App state-jében) él. Emiatt a Mozi fül minden elhagyása után újra lefutott a teljes IndexedDB-visszaolvasás és dekódolás (a 31. naplóban a sorozatoknál mérve 7,27 mp / 25 057 sorozat / 13 adag). Mostantól a nagy katalógust is megőrizzük (csak a gyorsítótár-bejegyzések száma korlátos), így a visszatérés azonnali; a gyorsítótár új mentéskor továbbra is érvénytelenítődik.',
+      'DIAGNOSZTIKA (MIÉRT NEM INDUL A FILM?) — Amikor egy film véglegesen el nem indul, a lejátszó EGYSZER, címenként, egy apró Range: bytes=0-1 kéréssel ellenőrzi a szolgáltató válaszát, és a nagy naplóba kiírja a következtetést: 401/403 = jogosultság vagy egykapcsolatos fiók, 429 = túl sok kapcsolat, 404 = hiányzó fájl, 200/206 = a fájl rendben van, a TV dekódolása a gond. A mérés nem indít újabb lejátszást, és a kézi naplóban egyetlen sorban eldönti a „rossz beállítás vagy szolgáltató” kérdést.',
+    ],
+  },
   {
     version: '2.5.387',
     date: '2026-11-07',

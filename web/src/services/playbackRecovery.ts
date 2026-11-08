@@ -230,10 +230,196 @@ export function liveRecoveryDelayMs(attempt: number, baseMs = 50, maxMs = 6000):
   return Math.min(maxMs, Math.max(30, Math.round(baseMs * (2 ** step))));
 }
 
-/** Film/sorozat: kicsit türelmesebbek vagyunk, mert a VOD-nak van puffere. */
-export function vodRecoveryDelayMs(attempt: number, baseMs = 200, maxMs = 8000): number {
+/**
+ * Film/sorozat: kicsit türelmesebbek vagyunk, mert a VOD-nak van puffere.
+ *
+ * 2.5.388 (#31 napló): A SZOLGÁLTATÓ EGYETLEN KAPCSOLATOT ENGEDÉLYEZ.
+ * A 31. naplóban egy film megnyitása 3 másodperc alatt NÉGY újracsatlakozást
+ * indított (180 / 360 / 720 / 1440 ms), miközben az előbb bezárt élő adás
+ * kapcsolata még a szolgáltatónál volt – a szerver mindet elutasította
+ * (`videó elem hiba`, readyState=0). Ezért:
+ *   - ha a film MÁR játszott (pufferelés), az első újrapróbák óvatosan,
+ *     de gyorsan jönnek (0,8 mp-től),
+ *   - ha a film SOHA nem indult el (azonnali médiahiba), a próbák lassabban,
+ *     legalább 2 / 4 / 6 másodperccel indulnak, hogy a szolgáltató bezárhassa
+ *     az előző kapcsolatot.
+ */
+export function vodRecoveryDelayMs(attempt: number, baseMs = 200, maxMs = 8000, started = true): number {
   const step = Math.max(0, Math.min(attempt, 6));
-  return Math.min(maxMs, Math.max(150, Math.round(baseMs * (2 ** step))));
+  const grown = Math.round(baseMs * (2 ** step));
+  const floor = started
+    ? 800
+    : (attempt <= 0 ? 2000 : attempt === 1 ? 4000 : 6000);
+  return Math.min(maxMs, Math.max(150, grown, floor));
+}
+
+/** Ennyi automatikus újrapróbát engedünk egy SOHA el nem indult filmnek. */
+export const VOD_MAX_NEVER_STARTED_ATTEMPTS = 4;
+
+/**
+ * 2.5.388 (#31 napló): ha a film egyáltalán nem indult el, a 4. próba után
+ * NEM próbálkozunk tovább automatikusan. A 31. naplóban a Mandalorian 8
+ * lépésben, 40 másodpercig nyitogatott új kapcsolatot, mindegyik `kész=0`
+ * (readyState=0) médiahibával végződött; a szolgáltató egykapcsolatos
+ * fiókjánál ez csak újabb elutasításokat szül. Helyette tiszta „nem
+ * elérhető” állapot és kézi Újrapróbálás gomb jelenik meg.
+ *
+ * Ha a film MÁR játszott, a korlát NEM lép életbe: a meglévő folyamatos
+ * visszaállítás (megszakadt adatfolyam után) változatlanul működik.
+ */
+export function isVodRecoveryExhausted(attemptsMade: number, everStarted: boolean): boolean {
+  if (everStarted) return false;
+  return attemptsMade >= VOD_MAX_NEVER_STARTED_ATTEMPTS;
+}
+
+/** Egy VOD HTTP-ellenőrzés eredménye (diagnosztika, nem lejátszás). */
+export interface VodHttpCheck {
+  status: number | null;
+  contentType: string;
+  contentLength: number | null;
+  rangeSupported: boolean;
+  elapsedMs: number;
+  error: string;
+  verdict: string;
+}
+
+/**
+ * 2.5.388 (#31 napló): a film médiahibája után EGYETLEN apró, fejlécig tartó
+ * HTTP-kérés megmondja, hol a hiba: a szolgáltató utasítja el a kapcsolatot
+ * (403/429 – pl. egykapcsolatos fiók), nincs meg a fájl (404), vagy a fájl
+ * rendben jön (200/206) és a TV nem tudja dekódolni. Ez a mérés csak a naplóba
+ * kerül; a lejátszást nem módosítja, és címenként egyszer fut.
+ *
+ * A webOS alkalmazásban az XHR engedélyezett a szolgáltató felé, a `fetch`
+ * CORS-olvasása viszont nem – ezért XHR-t használunk, `HEADERS_RECEIVED`-nél
+ * azonnal megszakítjuk (nem húzzuk le a filmfájlt). Node-ban (tesztek) a
+ * `fetch` a tartalék.
+ */
+function vodVerdict(status: number, error: string): string {
+  if (error) return 'a kérés nem jutott el a szolgáltatóhoz (hálózat, időtúllépés vagy TV-oldali hiba)';
+  if (status === 200 || status === 206) return 'a fájl elérhető – a TV nem tudta dekódolni (konténer vagy kodek)';
+  if (status === 401 || status === 403) return 'a szolgáltató elutasította (jogosultság vagy egykapcsolatos fiók)';
+  if (status === 429) return 'túl sok kérés/kapcsolat a szolgáltatónál';
+  if (status === 404 || status === 410) return 'a fájl nem található a szolgáltatónál';
+  if (status >= 500) return 'szolgáltatói (szerver) hiba';
+  if (status === 0) return 'a kapcsolat létrejött, de a HTTP-állapot nem olvasható (helyi webOS alkalmazás)';
+  return `váratlan HTTP-állapot (${status})`;
+}
+
+export async function checkVodHttpStatus(url: string, timeoutMs = 8000): Promise<VodHttpCheck> {
+  const startedAt = Date.now();
+  const result = (status: number | null, contentType: string, contentLength: number | null,
+    rangeSupported: boolean, error: string): VodHttpCheck => ({
+    status,
+    contentType,
+    contentLength,
+    rangeSupported,
+    elapsedMs: Date.now() - startedAt,
+    error,
+    verdict: vodVerdict(status ?? 0, error),
+  });
+  if (!url) return result(null, '', null, false, 'nincs URL');
+
+  if (typeof XMLHttpRequest === 'function') {
+    return new Promise((resolve) => {
+      let settled = false;
+      const xhr = new XMLHttpRequest();
+      const finish = (value: VodHttpCheck) => {
+        if (settled) return;
+        settled = true;
+        try { xhr.abort(); } catch { /* már lezárult */ }
+        resolve(value);
+      };
+      try {
+        xhr.open('GET', url, true);
+        try { xhr.setRequestHeader('Range', 'bytes=0-1'); } catch { /* régi motor */ }
+        xhr.timeout = Math.max(1000, timeoutMs);
+        xhr.onreadystatechange = () => {
+          if (settled || xhr.readyState < 2) return;
+          let type = '';
+          let lengthHeader = '';
+          let rangeHeader = '';
+          try {
+            type = String(xhr.getResponseHeader('content-type') || '').slice(0, 60);
+            lengthHeader = String(xhr.getResponseHeader('content-length') || '');
+            rangeHeader = String(xhr.getResponseHeader('content-range') || '')
+              + String(xhr.getResponseHeader('accept-ranges') || '');
+          } catch { /* a fejléc nem olvasható */ }
+          const length = Number.parseInt(lengthHeader, 10);
+          finish(result(
+            Number(xhr.status) || 0,
+            type,
+            Number.isFinite(length) ? length : null,
+            /bytes/i.test(rangeHeader),
+            '',
+          ));
+        };
+        xhr.onerror = () => finish(result(null, '', null, false, 'hálózati hiba'));
+        xhr.ontimeout = () => finish(result(null, '', null, false, 'időtúllépés'));
+        xhr.onabort = () => finish(result(null, '', null, false, 'megszakítva'));
+        xhr.send();
+      } catch (error) {
+        finish(result(null, '', null, false, error instanceof Error ? `${error.name}: ${error.message}` : String(error)));
+      }
+    });
+  }
+
+  // Node / teszt környezet: nincs XHR, a fetch a tartalék.
+  if (typeof fetch !== 'function') return result(null, '', null, false, 'nincs HTTP-kliens');
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), Math.max(1000, timeoutMs)) : null;
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-1' },
+      cache: 'no-store',
+      signal: controller ? controller.signal : undefined,
+    });
+    const lengthHeader = response.headers?.get?.('content-length') || '';
+    const parsedLength = Number.parseInt(lengthHeader, 10);
+    const rangeHeader = (response.headers?.get?.('content-range') || '') + (response.headers?.get?.('accept-ranges') || '');
+    const status = Number(response.status) || 0;
+    try { await response.body?.cancel?.(); } catch { /* a törzs nem kell */ }
+    return result(status, String(response.headers?.get?.('content-type') || '').slice(0, 60),
+      Number.isFinite(parsedLength) ? parsedLength : null, /bytes/i.test(rangeHeader), '');
+  } catch (error) {
+    return result(null, '', null, false, error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
+
+/**
+ * 2.5.388: a diagnosztikai fejléc-próbák (MKV/HLS/PMT) is a SZOLGÁLTATÓ felé
+ * nyitnak kapcsolatot. Egykapcsolatos fióknál ezért csak akkor indulhatnak,
+ * ha a lejátszás már bizonyítottan stabil – különben a próba maga taszítja el
+ * a filmet vagy az élő adást.
+ */
+export interface DiagnosticProbeGateOptions {
+  /** Mennyi stabil lejátszás kell a próba előtt (alapértelmezés: 15 mp). */
+  minStableMs?: number;
+  /** Mennyi időnek kell eltelnie az utolsó médiahiba óta. */
+  minSinceErrorMs?: number;
+  /** Mennyi időnek kell eltelnie az utolsó `waiting`/`stalled` óta. */
+  minSinceWaitingMs?: number;
+}
+
+export function shouldAllowDiagnosticProbe(params: {
+  playbackStarted: boolean;
+  readyState: number;
+  msSinceLastWaiting: number | null;
+  msSinceMediaError: number | null;
+  msSincePlaybackStart: number;
+}, options: DiagnosticProbeGateOptions = {}): boolean {
+  const minStableMs = options.minStableMs ?? 15000;
+  const minSinceErrorMs = options.minSinceErrorMs ?? 20000;
+  const minSinceWaitingMs = options.minSinceWaitingMs ?? 8000;
+  if (!params.playbackStarted) return false;
+  if (params.readyState < 3) return false;
+  if (params.msSincePlaybackStart < minStableMs) return false;
+  if (params.msSinceLastWaiting !== null && params.msSinceLastWaiting < minSinceWaitingMs) return false;
+  if (params.msSinceMediaError !== null && params.msSinceMediaError < minSinceErrorMs) return false;
+  return true;
 }
 
 /**
