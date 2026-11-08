@@ -1584,8 +1584,12 @@ export function App() {
           );
           appLog(`Teljes élő lista előkészítve: ${prepared.length} csatorna (${Date.now() - prepStartedAt} ms).`);
           startTransition(() => {
-            setChannels((current) => {
-              const next = current.length >= full.channels.length ? current : prepared;
+            setChannels(() => {
+              // A teljes visszatöltésnél mindig az előkészített, mentett sorrend
+              // az irányadó. A korábbi hossz-ellenőrzés a már teljes, de régi
+              // sorrendű listát tartotta meg, ezért a felhőből visszaállított
+              // csatornák összevissza sorrendben maradhattak.
+              const next = prepared;
               /*
                * 2.5.280 (#22/#23): a visszatöltött lista azonosítója rögtön
                * „már mentettnek” számít. Korábban egy későbbi piszkos jelzés
