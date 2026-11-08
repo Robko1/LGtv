@@ -222,8 +222,19 @@ try {
    *     várakozás volt az oka, hogy a rendszerindítás után másodpercekig
    *     takarékép (zöld kép) látszott a kész főoldal helyett.
    */
-  const VIDEO_WAIT_MS = 1200;
-  const LOGO_WAIT_MS = 600;
+  /*
+   * 2.5.392 – INDULÁSI VÁRAKOZÁS VALÓDI CSÖKKENTÉSE.
+   *
+   * A felfedés eddig MINDENKÉPP várt 1200 ms-ot az első videókockára és 600
+   * ms-ot a logókra, még akkor is, amikor a lejátszó POSZTERE (tehát a kész
+   * kép) már a képernyőn volt. A #41–44-es naplók szerint a TV videó-pipeline
+   * 1,2–3,9 mp-ig egyáltalán nem ad képkockát, ezért ez a várakozás TISZTA
+   * veszteség volt: a kész főoldal 1,2 mp-ig a takarókép alatt ült.
+   * A poszter miatt nincs fekete terület, így 400 / 250 ms is bőven elég;
+   * a tényleges képkocka megérkezésekor a lejátszó maga vált.
+   */
+  const VIDEO_WAIT_MS = 400;
+  const LOGO_WAIT_MS = 250;
   /**
    * A teljes lista készenléte – MÁR CSAK NAPLÓZÁSRA (2.5.149).
    * A felfedés nem vár rá: a takarókép akkor megy le, amikor a LÁTHATÓ
@@ -433,18 +444,31 @@ try {
         if (signal) window.dispatchEvent(signal);
       } catch { /* régi motor */ }
     };
+    /*
+     * 2.5.392: a saját HTML-es betöltőképernyő MÁR NINCS az index.html-ben,
+     * ezért a `__IPTV_BOOT__.complete()` híd sem létezik. Korábban ilyenkor a
+     * `afterBootAnimation()` CSAK a 400 ms-os biztonsági időzítőből futott le:
+     * minden induláshoz fél másodpercnyi felesleges várakozás tartozott.
+     * Ha nincs animált híd, a felfedés AZONNAL megtörténik (a callback
+     * egyszer-futás védett, tehát a későbbi hívás már nem okoz dupla jelet).
+     */
+    let animatedBridge: boolean;
     try {
+      const bridge = (window as any).__IPTV_BOOT__;
+      animatedBridge = Boolean(bridge && typeof bridge.complete === 'function');
       (window as any).__IPTV_BOOT_DONE_CB__ = afterBootAnimation;
       bootScreenComplete();
     } catch {
       /* a HTML-réteg hibája nem akadályozhatja a megjelenítést */
+      animatedBridge = false;
       afterBootAnimation();
     }
-    /*
-     * BIZTONSÁGI HÁLÓ: az animáció legfeljebb 240 ms, a váltás 400 ms-nál
-     * mindenképp megtörténik – akkor is, ha a visszahívás elmarad.
-     */
-    window.setTimeout(afterBootAnimation, 400);
+    if (!animatedBridge) {
+      afterBootAnimation();
+    } else {
+      /* Csak a régi, animált HTML-hídnál kell a 400 ms-os biztonsági háló. */
+      window.setTimeout(afterBootAnimation, 400);
+    }
   };
 
   /*

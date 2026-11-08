@@ -73,6 +73,7 @@ const tasks = [
   { name: 'tv-doctor', args: ['tools/test-tv-doctor.mjs'] },
   { name: 'tv-doctor-routes', args: ['tools/test-tv-doctor-routes.mjs'] },
   { name: 'tv-doctor-layout', args: ['tools/test-tv-doctor-layout.mjs'] },
+  { name: 'vod-restore-tuning', args: ['tools/test-vod-restore-tuning.mjs'] },
   { name: 'layout-cloud-only', args: ['tools/test-layout-cloud-only.mjs'] },
 ];
 

@@ -23,7 +23,6 @@ import {
   saveLiveContentSafely,
   saveSeriesContentSafely,
   saveVodContentSafely,
-  migrateVodStorageIfNeeded,
   prefetchContentImages,
   setCatalogFingerprint,
   StoredCatalogPlan,
@@ -2004,7 +2003,7 @@ export function App() {
         const report = plan?.report || lastStoredContentReport() || await describeStoredContent();
         bootScreenPhase('stored', `Tároló megnyitva: ${report.liveIdb} mentett csatorna a tartós tárban.`);
         appLog(
-          `TÁROLÓ-JELENTÉS: localStorage=${report.localKeys} kulcs / ${report.localChars} karakter; `
+          `TÁROLÓ-JELENTÉS: localStorage=${report.localKeys} kulcs / ${report.localCharsMeasured === false ? 'karakter=indulás után mérve' : `${report.localChars} karakter`}; `
           + `induló készlet=${report.liveLocal} csatorna; tartós tár: `
           + `élő=${report.liveIdb}, film=${report.vodIdb}, sorozat=${report.seriesIdb}.`
         );
@@ -2181,10 +2180,17 @@ export function App() {
          */
         // 2.5.140-es menet: a teljes élő lista AZONNAL, a takarókép alatt.
         backgroundWork = startBackgroundWork(plan);
-        // 2.5.319: VOD migrálás — ha a Mozi tár régi sorrendben (2024 elöl) van, háttérben rendezzük 2026 elölre (képek 68% vs 100% regresszió)
-        if (plan?.provider) {
-          window.setTimeout(() => { void migrateVodStorageIfNeeded(plan.provider).catch(() => {}); }, 3500);
-        }
+        /*
+         * 2.5.392 – REJTETT MOZI-MUNKA ELTÁVOLÍTVA AZ INDULÁSBÓL.
+         *
+         * A 2.5.319-es VOD-migrálás 3,5 mp-pel a boot UTÁN, de még a főoldal
+         * első perceiben lefuttatta a `loadVodAsync()`-t: az összes (103 092)
+         * film visszatöltése + teljes újraírása volt ez, pont az a „Mozi
+         * betöltés”, amit a gyors indulásból kivettünk. A Mozi nézet maga
+         * rendezi év szerint csökkenően a listát (`sortByReleaseYearDesc`),
+         * ezért a tároló átrendezése nem indokol ilyen háttérmunkát: a film-
+         * lista kizárólag a Mozi menü megnyitásakor töltődik vissza.
+         */
         // 2.5.251: jegyezzük, hogy a háttérmunka már elindult (lásd a frissítés végét).
         bootBackgroundStartedRef.current = true;
         backgroundWorkTimersRef.current = backgroundWork;

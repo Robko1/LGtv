@@ -573,8 +573,8 @@ export interface BufferProfileStats {
  * Útvonal = lejátszási formátum (TS/HLS) + pufferprofil (instant…adaptive-3)
  * együtt, a hozzá tartozó mért indulási idővel és megbízhatósággal.
  *
- * Az 1-es kézi alapbeállítás külön, vész-tartalék profil. Emellett a 2–8.
- * helyen legfeljebb 7 tanult útvonalat tartunk meg, pontszám szerint rendezve.
+ * Az 1-es kézi alapbeállítás külön, vész-tartalék profil. Emellett a 2–9.
+ * helyen legfeljebb 8 tanult útvonalat tartunk meg, pontszám szerint rendezve.
  * Minden siker/hiba után újramérjük és átrendezzük; az új jobb útvonal előre
  * kerül, a korábbiak hátrébb csúsznak, a 8. helyen túli legrosszabb kiesik.
  *
@@ -597,8 +597,16 @@ export interface DoctorRoute {
   lastFailAt: number | null;
 }
 
-/** Az 1-es vész-tartalékon felül a 2–8. helyen tartott tanult útvonalak száma. */
-export const MAX_CHANNEL_ROUTES = 7;
+/**
+ * A tanult útvonalak száma csatornánként.
+ *
+ * 2.5.392: a 8-as érték a SUPABASE `tv-doctor` Edge Function `MAX_CHANNEL_ROUTES`
+ * állandójával és a 0-ablak „Tanult útvonalak (max. 8)” fejlécével egyezik meg.
+ * Korábban a kliens 7-et tárolt és 7 dobozt rajzolt, míg a felhő 8-at – ezért
+ * mutatott a TV és a Supabase eltérő számot ugyanarról a csatornáról.
+ * Az 1-es kézi vész-tartalék ezen a listán KÍVÜL van (külön rekord).
+ */
+export const MAX_CHANNEL_ROUTES = 8;
 
 export interface ChannelDoctorRecord {
   channelKey: string;
@@ -1448,7 +1456,7 @@ function isValidBufferProfile(value: unknown): value is DoctorBufferProfileId {
 }
 
 /* ============================================================================
- * 2.5.294: TANULT ÚTVONALAK (külön 1-es alap + 7 tanult hely) – a TV Doktor memóriája
+ * 2.5.294 / 2.5.392: TANULT ÚTVONALAK (külön 1-es alap + 8 tanult hely) – a TV Doktor memóriája
  * ============================================================================
  * A cél: NE csak visszaváltáskor javítson, hanem MINDEN adásból tanuljon, és
  * a csatorna saját, elmentett tapasztalatából indítson – a lehető leggyorsabb
@@ -1592,10 +1600,10 @@ export function learnedRouteCandidates(
     .filter((route) => route.ok > 0 && route.id !== excludeId);
 }
 
-/** Egy adás eredményének beírása a csatorna útvonal-táblájába (max. 7 tanult sor). */
+/** Egy adás eredményének beírása a csatorna útvonal-táblájába (max. 8 tanult sor). */
 export function recordDoctorRouteOutcome(params: {
   record: ChannelDoctorRecord;
-  /** Az 1-es vész-tartalék útvonalát nem duplikáljuk a 2–8. tanult helyen. */
+  /** Az 1-es vész-tartalék útvonalát nem duplikáljuk a 2–9. tanult helyen. */
   excludeRouteId?: string | null;
   format: LiveFormat;
   bufferProfile: DoctorBufferProfileId;
@@ -2290,6 +2298,68 @@ export function getTvDoctorSummary(storage?: Storage | null): {
   };
 }
 
+/**
+ * 2.5.392 – EGYETLEN IGAZSÁGFORRÁS a TV Doktor 0-ablakához és a kézi naplóhoz.
+ *
+ * A korábbi kód két, egymásnak ellentmondó számot mutatott: a négy bal doboz a
+ * HELYI naplóbejegyzéseket számolta, az alsó „Tanult útvonalak” lista viszont
+ * KIZÁRÓLAG a Supabase-ből olvasott (és `ok > 0`-ra szűrt) útvonalakat. Ha a
+ * nullázás után a TV helyben már tanult, de a felhő még nem szinkronizált, a
+ * doboz 4-et, a lista 0-t mutatott – és a kézi napló is a globális számlálót
+ * írta ki, mintha az a bal doboz lenne.
+ *
+ * Ez a függvény ugyanabból a pillanatképből adja
+ *   • a csatornához tartozó naplóbejegyzéseket kategóriánként (a 4 doboz),
+ *   • a HELYI + SUPABASE útvonalak összevont, rangsorolt listáját (max. 8),
+ *   • és a két forrás darabszámát a napló ellenőrző sorához.
+ * A helyi rekord az elsődleges: a frissen tanult, még fel nem töltött útvonal
+ * azonnal látszik, a felhő csak a hiányzó sorokat pótolja.
+ */
+export interface TvDoctorChannelSnapshot {
+  channelKey: string;
+  logsByCategory: Record<DoctorEventCategory, DoctorLogEntry[]>;
+  routes: DoctorRoute[];
+  localRouteCount: number;
+  cloudRouteCount: number;
+}
+
+export function getTvDoctorChannelSnapshot(
+  channel?: (Pick<Channel, 'id' | 'name'> & { countryCode?: string }) | null,
+  cloudRoutes?: readonly DoctorRoute[] | null,
+  storage?: Storage | null,
+): TvDoctorChannelSnapshot {
+  const empty: Record<DoctorEventCategory, DoctorLogEntry[]> = {
+    learning: [], assistance: [], activation: [], channel_error: [],
+  };
+  const record = channel ? getChannelDoctorRecord(channel, storage) : null;
+  const channelKey = record?.channelKey || '';
+  const channelId = channel?.id ? String(channel.id) : '';
+  const allLogs = recentDoctorLogs.slice().reverse();
+  const logsByCategory = empty;
+  if (channel) {
+    for (const entry of allLogs) {
+      if (!((channelKey && entry.channelKey === channelKey)
+        || (channelId && String(entry.channelId || '') === channelId))) continue;
+      const list = logsByCategory[entry.category];
+      if (list) list.push(entry);
+    }
+  }
+  const localRoutes = rankDoctorRouteList(sanitizeDoctorRoutes(record?.routes || []))
+    .filter((route) => route.ok > 0);
+  const fromCloud = sanitizeDoctorRoutes(cloudRoutes || []).filter((route) => route.ok > 0);
+  const merged = new Map<string, DoctorRoute>();
+  for (const route of localRoutes) merged.set(route.id, route);
+  for (const route of fromCloud) if (!merged.has(route.id)) merged.set(route.id, route);
+  const routes = rankDoctorRouteList([...merged.values()]).slice(0, MAX_CHANNEL_ROUTES);
+  return {
+    channelKey,
+    logsByCategory,
+    routes,
+    localRouteCount: localRoutes.length,
+    cloudRouteCount: fromCloud.length,
+  };
+}
+
 export function isDoctorRecordHandled(rec?: ChannelDoctorRecord | null): boolean {
   if (!rec) return false;
   if (rec.source === 'cloud' || rec.source === 'merged') return true;
@@ -2304,7 +2374,7 @@ export function isDoctorRecordHandled(rec?: ChannelDoctorRecord | null): boolean
 }
 
 export function getChannelDoctorRecord(
-  channel?: Pick<Channel, 'id' | 'name' | 'countryCode'> | null,
+  channel?: (Pick<Channel, 'id' | 'name'> & { countryCode?: string }) | null,
   storage?: Storage | null,
 ): ChannelDoctorRecord | null {
   if (!channel) return null;
@@ -3057,7 +3127,7 @@ export function recordDoctorChannelSuccess(params: {
     /*
      * 2.5.294: MINDEN ADÁSBÓL TANULUNK – a sikeres indulás bekerül a csatorna
      * saját útvonal-táblájába (formátum + pufferprofil együtt mérve).
-     * A 2–8. tanult helyekre kerül; az 1-es alapútvonal külön vész-tartalék.
+     * A tanult helyekre kerül; az 1-es alapútvonal külön vész-tartalék.
      */
     const baseline = getDoctorBaseline(channel, storage);
     const routeResult = recordDoctorRouteOutcome({
@@ -3075,7 +3145,7 @@ export function recordDoctorChannelSuccess(params: {
         channel,
         `Új tanult útvonal: ${format.toUpperCase()} + ${bufferProfile} (${safeMs} ms) – `
         + `tanult hely=${learnedPosition > 1 ? learnedPosition : 'kiesett'}; `
-        + `${Math.min(MAX_CHANNEL_ROUTES, (rec.routes || []).length)}/${MAX_CHANNEL_ROUTES} tanult útvonal (2–8. hely)`
+        + `${Math.min(MAX_CHANNEL_ROUTES, (rec.routes || []).length)}/${MAX_CHANNEL_ROUTES} tanult útvonal (max. 8)`
         + (routeResult.dropped ? `; kiesett a leggyengébb: ${routeResult.dropped.id}` : '') + '.',
         'learning',
         storage,
@@ -4153,7 +4223,7 @@ export interface CloudChannelProfileInput {
   stallCount?: number;
   repairSuccessCount?: number;
   bufferScores?: Partial<Record<DoctorBufferProfileId, BufferProfileStats>>;
-  /* 2.5.294: a felhőből visszakapott tanult útvonalak (max. 7 tanult hely). */
+  /* 2.5.294 / 2.5.392: a felhőből visszakapott tanult útvonalak (max. 8 tanult hely). */
   routes?: unknown;
   confidenceScore?: number;
 }

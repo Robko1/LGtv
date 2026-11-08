@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { AppSettings, Channel } from '../types/iptv';
 import { TvDoctorIcon } from './TvDoctorIcon';
-import { dateTimeText } from '../services/appLog';
+import { appLog, dateTimeText } from '../services/appLog';
 import {
   DoctorEventCategory,
   DoctorLogEntry,
@@ -23,12 +23,12 @@ import {
   DOCTOR_BUFFER_CONFIGS,
   formatDoctorBytes,
   getChannelDoctorRecord,
+  getTvDoctorChannelSnapshot,
   getTvDoctorMemoryStats,
   getTvDoctorOperationHealth,
   getTvDoctorSummary,
   isChannelHandledByDoctor,
   logTvDoctorPanel,
-  rankDoctorRouteList,
   sanitizeDoctorRoutes,
   DoctorRoute,
   subscribeTvDoctorUpdates,
@@ -150,14 +150,6 @@ const CATEGORY_BY_ID: Record<DoctorEventCategory, CategoryVisualMeta> = {
   channel_error: CATEGORY_VISUALS[3],
 };
 
-function resolveEntryCategory(entry: DoctorLogEntry): DoctorEventCategory {
-  if (entry.category && CATEGORY_BY_ID[entry.category]) return entry.category;
-  if (entry.level === 'error') return 'channel_error';
-  if (entry.level === 'warn') return 'activation';
-  if (entry.level === 'repair' || entry.level === 'verified') return 'assistance';
-  return 'learning';
-}
-
 function safeDoctorFormat(format: unknown): string {
   const value = typeof format === 'string' ? format.trim().toLowerCase() : '';
   if (value === 'ts') return 'TS';
@@ -188,6 +180,8 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
   });
   const [largeCat, setLargeCat] = useState<DoctorEventCategory | null>(null);
   const [cloudRoutes, setCloudRoutes] = useState<DoctorRoute[] | null>(null);
+  /** 2.5.392: a Memória: 0 után a felhő-útvonalak újraolvasását kényszeríti. */
+  const [resetVersion, setResetVersion] = useState(0);
   const largeScrollRef = useRef<HTMLDivElement | null>(null);
 
   const modalCardRef = useRef<HTMLDivElement | null>(null);
@@ -246,19 +240,17 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
         if (!cancelled) setCloudRoutes([]);
       });
     return () => { cancelled = true; };
-  }, [isOpen, activeChannel?.id, activeChannel?.name, activeChannel?.countryCode, settings.tvDoctorEnabled]);
+  }, [isOpen, activeChannel?.id, activeChannel?.name, activeChannel?.countryCode, settings.tvDoctorEnabled, resetVersion]);
 
+  /* 2.5.392: a nyitási napló is az ÖSSZEVONT (helyi + Supabase)
+     pillanatképből készül. A felhő útvonalai aszinkron érkeznek, ezért
+     megvárjuk őket, és nyitásonként PONTOSAN EGYSZER írunk. */
+  const openLogDoneRef = useRef(false);
   useEffect(() => {
-    if (!isOpen) return undefined;
-    const record = activeChannel ? getChannelDoctorRecord(activeChannel) : null;
-    const routes = record ? rankDoctorRouteList(record.routes || []) : [];
-    logTvDoctorPanel('megnyitva (0 gomb)', {
-      csatorna: activeChannel?.name || 'nincs',
-      ország: activeChannel?.countryCode || 'nincs',
-      tanultÚtvonalak: routes.length,
-      legjobb: routes[0] ? `${safeDoctorFormat(routes[0].format)}+${routes[0].bufferProfile}` : 'még nincs',
-      mód: settings.tvDoctorEnabled === false ? 'kikapcsolva' : 'aktív',
-    });
+    if (!isOpen) {
+      openLogDoneRef.current = false;
+      return undefined;
+    }
     return () => {
       logTvDoctorPanel('bezárva', {
         csatorna: activeChannel?.name || 'nincs',
@@ -266,6 +258,25 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen || cloudRoutes === null || openLogDoneRef.current) return;
+    openLogDoneRef.current = true;
+    const snap = getTvDoctorChannelSnapshot(activeChannel, cloudRoutes);
+    logTvDoctorPanel('megnyitva (0 gomb)', {
+      csatorna: activeChannel?.name || 'nincs',
+      ország: activeChannel?.countryCode || 'nincs',
+      tanulás: snap.logsByCategory.learning.length,
+      segítség: snap.logsByCategory.assistance.length,
+      aktiválódás: snap.logsByCategory.activation.length,
+      csatornahiba: snap.logsByCategory.channel_error.length,
+      tanultÚtvonalak: `${snap.routes.length}/${MAX_CHANNEL_ROUTES}`,
+      helyi: snap.localRouteCount,
+      supabase: snap.cloudRouteCount,
+      legjobb: snap.routes[0] ? `${safeDoctorFormat(snap.routes[0].format)}+${snap.routes[0].bufferProfile}` : 'még nincs',
+      mód: settings.tvDoctorEnabled === false ? 'kikapcsolva' : 'aktív',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, cloudRoutes]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -372,29 +383,20 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
       })()
     : 'Még nem történt szinkron';
 
-  const activeChannelRecord = activeChannel ? getChannelDoctorRecord(activeChannel) : null;
-  const activeChannelKey = activeChannelRecord?.channelKey || '';
-  const activeChannelId = activeChannel?.id ? String(activeChannel.id) : '';
-  const orderedLogs = [...doctorSummary.recentLogs]
-    .filter((entry) => Boolean(activeChannel) && (
-      (Boolean(activeChannelKey) && entry.channelKey === activeChannelKey) ||
-      (Boolean(activeChannelId) && String(entry.channelId || '') === activeChannelId)
-    ))
-    .reverse();
   const activeChannelHandled = Boolean(activeChannel && tvDoctorEnabled && isChannelHandledByDoctor(activeChannel));
-  const activeRoutes = cloudRoutes || [];
-
-  // A négy kártya kizárólag a jelenleg megnyitott csatorna saját naplóbejegyzéseit mutatja.
-  const logsByCategory: Record<DoctorEventCategory, DoctorLogEntry[]> = {
-    learning: [],
-    assistance: [],
-    activation: [],
-    channel_error: [],
-  };
-  for (const entry of orderedLogs) {
-    const cat = resolveEntryCategory(entry);
-    if (cat in logsByCategory) logsByCategory[cat].push(entry);
-  }
+  /*
+   * 2.5.392: a 4 bal doboz ÉS az alsó útvonallista UGYANABBÓL a
+   * pillanatképből készül (helyi tanulás + Supabase). Korábban a lista csak a
+   * felhőt nézte, ezért a „Memória: 0” után a doboz 4 tanulást, a lista 0/7
+   * útvonalat mutatott – és a kézi napló is harmadik, globális számot írt.
+   */
+  const channelSnapshot = getTvDoctorChannelSnapshot(activeChannel, cloudRoutes);
+  const activeRoutes = channelSnapshot.routes;
+  const logsByCategory = channelSnapshot.logsByCategory;
+  /* A kompatibilis `data-tv-doctor-log-count` a csatorna ÖSSZES naplósorát mutatja. */
+  const orderedLogs = (['learning', 'assistance', 'activation', 'channel_error'] as DoctorEventCategory[])
+    .flatMap((cat) => logsByCategory[cat])
+    .sort((a, b) => b.at - a.at);
   const displayLogsByCategory: Record<DoctorEventCategory, DoctorLogEntry[]> = {
     learning: logsByCategory.learning.slice(0, 8),
     assistance: [...logsByCategory.assistance].sort((a, b) => {
@@ -411,6 +413,23 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
   const handleResetMemory = async () => {
     setResetFeedback(false);
     const cloudReset = await resetTvDoctorAllToZero();
+    /*
+     * 2.5.392: a gomb után a KÉPERNYŐN is azonnal 0 legyen. Korábban a
+     * `cloudRoutes` state az előző (még élő) felhő-pillanatképet tartotta,
+     * ezért a dobozok 0-t, az útvonallista pedig továbbra is régi sorokat
+     * mutatott – a TV és a Supabase látszólag nem egyezett.
+     */
+    setCloudRoutes([]);
+    setResetVersion((n) => n + 1);
+    setUiTick((n) => n + 1);
+    const after = getTvDoctorChannelSnapshot(activeChannel, []);
+    appLog(
+      `TV DOKTOR NULLÁZÁS ELLENŐRZÉS: dobozok=(tanulás=${after.logsByCategory.learning.length}, `
+      + `segítség=${after.logsByCategory.assistance.length}, aktiválódás=${after.logsByCategory.activation.length}, `
+      + `csatornahiba=${after.logsByCategory.channel_error.length}); tanult_útvonalak=${after.routes.length}/${MAX_CHANNEL_ROUTES}; `
+      + `helyi=${after.localRouteCount}; supabase_törlés=${cloudReset ? 'KÉSZ' : 'VÁRÓLISTÁN'}; `
+      + `supabase_újraolvasás=indítva.`,
+    );
     // Ne írjunk új TV Doktor naplósort a nullázás után: a felhasználó 0 naplósort kért.
     setResetFeedback(cloudReset);
     if (resetFeedbackTimerRef.current !== null) window.clearTimeout(resetFeedbackTimerRef.current);
@@ -822,9 +841,6 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               : vis.subtitle}
           </span>
         </div>
-        <div className="text-xs font-bold text-slate-400 mt-1">
-          OK / Enter: minden mentett részlet • {cat === 'learning' ? 'összes tanulás' : 'legjobb 8 javítás'} • lapozható
-        </div>
       </div>
     );
   };
@@ -911,7 +927,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                     {activeRoutes.length} / {MAX_CHANNEL_ROUTES}
                   </span>
                 </div>
-                <p className="text-xs lg:text-sm font-bold text-emerald-300/90 text-center -mt-1 shrink-0">A tárolt adatokból dolgozik — valós mérések a hosszú memóriából/Supabase-ből</p>
+                <p className="text-xs lg:text-sm font-bold text-emerald-300/90 text-center -mt-1 shrink-0">Helyi tanulás + Supabase, egy pillanatképből — {channelSnapshot.localRouteCount} helyi / {channelSnapshot.cloudRouteCount} felhő</p>
                 <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
                   {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => {
                     const route = activeRoutes[idx] || null;

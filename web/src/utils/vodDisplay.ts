@@ -1,4 +1,5 @@
-import { UNKNOWN_LANGUAGE } from '../services/vodMetadata';
+import { UNKNOWN_LANGUAGE, parseMovieCatalogMetadata } from '../services/vodMetadata';
+import type { Movie } from '../types/iptv';
 
 /**
  * A szolgáltató által visszaadott, megjeleníthető nyelvnevek.
@@ -32,6 +33,30 @@ export function formatRuntime(minutes?: number | null): string {
   const value = Math.round(Number(minutes) || 0);
   if (!Number.isFinite(value) || value <= 0) return '';
   return `${value} perc`;
+}
+
+/**
+ * 2.5.392 – A MOZI-PLAKÁT JÁTÉKIDEJE a MÁR ELMENTETT szolgáltatói adatból.
+ *
+ * A `durationMinutes` a lista (`get_vod_streams`) feldolgozásakor kerül a
+ * tartós sorba, és a `decodeMovies()` vissza is fejti. Előfordul viszont, hogy
+ * a lista nem adja meg a játékidőt, de a később megnyitott és SZINTÉN
+ * elmentett `get_vod_info` válasz (`detailProviderData`) igen. Ebben az
+ * esetben sem kérünk új adatot: a mentett nyers válaszból olvassuk ki.
+ */
+export function movieRuntimeLabel(
+  movie: Pick<Movie, 'durationMinutes' | 'providerData' | 'detailProviderData'>,
+): string {
+  const direct = formatRuntime(movie?.durationMinutes);
+  if (direct) return direct;
+  for (const raw of [movie?.detailProviderData, movie?.providerData]) {
+    if (!raw || typeof raw !== 'object') continue;
+    try {
+      const label = formatRuntime(parseMovieCatalogMetadata(raw).durationMinutes);
+      if (label) return label;
+    } catch { /* a nyers szolgáltatói adat sosem akadályozhatja a kártyát */ }
+  }
+  return '';
 }
 
 /**

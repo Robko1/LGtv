@@ -5,7 +5,7 @@ import { PosterImage, preloadPosterImage } from './PosterImage';
 import { VodDetailSheet } from './VodDetailSheet';
 import { Filter, ChevronDown, Clock } from 'lucide-react';
 import { normalizeTvKey } from '../utils/tvKeys';
-import { formatRuntime, sortByReleaseYearDesc } from '../utils/vodDisplay';
+import { movieRuntimeLabel, sortByReleaseYearDesc } from '../utils/vodDisplay';
 import { flagFor } from '../utils/flags';
 import { yearFromTitle } from '../services/catalogRows';
 
@@ -419,6 +419,21 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                   {/* 2.5.245: a listán KIZÁRÓLAG a poszter látszik (csillag/értékelés nélkül). */}
                   <PosterImage src={mov.poster} title={mov.title} kind="movie" localOnly alt={mov.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   {/*
+                    * 2.5.392 – JÁTÉKIDŐ A PLAKÁT JOBB FELSŐ SARKÁBAN.
+                    * A szolgáltatótól MÁR lekérdezett és a tartós tárba elmentett
+                    * adatból dolgozunk (`durationMinutes`, illetve a mentett
+                    * get_vod_info nyers válasz); nincs új hálózati kérés.
+                    */}
+                  {movieRuntimeLabel(mov) && (
+                    <span
+                      data-movie-runtime=""
+                      className="pointer-events-none absolute right-2 top-2 z-10 inline-flex max-w-[85%] items-center gap-1 rounded-lg border border-cyan-300/50 bg-black/80 px-2 py-1 font-mono text-xs sm:text-sm font-black text-cyan-100 shadow-[0_2px_8px_rgba(0,0,0,0.7)]"
+                    >
+                      <Clock className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{movieRuntimeLabel(mov)}</span>
+                    </span>
+                  )}
+                  {/*
                     * 2.5.298 – PIROS KUKA A POSZTER JOBB FELSŐ SARKÁBAN.
                     *
                     * A felhasználó kérése: minden mozis poszteren legyen egy
@@ -436,10 +451,10 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
                       {/* 2.5.255 (#7): év akkor is látszik, ha csak a címből olvasható ki. */}
                       {mov.year > 0 ? mov.year : yearFromTitle(mov.title) || ''}
                     </span>
-                    {formatRuntime(mov.durationMinutes) && (
+                    {movieRuntimeLabel(mov) && (
                       <span className="flex min-w-0 items-center justify-end gap-1 truncate text-sm sm:text-base font-bold text-cyan-200">
                         <Clock className="h-4 w-4 shrink-0" />
-                        <span className="truncate">{formatRuntime(mov.durationMinutes)}</span>
+                        <span className="truncate">{movieRuntimeLabel(mov)}</span>
                       </span>
                     )}
                   </div>
