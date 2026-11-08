@@ -44,7 +44,12 @@ const PAGE_SIZE = 25;
  * és nincs előre betöltve semmi, amire még nincs szükség.
  */
 const NEXT_BATCH_AT = 15;
-let movieReturnSnapshot: { scrollTop: number; visibleCount: number } | null = null;
+/*
+ * 2.5.394: a lejátszásból visszatérve NEM a kategóriákra, hanem UGYANARRA
+ * a poszterre kell kerülnie a kijelölőnek. Ezért a görgetési pozíció mellett
+ * a kiválasztott kártya azonosítóját is megjegyezzük.
+ */
+let movieReturnSnapshot: { scrollTop: number; visibleCount: number; focusCardId?: string; focusPosterIndex?: number } | null = null;
 
 const MoviesViewComponent: React.FC<MoviesViewProps> = ({
   movies,
@@ -181,6 +186,33 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
     preloadedThroughRef.current = 0;
   }, [selectedCategory]);
 
+  /** 2.5.394: a lejátszás után a KIVÁLASZTOTT plakát kapja vissza a fókuszt. */
+  const restorePosterFocus = (snapshot: typeof movieReturnSnapshot) => {
+    if (!snapshot) return;
+    const findCard = (): HTMLElement | null => {
+      const grid = movieGridRef.current;
+      if (!grid) return null;
+      const byId = snapshot.focusCardId
+        ? grid.querySelector<HTMLElement>(`[data-vod-card="${CSS.escape ? CSS.escape(snapshot.focusCardId) : snapshot.focusCardId}"]`)
+        : null;
+      if (byId) return byId;
+      if (typeof snapshot.focusPosterIndex === 'number') {
+        return grid.querySelector<HTMLElement>(`[data-poster-index="${snapshot.focusPosterIndex}"]`);
+      }
+      return null;
+    };
+    const apply = () => {
+      const card = findCard();
+      if (!card || !isActive) return false;
+      try { card.focus({ preventScroll: true } as FocusOptions); } catch { card.focus(); }
+      return document.activeElement === card;
+    };
+    window.requestAnimationFrame(() => {
+      if (apply()) return;
+      window.setTimeout(() => { if (!apply()) window.setTimeout(apply, 240); }, 80);
+    });
+  };
+
   useEffect(() => {
     const snapshot = movieReturnSnapshot;
     if (!snapshot) return;
@@ -212,13 +244,21 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
       setSelectedMovieId(null);
     }
     if (!wasActiveRef.current && isActive) {
-      // Visszatérés lejátszásból: a pozíció él (a nézet a DOM-ban maradt),
-      // a megjegyzett pillanatkép pedig elfogy, hogy a KÖVETKEZŐ kilépés
-      // már tényleg az elejére állítson vissza.
-      movieReturnSnapshot = null;
+      /*
+       * 2.5.394: VISSZATÉRÉS LEJÁTSZÁSBÓL – a megjegyzett poszter kapja
+       * vissza a fókuszt. Korábban a pillanatképet itt egyszerűen eldobtuk,
+       * az App generikus nézetváltó hatása pedig a kategória gombra ugrott.
+       */
+      const snapshot = movieReturnSnapshot;
+      if (snapshot) {
+        restorePosterFocus(snapshot);
+        if (movieGridRef.current) movieGridRef.current.scrollTop = snapshot.scrollTop;
+        setVisibleCount(snapshot.visibleCount);
+        movieReturnSnapshot = null;
+      }
     }
     wasActiveRef.current = isActive;
-  }, [isActive]);
+  }, [isActive, restorePosterFocus]);
 
   const visibleMovies = useMemo(() => filteredMovies.slice(0, visibleCount), [filteredMovies, visibleCount]);
 
@@ -477,7 +517,9 @@ const MoviesViewComponent: React.FC<MoviesViewProps> = ({
           provider={activeProvider ?? null}
           onItemEnriched={(enriched) => onVodItemEnriched?.(enriched as Movie)}
           onPlayMovie={(mov) => {
-            movieReturnSnapshot = { scrollTop: movieGridRef.current?.scrollTop ?? 0, visibleCount };
+            const activeCard = document.activeElement as HTMLElement | null;
+            const idx = activeCard?.getAttribute?.('data-poster-index');
+            movieReturnSnapshot = { scrollTop: movieGridRef.current?.scrollTop ?? 0, visibleCount, focusCardId: String(mov.id), focusPosterIndex: idx !== null && idx !== undefined ? Number(idx) : undefined };
             setSelectedMovieId(null);
             onPlayMovie(mov);
           }}

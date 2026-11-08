@@ -228,8 +228,77 @@ export function stopTvDoctorPlaybackTelemetry(): void {
 
 
 export const TV_DOCTOR_HU_SCOPE_STORAGE_KEY = 'iptv_rt_tv_doctor_hu_scope_v1';
+export const TV_DOCTOR_CENTRAL_PROFILES_STORAGE_KEY = 'iptv_rt_tv_doctor_central_profiles_v1';
+
+/**
+ * 2.5.394 – A SUPABASE-BEN ELMENTETT, SORRENDI MAGYAR CSATORNA (központi profil).
+ *
+ * Az `id` a MENTÉS pillanatának provider-ID-je. Egy újrajelentkezés után a TV
+ * ugyanazt a csatornát más `live-qr_<timestamp>` prefixszel kapja, ezért az
+ * azonosítás a `channelKey` (stabil, névből képzett `hu:...` kulcs) alapján
+ * történik. Az ID csak kiegészítő információ, SOHA nem szűrési feltétel.
+ */
+export interface SavedLayoutChannel {
+  id?: string;
+  nameKey?: string;
+  channelKey: string;
+  name: string;
+  position: number;
+}
+export interface TvDoctorCentralProfileState {
+  count: number;
+  channels: Array<SavedLayoutChannel & { baselineSlotOne: boolean; learnedRouteCount: number }>;
+  baselines: number;
+  learnedRoutes: number;
+  updatedAt: number | null;
+}
+
 let activeHungarianChannelIds: Set<string> | null = null;
 let activeHungarianChannelCount = 0;
+let activeHungarianChannelKeys: Set<string> = new Set();
+let activeLayoutChannels: SavedLayoutChannel[] = [];
+
+/** A mentett elrendezés nevéből ugyanaz a stabil kulcs, mint az Edge Functioné. */
+export function normalizeSavedLayoutChannelKey(nameKey?: string | null): string {
+  const raw = String(nameKey || '').split('|')[0].trim().toLowerCase();
+  if (!raw) return '';
+  let country = '';
+  let name = raw;
+  const bracket = raw.match(/^\s*\[([a-z]{2,4})\]\s*(.+)$/);
+  if (bracket) { country = bracket[1]; name = bracket[2]; }
+  const slug = foldAscii(name)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 88);
+  if (!slug) return '';
+  return (country ? `${country.slice(0, 4)}:` : '') + slug;
+}
+
+function layoutChannelDisplayName(nameKey?: string | null, fallback?: string | null): string {
+  const raw = String(nameKey || '').split('|')[0].trim();
+  const cleaned = raw.replace(/^\s*\[[a-z]{2,4}\]\s*/i, '').trim();
+  return cleaned ? `[HU] ${cleaned.toUpperCase()}` : String(fallback || '');
+}
+
+function coerceLayoutChannels(raw: unknown): SavedLayoutChannel[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SavedLayoutChannel[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const key = String(row.channelKey || normalizeSavedLayoutChannelKey(String(row.nameKey || ''))).trim().toLowerCase();
+    if (!key || key.startsWith('vod:')) continue;
+    out.push({
+      id: typeof row.id === 'string' ? row.id : undefined,
+      nameKey: typeof row.nameKey === 'string' ? row.nameKey : undefined,
+      channelKey: key,
+      name: String(row.name || layoutChannelDisplayName(String(row.nameKey || ''), key)).slice(0, 140),
+      position: Number.isFinite(Number(row.position)) ? Number(row.position) : out.length + 1,
+    });
+  }
+  return out.sort((a, b) => a.position - b.position);
+}
+
 try {
   if (typeof localStorage !== 'undefined') {
     const rawScope = localStorage.getItem(TV_DOCTOR_HU_SCOPE_STORAGE_KEY);
@@ -238,10 +307,17 @@ try {
       activeHungarianChannelIds = new Set(parsedScope.channelIds.filter((id: unknown) => typeof id === 'string' && id.length > 0));
       activeHungarianChannelCount = activeHungarianChannelIds.size;
     }
+    if (Array.isArray(parsedScope?.channelKeys)) {
+      activeHungarianChannelKeys = new Set(parsedScope.channelKeys.filter((k: unknown): k is string => typeof k === 'string' && k.length > 0));
+    }
+    activeLayoutChannels = coerceLayoutChannels(parsedScope?.layoutChannels);
+    if (activeLayoutChannels.length) activeHungarianChannelCount = activeLayoutChannels.length;
   }
 } catch {
   activeHungarianChannelIds = null;
   activeHungarianChannelCount = 0;
+  activeHungarianChannelKeys = new Set();
+  activeLayoutChannels = [];
 }
 
 // Első indulás az új TV Doktor memóriával: a régi tanulási tárat és várólistát fizikailag is töröljük.
@@ -1740,7 +1816,21 @@ export function isHungarianDoctorChannel(
   if (code) return false;
   if (activeHungarianChannelIds) {
     const id = String(channel.id || channel.channelId || channel.channelIdHint || '').trim();
-    return Boolean(id && activeHungarianChannelIds.has(id));
+    if (id && activeHungarianChannelIds.has(id)) return true;
+    /*
+     * 2.5.394: a mentett elrendezés ID-je elavulhat (új `qr_...` prefix),
+     * de a csatorna NEVE ugyanaz marad. Ilyenkor a stabil névkulcs dönt.
+     * E nélkül a #35–38 naplókban minden tanulás elveszett: 0/80.
+     */
+    if (activeHungarianChannelKeys.size) {
+      const key = normalizeChannelDoctorKey({
+        id: String(channel.id || ''),
+        name: String(channel.name || ''),
+      } as any);
+      if (activeHungarianChannelKeys.has(key)) return true;
+      if (activeHungarianChannelKeys.has(key.replace(/^[a-z]{2,4}:/, ''))) return true;
+    }
+    return false;
   }
   // Országkód nélküli (ritka) csatornánál a kategória/nevünk dönt.
   const hay = `${channel.categoryName || ''} ${channel.name || ''}`;
@@ -1751,19 +1841,29 @@ export function isHungarianDoctorChannel(
 export function isPersistableDoctorRecord(record?: { countryCode?: string; channelKey?: string; channelName?: string; channelId?: string; channelIdHint?: string } | null): boolean {
   if (!record) return false;
   const id = String(record.channelId || record.channelIdHint || '').trim();
-  // Ha van csatornaazonosító, a TV aktuális magyar csatornalistájával ellenőrizzük.
-  // A felhőből érkező útvonalrekordok viszont szándékosan csak channel_key + country_code
-  // mezőt tartalmaznak; ezeket ID hiányában is vissza kell engedni, különben a
-  // beállított magyar csatorna-szűrő minden felhőrekordot eldob.
-  if (id && activeHungarianChannelIds) return activeHungarianChannelIds.has(id);
   const code = String((record as any).countryCode || '').trim().toUpperCase();
-  if (code === 'HU') return true;
   const key = String((record as any).channelKey || '').trim().toLowerCase();
-  if (key.startsWith('hu:')) return true;
-  if (code) return false;
   const name = String((record as any).channelName || '');
+  /*
+   * 2.5.394 – A HIBA: korábban az első sor az volt, hogy ha a rekordnak van
+   * ID-je, akkor CSAK az elmentett (már elavult) ID-listán lévőket engedtük.
+   * A TV aktuális ID-je más prefixszel jön, ezért a saját tanulását a
+   * `persistedSnapshot()` még a MENTÉS ELŐTT kidobta -> `tanult_csatornák=0/80`.
+   *
+   * Most a STABIL adatok döntenek: kifejezett HU országkód, `hu:` névkulcs,
+   * vagy a mentett elrendezésben szereplő névkulcs. Az ID csak ezután jön.
+   */
+  if (code === 'HU') return true;
+  if (key.startsWith('hu:')) return true;
+  if (activeHungarianChannelKeys.has(key)) return true;
+  if (id && activeHungarianChannelIds && activeHungarianChannelIds.has(id)) return true;
+  if (code) return false;
+  if (/^\s*\[hu\]/i.test(name)) return true;
+  // Ha van mentett magyar kör, akkor csak az abba tartozó rekordot őrizzük.
+  if (id && activeHungarianChannelIds) return false;
   return /magyar|hungary/i.test(name);
 }
+
 
 /* ============================================================================
  * 2.5.294: CSAK A SZÜKSÉGESET TÁROLJUK – automatikus újraírás/tisztítás
@@ -2024,48 +2124,61 @@ function persistStoreNow(store: DoctorStoreData, target: Storage): void {
   }
 }
 
-export function setTvDoctorHungarianChannelScope(channelIds: string[], checkedAt?: string): void {
+export function setTvDoctorHungarianChannelScope(
+  channelIds: string[],
+  checkedAt?: string,
+  layoutChannels?: SavedLayoutChannel[] | null,
+  storage?: Storage | null,
+): void {
   const cleanIds = Array.from(new Set((Array.isArray(channelIds) ? channelIds : [])
     .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
     .map((id) => id.trim().slice(0, 120))));
   activeHungarianChannelIds = new Set(cleanIds);
-  activeHungarianChannelCount = cleanIds.length;
+  const parsedLayout = coerceLayoutChannels(layoutChannels);
+  if (parsedLayout.length) {
+    activeLayoutChannels = parsedLayout;
+    activeHungarianChannelKeys = new Set(parsedLayout.map((c) => c.channelKey));
+    activeHungarianChannelCount = parsedLayout.length;
+  } else {
+    activeHungarianChannelCount = cleanIds.length;
+  }
   try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(TV_DOCTOR_HU_SCOPE_STORAGE_KEY, JSON.stringify({
+    const target = getStorage(storage);
+    if (target) {
+      target.setItem(TV_DOCTOR_HU_SCOPE_STORAGE_KEY, JSON.stringify({
         channelIds: cleanIds,
+        channelKeys: Array.from(activeHungarianChannelKeys),
+        layoutChannels: activeLayoutChannels,
         checkedAt: checkedAt || new Date().toISOString(),
       }));
     }
   } catch {
     /* A helyi lista frissítése hálózati siker esetén memóriában akkor is érvényes. */
   }
-  const store = readStore();
+  const store = readStore(storage);
   for (const [key, record] of Object.entries(store.byKey)) {
     /*
-     * A Supabase útvonal-visszatöltés szándékosan channelKey + countryCode
-     * alapján is létrehozhat rekordot channelId nélkül. Ezeket korábban a
-     * HU-csatornalista frissítése tévesen törölte, ezért a visszatöltött
-     * tanult útvonalak eltűntek a TV-ről és a következő mentésből.
-     *
-     * Ha van konkrét provider ID, azt továbbra is szigorúan ellenőrizzük.
-     * ID nélküli rekordot csak akkor tartunk meg, ha a rekord saját adatai
-     * alapján bizonyíthatóan magyar csatornához tartozik.
+     * 2.5.394: a régi kód MINDEN olyan rekordot törölt, aminek volt ID-je de
+     * nem szerepelt az elmentett (elavult) ID-listában. Így a TV friss
+     * csatornáiról tanult útvonalak a következő bootstrapnél eltűntek.
+     * Most a HU-azonosság (országkód / `hu:` kulcs / mentett névkulcs) dönt.
      */
     const hasChannelId = Boolean(record.channelId);
-    const keepRecord = hasChannelId
-      ? activeHungarianChannelIds.has(String(record.channelId))
-      : isPersistableDoctorRecord(record);
+    const keepRecord = isPersistableDoctorRecord(record)
+      || (hasChannelId && activeHungarianChannelIds.has(String(record.channelId)));
     if (!keepRecord) delete store.byKey[key];
   }
   for (const [id, key] of Object.entries(store.idIndex)) {
-    if (!activeHungarianChannelIds.has(id) || !store.byKey[key]) delete store.idIndex[id];
+    const stillAllowed = activeHungarianChannelIds.has(id)
+      || isPersistableDoctorRecord(store.byKey[key]);
+    if (!stillAllowed || !store.byKey[key]) delete store.idIndex[id];
   }
-  const target = getStorage();
+  const target = getStorage(storage);
   if (target) persistStoreNow(store, target);
   else memoryCache = store;
   notifyTvDoctorListeners();
 }
+
 
 function attachLifecycleFlushOnce(): void {
   if (lifecyclePersistAttached || typeof window === 'undefined') return;
@@ -4637,5 +4750,154 @@ export function planVodDoctorRepairStep(params: {
     forceCleanReset: true,
     stopRetrying: false,
     exhausted: false,
+  };
+}
+
+
+/* ============================================================================
+ * 2.5.394 – KÖZPONTI PROFILOK: a Supabase-ben elmentett, SORRENDI 80 magyar
+ * csatorna visszaépítése a TV-n (`tv -> Supabase -> tv` teljes kör).
+ *
+ * A #35–38 naplókban `Memória: 0` / IPK-restart után a TV `0/80`-at mutatott:
+ * a bootstrap csak a (kiürült) tanult profilokat kérte, a kézzel elmentett
+ * csatornaelrendezést viszont egyáltalán nem adta vissza. A felhasználó
+ * elvárása: „ami fönt van a Supabase-en, azt kell megjeleníteni a tévén is”.
+ *
+ * Ez a függvény a bootstrap `layoutChannels` válaszából mind a 80 csatornáról
+ * létrehoz egy helyi TV Doktor rekordot (stabil `hu:...` névkulccsal),
+ * visszaállítja a zárolt 1-es alapot, és beolvasztja a 2-esnél tanult
+ * útvonalakat. Az 1-es alap SOHA nem íródik felül.
+ * ========================================================================== */
+export interface RestoreCentralProfilesParams {
+  layoutChannels?: SavedLayoutChannel[] | null;
+  /** A bootstrap `baselines` válasza: { channel_key, baseline }. */
+  baselines?: Array<{ channel_key?: string; channelKey?: string; baseline?: unknown }> | null;
+  /** A bootstrap `profiles` válasza (mapProfileRow alakú, camelCase). */
+  profiles?: Array<Record<string, unknown>> | null;
+  /** A tv_doctor_routes_fetch RPC sora (snake_case). */
+  routes?: Array<{ channel_key?: string; country_code?: string; routes?: unknown }> | null;
+}
+
+export function restoreTvDoctorCentralProfiles(
+  params: RestoreCentralProfilesParams,
+  storage?: Storage | null,
+): { restored: number; baselineCount: number; routeCount: number } {
+  const supplied = coerceLayoutChannels(params.layoutChannels);
+  const channels = supplied.length ? supplied : activeLayoutChannels;
+  const target = getStorage(storage);
+  const store = readStore(storage);
+  let restored = 0;
+
+  for (const channel of channels) {
+    const key = channel.channelKey;
+    if (!key || key.startsWith('vod:')) continue;
+    const existing = store.byKey[key];
+    if (!existing) {
+      const cfg = DOCTOR_BUFFER_CONFIGS.balanced;
+      store.byKey[key] = {
+        channelKey: key,
+        channelName: channel.name || key,
+        countryCode: 'HU',
+        bestFormat: 'ts',
+        bestBufferProfile: 'balanced',
+        bestBufferAheadSeconds: cfg.minBufferAheadSeconds,
+        tsAvgStartupMs: null,
+        hlsAvgStartupMs: null,
+        bestStartupMs: null,
+        tsOk: 0, tsFail: 0, hlsOk: 0, hlsFail: 0, stalls: 0, repairsOk: 0,
+        bufferStats: {},
+        routes: [],
+        source: 'cloud',
+        updatedAt: Date.now(),
+      } as ChannelDoctorRecord;
+    } else if (!existing.countryCode) {
+      existing.countryCode = 'HU';
+    }
+    /* A visszaállított profilok SZÁMA nem a „most létrehozottaké”, hanem
+       azé, ahány mentett csatorna ténylegesen jelen van a TV-n (80/80). */
+    restored += 1;
+  }
+
+  /* A mentett, sorrendi lista tartósan is megmaradjon: a 0-ablak ebből
+     dolgozik akkor is, amikor a hálózat épp nem elérhető. */
+  if (channels.length) {
+    activeLayoutChannels = channels;
+    activeHungarianChannelKeys = new Set(channels.map((c) => c.channelKey));
+    activeHungarianChannelCount = channels.length;
+    try {
+      target?.setItem(TV_DOCTOR_CENTRAL_PROFILES_STORAGE_KEY, JSON.stringify({
+        version: 1, channels, updatedAt: Date.now(),
+      }));
+    } catch { /* a tároló megtelése nem akadályozhatja a visszatöltést */ }
+  }
+
+  /* 1-es alap: csak a HIÁNYZÓ helyi alapot visszük át, a meglévő zárolt. */
+  const baselineItems = (Array.isArray(params.baselines) ? params.baselines : [])
+    .map((item) => ({
+      channelKey: String(item?.channel_key || item?.channelKey || ''),
+      baseline: item?.baseline,
+    }))
+    .filter((item) => item.channelKey && item.baseline);
+  const baselineCount = restoreDoctorBaselinesFromCloud(baselineItems, storage);
+
+  /* 2-es és további tanult útvonalak: a felhőben lévő tudás is látszódjon. */
+  const routeRows: Array<{ channel_key?: string; country_code?: string; routes?: unknown }> = [];
+  for (const row of Array.isArray(params.routes) ? params.routes : []) {
+    if (row && row.channel_key) routeRows.push(row);
+  }
+  for (const row of Array.isArray(params.profiles) ? params.profiles : []) {
+    if (!row) continue;
+    const key = String(row.channelKey || row.channel_key || '');
+    const rawRoutes = row.routes ?? row.routeList;
+    if (key && Array.isArray(rawRoutes) && rawRoutes.length) {
+      routeRows.push({ channel_key: key, country_code: 'HU', routes: rawRoutes });
+    }
+  }
+  const routeCount = routeRows.length ? mergeCloudRoutesIntoLocal(routeRows, storage) : 0;
+
+  /* A központi rekordokat mindenképpen írjuk ki (a felhőbeli útvonalak
+     nélkül is), különben a 0-ablak üres maradna. */
+  if (restored > 0 || channels.length) {
+    writeStore(store, storage);
+    notifyTvDoctorListeners();
+  }
+  return { restored, baselineCount, routeCount };
+}
+
+/** A TV Doktor 0-ablak / napló számára: pontosan mi van a Supabase-ről a TV-n. */
+export function getTvDoctorCentralProfileState(storage?: Storage | null): TvDoctorCentralProfileState {
+  const target = getStorage(storage);
+  let channels: SavedLayoutChannel[] = activeLayoutChannels;
+  let updatedAt: number | null = null;
+  try {
+    const raw = target?.getItem(TV_DOCTOR_CENTRAL_PROFILES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const saved = coerceLayoutChannels(parsed?.channels);
+      if (saved.length) {
+        channels = saved;
+        updatedAt = Number.isFinite(Number(parsed?.updatedAt)) ? Number(parsed.updatedAt) : null;
+      }
+    }
+  } catch { /* sérült mentés esetén a memóriabeli listát használjuk */ }
+  const store = readStore(storage);
+  const baselineStore = readDoctorBaselineStore(storage);
+  let learnedRoutes = 0;
+  const enriched = channels.map((channel) => {
+    const routes = Array.isArray(store.byKey[channel.channelKey]?.routes)
+      ? (store.byKey[channel.channelKey].routes?.length || 0) : 0;
+    learnedRoutes += routes;
+    return {
+      ...channel,
+      baselineSlotOne: Boolean(baselineStore[channel.channelKey]),
+      learnedRouteCount: routes,
+    };
+  });
+  return {
+    count: enriched.length,
+    channels: enriched,
+    baselines: Object.keys(baselineStore).length,
+    learnedRoutes,
+    updatedAt,
   };
 }

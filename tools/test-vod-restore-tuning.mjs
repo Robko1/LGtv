@@ -61,8 +61,12 @@ check(tuning.winnerModelMs < 400 && tuning.maxSyncRowsAllowed === 2500,
 console.log('\n2. IPK gyors indulás');
 const videoWait = Number(main.match(/const VIDEO_WAIT_MS = (\d+);/)?.[1]);
 const logoWait = Number(main.match(/const LOGO_WAIT_MS = (\d+);/)?.[1]);
-check(videoWait > 0 && videoWait <= 400, `videó-várakozás ${videoWait} ms (korábban 1200 ms)`);
-check(logoWait > 0 && logoWait <= 250, `logó-várakozás ${logoWait} ms (korábban 600 ms)`);
+/* 2.5.394: a #37/#35 naplók szerint a maradék 400/250 ms is tiszta
+   veszteség volt – a felfedés azonnal megtörténik, amint a DOM kész. */
+check(videoWait === 0, `videó-várakozás ${videoWait} ms (2.5.394: teljesen eltávolítva)`);
+check(logoWait === 0, `logó-várakozás ${logoWait} ms (2.5.394: teljesen eltávolítva)`);
+check(/waited >= LOGO_WAIT_MS/.test(main) && /waited >= VIDEO_WAIT_MS/.test(main),
+  'nulla küszöbnél az ELSŐ ellenőrzés is enged, nem várunk még 40 ms-t sem');
 check(/if \(!animatedBridge\) \{\s*afterBootAnimation\(\);/.test(main),
   'HTML-híd hiányában a felfedés AZONNAL megtörténik (nincs 400 ms kényszer-várakozás)');
 check(!/migrateVodStorageIfNeeded/.test(app),
@@ -87,6 +91,12 @@ check(/export function getTvDoctorChannelSnapshot/.test(doctor) &&
   'a pillanatkép a helyi tanulást és a felhőt összevonja');
 check(/setCloudRoutes\(\[\]\)/.test(modal) && /setResetVersion\(\(n\) => n \+ 1\)/.test(modal),
   'Memória: 0 után a képernyő azonnal 0-t mutat és újraolvassa a Supabase-t');
+check(/data-tv-doctor-baseline-slot="1"/.test(modal) && /1\. ALAP/.test(modal),
+  '2.5.394: az 1-es HELYEN mindig a zárolt ALAP látszik, a tanult útvonalak csak 2-estől jönnek');
+check(/getTvDoctorCentralProfileState/.test(modal) && /Központi profilok/.test(modal),
+  '2.5.394: a 0-ablak megjeleníti a Supabase-ben elmentett, sorrendi központi profilokat');
+check(/TV DOKTOR SUPABASE KÖR/.test(cloud) && /restoreTvDoctorCloudState\(\)/.test(cloud),
+  '2.5.394: Memória: 0 után azonnal fut a teljes tv -> Supabase -> tv visszatöltés');
 check(/TV DOKTOR NULLÁZÁS ELLENŐRZÉS/.test(modal),
   'a nullázás után ellenőrző naplósor készül a dobozok és útvonalak számaival');
 check(/TV DOKTOR 0-ABLAK ELLENŐRZÉS/.test(cloud) && /ÖSSZESÍTETT_kategóriák/.test(cloud),
@@ -104,4 +114,4 @@ check(/export function movieRuntimeLabel/.test(vodDisplay) &&
 check((moviesView.match(/movieRuntimeLabel\(mov\)/g) || []).length >= 3,
   'a kártya alsó sora és a plakátjelvény ugyanazt a mentett értéket mutatja');
 
-console.log(`\n2.5.392 regressziós teszt: ${checks} sikeres, 0 hibás. ✅\n`);
+console.log(`\n2.5.392 + 2.5.394 regressziós teszt: ${checks} sikeres, 0 hibás. ✅\n`);

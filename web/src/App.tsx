@@ -33,6 +33,7 @@ import {
 import { clearRemovedVod, filterRemovedVod, getRemovedVodIds, removeVodFromMemory } from './services/vodRemovals';
 import { rememberAudioFor } from './services/liveAudioMemory';
 import { appLog, appLogError, logPhase } from './services/appLog';
+import { enrichMovieDurationsInBackground } from './services/vodEnrich';
 import { persistHuLogoOverrides, logHuLogoStore } from './services/huChannelLogos';
 import {
   bootScreenChannels,
@@ -659,6 +660,14 @@ export function App() {
    * bezárásakor (a felhasználó kérése: „a kiválasztás helyére ugorjon”).
    */
   const lastVodSelectionRef = useRef<{ view: 'movies' | 'series'; cardId: string; episodeId?: string } | null>(null);
+  /*
+   * 2.5.394: VOD-VISSZATÉRÉS FÓKUSZA. A generikus nézetváltás-hatás eddig
+   * a Mozi/Sorozat panel ELSŐ gombjára (a Kategóriák választóra) tette a
+   * kijelölőt, és ezzel felülírta a lejátszó visszatérési fókuszát.
+   * A jelző alatt a generikus hatás NEM nyúl a fókuszhoz.
+   */
+  const VOD_RETURN_FOCUS = 'vodReturnFocusPending';
+  const vodReturnFocusPendingRef = useRef(false);
   const movieCategoryRef = useRef('all');
   const seriesCategoryRef = useRef('all');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() =>
@@ -2452,14 +2461,17 @@ export function App() {
     const timer = window.setTimeout(() => {
       const pane = document.querySelector<HTMLElement>(`[data-view-pane="${activeView}"]`);
       if (!pane) return;
+      restorePaneScroll(activeView);
+      /* VOD-visszatéréskor a poszter fókuszát a MoviesView/SeriesView állítja
+         vissza – itt NEM szabad a kategória gombra ugrani. */
+      if (vodReturnFocusPendingRef.current) return;
       const first = pane.querySelector<HTMLElement>(
         'button:not(:disabled), [href], input, [tabindex]:not([tabindex="-1"])'
       );
       first?.focus({ preventScroll: true } as FocusOptions);
-      restorePaneScroll(activeView);
     }, 60);
     return () => window.clearTimeout(timer);
-  }, [activeView, restorePaneScroll]);
+  }, [activeView, restorePaneScroll, VOD_RETURN_FOCUS]);
 
   const handleViewChange = useCallback((view: 'live' | 'movies' | 'series') => {
     /*
@@ -2921,6 +2933,33 @@ export function App() {
       setSeries((current) => current.map((s) => (s.id === series.id ? series : s)));
     }
   }, []);
+
+  /*
+   * 2.5.394 – MOZI PLAKÁT JÁTÉKIDŐ: a bulk `get_vod_streams` NEM adja meg a
+   * játékidőt, az `enrichMovieDurationsInBackground()` viszont meg sem volt
+   * hívva sehonnan (halott kód). Ezért a badge hiába volt kész, a 103 ezer
+   * poszteren nem jelent meg semmi. A nézet megnyitása után, kis
+   * párhuzamossággal és üresjáratban kérjük a hiányzó `get_vod_info` adatot,
+   * a `handleVodItemEnriched` pedig azonnal visszateszi a plakátra.
+   */
+  useEffect(() => {
+    if (activeView !== 'movies' || !activeProvider || movies.length === 0) return;
+    if (activeProvider.type !== 'xtream') return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      // Csak azokat kérjük le, amelyeknek TÉNYLEG hiányzik a játékideje
+      // (a `movieRuntimeLabel` ezeken üres), és csak az első, látható adagot.
+      const missing = movies.filter((mov) => !mov.durationMinutes && !mov.detailProviderData).slice(0, 25);
+      if (missing.length === 0) return;
+      void enrichMovieDurationsInBackground(
+        activeProvider,
+        missing,
+        (enriched) => { if (!cancelled) handleVodItemEnriched('movies', enriched); },
+      );
+    }, 600);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [activeView, activeProvider, movies.length, handleVodItemEnriched]);
 
   // Toggle Favorite for Series
   const handleToggleFavoriteSeries = useCallback((seriesId: string) => {
@@ -5184,6 +5223,9 @@ export function App() {
               setCustomStreamUrl(undefined);
               setCustomStreamTitle(undefined);
               const returnView = vodReturnViewRef.current;
+              // A generikus nézetváltás-hatás ne vegye el a poszter fókuszát.
+              vodReturnFocusPendingRef.current = true;
+              void VOD_RETURN_FOCUS;
               setActiveView(returnView);
               const resumeHistoryId = lastResumeHistoryIdRef.current;
               // A normál Mozi/Sorozat visszatérés maradjon a korábbi útvonalon.
@@ -5209,14 +5251,23 @@ export function App() {
                * Normál Mozi/Sorozat böngészésnél maradjon a korábbi visszatérési logika.
                */
               const selection = lastVodSelectionRef.current;
-              window.setTimeout(() => {
+              /* 2.5.394: A POSZTER AZ ELSŐ. Korábban a `[data-dialog-primary]`
+                 (egy még nyitott adatlap gombja) megelőzte, és ha nem talált
+                 célpontot, a webOS a kategória gombra ugrott. */
+              const focusPoster = () => {
                 const scope = document.querySelector<HTMLElement>(`[data-view-pane="${returnView}"]`) || document;
                 const target =
-                  (selection?.episodeId ? scope.querySelector<HTMLElement>(`[data-vod-episode="${selection.episodeId}"]`) : null)
-                  || scope.querySelector<HTMLElement>('[data-dialog-primary]')
-                  || (selection ? scope.querySelector<HTMLElement>(`[data-vod-card="${selection.cardId}"]`) : null);
-                try { target?.focus({ preventScroll: false }); } catch { target?.focus(); }
-              }, 60);
+                  (selection ? scope.querySelector<HTMLElement>(`[data-vod-card="${selection.cardId}"]`) : null)
+                  || (selection?.episodeId ? scope.querySelector<HTMLElement>(`[data-vod-episode="${selection.episodeId}"]`) : null)
+                  || scope.querySelector<HTMLElement>('[data-dialog-primary]');
+                if (target) {
+                  try { target.focus({ preventScroll: false }); } catch { target.focus(); }
+                  vodReturnFocusPendingRef.current = false;
+                  return true;
+                }
+                return false;
+              };
+              window.setTimeout(() => { if (!focusPoster()) window.setTimeout(() => { if (!focusPoster()) window.setTimeout(focusPoster, 260); }, 200); }, 60);
             }}
             initialPositionSeconds={initialPlaybackPosition}
             onProgress={handlePlaybackProgress}
