@@ -90,6 +90,20 @@ export function startTvDoctorPlaybackTelemetry(): void {
   let maxBufferingMs = 0;
   let sampleCount = 0;
   let lastChannelIdentity = '';
+  /*
+   * 2.5.390 – A #34-es TV DR napló 1970 sorából 1809 volt „PUFFER MÉRÉS”:
+   * a `progress` esemény webOS-en ~350 ms-onként tüzel, erre jött még a
+   * 2 másodperces időzítő. Ez elárasztotta a naplót (és a TV-t folyamatos
+   * írással terhelte) még akkor is, amikor a csatorna tökéletesen ment.
+   * Most a rutinmintákat 30 másodpercenként írjuk, az azonos eseményeket
+   * 250 ms-on belül összevonjuk; a HIBÁK, a pufferelés kezdete/vége és a
+   * csatornaváltás továbbra is AZONNAL, ritkítás nélkül kerülnek be.
+   */
+  const ROUTINE_SAMPLE_INTERVAL_MS = 30_000;
+  let suppressedSampleCount = 0;
+  let lastRoutineSampleAt = 0;
+  let lastEventSignature = '';
+  let lastEventAt = 0;
 
   const active = (): TvDoctorActivePlaybackSnapshot | null => activePlaybackSnapshot
     ? { ...activePlaybackSnapshot }
@@ -123,6 +137,21 @@ export function startTvDoctorPlaybackTelemetry(): void {
       closeBuffering('csatornaváltás');
     }
     lastChannelIdentity = identity;
+
+    const routine = reason === 'MEDIA_PROGRESS' || reason === 'FOLYAMATOS_30MP_MINTA';
+    const signature = `${reason}:${identity}`;
+    if (routine) {
+      if (now - lastRoutineSampleAt < ROUTINE_SAMPLE_INTERVAL_MS) {
+        suppressedSampleCount += 1;
+        return;
+      }
+      lastRoutineSampleAt = now;
+    } else if (signature === lastEventSignature && now - lastEventAt < 250) {
+      suppressedSampleCount += 1;
+      return;
+    }
+    lastEventSignature = signature;
+    lastEventAt = now;
 
     let ahead: number | null = null;
     try { ahead = bufferedAheadSeconds(video); } catch { ahead = null; }
@@ -176,7 +205,7 @@ export function startTvDoctorPlaybackTelemetry(): void {
   events.forEach((eventName) => video.addEventListener(eventName, onMediaEvent));
 
   writeSample('KÉZI_NAPLÓ_INDÍTÁSI_ÁLLAPOT');
-  timer = setInterval(() => writeSample('FOLYAMATOS_2MP_MINTA'), 2000);
+  timer = setInterval(() => writeSample('FOLYAMATOS_30MP_MINTA'), ROUTINE_SAMPLE_INTERVAL_MS);
   stopPlaybackTelemetry = () => {
     if (timer !== null) clearInterval(timer);
     timer = null;
@@ -185,7 +214,7 @@ export function startTvDoctorPlaybackTelemetry(): void {
     tvDoctorLog(
       `TV DOKTOR PUFFER MÉRÉS ÖSSZESÍTÉS: waiting_események=${waitingEvents}; stalled_események=${stalledEvents}; ` +
       `pufferelési_epizódok=${waitingEpisodes}; összes_pufferelési_idő=${totalBufferingMs}ms; ` +
-      `leghosszabb_epizód=${maxBufferingMs}ms; minták=${sampleCount}; utolsó_csatorna=${active()?.channelName || 'ismeretlen'}; ` +
+      `leghosszabb_epizód=${maxBufferingMs}ms; minták=${sampleCount}; ritkítva_kihagyott=${suppressedSampleCount}; rutinminta=30s; utolsó_csatorna=${active()?.channelName || 'ismeretlen'}; ` +
       `azonosító=${active()?.channelId || '-'}.`
     );
     events.forEach((eventName) => video.removeEventListener(eventName, onMediaEvent));

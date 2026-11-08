@@ -140,12 +140,21 @@ let stampFormatter: Intl.DateTimeFormat | null = null;
 function localFormatter(): Intl.DateTimeFormat {
   if (!stampFormatter) {
     /*
-     * Minden időpont ugyanazt a helyi időzónát használja, mint a főoldali
-     * Header óra és a teljes képernyős óra (new Date().getHours()).
-     * Nem rögzítünk Dublin/Budapest időzónát: a TV rendszerének helyi
-     * időzónája és nyári/téli időszámítása az egyetlen közös forrás.
+     * 2.5.390 – VISSZAÁLLÍTVA A DUBLINI FALIÓRA (#33/#34 napló alapján).
+     *
+     * A TV rendszer-időzónája +01:00 (magyar), a néző faliórája viszont
+     * Europe/Dublin (télen GMT, nyáron automatikusan +01:00). Amikor egy
+     * korábbi „bónusz” javítás a TV SAJÁT időzónájára állította a naplót,
+     * a kézi napló minden időpontja EGY ÓRÁVAL TÖBBET mutatott: pl. a #33
+     * fejlécében `NAPLÓ KEZDETE: 08:30:57`, miközben a mérés (és az óra)
+     * `07:30:57` volt. Mostantól a napló fejléce, a sorok időbélyege és a
+     * kézi napló ablakának dátumai ÚJRA Europe/Dublin időben készülnek,
+     * vagyis egy órával kevesebbet mutatnak. A clockText és a
+     * dublinTimestamp eleve ezt a zónát használta – így a fejléc két
+     * időpontja többé nem tér el egymástól.
      */
     stampFormatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Dublin',
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hourCycle: 'h23',
@@ -154,16 +163,16 @@ function localFormatter(): Intl.DateTimeFormat {
   return stampFormatter;
 }
 
-/** A felugró ablakban megjelenő dátum/idő a TV saját időzónájában. */
+/** A felugró ablakban megjelenő dátum/idő a dublini falióra szerint. */
 export function dateTimeText(at: number = Date.now()): string {
   const parts = localFormatter().formatToParts(new Date(at));
   const value = (type: string) => parts.find((part) => part.type === type)?.value || '00';
   return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
 }
 
-/** A napló minden abszolút időpontját a TV saját időzónájában írjuk ki, explicit UTC-eltolással. */
+/** Minden abszolút időpont a dublini falióra szerint, explicit UTC-eltolással. */
 function localTimestamp(at: number = Date.now()): string {
-  // A TV rendszeróráját használjuk korrekció nélkül; a relatív idők monotón mérésből jönnek.
+  // A rendszeróra epochját nem módosítjuk: csak a MEGJELENÍTÉS zónája Dublin.
   const logAt = at;
   const date = new Date(logAt);
   const parts = localFormatter().formatToParts(date);
@@ -704,10 +713,24 @@ export function discardSentTvDoctorLog(): TvDoctorLogSnapshot {
   return manualTvDoctorLogSnapshot();
 }
 
+/* 2.5.390: a #34-es naplóban minden indítási sor PONTOSAN KÉTSZER szerepelt.
+   Az oka: a tvDoctorCloud minden sort egyszer appLog()-gal, egyszer
+   tvDoctorLog()-gal írt – az appLog viszont a „TV DOKTOR …” sorokat maga is
+   a TV DR naplóba irányítja. Egy rövid, azonos sorokat kiszűrő kapuval a
+   dupla sorok (és az 1 ms-on belüli ismételt események) eltűnnek. */
+let lastDoctorLine = '';
+let lastDoctorLineAt = 0;
+
 /** Egy sor a KÜLÖN TV Doktor naplóba (csak ha a TV Doktor naplózás fut). */
 export function tvDoctorLog(message: string): void {
   if (!doctorLoggingEnabled) return;
-  const safe = redactLogUrls(String(message ?? '')).replace(/\\s+/g, ' ');
+  // JAVÍTÁS: korábban /\\s+/ szerepelt itt (konkrét backslash+„s” betűkre
+  // keresett), ezért a többsoros üzenetek üres sorokat hagytak a TV DR naplóban.
+  const safe = redactLogUrls(String(message ?? '')).replace(/\s+/g, ' ');
+  const at = Date.now();
+  if (safe === lastDoctorLine && at - lastDoctorLineAt < 500) return;
+  lastDoctorLine = safe;
+  lastDoctorLineAt = at;
   doctorRestore();
   let line = `${nowStamp()} ${safe}`;
   if (line.length + 1 > MAX_BUFFER_CHARS) line = line.slice(0, MAX_BUFFER_CHARS - 2);

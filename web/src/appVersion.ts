@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.389';
+export const WEB_VERSION = '2.5.390';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,18 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.390',
+    date: '2026-11-07',
+    changes: [
+      'JAVÍTÁS (KÉZI NAPLÓ IDEJE — VISSZA EGY ÓRÁVAL) — A korábbi „bónusz” órajavítás a TV rendszerének +01:00-ás időzónájára állította a kézi naplót, ezért a 33. napló fejlécében a „NAPLÓ KEZDETE: 08:30:57” és a „MÉRÉS KEZDETE: 07:30:57” egy órával eltért, és minden sor 08:xx-et mutatott a dublini falióra 07:xx-e helyett. Mostantól a napló fejléce, a sorok időbélyege és a kézi napló ablaka ÚJRA Europe/Dublin időt ír (télen GMT, nyáron automatikusan +01:00): pontosan egy órával kevesebbet mutat, és a fejléc két időpontja megegyezik.',
+      'JAVÍTÁS (TV DOKTOR — NEM RAGAD RÁ A CINEMAXRA / VIASAT 3-RA) — A 34. TV DR naplóban a [HU] CINEMAX, [HU] CINEMAX 2 és [HU] VIASAT 3 esetén a Doktor tanult, ~1,4–1,6 s alatt működő TS gyorsprofilját a „szebb kép” választó MÉRETlen HLS-próbával írta felül: MEDIA_ERR_4 → 8 lépéses javítási létra → 3,6–3,8 s puffer → újra tanulás → újra HLS-próba. Mostantól a TV Doktor által igazoltan megtanult formátumot egy még nem mért formátum NEM írhatja felül (két MÉRT felbontás összehasonlítása változatlanul működik), és minden médiahiba bekerül a képmínőség-emlékezetbe: a [HU] VIASAT 6-on látott kilenc azonos „kipróbálás a jobb képért” többé nem ismétlődik.',
+      'JAVÍTÁS (TV DR NAPLÓ — NINCS EGYFOLYTABAN ÍRÁS) — A 34. napló 1970 sorából 1809 azonos „PUFFER MÉRÉS” volt: a webOS progress eseménye ~350 ms-onként, plusz egy 2 mp-es időzítő akkor is írt, amikor a csatorna hibátlanul ment. Mostantól a rutinmintákat 30 mp-enként írjuk, az azonos eseményeket 250 ms-on belül összevonjuk, a hibák / pufferelés kezdete-vége / csatornaváltás pedig azonnal, ritkítás nélkül kerülnek a naplóba (a kihagyott minták száma a záró összesítőben látszik). JAVÍTÁS: minden indítási sor eddig PONTOSAN KÉTSZER szerepelt (az appLog maga is a TV DR naplóba irányítja a „TV DOKTOR …” sorokat, és a felhő-modul még egyszer külön is beírta őket) – a dupla sorokat egy rövid azonossági kapu kiszűri, és a hibás /\\s+/ regex miatt keletkező üres sorok is eltűnnek.',
+      'JAVÍTÁS (MOZI BETÖLTÉSE NEM AKAD) — A 33. naplóban a filmlista első, hideg visszatöltése 23,1 s volt: egy IndexedDB-tranzakció 12 db 500 soros blokkot (6000 sort) dekódolt egyetlen szinkron lépésben (tár-művelet=1780 ms), közben a fő szál 2,7–4,2 mp-re is leállt. Mostantól négy blokkot olvasunk egyszerre, a JSON-fejtés közben visszaadjuk a fő szálat, és az „adagok=52/42” típusú hibás számlálót a valódi csoportosításból számoljuk. A második Mozi-megnyitás már a 2.5.388 gyorsítótárából 115 ms alatt kész volt. A filmek lassúságának MÁSIK oka nem a lejátszó: a 33. napló „VOD ELÉRHETŐSÉG-ELLENŐRZÉS” sora szerint a szolgáltató HTTP 206-tal, video/x-matroska tartalommal kiszolgálja a fájlt, de a TV dekódolója MEDIA_ERR_4-gyel elutasítja (más .mkv filmek gond nélkül mennek).',
+      'JAVÍTÁS (KÉPMINŐSÉG-ÖSSZESÍTÉS NEM KEVERI A NÉZETEKET) — A 33. naplóban volt „mód=VOD … formátum=HLS (.m3u8)” és „mód=élő; cím=STORY 4 HD; formátum=Matroska (.mkv)” sor is: a záró összesítés a RÉGI stream adatai mellé az ÚJ nézet címét/módját írta, mert a váltáskor a ref-ek már átálltak. A mód, a cím és a formátum most a stream INDULÁSAKOR rögzül.',
+      'VISSZAJELZÉS (ÉLŐ KÉPMINŐSÉG TOVÁBBRA IS LÁTHATÓ) — A 33. napló 396 „KÉPMINŐSÉG” sora tartalmazza a ténylegesen dekódolt képet, a megjelenített videóterületet, a képkockákat és a puffert; a 2.5.383 „legszebb képű formátum” választó 27 „marad” és 17 „VÁLTÁS” döntéssel aktívan fut. Ahol a kép 1024×576 (SD+) vagy 720×405 (SD), az a SZOLGÁLTATÓ streamje, nem a lejátszó beállítása – ezt a napló külön figyelmeztetésben is jelzi. A felbontás-jelző a film OSD-jén látszik; élő TV-nél egyelőre csak a naplóban.',
+    ],
+  },
   {
     version: '2.5.389',
     date: '2026-11-07',

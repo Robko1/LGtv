@@ -101,6 +101,13 @@ choice = api.chooseLiveQualityFormat({ record: api.getLiveQualityRecord('id:ch-7
 check(choice.changed === true && choice.format === 'hls', 'Full HD alatti mért TS képnél a HLS-t kipróbálja');
 check(choice.basis === 'unmeasured-probe', 'a kipróbálás alapja a hiányzó mérés');
 
+/* 2.5.390: a TV Doktor TANULT formátumát nem írja felül egy méretlen próba. */
+const learnedChoice = api.chooseLiveQualityFormat({ record: api.getLiveQualityRecord('id:ch-7'), plannedFormat: 'ts', learnedFormat: 'ts' });
+check(learnedChoice.changed === false && learnedChoice.format === 'ts', 'igazoltan tanult TS formátumot nem cserél méretlen HLS-próbára (#34 CINEMAX)');
+check(/TV Doktor/.test(learnedChoice.reason), 'a napló indoka megnevezi a TV Doktor tanult formátumát');
+const measuredStillWins = api.chooseLiveQualityFormat({ record: bothMeasured, plannedFormat: 'ts', learnedFormat: 'ts' });
+check(measuredStillWins.changed === true && measuredStillWins.format === 'hls', 'két MÉRT felbontásnál a szebb kép így is nyer (2.5.383 változatlan)');
+
 // Ugyanez Full HD panelen mért Full HD képnél: nincs ok váltani.
 api.recordLiveQualityMeasurement({ key: 'id:ch-8', format: 'ts', width: 1920, height: 1080, now: 7000 });
 choice = api.chooseLiveQualityFormat({ record: api.getLiveQualityRecord('id:ch-8'), plannedFormat: 'ts' });
@@ -223,6 +230,61 @@ try {
 check(measurementResetOk, 'az „ÚJ MÉRÉS” indítása nem dob hibát (a kézi naplózás működik)');
 check(measurementSnapshot?.logLines === 0, 'az új mérés számlálói nullázódnak');
 logDom.window.close();
+
+/* ─────────── 12. 2.5.390: óra, TV DR pörgés, Mozi-visszatöltés ─────────── */
+
+/* A kézi napló EGY ÓRÁVAL KEVESEBBET mutat: Europe/Dublin, nem a TV +01:00-ja. */
+check(
+  appLogApi.dateTimeText(Date.UTC(2026, 10, 8, 7, 30, 57)) === '2026-11-08 07:30:57',
+  'a kézi napló dátuma 07:30:57 (Dublin) – nem 08:30:57 (#33 fejléc-eltérés)',
+);
+check(
+  appLogApi.clockText(Date.UTC(2026, 10, 8, 7, 30, 57)) === '07:30:57',
+  'a mérés kezdete és a napló kezdete UGYANABBAN az időzónában jelenik meg',
+);
+
+/* A TV DR napló: nincs dupla sor, nincs üres sor, van rutinminta-ritkítás. */
+appLogApi.clearTvDoctorLog();
+appLogApi.startTvDoctorLogging();
+const beforeLines = appLogApi.manualTvDoctorLogSnapshot().lineCount;
+appLogApi.tvDoctorLog('TV DOKTOR 2.5.390 DUPPLA TESZT');
+appLogApi.tvDoctorLog('TV DOKTOR 2.5.390 DUPPLA TESZT');
+const afterDuplicate = appLogApi.manualTvDoctorLogSnapshot().lineCount;
+check(afterDuplicate - beforeLines === 1, 'az azonos TV DOKTOR sor 500 ms-on belül NEM íródik kétszer (#34 dupla sorok)');
+appLogApi.tvDoctorLog('TV DOKTOR 2.5.390 TÖBBSOROS\nMÁSODIK SOR');
+const afterMultiline = appLogApi.manualTvDoctorLogSnapshot().lineCount;
+check(afterMultiline - afterDuplicate === 1, 'a többsoros üzenet EGY sor marad (a /\\s+/ regex hiba javítva)');
+check(!/TV DOKTOR 2\.5\.390 TÖBBSOROS\n/.test(appLogApi.getTvDoctorLogText()), 'a TV DR naplóban nem marad üres sor a sortörésből');
+appLogApi.stopTvDoctorLogging('teszt');
+
+const doctorTelemetrySource = fs.readFileSync(resolve('web/src/services/tvDoctor.ts'), 'utf8');
+check(
+  doctorTelemetrySource.includes('ROUTINE_SAMPLE_INTERVAL_MS = 30_000'),
+  'a TV DR rutin puffermintája 30 mp-re van ritkítva (#34: 1809 sor helyett ~26)',
+);
+check(
+  doctorTelemetrySource.includes("reason === 'MEDIA_PROGRESS'"),
+  'a webOS ~350 ms-onként tüzelő progress esemény többé nem ír minden mintát',
+);
+check(
+  doctorTelemetrySource.includes('ritkítva_kihagyott'),
+  'a kihagyott minták száma a záró összesítőben látszik (nem vész el információ)',
+);
+
+const storeSource = fs.readFileSync(resolve('web/src/services/contentStore.ts'), 'utf8');
+check(
+  /RESTORE_IDB_READ_GROUP_SIZE = 4;/.test(storeSource),
+  'a Mozi hideg visszatöltése 4 blokkonként olvas (#33: 1,8 s főszál-blokk)',
+);
+check(
+  storeSource.includes('await yieldToStorage()') && storeSource.includes('expectedRestoreBatches'),
+  'a JSON-dekódolás közben visszaadja a fő szálat, és az „adagok=X/Y” számláló pontos',
+);
+
+const playerSource390 = fs.readFileSync(resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
+check(playerSource390.includes('learnedFormat: doctorPlan?.hasLearnedProfile'), 'a lejátszó átadja a tanult formátumot a képmínőség-választónak');
+check(playerSource390.includes('recordLiveQualityFailure({ key: failedKey'), 'a médiahiba a képmínőség-emlékezetbe is bekerül (nincs örökös HLS-próba)');
+check(playerSource390.includes('state.mode = isVodRef.current'), 'a képminőség-összesítés módja/címe a stream indulásakor rögzül (#33 élő .mkv hiba)');
 
 console.log(`\nKépmínőség-tesztek: ${passed} sikeres, ${failed} hibás.`);
 if (failed > 0) process.exit(1);

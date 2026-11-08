@@ -151,7 +151,15 @@ const CHUNK_SIZE = 500;
 const VOD_STORE_CHUNK_SIZE = 500;
 /* Négy régi 500-as adag rekordjai egy IndexedDB-tranzakcióban érkeznek,
    de továbbra is 500-as részekben dekódoljuk őket, hogy a TV főszála ne akadjon meg. */
-const RESTORE_IDB_READ_GROUP_SIZE = 12;
+/*
+ * 2.5.390 – A #33-as naplóban a Mozi első (hideg) visszatöltése 23,1 s-ig
+ * tartott, közben a fő szál 2,7–4,2 s-ra is leállt (`LEÁLLÁS`), mert egy
+ * tranzakcióban 12 db 500 soros IndexedDB-blokkot (6000 sort) dekódoltunk
+ * egyetlen szinkron JSON.parse-tömbbel (`tár-művelet=1780.3 ms`).
+ * Négy blokk (2000 sor) olvasása egyszerre, közben felszabadított fő szál:
+ * a visszatöltés nem gyorsabb összesen, de NEM akad meg a felület.
+ */
+const RESTORE_IDB_READ_GROUP_SIZE = 4;
 const RESTORE_DECODE_BATCH_SIZE = 2500;
 /*
  * A film- és sorozatlistát nem csonkítjuk kvótabecslés alapján. A teljes
@@ -163,6 +171,18 @@ const RESTORE_DECODE_BATCH_SIZE = 2500;
 /** Egy mentett szakasz adagmérete a fejlécből (régi fejléc esetén CHUNK_SIZE). */
 function metaChunkSize(meta: { chunkSize?: number }): number {
   return meta.chunkSize && meta.chunkSize > 0 ? meta.chunkSize : CHUNK_SIZE;
+}
+
+/**
+ * A napló „adagok=X/Y” számlálójának Y értéke. Korábban a teljes elemszámot
+ * 2500-zal osztottuk, de a visszatöltés CSOPORTONKÉNT darabol, ezért a #33
+ * napló `adagok=52/42`-t írt (több adag, mint a „várt”). Most a valódi
+ * csoportosításból számoljuk: csoportok száma × adagok egy csoportban.
+ */
+function expectedRestoreBatches(chunkCount: number, chunkSize: number): number {
+  const groups = Math.ceil(Math.max(1, chunkCount) / RESTORE_IDB_READ_GROUP_SIZE);
+  const rowsPerGroup = RESTORE_IDB_READ_GROUP_SIZE * Math.max(1, chunkSize);
+  return groups * Math.max(1, Math.ceil(rowsPerGroup / RESTORE_DECODE_BATCH_SIZE));
 }
 const LIVE_CHUNK_PREFIX = 'content-live-chunk-';
 const LIVE_GENERATION_PREFIX = 'content-live-chunk-v1-';
@@ -1991,14 +2011,21 @@ async function readIdbChunks(
     return {
       meta,
       readChunk: async (index) => decodeChunk(await store.get(meta.chunkPrefix + index)),
-      // Négy kulcs egy readonly tranzakcióban: kevesebb tranzakciós várakozás,
-      // miközben a hívó külön-külön, 500 soros adagokban dolgozza fel az eredményt.
+      // Négy kulcs egy readonly tranzakcióban: kevesebb tranzakciós várakozás.
+      // A JSON.parse nem egyetlen 2000 soros szinkron blokkban fut: két
+      // blokkonként visszaadjuk a fő szálat, így a Mozi-listát görgetni is
+      // lehet a visszatöltés alatt (#33: 2,7–4,2 s főszál-leállások).
       readChunks: async (start, count) => {
         const keys = Array.from({ length: Math.max(0, count) }, (_, offset) => meta.chunkPrefix + (start + offset));
         const values = store.getMany
           ? await store.getMany(keys)
           : await Promise.all(keys.map((key) => store.get(key)));
-        return values.map(decodeChunk);
+        const decoded: Row[][] = [];
+        for (let i = 0; i < values.length; i += 1) {
+          decoded.push(decodeChunk(values[i]));
+          if ((i + 1) % 2 === 0 && i + 1 < values.length) await yieldToStorage();
+        }
+        return decoded;
       },
     };
   } catch {
@@ -2772,12 +2799,12 @@ export async function loadVodAsync(
       let offset = 0;
       let missingChunks = 0;
       const expectedVodItems = Number(chunked.meta.totals?.vod) || chunked.meta.chunks * metaChunkSize(chunked.meta);
-      const restoreMetrics = createRestoreBatchLogger('FILM/IndexedDB', Math.ceil(expectedVodItems / RESTORE_DECODE_BATCH_SIZE), expectedVodItems);
+      const restoreMetrics = createRestoreBatchLogger('FILM/IndexedDB', expectedRestoreBatches(chunked.meta.chunks, metaChunkSize(chunked.meta)), expectedVodItems);
       // A kategóriák már az első tárolóolvasás előtt megjelennek; a poszterek
       // közül pedig minden újonnan megtalált magyar film azonnal a rácsra kerül.
       try { onPartial?.({ movies: [], categories }); } catch { /* a felület hibája nem állíthatja meg a betöltést */ }
-      // Nyolc 500-as rekordot egy IndexedDB-tranzakcióban olvasunk előre;
-      // négy tárolóblokkot összefűzünk, és 2000-es adagokban dekódolunk.
+      // Négy 500-as rekordot olvasunk előre egy tranzakcióban; a blokkokat
+      // összefűzzük, és legfeljebb 2500 soros adagokban dekódoljuk.
       const startTimedReadGroup = (start: number) => {
         const readStartedAt = restoreMeasureNow();
         const count = Math.min(RESTORE_IDB_READ_GROUP_SIZE, chunked.meta.chunks - start);
@@ -2997,9 +3024,9 @@ export async function loadSeriesAsync(
       let partialSent = false;
       let missingChunks = 0;
       const expectedSeriesItems = Number(chunked.meta.totals?.series) || chunked.meta.chunks * metaChunkSize(chunked.meta);
-      const restoreMetrics = createRestoreBatchLogger('SOROZAT/IndexedDB', Math.ceil(expectedSeriesItems / RESTORE_DECODE_BATCH_SIZE), expectedSeriesItems);
-      // Négy 500-as rekordot egy IndexedDB-tranzakcióban olvasunk előre;
-      // két tárolóblokkot összefűzünk, és 1000-es adagokban dekódolunk.
+      const restoreMetrics = createRestoreBatchLogger('SOROZAT/IndexedDB', expectedRestoreBatches(chunked.meta.chunks, metaChunkSize(chunked.meta)), expectedSeriesItems);
+      // Négy 500-as rekordot olvasunk előre egy tranzakcióban; a blokkokat
+      // összefűzzük, és legfeljebb 2500 soros adagokban dekódoljuk.
       const startTimedReadGroup = (start: number) => {
         const readStartedAt = restoreMeasureNow();
         const count = Math.min(RESTORE_IDB_READ_GROUP_SIZE, chunked.meta.chunks - start);
