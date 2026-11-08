@@ -1221,7 +1221,9 @@ export function App() {
     if (activeView !== 'live' || !activeProvider) return undefined;
     if (!selectedCategoryId.startsWith('country-')) return undefined;
     const countryCode = selectedCategoryId.slice('country-'.length).toUpperCase();
-    const countryChannels = channels.filter(
+    // A channels tömb közben részleges HU-visszatöltéstől is változhat.
+    // A ref használatával ez nem szakítja meg a már elindított ország-letöltést.
+    const countryChannels = channelsRef.current.filter(
       (channel) => (channel.countryCode || 'INT').toUpperCase() === countryCode
     );
     // A külföldi EPG csak akkor indul, amikor az adott ország csatornái már
@@ -1291,7 +1293,7 @@ export function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [selectedCategoryId, channels, categories, activeProvider, activeView]);
+  }, [selectedCategoryId, categories, activeProvider, activeView]);
 
 
   // A képernyőn megjelenő sorszám a jelenlegi szűrt lista pozíciója; az eredeti ch.num érintetlen.
