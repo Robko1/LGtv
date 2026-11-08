@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.390';
+export const WEB_VERSION = '2.5.391';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.390',
+    version: '2.5.391',
     date: '2026-11-07',
     changes: [
       'JAVÍTÁS (KÉZI NAPLÓ IDEJE — VISSZA EGY ÓRÁVAL) — A korábbi „bónusz” órajavítás a TV rendszerének +01:00-ás időzónájára állította a kézi naplót, ezért a 33. napló fejlécében a „NAPLÓ KEZDETE: 08:30:57” és a „MÉRÉS KEZDETE: 07:30:57” egy órával eltért, és minden sor 08:xx-et mutatott a dublini falióra 07:xx-e helyett. Mostantól a napló fejléce, a sorok időbélyege és a kézi napló ablaka ÚJRA Europe/Dublin időt ír (télen GMT, nyáron automatikusan +01:00): pontosan egy órával kevesebbet mutat, és a fejléc két időpontja megegyezik.',
