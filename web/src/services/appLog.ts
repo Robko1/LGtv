@@ -115,6 +115,19 @@ const measurementCounters = { logLines: 0, errors: 0, longTasks: 0, critical: 0 
  * naplózás nélkül.
  */
 const AUTO_VERBOSE_WINDOW_MS = 60000;
+/**
+ * 2.5.399 – A #39 napló 1180 sort írt 7 perc alatt: minden csatornaváltásnál
+ * `KÉPMINŐSÉG …` sorokat, és ezek a folyamatos nézés alatt is a fő szálat
+ * terhelték (29 képkocka-kihagyás). Az AUTOMATIKUS IPK-napló az indulási
+ * ablakban MINDENT rögzít (ez kell a takarókép méréséhez), utána viszont a
+ * csatornánkénti, nagy gyakoriságú minőségi sorokat elengedjük. A kézi
+ * (SÁRGA gombbal indított) napló változatlanul minden sort megőriz.
+ */
+const AUTO_BOOT_LOG_WINDOW_MS = 10000;
+export function isBootDiagnosticWindow(): boolean {
+  if (!autoStartedSession || autoSessionStartedAt <= 0) return true;
+  return Date.now() - autoSessionStartedAt <= AUTO_BOOT_LOG_WINDOW_MS;
+}
 export function isVerbosePlaybackLogging(): boolean {
   if (!loggingEnabled) return false;
   if (!autoStartedSession) return true;
@@ -844,6 +857,9 @@ export function appLog(message: string): void {
   // Az indulási, import-, EPG- és felirat-részletek nem szükségesek.
   // A képminőség-mérés külön engedélyezett; a lejátszás hibái/újrapróbái megmaradnak.
   if (/^(?:SZOLGÁLTATÓ|EPG:|Felirat|CC |Élő felirat|ERŐFORRÁS-DIAG|HANGDIAG|ÉLŐ MÉDIAESEMÉNY|ÉLŐ IDŐVONAL|STREAM ADATÉRKEZÉS)/i.test(message)) return;
+  /* 2.5.399: az automata napló a boot ablak UTÁN nem írja a csatornánkénti
+     képminőségi sorokat – a gyors, folyamatos tévézésért. */
+  if (!isBootDiagnosticWindow() && /^(?:KÉPMINŐSÉG|KÉPKOCKA|LEJÁTSZÁSI MINŐSÉG)/i.test(message)) return;
   const safe = redactLogUrls(String(message ?? '')).replace(/\s+/g, ' ');
   restore();
   measurementCounters.logLines += 1;

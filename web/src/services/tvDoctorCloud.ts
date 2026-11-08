@@ -856,7 +856,7 @@ function restBaseUrl(): string {
 }
 
 async function postTvDoctorRpc(
-  fn: 'tv_doctor_routes_upsert' | 'tv_doctor_routes_fetch' | 'tv_doctor_baselines_upsert' | 'tv_doctor_baselines_fetch',
+  fn: 'tv_doctor_routes_upsert' | 'tv_doctor_routes_fetch' | 'tv_doctor_baselines_upsert' | 'tv_doctor_baselines_fetch' | 'tv_doctor_baselines_clear',
   params: Record<string, unknown>,
   timeoutMs = STATUS_CHECK_TIMEOUT_MS,
 ): Promise<any | null> {
@@ -929,6 +929,25 @@ export async function fetchTvDoctorRoutesForChannelFromCloud(
   return normalizeDoctorRoutesForDisplay(match).filter((route) => route.ok > 0);
 }
 
+/**
+ * 2.5.399 – TELJES MEMÓRIA-NULLÁZÁS (10. pont). A 2.5.394/395 az 1-es alapot
+ * „halhatatlanná” tette; a felhasználó ezt most explicit visszavonta: „az
+ * eredeti 1. helyen tárolt alapbeállítások is törlődjenek … Nullázás után
+ * minden csatornánál teljesen elölről induljon a tanulás.” A Supabase-oldali
+ * alapokat a párosított eszköz tokenjével töröljük (a migráció újra engedi a
+ * DELETE-et). A mentett csatornaelrendezést NEM bántjuk.
+ */
+export async function clearTvDoctorBaselinesInCloud(): Promise<boolean> {
+  if (!cloudEnabled || !isTvDoctorPaired()) return false;
+  const pairing = readPairingState();
+  const result = await postTvDoctorRpc('tv_doctor_baselines_clear', {
+    p_device_id: pairing.deviceId,
+    p_device_token: pairing.deviceToken,
+  });
+  return result === true || result === 'true'
+    || (Array.isArray(result) && (result[0] === true || result[0] === 'true'));
+}
+
 /** A készüléken tanult útvonalak feltöltése a Supabase memóriába (csak magyar csatornák). */
 export async function pushTvDoctorRoutesToCloud(): Promise<number> {
   if (!cloudEnabled || !isTvDoctorPaired()) return 0;
@@ -952,8 +971,18 @@ export async function pushTvDoctorRoutesToCloud(): Promise<number> {
       p_device_token: pairing.deviceToken,
       p_payload: batch,
     });
-    if (typeof result === 'number') count += result;
-    else break;
+    /* 2.5.399: PostgREST néha numerikus sztringet ad vissza; a #40 napló
+       `0 csatorna mentve (payload=7)` sorának oka a szerveroldali UPSERT
+       (csak UPDATE, új sor nem jöhetett létre) volt. */
+    const parsed = typeof result === 'number' ? result
+      : (typeof result === 'string' && Number.isFinite(Number(result)) ? Number(result) : null);
+    if (parsed === null) {
+      if (isTvDoctorDiagLoggingEnabled()) {
+        tvDoctorLog('TV DOKTOR FELHŐ ÚTVONAL: a Supabase RPC nem adott számot – a helyi tanulás megmarad, a várólista újrapróbálja.');
+      }
+      break;
+    }
+    count += parsed;
   }
   if (count > 0 && isTvDoctorDiagLoggingEnabled()) {
     const msg = `TV DOKTOR FELHŐ ÚTVONAL: ${count} csatorna tanult útvonala mentve a Supabase memóriába.`;
@@ -1657,7 +1686,7 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
       state.lastSyncAt = null;
       saveSyncState();
       if (isTvDoctorDiagLoggingEnabled()) {
-        tvDoctorLog('TV DOKTOR NULLÁZÁS: a Supabase 1-es alapjai és a mentett csatornaelrendezés MEGMARADTAK; a visszatöltés azonnal indul.');
+        tvDoctorLog('TV DOKTOR NULLÁZÁS: a Supabase tanult profiljai, eseményei ÉS 1-es alapjai törlődtek; a mentett csatornaelrendezés megmarad, minden csatorna elölről tanul.');
       }
       return true;
     } finally {
@@ -1996,6 +2025,10 @@ export function clearTvDoctorCloudQueue(): void {
 export async function resetTvDoctorAllToZero(storage?: Storage | null): Promise<boolean> {
   clearTvDoctorMemory(storage);
   clearTvDoctorCloudQueue();
+  /* 2.5.399: az 1-es alap a Supabase-ben is törlődik – teljes újratanulás.
+     A törlést a visszatöltés ELÉ kötjük, különben a bootstrap még visszahozná
+     a régi alapot a TV-re (versenyhelyzet). */
+  const baselinesCleared = clearTvDoctorBaselinesInCloud().catch(() => false);
   if (cloudEnabled) setTvDoctorCloudHook(enqueueFromHook);
   const state = readSyncState();
   state.pendingProfiles = {};
@@ -2039,11 +2072,11 @@ export async function resetTvDoctorAllToZero(storage?: Storage | null): Promise<
     /* Nem várjuk meg a hálózatot: a piros gomb azonnal visszatér, de a
        visszatöltés UGYANABBAN a tickben elindul, és a saját listenerje
        frissíti a 0-ablakot, amint a 80 mentett csatorna megérkezett. */
-    void restoreTvDoctorCloudState().catch(() => {});
+    void baselinesCleared.then(() => restoreTvDoctorCloudState()).catch(() => {});
   }
   if (isTvDoctorDiagLoggingEnabled()) {
     appLog(synced
-      ? 'TV DOKTOR NULLÁZÁS: a tanult memória 0; a Supabase-ben mentett csatornaelrendezés és az 1-es alapok megmaradtak, és azonnal visszatöltődtek a TV-re (tv -> Supabase -> tv).'
+      ? 'TV DOKTOR NULLÁZÁS: a tanult memória 0; a Supabase tanult profiljai, eseményei ÉS 1-es alapjai törlődtek; a mentett csatornaelrendezés visszatöltődött, minden csatorna elölről tanul (tv -> Supabase -> tv).'
       : 'TV DOKTOR NULLÁZÁS: a helyi memória 0; a Supabase-törlés várólistán maradt, internetkapcsolatkor automatikusan újrapróbálja.');
   }
   notifyTvDoctorListeners();

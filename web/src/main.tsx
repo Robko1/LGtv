@@ -29,6 +29,8 @@ import { WEB_VERSION } from "./appVersion";
  * A böngésző/HTML korábbi jeleit a `startupDiagnostics.ts` olvassa hozzá.
  */
 const BOOT_EPOCH_MS = Date.now();
+/** 2.5.399: #39 – a content IPK takaróképe legfeljebb 1,5 s-ig maradhat fent. */
+const BOOT_FAST_REVEAL_MS = 1500;
 const bootElapsed = (): number => Math.max(0, Date.now() - BOOT_EPOCH_MS);
 
 /* A célzott figyelők csak a kézi naplózás aktív időszakában rögzítenek. */
@@ -188,6 +190,16 @@ try {
       `TAKARÓKÉP ELLENŐRZÉS [+${bootElapsed()} ms] FELFEDÉS: ok=${_reason}; `
       + `webOS notifyAppLoaded meghívva; takarókép fent=${bootElapsed()} ms`,
     );
+    /* 2.5.399 – A #39 naplóban a `BOOT-DIAG ÖSSZEGZÉS +25697 ms` ezt írta:
+       `felület megjelent=nem történt meg`, miközben a `FELFEDÉS` és a
+       `TAKARÓKÉP ÖSSZEGZÉS` már korábban megtörtént. A HTML indítószkript
+       `__IPTV_BOOT_MARK__` tömbjébe UGYANIS SOHA nem került `REVEAL` jelzés,
+       ezért a 25 mp-es összegzés nem találta meg. Most a tényleges felfedés
+       pillanatában rögzítjük, így az összegzés a VALÓDI időt mutatja. */
+    try {
+      const mark = (window as any).__IPTV_BOOT_MARK__;
+      if (typeof mark === 'function') mark('REVEAL');
+    } catch { /* régi motor */ }
     try { (window as any).webOSSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
   };
 
@@ -245,6 +257,16 @@ try {
     emptyBoot() ||
     document.querySelectorAll('[role="listbox"] [role="option"]').length >= 3 ||
     !!document.querySelector('[role="dialog"]');
+  /**
+   * 2.5.399 – A #39 napló: `+847 ms` -nél `chromeReady=igen; liveListReady=igen;
+   * logosSettled=igen; prepaintSettled=igen`, de `listReady=nem`, ezért a
+   * takarókép 1838 ms-ig fent maradt. Az élő lista már kész volt, csak a 3.
+   * csatornasor hiányzott. Ha `__IPTV_LIVE_READY__` igaz ÉS már van legalább
+   * egy kirajzolt sor, a felfedés NEM vár a harmadikra – így nem mutatunk
+   * üres listát, de ~1 mp-et nyerünk.
+   */
+  const hasChannelRow = (): boolean =>
+    !!document.querySelector('[role="listbox"] [role="option"]');
 
   /*
    * A KÉSZ FŐOLDAL FELTÉTELEI – a korábbi "2 másodperc után elég a fejléc"
@@ -582,6 +604,7 @@ try {
       chromeReady: chromeOk,
       listReady: listReady(),
       liveListReady: liveListReady(),
+      vanCsatornaSor: hasChannelRow(),
       logosSettled: logosSettled(),
       videoSettled: videoSettled(),
       prepaintSettled: prepaintSettled(),
@@ -623,7 +646,8 @@ try {
       bootScreenPhase('frames', 'A főoldal két képkockán át kifestve.');
     }
 
-    if (chromeOk && (listReady() || onlyDialog)) {
+    const listOk = listReady() || (liveListReady() && hasChannelRow());
+    if (chromeOk && (listOk || onlyDialog)) {
       /*
        * ÜRES IPK: nincs csatorna, nincs stream, nincs logó. A felület
        * EGYETLEN kész egységként rajzolódott ki – azonnal, egyetlen
@@ -657,6 +681,20 @@ try {
         revealWhenPainted("kész főoldal");
         return;
       }
+    }
+
+    /*
+     * 2.5.399 – GYORS BIZTONSÁGI HÁLÓ A #39 ESETÉRE. A naplóban egy
+     * 1017 ms-es főszál-fagyás (és összesen 29 képkocka-kihagyás) miatt a
+     * 40 ms-os ellenőrző ciklus is leállt, ezért a takarókép 1838 ms-ig
+     * fent ragadt. Ha a tartalom már eldőlt, a fejléc kész és az élő lista
+     * jelezte, hogy kész, 1,5 s után NEM várunk tovább: a fagyás utáni
+     * első körben azonnal felfedünk.
+     */
+    if (elapsed > BOOT_FAST_REVEAL_MS && chromeOk && bootState() !== "checking"
+        && liveListReady() && listOk) {
+      revealWhenPainted("gyors indulás – a takarókép nem vár tovább");
+      return;
     }
 
     /*

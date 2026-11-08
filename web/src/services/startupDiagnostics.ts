@@ -55,6 +55,11 @@ let dialogsSeen = 0;
 let summaryDone = false;
 let lastScreenState = '';
 let screenTimer: number | null = null;
+/** 2.5.399: a boot ablak után a megfigyelők lecsatlakoznak, a napló marad. */
+const BOOT_OBSERVER_WINDOW_MS = 12000;
+let bootObserverStop: number | null = null;
+/** A 25 mp-es BOOT-DIAG ÖSSZEGZÉS időzítője NEM tartozik a boot megfigyelőkhöz. */
+let summaryTimer: number | null = null;
 let marksReported = 0;
 let marksMissingLogged = false;
 let resourcesReported = 0;
@@ -796,26 +801,55 @@ export function startStartupDiagnostics(): void {
     dumpResourceTiming('ERŐFORRÁSOK (10 mp)');
   }, 10000);
   // 25 mpnél lezáró összegzés (a naplózás továbbra is fut).
-  const summaryTimer = window.setTimeout(() => {
+  if (bootObserverStop !== null) {
+    try { window.clearTimeout(bootObserverStop); } catch { /* régi motor */ }
+  }
+  bootObserverStop = window.setTimeout(() => {
+    bootObserverStop = null;
+    if (running) stopBootObservers();
+  }, BOOT_OBSERVER_WINDOW_MS);
+
+  summaryTimer = window.setTimeout(() => {
+    summaryTimer = null;
     if (!running) return;
     logSummary();
   }, 25000);
+  /* Csak a boot megfigyelők erőforrás-időzítőjét adjuk a cleanups-hoz:
+     a 25 mp-es ÖSSZEGZÉS a megfigyelők 12 mp-es lecsatlakozása UTÁN is
+     lefut, különben a #39-ben látott összegző sor eltűnne. */
   cleanups.push(() => {
     try {
       window.clearTimeout(resourceTimer);
     } catch {
       /* már lejárt */
     }
-    try {
-      window.clearTimeout(summaryTimer);
-    } catch {
-      /* már lejárt */
-    }
   });
+}
+
+/**
+ * 2.5.399 – A #39 naplóban az automata napló megfigyelői (képernyő-mintavétel,
+ * képkocka-őr, elem- és PerformanceObserver) a TELJES munkamenet alatt futottak,
+ * és 29 képkocka-kihagyást okoztak. A boot ablak (12 s) után ezeket
+ * lecsatlakoztatjuk; a kézi hiba napló ettől még tovább gyűjti az eseményeket.
+ */
+function stopBootObservers(): void {
+  while (cleanups.length > 0) {
+    const cleanup = cleanups.pop();
+    try { cleanup?.(); } catch { /* egy figyelő hibája nem akadály */ }
+  }
+  line('INDULÁSI MEGFIGYELŐK LEÁLLÍTVA: a boot ablak lezárult; a kézi hiba napló tovább gyűjt, de a képkocka-/képernyő-figyelők nem terhelik a fő szálat.');
 }
 
 export function stopStartupDiagnostics(): void {
   if (!running) return;
+  if (bootObserverStop !== null) {
+    try { window.clearTimeout(bootObserverStop); } catch { /* régi motor */ }
+    bootObserverStop = null;
+  }
+  if (summaryTimer !== null) {
+    try { window.clearTimeout(summaryTimer); } catch { /* régi motor */ }
+    summaryTimer = null;
+  }
   // Ha a naplót nagyon gyorsan leállítják, a halasztott sorok se vesszenek el.
   runSlowStartupProbes();
   running = false;

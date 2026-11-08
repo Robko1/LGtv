@@ -118,11 +118,13 @@ const stats = mod.getTvDoctorMemoryStats();
 assert.ok(stats.learnedChannelCount >= 3, 'a tanult csatornák száma a központi profilokkal együtt >= 3');
 console.log('  ✓ tanult_csatornák nem 0: a központi profilok és a friss tanulás együtt látszanak');
 
-// Forrás: a sync a megjegyzett ID-t küldi, és az 1-es alapokat nem törli.
+// Forrás: a sync a megjegyzett ID-t küldi; a 2.5.399 / 10. pont szerint a
+// teljes nullázás az 1-es alapokat a Supabase-ben IS törli (a korábbi
+// „halhatatlan alap” döntést a felhasználó visszavonta).
 const cloud = fs.readFileSync('web/src/services/tvDoctorCloud.ts', 'utf8');
 assert.match(cloud, /syncProfiles\s*=/, 'a szinkron a mentett ID-re lecserélt profilokat küldi');
 assert.match(cloud, /savedChannelIdByKey\.get/, 'a stabil névkulcs alapján keresi meg a mentett ID-t');
-assert.ok(!/postTvDoctorRpc\(\s*'tv_doctor_baselines_clear'/.test(cloud), 'az 1-es alapokat a nullázás nem törli');
-console.log('  ✓ a sync a mentett ID-t küldi; az 1-es alap halhatatlan marad');
+assert.match(cloud, /postTvDoctorRpc\(\s*'tv_doctor_baselines_clear'/, 'a teljes nullázás törli a Supabase 1-es alapjait');
+console.log('  ✓ a sync a mentett ID-t küldi; a Memória: 0 az 1-es alapot is törli');
 
 console.log('\n=== v18 kompatibilitás: MINDEN RENDBEN ===\n');

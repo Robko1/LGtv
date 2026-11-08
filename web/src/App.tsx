@@ -1944,7 +1944,7 @@ export function App() {
         appLog(`FAST BOOT EPG: ${huBootChannels.length} magyar csatorna a főoldalra – késleltetett EPG indul (HU forrásokból).`);
         setGuideHuProbe(huBootChannels);
         void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
-      }, 5000);
+      }, 9000);
     }
     // Periodikus EPG csak akkor, ha a teljes lista már betöltődött
     fastTimers.refreshTimer = window.setInterval(() => {
