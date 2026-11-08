@@ -5473,12 +5473,16 @@ export function App() {
         selectedCategoryId={selectedCategoryId}
         onSelectCategory={(catId) => {
           setSelectedFavoriteFolderId(null);
+          // A ref azonnali frissítése megakadályozza, hogy egy közben érkező
+          // részleges betöltési callback a régi (pl. HU) országot állítsa vissza.
+          selectedCategoryIdRef.current = catId;
           setSelectedCategoryId(catId);
           setSelectedSubCategoryId(null);
           setIsOnlyFavorites(catId === 'favorites');
         }}
         onSelectSubCategory={(countryCategoryId, subCategoryId) => {
           setSelectedFavoriteFolderId(null);
+          selectedCategoryIdRef.current = countryCategoryId;
           setSelectedCategoryId(countryCategoryId);
           setSelectedSubCategoryId(subCategoryId);
           setIsOnlyFavorites(false);
@@ -5651,14 +5655,24 @@ export function App() {
             const incomingCountries = buildCountryCategories(partial.channels);
             const hungaryCategoryId = findHungaryCategoryId(incomingCountries) || 'all';
             /*
-             * A főoldal induláskor és minden betöltés után MINDIG a magyar
-             * csatornacsoportot mutatja – a betöltés soha nem veheti át a
-             * beállított „Magyarország / magyar csatornák” helyét, és nem
-             * válthat másik országra.
+             * A részleges HU-visszatöltés nem írhatja felül a néző közben
+             * kiválasztott országát. Korábban minden partial.channels esemény
+             * visszarántotta a kategóriát Magyarországra, ezzel megszakította
+             * a külföldi ország kategóriáinak/csatornáinak igény szerinti
+             * betöltését. Csak érvénytelen vagy még ki nem választott állapotnál
+             * állítjuk be az alapértelmezett Magyarországot.
              */
-            if (selectedCategoryIdRef.current !== hungaryCategoryId) {
-              selectedCategoryIdRef.current = hungaryCategoryId;
-              setSelectedCategoryId(hungaryCategoryId);
+            const requestedCategoryId = selectedCategoryIdRef.current;
+            const availableCountryIds = new Set(
+              buildCountryCategories(partial.channels, categories).map((category) => category.id)
+            );
+            const nextCategoryId = requestedCategoryId.startsWith('country-')
+              && availableCountryIds.has(requestedCategoryId)
+              ? requestedCategoryId
+              : hungaryCategoryId;
+            if (requestedCategoryId !== nextCategoryId) {
+              selectedCategoryIdRef.current = nextCategoryId;
+              setSelectedCategoryId(nextCategoryId);
             }
             const orderedChannels = hungaryFirst(partial.channels);
             setChannels(orderedChannels);
