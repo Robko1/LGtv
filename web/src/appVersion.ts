@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.397';
+export const WEB_VERSION = '2.5.398';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.397',
+    version: '2.5.398',
     date: '2026-11-08',
     changes: [
       'ÚJ (A KÉZI HIBA NAPLÓ AZ IPK INDÍTÁSAKOR AUTOMATIKUSAN GYŰJT) — A 2026-11-08 18:41-es TV-fotó után a SÁRGA gombos naplóhoz többé NEM kell előre megnyitni az ablakot: a `TEST_STARTUP_DIAGNOSTICS` bekapcsolásával a `diagnosticsBootstrap` már az App/modulok importja ELŐTT elindítja a naplózást és a crash-handlert, így a legelső milliszekundumok (HTML 1/7…7/7 jelek, bundle, React mount) is benne vannak. A napló ELEJÉN egy „MIT ELLENŐRIZ A TV” sor tételesen felsorolja mind a 12 ellenőrzési lépést: webOS Luna-híd / `notifyAppLoaded`, fejléc+mappasáv (`chromeReady`), élő csatornasorok, logók, első videó-képkocka (`requestVideoFrameCallback`), előfestés, üres IPK jelzés, IndexedDB/localStorage felmérés, FCP/LCP/long task, `bootScreenComplete`, `iptv-app-ready` és a natív splash elengedése.',
