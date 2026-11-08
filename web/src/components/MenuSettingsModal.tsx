@@ -33,6 +33,7 @@ import {
   Cloud,
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
+import { loadLiveChannelsByIds } from '../services/contentStore';
 import {
   createLayoutSnapshot,
   getLastBackupInfo,
@@ -1041,13 +1042,30 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
     }
   };
 
-  const doRestoreFromSnapshot = (snap: LayoutSnapshot): void => {
+  const doRestoreFromSnapshot = async (snap: LayoutSnapshot): Promise<void> => {
     if (!activeProviderForLayout) return;
     setLayoutRestoring(true);
     try {
-      const { orderedChannels, remappedFolders } = applySnapshotToChannels(snap, channels);
+      // A gyors induló lista csak a magyar csatornákat tartalmazza.
+      // A mentett mappatagokat ezért előbb az IndexedDB teljes katalógusából
+      // kérjük le, különben a Mr Bean / HBO Max külföldi csatornái elvesznek.
+      const savedIds = new Set<string>([
+        ...(snap.channelOrder || []),
+        ...(snap.fingerprintOrder || []).map((item) => item.id),
+      ]);
+      const currentIds = new Set(channels.map((channel) => channel.id));
+      const missingIds = new Set(Array.from(savedIds).filter((id) => !currentIds.has(id)));
+      const storedChannels = missingIds.size
+        ? await loadLiveChannelsByIds(activeProviderForLayout, missingIds)
+        : [];
+      const sourceById = new Map<string, Channel>();
+      for (const channel of channels) sourceById.set(channel.id, channel);
+      for (const channel of storedChannels) sourceById.set(channel.id, channel);
+      const restoreSource = Array.from(sourceById.values());
+
+      const { orderedChannels, remappedFolders } = applySnapshotToChannels(snap, restoreSource);
       persistRestoredLayout(snap, orderedChannels, remappedFolders, activeProviderForLayout.id);
-      setLayoutMessage(`↺ Visszaállítva: ${formatLayoutTime(snap.createdAt)} — ${snap.totalChannels} csatorna, ${snap.folders.length} mappa. Újratöltés...`);
+      setLayoutMessage(`↺ Visszaállítva: ${formatLayoutTime(snap.createdAt)} — ${orderedChannels.length} csatorna, ${remappedFolders.length} mappa. Újratöltés...`);
       setTimeout(() => window.location.reload(), 900);
     } finally {
       setLayoutRestoring(false);
@@ -1077,7 +1095,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       setLayoutMessage(`Visszaállítás innen: ${newest.source} — ${formatLayoutTime(newest.snap.createdAt)} • ${newest.snap.totalChannels} csatorna. Nyomj újra a megerősítéshez.`);
       return;
     }
-    doRestoreFromSnapshot(newest.snap);
+    await doRestoreFromSnapshot(newest.snap);
   };
 
   /**
