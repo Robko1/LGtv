@@ -1066,6 +1066,24 @@ export function App() {
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
   const [isTvDoctorModalOpen, setIsTvDoctorModalOpen] = useState(false);
 
+  // A TV Doktor ablak Vissza/Escape kezelése CAPTURE fázisban történik.
+  // Teljes képernyőn a VideoPlayer saját keydown kezelője korábban megállította
+  // a buborékolást, ezért az App későbbi (bubble) kezelője nem kapta meg az
+  // Escape-et, és a TV Doktor bezárása helyett a lejátszó lépett ki fullscreenből.
+  // Csak a TV Doktor nyitott állapotában fogjuk meg ezt a két gombot.
+  useEffect(() => {
+    if (!isTvDoctorModalOpen) return;
+    const closeTvDoctorOnBack = (event: KeyboardEvent) => {
+      const key = normalizeTvKey(event);
+      if (key !== 'Escape' && key !== 'Backspace') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsTvDoctorModalOpen(false);
+    };
+    window.addEventListener('keydown', closeTvDoctorOnBack, true);
+    return () => window.removeEventListener('keydown', closeTvDoctorOnBack, true);
+  }, [isTvDoctorModalOpen]);
+
   // Ha elhagyjuk az élő TV nézetet vagy film/sorozat (VOD) lejátszás indul,
   // a 0-ás gombbal előhívott TV Doktor ablak automatikusan bezáródik.
   useEffect(() => {
