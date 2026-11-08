@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.395';
+export const WEB_VERSION = '2.5.396';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.395',
+    version: '2.5.396',
     date: '2026-11-08',
     changes: [
       'JAVÍTÁS (AZ 1-ES ALAP MOST TÉNYLEG HALHATATLAN, HELYBEN ÉS A SUPABASE-BEN IS) — A 2.5.394 ugyan már nem hívta a `tv_doctor_baselines_clear` RPC-t, de a `clearTvDoctorMemory()` HELYBEN mégis törölte az alap tárolóját; ha a felhőben még nem volt mentett alap (jelenleg 0 sor), a „Memória: 0” után nem volt hová visszatérni, csak egy újabb első lejátszás tudott új alapot rögzíteni. Most a nullázás kizárólag a TANULT profilokat, útvonalakat és naplókat törli; a slot-1 alap a TV-n akkor is megmarad, ha nincs internet. A Supabase-ben is zároltuk: a `20261108173312_tv_doctor_immutable_baseline_no_delete` migráció a törlő RPC-t kompatibilitási no-op-ra cserélte (a régi 2.5.392 IPK nullázása továbbra is sikerrel jelez vissza, de EGY SORT SEM TÖRÖL). Ezt a változást az élő adatbázison is ellenőriztük.',
