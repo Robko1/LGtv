@@ -31,6 +31,8 @@ import {
   setTvDoctorHungarianChannelScope,
   TV_DOCTOR_SYNC_STORAGE_KEY,
   getTvDoctorActivePlaybackSnapshot,
+  getTvDoctorChannelSnapshot,
+  MAX_CHANNEL_ROUTES,
   startTvDoctorPlaybackTelemetry,
   stopTvDoctorPlaybackTelemetry,
 } from './tvDoctor';
@@ -1871,11 +1873,36 @@ export async function resetTvDoctorAllToZero(storage?: Storage | null): Promise<
   const state = readSyncState();
   state.pendingProfiles = {};
   state.pendingEvents = [];
+  /* 2.5.392: a nullázási szándékot MÉG a hálózati hívás előtt rögzítjük,
+     hogy egy éppen futó felhő-bootstrap ne tölthesse vissza a profilokat. */
   state.pendingCloudReset = true;
   state.cloudProfileCount = 0;
   state.lastSyncAt = null;
   saveSyncState();
   const synced = await flushTvDoctorCloudQueue();
+  /*
+   * 2.5.392 – ZÉRÓ ABLAK VÉDELME: ha a nullázás pillanatában már futott egy
+   * bootstrap (syncingNow), az RPC-törlés várólistán marad. Egy ilyen, korábban
+   * elindult szinkron viszont a törlés UTÁN még visszamerge-elhette a felhő
+   * profiljait a HELYI memóriába – ezért a hálózati hívás után MÉG EGYSZER
+   * nullázzuk a helyi memóriát, és a sikertelen törlést újra várólistára
+   * tesszük. Így a 0-ablak semmilyen időzítés mellett nem mutat régi utat.
+   */
+  clearTvDoctorMemory(storage);
+  const after = readSyncState();
+  if (!synced) {
+    after.pendingCloudReset = true;
+    after.pendingProfiles = {};
+    after.pendingEvents = [];
+    after.cloudProfileCount = 0;
+    after.lastSyncAt = null;
+  } else {
+    after.pendingCloudReset = false;
+    after.pendingProfiles = {};
+    after.pendingEvents = [];
+    after.cloudProfileCount = 0;
+  }
+  saveSyncState();
   if (isTvDoctorDiagLoggingEnabled()) {
     appLog(synced
       ? 'TV DOKTOR NULLÁZÁS: a helyi és a Supabase tanult memóriája, útvonalai és naplói 0 állapotra törölve; párosítás és csatornaelrendezés megmaradt.'
@@ -1916,9 +1943,25 @@ export function attachTvDoctorDiagnostics(): void {
       // nem egy előre megadott vagy név szerint rögzített csatornát.
       startTvDoctorPlaybackTelemetry();
 
-      const statusLine = `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; igazolt_javítások=${summary.totalVerifiedRepairs}; kategóriák=(tanulás=${summary.categoryStats.learning.count}, segítség=${summary.categoryStats.assistance.count}, aktiválódás=${summary.categoryStats.activation.count}, csatornahiba=${summary.categoryStats.channel_error.count}) ===`;
+      /*
+       * 2.5.392: a négy szám EDDIG a GLOBÁLIS, kumulált kategória-számláló
+       * volt, miközben a 0-ablak bal dobozai az AKTÍV CSATORNA friss
+       * naplóbejegyzéseit mutatják. A napló ezért „tanulás=4”-et írt, a képernyő
+       * meg 0-t vagy 4-et, és a felhő útvonalszáma is harmadik érték volt.
+       * Most a két forrás KÜLÖN, pontosan megnevezve szerepel.
+       */
+      const activeChannelForBoxes = activePlayback
+        ? { id: activePlayback.channelId || '', name: activePlayback.channelName || '' }
+        : null;
+      /* Itt SZINKRON vagyunk, a felhő útvonalai még nincsenek lekérve: a
+         0-ablak ezt a HELYI pillanatképet egészíti ki a Supabase sorokkal. */
+      const boxSnapshot = getTvDoctorChannelSnapshot(activeChannelForBoxes, null);
+      const statusLine = `=== TV DOKTOR ÁLLAPOTKÉP: motor=${cloud.enabled ? 'AKTÍV' : 'KIKAPCSOLVA'}; párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; tanult_csatornák=${mem.learnedChannelCount}/${mem.maxLearnedChannels}; igazolt_javítások=${summary.totalVerifiedRepairs}; ÖSSZESÍTETT_kategóriák=(tanulás=${summary.categoryStats.learning.count}, segítség=${summary.categoryStats.assistance.count}, aktiválódás=${summary.categoryStats.activation.count}, csatornahiba=${summary.categoryStats.channel_error.count}) ===`;
       appLog(statusLine);
       tvDoctorLog(statusLine);
+      const boxLine = `=== TV DOKTOR 0-ABLAK ELLENŐRZÉS: csatorna=${activePlayback ? (activePlayback.channelName || 'ismeretlen') : 'nincs aktív csatorna'}; bal_dobozok=(tanulás=${boxSnapshot.logsByCategory.learning.length}, segítség=${boxSnapshot.logsByCategory.assistance.length}, aktiválódás=${boxSnapshot.logsByCategory.activation.length}, csatornahiba=${boxSnapshot.logsByCategory.channel_error.length}); tanult_útvonalak=${boxSnapshot.routes.length}/${MAX_CHANNEL_ROUTES} (HELYI=${boxSnapshot.localRouteCount}); a 0-ablak ezt a helyi pillanatképet egészíti ki a Supabase-ből olvasott, még hiányzó útvonalakkal; a négy doboz és az alsó lista ugyanabból a pillanatképből készül ===`;
+      appLog(boxLine);
+      tvDoctorLog(boxLine);
       const memLine = `TV DOKTOR MEMÓRIA: doktor=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)} (${mem.doctorBudgetPercent}%); tv_tárhely=${formatDoctorBytes(mem.tvStorageUsedBytes)}/~5.0 MB (${mem.tvStoragePercent}%)${mem.jsHeapUsedMB !== null ? `; js_ram=${mem.jsHeapUsedMB} MB` : ''}; állapot=${mem.memoryHealthLabel}`;
       appLog(memLine);
       tvDoctorLog(memLine);
@@ -1926,7 +1969,8 @@ export function attachTvDoctorDiagnostics(): void {
       appLog(cloudLine);
       tvDoctorLog(cloudLine);
       // 2.5.312: külön kiemelés a TV DR naplóba, hogy a Supabase-ről való visszaolvasás bizonyíthatóan működik
-      tvDoctorLog(`TV DR SUPABASE VISSZAOLVASÁS BEKÖTVE: a TV indulásakor 1,2s után a Supabase-ből (${cloud.cloudProfileCount} profil) automatikusan visszatöltődik a 8 tanult útvonal/csatorna — a következő csatornaváltás már a tárolt adatokból dolgozik, nem indul újra a tanulás.`);
+      /* 2.5.392: nem írunk fix „8 tanult útvonal/csatorna” állítást – csak a mért számot. */
+      tvDoctorLog(`TV DR SUPABASE VISSZAOLVASÁS BEKÖTVE: a TV indulásakor 1,2s után a Supabase-ből (${cloud.cloudProfileCount} profil) töltődik vissza a tanult memória; aktív csatorna tanult útvonalai=${boxSnapshot.routes.length}/${MAX_CHANNEL_ROUTES} (helyi=${boxSnapshot.localRouteCount}), felhő-profilok=${cloud.cloudProfileCount} — a következő csatornaváltás a ténylegesen visszatöltött adatokból dolgozik.`);
       if (cloud.lastErrorSummary) {
         const line = `TV DOKTOR SUPABASE HIBA RÉSZLETEK: hol=${cloud.lastErrorLocation || 'ismeretlen'}; kód=${cloud.lastErrorCode || '-'}; hiba=${cloud.lastErrorSummary}`;
         appLog(line);

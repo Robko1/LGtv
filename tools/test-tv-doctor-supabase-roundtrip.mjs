@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 2.5.312: Supabase visszaolvasás IPK újraindítás után — a TV a Supabase-ből dolgozik
 // Ez a teszt a felhasználó kérésére készült: ellenőrzi, hogy a Supabase-be mentett
-// 8 tanult útvnal/csatona visszaolvasáskor tényleg visszatöltődik a TV-re és a
+// legfeljebb 8 tanult útvonal/csatorna visszaolvasáskor tényleg visszatöltődik a TV-re és a
 // TV Doktor abból dolgozik (nem indul újra a tanulás).
 
 import assert from 'node:assert/strict';
@@ -115,4 +115,4 @@ console.log('   - induláskor: "TV DR SUPABASE VISSZAOLVASÁS BEKÖTVE: 1,2s ut�
 console.log('   A felhasználó most indítson egy kézi TV DR naplót (SÁRGA gomb -> TV DR indítása), majd váltson csatornát — a naplóban látni fogja a fenti sorokat.');
 
 console.log('\n✅ Supabase visszaolvasás IPK újraindítás után: SIKERES — a TV a Supabase-ből dolgozik, a tanulás nem indul újra.\n');
-console.log('   A 8 tanult útvonal/csatorna a Supabase memóriából (tv_doctor_routes_upsert/fetch) visszaolvasva azonnal él a következő csatornaváltáskor.\n');
+console.log('   A MÉRT számú (legfeljebb 8) tanult útvonal/csatorna a Supabase memóriából (tv_doctor_routes_upsert/fetch) visszaolvasva azonnal él a következő csatornaváltáskor; a 0-ablak a helyi tanulással ÖSSZEVONTAN, nem fix 8-as számmal mutatja őket.\n');

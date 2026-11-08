@@ -196,7 +196,8 @@ check(
     core.getDoctorBaseline(baselineChannel, baselineStore)?.format === 'ts',
   'két gyors, hibátlan mérés után a jobb tanult profil kerül előre, az 1-es vész-tartalék változatlan marad',
 );
-// 1.2aa Az 1-es tartalék mellett pontosan 7 tanult hely marad: a 2–8. pozíció.
+// 1.2aa 2.5.392: az 1-es tartalék mellett pontosan 8 tanult hely marad
+// (ugyanannyi, mint a Supabase Edge Function és a 0-ablak 8 doboza).
 const rollingProfiles = ['instant', 'turbo', 'fast', 'balanced', 'stable', 'adaptive-1', 'adaptive-2', 'adaptive-3'];
 const rollingTimes = [1800, 1500, 1200, 900, 700, 500, 350, 220];
 for (let i = 0; i < rollingProfiles.length; i += 1) {
@@ -205,12 +206,20 @@ for (let i = 0; i < rollingProfiles.length; i += 1) {
     startupMs: rollingTimes[i], storage: baselineStore,
   });
 }
+// 9. jelölt (a leglassabb): a 8-as korlát miatt ennek kell kiesnie.
+core.recordDoctorChannelSuccess({
+  channel: baselineChannel, format: 'ts', bufferProfile: 'instant',
+  startupMs: 9000, storage: baselineStore,
+});
 const rollingRecord = core.getChannelDoctorRecord(baselineChannel, baselineStore);
 check(
-  rollingRecord?.routes?.length === 7 && rollingRecord.routes[0].id === 'hls:adaptive-3' &&
+  core.MAX_CHANNEL_ROUTES === 8 &&
+    rollingRecord?.routes?.length === core.MAX_CHANNEL_ROUTES &&
+    rollingRecord.routes[0].id === 'hls:adaptive-3' &&
+    rollingRecord.routes.some((route) => route.id === 'hls:instant') &&
     !rollingRecord.routes.some((route) => route.id === 'ts:balanced') &&
-    !rollingRecord.routes.some((route) => route.id === 'hls:instant'),
-  'az 1-es TS+balanced külön vész-tartalék; a 2–8. helyen a 7 legjobb tanult útvonal marad, a legrosszabb kiesik',
+    !rollingRecord.routes.some((route) => route.id === 'ts:instant'),
+  'az 1-es TS+balanced külön vész-tartalék; 8 tanult hely van (Supabase-szel egyezően), a legrosszabb 9. jelölt kiesik',
 );
 
 const baselineFallback = core.planDoctorRepairStep({

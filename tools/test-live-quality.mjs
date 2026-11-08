@@ -273,8 +273,12 @@ check(
 
 const storeSource = fs.readFileSync(resolve('web/src/services/contentStore.ts'), 'utf8');
 check(
-  /RESTORE_IDB_READ_GROUP_SIZE = 4;/.test(storeSource),
-  'a Mozi hideg visszatöltése 4 blokkonként olvas (#33: 1,8 s főszál-blokk)',
+  /readGroupSize:\s*16/.test(storeSource) && /decodeBatchSize:\s*2500/.test(storeSource),
+  '2.5.392: a Mozi hideg visszatöltése a benchmark győztesével (16 blokk / 2500 soros adag) olvas',
+);
+check(
+  /két blokkonként|% 2 === 0/.test(storeSource) && /RESTORE_TUNING/.test(storeSource),
+  'a nagy olvasási csoport közben is visszaadjuk a fő szálat (nincs 1,8 s szinkron blokk)',
 );
 check(
   storeSource.includes('await yieldToStorage()') && storeSource.includes('expectedRestoreBatches'),

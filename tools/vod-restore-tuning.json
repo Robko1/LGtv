@@ -1,0 +1,24 @@
+{
+  "measuredOn": "2026-11-08",
+  "dataset": "Mozi / 103092 film / 0 sorozat",
+  "benchmark": "tools/bench-vod-restore.mjs",
+  "winner": { "readGroupSize": 16, "decodeBatchSize": 2500 },
+  "winnerMeasuredMs": 563,
+  "winnerModelMs": 341,
+  "baseline": {
+    "readGroupSize": 4,
+    "decodeBatchSize": 2500,
+    "measuredMs": 757,
+    "idbTransactions": 54,
+    "eventLoopYields": 104
+  },
+  "twelveReadBatches": {
+    "readGroupSize": 12,
+    "decodeBatchSize": 2500,
+    "measuredMs": 582,
+    "idbTransactions": 20,
+    "eventLoopYields": 138
+  },
+  "maxSyncRowsAllowed": 2500,
+  "note": "A sorozatok kevesebb elem miatt gyorsabbak – a mérés kizárólag Mozi adatokkal készült."
+}
