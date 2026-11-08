@@ -1,6 +1,7 @@
 import { WEB_VERSION } from '../appVersion';
 import { appLog, isVerbosePlaybackLogging, registerLoggingLifecycleHooks, tvDoctorLog } from './appLog';
 import { tvDeviceInfo } from './tvDevice';
+import { fetchSnapshotFromCloud } from './channelLayoutBackup';
 import {
   ChannelDoctorRecord,
   CloudChannelProfileInput,
@@ -29,6 +30,10 @@ import {
   normalizeChannelDoctorKey,
   sanitizeDoctorRoutes,
   setTvDoctorHungarianChannelScope,
+  restoreTvDoctorCentralProfiles,
+  getTvDoctorCentralProfileState,
+  normalizeSavedLayoutChannelKey,
+  SavedLayoutChannel,
   TV_DOCTOR_SYNC_STORAGE_KEY,
   getTvDoctorActivePlaybackSnapshot,
   getTvDoctorChannelSnapshot,
@@ -62,6 +67,63 @@ const MIN_FLUSH_GAP_MS = 3 * 60 * 1000;
 /** Mikor fejeződött be az utolsó tényleges küldés. */
 let lastFlushDoneAt = 0;
 const MAX_PENDING_PROFILES = 100;
+
+/*
+ * 2.5.394 – KOMPATIBILITÁS A JELENLEG DEPLOYÁLT v18 EDGE FUNCTIONNEL.
+ * A futó `tv-doctor` v18 még a mentett, elavult csatorna-ID-kre szűr, a TV
+ * viszont új `live-qr_<timestamp>` ID-ket kap. A bootstrapből (v19) vagy a
+ * `tv-channel-layout` mentett pillanatképéből (v18) ezért megjegyezzük,
+ * melyik STABIL névkulcshoz melyik MENTETT ID tartozik, és a feltöltésnél
+ * ezt az ID-t küldjük `channelIdHint`-ként. Így a TV már a régi szerverrel
+ * is képes a teljes tv -> Supabase -> tv körre, új prefix esetén is.
+ */
+const SAVED_SCOPE_IDS_KEY = 'iptv_rt_tv_doctor_saved_scope_ids_v1';
+let savedChannelIdByKey = new Map<string, string>();
+try {
+  const stored = JSON.parse(localStorage.getItem(SAVED_SCOPE_IDS_KEY) || '[]');
+  if (Array.isArray(stored)) {
+    for (const row of stored) {
+      if (row && typeof row[0] === 'string' && typeof row[1] === 'string') savedChannelIdByKey.set(row[0], row[1]);
+    }
+  }
+} catch { /* sérült gyorsítótár: a bootstrap újra feltölti */ }
+
+function rememberSavedChannelIds(channels: SavedLayoutChannel[]): void {
+  let changed = false;
+  for (const channel of channels) {
+    const key = String(channel.channelKey || '').toLowerCase();
+    const id = typeof channel.id === 'string' ? channel.id : '';
+    if (key && id && savedChannelIdByKey.get(key) !== id) { savedChannelIdByKey.set(key, id); changed = true; }
+  }
+  if (!changed) return;
+  try { localStorage.setItem(SAVED_SCOPE_IDS_KEY, JSON.stringify([...savedChannelIdByKey].slice(-200))); } catch {}
+}
+
+/** A `tv-channel-layout` mentett pillanatképéből sorrendi, stabil kulcsú lista. */
+function layoutChannelsFromSavedSnapshot(snapshot: unknown): SavedLayoutChannel[] {
+  const snap = snapshot as {
+    hungarianChannelIds?: unknown;
+    fingerprintOrder?: Array<{ id?: unknown; nameKey?: unknown; countryCode?: unknown; categoryName?: unknown }>;
+  } | null;
+  if (!snap || !Array.isArray(snap.fingerprintOrder)) return [];
+  const huIds = new Set(Array.isArray(snap.hungarianChannelIds)
+    ? snap.hungarianChannelIds.filter((v): v is string => typeof v === 'string') : []);
+  const out: SavedLayoutChannel[] = [];
+  for (const item of snap.fingerprintOrder) {
+    if (!item || typeof item !== 'object') continue;
+    const id = typeof item.id === 'string' ? item.id : '';
+    const rawName = String(item.nameKey || '').split('|')[0].trim();
+    const isHu = huIds.size
+      ? huIds.has(id)
+      : (String(item.countryCode || '').toUpperCase() === 'HU' || /^\s*\[hu\]\s*/i.test(rawName));
+    if (!id || !isHu) continue;
+    const channelKey = normalizeSavedLayoutChannelKey(String(item.nameKey || ''));
+    if (!channelKey) continue;
+    const name = rawName.replace(/^\s*\[[a-z]{2,4}\]\s*/i, '').trim() || channelKey;
+    out.push({ id, nameKey: String(item.nameKey || ''), channelKey, name: `[HU] ${name.toUpperCase()}`, position: out.length + 1 });
+  }
+  return out;
+}
 
 export type TvDoctorConnectionState =
   | 'disabled'
@@ -794,7 +856,7 @@ function restBaseUrl(): string {
 }
 
 async function postTvDoctorRpc(
-  fn: 'tv_doctor_routes_upsert' | 'tv_doctor_routes_fetch' | 'tv_doctor_baselines_upsert' | 'tv_doctor_baselines_fetch' | 'tv_doctor_baselines_clear',
+  fn: 'tv_doctor_routes_upsert' | 'tv_doctor_routes_fetch' | 'tv_doctor_baselines_upsert' | 'tv_doctor_baselines_fetch',
   params: Record<string, unknown>,
   timeoutMs = STATUS_CHECK_TIMEOUT_MS,
 ): Promise<any | null> {
@@ -1474,19 +1536,68 @@ export async function bootstrapTvDoctorFromCloud(): Promise<number> {
     }, REQUEST_TIMEOUT_MS, true);
     if (!res || !res.ok || !Array.isArray(res.profiles)) return 0;
 
-    // A hatókör kizárólag a Supabase-ben kézzel mentett elrendezésből érkezik.
-    // A TV csak letölti; nem indít háromnapos ellenőrzést és nem tölt fel listát.
-    if (Array.isArray(res.channelIds)) {
-      const channelIds = res.channelIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0);
-      const scopeTimestamp = typeof res.layoutUpdatedAt === 'string'
-        ? res.layoutUpdatedAt
-        : (typeof res.serverTime === 'string' ? res.serverTime : new Date().toISOString());
-      setTvDoctorHungarianChannelScope(channelIds, scopeTimestamp);
+    /*
+     * 2.5.394 – A TELJES KÖR: a hatókör NEM csak az elavult ID-listából,
+     * hanem a Supabase-ben ELMENTETT, SORRENDI csatornák stabil névkulcsaiból
+     * áll. Ezeket a bootstrap most vissza is adja (`layoutChannels`), a TV
+     * pedig pontosan ugyanazt jeleníti meg, ami fent van.
+     */
+    let cloudLayout = Array.isArray(res.layoutChannels) ? res.layoutChannels as SavedLayoutChannel[] : [];
+    let channelIds = Array.isArray(res.channelIds)
+      ? res.channelIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
+      : [];
+    let scopeTimestamp = typeof res.layoutUpdatedAt === 'string'
+      ? res.layoutUpdatedAt
+      : (typeof res.serverTime === 'string' ? res.serverTime : new Date().toISOString());
+    /* v18 nem adja vissza a mentett, sorrendi listát: ilyenkor a TV ugyanazt
+       a `tv-channel-layout` pillanatképet olvassa, amit a Supabase tárol. */
+    if (!cloudLayout.length) {
+      try {
+        const saved = await fetchSnapshotFromCloud('__HU_LAYOUT_GLOBAL__');
+        if (saved) {
+          cloudLayout = layoutChannelsFromSavedSnapshot(saved);
+          if (!channelIds.length) channelIds = cloudLayout.map((c) => c.id || '').filter(Boolean);
+          if (typeof (saved as { createdAt?: unknown }).createdAt === 'string') {
+            scopeTimestamp = (saved as { createdAt: string }).createdAt;
+          }
+        }
+      } catch { /* a layout-funkció kimaradása nem akadályozza a bootstrapt */ }
+    }
+    const layoutChannels = cloudLayout.length ? cloudLayout : getTvDoctorCentralProfileState().channels;
+    if (layoutChannels.length) rememberSavedChannelIds(layoutChannels);
+    if (channelIds.length || layoutChannels.length) {
+      setTvDoctorHungarianChannelScope(channelIds, scopeTimestamp, layoutChannels);
       const allowed = new Set(channelIds);
+      const allowedKeys = new Set((Array.isArray(res.channelKeys) ? res.channelKeys : layoutChannels.map((c) => c.channelKey))
+        .filter((k: unknown): k is string => typeof k === 'string' && k.length > 0)
+        .map((k: string) => k.toLowerCase()));
       for (const [key, pending] of Object.entries(state.pendingProfiles)) {
-        if (!pending.channelIdHint || !allowed.has(pending.channelIdHint)) delete state.pendingProfiles[key];
+        const pendingKey = String(key || (pending as any)?.channelKey || '').toLowerCase();
+        const hint = String((pending as any)?.channelIdHint || '');
+        // A friss (még el nem küldött) tanulást az elavult ID miatt NEM dobjuk el.
+        if (!((hint && allowed.has(hint)) || allowedKeys.has(pendingKey))) delete state.pendingProfiles[key];
       }
-      state.pendingEvents = state.pendingEvents.filter((event) => !event.channelId || allowed.has(event.channelId));
+      state.pendingEvents = state.pendingEvents.filter((event) => {
+        const id = String(event.channelId || '');
+        const key = String(event.channelKey || '').toLowerCase();
+        return (id && allowed.has(id)) || allowedKeys.has(key);
+      });
+    }
+
+    /* A mentett központi profilok, a zárolt 1-es alap és a felhőben tanult
+       2-es+ útvonalak MIND visszakerülnek a TV helyi memóriájába. */
+    const roundTrip = restoreTvDoctorCentralProfiles({
+      layoutChannels,
+      baselines: Array.isArray(res.baselines) ? res.baselines : [],
+      profiles: res.profiles as Array<Record<string, unknown>>,
+    });
+    if (isTvDoctorDiagLoggingEnabled()) {
+      tvDoctorLog(
+        `TV DOKTOR SUPABASE KÖR: tv -> Supabase -> tv; mentett_központi_profilok=${layoutChannels.length}; `
+        + `visszaállítva=${roundTrip.restored}; 1-es_alap=${roundTrip.baselineCount}; `
+        + `felhő_profilok=${res.profiles.length}; tanult_útvonalak=${roundTrip.routeCount}; `
+        + `a TV ugyanazt mutatja, mint a Supabase.`,
+      );
     }
 
     if (Array.isArray(res.events)) mergeCloudDoctorLogs(res.events);
@@ -1528,18 +1639,21 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
     try {
       const resetResponse = await postTvDoctor({ action: 'reset_memory' }, REQUEST_TIMEOUT_MS, true);
       if (!resetResponse || !resetResponse.ok || resetResponse.reset !== true) return false;
-      const pairing = readPairingState();
-      const baselinesCleared = await postTvDoctorRpc('tv_doctor_baselines_clear', {
-        p_device_id: pairing.deviceId,
-        p_device_token: pairing.deviceToken,
-      });
-      if (baselinesCleared !== true) return false;
+      /*
+       * 2.5.394: az 1-es, megváltoztathatatlan alapbeállításokat NEM töröljük.
+       * A korábbi `tv_doctor_baselines_clear` hívás tette tönkre a teljes
+       * tv -> Supabase -> tv kört: nullázáskor a TV ÉS a Supabase is elvesztette
+       * az alapot, ezért utána semmi nem tudott visszatölteni (0/80).
+       */
       state.pendingCloudReset = false;
       state.pendingProfiles = {};
       state.pendingEvents = [];
       state.cloudProfileCount = 0;
-      state.lastSyncAt = typeof resetResponse.serverTime === 'string' ? resetResponse.serverTime : new Date().toISOString();
+      state.lastSyncAt = null;
       saveSyncState();
+      if (isTvDoctorDiagLoggingEnabled()) {
+        tvDoctorLog('TV DOKTOR NULLÁZÁS: a Supabase 1-es alapjai és a mentett csatornaelrendezés MEGMARADTAK; a visszatöltés azonnal indul.');
+      }
       return true;
     } finally {
       syncingNow = false;
@@ -1558,6 +1672,14 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
   syncingNow = true;
   notifyTvDoctorListeners();
   try {
+    const syncProfiles = profilesToSend.map((profile) => {
+      const savedId = savedChannelIdByKey.get(String(profile.channelKey || '').toLowerCase());
+      return savedId ? { ...profile, channelIdHint: savedId } : profile;
+    });
+    const syncEvents = eventsToSend.map((event) => {
+      const savedId = savedChannelIdByKey.get(String(event.channelKey || '').toLowerCase());
+      return savedId ? { ...event, channelId: savedId } : event;
+    });
     const res = await postTvDoctor({
       action: 'sync',
       deviceHash: pairing.deviceId,
@@ -1565,8 +1687,8 @@ export async function flushTvDoctorCloudQueue(): Promise<boolean> {
       webosVersion: safeCleanText(tv?.webOsVersion || tv?.sdkVersion || '', 32),
       appVersion: WEB_VERSION,
       doctorSchemaVersion: 2,
-      profiles: profilesToSend,
-      events: eventsToSend,
+      profiles: syncProfiles,
+      events: syncEvents,
     }, REQUEST_TIMEOUT_MS, true);
 
     if (!res || !res.ok) {
@@ -1903,9 +2025,20 @@ export async function resetTvDoctorAllToZero(storage?: Storage | null): Promise<
     after.cloudProfileCount = 0;
   }
   saveSyncState();
+  /*
+   * 2.5.394 – A HIÁNYZÓ FÉL KÖR. A 2.5.392 itt ÁLLT MEG: a nullázás után
+   * semmi nem hívta meg a visszatöltést, így a TV `0/80`-on ragadt, pedig a
+   * Supabase-ben ott volt a mentett 80 magyar csatorna és az 1-es alap.
+   */
+  if (synced && cloudEnabled && isTvDoctorPaired()) {
+    /* Nem várjuk meg a hálózatot: a piros gomb azonnal visszatér, de a
+       visszatöltés UGYANABBAN a tickben elindul, és a saját listenerje
+       frissíti a 0-ablakot, amint a 80 mentett csatorna megérkezett. */
+    void restoreTvDoctorCloudState().catch(() => {});
+  }
   if (isTvDoctorDiagLoggingEnabled()) {
     appLog(synced
-      ? 'TV DOKTOR NULLÁZÁS: a helyi és a Supabase tanult memóriája, útvonalai és naplói 0 állapotra törölve; párosítás és csatornaelrendezés megmaradt.'
+      ? 'TV DOKTOR NULLÁZÁS: a tanult memória 0; a Supabase-ben mentett csatornaelrendezés és az 1-es alapok megmaradtak, és azonnal visszatöltődtek a TV-re (tv -> Supabase -> tv).'
       : 'TV DOKTOR NULLÁZÁS: a helyi memória 0; a Supabase-törlés várólistán maradt, internetkapcsolatkor automatikusan újrapróbálja.');
   }
   notifyTvDoctorListeners();
@@ -1965,12 +2098,14 @@ export function attachTvDoctorDiagnostics(): void {
       const memLine = `TV DOKTOR MEMÓRIA: doktor=${formatDoctorBytes(mem.doctorTotalBytes)}/${formatDoctorBytes(mem.maxSafeDoctorBytes)} (${mem.doctorBudgetPercent}%); tv_tárhely=${formatDoctorBytes(mem.tvStorageUsedBytes)}/~5.0 MB (${mem.tvStoragePercent}%)${mem.jsHeapUsedMB !== null ? `; js_ram=${mem.jsHeapUsedMB} MB` : ''}; állapot=${mem.memoryHealthLabel}`;
       appLog(memLine);
       tvDoctorLog(memLine);
-      const cloudLine = `TV DOKTOR SUPABASE: párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; kapcsolat=${cloud.connected ? 'LÉTREJÖTT' : 'NINCS'}; állapot=${cloud.connectionState}; válaszidő=${cloud.latencyMs !== null ? `${cloud.latencyMs}ms` : 'nincs mérve'}; központi_profilok=${cloud.cloudProfileCount}; várólista=${cloud.pendingCount}; utolsó_szinkron=${cloud.lastSyncAt || 'még nem volt'}`;
+      const centralForLine = getTvDoctorCentralProfileState();
+      const cloudLine = `TV DOKTOR SUPABASE: párosítva=${cloud.paired ? 'IGEN' : 'NEM'}; kapcsolat=${cloud.connected ? 'LÉTREJÖTT' : 'NINCS'}; állapot=${cloud.connectionState}; válaszidő=${cloud.latencyMs !== null ? `${cloud.latencyMs}ms` : 'nincs mérve'}; központi_profilok=${centralForLine.count}; tanult_profilok=${cloud.cloudProfileCount}; 1-es_alapok=${centralForLine.baselines}; várólista=${cloud.pendingCount}; utolsó_szinkron=${cloud.lastSyncAt || 'még nem volt'}`;
       appLog(cloudLine);
       tvDoctorLog(cloudLine);
       // 2.5.312: külön kiemelés a TV DR naplóba, hogy a Supabase-ről való visszaolvasás bizonyíthatóan működik
       /* 2.5.392: nem írunk fix „8 tanult útvonal/csatorna” állítást – csak a mért számot. */
-      tvDoctorLog(`TV DR SUPABASE VISSZAOLVASÁS BEKÖTVE: a TV indulásakor 1,2s után a Supabase-ből (${cloud.cloudProfileCount} profil) töltődik vissza a tanult memória; aktív csatorna tanult útvonalai=${boxSnapshot.routes.length}/${MAX_CHANNEL_ROUTES} (helyi=${boxSnapshot.localRouteCount}), felhő-profilok=${cloud.cloudProfileCount} — a következő csatornaváltás a ténylegesen visszatöltött adatokból dolgozik.`);
+      const central = getTvDoctorCentralProfileState();
+      tvDoctorLog(`TV DR SUPABASE VISSZAOLVASÁS BEKÖTVE: a TV indulásakor a Supabase-ből (${cloud.cloudProfileCount} tanult profil) töltődik vissza a memória; mentett_központi_profilok=${central.count}; 1-es_alapok=${central.baselines}; tanult_útvonalak=${central.learnedRoutes}; aktív csatorna=${boxSnapshot.routes.length}/${MAX_CHANNEL_ROUTES} (helyi=${boxSnapshot.localRouteCount}) — a következő csatornaváltás a ténylegesen visszatöltött adatokból dolgozik.`);
       if (cloud.lastErrorSummary) {
         const line = `TV DOKTOR SUPABASE HIBA RÉSZLETEK: hol=${cloud.lastErrorLocation || 'ismeretlen'}; kód=${cloud.lastErrorCode || '-'}; hiba=${cloud.lastErrorSummary}`;
         appLog(line);

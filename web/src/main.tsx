@@ -233,8 +233,18 @@ try {
    * A poszter miatt nincs fekete terület, így 400 / 250 ms is bőven elég;
    * a tényleges képkocka megérkezésekor a lejátszó maga vált.
    */
-  const VIDEO_WAIT_MS = 400;
-  const LOGO_WAIT_MS = 250;
+  /*
+   * 2.5.394 – A VÁRAKOZÁS TÉNYLEGESEN NULLA.
+   *
+   * A #37/#35 naplókban a felfedés még mindig +250/+400 ms-t várt a logókra
+   * és az első videókockára, miközben a #root már látható volt és a lejátszó
+   * posztere is a képernyőn volt. Ez a fél másodperc TISZTA veszteség: a
+   * `iptv-app-ready` jel (és vele a mentett katalógus visszatöltése) is
+   * késett. A poszter miatt nincs fekete terület, ezért a felfedés
+   * AZONNAL megtörténik, amint a fejléc + lista a DOM-ban van.
+   */
+  const VIDEO_WAIT_MS = 0;
+  const LOGO_WAIT_MS = 0;
   /**
    * A teljes lista készenléte – MÁR CSAK NAPLÓZÁSRA (2.5.149).
    * A felfedés nem vár rá: a takarókép akkor megy le, amikor a LÁTHATÓ
@@ -570,8 +580,9 @@ try {
       // feleslegesen másodpercekig.
       if (logoStartedAt.value === 0) logoStartedAt.value = Date.now();
       const waited = Date.now() - logoStartedAt.value;
-      const logosOk = logosSettled() || waited > LOGO_WAIT_MS;
-      const videoOk = videoSettled() || waited > VIDEO_WAIT_MS;
+      // >= : nulla küszöbnél az ELSŐ ellenőrzés már enged (nem várunk 40 ms-t sem).
+      const logosOk = logosSettled() || waited >= LOGO_WAIT_MS;
+      const videoOk = videoSettled() || waited >= VIDEO_WAIT_MS;
       /*
        * A FELFEDÉS NEM VÁR A TELJES (20 190 CSATORNÁS) LISTÁRA (2.5.149).
        *

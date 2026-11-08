@@ -99,6 +99,44 @@ function cleanKey(input) {
   return raw.slice(0, 120);
 }
 
+/*
+ * 2.5.394 – STABIL NÉVKULCS A MENTETT ELRENDEZÉSBŐL.
+ *
+ * A tv_channel_layout_snapshots csatorna-ID-je a MENTÉS pillanatának
+ * provider-listájához tartozik (`live-qr_<A>-...`). Egy újrajelentkezés /
+ * IPK-restart után a TV ugyanazokat a csatornákat MÁS prefixszel kapja
+ * (`live-qr_<B>-...`). A #35–38 naplókban emiatt a Supabase `sync` és
+ * `bootstrap` minden magyar profilt eldobott, a TV pedig 0/80-at mutatott.
+ *
+ * A név (`[hu] bbc earth uhd|lc-827`) viszont stabil: ugyanazt a
+ * `hu:bbc-earth-uhd` kulcsot adja, mint a kliens
+ * `normalizeChannelDoctorKey()` függvénye. EZT használjuk a körhöz.
+ */
+function layoutChannelKey(nameKey) {
+  const raw = String(nameKey || "").split("|")[0].trim().toLowerCase();
+  if (!raw) return "";
+  let country = "";
+  let name = raw;
+  const bracket = raw.match(/^\s*\[([a-z]{2,4})\]\s*(.+)$/);
+  if (bracket) { country = bracket[1]; name = bracket[2]; }
+  else {
+    const prefix = raw.match(/^\s*([a-z]{2,3})\s*[|:-]\s*(.+)$/);
+    if (prefix) { country = prefix[1]; name = prefix[2]; }
+  }
+  const slug = name
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+    .slice(0, 88);
+  if (!slug) return "";
+  return (country ? country.slice(0, 4) + ":" : "") + slug;
+}
+
+function layoutChannelName(nameKey, fallback) {
+  const raw = String(nameKey || "").split("|")[0].trim();
+  const cleaned = raw.replace(/^\s*\[[a-z]{2,4}\]\s*/i, "").trim();
+  return cleaned ? "[HU] " + cleaned.toUpperCase() : String(fallback || "");
+}
+
 function clampInt(value, min, max, fallback = null) {
   if (value === null || value === undefined || value === "") return fallback;
   const num = Number(value);
@@ -419,6 +457,7 @@ export function createTvDoctorHandler(customEnv = {}) {
   const profilesUrl = envUrl + "/rest/v1/tv_doctor_channel_profiles";
   const eventsUrl = envUrl + "/rest/v1/tv_doctor_events";
   const layoutSnapshotsUrl = envUrl + "/rest/v1/tv_channel_layout_snapshots";
+  const baselinesUrl = envUrl + "/rest/v1/tv_doctor_channel_baselines";
   const pairingCodesUrl = envUrl + "/rest/v1/tv_doctor_pairing_codes";
   const pairedDevicesUrl = envUrl + "/rest/v1/tv_doctor_paired_devices";
   const pruneRpcUrl = envUrl + "/rest/v1/rpc/prune_tv_doctor_tables";
@@ -951,6 +990,8 @@ export function createTvDoctorHandler(customEnv = {}) {
       if (item && typeof item.id === "string") fingerprintById.set(item.id, item);
     }
     const ids = [];
+    const keys = new Set();
+    const layoutChannels = [];
     const seen = new Set();
     const exactHungarianIds = Array.isArray(snapshot.hungarianChannelIds)
       ? new Set(snapshot.hungarianChannelIds.map((id) => cleanText(id, 120)).filter(Boolean))
@@ -977,8 +1018,20 @@ export function createTvDoctorHandler(customEnv = {}) {
       if (!isHungarian) continue;
       seen.add(id);
       ids.push(id);
+      /* 2.5.394: a MENTETT SORREND + stabil névkulcs megy vissza a TV-re,
+         így `Memória: 0` / IPK-restart után a TV pontosan azt mutatja,
+         ami a Supabase-en van (a régi ID-k már nem egyeznek). */
+      const key = layoutChannelKey(item.nameKey);
+      if (key) keys.add(key);
+      layoutChannels.push({
+        id,
+        nameKey: cleanText(item.nameKey, 220),
+        channelKey: key,
+        name: layoutChannelName(item.nameKey, id),
+        position: layoutChannels.length + 1,
+      });
     }
-    return { ids, updatedAt: row.updated_at || null };
+    return { ids, keys, layoutChannels, updatedAt: row.updated_at || null };
   }
 
 
@@ -1027,15 +1080,40 @@ export function createTvDoctorHandler(customEnv = {}) {
     }
     const scope = await loadHungarianChannelScope(auth.deviceId);
     const allowed = new Set(scope.ids);
+    const allowedKeys = scope.keys;
     const response = await rest(profilesUrl + query);
     if (!response.ok) {
       const reason = await responseReason(response);
       return out(response.status >= 500 ? 503 : 502, { error: "bootstrap_failed", reason });
     }
     const rows = await jsonOrEmpty(response);
-    const scopedRows = (Array.isArray(rows) ? rows : []).filter((row) =>
-      row && row.channel_id_hint && allowed.has(String(row.channel_id_hint))
-    );
+    const scopedRows = (Array.isArray(rows) ? rows : []).filter((row) => {
+      if (!row) return false;
+      const hint = String(row.channel_id_hint || "");
+      const key = String(row.channel_key || "").toLowerCase();
+      return (hint && allowed.has(hint)) || allowedKeys.has(key);
+    });
+    /* 2.5.394: az 1-es, megváltoztathatatlan alapbeállításokat a bootstrap
+       is visszaadja. Ezeket a `reset_memory` NEM törli, tehát nullázás
+       után azonnal visszaállnak a TV-n (tv -> Supabase -> tv kör). */
+    let baselines = [];
+    try {
+      const baselineResponse = await rest(baselinesUrl
+        + "?device_id=eq." + encodeURIComponent(auth.deviceId)
+        + "&select=channel_key,channel_id_hint,channel_name,baseline,created_at&limit=600");
+      if (baselineResponse.ok) {
+        const baselineRows = await jsonOrEmpty(baselineResponse);
+        baselines = (Array.isArray(baselineRows) ? baselineRows : [])
+          .filter((b) => b && b.channel_key && b.baseline && b.baseline.slot === 1)
+          .map((b) => ({
+            channel_key: b.channel_key,
+            channel_id_hint: b.channel_id_hint || null,
+            channel_name: b.channel_name || b.channel_key,
+            baseline: b.baseline,
+            created_at: b.created_at || null,
+          }));
+      }
+    } catch { /* az alapok hiánya nem akadályozhatja a bootstrapt */ }
     const deviceHash = await sha256Short(auth.deviceId);
     await pruneDeviceDoctorEvents(deviceHash);
     const eventResponse = await rest(eventsUrl
@@ -1048,9 +1126,12 @@ export function createTvDoctorHandler(customEnv = {}) {
       return out(eventResponse.status >= 500 ? 503 : 502, { error: "bootstrap_events_failed", reason });
     }
     const eventRows = await jsonOrEmpty(eventResponse);
-    const allowedEvents = (Array.isArray(eventRows) ? eventRows : []).filter((row) =>
-      row && row.channel_id && allowed.has(String(row.channel_id))
-    );
+    const allowedEvents = (Array.isArray(eventRows) ? eventRows : []).filter((row) => {
+      if (!row) return false;
+      const id = String(row.channel_id || "");
+      const key = String(row.channel_key || "").toLowerCase();
+      return (id && allowed.has(id)) || allowedKeys.has(key);
+    });
     const events = allowedEvents.map((row) => ({
       eventUid: row.event_uid,
       category: row.details && row.details.category,
@@ -1075,7 +1156,10 @@ export function createTvDoctorHandler(customEnv = {}) {
       events: recentEvents,
       profiles: scopedRows.map(mapProfileRow),
       channelIds: scope.ids,
-      channelCount: scope.ids.length,
+      channelKeys: Array.from(scope.keys),
+      channelCount: scope.layoutChannels.length,
+      layoutChannels: scope.layoutChannels,
+      baselines,
       layoutUpdatedAt: scope.updatedAt,
       serverTime: new Date(nowFn()).toISOString(),
     }, auth));
@@ -1105,6 +1189,11 @@ export function createTvDoctorHandler(customEnv = {}) {
       paired: true,
       reset: true,
       deleted: ["tv_doctor_events", "tv_doctor_channel_profiles"],
+      /* 2.5.394: a kézzel elmentett csatornaelrendezés ÉS az 1-es alapok
+         NEM törlődnek – ezek a nullázás utáni visszaállás forrásai. */
+      layoutPreserved: true,
+      baselinesPreserved: true,
+      preserved: ["tv_channel_layout_snapshots", "tv_doctor_channel_baselines"],
       serverTime: new Date(nowFn()).toISOString(),
     }, auth));
   }
@@ -1136,6 +1225,7 @@ export function createTvDoctorHandler(customEnv = {}) {
     }
     const scope = await loadHungarianChannelScope(auth.deviceId);
     const allowedChannelIds = new Set(scope.ids);
+    const allowedChannelKeys = scope.keys;
     const rawProfiles = Array.isArray(body && body.profiles) ? body.profiles.slice(0, MAX_PROFILES_PER_SYNC) : [];
     const rawEvents = Array.isArray(body && body.events) ? body.events.slice(0, 32) : [];
     const deviceHash = await sha256Short(auth.deviceId);
@@ -1155,8 +1245,20 @@ export function createTvDoctorHandler(customEnv = {}) {
         if (!channelKey || !channelName || seenKeys.has(channelKey)) continue;
         if (channelKey.startsWith("vod:") || item.countryCode === "VOD" || item.countryCode === "SER") continue;
         const channelIdHint = cleanText(item.channelIdHint, 120);
-        if (!channelIdHint || !allowedChannelIds.has(channelIdHint)) continue;
-        // A mentett magyar lista ID-je a döntő; a régi profilok országkódja nem mindig volt kitöltve.
+        /*
+         * 2.5.394: a TV aktuális csatorna-ID-je a mentett elrendezés óta
+         * megváltozhatott (új `live-qr_<timestamp>` prefix). Ilyenkor a
+         * STABIL NÉVKULCS dönt – különben a TV hiába tanul és küld fel
+         * adatot, a Supabase profiltáblája örökre 0 marad (#35–38).
+         */
+        const idMatches = Boolean(channelIdHint && allowedChannelIds.has(channelIdHint));
+        /* Csak a MENTETT magyar csatorna tanulhat: a névkulcsnak szerepelnie
+           kell a kézzel elmentett elrendezésben. Egy tetszőleges `hu:` prefix
+           önmagában NEM jogosít tanulásra. */
+        const keyMatches = allowedChannelKeys.has(channelKey);
+        if (!idMatches && !keyMatches) continue;
+        if (!channelIdHint && !keyMatches) continue;
+        // A mentett magyar lista névkulcsa a döntő; az ID csak kiegészítő.
         seenKeys.add(channelKey);
         validIncoming.push({ ...item, channelKey, channelName });
       }
@@ -1327,7 +1429,10 @@ export function createTvDoctorHandler(customEnv = {}) {
         const channelKey = cleanKey(item.channelKey);
         const channelName = cleanText(item.channelName, 140);
         if (!eventUid || seenEventIds.has(eventUid) || !categoryToType[category]
-          || !channelId || !allowedChannelIds.has(channelId) || !channelKey || !channelName) continue;
+          || !channelKey || !channelName) continue;
+        /* 2.5.394: az eseményt is a STABIL, mentett névkulcs azonosítja;
+           az elavult layout-ID miatt nem veszhet el a napló. */
+        if (!(channelId && allowedChannelIds.has(channelId)) && !allowedChannelKeys.has(channelKey)) continue;
         seenEventIds.add(eventUid);
         const at = Number(item.at);
         const createdAt = Number.isFinite(at) && at > 0 ? new Date(at).toISOString() : new Date(nowFn()).toISOString();

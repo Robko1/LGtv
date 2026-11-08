@@ -75,6 +75,12 @@ const tasks = [
   { name: 'tv-doctor-layout', args: ['tools/test-tv-doctor-layout.mjs'] },
   { name: 'vod-restore-tuning', args: ['tools/test-vod-restore-tuning.mjs'] },
   { name: 'layout-cloud-only', args: ['tools/test-layout-cloud-only.mjs'] },
+  // 2.5.394: teljes tv → Supabase → tv kör (elavult layout-ID, 1-es alap, nullázás).
+  { name: 'tv-supabase-tv-roundtrip', args: ['tools/test-tv-supabase-tv-roundtrip.mjs'] },
+  // 2.5.394: Mozi plakát játékidő + lejátszásból visszatérő fókusz (React/JSDOM).
+  { name: 'vod-poster-runtime-focus', args: ['tools/test-vod-poster-runtime-focus.mjs'] },
+  // 2.5.394: a jelenleg deployált v18 Edge Functionnel való valódi visszatöltés.
+  { name: 'tv-doctor-cloud-v18-compat', args: ['tools/test-tv-doctor-cloud-v18-compat.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');

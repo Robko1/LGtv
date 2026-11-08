@@ -23,6 +23,8 @@ import {
   DOCTOR_BUFFER_CONFIGS,
   formatDoctorBytes,
   getChannelDoctorRecord,
+  getDoctorBaseline,
+  getTvDoctorCentralProfileState,
   getTvDoctorChannelSnapshot,
   getTvDoctorMemoryStats,
   getTvDoctorOperationHealth,
@@ -392,6 +394,16 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
    */
   const channelSnapshot = getTvDoctorChannelSnapshot(activeChannel, cloudRoutes);
   const activeRoutes = channelSnapshot.routes;
+  /*
+   * 2.5.394: az 1-es HELY mindig a megváltoztathatatlan ALAP, a tanult
+   * útvonalak csak 2-estől jöhetnek. A 2.5.392 a legjobb tanult útvonalat
+   * tette az 1-esre (★), ami eltakarta az alapot – a felhasználó kérésére
+   * most külön sorban, zároltként jelenik meg, és a TV mindig tud hozzá
+   * visszatérni. Ugyanitt látszik a Supabase-ben elmentett 80 magyar
+   * csatorna (központi profilok) is, pontosan abban a sorrendben.
+   */
+  const baselineProfile = getDoctorBaseline(activeChannel || null);
+  const centralProfiles = getTvDoctorCentralProfileState();
   const logsByCategory = channelSnapshot.logsByCategory;
   /* A kompatibilis `data-tv-doctor-log-count` a csatorna ÖSSZES naplósorát mutatja. */
   const orderedLogs = (['learning', 'assistance', 'activation', 'channel_error'] as DoctorEventCategory[])
@@ -918,7 +930,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                 <div className="flex items-center justify-between gap-2 shrink-0">
                   <span className="flex items-center gap-2 text-base lg:text-lg font-black text-emerald-200">
                     <Activity className="h-5 w-5 shrink-0 text-emerald-300" />
-                    <span>Tanult útvonalak (max. 8){activeChannel ? ` — ${activeChannel.name}` : ''}</span>
+                    <span>1-es ALAP + tanult útvonalak (2–9){activeChannel ? ` — ${activeChannel.name}` : ''}</span>
                   </span>
                   <span
                     data-tv-doctor-routes-count=""
@@ -928,18 +940,48 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs lg:text-sm font-bold text-emerald-300/90 text-center -mt-1 shrink-0">Helyi tanulás + Supabase, egy pillanatképből — {channelSnapshot.localRouteCount} helyi / {channelSnapshot.cloudRouteCount} felhő</p>
-                <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
+                {/* 2.5.394: a Supabase-ben elmentett, sorrendi magyar csatornák. */}
+                <div
+                  data-tv-doctor-central-profiles=""
+                  className="shrink-0 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1"
+                >
+                  <span className="text-xs lg:text-sm font-black text-cyan-200">
+                    Központi profilok: {centralProfiles.count}
+                  </span>
+                  <span className="text-xs lg:text-sm font-bold text-cyan-100/90">
+                    1-es alap: {centralProfiles.baselines} • tanult útvonal: {centralProfiles.learnedRoutes}
+                  </span>
+                  <span className="text-[11px] lg:text-xs font-semibold text-cyan-200/75 truncate">
+                    {centralProfiles.channels.length
+                      ? `Mentett sorrend: ${centralProfiles.channels.slice(0, 3).map((c) => c.name.replace(/^\[HU\]\s*/, '')).join(' · ')}${centralProfiles.channels.length > 3 ? ` … +${centralProfiles.channels.length - 3}` : ''}`
+                      : 'A Supabase-ben még nincs elmentett csatornaelrendezés.'}
+                  </span>
+                </div>
+                <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto">
+                  {/* 1. HELY: MINDIG a zárolt alapbeállítás. */}
+                  <div
+                    data-tv-doctor-baseline-slot="1"
+                    className="shrink-0 min-h-[38px] lg:min-h-[42px] flex flex-row items-center justify-between rounded-xl border-2 border-amber-400/70 bg-amber-500/15 px-3 py-1.5 gap-2 overflow-hidden"
+                  >
+                    <span className="font-mono text-sm md:text-base font-black tracking-wide text-amber-100 shrink-0">
+                      1. ALAP {baselineProfile ? `${safeDoctorFormat(baselineProfile.format)} + ${safeDoctorBufferLabel(baselineProfile.bufferProfile)}` : '— első megnyitáskor rögzül'}
+                    </span>
+                    <span className="font-mono text-xs md:text-sm font-bold text-amber-200/90 text-right truncate">
+                      {baselineProfile ? 'ZÁROLT • a TV mindig ide tér vissza' : 'A Supabase 1-es alapja nullázás után is megmarad'}
+                    </span>
+                  </div>
+                  {/* 2–9. HELY: a tanult alternatívák (helyi + Supabase). */}
                   {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => {
                     const route = activeRoutes[idx] || null;
                     if (!route) {
                       return (
                         <div
                           key={`empty-${idx}`}
-                          data-tv-doctor-route-empty={`${idx + 1}`}
-                          className="flex-1 min-h-[42px] lg:min-h-[46px] flex flex-row items-center justify-between rounded-xl border border-slate-700/50 bg-slate-900/35 px-3 py-2 gap-2 overflow-hidden"
+                          data-tv-doctor-route-empty={`${idx + 2}`}
+                          className="shrink-0 min-h-[38px] lg:min-h-[42px] flex flex-row items-center justify-between rounded-xl border border-slate-700/50 bg-slate-900/35 px-3 py-1.5 gap-2 overflow-hidden"
                         >
                           <span className="font-mono text-sm md:text-base lg:text-[15px] font-black tracking-wide text-slate-600 shrink-0">
-                            {idx + 1}.
+                            {idx + 2}.
                           </span>
                           <span className="text-xs md:text-sm lg:text-sm font-bold text-slate-600 text-right truncate">
                             {cloudRoutes === null && idx === 0 ? 'Supabase-adatok betöltése…' : '—'}
@@ -952,14 +994,14 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                       <div
                         key={route.id}
                         data-tv-doctor-route={route.id}
-                        className={`flex-1 min-h-[42px] lg:min-h-[46px] flex flex-row items-center justify-between rounded-xl border-2 px-3 py-2 gap-2 overflow-hidden ${
+                        className={`shrink-0 min-h-[38px] lg:min-h-[42px] flex flex-row items-center justify-between rounded-xl border-2 px-3 py-1.5 gap-2 overflow-hidden ${
                           isBest
                             ? 'border-emerald-400/80 bg-emerald-500/20 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
                             : 'border-slate-600/60 bg-slate-800/70'
                         }`}
                       >
                         <span className={`font-mono text-sm md:text-base lg:text-[15px] font-black tracking-wide leading-tight shrink-0 ${isBest ? 'text-emerald-100' : 'text-slate-100'}`}>
-                          {isBest ? '★ ' : `${idx + 1}. `}{safeDoctorFormat(route.format)} + {safeDoctorBufferLabel(route.bufferProfile)}
+                          {isBest ? '★ ' : ''}{idx + 2}. {safeDoctorFormat(route.format)} + {safeDoctorBufferLabel(route.bufferProfile)}
                         </span>
                         <span className={`font-mono text-xs md:text-sm lg:text-sm font-bold leading-tight text-right truncate ${isBest ? 'text-emerald-200/90' : 'text-slate-300'}`}>
                           {typeof route.avgStartupMs === 'number' && Number.isFinite(route.avgStartupMs) && route.avgStartupMs > 0 ? `${Math.round(route.avgStartupMs)}ms` : 'Nincs mérési adat'} • {route.ok} ok / {route.fail} hiba{route.stalls ? ` • ${route.stalls} akadás` : ''}
