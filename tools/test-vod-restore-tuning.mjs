@@ -81,9 +81,14 @@ check(!/OK \/ Enter: minden mentett részlet/.test(modal) &&
     !/minden mentett részlet/.test(modal) &&
     !/• lapozható/.test(modal),
   'mind a négy kategóriadobozból TELJESEN eltávolítva az alsó OK/Enter sor');
-check(/Array\.from\(\{ length: MAX_CHANNEL_ROUTES \}/.test(modal) &&
+/* 2.5.397: a felhasználó explicit visszavonta a 9 dobozos elrendezést
+   („nem 9 doboz kell csak 8 !!!!”). 1 alap + 7 tanult sor = PONTOSAN 8 doboz;
+   a MAX_CHANNEL_ROUTES=8 tárolási korlát változatlan marad. */
+check(/data-tv-doctor-route-boxes="8"/.test(modal) &&
+    /Array\.from\(\{ length: MAX_CHANNEL_ROUTES - 1 \}/.test(modal) &&
+    !/Array\.from\(\{ length: MAX_CHANNEL_ROUTES \}/.test(modal) &&
     /\{activeRoutes\.length\} \/ \{MAX_CHANNEL_ROUTES\}/.test(modal),
-  'a Tanult útvonalak 8 horizontális dobozt és „/ 8” számlálót rajzol');
+  'a Tanult útvonalak PONTOSAN 8 dobozt (1 alap + 7 tanult) és „/ 8” számlálót rajzol');
 check(/getTvDoctorChannelSnapshot\(activeChannel, cloudRoutes\)/.test(modal),
   'a 4 doboz és az útvonallista UGYANABBÓL a pillanatképből készül (helyi + Supabase)');
 check(/export function getTvDoctorChannelSnapshot/.test(doctor) &&
@@ -93,8 +98,9 @@ check(/setCloudRoutes\(\[\]\)/.test(modal) && /setResetVersion\(\(n\) => n \+ 1\
   'Memória: 0 után a képernyő azonnal 0-t mutat és újraolvassa a Supabase-t');
 check(/data-tv-doctor-baseline-slot="1"/.test(modal) && /1\. ALAP/.test(modal),
   '2.5.394: az 1-es HELYEN mindig a zárolt ALAP látszik, a tanult útvonalak csak 2-estől jönnek');
-check(/getTvDoctorCentralProfileState/.test(modal) && /Központi profilok/.test(modal),
-  '2.5.394: a 0-ablak megjeleníti a Supabase-ben elmentett, sorrendi központi profilokat');
+check(/getTvDoctorCentralProfileState/.test(modal) && /Központi profilok/.test(modal) &&
+    !/data-tv-doctor-central-profiles/.test(modal),
+  '2.5.397: a központi profilok CSAK a jobb oldali Supabase-panelen vannak; a bal oldali összesítő doboz megszűnt');
 check(/TV DOKTOR SUPABASE KÖR/.test(cloud) && /restoreTvDoctorCloudState\(\)/.test(cloud),
   '2.5.394: Memória: 0 után azonnal fut a teljes tv -> Supabase -> tv visszatöltés');
 check(/TV DOKTOR NULLÁZÁS ELLENŐRZÉS/.test(modal),

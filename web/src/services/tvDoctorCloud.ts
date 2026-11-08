@@ -28,7 +28,7 @@ import {
   restoreDoctorBaselinesFromCloud,
   setTvDoctorBaselineCloudHook,
   normalizeChannelDoctorKey,
-  sanitizeDoctorRoutes,
+  normalizeDoctorRoutesForDisplay,
   setTvDoctorHungarianChannelScope,
   restoreTvDoctorCentralProfiles,
   getTvDoctorCentralProfileState,
@@ -921,7 +921,12 @@ export async function fetchTvDoctorRoutesForChannelFromCloud(
   ]);
   const match = rows.find((row: any) => row && typeof row.channel_key === 'string' && keys.has(row.channel_key));
   if (!match) return [];
-  return sanitizeDoctorRoutes(match.routes).filter((route) => route.ok > 0);
+  /* 2.5.397: a TELJES RPC-sort adjuk át, nem csak a beágyazott `routes`
+     tömböt. Ha egy régi sorból hiányzik a `format` / `bufferProfile`, a
+     normalizáló a profil `best_format` / `best_buffer_profile` /
+     `*_success_count` mezőiből visszaállítja a VALÓDI tanult útvonalat –
+     így a 0-ablak nem mutathat többé NINCS ADAT helyőrzőt. */
+  return normalizeDoctorRoutesForDisplay(match).filter((route) => route.ok > 0);
 }
 
 /** A készüléken tanult útvonalak feltöltése a Supabase memóriába (csak magyar csatornák). */

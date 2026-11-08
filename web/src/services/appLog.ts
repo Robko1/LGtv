@@ -386,11 +386,11 @@ export function startManualLogging(): ManualLogSnapshot {
   let version = DEFAULT_APP_VERSION;
   try { version = String((window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSION || DEFAULT_APP_VERSION); } catch { /* régi/teszt környezet */ }
   appLog(`=== NAPLÓZÁS INDULT; napló=#${activeLogNumber}; kezdete=${dateTimeText(startedAt)}; verzió=${version} ===`);
-  appLog(`=== IPTV indul; verzió=${version}; kézi naplózás ===`);
-  appLog(`INDULÁS [0 ms] kézi naplózás elindítva; napló=#${activeLogNumber}`);
+  appLog(`=== IPTV / IPK indul; verzió=${version}; kézi hiba napló ===`);
+  appLog(`INDULÁS [0 ms] kézi hiba napló elindítva; napló=#${activeLogNumber}`);
   appLog(`Eszköz: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'ismeretlen környezet'}`);
   appLog(`TV TÍPUS: ${tvDeviceText()}`);
-  appLog('FIGYELŐ ELINDULT; kézi naplózás aktív; a lejátszás- és fagyásfigyelés mostantól rögzít.');
+  appLog('FIGYELŐ ELINDULT; kézi hiba napló aktív; a lejátszás- és fagyásfigyelés mostantól rögzít.');
   // A célzott figyelők a kézi indításhoz kapcsolódnak.
   runLifecycleHooks('start');
   return manualLogSnapshot();
@@ -449,7 +449,16 @@ export function startAutomaticTestLogging(): ManualLogSnapshot {
   autoSessionStartedAt = Date.now();
   const snapshot = startManualLogging();
   if (snapshot.enabled) {
-    appLog('TESZT IDŐSZAK: a naplózás az IPK indításakor AUTOMATIKUSAN elindult; a napló a kézi elküldésig gyűlik.');
+    appLog('AUTOMATIKUS IPK-NAPLÓ: a kézi hiba napló az IPK/app indításakor AUTOMATIKUSAN elindult; a napló a kézi elküldésig gyűlik.');
+    /*
+     * 2.5.397 – A TV-fotón látható hosszú takaró/splash kép okának méréséhez
+     * a napló ELEJÉN tételesen leírjuk, pontosan mit ellenőriz az LG TV /
+     * webOS. A `main.tsx` minden egyes kaput `TAKARÓKÉP ELLENŐRZÉS [+N ms]`
+     * előtaggal, változásonként ír ki; innen tudható, melyik lépés tartotta
+     * fent a képet és mennyi ideig.
+     */
+    appLog('MIT ELLENŐRIZ A TV [IPK indulásától]: 1) HTML __IPTV_BOOT_EPOCH__ / 1-7. fázisjelek; 2) webOS Luna-híd, webOSSystem.notifyAppLoaded; 3) bundle betöltés, React mount, #root gyermekek; 4) chromeReady = fejléc + mappasáv a #root-ban; 5) listReady / liveListReady = élő csatornasorok; 6) Logók (logosSettled); 7) első videó-képkocka (videoSettled, requestVideoFrameCallback); 8) előfestés két képkockán (prepaintSettled); 9) üres IPK jelzés (data-iptv-boot); 10) tároló-felmérés (IndexedDB / localStorage); 11) FCP / LCP / long task / képkocka-kihagyás; 12) bootScreenComplete + iptv-app-ready + natív splash elengedése.');
+    appLog('MIT TARTJA FENT A TAKARÓKÉPET: minden fenti kapu IGEN/NEM állapota ms-bélyeggel; ha egy kapu nem teljesül, a 40 ms-os ellenőrző ciklus addig tartja fent a képet, amíg a 3,5 s gyors háló vagy a 9 s kemény korlát fel nem oldja.');
   }
   return snapshot;
 }

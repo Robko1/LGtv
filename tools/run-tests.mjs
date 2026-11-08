@@ -81,6 +81,8 @@ const tasks = [
   { name: 'vod-poster-runtime-focus', args: ['tools/test-vod-poster-runtime-focus.mjs'] },
   // 2.5.394: a jelenleg deployált v18 Edge Functionnel való valódi visszatöltés.
   { name: 'tv-doctor-cloud-v18-compat', args: ['tools/test-tv-doctor-cloud-v18-compat.mjs'] },
+  // 2.5.397: automata IPK-napló, valódi tanult útvonal, bal doboz nélkül, pontosan 8 doboz.
+  { name: 'boot-log-and-doctor-panel', args: ['tools/test-boot-log-and-doctor-panel.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');

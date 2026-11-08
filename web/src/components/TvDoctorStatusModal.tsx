@@ -31,7 +31,7 @@ import {
   getTvDoctorSummary,
   isChannelHandledByDoctor,
   logTvDoctorPanel,
-  sanitizeDoctorRoutes,
+  normalizeDoctorRoutesForDisplay,
   DoctorRoute,
   subscribeTvDoctorUpdates,
 } from '../services/tvDoctor';
@@ -156,12 +156,12 @@ function safeDoctorFormat(format: unknown): string {
   const value = typeof format === 'string' ? format.trim().toLowerCase() : '';
   if (value === 'ts') return 'TS';
   if (value === 'hls') return 'HLS';
-  return 'NINCS ADAT';
+  return '—';
 }
 
 function safeDoctorBufferLabel(profile: unknown): string {
   const value = typeof profile === 'string' ? profile.trim() : '';
-  if (!value) return 'NINCS ADAT';
+  if (!value) return '—';
   return DOCTOR_BUFFER_CONFIGS[value as keyof typeof DOCTOR_BUFFER_CONFIGS]?.label || value.toUpperCase();
 }
 
@@ -236,7 +236,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     }
     void fetchTvDoctorRoutesForChannelFromCloud(activeChannel, getChannelDoctorRecord(activeChannel)?.channelKey)
       .then((routes) => {
-        if (!cancelled) setCloudRoutes(sanitizeDoctorRoutes(routes).filter((route) => route.ok > 0));
+        if (!cancelled) setCloudRoutes(normalizeDoctorRoutesForDisplay(routes).filter((route) => route.ok > 0));
       })
       .catch(() => {
         if (!cancelled) setCloudRoutes([]);
@@ -925,12 +925,13 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
               {/* Tanult útvonalak (max. 8) – 2.5.321: FIXÁLT, NEM LAPOZHATÓ – zöld doboz végig leér, 8 doboz egy képernyőn, nincs görgetés */}
               <div
                 data-tv-doctor-routes=""
+                data-tv-doctor-route-boxes="8"
                 className="flex-1 min-h-0 flex flex-col rounded-2xl border-2 border-emerald-600/60 bg-[#04121c] p-2.5 gap-2 mt-1 overflow-hidden"
               >
                 <div className="flex items-center justify-between gap-2 shrink-0">
                   <span className="flex items-center gap-2 text-base lg:text-lg font-black text-emerald-200">
                     <Activity className="h-5 w-5 shrink-0 text-emerald-300" />
-                    <span>1-es ALAP + tanult útvonalak (2–9){activeChannel ? ` — ${activeChannel.name}` : ''}</span>
+                    <span>1-es ALAP + tanult útvonalak (2–8){activeChannel ? ` — ${activeChannel.name}` : ''}</span>
                   </span>
                   <span
                     data-tv-doctor-routes-count=""
@@ -940,27 +941,23 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs lg:text-sm font-bold text-emerald-300/90 text-center -mt-1 shrink-0">Helyi tanulás + Supabase, egy pillanatképből — {channelSnapshot.localRouteCount} helyi / {channelSnapshot.cloudRouteCount} felhő</p>
-                {/* 2.5.394: a Supabase-ben elmentett, sorrendi magyar csatornák. */}
-                <div
-                  data-tv-doctor-central-profiles=""
-                  className="shrink-0 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1"
+                {/* 2.5.397: a „Tanulás 3 db” és az 1 látható útvonal közti különbség
+                    NEM hiba: a tanulási ESEMÉNYEK ugyanabba a formátum+puffer
+                    útvonalba vonódnak össze. Most mindkét szám látszik. */}
+                <p
+                  data-tv-doctor-learning-count=""
+                  className="text-xs lg:text-sm font-bold text-emerald-200/90 text-center -mt-2 shrink-0"
                 >
-                  <span className="text-xs lg:text-sm font-black text-cyan-200">
-                    Központi profilok: {centralProfiles.count}
-                  </span>
-                  <span className="text-xs lg:text-sm font-bold text-cyan-100/90">
-                    1-es alap: {centralProfiles.baselines} • tanult útvonal: {centralProfiles.learnedRoutes}
-                  </span>
-                  <span className="text-[11px] lg:text-xs font-semibold text-cyan-200/75 truncate">
-                    {centralProfiles.channels.length
-                      ? `Mentett sorrend: ${centralProfiles.channels.slice(0, 3).map((c) => c.name.replace(/^\[HU\]\s*/, '')).join(' · ')}${centralProfiles.channels.length > 3 ? ` … +${centralProfiles.channels.length - 3}` : ''}`
-                      : 'A Supabase-ben még nincs elmentett csatornaelrendezés.'}
-                  </span>
-                </div>
+                  Tanulás: {logsByCategory.learning.length} bejegyzés → {activeRoutes.length} összevont útvonal; {MAX_CHANNEL_ROUTES} doboz (1 alap + 7 tanult)
+                </p>
+                {/* 2.5.397: a bal oldali „Központi profilok / 1-es alap / tanult útvonal”
+                    összesítő doboz ELTÁVOLÍTVA – a felhasználó kérésére, mert a jobb
+                    oldali Supabase-panel már felsorolja ugyanezt. */}
                 <div data-tv-doctor-routes-list="" className="flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto">
                   {/* 1. HELY: MINDIG a zárolt alapbeállítás. */}
                   <div
                     data-tv-doctor-baseline-slot="1"
+                    data-tv-doctor-route-box=""
                     className="shrink-0 min-h-[38px] lg:min-h-[42px] flex flex-row items-center justify-between rounded-xl border-2 border-amber-400/70 bg-amber-500/15 px-3 py-1.5 gap-2 overflow-hidden"
                   >
                     <span className="font-mono text-sm md:text-base font-black tracking-wide text-amber-100 shrink-0">
@@ -970,21 +967,22 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                       {baselineProfile ? 'ZÁROLT • a TV mindig ide tér vissza' : 'A Supabase 1-es alapja nullázás után is megmarad'}
                     </span>
                   </div>
-                  {/* 2–9. HELY: a tanult alternatívák (helyi + Supabase). */}
-                  {Array.from({ length: MAX_CHANNEL_ROUTES }, (_, idx) => {
+                  {/* 2–8. HELY: a tanult alternatívák (helyi + Supabase). Összesen 8 doboz. */}
+                  {Array.from({ length: MAX_CHANNEL_ROUTES - 1 }, (_, idx) => {
                     const route = activeRoutes[idx] || null;
                     if (!route) {
                       return (
                         <div
                           key={`empty-${idx}`}
                           data-tv-doctor-route-empty={`${idx + 2}`}
+                          data-tv-doctor-route-box=""
                           className="shrink-0 min-h-[38px] lg:min-h-[42px] flex flex-row items-center justify-between rounded-xl border border-slate-700/50 bg-slate-900/35 px-3 py-1.5 gap-2 overflow-hidden"
                         >
                           <span className="font-mono text-sm md:text-base lg:text-[15px] font-black tracking-wide text-slate-600 shrink-0">
                             {idx + 2}.
                           </span>
                           <span className="text-xs md:text-sm lg:text-sm font-bold text-slate-600 text-right truncate">
-                            {cloudRoutes === null && idx === 0 ? 'Supabase-adatok betöltése…' : '—'}
+                            {cloudRoutes === null && idx === 0 ? 'Supabase-adatok betöltése…' : 'Még nincs tanult útvonal'}
                           </span>
                         </div>
                       );
@@ -994,6 +992,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                       <div
                         key={route.id}
                         data-tv-doctor-route={route.id}
+                        data-tv-doctor-route-box=""
                         className={`shrink-0 min-h-[38px] lg:min-h-[42px] flex flex-row items-center justify-between rounded-xl border-2 px-3 py-1.5 gap-2 overflow-hidden ${
                           isBest
                             ? 'border-emerald-400/80 bg-emerald-500/20 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
@@ -1004,7 +1003,7 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                           {isBest ? '★ ' : ''}{idx + 2}. {safeDoctorFormat(route.format)} + {safeDoctorBufferLabel(route.bufferProfile)}
                         </span>
                         <span className={`font-mono text-xs md:text-sm lg:text-sm font-bold leading-tight text-right truncate ${isBest ? 'text-emerald-200/90' : 'text-slate-300'}`}>
-                          {typeof route.avgStartupMs === 'number' && Number.isFinite(route.avgStartupMs) && route.avgStartupMs > 0 ? `${Math.round(route.avgStartupMs)}ms` : 'Nincs mérési adat'} • {route.ok} ok / {route.fail} hiba{route.stalls ? ` • ${route.stalls} akadás` : ''}
+                          {typeof route.avgStartupMs === 'number' && Number.isFinite(route.avgStartupMs) && route.avgStartupMs > 0 ? `${Math.round(route.avgStartupMs)}ms` : 'indulás: —'} • {route.ok} ok / {route.fail} hiba{route.stalls ? ` • ${route.stalls} akadás` : ''}
                         </span>
                       </div>
                     );
@@ -1129,7 +1128,8 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
                   Eszköz: <strong className="font-mono text-white font-black">{pairingInfo.deviceId}</strong>
                 </div>
                 <div>
-                  Központi profilok: <strong className="text-white font-black">{doctorCloud.cloudProfileCount} db</strong> • Várólista:{' '}
+                  Központi profilok: <strong className="text-white font-black">{centralProfiles.count} db</strong> • Tanult felhő profil:{' '}
+                  <strong className="text-white font-black">{doctorCloud.cloudProfileCount} db</strong> • Várólista:{' '}
                   <strong className="text-white font-black">{doctorCloud.pendingCount} elem</strong>
                 </div>
                 <div className="truncate" title={lastSyncText}>
