@@ -1615,6 +1615,129 @@ export function sanitizeDoctorRoutes(raw: unknown): DoctorRoute[] {
 }
 
 /**
+ * 2.5.397 – A 0-ablak SOHA nem mutathat „NINCS ADAT + NINCS ADAT”-ot, ha a
+ * felhőben van tanult adat.
+ *
+ * A 2026-11-08 18:41-es TV-fotón a `tv_doctor_routes_fetch` sora régi/hiányos
+ * alakban érkezett: a route objektumból hiányzott a `format` és a
+ * `bufferProfile`, a valódi tudás a profil szintű `best_format`,
+ * `best_buffer_profile`, `ts_success_count`, `ts_avg_startup_ms` mezőkben volt
+ * meg. A régi `sanitizeDoctorRoutes()` ilyenkor MINDEN sort eldobott, a panel
+ * pedig `NINCS ADAT + NINCS ADAT / Nincs mérési adat • ok / hiba`
+ * helyőrzőt rajzolt. Ez a normalizáló nem dob el semmit, hanem pótol:
+ *
+ *   • camelCase ÉS snake_case mezőneveket fogad (`ok`/`ok_count`,
+ *     `avgStartupMs`/`avg_startup_ms`/`ts_avg_startup_ms`, …);
+ *   • a hiányzó formátumot/puffert az `id`-ből (`ts:balanced`) és a profil
+ *     `best_format` / `best_buffer_profile` mezőiből állítja vissza;
+ *   • a siker/hiba számlálókat a `*_success_count` / `*_failure_count`
+ *     aggregátumokból pótolja;
+ *   • a TELJES RPC-sort (`{channel_key, routes, best_format, …}`) és a
+ *     JSON-sztringként érkező `routes` mezőt is érti.
+ *
+ * Visszatérése mindig érvényes `DoctorRoute[]`; a panel ezért minden meglévő
+ * sorhoz valódi `TS/HLS + puffer`, `ms`, `ok / hiba` adatot tud írni.
+ */
+export function normalizeDoctorRoutesForDisplay(raw: unknown): DoctorRoute[] {
+  const asArray = (value: unknown): unknown[] => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string' && value.trim().startsWith('[')) {
+      try {
+        const parsed: unknown = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    }
+    if (value && typeof value === 'object') return [value];
+    return [];
+  };
+  const pick = (obj: Record<string, unknown>, keys: readonly string[]): unknown => {
+    for (const key of keys) {
+      const value = obj[key];
+      if (value !== undefined && value !== null && value !== '') return value;
+    }
+    return undefined;
+  };
+  const toCount = (value: unknown): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.min(100000, Math.round(parsed)) : 0;
+  };
+  const toMs = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 20 ? Math.min(60000, Math.round(parsed)) : null;
+  };
+  const toFormat = (value: unknown, id: string): LiveFormat | null => {
+    if (isValidFormat(value)) return value;
+    const text = String(value ?? '').trim().toLowerCase();
+    if (text === 'ts' || text === 'mpeg-ts' || text === 'mpegts') return 'ts';
+    if (text === 'hls' || text === 'm3u8') return 'hls';
+    const fromId = id.split(':')[0];
+    return isValidFormat(fromId) ? fromId : null;
+  };
+  const toBuffer = (value: unknown, id: string): DoctorBufferProfileId => {
+    if (isValidBufferProfile(value)) return value as DoctorBufferProfileId;
+    const text = String(value ?? '').trim().toLowerCase();
+    if (isValidBufferProfile(text)) return text as DoctorBufferProfileId;
+    const fromId = id.split(':')[1];
+    return isValidBufferProfile(fromId) ? fromId as DoctorBufferProfileId : 'balanced';
+  };
+  const result: DoctorRoute[] = [];
+  const seen = new Set<string>();
+
+  for (const item of asArray(raw).slice(0, MAX_CHANNEL_ROUTES * 4)) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    /* Teljes RPC-sor: a beágyazott route-ok hiányzó mezőit a SOR aggregátumai
+       pótolják. Ha nincs beágyazott lista, maga a sor a route. */
+    const nestedRaw = row.routes !== undefined ? asArray(row.routes) : [];
+    const candidates = nestedRaw.length ? nestedRaw : [row];
+    const context = nestedRaw.length ? row : {};
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const obj = { ...context, ...(candidate as Record<string, unknown>) } as Record<string, unknown>;
+      const rawId = String(pick(obj, ['id', 'route_id', 'routeId']) ?? '');
+      const format = toFormat(
+        pick(obj, ['format', 'bestFormat', 'best_format', 'formatLabel', 'mode']),
+        rawId,
+      );
+      if (!format) continue;
+      const bufferProfile = toBuffer(
+        pick(obj, ['bufferProfile', 'buffer_profile', 'bestBufferProfile', 'best_buffer_profile', 'buffer']),
+        rawId,
+      );
+      const id = doctorRouteId(format, bufferProfile);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const routeOk = toCount(pick(obj, ['ok', 'okCount', 'ok_count', 'successCount', 'success_count']));
+      const aggregatedOk = toCount(pick(obj, ['tsSuccessCount', 'ts_success_count']))
+        + toCount(pick(obj, ['hlsSuccessCount', 'hls_success_count']));
+      const routeFail = toCount(pick(obj, ['fail', 'failCount', 'fail_count', 'failureCount', 'failure_count']));
+      const aggregatedFail = toCount(pick(obj, ['tsFailureCount', 'ts_failure_count']))
+        + toCount(pick(obj, ['hlsFailureCount', 'hls_failure_count']));
+      const avg = toMs(pick(obj, [
+        'avgStartupMs', 'avg_startup_ms', 'tsAvgStartupMs', 'ts_avg_startup_ms',
+        'hlsAvgStartupMs', 'hls_avg_startup_ms', 'startupMs',
+      ]));
+      const best = toMs(pick(obj, ['bestStartupMs', 'best_startup_ms', 'bestMs']));
+      const lastOk = Number(pick(obj, ['lastOkAt', 'last_ok_at']));
+      const lastFail = Number(pick(obj, ['lastFailAt', 'last_fail_at']));
+      result.push({
+        id,
+        format,
+        bufferProfile,
+        ok: Math.max(routeOk, aggregatedOk),
+        fail: Math.max(routeFail, aggregatedFail),
+        stalls: toCount(pick(obj, ['stalls', 'stall_count'])),
+        avgStartupMs: avg ?? best,
+        bestStartupMs: best ?? avg,
+        lastOkAt: Number.isFinite(lastOk) && lastOk > 0 ? Math.round(lastOk) : null,
+        lastFailAt: Number.isFinite(lastFail) && lastFail > 0 ? Math.round(lastFail) : null,
+      });
+    }
+  }
+  return rankDoctorRouteList(result);
+}
+
+/**
  * Sorrendezés + 7 tanult útvonalas korlát. A „sosem sikerült” útvonalak mindig a lista aljára
  * kerülnek, így hely szűkében először azok esnek ki.
  */
@@ -2443,7 +2566,9 @@ export interface TvDoctorChannelSnapshot {
 
 export function getTvDoctorChannelSnapshot(
   channel?: (Pick<Channel, 'id' | 'name'> & { countryCode?: string }) | null,
-  cloudRoutes?: readonly DoctorRoute[] | null,
+  /* 2.5.397: a felhő régi/hiányos RPC-sorait is elfogadjuk, nem csak a már
+     érvényes DoctorRoute-okat – így nem tűnhet el a valódi tanult útvonal. */
+  cloudRoutes?: readonly unknown[] | null,
   storage?: Storage | null,
 ): TvDoctorChannelSnapshot {
   const empty: Record<DoctorEventCategory, DoctorLogEntry[]> = {
@@ -2462,9 +2587,9 @@ export function getTvDoctorChannelSnapshot(
       if (list) list.push(entry);
     }
   }
-  const localRoutes = rankDoctorRouteList(sanitizeDoctorRoutes(record?.routes || []))
+  const localRoutes = rankDoctorRouteList(normalizeDoctorRoutesForDisplay(record?.routes || []))
     .filter((route) => route.ok > 0);
-  const fromCloud = sanitizeDoctorRoutes(cloudRoutes || []).filter((route) => route.ok > 0);
+  const fromCloud = normalizeDoctorRoutesForDisplay(cloudRoutes || []).filter((route) => route.ok > 0);
   const merged = new Map<string, DoctorRoute>();
   for (const route of localRoutes) merged.set(route.id, route);
   for (const route of fromCloud) if (!merged.has(route.id)) merged.set(route.id, route);

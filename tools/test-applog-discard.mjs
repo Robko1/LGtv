@@ -91,8 +91,13 @@ const check = (ok, message, detail = '') => {
 };
 
 try {
-  check(app.startAutomaticTestLogging().enabled === false, 'a kézi naplózási módban az automatikus indítás kikapcsolva marad');
-  check(app.resumeAutomaticTestLogging().enabled === false, 'a kézi naplózási módban az automatikus folytatás is kikapcsolva marad');
+  /* 2.5.397: a felhasználó explicit kérésére a kézi hiba napló az IPK/app
+     indításakor AUTOMATIKUSAN elkezd gyűjteni (a 2026-11-08 18:41-es TV-fotó
+     takarókép-mérése miatt). A régi „csak kézi indítás” elvárás elavult. */
+  check(app.startAutomaticTestLogging().enabled === true,
+    '2.5.397: a kézi hiba napló az IPK indításakor AUTOMATIKUSAN elindul');
+  check(app.resumeAutomaticTestLogging().enabled === true,
+    'a már futó automata munkamenet folytatása nem indít új naplósorszámot');
   /* ============ 1. NAPLÓZÁS: memória + localStorage ===================== */
   const started = app.startManualLogging();
   check(started.enabled === true, 'a naplózás elindul');

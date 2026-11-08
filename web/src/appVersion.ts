@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.396';
+export const WEB_VERSION = '2.5.397';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,20 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.397',
+    date: '2026-11-08',
+    changes: [
+      'ÚJ (A KÉZI HIBA NAPLÓ AZ IPK INDÍTÁSAKOR AUTOMATIKUSAN GYŰJT) — A 2026-11-08 18:41-es TV-fotó után a SÁRGA gombos naplóhoz többé NEM kell előre megnyitni az ablakot: a `TEST_STARTUP_DIAGNOSTICS` bekapcsolásával a `diagnosticsBootstrap` már az App/modulok importja ELŐTT elindítja a naplózást és a crash-handlert, így a legelső milliszekundumok (HTML 1/7…7/7 jelek, bundle, React mount) is benne vannak. A napló ELEJÉN egy „MIT ELLENŐRIZ A TV” sor tételesen felsorolja mind a 12 ellenőrzési lépést: webOS Luna-híd / `notifyAppLoaded`, fejléc+mappasáv (`chromeReady`), élő csatornasorok, logók, első videó-képkocka (`requestVideoFrameCallback`), előfestés, üres IPK jelzés, IndexedDB/localStorage felmérés, FCP/LCP/long task, `bootScreenComplete`, `iptv-app-ready` és a natív splash elengedése.',
+      'ÚJ (MÉRHETŐ, HOGY MI TARTJA FENT A TAKARÓKÉPET) — A `main.tsx` minden 40 ms-os ellenőrzési körben, de CSAK állapotváltozáskor `TAKARÓKÉP ELLENŐRZÉS [+N ms]` sorokat ír minden egyes kapu IGEN/NEM állapotával, plusz külön sort a webOS `notifyAppLoaded` hívásról, a felfedésről és egy `TAKARÓKÉP ÖSSZEGZÉS` sorról (meddig volt fent, melyik kapu nem engedett, hányszor kellett képkocka-helyettesítés). A kézi „Napló küldése” továbbra is lezárja a munkamenetet, és sikeres küldés után nem indul újra magától.',
+      'JAVÍTÁS (A TV DOKTOR A VALÓDI TANULT ÚTVONALAT TÖLTI BE, NEM „NINCS ADAT + NINCS ADAT”) — A fotón a `hu:cinemax` Supabase-sora 2 sikeres, 1432 ms-es TS + balanced tanulást tartalmazott, mégis `NINCS ADAT + NINCS ADAT / Nincs mérési adat • ok / hiba` látszott. Az ok: a `sanitizeDoctorRoutes()` minden olyan útvonalat eldobott, amelyből hiányzott a `format`/`bufferProfile`, és a `tv_doctor_routes_fetch` csak a beágyazott `routes` tömböt adta tovább. Az új `normalizeDoctorRoutesForDisplay()` a TELJES RPC-sort értelmezi, elfogad camelCase és snake_case mezőket, a hiányzó formátumot/puffert az `id`-ből (`ts:balanced`) és a profil `best_format`/`best_buffer_profile` mezőiből, a siker/hiba/indulási számlálókat a `*_success_count`/`*_avg_startup_ms` aggregátumokból pótolja. A pillanatkép és a panel ezt használja: a valódi sor most „TS + Kiegyensúlyozott (3.0 mp) / 1432ms • 2 ok / 0 hiba”. A `NINCS ADAT` és `Nincs mérési adat` helyőrzők teljesen eltűntek.',
+      'JAVÍTÁS (PONTOSAN 8 DOBOZ — NEM 9) — A korábbi „külön 1-es ALAP + tanult útvonalak (2–9)” 1 + 8 = 9 dobozt rajzolt. A felhasználó explicit visszavonta: most 1 alap + 7 tanult sor (2–8) = ÖSSZESEN 8 doboz, `data-tv-doctor-route-boxes="8"` attribútummal és a címkében is (2–8). A `MAX_CHANNEL_ROUTES = 8` TÁROLÁSI korlát változatlan marad (a felhő és a helyi tanulás továbbra is 8 útvonalat ment); csak a képernyőn látható dobozok száma lett 8.',
+      'JAVÍTÁS (A BAL OLDALI KÖZPONTI PROFILOK DOBOZA ELTÁVOLÍTVA) — A „Központi profilok: 80 / 1-es alap: 0 • tanult útvonal: 8 / Mentett sorrend: …” sáv a jobb oldali Supabase-panelen már szerepelt, ezért a bal oldali párhuzamos összesítő megszűnt. A jobb oldal most PONTOSABBAN mutatja: `Központi profilok: 80 db` (a mentett magyar csatornák), külön `Tanult felhő profil: 8 db`, és `Várólista`.',
+      'JAVÍTÁS („TANULÁS 3 DB” ↔ LÁTHATÓ TANULT SOROK) — A 3 tanulási ESEMÉNY ugyanabba a formátum+puffer útvonalba vonódik össze, ezért nem 3 külön doboz jelenik meg; eddig viszont semmi nem magyarázta a különbséget. Az új `Tanulás: 3 bejegyzés → 1 összevont útvonal; 8 doboz (1 alap + 7 tanult)` sor mindkét számot és a dobozok számát is kiírja, a valódi útvonal pedig a mért adataival együtt látszik.',
+      'TESZTEK (MINDEN JAVÍTÁS ELŐTT BUKÓ TESZT) — Új `tools/test-boot-log-and-doctor-panel.mjs`: 29 ellenőrzés, köztük VALÓDI JSDOM React-renderelés a 8 dobozra, a bal doboz hiányára, a hiányos élő Supabase-sorból normalizált valódi útvonalra (1432 ms, 2 ok), az automata napló tényleges elindulására és a 3 bejegyzés → 1 útvonal magyarázatra. A 2.5.392/394 „9 doboz” és a „csak kézi naplóindítás” elvárásait a felhasználói döntés miatt tudatosan frissítettük (`test-vod-restore-tuning.mjs`, `test-applog-discard.mjs`). A teljes `npm test` 42/42, a TypeScript a HEAD-del megegyező 21 ismert diagnosztikával, a Vite build rendben.',
+      'NYITVA MARADT — A futó `tv-doctor` Edge Function továbbra is v18 (a v19 forrás a repóban, a deploy a `tools/deploy-tv-doctor.sh`-sal végezhető el), és a most elkészült automata IPK-naplóval a TV-n mért takarókép-idő, FCP és a teljes `tv → Supabase → tv` kör ÉLŐ IPK-n még NINCS validálva; ezt csak egy új IPK telepítése és egy elküldött napló igazolhatja.',
+    ],
+  },
   {
     version: '2.5.396',
     date: '2026-11-08',

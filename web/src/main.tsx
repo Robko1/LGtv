@@ -21,6 +21,16 @@ import {
 } from "./services/bootScreen";
 import { WEB_VERSION } from "./appVersion";
 
+/*
+ * 2.5.397 – A TAKARÓKÉP MÉRÉSÉNEK NULLPONTJA.
+ *
+ * A kézi hiba napló az IPK indításakor már automatikusan fut, így ettől a
+ * pillanattól minden LG TV / webOS ellenőrzési lépés `[+N ms]`-bélyeget kap.
+ * A böngésző/HTML korábbi jeleit a `startupDiagnostics.ts` olvassa hozzá.
+ */
+const BOOT_EPOCH_MS = Date.now();
+const bootElapsed = (): number => Math.max(0, Date.now() - BOOT_EPOCH_MS);
+
 /* A célzott figyelők csak a kézi naplózás aktív időszakában rögzítenek. */
 attachSpeedDiagnostics();
 attachTvDoctorDiagnostics();
@@ -119,6 +129,11 @@ try {
   const releaseNativeSplash = () => {
     const mountedRoot = document.getElementById("root");
     if (mountedRoot && mountedRoot.childElementCount > 0) {
+      /* 2.5.397: a webOS natív splash elengedése is mérhető naplósor. */
+      logPhase(
+        `TAKARÓKÉP ELLENŐRZÉS [+${bootElapsed()} ms] webOS notifyAppLoaded: #root gyermekek=${mountedRoot.childElementCount}; `
+        + `híd=${(window as any).webOSSystem?.notifyAppLoaded ? 'van' : 'nincs'}; natív splash elengedve`,
+      );
       try { (window as any).webOSSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
       return;
     }
@@ -130,6 +145,26 @@ try {
   bootScreenPhase('react', 'A React felület felépítése elindult.');
 
   const startedAt = Date.now();
+
+  /*
+   * 2.5.397 – „MIT ELLENŐRIZ AZ LG TV / WEBOS” TÉTELESEN.
+   *
+   * A 40 ms-os ellenőrző ciklus minden kaput IGEN/NEM (és a tároló/stream
+   * állapotát) kiír `TAKARÓKÉP ELLENŐRZÉS [+N ms]` előtaggal. Csak akkor
+   * írunk új sort, ha az állapot változott – így a napló nem duzzad meg,
+   * mégis pontosan látszik, MELYIK lépés és MENNYI IDEIG tartotta fent a
+   * takaró/splash képet. A naplózás az IPK indulásától AUTOMATIKUSAN fut.
+   */
+  let lastBootStepSignature = '';
+  const bootStep = (label: string, gates: Record<string, boolean | string | number>): void => {
+    const signature = `${label}|${Object.values(gates).join('|')}`;
+    if (signature === lastBootStepSignature) return;
+    lastBootStepSignature = signature;
+    const detail = Object.entries(gates)
+      .map(([key, value]) => `${key}=${typeof value === 'boolean' ? (value ? 'igen' : 'nem') : value}`)
+      .join('; ');
+    logPhase(`TAKARÓKÉP ELLENŐRZÉS [+${bootElapsed()} ms] ${label}: ${detail}`);
+  };
 
   /*
    * EGY PILLANAT ALATTI INDULÁS.
@@ -149,6 +184,10 @@ try {
   const reveal = (_reason: string) => {
     // A saját HTML-es indítóképernyő eltávolítva: csak a webOS natív splash
     // lezárását jelezzük, ha a régi indulási állapotgép ide ér.
+    logPhase(
+      `TAKARÓKÉP ELLENŐRZÉS [+${bootElapsed()} ms] FELFEDÉS: ok=${_reason}; `
+      + `webOS notifyAppLoaded meghívva; takarókép fent=${bootElapsed()} ms`,
+    );
     try { (window as any).webOSSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
   };
 
@@ -436,6 +475,13 @@ try {
       if (bootRevealDone) return;
       bootRevealDone = true;
       reveal(reason);
+      /* 2.5.397: egyetlen összegző sor – meddig volt fent a takarókép és miért. */
+      logPhase(
+        `TAKARÓKÉP ÖSSZEGZÉS [+${bootElapsed()} ms] takarókép fent=${bootElapsed()} ms; ok=${reason}; `
+        + `videó-kész=${videoSettled() ? 'igen' : 'nem'}; logó-kész=${logosSettled() ? 'igen' : 'nem'}; `
+        + `előfestés=${prepaintSettled() ? 'igen' : 'nem'}; teljes lista=${liveListReady() ? 'igen' : 'nem'}; `
+        + `képkocka-várakozás=${paintFallbacks}; iptv-app-ready következik`,
+      );
       /*
        * A jelzés a felfedés UTÁN megy ki – az App ebből indítja a teljes lista
        * visszatöltését. `window.CustomEvent` (nem a globális), mert a régi
@@ -530,6 +576,20 @@ try {
     // a teljes, kész állapot – nincs mire várni.
     const onlyDialog = !!document.querySelector('[role="dialog"]');
     const chromeOk = chromeReady();
+
+    /* 2.5.397: az LG TV / webOS összes indulási kapuja egyetlen, ms-idős sorban. */
+    bootStep('kapuk', {
+      chromeReady: chromeOk,
+      listReady: listReady(),
+      liveListReady: liveListReady(),
+      logosSettled: logosSettled(),
+      videoSettled: videoSettled(),
+      prepaintSettled: prepaintSettled(),
+      emptyBoot: emptyBoot(),
+      csakAblak: onlyDialog,
+      tarolo: bootState(),
+      stream: document.documentElement.getAttribute('data-iptv-stream') || 'unknown',
+    });
 
     /*
      * VALÓS HELYZETJELZÉS: a fejléc és a mappasáv ténylegesen kirajzolódott.
