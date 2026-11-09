@@ -3162,21 +3162,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const mediaLabel = isVodRef.current
           ? (customTitleRef.current || 'VOD')
           : (channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás');
-        // Ha még van valódi, a lejátszási ponthoz viszonyított tartalék, egy
-        // rövid megerősítő ablakot adunk a dekódernek. A korábbi 1,2/2,0 mp-es
-        // profilidőzítők a #12-ben túl korán indítottak forráscserét egy
-        // pillanatnyi HLS/TS szegmensváltás miatt.
-        // 2.5.278 (#18-as napló): ha a puffer már NAGY (>= 8 mp előre), nincs
-        // értelme megerősítő szünetet várni – ott már biztosan akadás van
-        // (a #18-ban 11 mp előrenél is 750 ms-et vártunk feleslegesen).
-        if (!confirmationUsed && ahead !== null && ahead >= timing.minBufferAheadSeconds && ahead < 8 && video.readyState >= 2) {
+        // Ha a dekóder még legalább a profil szerinti pufferrel rendelkezik,
+        // először HELYBEN próbáljuk folytatni. A teljes src-újratöltés elveszíti
+        // ezt a tartalékot, és újabb 1–2 másodperces pufferelést kényszerít ki.
+        // Ez a próba nagyobb puffer esetén is kötelező: a readyState=4 és a
+        // meglévő puffer mellett jelentkező rövid webOS stall nem indokol
+        // automatikus hálózati újracsatlakozást.
+        if (!confirmationUsed && ahead !== null && ahead >= timing.minBufferAheadSeconds && video.readyState >= 3) {
           confirmationUsed = true;
-          const confirmMs = Math.max(750, Math.min(1500, timing.retryMs));
-          const confirmLine = `PUFFERELÉSI ŐR HALASZTVA; csatorna=${mediaLabel}; puffer-előre=${ahead.toFixed(2)} s; minimum=${timing.minBufferAheadSeconds.toFixed(1)} s; megerősítés=${confirmMs} ms.`;
+          const confirmMs = Math.max(900, Math.min(1500, timing.retryMs));
+          const confirmLine = `PUFFERELÉSI ŐR: HELYI FOLYTATÁSI PRÓBA; csatorna=${mediaLabel}; puffer-előre=${ahead.toFixed(2)} s; minimum=${timing.minBufferAheadSeconds.toFixed(1)} s; ellenőrzés=${confirmMs} ms.`;
           appLog(confirmLine);
           if (tvDoctorEnabledRef.current && isTvDoctorDiagLoggingEnabled()) {
-            tvDoctorLog(`TV DOKTOR PUFFERELÉSI MEGERŐSÍTÉS: ${confirmLine}; döntés=egyelőre nem indít újracsatlakozást.`);
+            tvDoctorLog(`TV DOKTOR PUFFERELÉSI MEGERŐSÍTÉS: ${confirmLine}; döntés=előbb helyi folytatás, nincs azonnali src-újratöltés.`);
           }
+          try {
+            const playPromise = video.play();
+            if (playPromise && typeof playPromise.catch === 'function') {
+              void playPromise.catch(() => { /* a következő haladási minta dönt */ });
+            }
+          } catch { /* a következő haladási minta dönt */ }
           scheduleCheck(confirmMs);
           return;
         }
