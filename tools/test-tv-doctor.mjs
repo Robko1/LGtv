@@ -78,6 +78,7 @@ await esbuild.build({
     contents: `
       export * from './web/src/services/tvDoctor.ts';
       export * from './web/src/services/tvDoctorCloud.ts';
+      export { setActiveProviderScope } from './web/src/services/providerScope.ts';
       export { INITIAL_SETTINGS } from './web/src/data/mockData.ts';
     `,
     resolveDir: ROOT,
@@ -102,6 +103,22 @@ check(
 check(
   core.normalizeChannelDoctorKey({ id: 'live-2', name: 'Álom Mozi Űr TV', countryCode: 'HU' }) === 'hu:alom-mozi-ur-tv',
   'a magyar ékezetek (á, ű, stb.) ES5-biztosan normalizálódnak URL nélkül',
+);
+
+// Két szolgáltató azonos nevű csatornája külön TV Doktor-profilt kapjon.
+// Az első (régi) szolgáltató kulcsa változatlan marad, hogy a meglévő tanulás ne vesszen el.
+const providerScopeStorage = new MemoryStorage();
+globalThis.localStorage = providerScopeStorage;
+core.setActiveProviderScope('provider-a');
+const providerAChannelKey = core.normalizeChannelDoctorKey({ id: 'same-id', name: '[HU] M4 Sport HD' });
+core.setActiveProviderScope('provider-b');
+const providerBChannelKey = core.normalizeChannelDoctorKey({ id: 'same-id', name: '[HU] M4 Sport HD' });
+core.setActiveProviderScope('provider-a');
+check(
+  providerAChannelKey === 'hu:m4-sport-hd'
+    && providerBChannelKey !== providerAChannelKey
+    && providerBChannelKey.includes('provider:provider-b:'),
+  'a TV Doktor azonos nevű csatornái szolgáltatónként külön tanulnak, a régi szolgáltató adatai megmaradnak',
 );
 
 // 1.2 Villámgyors csatornaváltás és sebességalapú előválasztás
