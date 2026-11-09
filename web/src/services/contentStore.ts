@@ -22,7 +22,7 @@ import {
   ChunkStore, ChunkEntry, IDB_BATCH_SIZE, ensureDurableStorage,
   onIdbStoreReset, openIdbStore, storageBudgetBytes,
 } from './idbStore';
-import { providerScopePrefix } from './providerScope';
+import { providerScopePrefix, setActiveProviderScope } from './providerScope';
 
 
 /* RÉSZLETES TARTÓS VISSZATÖLTÉSI MÉRÉS – csak aktív naplózáskor ír sorokat. */
@@ -1201,6 +1201,7 @@ function saveLiveBootWithRetry(
  * a teljes lista a régi úton, a localStorage-ba megy – ott nem veszik el semmi.
  */
 export async function saveLiveContentAsync(content: ImportedContent): Promise<void> {
+  setActiveProviderScope(content.provider.id);
   const fav = getFavoriteIdsFromStorage();
   const channels = hungarianFirstForSave(content.channels, fav);
   const boot = saveLiveBootWithRetry(content, channels, LIVE_BOOT_BUDGET, true, fav);
@@ -1240,6 +1241,7 @@ export function saveLiveContent(content: ImportedContent): void {
  * teljes lista az IndexedDB-ből tényleg hiányzik.
  */
 export async function compactLiveCacheIfNeeded(content: ImportedContent): Promise<void> {
+  setActiveProviderScope(content.provider.id);
   try {
     if (!needsLiveCacheCompaction() || content.channels.length === 0) return;
     const store = await contentChunkStore();
@@ -1493,6 +1495,7 @@ type Extras = { movies: Movie[]; series: Series[] };
 const extrasCache = new Map<string, Extras>();
 
 export async function saveCatalogExtras(providerId: string, movies: Movie[], series: Series[]): Promise<void> {
+  setActiveProviderScope(providerId);
   try {
     if (!movies.length && !series.length) return;
     const store = await contentChunkStore();
@@ -1628,6 +1631,7 @@ export async function prefetchContentImages(
 }
 
 export async function loadCatalogExtras(providerId: string): Promise<Extras> {
+  setActiveProviderScope(providerId);
   const cached = extrasCache.get(providerId);
   if (cached) return cached;
   try {
@@ -2155,7 +2159,9 @@ function sortVodByYearDesc<T extends { year?: number; title?: string }>(items: r
 export function saveSeriesContent(content: ImportedContent): Promise<void> {
   // 2.5.319: mentés előtt év szerint csökkenő, stabil sorrend — az első adag (500) így már a legfrissebb 2026-os sorozatokat tartalmazza
   const sortedSeries = sortVodByYearDesc(content.series) as Series[];
-  const task = seriesSaveQueue.then(() => saveChunkedAuto({
+  const task = seriesSaveQueue.then(() => {
+    setActiveProviderScope(content.provider.id);
+    return saveChunkedAuto({
     metaKey: SERIES_META_KEY,
     legacyKey: SERIES_KEY,
     legacyPrefix: SERIES_CHUNK_PREFIX,
@@ -2167,7 +2173,8 @@ export function saveSeriesContent(content: ImportedContent): Promise<void> {
     cats: encodeCategories(content.seriesCategories),
     label: 'Sorozatlista',
     provider: content.provider,
-  })).catch((error) => {
+    });
+  }).catch((error) => {
     appLogError('Sorozatlista mentése', error);
     throw error;
   });
@@ -2179,7 +2186,9 @@ export function saveSeriesContent(content: ImportedContent): Promise<void> {
 export function saveVodContent(content: ImportedContent): Promise<void> {
   // 2.5.319: mentés előtt év szerint csökkenő, stabil sorrend — az első adag (500) így már a legfrissebb 2026-os filmeket tartalmazza, nem 2024-et
   const sortedMovies = sortVodByYearDesc(content.movies) as Movie[];
-  const task = vodSaveQueue.then(() => saveChunkedAuto({
+  const task = vodSaveQueue.then(() => {
+    setActiveProviderScope(content.provider.id);
+    return saveChunkedAuto({
     metaKey: VOD_META_KEY,
     legacyKey: VOD_KEY,
     legacyPrefix: VOD_CHUNK_PREFIX,
@@ -2191,7 +2200,8 @@ export function saveVodContent(content: ImportedContent): Promise<void> {
     cats: encodeCategories(content.vodCategories),
     label: 'Filmlista',
     provider: content.provider,
-  })).catch((error) => {
+    });
+  }).catch((error) => {
     appLogError('Filmlista mentése', error);
     throw error;
   });
@@ -2206,6 +2216,7 @@ export function saveVodContent(content: ImportedContent): Promise<void> {
  * is 2026-ossá (eddig 2024 volt), mint a Sorozaté. Csak egyszer fut, nem blokkol.
  */
 export async function migrateVodStorageIfNeeded(provider: ProviderRef): Promise<void> {
+  setActiveProviderScope(provider.id);
   try {
     const idb = await contentChunkStore();
     if (!idb) return;
@@ -2246,6 +2257,7 @@ export async function migrateVodStorageIfNeeded(provider: ProviderRef): Promise<
 }
 
 export async function saveContent(content: ImportedContent): Promise<void> {
+  setActiveProviderScope(content.provider.id);
   // Előbb engedjük kirajzolódni a felületet, csak utána induljon a mentés.
   await yieldToStorage();
   logMemory('mentés előtt');
@@ -2337,10 +2349,12 @@ const RAW_PREFIX = 'm3u-raw-';
  * „Frissítés” ugyanezt a listát dolgozza fel újra, link nélkül is.
  */
 export function saveRawPlaylist(providerId: string, text: string): boolean {
+  setActiveProviderScope(providerId);
   return backend.put(RAW_PREFIX + providerId, text);
 }
 
 export function loadRawPlaylist(providerId: string): string {
+  setActiveProviderScope(providerId);
   return backend.get(RAW_PREFIX + providerId) || '';
 }
 
@@ -2484,6 +2498,7 @@ export async function loadLiveFull(
   onProgress?: (loaded: number) => void,
   shouldAbort?: () => boolean,
 ): Promise<LoadedLiveFull | null> {
+  if (provider?.id) setActiveProviderScope(provider.id);
   const store = await contentChunkStore();
   if (!store) return null;
   const chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
@@ -2808,6 +2823,7 @@ function loadLegacySeries(provider: ProviderRef): { series: Series[]; categories
 
 /** Filmlista betöltése szinkron (kis listákhoz, tesztekhez). */
 export function loadVod(provider: ProviderRef): { movies: Movie[]; categories: Category[] } {
+  setActiveProviderScope(provider.id);
   const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX);
   if (!meta) return loadLegacyVod(provider);
   const movies: Movie[] = [];
@@ -2841,6 +2857,7 @@ export async function loadVodAsync(
   /* 2.5.281 (#24/#26): ha közben true lesz, a visszatöltés az adaghatáron leáll. */
   shouldAbort?: () => boolean,
 ): Promise<{ movies: Movie[]; categories: Category[] }> {
+  setActiveProviderScope(provider.id);
   /*
    * EGYSZERI VISSZAFEJTÉS. A korábbi kód ugyanazt a 100 ezres listát az
    * indulásnál akár háromszor is végigdekódolta (tároló-próba, 1,2 mp-es
@@ -3048,6 +3065,7 @@ export async function loadVodAsync(
 
 /** Sorozatok betöltése (szinkron, kis listához és tesztekhez). */
 export function loadSeries(provider: ProviderRef): { series: Series[]; categories: Category[] } {
+  setActiveProviderScope(provider.id);
   const meta = openChunked(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
   if (!meta) return loadLegacySeries(provider);
   const series: Series[] = [];
@@ -3076,6 +3094,7 @@ export async function loadSeriesAsync(
   /* 2.5.281 (#24/#26): megszakítható visszatöltés – lásd loadVodAsync. */
   shouldAbort?: () => boolean,
 ): Promise<{ series: Series[]; categories: Category[] }> {
+  setActiveProviderScope(provider.id);
   // Ugyanaz, mint a filmeknél: a teljes sorozatlista a tartós tárban van.
   const idb = await contentChunkStore();
   let cacheKey = `series|${provider.id}|legacy`;
@@ -3386,6 +3405,7 @@ export interface StoredCatalogPresence {
 }
 
 export async function storedCatalogPresence(providerId: string): Promise<StoredCatalogPresence> {
+  setActiveProviderScope(providerId);
   const empty: StoredCatalogPresence = { live: false, vod: false, series: false };
   const read = async (idbKey: string, localKey: string, legacyKey: string): Promise<boolean> => {
     if (backend.get(localKey) || backend.get(legacyKey)) return true;
@@ -3439,6 +3459,7 @@ export async function storedSectionFill(
   section: 'vod' | 'series',
   providerId?: string,
 ): Promise<StoredSectionFill | null> {
+  if (providerId) setActiveProviderScope(providerId);
   try {
     const store = await contentChunkStore();
     if (!store) return null;
@@ -3493,6 +3514,7 @@ export async function readStoredCategories(providerId: string): Promise<{
   vodCategories: Category[];
   seriesCategories: Category[];
 }> {
+  setActiveProviderScope(providerId);
   const readCats = async (idbKey: string, localKey: string, type: 'live' | 'movie' | 'series'): Promise<Category[]> => {
     const localRaw = backend.get(localKey);
     if (localRaw) {
@@ -3656,6 +3678,7 @@ export function restoreStoredContent(
     shouldAbort?: () => boolean;
   } = {},
 ): Promise<void> {
+  setActiveProviderScope(plan.provider.id);
   const scope = options.scope || 'all';
   const wantLive = scope === 'all' || scope === 'live';
   const wantMovies = scope === 'all' || scope === 'vod' || scope === 'movies';
