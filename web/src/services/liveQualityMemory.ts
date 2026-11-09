@@ -32,6 +32,8 @@
 
 export type LiveQualityFormat = 'ts' | 'hls';
 
+import { providerScopePrefix } from './providerScope';
+
 export interface LiveQualitySample {
   width: number;
   height: number;
@@ -73,7 +75,7 @@ function storage(): Storage | null {
 /** Csatorna-kulcs az emlékezethez: azonosító, ha van; különben a névből képzett alak. */
 export function liveQualityKey(channel: { id?: string; name?: string } | null | undefined): string {
   const id = String(channel?.id || '').trim();
-  if (id) return `id:${id}`;
+  if (id) return `${providerScopePrefix()}id:${id}`;
   const name = String(channel?.name || '')
     .trim()
     .toLowerCase()
@@ -81,7 +83,7 @@ export function liveQualityKey(channel: { id?: string; name?: string } | null | 
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return name ? `name:${name}` : '';
+  return name ? `${providerScopePrefix()}name:${name}` : '';
 }
 
 export function readLiveQualityRecords(): RecordMap {
