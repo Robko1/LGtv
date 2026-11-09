@@ -3155,6 +3155,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const currentSample = readMediaProgress(video, Date.now());
         const ahead = bufferedAheadSeconds(video);
         const advanced = mediaProgressed(startSample, currentSample);
+        const mediaLabel = isVodRef.current
+          ? (customTitleRef.current || 'VOD')
+          : (channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás');
         if (advanced) {
           setIsLoading(false);
           doctorSessionRef.current.waitingOrStalledFlag = false;
@@ -3162,30 +3165,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           clearBufferWatchdog();
           return;
         }
-        // #60: 34,1 mp puffer + readyState=4 mellett is újratöltött a régi őr.
-        // Elegendő lejátszható adat mellett a waiting/stalled önmagában nem
-        // indokol src-resetet; csak pufferhiány vagy médiahiba enged recoveryt.
-        const hasHealthyBuffer = !video.error && video.readyState >= 3
-          && ahead !== null && ahead >= timing.minBufferAheadSeconds;
-        if (hasHealthyBuffer) {
-          appLog(`PUFFERELÉSI WATCHDOG: ÚJRATÖLTÉS KIHAGYVA; csatorna=${mediaLabel}; ` +
-            `puffer-előre=${ahead.toFixed(2)} s; minimum=${timing.minBufferAheadSeconds.toFixed(1)} s; ` +
-            `readyState=${video.readyState}; ok=elegendő lejátszható adat.`);
-          setIsLoading(false);
-          doctorSessionRef.current.waitingOrStalledFlag = false;
-          clearDoctorBufferingStatus();
-          scheduleCheck(Math.max(2500, timing.stallDetectorMs));
-          return;
-        }
-        const mediaLabel = isVodRef.current
-          ? (customTitleRef.current || 'VOD')
-          : (channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás');
-        // Ha a dekóder még legalább a profil szerinti pufferrel rendelkezik,
-        // először HELYBEN próbáljuk folytatni. A teljes src-újratöltés elveszíti
-        // ezt a tartalékot, és újabb 1–2 másodperces pufferelést kényszerít ki.
-        // Ez a próba nagyobb puffer esetén is kötelező: a readyState=4 és a
-        // meglévő puffer mellett jelentkező rövid webOS stall nem indokol
-        // automatikus hálózati újracsatlakozást.
+        // Először helyben kérünk folytatást, ha még van elég puffer.
         if (!confirmationUsed && ahead !== null && ahead >= timing.minBufferAheadSeconds && video.readyState >= 3) {
           confirmationUsed = true;
           const confirmMs = Math.max(900, Math.min(1500, timing.retryMs));
@@ -3201,6 +3181,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
           } catch { /* a következő haladási minta dönt */ }
           scheduleCheck(confirmMs);
+          return;
+        }
+        // #60: 34,1 mp puffer + readyState=4 mellett is újratöltött a régi őr.
+        // A helyi folytatási próba után is elegendő adat mellett nem resetelünk.
+        const hasHealthyBuffer = !video.error && video.readyState >= 3
+          && ahead !== null && ahead >= timing.minBufferAheadSeconds;
+        if (hasHealthyBuffer) {
+          appLog(`PUFFERELÉSI WATCHDOG: ÚJRATÖLTÉS KIHAGYVA; csatorna=${mediaLabel}; ` +
+            `puffer-előre=${ahead.toFixed(2)} s; minimum=${timing.minBufferAheadSeconds.toFixed(1)} s; ` +
+            `readyState=${video.readyState}; ok=elegendő lejátszható adat.`);
+          setIsLoading(false);
+          doctorSessionRef.current.waitingOrStalledFlag = false;
+          clearDoctorBufferingStatus();
+          scheduleCheck(Math.max(2500, timing.stallDetectorMs));
           return;
         }
         appLog(
