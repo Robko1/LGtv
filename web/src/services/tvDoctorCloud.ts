@@ -1877,8 +1877,14 @@ function enqueueFromHook(payload: {
   const eventChannelId = safeCleanText(event.channelId || record?.channelId, 100);
   if (isRepairAttempt && eventChannelId && record && isPersistableDoctorRecord(record)) {
     const details = event.details && typeof event.details === 'object' ? event.details as Record<string, unknown> : {};
+    /* 2.5.403 (#46): a 16 különböző formátum/puffer újracsatlakozási
+     * variánst NEM vágjuk 8-ra. A 8-as korlát a TANULÁSI DOBOZOKRA vonatkozik
+     * (MAX_CHANNEL_ROUTES), nem a Supabase `tv_doctor_events` soraira – ott a
+     * #46-ben épp az volt a baj, hogy csak néhány azonos próba látszott. */
+    const isRecoveryVariant = details.recoveryVariant === true;
+    const maxStepsCap = isRecoveryVariant ? 16 : 8;
     const step = Math.max(0, Math.round(Number(details.step) || 0));
-    const maxSteps = Math.max(1, Math.min(8, Math.round(Number(details.maxSteps) || 8)));
+    const maxSteps = Math.max(1, Math.min(maxStepsCap, Math.round(Number(details.maxSteps) || 8)));
     const strategy = safeCleanText(details.strategyId || eventType, 64);
     const format = safeCleanText(event.playbackFormat, 8).toUpperCase();
     const buffer = safeCleanText(event.bufferProfile, 24);
@@ -1904,15 +1910,18 @@ function enqueueFromHook(payload: {
       errorCode: safeCleanText(event.errorCode, 48) || undefined,
       errorReason: trigger || undefined,
       recovered: typeof event.recovered === 'boolean' ? event.recovered : undefined,
-      details: { step, maxSteps, strategyId: strategy, trigger },
+      details: { step, maxSteps, strategyId: strategy, trigger, recoveryVariant: isRecoveryVariant || undefined },
     };
     state.pendingEvents.push(attempt);
     // A próbálkozás azonnal látszódjon a TV négy kategóriakockájában is,
     // ne csak a következő Supabase-szinkron / IPK-indítás után.
     mergeCloudDoctorLogs([{ ...attempt, eventType, recovered: attempt.recovered, details: attempt.details }]);
-    const categoryItems = state.pendingEvents.filter((item) => item.category === attempt.category);
-    const keep = new Set(categoryItems.slice(-8).map((item) => item.eventUid));
-    state.pendingEvents = state.pendingEvents.filter((item) => item.category !== attempt.category || keep.has(item.eventUid));
+    // A variánsok KÜLÖN, 16-os keretet kapnak – a 8-as kategórialimit csak a
+    // hagyományos javítási próbákra marad érvényben (8 doboz változatlan).
+    const sameGroup = (item: PendingDoctorEvent): boolean => item.category === attempt.category
+      && Boolean(item.details?.recoveryVariant) === isRecoveryVariant;
+    const keep = new Set(state.pendingEvents.filter(sameGroup).slice(-maxStepsCap).map((item) => item.eventUid));
+    state.pendingEvents = state.pendingEvents.filter((item) => !sameGroup(item) || keep.has(item.eventUid));
   }
 
   state.pendingEvents = state.pendingEvents.slice(-32);

@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.402';
+export const WEB_VERSION = '2.5.403';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,20 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.403',
+    date: '2026-11-09',
+    changes: [
+      'A #46 NAPLÓ ÉS A SUPABASE ADATAI SZERINT AZ [HU] M2 UHD BIZONYÍTHATÓAN MŰKÖDÖTT — A 115 kB-os rendszernapló (23:16–23:22) három `SIKERES` TS-indítást mutat (1614 / 4512 / 1432 ms), egy `t=39.75 s; duration=39.75 s` tényleges lejátszást, majd 5–6 azonos `stream=MPEG-TS; pufferprofil=balanced` újracsatlakozást. Mégis megjelent az `ÉLŐ ÚJRACSATLAKOZÁS LEÁLLÍTVA; próbák=5/6; ok=a csatorna nem működik, végtelen ciklus megelőzve` és a `A csatorna jelenleg nem működik` felirat. A Supabase `hu:m2-uhd` sorai ugyanezt igazolják: `repair_attempt` 3× (`ts/balanced` 2×, `hls/balanced` 1×, `ts/adaptive-3` 1×), `buffer_test` és `speed_test` 1–1, `diagnostic` 7×; a TV Doktor 5 beavatkozása MIND `1/8, puffer=balanced`, egyetlen `2/8` sem volt, és `TV DOKTOR JAVÍTÁSI DÖNTÉS` sem készült.',
+      'BIZONYÍTOTTAN MŰKÖDŐ CSATORNA SOHA NEM KAP „NEM MŰKÖDIK” ÍTÉLETET — A `VideoPlayer.tsx` `requestRecoveryRef` generic `attempt >= 5` backoffja eddig NEM hívta meg a `canDeclareChannelDead()` védelmet (csak a javítási létra `proposal.exhausted` ága használta). Most az újracsatlakozás is megvizsgálja a `healthyPlaybackMs`-t: ha a csatorna ebben a nézési szakaszban már ≥15 s-t ténylegesen lejátszott, a végleges hiba, a `setHasError(true)` és a leállítás NEM fut le, helyette `TV DOKTOR: BIZONYÍTOTTAN MŰKÖDŐ CSATORNA – NINCS VÉGLEGES LEÁLLÍTÁS` naplósor készül és a próbálkozás folytatódik. A soha nem játszott csatorna 5 próbás végtelenciklus-védelme VÁLTOZATLAN. A felirat szövege sem változott, csak a feltétel szigorodott.',
+      'A 16 KÜLÖNBÖZŰ HIBA-/ÚJRACSATLAKOZÁSI BEÁLLÍTÁS TÉNYLEGESEN LEFUT — A `DOCTOR_BUFFER_CONFIGS` 8 pufferprofiljából és a HLS/TS formátumpárból új `planLiveRecoveryVariant()` 8 × 2 = 16 variánst képez (`balanced`, `fast`, `stable`, `turbo`, `instant`, `adaptive-1/2/3` × TS/HLS), mindegyikhez VALÓDI indulási-őrrel, lejátszás-őrrel, puffer-céllal és fokozatos várakozással. A 2. újracsatlakozástól a `requestRecoveryRef` beállítja az `activeBufferProfile`-t / `activeBufferTiming`-ot, a `nextUrl`-t a másik formátumra cseréli, és a natív hídnak is az aktív profilt adja át. A 17. próba a 16 variáns lassabb 2. körét kezdi, soha nem adja fel. A `CSATORNAVÁLTÁS/ÚJRACSATLAKOZÁS START` sor most a TÉNYLEGES pufferprofilt írja, nem mindig `balanced`-et.',
+      'A LÉTRA NEM RAGAD 1/8-NÁL — A #46-ben a `shouldSkipDoctorLadderForProvenChannel()` (2.5.386 TLC-védelem) minden `unexpected_end`/`unexpected_pause` eseménynél korai visszatérést adott, a 12 mp-es `armDoctorRepairWatch()` elavulás-őr és az `onPlaying` verify pedig 0-ra állította a `repairStep`-et. Most a TLC-védelem csak az első KÉT azonos próbára vonatkozik: 3+ egymás utáni hiba után a teljes 1→8 létra jogos, bizonyított csatornánál az elavulás-őr sem nullázza vissza a lépést, és a beavatkozási limit 8/percről 16/percre emelkedik (csak a bizonyított csatornánál). Külön, stabil `liveRecoveryVariantRef` számlálót vezettünk be, mert a régi `recoveryAttemptRef`-et minden rövid `playing` lenullázta – ez volt a „csak ts próbálkozások és semmi” másik oka. A 8 TANULÁSI DOBOZ (1 alap + 7 tanult) változatlan.',
+      'A SUPABASE IS A 16 VARIÁNST MUTATJA — Új `recordDoctorRecoveryVariant()` minden próbát `repair_attempt` eseményként ír a `tv_doctor_events`-be, `details.step=1..16`, `details.maxSteps=16`, `details.strategyId` és `details.recoveryVariant=true` jelöléssel. A `tvDoctorCloud.ts` eddig a `maxSteps`-et 8-ra vágta és kategóriánként csak az utolsó 8 eseményt tartotta meg; most a variánsok KÜLÖN 16-os keretet kapnak, a hagyományos javítási próbák 8-as korlátja és a 8 dobozos panel változatlan marad. Így a #43/#44-hez hasonló következő élő naplóban már soronként ellenőrizhető, melyik formátum/puffer beállítás mit eredményezett.',
+      'TESZTEK — Új, a javítás ELŐTT bukó `tools/test-tv-doctor-recovery-403.mjs`: 78 ellenőrzés valódi esbuild + Storage futásidejű modullal (16 különböző formátum/puffer páros, 8 HLS + 8 TS, `balanced` csak 2/16, 16 felhős `repair_attempt` `hu:m2-uhd` kanonikus kulccsal, a létra 1/8→8/8-ig legalább 6 különböző stratégiával, a 39.75 s lejátszás védelme, a változatlan feliratok / 8 doboz / kézi SÁRGA napló / `Memória: 0`). Regisztrálva a `tools/run-tests.mjs` 45. csoportjaként.',
+      'NYITVA MARADT — A #46 mérése 23:16–23:22 között készült, még a 2.5.401 00:09-es merge-je ELŐTT, ezért önmagában nem igazol új IPK-futást. A mostani kód változásainak ÉLŐ TV-n, új IPK telepítése utáni, #43/#44-hez hasonló naplós visszamérése továbbra is a felhasználónál történik; sandboxból nem végezhető el. A deployed `tv-doctor` Edge Function változatlanul v19 / ACTIVE.',
+    ],
+  },
+
   {
     version: '2.5.402',
     date: '2026-11-08',

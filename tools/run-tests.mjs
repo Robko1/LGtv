@@ -87,6 +87,8 @@ const tasks = [
   { name: 'tv-doctor-learning-399', args: ['tools/test-tv-doctor-learning-399.mjs'] },
   // 2.5.401: #43/#44 naplók + TV-fotó – a panel a valóságot mutatja, 80/80 felhős profil.
   { name: 'tv-doctor-learning-401', args: ['tools/test-tv-doctor-learning-401.mjs'] },
+  // 2.5.403: #46 / M2 UHD – bizonyítottan működő csatorna nem „nem működik”, 16 valódi formátum/puffer beállítás.
+  { name: 'tv-doctor-recovery-403', args: ['tools/test-tv-doctor-recovery-403.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');
