@@ -3091,14 +3091,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [scheduleAutoRetry]);
 
   /*
-   * EGYSÉGES LEJÁTSZÁSFIGYELŐ (élő TV + film/sorozat).
-   *
-   * A régi élő watchdog kizárólag a `currentTime` változását nézte, 2 mp
-   * után pedig azonnal formátumot váltott. webOS-en az élő MPEG-TS
-   * idővonala gyakran 0 marad, miközben a képkockák érkeznek – ezért a
-   * figyelő feleslegesen újratöltötte a stream-et (eltűnt a kép, a hang
-   * viszont ment tovább). Most a képkocka-számláló, az idővonal és a
-   * puffer együtt dönt, és a VOD-ra is ugyanez a (türelmesebb) őr vigyáz.
+   * VOD-LEJÁTSZÁSFIGYELŐ. Élő TV-n az idővonal-/képkocka-watchdog végleg
+   * ki van kapcsolva; ott a rövid waiting/stalled jelzések nem indíthatnak
+   * automatikus forráscserét. Ez az ellenőrző kizárólag VOD-ot figyel.
    */
   useEffect(() => {
     if (!isPlaying) return;
@@ -5530,13 +5525,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         );
       }
       setIsPlaying(true);
-      // Normál csatorna-/VOD-indításkor nincs TV Doktor-állapotablak.
-      // Az állapotablak kizárólag tényleges hibánál vagy beavatkozásnál jelenik meg.
-      // Normál élő TV-n, kikapcsolt TV Doktor mellett nincs automatikus
-      // indulási watchdog sem: egy időzítő nem töltheti újra a csatornát.
-      // A sikertelen indulást a néző kézi csatornaváltással lépteti tovább.
-      // A TV Doktor bekapcsolt állapotában az eredeti indulási felügyelet marad.
-      // Élő TV-indításnál nincs watchdog és nincs időzített újratöltés.
+      // Élő TV-indításnál a startup watchdog végleg letiltva.
+      // Időzítő nem válthat formátumot és nem töltheti újra a csatornát;
+      // a VOD saját, TV Doktor által vezérelt indulási ellenőrzése megmarad.
       if (customStreamUrl && tvDoctorEnabledRef.current) {
         // VOD INDULÁSI ŐR: ha a film vagy sorozat HTTP-kapcsolata némán
         // beragad induláskor, a TV Doktor türelmes ablak után (≥ 8,5 mp)
@@ -5649,13 +5640,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   loadStreamRef.current = loadStream;
 
   /*
-   * FOLYAMATOS ÉLŐ ÚJRACSATLAKOZÁS.
-   *
-   * Ha egy már futó adás megakad vagy a szolgáltató elvágja a kapcsolatot,
-   * először UGYANAZT a címet töltjük be újra (a hang nem szakad meg), majd
-   * csak több sikertelen próba után próbáljuk a másik formátumot. A próbák
-   * fokozatosan ritkulnak, de soha nem állnak le maguktól: nincs többé
-   * olyan állapot, ahol a kép fekete marad, a hang meg megy tovább.
+   * ÉLŐ ÚJRACSATLAKOZÁS KIZÁRÓLAG VALÓDI MÉDIAHIBA ESETÉN.
+   * A waiting/stalled/ended/pause időzített watchdog útvonalai le vannak
+   * tiltva; egy működő csatornát pusztán időzítő nem tölthet újra.
    */
   requestRecoveryRef.current = (reason: string) => {
     if (isVodRef.current) {
