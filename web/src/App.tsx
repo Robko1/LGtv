@@ -2009,7 +2009,7 @@ export function App() {
       .catch(() => { /* a naplóban már ott a valódi ok */ })
       .finally(() => {
         if (activeViewRef.current === 'live' && !providerRefreshActiveRef.current) {
-          // EPG a teljes lista után, 2,5 mp késleltetéssel – csak élő nézetben
+          // A teljes lista után is várunk 30 mp-et, hogy az EPG ne a csatornaváltással versenyezzen.
           window.setTimeout(() => {
             if (activeViewRef.current !== 'live') return;
             if (providerRefreshActiveRef.current) return;
@@ -2035,7 +2035,7 @@ export function App() {
                 }
               })
               .catch(() => {});
-          }, 2500);
+          }, 30_000);
         }
       });
   }, [runRestore, guideStatusSafe]);
