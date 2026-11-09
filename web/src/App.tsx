@@ -1926,10 +1926,13 @@ export function App() {
     appLog('FAST BOOT: induláskor csak magyar + kedvenc csatornák – teljes lista az Ország menüre töltődik (letöltés nélkül).');
     markLiveReady();
     const fastTimers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0, restoreTimer: 0 } as { guideTimer: number; safetyTimer: number; refreshTimer: number; restoreTimer: number; cleanup?: () => void };
+    const huBootChannels = (plan.bootChannels || [])
+      .filter((ch) => (ch.countryCode || '').toUpperCase() === 'HU');
     const GUIDE_IDLE_MS = 30_000;
     let liveSwitchInProgress = false;
     let lastLiveActivityAt = Date.now();
     const scheduleGuideAfterIdle = (delayMs: number) => {
+      if (huBootChannels.length === 0) return;
       if (fastTimers.guideTimer) window.clearTimeout(fastTimers.guideTimer);
       fastTimers.guideTimer = window.setTimeout(() => {
         fastTimers.guideTimer = 0;
@@ -1975,8 +1978,6 @@ export function App() {
     // 2.5.339: FAST BOOT EPG — a magyar EPG-t előre indítjuk a főoldalra,
     // mielőtt a felhasználó az Ország menüt megnyitaná. A plan.bootChannels
     // tartalmazza a HU csatornákat, ezeket szűrjük a HU-probe-hoz.
-    const huBootChannels = (plan.bootChannels || [])
-      .filter((ch) => (ch.countryCode || '').toUpperCase() === 'HU');
     if (huBootChannels.length > 0) {
       // A 63-as naplóban a több MB-os HU EPG-letöltés a csatornaváltásokkal
       // párhuzamosan futott. Legalább 30 mp csatornaváltás-mentes idő kell.
