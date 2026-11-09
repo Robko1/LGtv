@@ -266,7 +266,8 @@ check(/new StallDetector\(isVod \? 7000 : bufferTiming\(\)\.stallDetectorMs\)/.t
   'a lejátszó egységes, profilfüggő képkocka-alapú figyelőt használ élőre és VOD-ra');
 check(/puffer-előre=/.test(PLAYER)
   && /bufferedAheadSeconds/.test(PLAYER)
-  && /PUFFERELÉSI ŐR HALASZTVA/.test(PLAYER),
+  && /PUFFERELÉSI ŐR: HELYI FOLYTATÁSI PRÓBA/.test(PLAYER)
+  && /video\.play\(\)/.test(PLAYER),
   'a watchdog a lejátszási pont előtti valódi tartalékot méri, és röviden megerősít, ha még van puffer');
 check(/const loadKey = streamUrl;/.test(PLAYER)
   && !/const loadKey = `\$\{streamUrl\}\|\$\{settings\.bufferMode\}`/.test(PLAYER),
