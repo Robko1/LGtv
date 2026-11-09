@@ -85,6 +85,8 @@ const tasks = [
   { name: 'boot-log-and-doctor-panel', args: ['tools/test-boot-log-and-doctor-panel.mjs'] },
   // 2.5.399: #39/#40 naplók alapján gyors IPK-indulás + valódi, csatornánkénti, Supabase-első tanulás.
   { name: 'tv-doctor-learning-399', args: ['tools/test-tv-doctor-learning-399.mjs'] },
+  // 2.5.401: #43/#44 naplók + TV-fotó – a panel a valóságot mutatja, 80/80 felhős profil.
+  { name: 'tv-doctor-learning-401', args: ['tools/test-tv-doctor-learning-401.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');
