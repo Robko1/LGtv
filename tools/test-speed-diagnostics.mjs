@@ -40,6 +40,9 @@ test('kézi életciklus, korrelált médiaidővonal és késői callback védelm
   clock += 20; diag.speedLoad('VOD', 'mp4', 'https://host/movie/user/password/1.mp4');
   video.src = 'https://host/movie/user/password/1.mp4';
   fire('loadedmetadata'); clock += 20; fire('playing');
+  assert.match(state.lines.join('\n'), /első stream-metaadat megérkezett.*src→esemény=20\.0 ms/);
+  assert.match(state.lines.join('\n'), /első lejátszható médiaadat megérkezett/);
+  assert.match(state.lines.join('\n'), /a puffer először lejátszható/);
   assert.match(state.lines.join('\n'), /média playing.*teljes=50\.0 ms/);
   clock += 15; frame(clock, { mediaTime: 0.25 });
   assert.match(state.lines.join('\n'), /megfigyelt képkocka a kompozitornak átadva.*teljes=65\.0 ms.*nem bizonyítja/);
@@ -162,6 +165,8 @@ test('a célzott sebességmérés bekerül a kézi naplóba külön mérési kap
   assert.match(output, /kiválasztás kezelése/);
   assert.match(output, /forrásbetöltés/);
   assert.match(output, /média playing/);
+  assert.match(output, /böngésző stream-kérés elindult/);
+  assert.match(output, /első lejátszható médiaadat megérkezett/);
   assert.match(output, /hálózati részidők nem érhetők el/);
   assert.doesNotMatch(output, /https?:\/\/|redacted/);
   state.hooks.onStop(); Object.defineProperty(globalThis, 'performance', { configurable: true, value: oldPerformance }); dom.window.close();
