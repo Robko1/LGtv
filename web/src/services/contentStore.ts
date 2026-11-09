@@ -22,7 +22,7 @@ import {
   ChunkStore, ChunkEntry, IDB_BATCH_SIZE, ensureDurableStorage,
   onIdbStoreReset, openIdbStore, storageBudgetBytes,
 } from './idbStore';
-import { providerScopePrefix, setActiveProviderScope } from './providerScope';
+import { activeProviderScopeId, providerScopePrefix, setActiveProviderScope } from './providerScope';
 
 
 /* RÉSZLETES TARTÓS VISSZATÖLTÉSI MÉRÉS – csak aktív naplózáskor ír sorokat. */
@@ -1351,6 +1351,7 @@ export interface CatalogState {
 }
 
 let cachedCatalogState: CatalogState | null = null;
+let cachedCatalogStateProviderId = '';
 
 function emptyCatalogState(): CatalogState {
   return {
@@ -1361,13 +1362,17 @@ function emptyCatalogState(): CatalogState {
 
 /** Szinkron olvasat (induláskor, a takarókép alatt). */
 export function readCatalogStateSync(): CatalogState | null {
-  if (cachedCatalogState) return cachedCatalogState;
+  const providerId = activeProviderScopeId();
+  if (cachedCatalogState && cachedCatalogStateProviderId === providerId) return cachedCatalogState;
+  cachedCatalogState = null;
+  cachedCatalogStateProviderId = providerId;
   try {
     const raw = backend.get(CONTENT_STATE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CatalogState;
     if (!parsed || parsed.v !== 2 || !parsed.counts) return null;
     cachedCatalogState = parsed;
+    cachedCatalogStateProviderId = providerId;
     return parsed;
   } catch {
     return null;
@@ -1376,6 +1381,7 @@ export function readCatalogStateSync(): CatalogState | null {
 
 /** Teljes olvasat: localStorage, majd (ha még nincs) a tartós tár. */
 export async function readCatalogState(): Promise<CatalogState | null> {
+  const providerId = activeProviderScopeId();
   const local = readCatalogStateSync();
   if (local) return local;
   try {
@@ -1385,9 +1391,12 @@ export async function readCatalogState(): Promise<CatalogState | null> {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CatalogState;
     if (!parsed || parsed.v !== 2 || !parsed.counts) return null;
-    cachedCatalogState = parsed;
-    // A gyors szinkron útra is visszatesszük.
-    write(CONTENT_STATE_KEY, parsed);
+    if (activeProviderScopeId() === providerId) {
+      cachedCatalogState = parsed;
+      cachedCatalogStateProviderId = providerId;
+      // A gyors szinkron útra is visszatesszük.
+      write(CONTENT_STATE_KEY, parsed);
+    }
     return parsed;
   } catch {
     return null;
@@ -1395,8 +1404,10 @@ export async function readCatalogState(): Promise<CatalogState | null> {
 }
 
 let catalogStateQueue: Promise<void> = Promise.resolve();
-function updateCatalogState(mutate: (state: CatalogState) => void): void {
+function updateCatalogState(mutate: (state: CatalogState) => void, providerId = activeProviderScopeId()): void {
   catalogStateQueue = catalogStateQueue.then(async () => {
+    const previousScope = activeProviderScopeId();
+    if (providerId) setActiveProviderScope(providerId);
     const state = readCatalogStateSync() || emptyCatalogState();
     mutate(state);
     state.savedAt = Math.max(state.savedAt, state.sections.live?.savedAt || 0,
@@ -1407,6 +1418,9 @@ function updateCatalogState(mutate: (state: CatalogState) => void): void {
       const store = await contentChunkStore();
       if (store) await store.put(IDB_STATE_KEY, JSON.stringify(state));
     } catch { /* a tartós másolat hiánya nem akadály */ }
+    if (providerId && activeProviderScopeId() === providerId && previousScope && previousScope !== providerId) {
+      setActiveProviderScope(previousScope);
+    }
   });
 }
 
@@ -1417,7 +1431,7 @@ function noteSectionSaved(section: 'live' | 'vod' | 'series', count: number, pro
     // Új, teljes mentés: a korábbi „hiányos” jelölés is törlődik.
     state.sections[section] = { savedAt: at, count };
     state.checkedAt = Math.max(state.checkedAt, at);
-  });
+  }, provider?.id || activeProviderScopeId());
 }
 
 /**
@@ -1469,7 +1483,7 @@ export function setCatalogFingerprint(fingerprint: string, provider?: ProviderRe
   updateCatalogState((state) => {
     state.fingerprint = fingerprint;
     if (provider) { state.providerId = provider.id; state.provider = provider; }
-  });
+  }, provider?.id || activeProviderScopeId());
 }
 
 /** Csak a frissességi bélyeget írjuk újra – a nagy listához nem nyúlunk. */
@@ -3308,6 +3322,7 @@ export async function clearContentAsync(): Promise<void> {
   backend.remove(CONTENT_STATE_KEY);
   backend.remove(LIVE_FULL_META_KEY);
   cachedCatalogState = null;
+  cachedCatalogStateProviderId = '';
   extrasCache.clear();
   decodedCache.clear();
   // A film- és sorozatlista az IndexedDB-ben van: azt is törölni kell – MEGVÁRVA.
