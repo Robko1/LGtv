@@ -174,7 +174,7 @@ function reportResourceTiming(): void {
   }
 }
 
-const events = ['timeupdate', 'loadstart', 'loadedmetadata', 'loadeddata', 'canplay', 'playing', 'waiting', 'stalled', 'error', 'ended', 'seeking', 'seeked', 'play', 'pause', 'abort', 'emptied'];
+const events = ['timeupdate', 'loadstart', 'progress', 'loadedmetadata', 'loadeddata', 'canplay', 'playing', 'waiting', 'stalled', 'error', 'ended', 'seeking', 'seeked', 'play', 'pause', 'abort', 'emptied'];
 function mediaEvent(event: Event): void {
   const video = event.target as HTMLVideoElement;
   if (!trace || !trace.mediaReady || !video || video.tagName !== 'VIDEO' || video.getAttribute('data-iptv-player') !== 'true') return;
@@ -185,6 +185,7 @@ function mediaEvent(event: Event): void {
   const t = now();
   const milestones: Record<string, string> = {
     loadstart: 'böngésző stream-kérés elindult',
+    progress: 'első hálózati adatátvitel jelzése megérkezett',
     loadedmetadata: 'első stream-metaadat megérkezett',
     loadeddata: 'első lejátszható médiaadat megérkezett',
     canplay: 'a puffer először lejátszható',
