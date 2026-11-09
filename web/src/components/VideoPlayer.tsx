@@ -23,10 +23,7 @@ import {
   effectiveStartupWatchdogMs,
   isPrematureVodEnd,
   isUnexpectedLiveEnd,
-  isWebOsLiveEndArtifact,
-  LiveEndEvidence,
   liveEdgeTarget,
-  LIVE_END_CONFIRM_MS,
   liveRecoveryDelayMs,
   liveRecoveryUrl,
   mediaProgressed,
@@ -1777,11 +1774,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const doctorBufferingStatusTimerRef = useRef<number | null>(null);
   const doctorStatusMaxTimerRef = useRef<number | null>(null);
   const recoveryIndicatorTimerRef = useRef<number | null>(null);
-  /* 2.5.406 (#51/#52): egyetlen futó „vége” megerősítés generációnként. */
-  const liveEndArtifactRef = useRef<{ timer: number | null; lastLogAt: number }>({
-    timer: null,
-    lastLogAt: 0,
-  });
   const doctorIncidentRef = useRef<{
     lastAt: number;
     lastChannelKey: string;
@@ -1979,10 +1971,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (recoveryIndicatorTimerRef.current !== null) {
       window.clearTimeout(recoveryIndicatorTimerRef.current);
       recoveryIndicatorTimerRef.current = null;
-    }
-    if (liveEndArtifactRef.current.timer !== null) {
-      window.clearTimeout(liveEndArtifactRef.current.timer);
-      liveEndArtifactRef.current.timer = null;
     }
     if (doctorIncidentRef.current.pauseConfirmTimer !== null) {
       window.clearTimeout(doctorIncidentRef.current.pauseConfirmTimer);
@@ -2744,29 +2732,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  /* ----------------------------------------------------------------------
-   * 2.5.406 (#51 / #52) – MI ALAPJÁN GONDOLTA HIBÁNAK A MŰKÖDŐ ADÁST?
-   *
-   * `playbackRecovery.ts: isUnexpectedLiveEnd()` eddig PUSZTÁN az `ended`
-   * flagből (illetve a véges `duration`-ból) következtetett adatfolyam-hibára.
-   * A webOS raw-TS demuxer viszont 55 s / 30 s hibátlan lejátszás után is ad
-   * `duration = currentTime; paused = true; ended = true` állapotot úgy, hogy
-   * `media_error = -`, `readyState = 4`, `networkState = 1` és a puffer vége
-   * `Infinity`. A `durationchange` / `pause` / `ended` kezelők EZUTÁN külön,
-   * a TV Doktor döntésétől függetlenül hívták a `requestRecoveryRef`-et: a
-   * naplóban ezért 0 döntés / 0 javítási lépés mellett mégis ~100 ms alatt
-   * `EMPTIED → WAITING → LOADSTART → … → PLAYING` jött, 0 mp-ről induló új
-   * TS-kapcsolattal (≈10 mp visszatekerés) és az „Adás frissítése (1. próba)…”
-   * felirattal, ami ott is maradt.
-   *
-   * Most a véges élő idővonal önmagában NEM elég: kell hozzá igazolt médiahia
-   * VAGY elfogyott forrás / puffer / friss haladás hiánya. Ha a bizonyítékok
-   * szerint a kép megy, NEM töltjük újra a forrást; egy rövid megerősítő
-   * ablakban HELYBEN próbáljuk folytatni, és csak akkor engedjük a megszokott
-   * újracsatlakozást, ha az adás tényleg megállt. A valódi buffer/stall,
-   * `media_error`, felhasználói csatornaváltás és javítási létra útjai
-   * változatlanok.
-   * -------------------------------------------------------------------- */
+  // Élő végállapot-/fagyásfigyelés és automatikus helyreállítás kikapcsolva.
   // Élő végállapotot nem vizsgálunk és nem indítunk helyi/automatikus újraindítást.
   const suppressLiveEndArtifact = (
     _video: HTMLVideoElement,
