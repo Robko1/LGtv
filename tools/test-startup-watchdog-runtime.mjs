@@ -25,7 +25,7 @@ const bundle=await esbuild.build({stdin:{contents:harness,resolveDir:resolve('.'
 const vc=new VirtualConsole(); vc.on('jsdomError',e=>{if(!/Not implemented/.test(e.message))throw e;});
 const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:'http://localhost/',runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,beforeParse(window){
  window.__IPTV_DIRECT_LIVE_ZAP_TEST__ = false; // a watchdog/fallback regressziós tesztjeihez
- const set=window.setTimeout.bind(window); window.setTimeout=(fn,ms,...args)=>set(fn,(ms===2000||ms===2500)?150:ms,...args);
+ const set=window.setTimeout.bind(window); window.setTimeout=(fn,ms,...args)=>set(fn,(ms===2000||ms===2500||ms===4500||ms===5000)?150:ms,...args);
  window.state={ready:0,buffered:false,bufferEnd:2,plays:[],loads:0}; const p=window.HTMLMediaElement.prototype;
  Object.defineProperty(p,'paused',{configurable:true,get(){return this.__paused??true;}});
  Object.defineProperty(p,'currentSrc',{configurable:true,get(){return this.getAttribute('src')||'';}});
