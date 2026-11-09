@@ -14,6 +14,7 @@ import {
   mediaProgressed,
 } from './playbackRecovery';
 import { appLog, isVerbosePlaybackLogging, isTvDoctorLogEnabled, startTvDoctorLogging, stopTvDoctorLogging, tvDoctorLog } from './appLog';
+import { providerScopePrefix } from './providerScope';
 
 /**
  * TV Doktor – intelligens, önfejlesztő diagnosztikai és csatornaváltás-gyorsító rendszer.
@@ -1577,14 +1578,15 @@ export function normalizeChannelDoctorKey(
     .replace(/^-+|-+$/g, '')
     .slice(0, 88);
 
+  const providerPrefix = providerScopePrefix();
   if (slug) {
-    return country ? `${country.slice(0, 4)}:${slug}` : slug;
+    return providerPrefix + (country ? `${country.slice(0, 4)}:${slug}` : slug);
   }
   const fallbackId = foldAscii(String(channel.id || 'channel'))
     .replace(/[^a-z0-9:_-]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 88);
-  return fallbackId || 'unknown-channel';
+  return providerPrefix + (fallbackId || 'unknown-channel');
 }
 
 /**
