@@ -20,6 +20,8 @@
 
 export type LiveFormat = 'ts' | 'hls';
 
+import { providerScopePrefix } from './providerScope';
+
 const MEMORY_KEY = 'iptv_rt_live-format-memory-v1';
 /** A korábbi, globális (csatornafüggetlen) emlékezet kulcsa – továbbra is működik. */
 const GLOBAL_KEY = 'iptv_rt_live-format';
@@ -109,7 +111,7 @@ function writeMemory(memory: Memory): void {
 }
 
 function normalizeChannelId(channelId: string | number | null | undefined): string {
-  return String(channelId ?? '').trim().slice(0, 120);
+  return (providerScopePrefix() + String(channelId ?? '').trim()).slice(0, 120);
 }
 
 /** A csatorna legutóbb sikeres formátuma (vagy null, ha még nincs). */
@@ -147,7 +149,7 @@ export function rememberedGlobalFormat(): LiveFormat | null {
   const store = storage();
   if (!store) return null;
   try {
-    const stored = store.getItem(GLOBAL_KEY);
+    const stored = store.getItem(providerScopePrefix() + GLOBAL_KEY);
     return stored === 'ts' || stored === 'hls' ? stored : null;
   } catch {
     return null;
@@ -158,7 +160,7 @@ export function rememberGlobalFormat(format: LiveFormat): void {
   const store = storage();
   if (!store) return;
   try {
-    store.setItem(GLOBAL_KEY, format);
+    store.setItem(providerScopePrefix() + GLOBAL_KEY, format);
   } catch {
     /* a tárhely hibája nem akadályozhatja a lejátszást */
   }
@@ -169,8 +171,8 @@ export function clearFormatMemory(): void {
   const store = storage();
   if (!store) return;
   try {
-    store.removeItem(MEMORY_KEY);
-    store.removeItem(GLOBAL_KEY);
+    store.removeItem(providerScopePrefix() + MEMORY_KEY);
+    store.removeItem(providerScopePrefix() + GLOBAL_KEY);
   } catch {
     /* nem kritikus */
   }
