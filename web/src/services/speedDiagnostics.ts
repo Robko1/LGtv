@@ -29,9 +29,10 @@ const now = () => typeof performance !== 'undefined' && performance.now ? perfor
 const ms = (n: number) => Math.max(0, n).toFixed(1);
 
 function line(label: string, extra = ''): void {
-  // Tisztán mérési sor (2.5.226): csak a fejlesztői mérési naplóban jelenik
-  // meg – a normál hibajavító naplót nem tölti meg és nem lassítja a TV-t.
-  if (!measurementLogsEnabled() || !isVerbosePlaybackLogging() || !trace) return;
+  // A célzott lejátszási idővonal a kézzel indított hib napló része is:
+  // ebből derül ki a kiválasztás → forrásbetöltés → első képkocka ideje.
+  // A nagy gyakoriságú távirányító-sorok külön továbbra is kapcsolóhoz kötöttek.
+  if (!isVerbosePlaybackLogging() || !trace) return;
   const t = now();
   appLog(`SEBESSÉG #${trace.id}; mód=${trace.mode}; ${label}; teljes=${ms(t - trace.start)} ms; lépésköz=${ms(t - trace.last)} ms${extra ? '; ' + extra : ''}`);
   trace.last = t;

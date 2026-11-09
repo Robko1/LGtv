@@ -20,6 +20,7 @@ import {
   StallDetector,
   bufferProfileTiming,
   bufferedAheadSeconds,
+  effectiveStartupWatchdogMs,
   isPrematureVodEnd,
   isUnexpectedLiveEnd,
   isWebOsLiveEndArtifact,
@@ -3196,6 +3197,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         notifyTvDoctorIncident('buffer_stall', video, 'BUFFER_STALL', 'pufferelés elakadt', elapsed);
         // Először UGYANAZT a címet próbáljuk újra, nem ugrunk rögtön a másik
         // formátumra: így a hang és a kép nem csúszik szét feleslegesen.
+        stallDetectorRef.current?.reset();
         requestRecoveryRef.current('pufferelés elakadt');
       }, Math.max(0, delayMs));
     };
@@ -3231,6 +3233,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         !playbackStartedRef.current ||
         switchInProgressRef.current
       ) {
+        detector.reset();
+        previousSample = null;
+        return;
+      }
+      // Ha a waiting/stalled eseményre a puffer-watchdog már fut, ő az
+      // egyetlen döntéshozó. A képkocka-őr csak watchdog nélküli megállást
+      // kezelhet; recovery időzítése alatt egyik őr sem indíthat második kört.
+      if (bufferWatchdogRef.current !== null || recoveryTimerRef.current !== null || autoRetryTimerRef.current !== null) {
         detector.reset();
         previousSample = null;
         return;
@@ -5600,7 +5610,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const timing = bufferTiming();
         const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
         const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
-        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming ? doctorSessionRef.current.activeBufferProfile : bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
+        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming ? doctorSessionRef.current.activeBufferProfile : bufferModeRef.current}; indulási-őr=${effectiveStartupWatchdogMs(timing.startupWatchdogMs)} ms (profil=${timing.startupWatchdogMs} ms); lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
         if (diagnostic && isVerbosePlaybackLogging()) {
           appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, sequence.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés után')}`);
         }
@@ -5623,11 +5633,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (!customStreamUrl) {
         const { startupWatchdogMs } = bufferTiming();
         /*
-         * A normál indulásnak legalább 2–2,5 másodpercet hagyunk.
-         * Ha már van dekódolható adat, nem váltunk formátumot vakon:
-         * röviden ellenőrizzük, hogy valóban halad-e a puffer/képkockaszám.
+         * A normál indulásnak legalább 4,5 másodpercet hagyunk. A #59-ben
+         * a szolgáltatói stream első metaadata 3,3–3,7 mp után érkezett;
+         * a korábbi 2 mp-es őr saját újratöltéssel növelte a csatornaváltást.
+         * Ha már van adat, röviden ellenőrizzük a tényleges haladást.
          */
-        const attemptTimeoutMs = Math.max(2000, Math.min(startupWatchdogMs, 2500));
+        const attemptTimeoutMs = effectiveStartupWatchdogMs(startupWatchdogMs);
         zapWatchdogRef.current = window.setTimeout(() => {
           zapWatchdogRef.current = null;
           if (!isCurrentLoad() || playbackStartedRef.current) return;

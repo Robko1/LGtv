@@ -11,7 +11,7 @@ const result = await esbuild.build({
       export const appLog = (s) => globalThis.__speedTest.lines.push(s);
       export const isVerbosePlaybackLogging = () => globalThis.__speedTest.enabled;
       // 2.5.226: a mérési naplót a próba bekapcsolt állapotban ellenőrzi.
-      export const measurementLogsEnabled = () => true;
+      export const measurementLogsEnabled = () => globalThis.__speedTest.measurementEnabled !== false;
       export const registerLoggingLifecycleHooks = (h) => { globalThis.__speedTest.hooks = h; };
     ` }));
   }}],
@@ -143,4 +143,26 @@ test('erőforrás-időzítés csak a cél-URL megfelelő próbájához, adatkií
   assert.match(state.lines.join('\n'),/első válaszig=50\.0 ms; válaszátvitel=50\.0 ms.*nem bizonyít/);
   assert.doesNotMatch(state.lines.join('\n'),/private|stream\.example/);
   state.hooks.onStop(); Object.defineProperty(globalThis,'performance',{configurable:true,value:oldPerformance}); dom.window.close();
+});
+
+
+test('a célzott sebességmérés bekerül a kézi naplóba külön mérési kapcsoló nélkül is', () => {
+  const dom = new JSDOM('<video data-iptv-player="true" data-iptv-mode="élő"></video>', { url: 'https://test.example/' });
+  globalThis.window = dom.window; globalThis.document = dom.window.document;
+  const oldPerformance = globalThis.performance;
+  let clock = 100;
+  Object.defineProperty(globalThis, 'performance', { configurable: true, value: { now: () => clock, getEntriesByName: () => [] } });
+  const state = globalThis.__speedTest = { enabled: true, measurementEnabled: false, hooks: null, lines: [] };
+  diag.attachSpeedDiagnostics(); state.hooks.onStart();
+  diag.speedSelect('élő', 'Filmbox Extra', false, 'filmbox');
+  clock += 25; diag.speedLoad('élő', 'formátum=ts', 'https://stream.example/live/redacted.ts');
+  const video = document.querySelector('video'); video.src = 'https://stream.example/live/redacted.ts';
+  clock += 3000; video.dispatchEvent(new window.Event('playing'));
+  const output = state.lines.join('\\n');
+  assert.match(output, /kiválasztás kezelése/);
+  assert.match(output, /forrásbetöltés/);
+  assert.match(output, /média playing/);
+  assert.match(output, /hálózati részidők nem érhetők el/);
+  assert.doesNotMatch(output, /stream\\.example|redacted/);
+  state.hooks.onStop(); Object.defineProperty(globalThis, 'performance', { configurable: true, value: oldPerformance }); dom.window.close();
 });

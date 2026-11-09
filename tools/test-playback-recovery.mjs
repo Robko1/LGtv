@@ -75,7 +75,7 @@ try {
 const mod = await import(pathToFileURL(outFile).href);
 const {
   StallDetector, mediaProgressed, readMediaProgress,
-  bufferProfileTiming, bufferedAheadSeconds, liveRecoveryUrl, liveRecoveryDelayMs, vodRecoveryDelayMs, isPrematureVodEnd,
+  bufferProfileTiming, bufferedAheadSeconds, effectiveStartupWatchdogMs, liveRecoveryUrl, liveRecoveryDelayMs, vodRecoveryDelayMs, isPrematureVodEnd,
   isUnexpectedLiveEnd,
   isVodRecoveryExhausted, VOD_MAX_NEVER_STARTED_ATTEMPTS,
   shouldAllowDiagnosticProbe, checkVodHttpStatus,
@@ -140,6 +140,9 @@ check(fastTiming.startupWatchdogMs < balancedTiming.startupWatchdogMs
 check(fastTiming.bufferWatchdogMs > fastTiming.startupWatchdogMs
   && balancedTiming.bufferWatchdogMs > balancedTiming.startupWatchdogMs,
   'a már futó adás pufferőre türelmesebb, mint a csatornaindítási fallback');
+check([fastTiming, balancedTiming, stableTiming].every((timing) => effectiveStartupWatchdogMs(timing.startupWatchdogMs) >= 4500)
+  && effectiveStartupWatchdogMs(9000) === 5000,
+  'a csatornaindítás minden profilban legalább 4,5 mp-et kap, legfeljebb 5 mp-ig vár');
 check(fastTiming.retryMs < balancedTiming.retryMs
   && fastTiming.minBufferAheadSeconds < balancedTiming.minBufferAheadSeconds
   && balancedTiming.minBufferAheadSeconds < stableTiming.minBufferAheadSeconds
@@ -274,6 +277,8 @@ check(/const loadKey = streamUrl;/.test(PLAYER)
   'a pufferprofil váltása nem indítja újra mesterségesen az aktuális forrást');
 check(/requestRecoveryRef\.current\('idővonal megakadt'\)/.test(PLAYER),
   'a megakadás automatikus újracsatlakozást indít');
+check(/bufferWatchdogRef\.current !== null \|\| recoveryTimerRef\.current !== null \|\| autoRetryTimerRef\.current !== null/.test(PLAYER),
+  'a puffer-watchdog és a képkocka-őr nem indíthat párhuzamos recovery-kört');
 check(/liveRecoveryUrl\(attempt, recoveryPrimaryUrl, recoveryFallbackUrl\)/.test(PLAYER),
   'az élő újracsatlakozás az aktuális vagy elsődleges címmel kezd');
 check(/urls: alternative \? \[primaryUrl, alternative\.url\] : \[primaryUrl\]/.test(PLAYER)
@@ -282,19 +287,19 @@ check(/urls: alternative \? \[primaryUrl, alternative\.url\] : \[primaryUrl\]/.t
 check(/const isActiveMediaEvent = \(video: HTMLVideoElement\): boolean =>/.test(PLAYER)
   && /RÉGI MÉDIAESEMÉNY KIHAGYVA/.test(PLAYER),
   'a későn érkező régi src médiaeseménye nem írhatja át az új csatorna állapotát');
-const liveZapWatchdogStart = PLAYER.indexOf('const attemptTimeoutMs = Math.max(2000, Math.min(startupWatchdogMs, 2500));');
+const liveZapWatchdogStart = PLAYER.indexOf('const attemptTimeoutMs = effectiveStartupWatchdogMs(startupWatchdogMs);');
 const liveZapWatchdogEnd = PLAYER.indexOf('}, attemptTimeoutMs);', liveZapWatchdogStart);
 const liveZapWatchdog = liveZapWatchdogStart >= 0 && liveZapWatchdogEnd >= 0
   ? PLAYER.slice(liveZapWatchdogStart, liveZapWatchdogEnd + '}, attemptTimeoutMs);'.length)
   : '';
-check(/const attemptTimeoutMs = Math\.max\(2000, Math\.min\(startupWatchdogMs, 2500\)\)/.test(liveZapWatchdog)
+check(/const attemptTimeoutMs = effectiveStartupWatchdogMs\(startupWatchdogMs\)/.test(liveZapWatchdog)
   && /readyStateAtCheck >= 2/.test(liveZapWatchdog)
   && /aheadAtCheck/.test(liveZapWatchdog)
   && /framesProgressed/.test(liveZapWatchdog)
   && /bufferProgressed/.test(liveZapWatchdog)
   && /}, 900\)/.test(liveZapWatchdog)
   && /puffer vagy a képkockák tovább haladnak/.test(liveZapWatchdog),
-  'az élő ZAP-ŐR 2–2,5 mp-et vár, és adat-, puffer- vagy képkockahaladásnál nem indít felesleges újrapróbálkozást');
+  'az élő ZAP-ŐR legalább 4,5 mp-et vár, és adat-, puffer- vagy képkockahaladásnál nem indít felesleges újrapróbálkozást');
 check(/vodRecoveryRef\.current\('korai ended esemény'\)/.test(PLAYER)
   && /isPrematureVodEnd\(position, duration\)/.test(PLAYER),
   'a VOD korai ended eseménye visszaállítást indít, nem következő részt');

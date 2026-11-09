@@ -562,3 +562,16 @@ export function liveEdgeTarget(
   }
   return best;
 }
+
+
+/**
+ * Élő csatornaindításnál ne nyissunk új kapcsolatot a lassan válaszoló
+ * szolgáltató miatt túl korán. A #59 naplóban az első metaadat 3,3–3,7 mp
+ * után érkezett; a 1,2–3 mp-es profilőrök ezt megelőzően újratöltötték a
+ * streamet. A 4,5 mp-es minimum ezt az önmagunk által okozott késést szünteti
+ * meg; legfeljebb 5 mp-ig engedjük az indulási őrt.
+ */
+export function effectiveStartupWatchdogMs(configuredMs: number): number {
+  const configured = Number(configuredMs);
+  return Math.max(4500, Math.min(Number.isFinite(configured) ? configured : 4500, 5000));
+}
