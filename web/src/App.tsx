@@ -73,6 +73,8 @@ import {
 // Induláskor a korábban betöltött szolgáltatói lista töltődik be. Demó adat
 // helyett üres listát mutatunk, és a felület felhívja a figyelmet a lista
 // hozzáadására (Menü → Listák).
+// Újraindításkor a legutóbb aktív szolgáltató saját mentett katalógusából indulunk.
+setActiveProviderScope(storageService.getSettings().activeProviderId || '');
 const bootLive = loadLive();
 logPhase('mentett élő lista beolvasva (App modul)');
 // A betöltött tár régi vagy sérült adatait már az állapot létrehozásakor normalizáljuk.
@@ -433,8 +435,8 @@ export function App() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
   const [activeProvider, setActiveProvider] = useState<ProviderRef | null>(() => bootLive.provider);
-  // A TV Doktor és a csatornaemlékezet mindig az éppen aktív szolgáltató névterét használja.
-  setActiveProviderScope(activeProvider?.id || '');
+  // Szolgáltatóváltáskor a TV Doktor és a tartós katalógus ugyanarra a névtérre áll át.
+  useLayoutEffect(() => { setActiveProviderScope(activeProvider?.id || ''); }, [activeProvider?.id]);
   const [totalCounts, setTotalCounts] = useState(() => bootLive.totals);
   /*
    * 2.5.298 – VALÓS VISSZATÖLTÉSI DARABSZÁM A SAJÁT MENTÉSBŐL.
