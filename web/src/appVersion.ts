@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.403';
+export const WEB_VERSION = '2.5.404';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.403',
+    version: '2.5.404',
     date: '2026-11-09',
     changes: [
       'A #46 NAPLÓ ÉS A SUPABASE ADATAI SZERINT AZ [HU] M2 UHD BIZONYÍTHATÓAN MŰKÖDÖTT — A 115 kB-os rendszernapló (23:16–23:22) három `SIKERES` TS-indítást mutat (1614 / 4512 / 1432 ms), egy `t=39.75 s; duration=39.75 s` tényleges lejátszást, majd 5–6 azonos `stream=MPEG-TS; pufferprofil=balanced` újracsatlakozást. Mégis megjelent az `ÉLŐ ÚJRACSATLAKOZÁS LEÁLLÍTVA; próbák=5/6; ok=a csatorna nem működik, végtelen ciklus megelőzve` és a `A csatorna jelenleg nem működik` felirat. A Supabase `hu:m2-uhd` sorai ugyanezt igazolják: `repair_attempt` 3× (`ts/balanced` 2×, `hls/balanced` 1×, `ts/adaptive-3` 1×), `buffer_test` és `speed_test` 1–1, `diagnostic` 7×; a TV Doktor 5 beavatkozása MIND `1/8, puffer=balanced`, egyetlen `2/8` sem volt, és `TV DOKTOR JAVÍTÁSI DÖNTÉS` sem készült.',
