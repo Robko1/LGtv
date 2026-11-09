@@ -153,6 +153,9 @@ function reportResourceTiming(): void {
       const tls = entry.secureConnectionStart > 0
         ? duration(entry.secureConnectionStart, entry.connectEnd)
         : 'nem mérhető/nem HTTPS';
+      // Kompatibilitási mérőszám: az erőforrás indításától az első
+      // válaszig eltelt idő. A tiszta szerveroldali TTFB külön, lentebb látszik.
+      const firstResponse = ms(entry.responseStart - entry.startTime);
       const requestToFirstByte = duration(entry.requestStart, entry.responseStart);
       const transfer = duration(entry.responseStart, entry.responseEnd);
       const total = duration(entry.startTime, entry.responseEnd);
@@ -161,7 +164,7 @@ function reportResourceTiming(): void {
         : 'nem mérhető/gyorsítótár';
       line(
         'böngészős erőforrás-időzítés',
-        `teljes-erőforrás=${total}; DNS=${dns}; kapcsolat=${connect}; TLS=${tls}; szerver-kérés→első-bájt (TTFB)=${requestToFirstByte}; válaszátvitel=${transfer}; átvitt-adat=${bytes}; csak a böngésző által látható fő erőforrás, nem a teljes HLS-szegmenslánc`
+        `első válaszig=${firstResponse} ms; válaszátvitel=${transfer}; teljes-erőforrás=${total}; DNS=${dns}; kapcsolat=${connect}; TLS=${tls}; szerver-kérés→első-bájt (TTFB)=${requestToFirstByte}; átvitt-adat=${bytes}; nem bizonyít teljes HLS/szegmens-időt, csak a böngésző által látható fő erőforrást méri`
       );
     }
   } catch {
