@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.401';
+export const WEB_VERSION = '2.5.402';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.401',
+    version: '2.5.402',
     date: '2026-11-08',
     changes: [
       'A #43 ÉS #44 NAPLÓKAT SORONKÉNT ÁTNÉZTÜK — A 23:44-es diagnosztikai napló 2276 sora (`1017 ms` képkocka-kihagyás, 29 kihagyás, `DIAGNOSZTIKA SZÜNETEL`) és a 805 kB-os TV Doktor napló 2148 sora (`tanult_csatornák=80/80`, 71 „Új tanult útvonal”, 69 „legjobb”, 151 SUPABASE-sor) alapján NEM a deployed v18 volt a fő ok: a #44 `TV DOKTOR ABLAK ... [HU] M2 UHD` sorai minden megnyitáskor `tanult_útvonalak=0/8; helyi=1; supabase=0; legjobb=még nincs`-et írtak, miközben ugyanazon napló `TV DOKTOR INDÍTÁS` sorai már 1/8, ~1269–1949 ms-es tanult útvonalat használtak.',
