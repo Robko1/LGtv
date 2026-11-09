@@ -292,35 +292,25 @@ check(/urls: alternative \? \[primaryUrl, alternative\.url\] : \[primaryUrl\]/.t
 check(/const isActiveMediaEvent = \(video: HTMLVideoElement\): boolean =>/.test(PLAYER)
   && /RÉGI MÉDIAESEMÉNY KIHAGYVA/.test(PLAYER),
   'a későn érkező régi src médiaeseménye nem írhatja át az új csatorna állapotát');
-const liveZapWatchdogStart = PLAYER.indexOf('const attemptTimeoutMs = effectiveStartupWatchdogMs(startupWatchdogMs);');
-const liveZapWatchdogEnd = PLAYER.indexOf('}, attemptTimeoutMs);', liveZapWatchdogStart);
-const liveZapWatchdog = liveZapWatchdogStart >= 0 && liveZapWatchdogEnd >= 0
-  ? PLAYER.slice(liveZapWatchdogStart, liveZapWatchdogEnd + '}, attemptTimeoutMs);'.length)
-  : '';
-check(/const attemptTimeoutMs = effectiveStartupWatchdogMs\(startupWatchdogMs\)/.test(liveZapWatchdog)
-  && /readyStateAtCheck >= 2/.test(liveZapWatchdog)
-  && /aheadAtCheck/.test(liveZapWatchdog)
-  && /framesProgressed/.test(liveZapWatchdog)
-  && /bufferProgressed/.test(liveZapWatchdog)
-  && /}, 900\)/.test(liveZapWatchdog)
-  && /puffer vagy a képkockák tovább haladnak/.test(liveZapWatchdog),
-  'az élő ZAP-ŐR legalább 4,5 mp-et vár, és adat-, puffer- vagy képkockahaladásnál nem indít felesleges újrapróbálkozást');
+check(!/const attemptTimeoutMs = effectiveStartupWatchdogMs\(startupWatchdogMs\)/.test(PLAYER)
+  && /indulási-őr=\$\{isVodRef\.current && tvDoctorEnabledRef\.current \?/.test(PLAYER)
+  && /if \(!isVodRef\.current\) return;/.test(PLAYER.slice(PLAYER.indexOf('const armBufferWatchdog'), PLAYER.indexOf('const armBufferWatchdog') + 700)),
+  'az élő ZAP-ŐR és puffer-watchdog végleg KI van kapcsolva; a VOD külön marad');
 check(/vodRecoveryRef\.current\('korai ended esemény'\)/.test(PLAYER)
   && /isPrematureVodEnd\(position, duration\)/.test(PLAYER),
   'a VOD korai ended eseménye visszaállítást indít, nem következő részt');
-check(/isUnexpectedLiveEnd\(endState\)/.test(PLAYER)
-  && /requestRecoveryRef\.current\(`élő adás vége/.test(PLAYER)
-  && /requestRecoveryRef\.current\(`élő véges idővonal/.test(PLAYER)
-  && /isUnexpectedLiveEnd\(pausedEndState\)/.test(PLAYER),
-  'a live ended, pause/ended és a tartósan véges durationchange ugyanazon csatornán recoveryt indít');
+check(/ÉLŐ ENDED JELZÉS; automatikus újratöltés és watchdog TILTVA/.test(PLAYER)
+  && /ÉLŐ PAUSE\/ENDED JELZÉS; automatikus újratöltés TILTVA/.test(PLAYER)
+  && /ÉLŐ VÉGES IDŐVONAL-JELZÉS; automatikus újratöltés TILTVA/.test(PLAYER),
+  'az élő ended, pause és durationchange nem indít automatikus újratöltést');
 const audioTrackEffect = PLAYER.slice(PLAYER.indexOf('const refreshHtmlAudioTracks'), PLAYER.indexOf('const refreshHtmlAudioTracks') + 5000);
 check(/addEventListener\('durationchange'/.test(audioTrackEffect)
   && /setTimeout\(refreshHtmlAudioTracks/.test(audioTrackEffect)
   && !/setInterval\(refreshHtmlAudioTracks/.test(audioTrackEffect),
   'a hangsáv-lista nem fut állandó 1 mp-es pollinggal, csak események és indulási ellenőrzések dolgoznak');
-check(/liveDurationRecoveryTimerRef/.test(PLAYER)
-  && /generation !== streamLoadGenerationRef\.current/.test(PLAYER),
-  'a késői live duration recovery időzítője csatornagenerációval védett');
+check(!/liveDurationRecoveryTimerRef/.test(PLAYER)
+  && !/liveEndArtifactRef/.test(PLAYER),
+  'az élő duration/ended időzített recovery teljesen megszűnt');
 check(/name === 'AbortError'/.test(PLAYER),
   'a gyors forrásváltás AbortError-ja NEM számít lejátszási hibának');
 check(/switchInProgressRef\.current\) return;/.test(PLAYER),
