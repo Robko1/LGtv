@@ -14,7 +14,7 @@ import {
   mediaProgressed,
 } from './playbackRecovery';
 import { appLog, isVerbosePlaybackLogging, isTvDoctorLogEnabled, startTvDoctorLogging, stopTvDoctorLogging, tvDoctorLog } from './appLog';
-import { providerScopePrefix } from './providerScope';
+import { providerScopePrefix, setActiveProviderScope } from './providerScope';
 
 /**
  * TV Doktor – intelligens, önfejlesztő diagnosztikai és csatornaváltás-gyorsító rendszer.
@@ -340,7 +340,7 @@ export function normalizeSavedLayoutChannelKey(nameKey?: string | null): string 
     .replace(/^-+|-+$/g, '')
     .slice(0, 88);
   if (!slug) return '';
-  return (country ? `${country.slice(0, 4)}:` : '') + slug;
+  return providerScopePrefix() + (country ? `${country.slice(0, 4)}:` : '') + slug;
 }
 
 function layoutChannelDisplayName(nameKey?: string | null, fallback?: string | null): string {
@@ -368,28 +368,53 @@ function coerceLayoutChannels(raw: unknown): SavedLayoutChannel[] {
   return out.sort((a, b) => a.position - b.position);
 }
 
-try {
-  if (typeof localStorage !== 'undefined') {
-    const rawScope = localStorage.getItem(TV_DOCTOR_HU_SCOPE_STORAGE_KEY);
-    const parsedScope = rawScope ? JSON.parse(rawScope) : null;
-    if (Array.isArray(parsedScope?.channelIds)) {
-      activeHungarianChannelIds = new Set(parsedScope.channelIds.filter((id: unknown) => typeof id === 'string' && id.length > 0));
-      activeHungarianChannelCount = activeHungarianChannelIds.size;
-    }
-    if (Array.isArray(parsedScope?.channelKeys)) {
-      activeHungarianChannelKeys = new Set(parsedScope.channelKeys.filter((k: unknown): k is string => typeof k === 'string' && k.length > 0));
-      hungarianScopeVersion += 1;
-    }
-    activeLayoutChannels = coerceLayoutChannels(parsedScope?.layoutChannels);
-    if (activeLayoutChannels.length) activeHungarianChannelCount = activeLayoutChannels.length;
-  }
-} catch {
+function restoreTvDoctorProviderScopeFromStorage(): void {
   activeHungarianChannelIds = null;
   activeHungarianChannelCount = 0;
   activeHungarianChannelKeys = new Set();
-  hungarianScopeVersion += 1;
   activeLayoutChannels = [];
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const scopeKey = providerScopePrefix() + TV_DOCTOR_HU_SCOPE_STORAGE_KEY;
+      const rawScope = localStorage.getItem(scopeKey);
+      const parsedScope = rawScope ? JSON.parse(rawScope) : null;
+      if (Array.isArray(parsedScope?.channelIds)) {
+        activeHungarianChannelIds = new Set(parsedScope.channelIds.filter((id: unknown) => typeof id === 'string' && id.length > 0));
+        activeHungarianChannelCount = activeHungarianChannelIds.size;
+      }
+      if (Array.isArray(parsedScope?.channelKeys)) {
+        activeHungarianChannelKeys = new Set(parsedScope.channelKeys.filter((k: unknown): k is string => typeof k === 'string' && k.length > 0));
+        hungarianScopeVersion += 1;
+      }
+      activeLayoutChannels = coerceLayoutChannels(parsedScope?.layoutChannels);
+      if (activeLayoutChannels.length) activeHungarianChannelCount = activeLayoutChannels.length;
+      const centralRaw = localStorage.getItem(providerScopePrefix() + TV_DOCTOR_CENTRAL_PROFILES_STORAGE_KEY);
+      if (centralRaw) {
+        const central = JSON.parse(centralRaw);
+        const savedChannels = coerceLayoutChannels(central?.channels);
+        if (savedChannels.length) {
+          activeLayoutChannels = savedChannels;
+          activeHungarianChannelKeys = new Set(savedChannels.map((channel) => channel.channelKey));
+          activeHungarianChannelCount = savedChannels.length;
+          hungarianScopeVersion += 1;
+        }
+      }
+    }
+  } catch {
+    activeHungarianChannelIds = null;
+    activeHungarianChannelCount = 0;
+    activeHungarianChannelKeys = new Set();
+    hungarianScopeVersion += 1;
+    activeLayoutChannels = [];
+  }
 }
+
+export function setTvDoctorProviderScope(providerId: string | null | undefined): void {
+  setActiveProviderScope(providerId);
+  restoreTvDoctorProviderScopeFromStorage();
+}
+
+restoreTvDoctorProviderScopeFromStorage();
 
 // Első indulás az új TV Doktor memóriával: a régi tanulási tárat és várólistát fizikailag is töröljük.
 // A párosítás és a külön kézi TV Doktor napló kulcsaihoz nem nyúlunk.
@@ -2615,7 +2640,7 @@ export function setTvDoctorHungarianChannelScope(
   try {
     const target = getStorage(storage);
     if (target) {
-      target.setItem(TV_DOCTOR_HU_SCOPE_STORAGE_KEY, JSON.stringify({
+      target.setItem(providerScopePrefix() + TV_DOCTOR_HU_SCOPE_STORAGE_KEY, JSON.stringify({
         channelIds: cleanIds,
         channelKeys: Array.from(activeHungarianChannelKeys),
         layoutChannels: activeLayoutChannels,
@@ -5478,7 +5503,7 @@ export function restoreTvDoctorCentralProfiles(
     hungarianScopeVersion += 1;
     activeHungarianChannelCount = channels.length;
     try {
-      target?.setItem(TV_DOCTOR_CENTRAL_PROFILES_STORAGE_KEY, JSON.stringify({
+      target?.setItem(providerScopePrefix() + TV_DOCTOR_CENTRAL_PROFILES_STORAGE_KEY, JSON.stringify({
         version: 1, channels, updatedAt: Date.now(),
       }));
     } catch { /* a tároló megtelése nem akadályozhatja a visszatöltést */ }
@@ -5523,7 +5548,7 @@ export function getTvDoctorCentralProfileState(storage?: Storage | null): TvDoct
   let channels: SavedLayoutChannel[] = activeLayoutChannels;
   let updatedAt: number | null = null;
   try {
-    const raw = target?.getItem(TV_DOCTOR_CENTRAL_PROFILES_STORAGE_KEY);
+    const raw = target?.getItem(providerScopePrefix() + TV_DOCTOR_CENTRAL_PROFILES_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       const saved = coerceLayoutChannels(parsed?.channels);
