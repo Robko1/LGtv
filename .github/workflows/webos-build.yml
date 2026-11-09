@@ -593,10 +593,12 @@ jobs:
               raise SystemExit("HIBA: a csomagolt index.html fejlesztői /src/ hivatkozást tartalmaz (nem production build).")
           if "TV · FEKVŐ 1920 × 1080" in html:
               raise SystemExit("HIBA: régi, fölösleges indítófelirat maradt.")
-          # A csomagban csak a webOS natív PNG maradhat; saját HTML-es indító
-          # képernyő, takaróréteg vagy reveal-vezérlés nem lehet benne.
-          if 'id="tv-curtain"' in html or 'id="boot-screen"' in html or "__IPTV_REVEAL__" in html:
-            raise SystemExit("HIBA: egyedi HTML-es indítóképernyő/reveal kód maradt a csomagban.")
+          # A webOS natív PNG splash mellett a 2.5.405/#49 óta a saját
+          # #tv-curtain takaróréteg is szándékos: csak az első videóképkocka
+          # után fedi fel az alkalmazást. Ezt engedjük, a régi boot-screen
+          # és az elavult reveal-vezérlés viszont továbbra is tiltott.
+          if 'id="boot-screen"' in html or "__IPTV_REVEAL__" in html:
+            raise SystemExit("HIBA: elavult HTML-es indítóképernyő/reveal kód maradt a csomagban.")
           # Nincs induló videó.
           if "assets/intro.mp4" in html or "intro-boot.js" in html:
             raise SystemExit("HIBA: induló videó maradt a csomagolt HTML-ben.")
