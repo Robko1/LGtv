@@ -2989,8 +2989,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Többször érkező waiting/stalled esemény ne tolja ki folyton a határidőt.
     if (bufferWatchdogRef.current !== null) return;
     const video = htmlVideoRef.current;
-    // Már elindult élő adás ÉS (aktív TV Doktor mellett) film/sorozat
-    // beragadt pufferelését is felügyeljük; VOD esetén türelmesebb ablakkal.
+    // Csak aktív TV Doktor mellett figyeljük a már elindult VOD pufferelését.
     if (!video || !playbackStartedRef.current || video.paused) return;
     // Élő TV-n a puffer-watchdog végleg ki van kapcsolva; sem waiting,
     // sem stalled esemény nem indíthat automatikus src-újratöltést.
@@ -3099,8 +3098,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!isPlaying) return;
     const video = htmlVideoRef.current;
     if (!video) return;
-    // Élő TV-n is a ténylegesen beállított fagyásérzékelési idő érvényesül;
-    // nincs mesterséges 9 mp-es késleltetés. A recovery külön az élő élre áll vissza.
+    // A VOD képkocka-/idővonal-figyelője a ténylegesen beállított türelmi időt használja.
     const detector = new StallDetector(isVod ? 7000 : bufferTiming().stallDetectorMs);
     stallDetectorRef.current = detector;
     let previousSample: MediaProgressSample | null = null;
@@ -5510,7 +5508,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const timing = bufferTiming();
         const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
         const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
-        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming ? doctorSessionRef.current.activeBufferProfile : bufferModeRef.current}; indulási-őr=${effectiveStartupWatchdogMs(timing.startupWatchdogMs)} ms (profil=${timing.startupWatchdogMs} ms); lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
+        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming ? doctorSessionRef.current.activeBufferProfile : bufferModeRef.current}; indulási-őr=${isVodRef.current && tvDoctorEnabledRef.current ? effectiveStartupWatchdogMs(timing.startupWatchdogMs) + ' ms' : 'KI'}; lejátszás-őr=${isVodRef.current && tvDoctorEnabledRef.current ? timing.bufferWatchdogMs + ' ms' : 'KI'}; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
         if (diagnostic && isVerbosePlaybackLogging()) {
           appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, sequence.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés után')}`);
         }
