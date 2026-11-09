@@ -142,9 +142,27 @@ function reportResourceTiming(): void {
     } else if (!(entry.responseStart > 0)) {
       line('hálózati részidők korlátozottak', 'a válaszidők nem láthatók; kereszt-origin vagy a TV korlátozhatja');
     } else {
-      const response = ms(entry.responseStart - entry.startTime);
-      const transfer = entry.responseEnd >= entry.responseStart ? `${ms(entry.responseEnd - entry.responseStart)} ms` : 'nem mérhető';
-      line('böngészős erőforrás-időzítés', `első válaszig=${response} ms; válaszátvitel=${transfer}; URL-egyezés, nem bizonyít teljes HLS/szegmens-időt vagy próbához tartozást`);
+      // A teljes indítási időt külön bontjuk: DNS, kapcsolatfelépítés,
+      // kérés elküldése utáni első bájt (TTFB), majd a válasz átvitele.
+      // Ezek csak akkor láthatók, ha a böngésző/TV Resource Timing adatot ad;
+      // kereszt-origin korlátozásnál nem helyettesítjük becsléssel.
+      const duration = (start: number, end: number): string =>
+        start > 0 && end >= start ? `${ms(end - start)} ms` : 'nem mérhető';
+      const dns = duration(entry.domainLookupStart, entry.domainLookupEnd);
+      const connect = duration(entry.connectStart, entry.connectEnd);
+      const tls = entry.secureConnectionStart > 0
+        ? duration(entry.secureConnectionStart, entry.connectEnd)
+        : 'nem mérhető/nem HTTPS';
+      const requestToFirstByte = duration(entry.requestStart, entry.responseStart);
+      const transfer = duration(entry.responseStart, entry.responseEnd);
+      const total = duration(entry.startTime, entry.responseEnd);
+      const bytes = Number(entry.transferSize) > 0
+        ? `${Math.round(entry.transferSize)} byte`
+        : 'nem mérhető/gyorsítótár';
+      line(
+        'böngészős erőforrás-időzítés',
+        `teljes-erőforrás=${total}; DNS=${dns}; kapcsolat=${connect}; TLS=${tls}; szerver-kérés→első-bájt (TTFB)=${requestToFirstByte}; válaszátvitel=${transfer}; átvitt-adat=${bytes}; csak a böngésző által látható fő erőforrás, nem a teljes HLS-szegmenslánc`
+      );
     }
   } catch {
     line('hálózati részidők nem érhetők el', 'Resource Timing nem támogatott');
