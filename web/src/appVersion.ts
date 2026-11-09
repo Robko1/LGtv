@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.409';
+export const WEB_VERSION = '2.5.410';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.409',
+    version: '2.5.410',
     date: '2026-11-09',
     changes: [
       'AZ UTOLSÓ KÉRÉS: CSAK KÉZI NAPLÓ, CSAK A NATÍV TAKARÓKÉP, GYORS IPK-INDULÁS — A felhasználó élő TV-mérése szerint a 2.5.405 / #49 „kétszer annyi idő” alatt indította az IPK-t, és „már van takaró kép, nem kell még egy”. Ezért a 2.5.406 NEM építi újra a programot, hanem CÉLZOTTAN visszaállítja a bevált gyors boot útvonalat: `TEST_STARTUP_DIAGNOSTICS = false` (az automatikus kézi hiba naplózás KIKAPCSOLVA, csak a SÁRGA gomb / kézi indítás gyűjt), a `diagnosticsBootstrap` nem indít naplót, csak passzív crash-handlereket telepít; a `web/index.html` második `#tv-curtain` rétege, a hozzá másolt `splash-screen.png` háttér és a 14 s vészfogó ELTÁVOLÍTVA (a webOS natív `splash-screen.png` változatlanul megmarad); `App.tsx` / `epgGuide.ts` `bootDataReady` / `restoreHuGuideForBoot` / `__IPTV_BOOT_DATA_READY__` boot-kapui kikerültek; `main.tsx` újra `VIDEO_WAIT_MS=0`, `LOGO_WAIT_MS=0`, 1,5 s gyors háló, 3,5 s tároló-háló, 9 s kemény korlát, az első React gyermeknél PONTOSAN EGYSZER `notifyAppLoaded` (webOSSystem + PalmSystem), és az `iptv-app-ready` ismét a felfedés UTÁN megy ki, hogy a háttérmunka ne versenyezzen az első kifestéssel. A hangzár (`__IPTV_AUDIO_GATE__` → `iptv-audio-open`), az `iptv-revealed` / `__IPTV_APP_READY__` kész-jelzők, a #50 TV-helyi kártyaóra, a #46 / 16 variáns, az EPG, a feliratok, a kézi SÁRGA / Dublin napló, a 8 tanulási doboz, az 1-es ALAP, a `Memória: 0`, a `notifyCount===1`, a `lastSyncText` és a teljes 2.5.406 #51/#52 élőadás-védelem VÁLTOZATLANUL megmaradtak.',
