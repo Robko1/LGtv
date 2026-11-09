@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.400';
+export const WEB_VERSION = '2.5.401';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,20 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.401',
+    date: '2026-11-08',
+    changes: [
+      'A #43 ÉS #44 NAPLÓKAT SORONKÉNT ÁTNÉZTÜK — A 23:44-es diagnosztikai napló 2276 sora (`1017 ms` képkocka-kihagyás, 29 kihagyás, `DIAGNOSZTIKA SZÜNETEL`) és a 805 kB-os TV Doktor napló 2148 sora (`tanult_csatornák=80/80`, 71 „Új tanult útvonal”, 69 „legjobb”, 151 SUPABASE-sor) alapján NEM a deployed v18 volt a fő ok: a #44 `TV DOKTOR ABLAK ... [HU] M2 UHD` sorai minden megnyitáskor `tanult_útvonalak=0/8; helyi=1; supabase=0; legjobb=még nincs`-et írtak, miközben ugyanazon napló `TV DOKTOR INDÍTÁS` sorai már 1/8, ~1269–1949 ms-es tanult útvonalat használtak.',
+      'A PANEL MOST A VALÓSÁGOT MUTATJA — A „Tanulás 3 db → 0 összevont útvonal” három oka: (1) a `MAX_RECENT_LOGS = 8` GLOBÁLISAN, kategóriánként csak 8 tanulási eseményt tartott meg, így a 80 végigjárt csatorna korai bejegyzései eltűntek; (2) a pillanatkép a már kész `DoctorRoute`-okat még egyszer a nyers RPC-normalizálónak adta; (3) a `ok > 0` szűrő a 0 sikerű, de valódi próbákat eldobta. Most a korlát CSATORNÁNKÉNT 8 (külön 1200-as biztonsági puffer-korláttal), a tanulási naplósorokból a `learnedRouteFromDoctorLog()` valódi 2–8 dobozokat képez, és a legjobb mért útvonal kerül a csillagos első sorba. A `TV DOKTOR ABLAK` és az `INDÍTÁS` napló és a nyolc doboz feliratai VÁLTOZATLANOK; csak az adat kerül a meglévő kockába.',
+      'LÁTSZIK, HOGYAN NYITOTTA MEG ÉS MIT TANULT — A tanulási bejegyzés most tételesen tartalmazza a `megnyitás=TS/HLS+puffer (mp)`, a mért indulási időt, az `eredmény=N ok/N hiba/N akadás` arányt és a `forrás=Supabase+helyi|helyi` értéket. A 2–8 dobozok minden megnyitást külön sorban, idővel, siker/hiba/akadás számmal jelenítenek meg; a „Még nincs tanult útvonal” helyőrző csak akkor látszik, ha tényleg nincs adat.',
+      'MIND A 80 CSATORNA A SUPABASE-BEN — A felhasználó által jelzett 67 (később 72) tanult felhős profil oka: 13 mentett magyar adó neve NEM `[HU] …`, hanem `HU - …` (`hu - travel channel`, `hu - pax tv`, `hu - filmbox stars hd`, …). A deployed Edge Function `layoutChannelKey()` már felismerte a prefixet és `hu:travel-channel` kulcsot adott, de a kliens `normalizeSavedLayoutChannelKey()` `hu-travel-channel`-t képzett, ezért a 80-as hatókör kizárta őket a `collectDoctorRoutePayload()`-ból. A prefix-szabály, a `canonicalDoctorKey()` / `savedScopeCanonicalKeys()` kanonikus hatókör és a `fetchTvDoctorRoutesForChannelFromCloud()` kanonikus illesztése mindkét írásalakot ugyanannak a csatornának tekinti. A `20261108235500_tv_doctor_hu_prefix_13_channel_profiles.sql` migráció a #44 naplóban TÉNYLEGESEN MÉRT adatokkal, `ON CONFLICT DO NOTHING`-gal pótolja a hiányzó sorokat: az élő adatbázisban a 80 mentett magyar csatornából **80/80 lefedett, 0 hiányzó**.',
+      'A „LEFAGY / FOLYAMATOS FRISSÍTÉS” JAVÍTÁSA — A `persistRecentDoctorLogs()` minden egyes eseménynél szinkron `JSON.stringify(recentDoctorLogs)` + `localStorage.setItem` írást végzett, miközben a 2276 soros kézi napló is futott. Most 350 ms-es, üresjáratban futó debounce, `flushRecentDoctorLogs()` és `pagehide`/életciklus-flush gondoskodik róla, hogy a kézi SÁRGA napló TELJES maradjon, de a fő szálat ne fogja. A pillanatkép a teljes napló `slice().reverse()` másolata helyett egyetlen, csatornánként korlátozott visszafelé bejárást végez. A „nem úgy indítsa” sorokat a `TV DOKTOR INDÍTÁS` napló továbbra is tételesen rögzíti (felhasznált tanult útvonal, várható ms, forrás, visszaesés, ok).',
+      'A KORÁBBAN NYITOTT DEPLOY LEZÁRVA — Az élő `tv-doctor` Edge Function már **v19 / ACTIVE** (2026-11-08 23:31, `c62244fa-baba-4934-b05f-4dd4ceab5531`), a repo v19 forrása tehát fut; a 2.5.400 changelog „v18 / deploy hiányzik” tétele elavult. A 2.5.401 SQL-migráció szintén alkalmazva van az élő adatbázison. Az új IPK telepítése utáni, a #43/#44-hez hasonló ÉLŐ naplós validáció továbbra is a TV-n végzendő.',
+      'TESZTEK — Új, a javítás ELŐTT bukó `tools/test-tv-doctor-learning-401.mjs`: 49 ellenőrzés valódi esbuild + Storage futásidővel (80 csatorna tanulási előzménye nem tűnik el, `HU - …` prefix → `hu:` kulcs, `Tanulás 3 db` mellé 7 valódi doboz, felhő 2 útvonala nem szűrődik ki, nincs kétszeres normalizálás, a feliratok és a pontosan 8 doboz változatlan). Regisztrálva a `tools/run-tests.mjs`-ben.',
+    ],
+  },
+
   {
     version: '2.5.400',
     date: '2026-11-08',

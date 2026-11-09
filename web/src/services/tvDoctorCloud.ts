@@ -912,14 +912,24 @@ export async function fetchTvDoctorRoutesForChannelFromCloud(
   });
   if (!Array.isArray(rows)) return [];
   const baseKey = normalizeChannelDoctorKey({ ...channel, countryCode: '' });
-  const keys = new Set([
+  const rawKeys = [
     normalizeChannelDoctorKey({ ...channel, countryCode: 'HU' }),
     normalizeChannelDoctorKey(channel),
     baseKey,
     `hu:${baseKey}`,
     ...(knownChannelKey ? [knownChannelKey] : []),
-  ]);
-  const match = rows.find((row: any) => row && typeof row.channel_key === 'string' && keys.has(row.channel_key));
+  ];
+  /* 2.5.401 (#43/#44): a v18 Edge Function a `HU - …` nevű 13 adót
+     `hu-travel-channel` alakban tárolta, a TV viszont `hu:travel-channel`-t
+     tanult. A kanonikus alak mindkettőt ugyanannak a csatornának tekinti,
+     így a felhőből OLVASOTT rekord NEM szűrődik ki és a 80/80 teljes lesz. */
+  const canon = (key: string): string => {
+    const k = String(key || '').trim().toLowerCase().replace(/[^a-z0-9:_-]+/g, '-');
+    return k.startsWith('hu-') ? `hu:${k.slice(3)}` : k;
+  };
+  const keys = new Set(rawKeys.map((key) => canon(key)));
+  const match = rows.find((row: any) => row && typeof row.channel_key === 'string'
+    && (keys.has(String(row.channel_key)) || keys.has(canon(String(row.channel_key)))));
   if (!match) return [];
   /* 2.5.397: a TELJES RPC-sort adjuk át, nem csak a beágyazott `routes`
      tömböt. Ha egy régi sorból hiányzik a `format` / `bufferProfile`, a
