@@ -63,6 +63,7 @@ import { ParsedVodMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './vodM
 import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled, sleep } from './net';
+import { setActiveProviderScope } from './providerScope';
 
 /**
  * Részletes filmadatok összeolvasztása az importált alaprekorddal.
@@ -838,6 +839,7 @@ export async function importXtreamProvider(
     username: user,
     password: pass,
   };
+  setActiveProviderScope(provider.id);
 
   /* ---- 1. szakasz: élő csatornák ---------------------------------- */
 
@@ -2613,6 +2615,7 @@ export async function refreshProviderContent(
   onPartial: PartialFn = () => {},
   options: RefreshOptions = {}
 ): Promise<RefreshOutcome> {
+  setActiveProviderScope(provider.id);
   if (provider.type === 'xtream') {
     if (!provider.serverUrl || !provider.username || !provider.password) {
       throw new Error('A szolgáltatóhoz nincs eltárolva szerver, felhasználó vagy jelszó.');
