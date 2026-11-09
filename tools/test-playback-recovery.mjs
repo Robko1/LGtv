@@ -265,8 +265,10 @@ const APPLOG = fs.readFileSync(path.resolve('web/src/services/appLog.ts'), 'utf8
 const SPEED = fs.readFileSync(path.resolve('web/src/services/speedDiagnostics.ts'), 'utf8');
 const APP = fs.readFileSync(path.resolve('web/src/App.tsx'), 'utf8');
 const CHANNEL_LIST = fs.readFileSync(path.resolve('web/src/components/ChannelList.tsx'), 'utf8');
-check(/new StallDetector\(isVod \? 7000 : bufferTiming\(\)\.stallDetectorMs\)/.test(PLAYER),
-  'a lejátszó egységes, profilfüggő képkocka-alapú figyelőt használ élőre és VOD-ra');
+check(/if \(!isVod \|\| !isPlaying\) return;/.test(PLAYER)
+  && /new StallDetector\(7000\)/.test(PLAYER)
+  && !/new StallDetector\(isVod \? 7000 : bufferTiming\(\)\.stallDetectorMs\)/.test(PLAYER),
+  'az idővonal-/képkocka-watchdog kizárólag VOD-nál indul; élő TV-n teljesen ki van kapcsolva');
 check(/puffer-előre=/.test(PLAYER)
   && /bufferedAheadSeconds/.test(PLAYER)
   && /PUFFERELÉSI ŐR: HELYI FOLYTATÁSI PRÓBA/.test(PLAYER)
