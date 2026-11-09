@@ -42,7 +42,7 @@ test('kézi életciklus, korrelált médiaidővonal és késői callback védelm
   fire('loadstart'); fire('progress'); fire('loadedmetadata'); fire('loadeddata'); fire('canplay');
   clock += 20; fire('playing');
   assert.match(state.lines.join('\n'), /böngésző stream-kérés elindult.*src→esemény=0\.0 ms/);
-  assert.match(state.lines.join('\\n'), /első hálózati adatátvitel jelzése megérkezett.*src→esemény=0\\.0 ms/);
+  assert.match(state.lines.join('\n'), /első hálózati adatátvitel jelzése megérkezett.*src→esemény=0\.0 ms/);
   assert.match(state.lines.join('\n'), /első stream-metaadat megérkezett.*src→esemény=0\.0 ms/);
   assert.match(state.lines.join('\n'), /első lejátszható médiaadat megérkezett/);
   assert.match(state.lines.join('\n'), /a puffer először lejátszható/);
