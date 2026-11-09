@@ -346,8 +346,8 @@ check(/Pufferelési probléma/.test(player) && /Újracsatlakozás/.test(player),
   'a megszokott magyar feliratok változatlanok');
 check(/isPrematureVodEnd\(position, duration\)/.test(player),
   'a VOD korai `ended` kezelése változatlan (a veto csak élő adásra vonatkozik)');
-check(/isVodRef\.current \|\| !tvDoctorEnabledRef\.current\) return false;/.test(player),
-  'kikapcsolt TV Doktornál és VOD-nál az új védelem NEM lép közbe');
+check(/if \(isVodRef\.current\) return false;/.test(player),
+  'VOD-nál az új élő-adás védelem nem lép közbe; a hamis élő ended szűrése TV Doktor nélkül is működik');
 const currentWebVersion = read('web/src/appVersion.ts').match(/WEB_VERSION\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'/)?.[1];
 const currentManifestVersion = JSON.parse(read('webos/appinfo.json')).version;
 check(Boolean(currentWebVersion)
