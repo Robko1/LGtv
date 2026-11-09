@@ -1824,7 +1824,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, []);
 
   const showDoctorStatus = useCallback((next: TvDoctorActiveStatus | null) => {
-    if (!tvDoctorEnabledRef.current || !next) {
+    // Élő TV-n nincs automatikus felügyeleti felirat/overlay.
+    if (!isVodRef.current || !tvDoctorEnabledRef.current || !next) {
       clearDoctorStatusTimer();
       clearDoctorStatusMaxTimer();
       setDoctorStatus(null);
@@ -1897,7 +1898,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [clearDoctorBufferingStatusTimer, clearDoctorStatusTimer]);
 
   const scheduleDoctorBufferingStatus = useCallback(() => {
-    if (!tvDoctorEnabledRef.current) return;
+    // Automatikus pufferelési állapotjelzés csak VOD-hoz marad.
+    if (!isVodRef.current || !tvDoctorEnabledRef.current) return;
     if (doctorBufferingStatusTimerRef.current !== null) return;
     const video = htmlVideoRef.current;
     // A `waiting` esemény csak futó lejátszásnál értelmezhető; a néző
@@ -2288,7 +2290,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     errorDetail?: string | null,
     stallMs?: number,
   ): void => {
-    if (!tvDoctorEnabledRef.current) return;
+    // Élő csatornán a TV Doktor nem futtat hibafelügyeletet vagy javítási tervet.
+    if (!isVodRef.current || !tvDoctorEnabledRef.current) return;
     try {
       const docState = doctorSessionRef.current;
       const gate = doctorIncidentRef.current;
@@ -2903,6 +2906,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
   const scheduleAutoRetry = useCallback(() => {
     if (autoRetryTimerRef.current !== null) return;
+    // Élő csatornán nincs automatikus formátumváltás vagy újratöltés.
+    if (!isVodRef.current) {
+      setIsLoading(false);
+      setIsRecovering(false);
+      showDoctorStatus(null);
+      appLog('ÉLŐ AUTOMATIKUS ÚJRAPRÓBA KIKAPCSOLVA; csak kézi csatornaváltás indíthat új streamet.');
+      return;
+    }
     // Élő TV-n először a kézzel kiválasztott formátum fut; ha az nem indul,
     // egyszer automatikusan kipróbáljuk a másik TS/HLS változatot.
     if (!isVodRef.current) {
@@ -3115,6 +3126,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
   const armBufferWatchdog = useCallback(() => {
+    // Élő TV-n nincs automatikus pufferfigyelés; ez az őr csak VOD-hoz marad.
+    if (!isVodRef.current) return;
     // Többször érkező waiting/stalled esemény ne tolja ki folyton a határidőt.
     if (bufferWatchdogRef.current !== null) return;
     const video = htmlVideoRef.current;
@@ -3226,7 +3239,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * puffer együtt dönt, és a VOD-ra is ugyanez a (türelmesebb) őr vigyáz.
    */
   useEffect(() => {
-    if (!isPlaying) return;
+    // Az élő csatornák folyamatos fagyásfigyelője kikapcsolva; VOD változatlan.
+    if (!isPlaying || !isVod) return;
     const video = htmlVideoRef.current;
     if (!video) return;
     // Élő TV-n is a ténylegesen beállított fagyásérzékelési idő érvényesül;
@@ -5836,6 +5850,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       vodRecoveryRef.current(reason);
       return;
     }
+    // Élő TV-n watchdog/hibaesemény nem indíthat automatikus újracsatlakozást.
+    setIsLoading(false);
+    setIsRecovering(false);
+    clearDoctorBufferingStatus();
+    showDoctorStatus(null);
+    appLog(`ÉLŐ AUTOMATIKUS ÚJRACSATLAKOZÁS KIHAGYVA; ok=${reason}; a futó forrás érintetlen marad.`);
+    return;
     if (!playbackActiveRef.current || recoveryTimerRef.current !== null) return;
     if (tvDoctorEnabledRef.current && doctorSessionRef.current.channelHaltedDead) {
       return;
@@ -7097,10 +7118,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   clearBufferWatchdog();
                   clearDoctorBufferingStatus();
                   appLog(`WAITING JELZÉS KIHAGYVA; csatorna=${channelRef.current?.name || 'élő adás'}; puffer-előre=${ahead.toFixed(2)} s; readyState=${video.readyState}; ok=elegendő puffer.`);
-                } else {
+                } else if (isVod) {
                   setIsLoading(true);
                   scheduleDoctorBufferingStatus();
                   armBufferWatchdog();
+                } else {
+                  setIsLoading(false);
+                  setIsRecovering(false);
+                  showDoctorStatus(null);
                 }
               }
               if (!isVod && isVerbosePlaybackLogging()) {
