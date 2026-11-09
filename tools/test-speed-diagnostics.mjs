@@ -163,6 +163,6 @@ test('a célzott sebességmérés bekerül a kézi naplóba külön mérési kap
   assert.match(output, /forrásbetöltés/);
   assert.match(output, /média playing/);
   assert.match(output, /hálózati részidők nem érhetők el/);
-  assert.doesNotMatch(output, /stream|redacted/);
+  assert.doesNotMatch(output, /https?:\/\/|redacted/);
   state.hooks.onStop(); Object.defineProperty(globalThis, 'performance', { configurable: true, value: oldPerformance }); dom.window.close();
 });
