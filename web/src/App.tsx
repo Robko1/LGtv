@@ -1526,7 +1526,7 @@ export function App() {
    * után pótoljuk (lásd a befejező ágban).
    */
   const bootBackgroundStartedRef = useRef(false);
-  const backgroundWorkTimersRef = useRef<{ guideTimer: number; safetyTimer: number; refreshTimer: number; restoreTimer: number } | undefined>(undefined);
+  const backgroundWorkTimersRef = useRef<{ guideTimer: number; safetyTimer: number; refreshTimer: number; restoreTimer: number; cleanup?: () => void } | undefined>(undefined);
   // FAST BOOT (2026-11-04): a teljes élő lista csak Ország menüre töltődik
   const pendingFullLivePlanRef = useRef<StoredCatalogPlan | null>(null);
   const fullLiveRestoreStartedRef = useRef(false);
@@ -1925,7 +1925,50 @@ export function App() {
     fullLiveRestoreCompletedRef.current = false;
     appLog('FAST BOOT: induláskor csak magyar + kedvenc csatornák – teljes lista az Ország menüre töltődik (letöltés nélkül).');
     markLiveReady();
-    const fastTimers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0, restoreTimer: 0 } as { guideTimer: number; safetyTimer: number; refreshTimer: number; restoreTimer: number };
+    const fastTimers = { guideTimer: 0, safetyTimer: 0, refreshTimer: 0, restoreTimer: 0 } as { guideTimer: number; safetyTimer: number; refreshTimer: number; restoreTimer: number; cleanup?: () => void };
+    const GUIDE_IDLE_MS = 30_000;
+    let liveSwitchInProgress = false;
+    let lastLiveActivityAt = Date.now();
+    const scheduleGuideAfterIdle = (delayMs: number) => {
+      if (fastTimers.guideTimer) window.clearTimeout(fastTimers.guideTimer);
+      fastTimers.guideTimer = window.setTimeout(() => {
+        fastTimers.guideTimer = 0;
+        const idleFor = Date.now() - lastLiveActivityAt;
+        if (liveSwitchInProgress || idleFor < GUIDE_IDLE_MS) {
+          scheduleGuideAfterIdle(GUIDE_IDLE_MS);
+          return;
+        }
+        if (activeViewRef.current !== 'live' || providerRefreshActiveRef.current
+            || (typeof document !== 'undefined' && document.hidden)) {
+          scheduleGuideAfterIdle(GUIDE_IDLE_MS);
+          return;
+        }
+        appLog(`FAST BOOT EPG: ${huBootChannels.length} magyar csatorna – EPG indul, mert legalább 30 másodperce nincs élő csatornaváltás.`);
+        setGuideHuProbe(huBootChannels);
+        void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
+      }, Math.max(0, delayMs));
+    };
+    const onLiveSwitchStart = () => {
+      liveSwitchInProgress = true;
+      lastLiveActivityAt = Date.now();
+      if (fastTimers.guideTimer) window.clearTimeout(fastTimers.guideTimer);
+      fastTimers.guideTimer = window.setTimeout(() => {
+        fastTimers.guideTimer = 0;
+        liveSwitchInProgress = false;
+        scheduleGuideAfterIdle(GUIDE_IDLE_MS);
+      }, 60_000);
+    };
+    const onLivePlaying = () => {
+      liveSwitchInProgress = false;
+      lastLiveActivityAt = Date.now();
+      scheduleGuideAfterIdle(GUIDE_IDLE_MS);
+    };
+    window.addEventListener('iptv-live-switch-start', onLiveSwitchStart);
+    window.addEventListener('iptv-live-playing', onLivePlaying);
+    fastTimers.cleanup = () => {
+      window.removeEventListener('iptv-live-switch-start', onLiveSwitchStart);
+      window.removeEventListener('iptv-live-playing', onLivePlaying);
+    };
     fastTimers.safetyTimer = window.setTimeout(() => {
       if (!liveReadyRef.current) markLiveReady();
     }, 12_000);
@@ -1935,16 +1978,9 @@ export function App() {
     const huBootChannels = (plan.bootChannels || [])
       .filter((ch) => (ch.countryCode || '').toUpperCase() === 'HU');
     if (huBootChannels.length > 0) {
-      // A 6-os naplóban az EPG 1,94 MB-os letöltése és 14 MB körüli
-      // feldolgozása közvetlenül a csatorna indulása után több képkockát
-      // megakasztott. Előbb a lejátszó kapjon nyugodt indulási időt.
-      fastTimers.guideTimer = window.setTimeout(() => {
-        if (providerRefreshActiveRef.current) return;
-        if (typeof document !== 'undefined' && document.hidden) return;
-        appLog(`FAST BOOT EPG: ${huBootChannels.length} magyar csatorna a főoldalra – késleltetett EPG indul (HU forrásokból).`);
-        setGuideHuProbe(huBootChannels);
-        void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
-      }, 9000);
+      // A 63-as naplóban a több MB-os HU EPG-letöltés a csatornaváltásokkal
+      // párhuzamosan futott. Legalább 30 mp csatornaváltás-mentes idő kell.
+      scheduleGuideAfterIdle(9000);
     }
     // Periodikus EPG csak akkor, ha a teljes lista már betöltődött
     fastTimers.refreshTimer = window.setInterval(() => {
@@ -1952,6 +1988,10 @@ export function App() {
       if (providerRefreshActiveRef.current) return;
       if (!fullLiveRestoreStartedRef.current) return;
       if (typeof document !== 'undefined' && document.hidden) return;
+      if (liveSwitchInProgress || Date.now() - lastLiveActivityAt < GUIDE_IDLE_MS) {
+        scheduleGuideAfterIdle(GUIDE_IDLE_MS);
+        return;
+      }
       setGuideHuProbe(channelsRef.current);
       void ensureGuide(plan.provider).catch(() => { /* a naplóban ott a valódi ok */ });
     }, 30 * 60 * 1000);
@@ -2267,6 +2307,7 @@ export function App() {
       window.clearTimeout(sweepTimer);
       const timers = backgroundWorkTimersRef.current || backgroundWork;
       if (timers) {
+        timers.cleanup?.();
         window.clearTimeout(timers.guideTimer);
         window.clearTimeout(timers.safetyTimer);
         window.clearTimeout(timers.restoreTimer);
