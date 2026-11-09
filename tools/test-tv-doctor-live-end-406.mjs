@@ -244,6 +244,8 @@ tel.stopTvDoctorLogging();
 console.log('\n=== 4. Élő TV: semmilyen watchdog nem indíthat újratöltést ===\n');
 
 const player = read('web/src/components/VideoPlayer.tsx');
+const recovery = read('web/src/services/playbackRecovery.ts');
+const doctor = read('web/src/services/tvDoctor.ts');
 const watchdogStart = player.indexOf('const armBufferWatchdog');
 const watchdogSlice = watchdogStart >= 0 ? player.slice(watchdogStart, watchdogStart + 900) : '';
 
