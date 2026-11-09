@@ -125,6 +125,7 @@ interface MenuSettingsModalProps {
   onEditProvider: (provider: ProviderAccount) => void;
   onDeleteProvider: (id: string) => void;
   onRefreshProvider: (id: string) => void;
+  onActivateProvider: (provider: ProviderAccount) => void;
   onOpenImportDiagnostic: (provider: ProviderAccount) => void;
   folders: FavoriteFolder[];
   onOpenAddFolder: () => void;
@@ -154,6 +155,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   onEditProvider,
   onDeleteProvider,
   onRefreshProvider,
+  onActivateProvider,
   onOpenImportDiagnostic,
   onOpenQrProvision,
   folders,
@@ -1296,6 +1298,16 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
 
                       {/* Action buttons */}
                       <div className="mt-3 pt-2.5 border-t border-cyan-900/40 flex items-center gap-2">
+                        {!p.isActive && (
+                          <button
+                            onClick={() => onActivateProvider(p)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 border border-cyan-300 text-xs font-black active:scale-95 transition-all"
+                            title="Szolgáltató aktiválása"
+                          >
+                            <Tv className="w-3.5 h-3.5" />
+                            <span>Aktiválás</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => onRefreshProvider(p.id)}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#112347] hover:bg-[#172e5c] text-cyan-300 border border-cyan-600/30 text-xs font-bold active:scale-95 transition-all"
