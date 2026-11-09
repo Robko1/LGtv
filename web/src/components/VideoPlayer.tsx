@@ -3153,13 +3153,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           return;
         }
         const currentSample = readMediaProgress(video, Date.now());
-        // A haladó idővonal vagy egy új dekódolt képkocka önmagában elég
-        // bizonyíték: webOS-en a readyState közben röviden HAVE_CURRENT_DATA
-        // (2) értékre is visszaeshet. A már futó adásnál a puszta puffer-
-        // növekedést szándékosan nem fogadjuk el haladásnak.
-        const advanced = mediaProgressed(startSample, currentSample);
-        if (advanced) return;
         const ahead = bufferedAheadSeconds(video);
+        const advanced = mediaProgressed(startSample, currentSample);
+        if (advanced) {
+          setIsLoading(false);
+          doctorSessionRef.current.waitingOrStalledFlag = false;
+          clearDoctorBufferingStatus();
+          clearBufferWatchdog();
+          return;
+        }
+        // #60: 34,1 mp puffer + readyState=4 mellett is újratöltött a régi őr.
+        // Elegendő lejátszható adat mellett a waiting/stalled önmagában nem
+        // indokol src-resetet; csak pufferhiány vagy médiahiba enged recoveryt.
+        const hasHealthyBuffer = !video.error && video.readyState >= 3
+          && ahead !== null && ahead >= timing.minBufferAheadSeconds;
+        if (hasHealthyBuffer) {
+          appLog(`PUFFERELÉSI WATCHDOG: ÚJRATÖLTÉS KIHAGYVA; csatorna=${mediaLabel}; ` +
+            `puffer-előre=${ahead.toFixed(2)} s; minimum=${timing.minBufferAheadSeconds.toFixed(1)} s; ` +
+            `readyState=${video.readyState}; ok=elegendő lejátszható adat.`);
+          setIsLoading(false);
+          doctorSessionRef.current.waitingOrStalledFlag = false;
+          clearDoctorBufferingStatus();
+          scheduleCheck(Math.max(2500, timing.stallDetectorMs));
+          return;
+        }
         const mediaLabel = isVodRef.current
           ? (customTitleRef.current || 'VOD')
           : (channelSwitchDiagnosticRef.current?.channelName || channelRef.current?.name || 'élő adás');
@@ -3271,6 +3288,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (!detector.observe(sample, now)) return;
       detector.reset();
       if (!hasAnySignal) return;
+      const ahead = bufferedAheadSeconds(video);
+      if (!video.error && video.readyState >= 3 && ahead !== null
+          && ahead >= bufferTiming().minBufferAheadSeconds) {
+        appLog(`LEJÁTSZÁS-FIGYELŐ: ÚJRATÖLTÉS KIHAGYVA; csatorna=${isVod ? (customTitle || 'VOD') : (channelRef.current?.name || 'élő adás')}; ` +
+          `puffer-előre=${ahead.toFixed(2)} s; minimum=${bufferTiming().minBufferAheadSeconds.toFixed(1)} s; readyState=${video.readyState}; ok=elegendő puffer.`);
+        setIsLoading(false);
+        clearDoctorBufferingStatus();
+        return;
+      }
       if (tvDoctorEnabledRef.current) {
         doctorSessionRef.current.consecutiveStallTicks += 1;
         const freezeDecision = evaluateSmartFreeze({
@@ -7067,16 +7093,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 tvDoctorLog(`TV DOKTOR WAITING: csatorna=${isVod ? (customTitle || 'VOD') : (channelRef.current?.name || 'élő adás')}; formátum=${formatOfUrl(activeMediaUrlRef.current)?.toUpperCase() || 'ismeretlen'}; pufferprofil=${doctorSessionRef.current.activeBufferProfile}; readyState=${v.readyState}; networkState=${v.networkState}; puffer-előre=${(() => { const ahead = bufferedAheadSeconds(v); return ahead === null ? 'n/a' : ahead.toFixed(2); })()}s; lejátszás_elindult=${playbackStartedRef.current}`);
               }
               if (playbackStartedRef.current) {
-                setIsLoading(true);
-                /*
-                 * 2.5.381: NEM jelenítünk meg azonnal feliratot. A webOS élő
-                 * adásnál minden szegmenshatáron küld `waiting` eseményt,
-                 * ami magától megoldódik; a korábbi azonnali felirat ezért
-                 * villogott folyamatosan. A felirat csak igazolt, tartós
-                 * megakadásnál jelenik meg (lásd scheduleDoctorBufferingStatus).
-                 */
-                scheduleDoctorBufferingStatus();
-                armBufferWatchdog();
+                const video = event.currentTarget;
+                const ahead = bufferedAheadSeconds(video);
+                const healthy = !video.error && video.readyState >= 3 && ahead !== null
+                  && ahead >= bufferTiming().minBufferAheadSeconds;
+                if (healthy) {
+                  setIsLoading(false);
+                  doctorSessionRef.current.waitingOrStalledFlag = false;
+                  clearBufferWatchdog();
+                  clearDoctorBufferingStatus();
+                  appLog(`WAITING JELZÉS KIHAGYVA; csatorna=${channelRef.current?.name || 'élő adás'}; puffer-előre=${ahead.toFixed(2)} s; readyState=${video.readyState}; ok=elegendő puffer.`);
+                } else {
+                  setIsLoading(true);
+                  scheduleDoctorBufferingStatus();
+                  armBufferWatchdog();
+                }
               }
               if (!isVod && isVerbosePlaybackLogging()) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
@@ -7095,14 +7126,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 tvDoctorLog(`TV DOKTOR STALLED: csatorna=${isVod ? (customTitle || 'VOD') : (channelRef.current?.name || 'élő adás')}; formátum=${formatOfUrl(activeMediaUrlRef.current)?.toUpperCase() || 'ismeretlen'}; pufferprofil=${doctorSessionRef.current.activeBufferProfile}; readyState=${v.readyState}; networkState=${v.networkState}; puffer-előre=${(() => { const ahead = bufferedAheadSeconds(v); return ahead === null ? 'n/a' : ahead.toFixed(2); })()}s; lejátszás_elindult=${playbackStartedRef.current}`);
               }
               if (playbackStartedRef.current) {
-                // A STALLED csak azt jelzi, hogy a böngésző letöltése megakadt;
-                // önmagában nem bizonyítja, hogy a lejátszás is megállt.
-                // A sárga TV Doktor-riasztást a tényleges WAITING esemény,
-                // illetve a watchdog által igazolt lejátszási megállás mutatja.
-                // Az alap lejátszó loading- és watchdog-viselkedését változatlanul hagyjuk.
-                setIsLoading(true);
-                scheduleDoctorBufferingStatus();
-                armBufferWatchdog();
+                const video = event.currentTarget;
+                const ahead = bufferedAheadSeconds(video);
+                const healthy = !video.error && video.readyState >= 3 && ahead !== null
+                  && ahead >= bufferTiming().minBufferAheadSeconds;
+                if (healthy) {
+                  setIsLoading(false);
+                  doctorSessionRef.current.waitingOrStalledFlag = false;
+                  clearBufferWatchdog();
+                  clearDoctorBufferingStatus();
+                  appLog(`STALLED JELZÉS KIHAGYVA; csatorna=${channelRef.current?.name || 'élő adás'}; puffer-előre=${ahead.toFixed(2)} s; readyState=${video.readyState}; ok=elegendő puffer.`);
+                } else {
+                  setIsLoading(true);
+                  scheduleDoctorBufferingStatus();
+                  armBufferWatchdog();
+                }
               }
               if (!isVod && isVerbosePlaybackLogging()) {
                 const diagnostic = channelSwitchDiagnosticRef.current;
