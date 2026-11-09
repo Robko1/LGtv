@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.405';
+export const WEB_VERSION = '2.5.406';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -7,7 +7,7 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
   {
-    version: '2.5.405',
+    version: '2.5.406',
     date: '2026-11-09',
     changes: [
       'A #49 RENDSZERNAPLÓ SORONKÉNTI BIZONYÍTÉKA — A 2.5.404 / 505 soros diagnosztikai naplóban a `TAKARÓKÉP ÖSSZEGZÉS [+805 ms]` még `videó-kész=nem; teljes lista=igen; iptv-app-ready következik` állapotban engedte el a natív splash-t (`INDULÁS [1159 ms] … webOS notifyAppLoaded: #root gyermekek=1; híd=nincs`). A `HTML JELZÉS +1502 ms REVEAL` után az első videó-képkocka csak `+7833 ms`-nél jött meg (`kész=4`), a `FAST BOOT EPG` `00:05:29.946`-kor, a 70/80-as `EPG-ÁLLAPOT` `00:05:44.715`-kor, a `TÁROLÓ-JELENTÉS (a felfedés után)` `00:05:24.718`-kor futott; az első 8 s-ben 29 képkocka-kihagyás / max 1017 ms. Ezért látszott a takarókép után fokozatosan összeállni a főoldal. A hiba NEM a 9 s-es korlát volt, hanem a `VIDEO_WAIT_MS=0`, a `prepaintSettled()=>true`, az 1,5 s-es gyors háló, a korai `notifyAppLoaded` és az `iptv-app-ready` felfedés UTÁNI kiküldése.',
