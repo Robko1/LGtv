@@ -3095,11 +3095,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * automatikus forráscserét. Ez az ellenőrző kizárólag VOD-ot figyel.
    */
   useEffect(() => {
-    if (!isPlaying) return;
+    // A normál lejátszó képkocka-/idővonal-watchdogja élő TV-n egyáltalán nem indulhat el.
+    // Az élő streamet csak valódi HTMLMediaElement error kezelheti; időzített
+    // stall-észlelés nem állíthatja le és nem töltheti újra a működő csatornát.
+    if (!isVod || !isPlaying) return;
     const video = htmlVideoRef.current;
     if (!video) return;
-    // A VOD képkocka-/idővonal-figyelője a ténylegesen beállított türelmi időt használja.
-    const detector = new StallDetector(isVod ? 7000 : bufferTiming().stallDetectorMs);
+    // Ez az ellenőrző kizárólag VOD-ot figyel.
+    const detector = new StallDetector(7000);
     stallDetectorRef.current = detector;
     let previousSample: MediaProgressSample | null = null;
     const generation = streamLoadGenerationRef.current;
