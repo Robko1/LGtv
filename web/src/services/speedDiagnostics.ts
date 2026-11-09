@@ -184,7 +184,7 @@ function reportResourceTiming(): void {
             const url = new URL(item.name);
             return url.origin === base.origin &&
               url.pathname.startsWith(directory) &&
-              /\\.(m3u8|ts|m4s|mp4|aac|mp3|key)$/i.test(url.pathname);
+              /\.(m3u8|ts|m4s|mp4|aac|mp3|key)$/i.test(url.pathname);
           } catch { return false; }
         })
         .sort((a, b) => a.startTime - b.startTime);
