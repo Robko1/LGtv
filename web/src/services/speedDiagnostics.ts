@@ -7,7 +7,7 @@ type Trace = {
   playing: boolean; frame: 'untried' | 'pending' | 'reported' | 'unavailable';
   waiting: number | null; firstWaiting: number | null; summaryReported: boolean; mediaReady: boolean; expectedUrl: string;
   position: number | null; positionAt: number; targetId: string; uiFramesScheduled: boolean;
-  loadAt: number; resourceReported: boolean; milestones: Set<string>;
+  loadAt: number; resourceReported: boolean; resourceKeys: Set<string>; milestones: Set<string>;
 };
 type FrameVideo = HTMLVideoElement & {
   requestVideoFrameCallback?: (callback: (now: number, meta: { mediaTime?: number; presentedFrames?: number }) => void) => number;
@@ -47,7 +47,7 @@ export function speedSelect(mode: 'élő' | 'VOD', title: string, useKey = true,
   cancelFrameRequest();
   const key = useKey && lastKey && /^(OK|csatorna\+|csatorna−)$/.test(lastKey.name) && t - lastKey.at < 500 ? lastKey : null;
   lastKey = null;
-  trace = { id: ++serial, mode, start: key ? key.at : t, last: key ? key.at : t, load: 0, playing: false, frame: 'untried', waiting: null, firstWaiting: null, summaryReported: false, mediaReady: false, expectedUrl: '', position: null, positionAt: 0, targetId, uiFramesScheduled: false, loadAt: 0, resourceReported: false, milestones: new Set() };
+  trace = { id: ++serial, mode, start: key ? key.at : t, last: key ? key.at : t, load: 0, playing: false, frame: 'untried', waiting: null, firstWaiting: null, summaryReported: false, mediaReady: false, expectedUrl: '', position: null, positionAt: 0, targetId, uiFramesScheduled: false, loadAt: 0, resourceReported: false, resourceKeys: new Set(), milestones: new Set() };
   line('kiválasztás kezelése', `cím=${title.slice(0, 80)}; bemenet=${key ? key.name : 'ismeretlen/kattintás'}; kezdet=${key ? 'keydown-kezelés' : 'kiválasztás'}`);
 }
 
@@ -61,6 +61,7 @@ export function speedLoad(mode: 'élő' | 'VOD', detail: string, url = ''): void
   trace.load += 1;
   trace.loadAt = now();
   trace.resourceReported = false;
+  trace.resourceKeys.clear();
   trace.milestones.clear();
   trace.mediaReady = true;
   try { trace.expectedUrl = url ? new URL(url, window.location.href).href : ''; } catch { trace.expectedUrl = url; }
@@ -169,6 +170,46 @@ function reportResourceTiming(): void {
         `első válaszig=${firstResponse} ms; válaszátvitel=${transfer}; teljes-erőforrás=${total}; DNS=${dns}; kapcsolat=${connect}; TLS=${tls}; szerver-kérés→első-bájt (TTFB)=${requestToFirstByte}; átvitt-adat=${bytes}; nem bizonyít teljes HLS/szegmens-időt, csak a böngésző által látható fő erőforrást méri`
       );
     }
+
+    // HLS-nél a playlisten kívül a TS/fMP4 szegmensek is külön kérések.
+    // Csak a már megtörtént Resource Timing bejegyzéseket olvassuk; új
+    // hálózati kérést nem indítunk, URL-t/hozzáférési adatot nem naplózunk.
+    if (trace.expectedUrl && typeof performance.getEntriesByType === 'function') {
+      const base = new URL(trace.expectedUrl, window.location.href);
+      const directory = base.pathname.slice(0, base.pathname.lastIndexOf('/') + 1);
+      const related = (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
+        .filter((item) => {
+          if (item.startTime < trace!.loadAt - 100) return false;
+          try {
+            const url = new URL(item.name);
+            return url.origin === base.origin &&
+              url.pathname.startsWith(directory) &&
+              /\\.(m3u8|ts|m4s|mp4|aac|mp3|key)$/i.test(url.pathname);
+          } catch { return false; }
+        })
+        .sort((a, b) => a.startTime - b.startTime);
+      const fresh = related.filter((item) => {
+        const key = item.name + '|' + item.startTime;
+        if (trace!.resourceKeys.has(key)) return false;
+        trace!.resourceKeys.add(key);
+        return true;
+      });
+      if (fresh.length) {
+        const durations = fresh.map((item) => item.duration).filter(Number.isFinite);
+        const slowest = durations.length ? Math.max(...durations) : 0;
+        const bytes = fresh.reduce((sum, item) => sum + (item.transferSize || item.encodedBodySize || 0), 0);
+        const types = [...new Set(fresh.map((item) => item.initiatorType || 'ismeretlen'))].join(',');
+        const samples = fresh.slice(-8).map((item) => {
+          const offset = ms(item.startTime - trace!.loadAt);
+          const response = item.responseStart > 0 ? ms(item.responseStart - item.startTime) : 'n/a';
+          return `+${offset}ms/${ms(item.duration)}ms/válasz=${response}ms`;
+        }).join(' | ');
+        line(
+          'STREAM KÉRÉSEK ÖSSZESÍTÉSE',
+          `próba=${trace.load}; új-kérések=${fresh.length}; típus=${types}; leglassabb=${ms(slowest)}ms; látható-adat=${bytes > 0 ? Math.round(bytes) + ' byte' : 'a TV/böngésző nem adja ki'}; minták=[${samples}]; a böngésző által látható playlist/szegmens-kérések, nem teljes szerveroldali mérés`
+        );
+      }
+    }
   } catch {
     line('hálózati részidők nem érhetők el', 'Resource Timing nem támogatott');
   }
@@ -259,7 +300,7 @@ export function attachSpeedDiagnostics(): void {
       const video = document.querySelector<HTMLVideoElement>('video[data-iptv-player="true"]');
       if (video && (video.currentSrc || video.getAttribute('src'))) {
         const t = now();
-        trace = { id: ++serial, mode: video.getAttribute('data-iptv-mode') === 'VOD' ? 'VOD' : 'élő', start: t, last: t, load: 0, playing: true, frame: 'reported', waiting: null, firstWaiting: null, summaryReported: true, mediaReady: true, expectedUrl: '', position: null, positionAt: 0, targetId: '', uiFramesScheduled: false, loadAt: 0, resourceReported: false, milestones: new Set() };
+        trace = { id: ++serial, mode: video.getAttribute('data-iptv-mode') === 'VOD' ? 'VOD' : 'élő', start: t, last: t, load: 0, playing: true, frame: 'reported', waiting: null, firstWaiting: null, summaryReported: true, mediaReady: true, expectedUrl: '', position: null, positionAt: 0, targetId: '', uiFramesScheduled: false, loadAt: 0, resourceReported: false, resourceKeys: new Set(), milestones: new Set() };
         line('már futó lejátszás megfigyelése', 'a tényleges indítás a naplózás előtt történt');
       }
     },
