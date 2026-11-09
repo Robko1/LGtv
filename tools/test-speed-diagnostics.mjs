@@ -163,6 +163,10 @@ test('a célzott sebességmérés bekerül a kézi naplóba külön mérési kap
   diag.speedSelect('élő', 'Filmbox Extra', false, 'filmbox');
   clock += 25; diag.speedLoad('élő', 'formátum=ts', 'https://stream.example/live/redacted.ts');
   const video = document.querySelector('video'); video.src = 'https://stream.example/live/redacted.ts';
+  // A kézi naplóban elvárt mérföldköveket a teszt is ténylegesen kiváltja.
+  for (const event of ['loadstart', 'progress', 'loadedmetadata', 'loadeddata', 'canplay']) {
+    video.dispatchEvent(new window.Event(event));
+  }
   clock += 3000; video.dispatchEvent(new window.Event('playing'));
   const output = state.lines.join('\\n');
   assert.match(output, /kiválasztás kezelése/);
