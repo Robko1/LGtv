@@ -23,10 +23,7 @@ import {
   effectiveStartupWatchdogMs,
   isPrematureVodEnd,
   isUnexpectedLiveEnd,
-  isWebOsLiveEndArtifact,
-  LiveEndEvidence,
   liveEdgeTarget,
-  LIVE_END_CONFIRM_MS,
   liveRecoveryDelayMs,
   liveRecoveryUrl,
   mediaProgressed,
@@ -931,7 +928,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /** Csak VALÓDI csatornaváltás nullázza a létrát; az azonos csatornán
    * belüli HLS↔TS újracsatlakozások nem (különben mindig 1/16-ról indulna). */
   const liveRecoveryVariantChannelRef = useRef('');
-  const liveDurationRecoveryTimerRef = useRef<number | null>(null);
   /**
    * A két külön formátum-próba után a további próbálkozás már kontrollált
    * újracsatlakozás. Ezzel egy későn érkező hiba nem indíthat új TS → HLS →
@@ -973,10 +969,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (vodRestoreTimerRef.current !== null) {
       window.clearTimeout(vodRestoreTimerRef.current);
       vodRestoreTimerRef.current = null;
-    }
-    if (liveDurationRecoveryTimerRef.current !== null) {
-      window.clearTimeout(liveDurationRecoveryTimerRef.current);
-      liveDurationRecoveryTimerRef.current = null;
     }
     // Csatorna-/filmváltáskor a régi visszaállító nem ugrathatja vissza
     // az ÚJ stream idejét a régi film pozíciójára.
@@ -1777,11 +1769,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const doctorBufferingStatusTimerRef = useRef<number | null>(null);
   const doctorStatusMaxTimerRef = useRef<number | null>(null);
   const recoveryIndicatorTimerRef = useRef<number | null>(null);
-  /* 2.5.406 (#51/#52): egyetlen futó „vége” megerősítés generációnként. */
-  const liveEndArtifactRef = useRef<{ timer: number | null; lastLogAt: number }>({
-    timer: null,
-    lastLogAt: 0,
-  });
   const doctorIncidentRef = useRef<{
     lastAt: number;
     lastChannelKey: string;
@@ -1978,10 +1965,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.clearTimeout(recoveryIndicatorTimerRef.current);
       recoveryIndicatorTimerRef.current = null;
     }
-    if (liveEndArtifactRef.current.timer !== null) {
-      window.clearTimeout(liveEndArtifactRef.current.timer);
-      liveEndArtifactRef.current.timer = null;
-    }
     if (doctorIncidentRef.current.pauseConfirmTimer !== null) {
       window.clearTimeout(doctorIncidentRef.current.pauseConfirmTimer);
       doctorIncidentRef.current.pauseConfirmTimer = null;
@@ -2003,10 +1986,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (recoveryIndicatorTimerRef.current !== null) {
       window.clearTimeout(recoveryIndicatorTimerRef.current);
       recoveryIndicatorTimerRef.current = null;
-    }
-    if (liveEndArtifactRef.current.timer !== null) {
-      window.clearTimeout(liveEndArtifactRef.current.timer);
-      liveEndArtifactRef.current.timer = null;
     }
     setDoctorStatus(null);
     setVodSessionAssisted(false);
@@ -2764,119 +2743,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * `media_error`, felhasználói csatornaváltás és javítási létra útjai
    * változatlanok.
    * -------------------------------------------------------------------- */
-  const readLiveEndEvidence = (video: HTMLVideoElement): LiveEndEvidence => {
-    let unboundedBuffer = false;
-    try {
-      const ranges = video.buffered;
-      const position = Number(video.currentTime) || 0;
-      for (let index = 0; index < ranges.length; index += 1) {
-        const start = Number(ranges.start(index));
-        const end = Number(ranges.end(index));
-        if (start <= position + 0.25 && !Number.isFinite(end)) {
-          unboundedBuffer = true;
-          break;
-        }
-      }
-    } catch { /* a webOS nem mindig adja át a puffer-tartományokat */ }
-    const docState = doctorSessionRef.current;
-    const nowMs = Date.now();
-    return {
-      mediaError: Boolean(video.error),
-      networkState: Number(video.networkState || 0),
-      readyState: Number(video.readyState || 0),
-      bufferedAheadSeconds: bufferedAheadSeconds(video),
-      unboundedBuffer,
-      progressAgoMs: docState.lastProgressAt > 0 ? nowMs - docState.lastProgressAt : null,
-      healthyPlaybackMs: docState.healthyPlaybackMs,
-    };
-  };
-
-  /**
-   * Igaz, ha az `unexpected_end` eseményt NEM szabad azonnali újratöltéssel
-   * kezelni. A megerősítő időzítő maga dönt: helyben folytatódott → semmi,
-   * tényleg megállt → a régi `notifyTvDoctorIncident` + `requestRecovery` út.
+  /*
+   * Élő adásnál a webOS duration/ended jelzése nem indíthat automatikus
+   * lejátszás-újraindítást. A valódi médiahiba és a kézi csatornaváltás
+   * külön útvonalon marad; a watchdog nem avatkozhat be a működő streambe.
    */
-  const suppressLiveEndArtifact = (
-    video: HTMLVideoElement,
-    errorCode: string,
-    errorDetail: string,
-    reason: string,
-  ): boolean => {
-    if (isVodRef.current) return false; // normál lejátszó: a webOS hamis ended eseményét TV Doktor nélkül is kiszűrjük.
-    const evidence = readLiveEndEvidence(video);
-    if (!isWebOsLiveEndArtifact(evidence)) return false;
-
-    const nowMs = Date.now();
-    const guard = liveEndArtifactRef.current;
-    if (nowMs - guard.lastLogAt > 800) {
-      guard.lastLogAt = nowMs;
-      const line = `TV DOKTOR: WEBOS ÉLŐ IDŐVONAL-ARTEFAKT – NINCS ÚJRACSATLAKOZÁS; `
-        + `csatorna=${channelRef.current?.name || 'élő adás'}; ok=${errorCode}; `
-        + `bizonyított-lejátszás=${Math.round(evidence.healthyPlaybackMs / 1000)} s; `
-        + `utolsó-haladás=${evidence.progressAgoMs === null ? 'n/a' : Math.round(evidence.progressAgoMs) + 'ms'}; `
-        + `puffer-előre=${evidence.bufferedAheadSeconds === null ? 'végtelen/nem mérhető' : evidence.bufferedAheadSeconds.toFixed(2) + 's'}; `
-        + `readyState=${evidence.readyState}; networkState=${evidence.networkState}; media_error=nincs; `
-        + `döntés=helyben folytatás, ${LIVE_END_CONFIRM_MS} ms megerősítés.`;
-      appLog(line);
-      if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(line);
-    }
-    // Nincs képeltűnés: a pufferelési / újracsatlakozási felirat és a pörgő
-    // azonnal lekerül, nem marad „Adás frissítése (1. próba)…” a képen.
-    setIsLoading(false);
-    setIsRecovering(false);
-    clearDoctorBufferingStatus();
-    const status = doctorStatusRef.current;
-    if (status && (status.phase === 'buffering' || status.phase === 'retry')) {
-      showDoctorStatus(null);
-    }
-    if (guard.timer !== null) return true; // már fut a megerősítés
-    const generation = streamLoadGenerationRef.current;
-    const startSample = readMediaProgress(video, nowMs);
-    // HELYBEN FOLYTATÁS: nem cseréljük a src-et, nem ugrunk vissza 0 mp-re.
-    try {
-      const position = Number(video.currentTime) || 0;
-      const duration = Number(video.duration);
-      const target = Number.isFinite(duration) && duration > 0
-        ? Math.max(0, Math.min(position, duration - 0.05))
-        : position;
-      if (target > 0 && Math.abs(position - target) > 0.01) video.currentTime = target;
-      // A HTML5 `play()` egy még `ended` elemet a 0. másodpercre ugratna
-      // (55 s visszatekerés!). Csak akkor indítjuk, ha a fenti, jelenlegi
-      // pozícióra állítás tényleg sikerült és NEM ugrott vissza.
-      const pinned = Number(video.currentTime) || 0;
-      if (pinned >= position - 0.1) {
-        const playPromise = video.play();
-        if (playPromise && typeof (playPromise as Promise<void>).catch === 'function') {
-          void (playPromise as Promise<void>).catch(() => { /* a megerősítés dönt */ });
-        }
-      }
-    } catch { /* a megerősítés dönt */ }
-    guard.timer = window.setTimeout(() => {
-      guard.timer = null;
-      if (generation !== streamLoadGenerationRef.current) return; // csatornaváltás / új forrás
-      const current = htmlVideoRef.current;
-      if (!current || !desiredPlayingRef.current || !playbackActiveRef.current) return;
-      const sample = readMediaProgress(current, Date.now());
-      // Sikeres folytatás: haladt az idővonal/képkocka ÉS NEM tekert vissza.
-      const noRewind = sample.time >= startSample.time - 0.1;
-      const progressed = noRewind && mediaProgressed(startSample, sample);
-      if (progressed && !current.paused && !current.ended) {
-        const okLine = `TV DOKTOR: ÉLŐ ADÁS HELYBEN FOLYTATÓDOTT – nincs újratöltés, nincs visszatekerés; csatorna=${channelRef.current?.name || 'élő adás'}; t=${sample.time.toFixed(2)} s.`;
-        appLog(okLine);
-        if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(okLine);
-        setIsLoading(false);
-        setIsRecovering(false);
-        clearDoctorBufferingStatus();
-        return;
-      }
-      const failLine = `TV DOKTOR: ÉLŐ IDŐVONAL MEGERŐSÍTETTEN LEÁLLT – az újracsatlakozás most jogos; csatorna=${channelRef.current?.name || 'élő adás'}; ok=${errorCode}; haladás=${progressed ? 'igen' : 'nem'}; visszatekerés=${noRewind ? 'nem' : 'igen'}.`;
-      appLog(failLine);
-      if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(failLine);
-      notifyTvDoctorIncident('unexpected_end', current, errorCode, errorDetail);
-      requestRecoveryRef.current(reason);
-    }, LIVE_END_CONFIRM_MS);
-    return true;
-  };
 
   // Egyetlen lezáró naplósor minden élő csatornaváltásról.
   const logChannelSwitchSummary = (
@@ -3121,11 +2992,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Már elindult élő adás ÉS (aktív TV Doktor mellett) film/sorozat
     // beragadt pufferelését is felügyeljük; VOD esetén türelmesebb ablakkal.
     if (!video || !playbackStartedRef.current || video.paused) return;
-    // 2026-11: élő adásnál a normál automatikus puffer-watchdog szünetel,
-    // amíg a TV Doktor ki van kapcsolva. Így a rövid waiting/stalled
-    // jelzések nem tölthetik újra önállóan a működő streamet.
-    if (!isVodRef.current && !tvDoctorEnabledRef.current) return;
-    if (isVodRef.current && !tvDoctorEnabledRef.current) return;
+    // Élő TV-n a puffer-watchdog végleg ki van kapcsolva; sem waiting,
+    // sem stalled esemény nem indíthat automatikus src-újratöltést.
+    // A VOD külön, TV Doktor által vezérelt útvonala változatlan marad.
+    if (!isVodRef.current) return;
+    if (!tvDoctorEnabledRef.current) return;
     const generation = streamLoadGenerationRef.current;
     const startedAt = Date.now();
     const startSample = readMediaProgress(video, startedAt);
@@ -3252,10 +3123,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         previousSample = null;
         return;
       }
-      // A normál élő adás automatikus fagyás-újraindítása szünetel a következő
-      // diagnosztikai naplóig, ha a TV Doktor ki van kapcsolva. A TV Doktor
-      // bekapcsolt állapotában és VOD-nál az eredeti figyelés változatlan.
-      if (!isVod && !tvDoctorEnabledRef.current) {
+      // Az élő adás idővonal-/képkocka-watchdogja végleg kikapcsolva.
+      // A rövid webOS idővonal-szünet nem bizonyít hibát, és nem indíthat újratöltést.
+      if (!isVod) {
         detector.reset();
         previousSample = null;
         return;
@@ -5422,6 +5292,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const recoverRunningLive = !isVodRef.current && playbackStartedRef.current && forceReload;
     // A lejátszási szándékot a forrásváltás végéig zároljuk.
     beginSwitch();
+    if (!isVodRef.current) {
+      try { window.dispatchEvent(new CustomEvent('iptv-live-switch-start')); } catch { /* régi webOS */ }
+    }
     // Az előző adást azonnal megállítjuk, és elvetjük az esetleges régi időzítőt.
     // Nincs fix 300 ms-os csatornaváltási késleltetés: a legfrissebb kérés indul.
     if (pendingLiveLoadTimerRef.current !== null) {
@@ -5663,68 +5536,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // indulási watchdog sem: egy időzítő nem töltheti újra a csatornát.
       // A sikertelen indulást a néző kézi csatornaváltással lépteti tovább.
       // A TV Doktor bekapcsolt állapotában az eredeti indulási felügyelet marad.
-      if (!customStreamUrl && tvDoctorEnabledRef.current) {
-        const { startupWatchdogMs } = bufferTiming();
-        /*
-         * A normál indulásnak legalább 4,5 másodpercet hagyunk. A #59-ben
-         * a szolgáltatói stream első metaadata 3,3–3,7 mp után érkezett;
-         * a korábbi 2 mp-es őr saját újratöltéssel növelte a csatornaváltást.
-         * Ha már van adat, röviden ellenőrizzük a tényleges haladást.
-         */
-        const attemptTimeoutMs = effectiveStartupWatchdogMs(startupWatchdogMs);
-        zapWatchdogRef.current = window.setTimeout(() => {
-          zapWatchdogRef.current = null;
-          if (!isCurrentLoad() || playbackStartedRef.current) return;
-
-          const aheadAtCheck = bufferedAheadSeconds(video);
-          const framesAtCheck = readPlaybackFrameStats(video)?.total ?? null;
-          const readyStateAtCheck = video.readyState;
-          const hasStartupData = readyStateAtCheck >= 2 || (aheadAtCheck !== null && aheadAtCheck > 0);
-
-          const retryForRealFailure = (reason: string) => {
-            if (!isCurrentLoad() || playbackStartedRef.current) return;
-            const mediaError = video.error;
-            if (mediaError) {
-              notifyTvDoctorIncident(
-                'media_error',
-                video,
-                `MEDIA_ERR_${mediaError.code || 'UNKNOWN'}`,
-                mediaError.message || reason,
-              );
-            } else {
-              notifyTvDoctorIncident('startup_timeout', video, 'STARTUP_TIMEOUT', reason);
-            }
-            scheduleAutoRetry();
-          };
-
-          if (hasStartupData) {
-            appLog('Zap-őr: már érkezett adat; formátumváltás előtt ellenőrzi a tényleges előrehaladást.');
-            zapWatchdogRef.current = window.setTimeout(() => {
-              zapWatchdogRef.current = null;
-              if (!isCurrentLoad() || playbackStartedRef.current) return;
-
-              const aheadNow = bufferedAheadSeconds(video);
-              const framesNow = readPlaybackFrameStats(video)?.total ?? null;
-              const bufferProgressed = aheadAtCheck !== null
-                && aheadNow !== null
-                && aheadNow > aheadAtCheck + 0.15;
-              const framesProgressed = framesAtCheck !== null
-                && framesNow !== null
-                && framesNow > framesAtCheck;
-              const readyStateProgressed = video.readyState > readyStateAtCheck;
-
-              if (bufferProgressed || framesProgressed || readyStateProgressed) {
-                appLog('Zap-őr: a puffer vagy a képkockák tovább haladnak; nincs felesleges újrapróbálkozás.');
-                return;
-              }
-              retryForRealFailure('az adatfolyam megállt, és nem indult el a lejátszás');
-            }, 900);
-            return;
-          }
-
-          retryForRealFailure('2–2,5 másodperc alatt nem érkezett lejátszható adat');
-        }, attemptTimeoutMs);
-            } else if (tvDoctorEnabledRef.current) {
+      // Élő TV-indításnál nincs watchdog és nincs időzített újratöltés.
+      if (customStreamUrl && tvDoctorEnabledRef.current) {
         // VOD INDULÁSI ŐR: ha a film vagy sorozat HTTP-kapcsolata némán
         // beragad induláskor, a TV Doktor türelmes ablak után (≥ 8,5 mp)
         // automatikusan újracsatlakoztatja ugyanazt a fájlt.
@@ -6683,17 +6496,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             onDurationChange={(event) => {
               const video = event.currentTarget;
-
               if (isVod || !isActiveMediaEvent(video)) return;
               const duration = Number(video.duration);
-              if (!Number.isFinite(duration) || duration <= 2) {
-                if (liveDurationRecoveryTimerRef.current !== null) {
-                  window.clearTimeout(liveDurationRecoveryTimerRef.current);
-                  liveDurationRecoveryTimerRef.current = null;
-                }
-                return;
-              }
-              if (!playbackStartedRef.current) return;
+              if (!Number.isFinite(duration) || duration <= 2 || !playbackStartedRef.current) return;
               const endState = {
                 ended: video.ended,
                 paused: video.paused,
@@ -6703,48 +6508,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 duration,
               };
               if (isUnexpectedLiveEnd(endState)) {
-                // 2.5.406 (#51/#52): a webOS véges TS-idővonala NEM hiba.
-                if (suppressLiveEndArtifact(video, 'FINITE_LIVE_END', `durationchange ${duration.toFixed(1)}s`, `élő véges idővonal – durationchange/ended`)) return;
-                appLog(`ÉLŐ VÉGES IDŐVONAL; csatorna=${channelRef.current?.name || 'élő adás'}; ` +
-                  `t=${endState.currentTime.toFixed(2)} s; duration=${duration.toFixed(2)} s; ` +
-                  `ended=${video.ended}; paused=${video.paused}; ${videoDiagnosticState(video, 'durationchange')}`);
-                notifyTvDoctorIncident('unexpected_end', video, 'FINITE_LIVE_END', `durationchange ${duration.toFixed(1)}s`);
-                requestRecoveryRef.current(`élő véges idővonal – durationchange/ended`);
-                return;
-              }
-              // Egy véges duration önmagában lehet rövid webOS átmeneti állapot.
-              // Csak akkor vizsgáljuk újra, ha másfél másodperc múlva is megmarad.
-              if (liveDurationRecoveryTimerRef.current === null) {
-                const generation = streamLoadGenerationRef.current;
-                liveDurationRecoveryTimerRef.current = window.setTimeout(() => {
-                  liveDurationRecoveryTimerRef.current = null;
-                  if (generation !== streamLoadGenerationRef.current || video !== htmlVideoRef.current) return;
-                  const currentDuration = Number(video.duration);
-                  const currentState = {
-                    ended: video.ended,
-                    paused: video.paused,
-                    desiredPlaying: desiredPlayingRef.current,
-                    playbackStarted: playbackStartedRef.current,
-                    currentTime: Number(video.currentTime || 0),
-                    duration: currentDuration,
-                  };
-                  if (isUnexpectedLiveEnd(currentState)) {
-                    // 2.5.406 (#51/#52): a tartós véges idővonal sem elég bizonyíték.
-                    if (suppressLiveEndArtifact(video, 'FINITE_LIVE_END', `tartós durationchange ${currentDuration.toFixed(1)}s`, `élő véges idővonal – durationchange/ended`)) return;
-                    appLog(`ÉLŐ VÉGES IDŐVONAL; csatorna=${channelRef.current?.name || 'élő adás'}; ` +
-                      `t=${currentState.currentTime.toFixed(2)} s; duration=${currentDuration.toFixed(2)} s; ` +
-                      `ended=${video.ended}; paused=${video.paused}; ${videoDiagnosticState(video, 'tartós durationchange')}`);
-                    notifyTvDoctorIncident('unexpected_end', video, 'FINITE_LIVE_END', `tartós durationchange ${currentDuration.toFixed(1)}s`);
-                    requestRecoveryRef.current(`élő véges idővonal – durationchange/ended`);
-                  }
-                }, 1500);
+                appLog(`ÉLŐ VÉGES IDŐVONAL-JELZÉS; automatikus újratöltés TILTVA; csatorna=${channelRef.current?.name || 'élő adás'}; t=${endState.currentTime.toFixed(2)} s; duration=${duration.toFixed(2)} s; ${videoDiagnosticState(video, 'durationchange')}`);
+                setIsLoading(false);
+                setIsRecovering(false);
               }
             }}
-
-
-
-
-
 
             onPlaying={(event) => {
 
@@ -6780,10 +6548,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 } catch {
                   /* ignore */
                 }
-              }
-              if (liveDurationRecoveryTimerRef.current !== null) {
-                window.clearTimeout(liveDurationRecoveryTimerRef.current);
-                liveDurationRecoveryTimerRef.current = null;
               }
               // Sikeres képkocka: a belső forrásváltás véget ért, a régi
               // pause/play események többé nem zavarhatják össze az állapotot.
@@ -7206,17 +6970,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               scheduleAutoRetry();
             }}
             onPause={(event) => {
-
               if (!isActiveMediaEvent(event.currentTarget)) return;
-              // A belső forrásváltás pause eseménye késve is megérkezhet:
-              // ilyenkor NEM szabad leállítani az új, már futó streamet.
               if (switchInProgressRef.current) return;
               const video = event.currentTarget;
               if (!video.paused || video.ended) return;
-              // A webOS néha a pause eseményt küldi előbb, és csak utána
-              // állítja be az ended flaget. A véges idővonal végét ilyenkor is
-              // terminális live-endként kezeljük, különben az ismételt M2/Moziverzum
-              // lezárás mindig nulláról kezdené a recovery-sorozatot.
               const pausedEndState = {
                 ended: video.ended,
                 paused: video.paused,
@@ -7226,31 +6983,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 duration: Number(video.duration || 0),
               };
               if (isUnexpectedLiveEnd(pausedEndState)) {
-                // 2.5.406 (#51/#52):Pause + ended = demuxer-artefakt, nem csatornahiba.
-                if (suppressLiveEndArtifact(video, 'LIVE_PAUSED_END', `pause/duration=${pausedEndState.duration.toFixed(1)}s`, `élő adás vége – pause/duration=${pausedEndState.duration.toFixed(2)} s`)) return;
-                appLog(`ÉLŐ VÉGE (pause); csatorna=${channelRef.current?.name || 'élő adás'}; ` +
-                  `t=${pausedEndState.currentTime.toFixed(2)} s; duration=${pausedEndState.duration.toFixed(2)} s; ` +
-                  `${videoDiagnosticState(video, 'pause/ended')}`);
-                setIsLoading(true);
-                setHasError(false);
-                notifyTvDoctorIncident('unexpected_end', video, 'LIVE_PAUSED_END', `pause/duration=${pausedEndState.duration.toFixed(1)}s`);
-                requestRecoveryRef.current(`élő adás vége – pause/duration=${pausedEndState.duration.toFixed(2)} s`);
-                return;
+                appLog(`ÉLŐ PAUSE/ENDED JELZÉS; automatikus újratöltés TILTVA; csatorna=${channelRef.current?.name || 'élő adás'}; t=${pausedEndState.currentTime.toFixed(2)} s; duration=${pausedEndState.duration.toFixed(2)} s; ${videoDiagnosticState(video, 'pause/ended')}`);
+              } else if (desiredPlayingRef.current && playbackActiveRef.current && playbackStartedRef.current) {
+                appLog(`ÉLŐ VÁRATLAN PAUSE; watchdog és automatikus újraindítás TILTVA; csatorna=${channelRef.current?.name || 'élő adás'}; ${videoDiagnosticState(video, 'unexpected-pause')}`);
               }
-              // Ritka webOS-fagyásnál a médiaelem maga áll le, miközben a
-              // néző továbbra is lejátszást kér. A korábbi kód ilyenkor
-              // `isPlaying=false`-ra váltott, ezért a figyelő is leállt, és
-              // csak másik csatorna kiválasztása indította újra. Most a
-              // váratlan pause azonnal ugyanazon a címen helyreállítást kér.
-              if (desiredPlayingRef.current && playbackActiveRef.current && playbackStartedRef.current) {
-                setIsLoading(true);
-                setHasError(false);
-                notifyTvDoctorIncident('unexpected_pause', video, 'UNEXPECTED_PAUSE', 'váratlan pause esemény');
-                requestRecoveryRef.current('váratlan pause esemény – automatikus újraindítás');
-                return;
-              }
+              setIsLoading(false);
+              setIsRecovering(false);
               setIsPlaying(false);
             }}
+
             onPlay={(event) => {
 
               if (!isActiveMediaEvent(event.currentTarget)) return;
@@ -7276,33 +7017,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 onEndedRef.current?.();
                 return;
               }
-              // Élő TV-n az ended soha nem jelenthet „következő műsort” vagy
-              // csatornaelhagyást. A #13 M2 UHD-nél a webOS 85,778 mp után
-              // véges VOD-ként zárta le a raw TS-t; ugyanazon a csatornán
-              // kell újracsatlakozni, majd két igazolt ismétlés után a másik
-              // formátumot is kipróbálni.
-              const endState = {
-                ended: video.ended,
-                paused: video.paused,
-                desiredPlaying: desiredPlayingRef.current,
-                playbackStarted: playbackStartedRef.current,
-                currentTime: Number(video.currentTime || 0),
-                duration: Number(video.duration || 0),
-              };
-              if (isUnexpectedLiveEnd(endState)) {
-                // 2.5.406 (#51/#52): 55 s / 30 s utáni `ended` még nem adatfolyam-hiba.
-                if (suppressLiveEndArtifact(video, 'LIVE_ENDED', `ended duration=${Number(endState.duration).toFixed(1)}s`, `élő adás vége – duration=${Number(endState.duration).toFixed(2)} s`)) return;
-                appLog(`ÉLŐ VÉGE; csatorna=${channelRef.current?.name || 'élő adás'}; ` +
-                  `t=${endState.currentTime.toFixed(2)} s; duration=${Number(endState.duration).toFixed(2)} s; ` +
-                  `paused=${video.paused}; ended=${video.ended}; ${videoDiagnosticState(video, 'ended')}`);
-                notifyTvDoctorIncident('unexpected_end', video, 'LIVE_ENDED', `ended duration=${Number(endState.duration).toFixed(1)}s`);
-                requestRecoveryRef.current(`élő adás vége – duration=${Number(endState.duration).toFixed(2)} s`);
-              } else if (desiredPlayingRef.current && playbackActiveRef.current && !playbackStartedRef.current) {
-                // Indulás közbeni ended: a normál TS/HLS indítási próbák
-                // következő, kontrollált lépése döntsön.
-                notifyTvDoctorIncident('unexpected_end', video, 'STARTUP_ENDED', 'indulás közbeni ended');
-                scheduleAutoRetry();
-              }
+              appLog(`ÉLŐ ENDED JELZÉS; automatikus újratöltés és watchdog TILTVA; csatorna=${channelRef.current?.name || 'élő adás'}; t=${Number(video.currentTime || 0).toFixed(2)} s; duration=${Number(video.duration || 0).toFixed(2)} s; paused=${video.paused}; ended=${video.ended}; ${videoDiagnosticState(video, 'ended')}`);
+              setIsLoading(false);
+              setIsRecovering(false);
+              setIsPlaying(false);
             }}
             onTimeUpdate={(event) => {
               const video = event.currentTarget as HTMLVideoElement;
