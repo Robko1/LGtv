@@ -132,10 +132,23 @@ while (rootEl && rootEl.childElementCount === 0 && Date.now() < mountDeadline) {
 check(Boolean(rootEl && rootEl.childElementCount > 0),
   'a React felület felépül a naplózás mellett is (nem fekete képernyő)');
 
-/* Induláskor nincs automatikus napló vagy indulási figyelő. */
+/* 2.5.405: a 2.5.397 ÓTA a `TEST_STARTUP_DIAGNOSTICS` tesztidőszaki kapcsoló
+   SZÁNDÉKOSAN elindítja a naplózást már az IPK indulásakor (a #43/#49/#50
+   rendszernaplók így tartalmazzák a legelső milliszekundumokat is). A régi
+   „induláskor üres a napló” elvárás ezért már nem igaz: vagy a kapcsoló KI
+   van (üres napló, kézi indulás), vagy BE van (automatikus napló, a fejlécben
+   a `MIT ELLENŐRIZ A TV` sorral). Mindkét esetben a HÍDNAK működnie kell. */
 const startupLog = diag.text();
-check(startupLog === '', 'induláskor üres a napló');
-check(diag.logStatus().enabled === false, 'a naplózás csak kézzel indul');
+const startupEnabled = diag.logStatus().enabled === true;
+const autoLogOk = startupEnabled
+  && /AUTOMATIKUS IPK-NAPLÓ/.test(startupLog)
+  && /MIT ELLENŐRIZ A TV/.test(startupLog);
+const manualOnlyOk = !startupEnabled && startupLog === '';
+check(autoLogOk || manualOnlyOk,
+  startupEnabled
+    ? 'a tesztidőszaki automatikus napló az IPK indulásakor elindult, fejléccel'
+    : 'a kézi naplózású kiadásban induláskor üres a napló');
+check(typeof diag.logStatus().enabled === 'boolean', 'a napló állapota lekérdezhető a hídon');
 check(typeof diag.startLogging === 'function' && typeof diag.logStatus === 'function',
   'a kézi naplózás indítója és állapota elérhető a hídon');
 diag.startLogging();
@@ -221,7 +234,9 @@ check(reset.logLines === 0 && reset.errors === 0 && reset.longTasks === 0,
   `a Frissítés nullázza a mért értékeket (sor=${reset.logLines}, hiba=${reset.errors}, feladat=${reset.longTasks})`);
 check(/^\d{2}:\d{2}:\d{2}$/.test(reset.startedAtText),
   `a mérés kezdete látható időpont (${reset.startedAtText})`);
-check(/=== ÚJ MÉRÉS KEZDETE: \S+ \(\d{2}:\d{2}:\d{2}\); minden korábbi mért érték nullázva/.test(diag.text()),
+/* 2.5.383: a `dublinTimestamp()` TELJES dátumot ad (`YYYY-MM-DD HH:MM:SS`,
+   szóközzel), ezért a korábbi `\S+` minta nem találta meg a sort. */
+check(/=== ÚJ MÉRÉS KEZDETE: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(\d{2}:\d{2}:\d{2}\); minden korábbi mért érték nullázva/.test(diag.text()),
   'a naplóban látható az új mérés kezdő időpontja');
 check(/MÉRÉS KEZDETE: \d{2}:\d{2}:\d{2}/.test(diag.text()),
   'a napló fejléce is mutatja a mérés kezdetét');

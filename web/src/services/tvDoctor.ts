@@ -1054,6 +1054,32 @@ export interface TvDoctorOperationHealth {
  * puffernek csak egy biztonsági felső korlátja van.
  */
 const MAX_RECENT_LOGS_PER_CHANNEL = 8;
+
+/**
+ * 2.5.405 / #50 – A 16 VARIÁNS LÉPÉSSZÁMA NEM VÁGÓDHAT 8-RA.
+ *
+ * A `tv_doctor_events`-ben a 2.5.403 óta `details.step=1..16`,
+ * `details.maxSteps=16`, `details.recoveryVariant=true` sorok is vannak
+ * (#50: `Próba 3 / 16: TS + fast … recovery_buffer_profile`). A régi
+ * `mergeCloudDoctorLogs()` és a localStorage-visszaolvasás viszont minden
+ * lépésszámot `Math.min(8, …)`-cal vágott, ezért a panel és a rangsorolás
+ * 8/8-nál ragadt. A 8-as korlát továbbra is a 8 TANULÁSI DOBOZRA vonatkozik;
+ * a JAVÍTÁSI VARIÁNSOK lépésszáma 16 lehet.
+ */
+export const MAX_DOCTOR_LOG_STEPS = 16;
+
+function clampDoctorLogMaxSteps(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 8;
+  return Math.max(1, Math.min(MAX_DOCTOR_LOG_STEPS, Math.round(parsed)));
+}
+
+function clampDoctorLogStep(value: unknown, maxSteps: unknown): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const cap = clampDoctorLogMaxSteps(maxSteps);
+  return Math.max(1, Math.min(cap, Math.round(parsed)));
+}
 const MAX_RECENT_LOGS_TOTAL = 1200;
 const recentDoctorLogs: DoctorLogEntry[] = [];
 const RECENT_DOCTOR_LOGS_STORAGE_KEY = 'iptv_rt_tv_doctor_recent_v1';
@@ -1113,8 +1139,10 @@ function restoreRecentDoctorLogs(): void {
         channelName: String(item.channelName).slice(0, 140),
         message: item.message.slice(0, 220),
         operationType: typeof item.operationType === 'string' ? item.operationType.slice(0, 48) : undefined,
-        operationStep: Number.isFinite(Number(item.operationStep)) ? Math.max(1, Math.min(8, Number(item.operationStep))) : undefined,
-        operationMaxSteps: Number.isFinite(Number(item.operationMaxSteps)) ? Math.max(1, Math.min(8, Number(item.operationMaxSteps))) : undefined,
+        operationStep: clampDoctorLogStep(item.operationStep, item.operationMaxSteps),
+        operationMaxSteps: Number.isFinite(Number(item.operationMaxSteps))
+          ? clampDoctorLogMaxSteps(item.operationMaxSteps)
+          : undefined,
         operationRecovered: typeof item.operationRecovered === 'boolean' ? item.operationRecovered : undefined,
         operationStrategy: typeof item.operationStrategy === 'string' ? item.operationStrategy.slice(0, 64) : undefined,
       });
@@ -1212,10 +1240,12 @@ export function setTvDoctorCloudLogHook(hook: ((entry: DoctorLogEntry) => void) 
 function doctorOperationScore(entry: DoctorLogEntry): number {
   const recovered = entry.operationRecovered === true || entry.level === 'verified';
   const failed = entry.operationRecovered === false || entry.level === 'error';
-  const step = Math.max(1, Math.min(8, Number(entry.operationStep) || 8));
+  const maxSteps = clampDoctorLogMaxSteps(entry.operationMaxSteps);
+  const step = clampDoctorLogStep(entry.operationStep, maxSteps) || maxSteps;
   // Sikeres javítás az elsődleges; azonos eredménynél a kevesebb lépés,
-  // majd a frissebb mérés kap jobb helyezést.
-  return (recovered ? 1000 : 0) - (failed ? 500 : 0) + (8 - step) * 10 + Math.min(9, entry.at / 1e13);
+  // majd a frissebb mérés kap jobb helyezést. A 16 variánsnál a 16-os
+  // létra szerint rangsorolunk, nem a 8 tanulási doboz szerint.
+  return (recovered ? 1000 : 0) - (failed ? 500 : 0) + (maxSteps - step) * 10 + Math.min(9, entry.at / 1e13);
 }
 
 function markLatestRepairOutcome(channelKey: string, at: number, recovered: boolean): void {
@@ -1263,18 +1293,25 @@ export function mergeCloudDoctorLogs(entries: unknown[]): void {
     const at = Number(item.at);
     if (!validCategories.has(category) || !Number.isFinite(at) || at <= 0) continue;
     const eventUid = typeof item.eventUid === 'string' ? item.eventUid.slice(0, 160) : undefined;
+    const channelId = typeof item.channelId === 'string' ? item.channelId.slice(0, 120) : undefined;
     const channelKey = typeof item.channelKey === 'string' ? item.channelKey.slice(0, 140) : 'cloud-system';
     const channelName = typeof item.channelName === 'string' ? item.channelName.slice(0, 140) : 'Rendszer';
     const message = typeof item.message === 'string' ? item.message.slice(0, 220) : '';
     const level = item.level === 'warn' || item.level === 'repair' || item.level === 'verified' || item.level === 'error' ? item.level : 'info';
     const details = item.details && typeof item.details === 'object' ? item.details as Record<string, unknown> : {};
     const operationType = typeof item.eventType === 'string' ? item.eventType : undefined;
-    const operationStep = Number.isFinite(Number(details.step)) ? Math.max(1, Math.min(8, Math.round(Number(details.step)))) : undefined;
-    const operationMaxSteps = Number.isFinite(Number(details.maxSteps)) ? Math.max(1, Math.min(8, Math.round(Number(details.maxSteps)))) : undefined;
+    /* 2.5.405 / #50: a felhő `details.recoveryVariant=true` sorai 16 lépésesek;
+       a 8-as vágás itt is elveszítette a 9..16. próbákat. */
+    const recoveryVariant = details.recoveryVariant === true;
+    const rawMaxSteps = details.maxSteps ?? (recoveryVariant ? MAX_DOCTOR_LOG_STEPS : 8);
+    const operationStep = clampDoctorLogStep(details.step, rawMaxSteps);
+    const operationMaxSteps = Number.isFinite(Number(rawMaxSteps))
+      ? clampDoctorLogMaxSteps(rawMaxSteps)
+      : undefined;
     const operationRecovered = typeof item.recovered === 'boolean' ? item.recovered : undefined;
     const operationStrategy = typeof details.strategyId === 'string' ? details.strategyId.slice(0, 64) : undefined;
     const duplicate = recentDoctorLogs.some((entry) => eventUid ? entry.eventUid === eventUid : entry.category === category && entry.at === at && entry.channelKey === channelKey && entry.message === message);
-    if (!duplicate) recentDoctorLogs.push({ eventUid, at, level, category, channelKey, channelName, message, operationType, operationStep, operationMaxSteps, operationRecovered, operationStrategy });
+    if (!duplicate) recentDoctorLogs.push({ eventUid, channelId, at, level, category, channelKey, channelName, message, operationType, operationStep, operationMaxSteps, operationRecovered, operationStrategy });
   }
   // A sikeres lejátszás vagy a kimerült javítási létra visszajelzése
   // minősíti az előtte futó legutóbbi próbát ugyanazon a csatornán.
@@ -2894,7 +2931,11 @@ export function getTvDoctorChannelSnapshot(
     learning: [], assistance: [], activation: [], channel_error: [],
   };
   const record = channel ? getChannelDoctorRecord(channel, storage) : null;
-  const channelKey = record?.channelKey || '';
+  /* 2.5.405 / #50: a Supabase bootstrap eseményei a STABIL, kanonikus
+     `hu:…` névkulccsal jönnek vissza. Ha a TV-n még nincs helyi rekord
+     (pl. `Memória: 0` utáni első visszaolvasás), a régi `''` kulcs miatt
+     ezek a felhős naplósorok EGYÁLTALÁN nem jelentek meg a 4 dobozban. */
+  const channelKey = record?.channelKey || (channel ? normalizeChannelDoctorKey(channel) : '');
   const channelId = channel?.id ? String(channel.id) : '';
   const logsByCategory = empty;
   /* 2.5.401: NEM `slice().reverse()` minden renderben – egyetlen, korlátozott

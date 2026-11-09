@@ -89,6 +89,8 @@ const tasks = [
   { name: 'tv-doctor-learning-401', args: ['tools/test-tv-doctor-learning-401.mjs'] },
   // 2.5.403: #46 / M2 UHD – bizonyítottan működő csatorna nem „nem működik”, 16 valódi formátum/puffer beállítás.
   { name: 'tv-doctor-recovery-403', args: ['tools/test-tv-doctor-recovery-403.mjs'] },
+  // 2.5.405: #49 takarókép utáni fokozatos összeállás + #50 kártyaóra / 16 variáns Supabase-keret.
+  { name: 'boot-reveal-and-doctor-clock-405', args: ['tools/test-boot-reveal-and-doctor-clock-405.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');

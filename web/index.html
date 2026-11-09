@@ -26,9 +26,28 @@
         overflow-x: hidden;
       }
 
-      /* A saját HTML-es indítóképernyő és minden hozzá tartozó animáció/CSS
-         eltávolítva. A webOS natív splash-screen.png után a React főoldal látszik. */
       html { background-color: #080d1a; }
+
+      /* 2.5.405 / #49 – SAJÁT TAKARÓRÉTEG A HOSSZABB INDULÁSHOZ.
+         A #49 naplóban a natív splash +796 ms-nél lement, de az első
+         videó-képkocka csak +7,8 s-nél, a HU EPG +14 s-nél érkezett, ezért a
+         néző látta a főoldal fokozatos összeállását. Most a webOS saját
+         splash-screen.png-jét ez a réteg folytatja: ha a platform korábban
+         engedné el a PNG-t, itt még mindig ugyanaz a kép takar, amíg a
+         `main.tsx` valódi kész-kapui nem engednek. Nincs új kép, nincs
+         animáció, nincs fade: a felfedés egyetlen DOM-eltávolítás. */
+      #tv-curtain {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        margin: 0;
+        padding: 0;
+        background-color: #080d1a;
+        background-position: center center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        pointer-events: auto;
+      }
       html.iptv-booting body,
       html.iptv-prerender body,
       html.iptv-revealed body { background-color: #080d1a !important; }
@@ -49,8 +68,9 @@
         opacity: .78;
       }
 
-      /* NO_CUSTOM_BOOT_SCREEN: a webOS saját splash PNG-je után nincs külön
-         HTML-es indítóképernyő, animáció, folyamatjelző vagy takaróréteg. */
+      /* 2.5.405 / #49: a webOS saját splash PNG-jét a fenti #tv-curtain
+         folytatja. Nincs animáció, folyamatjelző vagy fade – a #root a takaró
+         ALATT már kifestődik, a felfedés egyetlen DOM-eltávolítás. */
       html.iptv-booting #root,
       html.iptv-prerender #root,
       html.iptv-revealed #root { visibility: visible !important; }
@@ -106,6 +126,30 @@
     </script>
   </head>
   <body class="bg-[#080d1a] text-slate-100 min-h-screen antialiased select-none">
+    <!-- 2.5.405 / #49: a natív splash után is takar, amíg a főoldal TÉNYLEGESEN kész. -->
+    <div id="tv-curtain" aria-hidden="true"></div>
+    <script>
+      /* ES5: a splash PNG-t futtatáskor állítjuk be, hogy a Vite build ne
+         próbálja modul-assetként feloldani a webos/ mappában lévő képet. */
+      (function () {
+        try {
+          var curtain = document.getElementById('tv-curtain');
+          if (curtain) curtain.style.backgroundImage = "url('splash-screen.png')";
+          /* VÉSZFOG: ha a bundle / React lánc teljesen elakadna, a saját
+             takaróréteg se maradjon örökké. 14 s = a main.tsx 12 s kemény
+             korláta + 2 s; a natív splash elengedése is ekkor fut le. */
+          window.setTimeout(function () {
+            try {
+              var layer = document.getElementById('tv-curtain');
+              if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
+              document.documentElement.classList.remove('iptv-booting');
+              document.documentElement.classList.add('iptv-revealed');
+              window.__IPTV_AUDIO_GATE__ = false;
+            } catch (e) {}
+          }, 14000);
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <!-- A webOS Luna-híd (webOS.deviceInfo: TV típus, webOS verzió).
          A fájlt a platform szolgáltatja, nem az IPK tartalmazza; ha egy

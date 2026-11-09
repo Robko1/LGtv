@@ -29,8 +29,22 @@ import { WEB_VERSION } from "./appVersion";
  * A böngésző/HTML korábbi jeleit a `startupDiagnostics.ts` olvassa hozzá.
  */
 const BOOT_EPOCH_MS = Date.now();
-/** 2.5.399: #39 – a content IPK takaróképe legfeljebb 1,5 s-ig maradhat fent. */
+/**
+ * 2.5.405 / #49 – MIÉRT MARAD TOVÁBB FENT A TAKARÓKÉP.
+ *
+ * A #49 rendszernaplóban a `FELFEDÉS` +805 ms-nél történt, de
+ * `videó-kész=nem`: az első képkocka csak +7,8 s-nél jött meg, a `FAST BOOT
+ * EPG` +13,7 s-nél, a 70/80-as EPG +28,7 s-nél, a `TÁROLÓ-JELENTÉS` és a
+ * háttérmunka pedig mind a felfedés UTÁN futott. Összesen 29 képkocka-
+ * kihagyás / 1017 ms jutott a néző szeme elé. A felhasználó kérése: inkább
+ * legyen fent tovább a takarókép, de UTÁNA egyetlen villámgyors, teljesen
+ * működő váltás. Ezért most a felfedés megvárja a boot-adatokat, a mentett
+ * HU EPG-t, és az első KIRAJZOLT videó-képkockát (legfeljebb 8 s); 12 s a
+ * kemény felső korlát. A natív splash és a saját takaróréteg is EGY PILLANATBAN,
+ * PONTOSAN EGYSZER kerül le.
+ */
 const BOOT_FAST_REVEAL_MS = 1500;
+const BOOT_MAX_REVEAL_MS = 12000;
 const bootElapsed = (): number => Math.max(0, Date.now() - BOOT_EPOCH_MS);
 
 /* A célzott figyelők csak a kézi naplózás aktív időszakában rögzítenek. */
@@ -126,22 +140,35 @@ try {
     </StrictMode>
   );
 
-  // A natív webOS PNG-t az első tényleges React DOM-elemek megjelenésekor
-  // engedjük el. Nincs saját splash, animáció, progressz-képernyő vagy reveal.
+  /*
+   * 2.5.405 / #49 – A NATÍV SPLASH NEM MEHET LE AZ ELSŐ REACT GYEREKNÉL.
+   *
+   * A #49-ben a `notifyAppLoaded` már +796 ms-nél kiment (`#root gyermekek=1`),
+   * miközben a videó `readyState=0` maradt +7,8 s-ig és az EPG/háttérmunka is
+   * csak utána indult. Most a natív splash elengedése a VALÓDI felfedéshez van
+   * kötve, és PONTOSAN EGYSZER fut. Ha a platform mégis korábban levenné a
+   * saját PNG-jét, az index.html `#tv-curtain` rétege takar tovább.
+   */
+  let nativeSplashReleased = false;
   const releaseNativeSplash = () => {
+    if (nativeSplashReleased) return;
+    nativeSplashReleased = true;
     const mountedRoot = document.getElementById("root");
-    if (mountedRoot && mountedRoot.childElementCount > 0) {
-      /* 2.5.397: a webOS natív splash elengedése is mérhető naplósor. */
-      logPhase(
-        `TAKARÓKÉP ELLENŐRZÉS [+${bootElapsed()} ms] webOS notifyAppLoaded: #root gyermekek=${mountedRoot.childElementCount}; `
-        + `híd=${(window as any).webOSSystem?.notifyAppLoaded ? 'van' : 'nincs'}; natív splash elengedve`,
-      );
-      try { (window as any).webOSSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
-      return;
-    }
-    window.setTimeout(releaseNativeSplash, 16);
+    const host = window as any;
+    const hasBridge = Boolean(host.webOSSystem?.notifyAppLoaded || host.PalmSystem?.notifyAppLoaded);
+    /* 2.5.397: a webOS natív splash elengedése is mérhető naplósor. */
+    logPhase(
+      `TAKARÓKÉP ELLENŐRZÉS [+${bootElapsed()} ms] webOS notifyAppLoaded: #root gyermekek=${mountedRoot?.childElementCount ?? 0}; `
+      + `híd=${hasBridge ? 'van' : 'nincs'}; natív splash elengedve (egyszer, a kész főoldalnál)`,
+    );
+    try { host.webOSSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
+    try { host.PalmSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
   };
-  window.setTimeout(releaseNativeSplash, 0);
+  /* Vészfog: ha a JS lánc mégis elakadna, a natív splash se maradjon örökké;
+     a saját #tv-curtain ilyenkor is takarja a félkész fát. */
+  window.setTimeout(() => {
+    if (!nativeSplashReleased) releaseNativeSplash();
+  }, BOOT_MAX_REVEAL_MS + 2000);
 
   stage(5, "React mount elindítva");
   bootScreenPhase('react', 'A React felület felépítése elindult.');
@@ -178,18 +205,42 @@ try {
    *
    * A régi megjelenítési híd eltávolítva; a natív webOS indítókép
    * biztonsági hálóval, hogy semmi ne maradjon rejtve). A háló szándékosan a
-   * lenti 9 mp-es saját korlát FELETT van: így normál esetben mindig az
+   * lenti 12 mp-es saját korlát FELETT van: így normál esetben mindig az
    * alkalmazás dönt a megjelenésről, nem egy korábban elsülő időzítő – ez volt
    * az oka annak, hogy a takarókép idő előtt lement, és a félkész főoldal a
    * néző szeme előtt épült tovább („ugrált”).
    */
   const reveal = (_reason: string) => {
-    // A saját HTML-es indítóképernyő eltávolítva: csak a webOS natív splash
-    // lezárását jelezzük, ha a régi indulási állapotgép ide ér.
     logPhase(
       `TAKARÓKÉP ELLENŐRZÉS [+${bootElapsed()} ms] FELFEDÉS: ok=${_reason}; `
-      + `webOS notifyAppLoaded meghívva; takarókép fent=${bootElapsed()} ms`,
+      + `webOS notifyAppLoaded meghívva; takarókép fent=${bootElapsed()} ms; `
+      + `saját takaróréteg=le; hangzár=nyitva`,
     );
+    /* 2.5.405 / #49 – EGYETLEN VILLÁMGYORS VÁLTÁS. A saját #tv-curtain
+       réteget (ugyanaz a splash PNG, mint a natívé) egy lépésben távolítjuk
+       el, és ugyanebben a pillanatban nyitjuk az indulási hangzárat. Nincs
+       fade, nincs több lépcső: a felfedés után a kész, működő főoldal
+       látszik, a videó már az első képkockánál jár. */
+    try {
+      const curtain = document.getElementById('tv-curtain');
+      if (curtain && curtain.parentNode) curtain.parentNode.removeChild(curtain);
+      document.documentElement.classList.remove('iptv-booting');
+      document.documentElement.classList.add('iptv-revealed');
+    } catch { /* régi motor */ }
+    try {
+      (window as any).__IPTV_AUDIO_GATE__ = false;
+      const custom = (window as any).CustomEvent;
+      let signal: Event | null = null;
+      if (typeof custom === 'function') {
+        signal = new custom('iptv-audio-open');
+      } else if (typeof document.createEvent === 'function') {
+        const legacy = document.createEvent('Event');
+        legacy.initEvent('iptv-audio-open', false, false);
+        signal = legacy;
+      }
+      if (signal) window.dispatchEvent(signal);
+    } catch { /* régi motor */ }
+    releaseNativeSplash();
     /* 2.5.399 – A #39 naplóban a `BOOT-DIAG ÖSSZEGZÉS +25697 ms` ezt írta:
        `felület megjelent=nem történt meg`, miközben a `FELFEDÉS` és a
        `TAKARÓKÉP ÖSSZEGZÉS` már korábban megtörtént. A HTML indítószkript
@@ -200,7 +251,6 @@ try {
       const mark = (window as any).__IPTV_BOOT_MARK__;
       if (typeof mark === 'function') mark('REVEAL');
     } catch { /* régi motor */ }
-    try { (window as any).webOSSystem?.notifyAppLoaded?.(); } catch { /* régi webOS */ }
   };
 
   /*
@@ -250,6 +300,12 @@ try {
   const bootState = (): string =>
     document.documentElement.getAttribute("data-iptv-boot") || "checking";
   const emptyBoot = (): boolean => bootState() === "empty";
+  /**
+   * 2.5.405 / #49: az App a boot-próba VÉGÉN (csatornák, kedvencek, mentett
+   * HU EPG visszatöltése után) állítja. A #49-ben a `liveListReady` már
+   * +799 ms-nél igaz volt, de a látható adatok még hátra voltak.
+   */
+  const bootDataReady = (): boolean => (window as any).__IPTV_BOOT_DATA_READY__ === true;
 
   // A csatornalista sorai (role="option") - ezek megjelenése jelenti a kész
   // főoldalt. Üres IPK-nál az üres állapot maga a kész felület.
@@ -295,16 +351,14 @@ try {
    * a tényleges képkocka megérkezésekor a lejátszó maga vált.
    */
   /*
-   * 2.5.394 – A VÁRAKOZÁS TÉNYLEGESEN NULLA.
-   *
-   * A #37/#35 naplókban a felfedés még mindig +250/+400 ms-t várt a logókra
-   * és az első videókockára, miközben a #root már látható volt és a lejátszó
-   * posztere is a képernyőn volt. Ez a fél másodperc TISZTA veszteség: a
-   * `iptv-app-ready` jel (és vele a mentett katalógus visszatöltése) is
-   * késett. A poszter miatt nincs fekete terület, ezért a felfedés
-   * AZONNAL megtörténik, amint a fejléc + lista a DOM-ban van.
+   * 2.5.405 / #49: a #49-ben `VIDEO_WAIT_MS=0` miatt a felfedés NEM várt az
+   * első képkockára, ezért a néző `videó-kész=nem` állapotban, üres videó-
+   * területtel kapta meg a főoldalt. Most legfeljebb 8 s-ig várunk a VALÓDI,
+   * kirajzolt képkockára (a #49 mérése +7,8 s volt); ha a motor nem ad
+   * képkockát, a 12 s-es kemény korlát így is felfed. A logók továbbra sem
+   * tartanak fel: a poszter/placeholder miatt nincs fekete terület.
    */
-  const VIDEO_WAIT_MS = 0;
+  const VIDEO_WAIT_MS = 8000;
   const LOGO_WAIT_MS = 0;
   /**
    * A teljes lista készenléte – MÁR CSAK NAPLÓZÁSRA (2.5.149).
@@ -488,27 +542,7 @@ try {
      *     foglalt fő szál), akkor is megtörténik a váltás.
      */
     let bootRevealDone = false;
-    const afterBootAnimation = () => {
-      /*
-       * CSAK EGYSZER: a visszahívás és a 400 ms-os biztonsági időzítő is ezt
-       * hívja, a felfedés és az `iptv-app-ready` jelzés viszont egyszer
-       * futhat le (különben a lista-visszatöltés kétszer indulna).
-       */
-      if (bootRevealDone) return;
-      bootRevealDone = true;
-      reveal(reason);
-      /* 2.5.397: egyetlen összegző sor – meddig volt fent a takarókép és miért. */
-      logPhase(
-        `TAKARÓKÉP ÖSSZEGZÉS [+${bootElapsed()} ms] takarókép fent=${bootElapsed()} ms; ok=${reason}; `
-        + `videó-kész=${videoSettled() ? 'igen' : 'nem'}; logó-kész=${logosSettled() ? 'igen' : 'nem'}; `
-        + `előfestés=${prepaintSettled() ? 'igen' : 'nem'}; teljes lista=${liveListReady() ? 'igen' : 'nem'}; `
-        + `képkocka-várakozás=${paintFallbacks}; iptv-app-ready következik`,
-      );
-      /*
-       * A jelzés a felfedés UTÁN megy ki – az App ebből indítja a teljes lista
-       * visszatöltését. `window.CustomEvent` (nem a globális), mert a régi
-       * webOS motorokon és a teszt-környezetben is ez a helyes példány.
-       */
+    const dispatchAppReady = () => {
       try {
         let signal: Event | null = null;
         const custom = (window as any).CustomEvent;
@@ -521,6 +555,27 @@ try {
         }
         if (signal) window.dispatchEvent(signal);
       } catch { /* régi motor */ }
+    };
+    const afterBootAnimation = () => {
+      /*
+       * CSAK EGYSZER: a visszahívás és a 400 ms-os biztonsági időzítő is ezt
+       * hívja, a felfedés és az `iptv-app-ready` jelzés viszont egyszer
+       * futhat le (különben a lista-visszatöltés kétszer indulna).
+       */
+      if (bootRevealDone) return;
+      bootRevealDone = true;
+      /* 2.5.405 / #49: a háttérmunka jelzése MÉG A TAKARÓKÉP ALATT megy ki,
+         nem a felfedés UTÁN, hogy semmi ne a néző szeme előtt induljon. */
+      dispatchAppReady();
+      reveal(reason);
+      /* 2.5.397: egyetlen összegző sor – meddig volt fent a takarókép és miért. */
+      logPhase(
+        `TAKARÓKÉP ÖSSZEGZÉS [+${bootElapsed()} ms] takarókép fent=${bootElapsed()} ms; ok=${reason}; `
+        + `videó-kész=${videoSettled() ? 'igen' : 'nem'}; logó-kész=${logosSettled() ? 'igen' : 'nem'}; `
+        + `előfestés=${prepaintSettled() ? 'igen' : 'nem'}; teljes lista=${liveListReady() ? 'igen' : 'nem'}; `
+        + `adat-kész=${bootDataReady() ? 'igen' : 'nem'}; képkocka-várakozás=${paintFallbacks}; `
+        + `iptv-app-ready kiment a felfedés ELŐTT`,
+      );
     };
     /*
      * 2.5.392: a saját HTML-es betöltőképernyő MÁR NINCS az index.html-ben,
@@ -602,6 +657,7 @@ try {
     /* 2.5.397: az LG TV / webOS összes indulási kapuja egyetlen, ms-idős sorban. */
     bootStep('kapuk', {
       chromeReady: chromeOk,
+      bootDataReady: bootDataReady(),
       listReady: listReady(),
       liveListReady: liveListReady(),
       vanCsatornaSor: hasChannelRow(),
@@ -647,7 +703,9 @@ try {
     }
 
     const listOk = listReady() || (liveListReady() && hasChannelRow());
-    if (chromeOk && (listOk || onlyDialog)) {
+    /* 2.5.405 / #49: a lista DOM-jele önmagában NEM elég; a csatornáknak,
+       kedvenceknek és a mentett HU EPG-nek is kész kell lennie. */
+    if (chromeOk && bootDataReady() && (listOk || onlyDialog)) {
       /*
        * ÜRES IPK: nincs csatorna, nincs stream, nincs logó. A felület
        * EGYETLEN kész egységként rajzolódott ki – azonnal, egyetlen
@@ -675,7 +733,9 @@ try {
        * mp-re tolódott. A látható felület viszont enélkül is kész: a fejléc,
        * a csatornalista (induló készlettel) és a lejátszó már megvan.
        * A teljes lista a felfedés UTÁN, a kész felület fölött érkezik
-       * (App: startBackgroundWork → iptv-app-ready).
+       * (App: startBackgroundWork közvetlenül a boot-próba végén indul;
+       * nincs `iptv-app-ready` listener). A mentett HU műsorújság viszont
+       * már a takarókép ALATT visszatöltődik (2.5.405 / #49).
        */
       if (logosOk && videoOk) {
         revealWhenPainted("kész főoldal");
@@ -684,32 +744,40 @@ try {
     }
 
     /*
-     * 2.5.399 – GYORS BIZTONSÁGI HÁLÓ A #39 ESETÉRE. A naplóban egy
-     * 1017 ms-es főszál-fagyás (és összesen 29 képkocka-kihagyás) miatt a
-     * 40 ms-os ellenőrző ciklus is leállt, ezért a takarókép 1838 ms-ig
-     * fent ragadt. Ha a tartalom már eldőlt, a fejléc kész és az élő lista
-     * jelezte, hogy kész, 1,5 s után NEM várunk tovább: a fagyás utáni
-     * első körben azonnal felfedünk.
+     * 2.5.405 / #49 – GYORS BIZTONSÁGI HÁLÓ. A #39 naplóban egy 1017 ms-es
+     * főszál-fagyás miatt a 40 ms-os ellenőrző ciklus is leállt; ilyenkor
+     * 1,5 s után azonnal felfedünk, DE CSAK akkor, ha MINDEN valódi kapu
+     * kész (boot-adatok, első videó-képkocka, logók). A #49-ben épp az volt
+     * a baj, hogy a gyors háló `videó-kész=nem` állapotban engedett.
      */
-    if (elapsed > BOOT_FAST_REVEAL_MS && chromeOk && bootState() !== "checking"
-        && liveListReady() && listOk) {
-      revealWhenPainted("gyors indulás – a takarókép nem vár tovább");
+    if (elapsed > BOOT_FAST_REVEAL_MS && chromeOk && bootDataReady()
+        && bootState() !== "checking" && liveListReady() && listOk
+        && videoSettled() && logosSettled()) {
+      /* 2.5.405 / #49: ez a háló NEM kerülheti meg az első képkockát. Ha a
+         videó még nem festett, a takarókép szándékosan fent marad. */
+      revealWhenPainted("gyors indulás – minden kapu kész");
       return;
     }
 
     /*
-     * GYORS BIZTONSÁGI HÁLÓ: ha a tároló-felmérés valamiért nem döntött
-     * (pl. az IndexedDB megnyitása elakad), 3,5 mp után akkor is megjelenik
-     * a már kirajzolt felület. Így a legrosszabb eset sem 9 mp.
+     * 2.5.405 / #49 – TÁROLÓ-PRÓBA HÁLÓ. Ha az IndexedDB megnyitása elakad,
+     * 3,5 mp után is felfedhetünk, DE a #49 tanulsága szerint ekkor SEM
+     * engedhetjük meg a félkész főoldalt: a boot-adatoknak, az első
+     * videó-képkockának és a logóknak is kész kell lenniük. Ha valamelyik
+     * hiányzik, inkább a 12 s kemény korlátig takar a #tv-curtain.
      */
-    if (elapsed > 3500 && chromeReady() && bootState() === "checking") {
-      revealWhenPainted("gyors indulás – tároló-próba lassú");
+    if (elapsed > 3500 && chromeReady() && bootDataReady()
+        && bootState() === "checking" && listOk
+        && videoSettled() && logosSettled()) {
+      revealWhenPainted("gyors indulás – tároló-próba lassú, de minden kapu kész");
       return;
     }
 
-    if (elapsed > 9000) {
-      // Kemény felső korlát: semmi nem maradhat a takarékép mögött.
-      // Ez az alkalmazás SAJÁT döntése, és az index.html 12 mp-es hálója elé
+    if (elapsed > BOOT_MAX_REVEAL_MS) {
+      // 2.5.405 / #49: 9 s helyett 12 s – a #49-ben az első képkocka +7,8 s-nél
+      // jött, ezért a régi 9 s-es korlát épp a kész kép ELŐTT vágta el a várakozást.
+      // Kemény felső korlát: semmi nem maradhat a takarókép mögött.
+      // Ez az alkalmazás SAJÁT döntése, és az index.html 14 mp-es hálója elé
       // esik – tehát a takarékép soha nem tűnik el azelőtt, hogy az alkalmazás
       // befejezte volna a döntést a főoldal állapotáról.
       //
@@ -724,7 +792,7 @@ try {
       // Ez volt az „az utolsó másodpercre visszaugrott a takaróképre”.
       // Most ez az ág is a teljes revealNow() utat járja be.
       revealNow("időtúllépés");
-      if (!headerReady()) fail("A felület 9 másodperc alatt nem rajzolódott ki.");
+      if (!headerReady()) fail("A felület 12 másodperc alatt nem rajzolódott ki.");
       return;
     }
 
