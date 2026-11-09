@@ -16,6 +16,7 @@
  * ki először, hogy hosszú használat után se nője túl a TV tárhelyét.
  */
 import type { AudioTrack } from '../types/iptv';
+import { providerScopePrefix } from './providerScope';
 
 /** Egy csatornához mentett hangsáv ismertetőjegyei. */
 export interface SavedLiveAudioTrack {
@@ -53,7 +54,7 @@ function storage(): Storage | null {
 }
 
 function normalizeChannelId(channelId: string | number | null | undefined): string {
-  return String(channelId ?? '').trim().slice(0, MAX_KEY_LENGTH);
+  return (providerScopePrefix() + String(channelId ?? '').trim()).slice(0, MAX_KEY_LENGTH);
 }
 
 /** Nyelvkód-egységesítés: `hu-HU`, `HUN`, `Magyar` → `hu`. */
