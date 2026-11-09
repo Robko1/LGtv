@@ -1413,6 +1413,7 @@ function updateCatalogState(mutate: (state: CatalogState) => void, providerId = 
     state.savedAt = Math.max(state.savedAt, state.sections.live?.savedAt || 0,
       state.sections.vod?.savedAt || 0, state.sections.series?.savedAt || 0);
     cachedCatalogState = state;
+    cachedCatalogStateProviderId = providerId || activeProviderScopeId();
     try { write(CONTENT_STATE_KEY, state); } catch { /* kis kulcs, nem kritikus */ }
     try {
       const store = await contentChunkStore();
