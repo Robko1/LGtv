@@ -22,6 +22,7 @@ import {
   ChunkStore, ChunkEntry, IDB_BATCH_SIZE, ensureDurableStorage,
   onIdbStoreReset, openIdbStore, storageBudgetBytes,
 } from './idbStore';
+import { providerScopePrefix } from './providerScope';
 
 
 /* RÉSZLETES TARTÓS VISSZATÖLTÉSI MÉRÉS – csak aktív naplózáskor ír sorokat. */
@@ -379,6 +380,26 @@ function yieldToStorage(): Promise<void> {
 let contentStorePromise: Promise<ChunkStore | null> | null = null;
 let durableStorageLogged = false;
 let resetSubscribed = false;
+function scopedChunkStore(store: ChunkStore, prefix: string): ChunkStore {
+  if (!prefix) return store;
+  const scoped: ChunkStore = {
+    name: `${store.name} [${prefix}]`,
+    put: (key, value) => store.put(prefix + key, value),
+    putMany: (entries) => store.putMany(entries.map((entry) => ({ ...entry, key: prefix + entry.key }))),
+    get: (key) => store.get(prefix + key),
+    remove: (key) => store.remove(prefix + key),
+    removeMany: (keys) => store.removeMany(keys.map((key) => prefix + key)),
+    keys: async () => (await store.keys()).filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length)),
+    clear: async () => {
+      const keys = (await store.keys()).filter((key) => key.startsWith(prefix));
+      if (keys.length) await store.removeMany(keys);
+    },
+  };
+  if (store.getMany) scoped.getMany = (keys) => store.getMany!(keys.map((key) => prefix + key));
+  if (store.getRaw) scoped.getRaw = (key) => store.getRaw!(prefix + key);
+  return scoped;
+}
+
 function contentChunkStore(): Promise<ChunkStore | null> {
   if (!resetSubscribed) {
     resetSubscribed = true;
@@ -407,7 +428,7 @@ function contentChunkStore(): Promise<ChunkStore | null> {
       return store;
     })();
   }
-  return contentStorePromise;
+  return contentStorePromise.then((store) => store ? scopedChunkStore(store, providerScopePrefix()) : null);
 }
 const LOCAL_PREFIX = 'iptv_rt_';
 const LOCAL_BUDGET = 2000000; // böngészőben ennyi karakterig mentünk
@@ -489,22 +510,23 @@ const backend: Backend = (() => {
     window.localStorage.removeItem('iptv_rt_probe');
     return {
       name: 'local',
-      get: (key) => window.localStorage.getItem(LOCAL_PREFIX + key) || '',
+      get: (key) => window.localStorage.getItem(LOCAL_PREFIX + providerScopePrefix() + key) || '',
       put: (key, value) => {
         try {
-          window.localStorage.setItem(LOCAL_PREFIX + key, value);
+          window.localStorage.setItem(LOCAL_PREFIX + providerScopePrefix() + key, value);
           return true;
         } catch {
           return false;
         }
       },
-      remove: (key) => window.localStorage.removeItem(LOCAL_PREFIX + key),
+      remove: (key) => window.localStorage.removeItem(LOCAL_PREFIX + providerScopePrefix() + key),
       keys: () => {
         const keys: string[] = [];
+        const scopedPrefix = LOCAL_PREFIX + providerScopePrefix();
         try {
           for (let index = 0; index < window.localStorage.length; index++) {
             const key = window.localStorage.key(index);
-            if (key && key.startsWith(LOCAL_PREFIX)) keys.push(key.slice(LOCAL_PREFIX.length));
+            if (key && key.startsWith(scopedPrefix)) keys.push(key.slice(scopedPrefix.length));
           }
         } catch {
           /* a felsorolás hibája nem akadályozhatja a mentést */
@@ -515,15 +537,18 @@ const backend: Backend = (() => {
   } catch {
     return {
       name: 'memory',
-      get: (key) => memory.get(key) || '',
+      get: (key) => memory.get(providerScopePrefix() + key) || '',
       put: (key, value) => {
-        memory.set(key, value);
+        memory.set(providerScopePrefix() + key, value);
         return true;
       },
       remove: (key) => {
-        memory.delete(key);
+        memory.delete(providerScopePrefix() + key);
       },
-      keys: () => Array.from(memory.keys()),
+      keys: () => {
+        const prefix = providerScopePrefix();
+        return Array.from(memory.keys()).filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));
+      },
     };
   }
 })();
