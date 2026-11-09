@@ -3289,6 +3289,28 @@ export function App() {
     }
   };
 
+  // Szolgáltatóváltás: a kiválasztott fiók lesz az egyetlen aktív,
+  // majd a saját azonosítójával frissítjük/visszatöltjük a tartalmát.
+  // A másik szolgáltató mentett adatait és személyes beállításait nem töröljük.
+  const handleActivateProvider = (provider: ProviderAccount) => {
+    if (!provider?.id || activeProviderRef.current?.id === provider.id) return;
+    const nextProviders = providers.map((item) => ({
+      ...item,
+      isActive: item.id === provider.id,
+    }));
+    setProviders(nextProviders);
+    storageService.saveProviders(nextProviders);
+    storageService.clearLastChannel();
+    handleUpdateSettings({
+      activeProviderId: provider.id,
+      lastPlayedChannelId: undefined,
+    });
+    appLog(`Szolgáltatóváltás: „${provider.name}” aktiválása.`);
+    // A meglévő frissítési útvonal szolgáltatói ID alapján választja ki
+    // a megfelelő katalógust; nem használja fel az előző szolgáltató listáját.
+    void handleRefreshProvider({ ...provider, isActive: true, status: 'loading' }, true);
+  };
+
   // Delete Provider
   /*
    * A megerősítést a Beállítások ablak SAJÁT, távirányítóval is kezelhető
@@ -5592,6 +5614,7 @@ export function App() {
         onEditProvider={(provider) => { setEditingProvider(provider); setIsAddProviderOpen(true); }}
         onDeleteProvider={handleDeleteProvider}
         onRefreshProvider={handleRefreshProvider}
+        onActivateProvider={handleActivateProvider}
         onOpenImportDiagnostic={(provider) => {
           // A napló bármikor megnyitható legyen, akkor is, ha az első import
           // pillanatfelvétele még nem kapta meg a szolgáltató azonosítóját.
