@@ -2826,14 +2826,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
   const armBufferWatchdog = useCallback(() => {
-    // Élő TV-n nincs automatikus pufferfigyelés; ez az őr csak VOD-hoz marad.
-    if (!isVodRef.current) return;
+    // Az alap pufferfigyelő megmarad; élő TV-n csak jelez, nem indít új forrást.
     // Többször érkező waiting/stalled esemény ne tolja ki folyton a határidőt.
     if (bufferWatchdogRef.current !== null) return;
     const video = htmlVideoRef.current;
-    // Ez a watchdog kizárólag VOD lejátszást figyel.
     if (!video || !playbackStartedRef.current || video.paused) return;
-    if (!tvDoctorEnabledRef.current) return;
+    if (isVodRef.current && !tvDoctorEnabledRef.current) return;
     const generation = streamLoadGenerationRef.current;
     const startedAt = Date.now();
     const startSample = readMediaProgress(video, startedAt);
@@ -2928,15 +2926,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [scheduleAutoRetry]);
 
   /*
-   * VOD LEJÁTSZÁSFIGYELŐ. Élő TV-n nincs automatikus fagyásfigyelés.
+   * ALAP LEJÁTSZÁSFIGYELŐ. Az élő TV figyelése megmarad, de a TV Doktor
+   * automatikus beavatkozási/újracsatlakozási útja ki van kapcsolva.
    */
   useEffect(() => {
-    // Az élő csatornák folyamatos fagyásfigyelője kikapcsolva; VOD változatlan.
-    if (!isPlaying || !isVod) return;
+    if (!isPlaying) return;
     const video = htmlVideoRef.current;
     if (!video) return;
-    // A VOD változatlan, türelmes 7 másodperces figyelése.
-    const detector = new StallDetector(7000);
+    const detector = new StallDetector(isVod ? 7000 : bufferTiming().stallDetectorMs);
     stallDetectorRef.current = detector;
     let previousSample: MediaProgressSample | null = null;
     const generation = streamLoadGenerationRef.current;
