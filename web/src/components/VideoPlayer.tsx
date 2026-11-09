@@ -1884,7 +1884,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [clearDoctorBufferingStatusTimer, clearDoctorStatusTimer]);
 
   const scheduleDoctorBufferingStatus = useCallback(() => {
-    if (!tvDoctorEnabledRef.current) return;
+    // Élő TV-n a pufferelési státuszfigyelés végleg tiltva; csak VOD használhatja.
+    if (!tvDoctorEnabledRef.current || !isVodRef.current) return;
     if (doctorBufferingStatusTimerRef.current !== null) return;
     const video = htmlVideoRef.current;
     // A `waiting` esemény csak futó lejátszásnál értelmezhető; a néző
@@ -2267,7 +2268,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     errorDetail?: string | null,
     stallMs?: number,
   ): void => {
-    if (!tvDoctorEnabledRef.current) return;
+    // Élő TV-n puffer-/fagyásriasztásból TV Doktor-javítás nem indulhat.
+    if (!tvDoctorEnabledRef.current || (!isVodRef.current && (trigger === 'buffer_stall' || trigger === 'playback_stall'))) return;
     try {
       const docState = doctorSessionRef.current;
       const gate = doctorIncidentRef.current;
