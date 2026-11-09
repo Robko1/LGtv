@@ -3121,6 +3121,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Már elindult élő adás ÉS (aktív TV Doktor mellett) film/sorozat
     // beragadt pufferelését is felügyeljük; VOD esetén türelmesebb ablakkal.
     if (!video || !playbackStartedRef.current || video.paused) return;
+    // 2026-11: élő adásnál a normál automatikus puffer-watchdog szünetel,
+    // amíg a TV Doktor ki van kapcsolva. Így a rövid waiting/stalled
+    // jelzések nem tölthetik újra önállóan a működő streamet.
+    if (!isVodRef.current && !tvDoctorEnabledRef.current) return;
     if (isVodRef.current && !tvDoctorEnabledRef.current) return;
     const generation = streamLoadGenerationRef.current;
     const startedAt = Date.now();
@@ -3244,6 +3248,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         !playbackStartedRef.current ||
         switchInProgressRef.current
       ) {
+        detector.reset();
+        previousSample = null;
+        return;
+      }
+      // A normál élő adás automatikus fagyás-újraindítása szünetel a következő
+      // diagnosztikai naplóig, ha a TV Doktor ki van kapcsolva. A TV Doktor
+      // bekapcsolt állapotában és VOD-nál az eredeti figyelés változatlan.
+      if (!isVod && !tvDoctorEnabledRef.current) {
         detector.reset();
         previousSample = null;
         return;
@@ -7439,7 +7451,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {(isLoading || isRecovering) && (currentStreamHasFrame ? (
         <div
           data-playback-status=""
-          className={`${(!isVod && currentStreamHasFrame) || (isFullscreen && settings.tvDoctorEnabled !== false) ? 'hidden ' : ''}absolute flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 pointer-events-none ${
+          className={`${isFullscreen && settings.tvDoctorEnabled !== false ? 'hidden ' : ''}absolute flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 pointer-events-none ${
             isFullscreen
               ? (settings.alwaysShowBlueClock ? 'top-[4.75rem] right-3 bottom-auto left-auto z-[80]' : 'top-3 right-3 bottom-auto left-auto z-[80]')
               : 'bottom-3 left-3 z-30'
