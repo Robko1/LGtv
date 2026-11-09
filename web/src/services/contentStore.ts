@@ -3640,6 +3640,7 @@ let restoreCancelled = false;
  * akkor, amikor a néző tényleg megnyitja a Mozi vagy Sorozat menüt.
  */
 let restoreDone: { live: boolean; movies: boolean; series: boolean } = { live: false, movies: false, series: false };
+let restoreProviderId = '';
 
 /**
  * 2.5.294: VÁR-E MÉG VISSZATÖLTÉSRE A SZAKASZ?
@@ -3650,6 +3651,7 @@ let restoreDone: { live: boolean; movies: boolean; series: boolean } = { live: f
  * – enélkül a néző tartósan az első 500 filmnél ragadt.
  */
 export function storedRestorePending(section: 'vod' | 'series'): boolean {
+  if (restoreProviderId !== activeProviderScopeId()) return true;
   return section === 'vod' ? !restoreDone.movies : !restoreDone.series;
 }
 
@@ -3658,6 +3660,7 @@ export function cancelStoredContentRestore(): void {
   restoreCancelled = true;
   restoreChain = Promise.resolve();
   restoreDone = { live: false, movies: false, series: false };
+  restoreProviderId = activeProviderScopeId();
 }
 
 /**
@@ -3699,7 +3702,12 @@ export function restoreStoredContent(
     shouldAbort?: () => boolean;
   } = {},
 ): Promise<void> {
-  setActiveProviderScope(plan.provider.id);
+  const providerId = plan.provider.id;
+  if (restoreProviderId !== providerId) {
+    restoreDone = { live: false, movies: false, series: false };
+    restoreProviderId = providerId;
+  }
+  setActiveProviderScope(providerId);
   const scope = options.scope || 'all';
   const wantLive = scope === 'all' || scope === 'live';
   const wantMovies = scope === 'all' || scope === 'vod' || scope === 'movies';
@@ -3711,7 +3719,7 @@ export function restoreStoredContent(
   const startedAt = Date.now();
   const run = async (): Promise<void> => {
     // 2.5.281: a külső leállítási jel is ugyanúgy működik, mint a cancel.
-    const aborted = () => restoreCancelled || Boolean(options.shouldAbort?.());
+    const aborted = () => restoreCancelled || activeProviderScopeId() !== providerId || Boolean(options.shouldAbort?.());
     if (aborted()) return;
     const provider = plan.provider;
     let loaded = '';
