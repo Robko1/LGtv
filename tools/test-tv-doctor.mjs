@@ -109,15 +109,29 @@ check(
 // Az első (régi) szolgáltató kulcsa változatlan marad, hogy a meglévő tanulás ne vesszen el.
 const providerScopeStorage = new MemoryStorage();
 globalThis.localStorage = providerScopeStorage;
-core.setActiveProviderScope('provider-a');
+core.setTvDoctorProviderScope('provider-a');
 const providerAChannelKey = core.normalizeChannelDoctorKey({ id: 'same-id', name: '[HU] M4 Sport HD' });
-core.setActiveProviderScope('provider-b');
+const layoutStore = new MemoryStorage();
+const layoutAKey = core.normalizeSavedLayoutChannelKey('[HU] M4 Sport HD|lc-1');
+core.setTvDoctorHungarianChannelScope(['a-id'], undefined, [
+  { id: 'a-id', nameKey: '[HU] M4 Sport HD|lc-1', channelKey: layoutAKey, name: '[HU] M4 SPORT HD', position: 1 },
+], layoutStore);
+const savedProviderAScope = layoutStore.getItem('iptv_rt_tv_doctor_hu_scope_v1');
+core.setTvDoctorProviderScope('provider-b');
 const providerBChannelKey = core.normalizeChannelDoctorKey({ id: 'same-id', name: '[HU] M4 Sport HD' });
-core.setActiveProviderScope('provider-a');
+const layoutBKey = core.normalizeSavedLayoutChannelKey('[HU] M4 Sport HD|lc-1');
+core.setTvDoctorHungarianChannelScope(['b-id'], undefined, [
+  { id: 'b-id', nameKey: '[HU] M4 Sport HD|lc-2', channelKey: layoutBKey, name: '[HU] M4 SPORT HD', position: 1 },
+], layoutStore);
+const savedProviderBScope = layoutStore.getItem('provider:provider-b:iptv_rt_tv_doctor_hu_scope_v1');
+core.setTvDoctorProviderScope('provider-a');
 check(
   providerAChannelKey === 'hu:m4-sport-hd'
     && providerBChannelKey !== providerAChannelKey
-    && providerBChannelKey.includes('provider:provider-b:'),
+    && providerBChannelKey.includes('provider:provider-b:')
+    && layoutAKey !== layoutBKey
+    && Boolean(savedProviderAScope)
+    && Boolean(savedProviderBScope),
   'a TV Doktor azonos nevű csatornái szolgáltatónként külön tanulnak, a régi szolgáltató adatai megmaradnak',
 );
 
