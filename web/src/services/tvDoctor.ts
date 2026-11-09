@@ -443,15 +443,28 @@ export function shouldSkipDoctorLadderForProvenChannel(input: {
   /** Igazolt médiahia (`video.error`) – ilyenkor a létra jogos. */
   mediaError?: boolean;
   healthyThresholdMs?: number;
+  /**
+   * 2.5.403 (#46): hány EGYMÁS UTÁNI sikertelen újracsatlakozás történt már.
+   * A TLC-védelem csak az első két, azonos beállítású újracsatlakozásra
+   * vonatkozik. A #46 M2 UHD-jén a csatorna 3× sikeresen játszott, majd
+   * 5–6 azonos `TS + balanced` próba után kapta meg a „nem működik” feliratot
+   * – a létra EGYSZER SEM indult el, mert ez a függvény minden eseménynél
+   * visszalépett. Ismétlődő hiba esetén a 16 beállításos javításnak kell futnia.
+   */
+  consecutiveFailures?: number;
 }): boolean {
   const {
     trigger,
     healthyPlaybackMs = 0,
     mediaError = false,
     healthyThresholdMs = DOCTOR_HEALTHY_PLAYBACK_MS,
+    consecutiveFailures = 0,
   } = input;
   if (trigger !== 'unexpected_end' && trigger !== 'unexpected_pause') return false;
   if (mediaError) return false;
+  // Kettőnél több egymás utáni sikertelen próba már NEM átmeneti lezárulás:
+  // ilyenkor a teljes javítási létra (8 lépés × 2 formátum) jogos.
+  if (consecutiveFailures >= 2) return false;
   return healthyPlaybackMs >= healthyThresholdMs;
 }
 
@@ -474,6 +487,125 @@ export function canDeclareChannelDead(input: {
    */
   return healthyPlaybackMs < healthyThresholdMs;
 }
+/* ============================================================================
+ * 2.5.403 – #46: A 16 KÜLÖNBÖZŐ HIBA-/ÚJRACSATLAKOZÁSI BEÁLLÍTÁS
+ * ============================================================================
+ * A #46 naplóban az [HU] M2 UHD háromszor is SIKERESEN elindult (1614 / 4512 /
+ * 1432 ms), majd a szolgáltató `duration=39.75 s` véges idővonala miatt
+ * újracsatlakozási ciklus indult. Mind a 10 újracsatlakozás
+ *   `stream=MPEG-TS; pufferprofil=balanced; formátum-emlék=ts`
+ * volt, és 5–6 próba után a TV „A csatorna jelenleg nem működik” feliratot
+ * tett ki – miközben a `DOCTOR_BUFFER_CONFIGS` 8 pufferprofilt és a kód 25
+ * javítási stratégiát tartalmaz. Az eltárolt `tv_doctor_events` is ezt
+ * igazolja: `hu:m2-uhd`-ra 3 `repair_attempt`, ebből 2 `ts/balanced`.
+ *
+ * Ok: az újracsatlakozás (`requestRecoveryRef`) NEM a javítási létrát
+ * használta, hanem a saját `liveRecoveryUrl()` backoffját, amely
+ * `attempt < 2` esetén mindig az elsődleges URL-t adja, és 5 próbánál
+ * végleg leáll. A `bufferTiming()` pedig a `balanced` profilon ragadt.
+ *
+ * Most minden egymás utáni sikertelen újracsatlakozás EGY ÚJ, különböző
+ * beállítást kap: 8 pufferprofil × 2 formátum = 16 variáns, körönként
+ * megismételve (hosszabb várakozással), de SOHA végső „nem működik”
+ * ítélettel egy bizonyítottan működő csatornán.
+ * ========================================================================== */
+export const DOCTOR_LIVE_RECOVERY_BUFFER_ORDER: DoctorBufferProfileId[] = [
+  'balanced', 'fast', 'stable', 'turbo', 'instant', 'adaptive-1', 'adaptive-2', 'adaptive-3',
+];
+export const LIVE_RECOVERY_VARIANT_COUNT = DOCTOR_LIVE_RECOVERY_BUFFER_ORDER.length * 2;
+
+export interface DoctorLiveRecoveryVariant {
+  /** 1..16 */
+  index: number;
+  total: number;
+  /** 0 = első 16 variáns, 1 = második kör, … */
+  cycle: number;
+  format: LiveFormat;
+  bufferProfile: DoctorBufferProfileId;
+  timing: DoctorBufferConfig;
+  useAlternateFormat: boolean;
+  strategyId: string;
+  label: string;
+  delayMs: number;
+}
+
+export function planLiveRecoveryVariant(params: {
+  /** 0-alapú: az első variáns = az első SIKERTELEN újracsatlakozás után. */
+  attempt: number;
+  primaryFormat: LiveFormat;
+  baseDelayMs?: number;
+}): DoctorLiveRecoveryVariant {
+  const raw = Math.max(0, Math.floor(Number(params.attempt) || 0));
+  const idx = raw % LIVE_RECOVERY_VARIANT_COUNT;
+  const cycle = Math.floor(raw / LIVE_RECOVERY_VARIANT_COUNT);
+  const bufferProfile = DOCTOR_LIVE_RECOVERY_BUFFER_ORDER[Math.floor(idx / 2)];
+  const useAlternateFormat = idx % 2 === 1;
+  const format: LiveFormat = useAlternateFormat
+    ? (params.primaryFormat === 'hls' ? 'ts' : 'hls')
+    : params.primaryFormat;
+  const timing = getDoctorBufferConfig(bufferProfile);
+  const base = Math.max(50, Math.min(400, Number(params.baseDelayMs) || 60));
+  // Gyors első próbák, majd fokozatosan ritkuló; a körök között sem pörgünk.
+  const delayMs = Math.min(30000, Math.round(base * Math.pow(1.3, idx) + cycle * 2000));
+  return {
+    index: idx + 1,
+    total: LIVE_RECOVERY_VARIANT_COUNT,
+    cycle,
+    format,
+    bufferProfile,
+    timing,
+    useAlternateFormat,
+    strategyId: useAlternateFormat ? 'recovery_alt_format_buffer' : 'recovery_buffer_profile',
+    label: `${idx + 1}/${LIVE_RECOVERY_VARIANT_COUNT}: ${format.toUpperCase()} + ${bufferProfile} (${timing.minBufferAheadSeconds}mp)`,
+    delayMs,
+  };
+}
+
+/** A 16 variáns TÉNYLEGES használata bekerül a TV Doktor naplójába ÉS a Supabase-be. */
+export function recordDoctorRecoveryVariant(params: {
+  channel?: Channel | null;
+  variant: DoctorLiveRecoveryVariant;
+  reason: string;
+  storage?: Storage | null;
+}): void {
+  const { channel, variant, reason, storage } = params;
+  const channelKey = normalizeChannelDoctorKey(channel);
+  const record = getChannelDoctorRecord(channel, storage);
+  logDoctor(
+    'repair',
+    channel,
+    `ÚJRACSATLAKOZÁSI VÁLTOZAT ${variant.label}; indulási-őr=${variant.timing.startupWatchdogMs}ms; `
+    + `lejátszás-őr=${variant.timing.bufferWatchdogMs}ms; várakozás=${variant.delayMs}ms; ok=${reason}`,
+    'assistance',
+    storage,
+  );
+  if (!cloudHook) return;
+  try {
+    cloudHook({
+      eventType: 'repair_attempt',
+      record,
+      event: {
+        channelKey,
+        channelId: channel?.id,
+        channelName: channel?.name || channelKey,
+        playbackFormat: variant.format,
+        bufferProfile: variant.bufferProfile,
+        bufferAheadSeconds: variant.timing.minBufferAheadSeconds,
+        errorReason: reason,
+        details: {
+          step: variant.index,
+          maxSteps: variant.total,
+          strategyId: variant.strategyId,
+          cycle: variant.cycle,
+          recoveryVariant: true,
+        },
+      },
+    });
+  } catch {
+    /* a felhőnapló soha nem szakíthatja meg az újracsatlakozást */
+  }
+}
+
 export const MAX_INTERVENTIONS_PER_MINUTE = 8;
 export const DOCTOR_VERIFY_STABLE_MS = 2200;
 /*
@@ -4087,11 +4219,15 @@ export function buildSafeSpeedTestCandidates(params: {
 }
 
 /** Ellenőrzi, hogy nem léptük-e túl a csatornánkénti percenkénti beavatkozási korlátot. */
-export function canDoctorIntervene(channelKey: string, now = Date.now()): boolean {
+export function canDoctorIntervene(
+  channelKey: string,
+  now = Date.now(),
+  limit: number = MAX_INTERVENTIONS_PER_MINUTE,
+): boolean {
   const windowStart = now - 60_000;
   const list = (interventionTimestampsByChannel.get(channelKey) || []).filter((t) => t >= windowStart);
   interventionTimestampsByChannel.set(channelKey, list);
-  return list.length < MAX_INTERVENTIONS_PER_MINUTE;
+  return list.length < limit;
 }
 
 function markIntervention(channelKey: string, now = Date.now()): void {
@@ -4203,6 +4339,8 @@ export function planDoctorRepairStep(params: {
   /* 2.5.294: a létrán belül már kipróbált tanult útvonalak (`format:puffer`). */
   triedRoutes?: string[];
   storage?: Storage | null;
+  /** 2.5.403 (#46): bizonyítottan működő csatornán 16 próba/perc engedett. */
+  provenWorking?: boolean;
 }): DoctorRepairProposal {
   const {
     channel,
@@ -4219,6 +4357,7 @@ export function planDoctorRepairStep(params: {
     currentBufferTiming,
     triedRoutes,
     storage,
+    provenWorking = false,
   } = params;
 
   const channelKey = normalizeChannelDoctorKey(channel);
@@ -4275,7 +4414,8 @@ export function planDoctorRepairStep(params: {
   // A percenkénti beavatkozási korlát NEM bizonyítja, hogy a csatorna halott.
   // Ha csak a biztonsági limit fogyott el, állítsuk meg ezt a javítási kört,
   // de ne írjunk CHANNEL_UNREACHABLE állapotot és ne indítsunk halott-cooldownt.
-  if (step <= effectiveMaxSteps && !canDoctorIntervene(channelKey)) {
+  const interventionLimit = provenWorking ? LIVE_RECOVERY_VARIANT_COUNT : MAX_INTERVENTIONS_PER_MINUTE;
+  if (step <= effectiveMaxSteps && !canDoctorIntervene(channelKey, Date.now(), interventionLimit)) {
     const safeCfg = getDoctorBufferConfig(record?.bestBufferProfile || currentBufferProfile);
     return {
       step,

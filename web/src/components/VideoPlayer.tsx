@@ -41,8 +41,11 @@ import {
   DOCTOR_PAUSE_CONFIRM_MS,
   DOCTOR_REPAIR_STALE_MS,
   canDeclareChannelDead,
+  DOCTOR_HEALTHY_PLAYBACK_MS,
   isUnfoundedDoctorIncident,
   shouldSkipDoctorLadderForProvenChannel,
+  planLiveRecoveryVariant,
+  recordDoctorRecoveryVariant,
   MAX_DOCTOR_REPAIR_STEPS,
   DoctorBufferProfileId,
   DoctorBaselineProfile,
@@ -892,6 +895,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /** A webOS által véges VOD-ként lezárt live TS után két azonos újrapróba,
    * majd a másik formátum következhet – így nem ragadunk ugyanazon a címen. */
   const liveEndRecoveryAttemptRef = useRef(0);
+  /**
+   * 2.5.403 (#46): a 16 beállításos újracsatlakozás SAJÁT számlálója.
+   * A `recoveryAttemptRef`-et minden rövid `playing` esemény nullázza,
+   * ezért arra nem lehetett a variáns-létrát építeni: a #46-ben minden
+   * próba újra `1/8, TS + balanced` lett. Ez a számláló csak csatorna-
+   * /forrásváltáskor és 90 mp megszakítás nélküli lejátszás után áll vissza.
+   */
+  const liveRecoveryVariantRef = useRef(0);
+  const liveRecoveryVariantLastAtRef = useRef(0);
+  /** Csak VALÓDI csatornaváltás nullázza a létrát; az azonos csatornán
+   * belüli HLS↔TS újracsatlakozások nem (különben mindig 1/16-ról indulna). */
+  const liveRecoveryVariantChannelRef = useRef('');
   const liveDurationRecoveryTimerRef = useRef<number | null>(null);
   /**
    * A két külön formátum-próba után a további próbálkozás már kontrollált
@@ -1870,7 +1885,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const state = doctorSessionRef.current;
       if (!state.repairInFlight || state.verifyTimer !== null) return;
       state.repairInFlight = false;
-      state.repairStep = 0;
+      /* 2.5.403 (#46): bizonyítottan működő csatornán a 12 mp-es őr NEM
+         lépteti vissza a létrát az 1. fokozatra – különben minden próba
+         `1/8, TS + balanced` marad (ezt mutatta a #46 és a Supabase). */
+      state.repairStep = state.healthyPlaybackMs >= DOCTOR_HEALTHY_PLAYBACK_MS
+        ? Math.min(MAX_DOCTOR_REPAIR_STEPS - 1, state.repairStep)
+        : 0;
       state.lastProposal = null;
       appLog('TV DOKTOR: a javítási jelző megerősítés nélkül lejárt – visszaállítva (nincs hamis „Javítás ellenőrzése” felirat).');
       const status = doctorStatusRef.current;
@@ -2226,6 +2246,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         trigger,
         healthyPlaybackMs: docState.healthyPlaybackMs,
         mediaError: Boolean((video || htmlVideoRef.current)?.error),
+        /* 2.5.403 (#46): 3+ egymás utáni sikertelen újracsatlakozásnál a
+           „bizonyítottan működő csatorna” már NEM indok a létra kihagyására. */
+        consecutiveFailures: Math.max(
+          recoveryAttemptRef.current,
+          liveEndRecoveryAttemptRef.current,
+          liveRecoveryVariantRef.current,
+        ),
       })) {
         const provenLine = `TV DOKTOR: BIZONYÍTOTTAN MŰKÖDŐ CSATORNA – nincs javítási létra, csak újracsatlakozás; csatorna=${channelRef.current?.name || 'élő adás'}; ok=${trigger}; bizonyított-lejátszás=${Math.round(docState.healthyPlaybackMs / 1000)} s.`;
         appLog(provenLine);
@@ -2434,6 +2461,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         tsUrl: tsCandidate,
         hlsUrl: hlsCandidate,
         triedFormats: docState.triedFormats.slice(),
+        provenWorking: !canDeclareChannelDead({ healthyPlaybackMs: docState.healthyPlaybackMs }),
       });
 
       // A kimerülés utáni biztonságos visszatérés új javítási kört kezd.
@@ -5073,7 +5101,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // csak a 20+ másodpercnyi puffer lejátszása után hallatszana.
       api.setLiveStreamHint?.(!isVod);
       // A Rendszer menü pufferelés beállítása a natív lejátszóra is érvényes.
-      try { api.setBufferMode?.(bufferModeRef.current); } catch { /* opcionális híd */ }
+      // 2.5.403: a TV Doktor aktív javítási profilját adjuk át, ne a beállításokban
+      // tárolt `balanced`-et, különben a natív híd nem a kiválasztott variánst használja.
+      const nativeBufferMode = doctorSessionRef.current.activeBufferTiming
+        ? doctorSessionRef.current.activeBufferProfile
+        : bufferModeRef.current;
+      try { api.setBufferMode?.(nativeBufferMode); } catch { /* opcionális híd */ }
       api.play(url, channel?.name || customTitle || 'IPTV R.T');
       setNativeMessage(note);
       setNativeHandoff(true);
@@ -5309,7 +5342,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const timing = bufferTiming();
         const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
         const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
-        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
+        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming ? doctorSessionRef.current.activeBufferProfile : bufferModeRef.current}; indulási-őr=${timing.startupWatchdogMs} ms; lejátszás-őr=${timing.bufferWatchdogMs} ms; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
         if (diagnostic && isVerbosePlaybackLogging()) {
           appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, sequence.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés után')}`);
         }
@@ -5561,9 +5594,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const attempt = terminalLiveEnd
       ? liveEndRecoveryAttemptRef.current++
       : recoveryAttemptRef.current++;
+    const recoveryDocState = doctorSessionRef.current;
+    /* 2.5.403 (#46) – BIZONYÍTOTTAN MŰKÖDŐ CSATORNA SOHA NEM „NEM MŰKÖDIK”.
+     * A #46 M2 UHD-je 16.48 + 15.76 + 39.75 mp-ig TÉNYLEGESEN játszott,
+     * mégis 5–6 azonos TS+balanced újracsatlakozás után a TV kiírta:
+     * „A csatorna jelenleg nem működik – az automatikus újrapróbálás leállt.”
+     * A `canDeclareChannelDead()` védelme eddig csak a javítási létra
+     * kimerülésénél volt bekötve, az újracsatlakozási backoffnál NEM. */
+    const provenWorkingChannel = tvDoctorEnabledRef.current
+      && !canDeclareChannelDead({ healthyPlaybackMs: recoveryDocState.healthyPlaybackMs });
 
-    // Kikapcsolt TV Doktornál is megakadályozzuk a valóban nem működő csatornák végtelen ciklusát!
-    if (attempt >= 5) {
+    // Kikapcsolt TV Doktornál / soha nem játszott csatornánál a végtelen ciklust így fogjuk meg.
+    if (attempt >= 5 && !provenWorkingChannel) {
       clearAutoRetry();
       clearBufferWatchdog();
       endSwitch();
@@ -5578,6 +5620,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       );
       return;
     }
+    if (attempt >= 5 && provenWorkingChannel) {
+      /* NINCS végleges hiba: a 16 beállítás körbejárása tovább folytatódik,
+         a kép a helyén marad, a néző nem kap „nem működik” feliratot. */
+      appLog(
+        `TV DOKTOR: BIZONYÍTOTTAN MŰKÖDŐ CSATORNA – NINCS VÉGLEGES LEÁLLÍTÁS; `
+        + `csatorna=${channelRef.current?.name || 'élő adás'}; próba=${attempt + 1}; `
+        + `bizonyított-lejátszás=${Math.round(recoveryDocState.healthyPlaybackMs / 1000)} s; `
+        + `ok=${reason}; a 16 különböző formátum/puffer beállítás tovább próbálkozik.`,
+      );
+      if (isTvDoctorDiagLoggingEnabled()) {
+        tvDoctorLog(
+          `TV DOKTOR: BIZONYÍTOTTAN MŰKÖDŐ CSATORNA – NINCS VÉGLEGES LEÁLLÍTÁS; `
+          + `csatorna=${channelRef.current?.name || 'élő adás'}; próba=${attempt + 1}; `
+          + `bizonyított-lejátszás=${Math.round(recoveryDocState.healthyPlaybackMs / 1000)} s.`,
+        );
+      }
+    }
     // Indulási hiba után az emlékezett/elsődleges címet próbáljuk újra;
     // már futó adásnál viszont az éppen működő src-et tartjuk meg. A másik
     // formátum csak a recovery saját, ritkuló sorozatában jelenhet meg.
@@ -5588,11 +5647,62 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     liveRecoveryOnlyRef.current = true;
     const baseRecoveryUrl = liveRecoveryUrl(attempt, recoveryPrimaryUrl, recoveryFallbackUrl);
     const doctorFallbackOverride = tvDoctorEnabledRef.current ? doctorSessionRef.current.fallbackUrlOverride : null;
-    const nextUrl = attempt >= 3 && doctorFallbackOverride ? doctorFallbackOverride : baseRecoveryUrl;
+    let nextUrl = attempt >= 3 && doctorFallbackOverride ? doctorFallbackOverride : baseRecoveryUrl;
+    let delayMs = liveRecoveryDelayMs(attempt, Math.max(50, bufferTiming().retryMs));
+    /* ------------------------------------------------------------------
+     * 2.5.403 (#46) – A 16 KÜLÖNBÖZŐ BEÁLLÍTÁS TÉNYLEGES HASZNÁLATA.
+     *
+     * Az első újracsatlakozás még az eredeti beállításon történik (TLC-
+     * védelem: egy pillanatnyi lezárulás nem indít formátumcserét). Minden
+     * további sikertelen próba viszont ÚJ formátum + ÚJ pufferprofilt kap a
+     * 8 × 2 = 16 variáns közül: a `bufferTiming()` innen olvassa az indulási
+     * őrt, a lejátszás-őrt és a puffer-célt, a `nextUrl` pedig a másik
+     * formátum címét. Így nem marad minden próba `TS + balanced`.
+     * ------------------------------------------------------------------ */
+    const primaryFmt = formatOfUrl(recoveryPrimaryUrl) || 'ts';
+    const variantNow = Date.now();
+    // 90 mp hibamentes lejátszás után új ciklus kezdődhet; a rövid
+    // `playing` események KÖZÖTT viszont a létra továbblép.
+    if (liveRecoveryVariantLastAtRef.current > 0
+        && variantNow - liveRecoveryVariantLastAtRef.current > 90_000) {
+      liveRecoveryVariantRef.current = 0;
+    }
+    liveRecoveryVariantLastAtRef.current = variantNow;
+    const variantAttempt = liveRecoveryVariantRef.current++;
+    const recoveryVariant = tvDoctorEnabledRef.current && variantAttempt >= 1
+      ? planLiveRecoveryVariant({
+        attempt: variantAttempt - 1,
+        primaryFormat: primaryFmt,
+        baseDelayMs: Math.max(50, bufferTiming().retryMs),
+      })
+      : null;
+    if (recoveryVariant) {
+      const alternateUrl = liveFallbackRef.current?.url
+        || (/\.ts(?=([?#]|$))/i.test(recoveryPrimaryUrl)
+          ? recoveryPrimaryUrl.replace(/\.ts(?=([?#]|$))/i, '.m3u8')
+          : recoveryPrimaryUrl.replace(/\.m3u8(?=([?#]|$))/i, '.ts'));
+      nextUrl = recoveryVariant.useAlternateFormat ? alternateUrl : recoveryPrimaryUrl;
+      delayMs = recoveryVariant.delayMs;
+      recoveryDocState.activeBufferProfile = recoveryVariant.bufferProfile;
+      recoveryDocState.activeBufferTiming = recoveryVariant.timing;
+      recoveryDocState.repairStep = Math.min(MAX_DOCTOR_REPAIR_STEPS - 1, recoveryVariant.index);
+      const variantLine = `TV DOKTOR ÚJRACSATLAKOZÁSI VÁLTOZAT [${recoveryVariant.index}/${recoveryVariant.total}`
+        + `${recoveryVariant.cycle ? `; kör=${recoveryVariant.cycle + 1}` : ''}]; `
+        + `csatorna=${channelRef.current?.name || 'élő adás'}; `
+        + `mód=${recoveryVariant.format.toUpperCase()}; puffer=${recoveryVariant.bufferProfile}; `
+        + `puffer-cél=${recoveryVariant.timing.minBufferAheadSeconds}mp; `
+        + `indulási-őr=${recoveryVariant.timing.startupWatchdogMs}ms; `
+        + `lejátszás-őr=${recoveryVariant.timing.bufferWatchdogMs}ms; `
+        + `várakozás=${delayMs}ms; ok=${reason}; `
+        + `bizonyított-lejátszás=${Math.round(recoveryDocState.healthyPlaybackMs / 1000)}s.`;
+      appLog(variantLine);
+      if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(variantLine);
+      /* A Supabase-ben is látszódjon, MELYIK beállítást próbáltuk. */
+      recordDoctorRecoveryVariant({ channel: channelRef.current, variant: recoveryVariant, reason });
+    }
     if (doctorFallbackOverride && nextUrl === doctorFallbackOverride) {
       doctorSessionRef.current.fallbackUrlOverride = null;
     }
-    const delayMs = liveRecoveryDelayMs(attempt, Math.max(50, bufferTiming().retryMs));
     const generation = streamLoadGenerationRef.current;
     clearAutoRetry();
     clearBufferWatchdog();
@@ -5604,13 +5714,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     showDoctorStatus({
       phase: 'retry',
       title: 'Újracsatlakozás',
-      detail: nextUrl === recoveryPrimaryUrl
-        ? `Adás frissítése (${attempt + 1}. próba)…`
-        : 'Tartalék formátummal újraindítás…',
+      detail: recoveryVariant
+        ? `Javítás ${recoveryVariant.index}/${recoveryVariant.total}: ${recoveryVariant.format.toUpperCase()} + ${recoveryVariant.bufferProfile}…`
+        : nextUrl === recoveryPrimaryUrl
+          ? `Adás frissítése (${attempt + 1}. próba)…`
+          : 'Tartalék formátummal újraindítás…',
     });
     appLog(
       `ÉLŐ ÚJRACSATLAKOZÁS; csatorna=${channelRef.current?.name || 'élő adás'}; próba=${attempt + 1}; ` +
-      `várakozás=${delayMs} ms; cím=${nextUrl === recoveryPrimaryUrl ? 'aktuális/elsődleges' : 'tartalék formátum'}; ok=${reason}.`
+      `várakozás=${delayMs} ms; cím=${nextUrl === recoveryPrimaryUrl ? 'aktuális/elsődleges' : 'tartalék formátum'}; `
+      + `${recoveryVariant ? `variáns=${recoveryVariant.index}/${recoveryVariant.total}; mód=${recoveryVariant.format.toUpperCase()}; puffer=${recoveryVariant.bufferProfile}; ` : ''}`
+      + `ok=${reason}.`
     );
     recoveryTimerRef.current = window.setTimeout(() => {
       recoveryTimerRef.current = null;
@@ -5785,6 +5899,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastWaitingAtRef.current = 0;
     recoveryAttemptRef.current = 0;
     liveEndRecoveryAttemptRef.current = 0;
+    /* 2.5.403 (#46): a 16 beállítás létrája CSAK új csatornánál indul elölről.
+     * Egy HLS↔TS újracsatlakozás ugyanazon a csatornán belül NEM nullázza. */
+    const variantChannelId = String(channelRef.current?.id || '');
+    if (liveRecoveryVariantChannelRef.current !== variantChannelId) {
+      liveRecoveryVariantRef.current = 0;
+      liveRecoveryVariantLastAtRef.current = 0;
+      liveRecoveryVariantChannelRef.current = variantChannelId;
+    }
     stallDetectorRef.current?.reset();
     // Új filmnél az előző film pozíciója NEM öröklődhet (sem a felirat órája,
     // sem az előzménybe írt helyzet, sem a folytatás-jelző).
@@ -7051,6 +7173,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               lastWaitingAtRef.current = 0;
               recoveryAttemptRef.current = 0;
               liveEndRecoveryAttemptRef.current = 0;
+              liveRecoveryVariantRef.current = 0;
+              liveRecoveryVariantLastAtRef.current = 0;
               liveRecoveryOnlyRef.current = false;
               doctorSessionRef.current.channelHaltedDead = false;
               doctorSessionRef.current.repairStep = 0;

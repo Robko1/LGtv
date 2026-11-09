@@ -1804,6 +1804,13 @@ seedDoctorLayout(clientDeviceId); // A bootstrap és a szinkron a kézzel mentet
 await new Promise((r) => setTimeout(r, 40));
 core.clearTvDoctorMemory();
 core.clearTvDoctorCloudQueue();
+/* 2.5.403: a párosítás utáni, tűz-és-felejt háttér-flush még futhat. Ilyenkor
+ * a `bootstrapTvDoctorFromCloud()` HELYESEN 0-t ad (`syncingNow` védelem),
+ * ezért a hideg újraindítás szimulációja előtt megvárjuk a korábbi szinkron
+ * lezárulását. Korábban a fix 40 ms csak gyors környezetben volt elég. */
+for (let i = 0; i < 20 && core.getTvDoctorCloudStatus().syncing; i += 1) {
+  await new Promise((r) => setTimeout(r, 25));
+}
 const afterRestartInfo = await core.reloadTvDoctorPairingFromStorage();
 const downloadedCount = await core.bootstrapTvDoctorFromCloud();
 check(
