@@ -1,0 +1,155 @@
+/* LG webOS TV – külön kinézet, kisebb lejátszó, fekvő splash, Magic Remote */
+body.webos-theme {
+  --tv-focus-color: #fbbf24;
+  /* 2.5.135: NINCS #000. A body fekete háttere a REVEAL utáni első
+     képkockán átlátszott a #root TV-paddingjén, és a lejátszó üres
+     területével együtt „fekete felvillanásnak” látszott. */
+  --tv-bg: #080d1a;
+  background: #080d1a;
+}
+
+/* webOS – kisebb TV lejátszó, középen, 1280px max */
+body.webos-theme .video-player-container,
+body.webos-theme .video-player-wrapper {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* webOS – fekvő splash */
+body.webos-theme .intro-video {
+  object-fit: cover;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* webOS – erősebb fókusz gyűrű Magic Remote-hoz */
+body.webos-theme [role="listbox"]:focus {
+  outline: 3px solid var(--tv-focus-color) !important;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 6px rgba(0,191,255,0.3), inset 0 0 0 2px rgba(0,191,255,0.4) !important;
+}
+body.webos-theme [role="option"]:focus,
+body.webos-theme [role="option"]:focus-visible {
+  outline: 3px solid #fbbf24 !important;
+  box-shadow: 0 0 0 8px rgba(251,191,36,0.30), 0 0 24px rgba(251,191,36,0.18) !important;
+  z-index: 10;
+}
+body.webos-theme button:focus,
+body.webos-theme button:focus-visible,
+body.webos-theme [role="button"]:focus,
+body.webos-theme [role="button"]:focus-visible {
+  outline: 3px solid #fbbf24 !important;
+  box-shadow: 0 0 0 4px rgba(251,191,36,0.30);
+}
+
+/*
+ * Célzott Magic Remote fókusz:
+ * A főoldali mappák nagy sárga kiemelést kapnak.
+ * A Menü kedvencmappáinak fókusza kisebb, visszafogott sárga keret.
+ * A többi fejlécgomb és a csatornalista fókusza változatlan marad.
+ */
+body.webos-theme header [data-tv-header-kind="settings"]:focus,
+body.webos-theme header [data-tv-header-kind="settings"]:focus-visible {
+  position: relative !important;
+  z-index: 60 !important;
+  outline: 3px solid #fbbf24 !important;
+  outline-offset: 3px !important;
+  box-shadow:
+    0 0 0 6px rgba(252, 211, 77, 0.72),
+    0 0 28px 4px rgba(252, 211, 77, 0.82) !important;
+  transform: scale(1.05) !important;
+}
+
+body.webos-theme [data-tv-folders] [data-tv-folder]:focus,
+body.webos-theme [data-tv-folders] [data-tv-folder]:focus-visible {
+  position: relative !important;
+  z-index: 60 !important;
+  outline: 3px solid #fbbf24 !important;
+  outline-offset: 4px !important;
+  box-shadow:
+    0 0 0 10px rgba(252, 211, 77, 0.82),
+    0 0 42px 8px rgba(252, 211, 77, 1) !important;
+  transform: scale(1.10) !important;
+}
+
+body.webos-theme [data-favorite-folder]:focus,
+body.webos-theme [data-favorite-folder]:focus-visible {
+  position: relative !important;
+  z-index: 60 !important;
+  outline: 2px solid #fbbf24 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 3px rgba(252, 211, 77, 0.35) !important;
+  transform: none !important;
+}
+
+/*
+ * A mappasáv vízszintes görgetője levágta a fókuszgyűrűt és a nagyított
+ * képdobozok széleit. A belső térköz helyet ad a kiemelésnek felül/alul
+ * és a sáv két szélén is; a vízszintes görgetés megmarad.
+ */
+body.webos-theme [data-tv-folders] {
+  padding-block: 20px !important;
+  padding-inline: 20px !important;
+  scroll-padding-inline: 20px;
+  scroll-padding-block: 20px;
+}
+
+/*
+ * webOS – SEMMI CSS ÁTMENET.
+ *
+ * FONTOS (ez volt a felület lassulásának egyik fő oka): itt korábban
+ * `transition-duration: 0.15s !important` és `animation-duration: 0.2s
+ * !important` állt minden elemre. Ez a webos.js-ben beállított „nincs
+ * átmenet” szabályt felülírta (nagyobb specificitás), ezért a TV lassú
+ * processzorán minden kijelölés/hover 150 ms-ig animálódott, a pörgő
+ * töltéskerék pedig 0,2 másodperces köröket futott (villogás, GPU-terhelés).
+ *
+ * A kijelölő most azonnal ugrik. A folyamatos animációk (töltéskerék, óra)
+ * saját, nyugodt időtartamukat a webos.js adja meg.
+ */
+body.webos-theme * {
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
+
+/*
+ * webOS – ELMOSÁS (backdrop-filter) KI.
+ *
+ * A `backdrop-blur` minden felugró ablakban és OSD-ben a teljes alatta lévő
+ * képernyőt újraszámolja minden képkockán. A régi webOS GPU-n ez a
+ * legdrágább művelet; a menük/OSD így is olvashatók (a sötét réteg megmarad),
+ * cserébe a megnyitás és a görgetés érezhetően gyorsabb.
+ */
+body.webos-theme *,
+body.webos-theme *::before,
+body.webos-theme *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* webOS – csatornalista max 70vh, hogy látszódjon a lejátszó */
+body.webos-theme .channel-list {
+  max-height: 70vh;
+}
+
+/* webOS – diagnosztika másképp */
+body.webos-theme .webos-only {
+  display: block;
+}
+
+/* webOS – Magic Remote pointer (egér) */
+body.webos-theme.has-mouse [role="option"]:hover {
+  background: linear-gradient(to right, rgba(8,51,68,0.9), rgba(14,39,82,0.9)) !important;
+  transform: translateY(-1px);
+}
+
+/* LG TV – 1920x1080 fix felbontás */
+@media (min-width: 1920px) and (min-height: 1080px) {
+  body.webos-theme {
+    font-size: 20px;
+  }
+  body.webos-theme [role="option"] {
+    min-height: 72px;
+    font-size: 18px;
+  }
+}
