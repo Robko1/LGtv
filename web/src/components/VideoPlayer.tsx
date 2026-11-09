@@ -2805,6 +2805,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     errorDetail: string,
     reason: string,
   ): boolean => {
+    // Az élő adás automatikus idővonal-/fagyásvizsgálata teljesen kikapcsolva.
+    void video; void errorCode; void errorDetail; void reason;
+    return false;
     if (isVodRef.current || !tvDoctorEnabledRef.current) return false;
     const evidence = readLiveEndEvidence(video);
     if (!isWebOsLiveEndArtifact(evidence)) return false;
@@ -2971,10 +2974,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Többször érkező waiting/stalled esemény ne tolja ki folyton a határidőt.
     if (bufferWatchdogRef.current !== null) return;
     const video = htmlVideoRef.current;
-    // Már elindult élő adás ÉS (aktív TV Doktor mellett) film/sorozat
-    // beragadt pufferelését is felügyeljük; VOD esetén türelmesebb ablakkal.
+    // Ez a watchdog kizárólag VOD lejátszást figyel.
     if (!video || !playbackStartedRef.current || video.paused) return;
-    if (isVodRef.current && !tvDoctorEnabledRef.current) return;
+    if (!tvDoctorEnabledRef.current) return;
     const generation = streamLoadGenerationRef.current;
     const startedAt = Date.now();
     const startSample = readMediaProgress(video, startedAt);
@@ -5677,13 +5679,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   loadStreamRef.current = loadStream;
 
   /*
-   * FOLYAMATOS ÉLŐ ÚJRACSATLAKOZÁS.
-   *
-   * Ha egy már futó adás megakad vagy a szolgáltató elvágja a kapcsolatot,
-   * először UGYANAZT a címet töltjük be újra (a hang nem szakad meg), majd
-   * csak több sikertelen próba után próbáljuk a másik formátumot. A próbák
-   * fokozatosan ritkulnak, de soha nem állnak le maguktól: nincs többé
-   * olyan állapot, ahol a kép fekete marad, a hang meg megy tovább.
+   * Élő TV automatikus watchdog/recovery útvonal kikapcsolva.
+   * Csatornaforrást kizárólag felhasználói csatornaváltás tölthet újra.
    */
   requestRecoveryRef.current = (reason: string) => {
     if (isVodRef.current) {
@@ -6755,7 +6752,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (!isActiveMediaEvent(event.currentTarget)) return;
               lastWaitingAtRef.current = Date.now();
               doctorSessionRef.current.waitingOrStalledFlag = true;
-              if (tvDoctorEnabledRef.current && isTvDoctorDiagLoggingEnabled()) {
+              if (isVod && tvDoctorEnabledRef.current && isTvDoctorDiagLoggingEnabled()) {
                 const v = event.currentTarget;
                 tvDoctorLog(`TV DOKTOR WAITING: csatorna=${isVod ? (customTitle || 'VOD') : (channelRef.current?.name || 'élő adás')}; formátum=${formatOfUrl(activeMediaUrlRef.current)?.toUpperCase() || 'ismeretlen'}; pufferprofil=${doctorSessionRef.current.activeBufferProfile}; readyState=${v.readyState}; networkState=${v.networkState}; puffer-előre=${(() => { const ahead = bufferedAheadSeconds(v); return ahead === null ? 'n/a' : ahead.toFixed(2); })()}s; lejátszás_elindult=${playbackStartedRef.current}`);
               }
@@ -6792,7 +6789,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (!isActiveMediaEvent(event.currentTarget)) return;
               lastWaitingAtRef.current = Date.now();
               doctorSessionRef.current.waitingOrStalledFlag = true;
-              if (tvDoctorEnabledRef.current && isTvDoctorDiagLoggingEnabled()) {
+              if (isVod && tvDoctorEnabledRef.current && isTvDoctorDiagLoggingEnabled()) {
                 const v = event.currentTarget;
                 tvDoctorLog(`TV DOKTOR STALLED: csatorna=${isVod ? (customTitle || 'VOD') : (channelRef.current?.name || 'élő adás')}; formátum=${formatOfUrl(activeMediaUrlRef.current)?.toUpperCase() || 'ismeretlen'}; pufferprofil=${doctorSessionRef.current.activeBufferProfile}; readyState=${v.readyState}; networkState=${v.networkState}; puffer-előre=${(() => { const ahead = bufferedAheadSeconds(v); return ahead === null ? 'n/a' : ahead.toFixed(2); })()}s; lejátszás_elindult=${playbackStartedRef.current}`);
               }
