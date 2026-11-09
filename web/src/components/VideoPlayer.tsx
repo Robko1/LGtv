@@ -2928,23 +2928,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [scheduleAutoRetry]);
 
   /*
-   * EGYSÉGES LEJÁTSZÁSFIGYELŐ (élő TV + film/sorozat).
-   *
-   * A régi élő watchdog kizárólag a `currentTime` változását nézte, 2 mp
-   * után pedig azonnal formátumot váltott. webOS-en az élő MPEG-TS
-   * idővonala gyakran 0 marad, miközben a képkockák érkeznek – ezért a
-   * figyelő feleslegesen újratöltötte a stream-et (eltűnt a kép, a hang
-   * viszont ment tovább). Most a képkocka-számláló, az idővonal és a
-   * puffer együtt dönt, és a VOD-ra is ugyanez a (türelmesebb) őr vigyáz.
+   * VOD LEJÁTSZÁSFIGYELŐ. Élő TV-n nincs automatikus fagyásfigyelés.
    */
   useEffect(() => {
     // Az élő csatornák folyamatos fagyásfigyelője kikapcsolva; VOD változatlan.
     if (!isPlaying || !isVod) return;
     const video = htmlVideoRef.current;
     if (!video) return;
-    // Élő TV-n is a ténylegesen beállított fagyásérzékelési idő érvényesül;
-    // nincs mesterséges 9 mp-es késleltetés. A recovery külön az élő élre áll vissza.
-    const detector = new StallDetector(isVod ? 7000 : bufferTiming().stallDetectorMs);
+    // A VOD változatlan, türelmes 7 másodperces figyelése.
+    const detector = new StallDetector(7000);
     stallDetectorRef.current = detector;
     let previousSample: MediaProgressSample | null = null;
     const generation = streamLoadGenerationRef.current;
@@ -6661,10 +6653,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   clearBufferWatchdog();
                   clearDoctorBufferingStatus();
                   appLog(`STALLED JELZÉS KIHAGYVA; csatorna=${channelRef.current?.name || 'élő adás'}; puffer-előre=${ahead.toFixed(2)} s; readyState=${video.readyState}; ok=elegendő puffer.`);
-                } else {
+                } else if (isVod) {
                   setIsLoading(true);
                   scheduleDoctorBufferingStatus();
                   armBufferWatchdog();
+                } else {
+                  setIsLoading(false);
+                  setIsRecovering(false);
+                  showDoctorStatus(null);
                 }
               }
               if (!isVod && isVerbosePlaybackLogging()) {
