@@ -25,6 +25,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { providerScopePrefix, setActiveProviderScope } from '../web/src/services/providerScope.ts';
 
 let failures = 0;
 
@@ -167,6 +168,23 @@ function startMiniProvider(): Promise<{ port: number; close: () => Promise<void>
 }
 
 async function main(): Promise<void> {
+  const scopeStorage = new Map<string, string>();
+  const anyGlobal = globalThis as unknown as Record<string, unknown>;
+  anyGlobal.localStorage = {
+    getItem: (key: string) => scopeStorage.get(key) ?? null,
+    setItem: (key: string, value: string) => { scopeStorage.set(key, String(value)); },
+    removeItem: (key: string) => { scopeStorage.delete(key); },
+  };
+  setActiveProviderScope('provider-a');
+  const legacyProviderPrefix = providerScopePrefix();
+  setActiveProviderScope('provider-b');
+  const secondProviderPrefix = providerScopePrefix();
+  setActiveProviderScope('provider-a');
+  check(
+    legacyProviderPrefix === '' && secondProviderPrefix === 'provider:provider-b:',
+    'az első szolgáltató régi mentése változatlan marad, a második külön névteret kap',
+  );
+
   const net = await import('../web/src/services/net.ts');
   const projectDir = path.resolve('.');
   const netSource = fs.readFileSync(path.join(projectDir, 'web/src/services/net.ts'), 'utf8');
@@ -175,6 +193,40 @@ async function main(): Promise<void> {
   const htmlSource = fs.readFileSync(path.join(projectDir, 'web/index.html'), 'utf8');
   const mainSource = fs.readFileSync(path.join(projectDir, 'web/src/main.tsx'), 'utf8');
   const appSource = fs.readFileSync(path.join(projectDir, 'web/src/App.tsx'), 'utf8');
+  const contentStoreSource = fs.readFileSync(path.join(projectDir, 'web/src/services/contentStore.ts'), 'utf8');
+  const providerScopeSource = fs.readFileSync(path.join(projectDir, 'web/src/services/providerScope.ts'), 'utf8');
+  const formatMemorySource = fs.readFileSync(path.join(projectDir, 'web/src/services/liveFormatMemory.ts'), 'utf8');
+  const qualityMemorySource = fs.readFileSync(path.join(projectDir, 'web/src/services/liveQualityMemory.ts'), 'utf8');
+  const audioMemorySource = fs.readFileSync(path.join(projectDir, 'web/src/services/liveAudioMemory.ts'), 'utf8');
+
+  /* ── 0. A két szolgáltató katalógusa és lejátszási emlékezete külön marad ── */
+  console.log('\nSzolgáltatói névterek: egyik katalógus és tanult beállítás sem írja felül a másikat:');
+  check(
+    /LOCAL_PREFIX \+ providerScopePrefix\(\)/.test(contentStoreSource)
+      && /function scopedChunkStore/.test(contentStoreSource)
+      && /prefix \+ key/.test(contentStoreSource),
+    'a localStorage- és IndexedDB-katalógus kulcsai szolgáltatónként különülnek el',
+  );
+  check(
+    /setActiveProviderScope\(storageService\.getSettings\(\)\.activeProviderId/.test(appSource)
+      && appSource.indexOf('setActiveProviderScope(storageService.getSettings().activeProviderId') < appSource.indexOf('const bootLive = loadLive()'),
+    'újraindításkor a kiválasztott szolgáltató tárhelye már a csatornalista beolvasása előtt aktív',
+  );
+  check(
+    /setActiveProviderScope\(provider\.id\)/.test(importSource)
+      && /setActiveProviderScope\(provider\.id\)/.test(importSource),
+    'az import és a frissítés a saját szolgáltatóazonosítója alá ment',
+  );
+  check(
+    /providerScopePrefix\(\)/.test(formatMemorySource)
+      && /providerScopePrefix\(\)/.test(qualityMemorySource)
+      && /providerScopePrefix\(\)/.test(audioMemorySource),
+    'a TS/HLS-, képminőség- és hangsávemlékezet is szolgáltatónként különül el',
+  );
+  check(
+    /LEGACY_OWNER_KEY/.test(providerScopeSource),
+    'a már meglévő első szolgáltatói mentések megőrzik a régi kulcsaikat',
+  );
 
   /* ── 1. A nagy lista-végpont megkapja a kért időkeretet ─────────────── */
   console.log('\nIdőtúllépés: a nagy film-/sorozatlista nem fut ki az időből:');
