@@ -348,10 +348,12 @@ check(/isPrematureVodEnd\(position, duration\)/.test(player),
   'a VOD korai `ended` kezelése változatlan (a veto csak élő adásra vonatkozik)');
 check(/isVodRef\.current \|\| !tvDoctorEnabledRef\.current\) return false;/.test(player),
   'kikapcsolt TV Doktornál és VOD-nál az új védelem NEM lép közbe');
-check(/WEB_VERSION = '2\.5\.406'/.test(read('web/src/appVersion.ts'))
-  && read('version.txt').trim() === '2.5.406'
-  && /"version": "2\.5\.406"/.test(read('webos/appinfo.json')),
-  'a 2.5.406 verzió mindhárom verziófájlban egységes');
+const currentWebVersion = read('web/src/appVersion.ts').match(/WEB_VERSION\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'/)?.[1];
+const currentManifestVersion = JSON.parse(read('webos/appinfo.json')).version;
+check(Boolean(currentWebVersion)
+  && read('version.txt').trim() === currentWebVersion
+  && currentManifestVersion === currentWebVersion,
+  'a webes verzió, a version.txt és az appinfo.json mindig egységes (verzióemelés után is)');
 check(/VIDEO_WAIT_MS = 0/.test(read('web/src/main.tsx'))
   && /if \(elapsed > 9000\)/.test(read('web/src/main.tsx'))
   && !/tv-curtain|14000/.test(read('web/index.html'))
