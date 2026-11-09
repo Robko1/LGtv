@@ -1871,6 +1871,7 @@ export async function importM3UProvider(
   }
 
   const provider: ProviderRef = { id: input.providerId || `prov-${Date.now()}`, type: 'm3u' };
+  setActiveProviderScope(provider.id);
 
   const live: Channel[] = [];
   const movies: Movie[] = [];
