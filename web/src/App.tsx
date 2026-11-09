@@ -1211,6 +1211,9 @@ export function App() {
    */
   const attemptedCountryRef = useRef<Set<string>>(new Set());
   const attemptedCountryEpgRef = useRef<Set<string>>(new Set());
+  // Minden EPG-letöltés közös élőadás-nyugalmi kapuja.
+  // A csatornaváltás és a tényleges lejátszás újraindítja a 30 mp-es várakozást.
+  const liveEpgActivityRef = useRef({ lastAt: Date.now(), switching: false });
   const previousEpgCategoryRef = useRef({ category: selectedCategoryId, view: activeView, providerId: activeProvider?.id || '' });
   useEffect(() => {
     const previous = previousEpgCategoryRef.current;
@@ -1954,16 +1957,19 @@ export function App() {
     const onLiveSwitchStart = () => {
       liveSwitchInProgress = true;
       lastLiveActivityAt = Date.now();
+      liveEpgActivityRef.current = { lastAt: lastLiveActivityAt, switching: true };
       if (fastTimers.guideTimer) window.clearTimeout(fastTimers.guideTimer);
       fastTimers.guideTimer = window.setTimeout(() => {
         fastTimers.guideTimer = 0;
         liveSwitchInProgress = false;
+        liveEpgActivityRef.current = { ...liveEpgActivityRef.current, switching: false };
         scheduleGuideAfterIdle(GUIDE_IDLE_MS);
       }, 60_000);
     };
     const onLivePlaying = () => {
       liveSwitchInProgress = false;
       lastLiveActivityAt = Date.now();
+      liveEpgActivityRef.current = { lastAt: lastLiveActivityAt, switching: false };
       scheduleGuideAfterIdle(GUIDE_IDLE_MS);
     };
     window.addEventListener('iptv-live-switch-start', onLiveSwitchStart);
@@ -2010,11 +2016,19 @@ export function App() {
       .finally(() => {
         if (activeViewRef.current === 'live' && !providerRefreshActiveRef.current) {
           // A teljes lista után is várunk 30 mp-et, hogy az EPG ne a csatornaváltással versenyezzen.
-          window.setTimeout(() => {
+          const runGuideOnlyWhenIdle = () => {
+            const activity = liveEpgActivityRef.current;
+            const idleFor = Date.now() - activity.lastAt;
+            const remaining = Math.max(1000, 30_000 - idleFor);
             if (activeViewRef.current !== 'live') return;
-            if (providerRefreshActiveRef.current) return;
-            appLog(`EPG-ÁLLAPOT: ütemezett műsorújság indul – provider típus=${plan.provider?.type || '?'}, cím=${plan.provider?.serverUrl || '?'}.`);
-            setGuideHuProbe(channelsRef.current);
+            if (providerRefreshActiveRef.current || activity.switching
+                || idleFor < 30_000
+                || (typeof document !== 'undefined' && document.hidden)) {
+              window.setTimeout(runGuideOnlyWhenIdle, remaining);
+              return;
+            }
+            appLog(`EPG-ÁLLAPOT: ütemezett műsorújság indul – legalább 30 mp élőadás-nyugalom után; provider típus=${plan.provider?.type || '?'}, cím=${plan.provider?.serverUrl || '?'}.`);
+            setGuideHuProbe(channelsRef.current.filter((channel) => (channel.countryCode || '').toUpperCase() === 'HU'));
             void ensureGuide(plan.provider)
               .then(() => {
                 const status = guideStatusSafe();
@@ -2029,13 +2043,15 @@ export function App() {
                     );
                   } catch {}
                 } else {
-                  void ensureChannelsEpg(plan.provider, channelsRef.current, 250)
+                  const huChannels = channelsRef.current.filter((channel) => (channel.countryCode || '').toUpperCase() === 'HU');
+                  void ensureChannelsEpg(plan.provider, huChannels, 250)
                     .then((filled) => { if (filled > 0) setEpgRevision((r) => r + 1); })
                     .catch(() => {});
                 }
               })
               .catch(() => {});
-          }, 30_000);
+          };
+          window.setTimeout(runGuideOnlyWhenIdle, 30_000);
         }
       });
   }, [runRestore, guideStatusSafe]);
