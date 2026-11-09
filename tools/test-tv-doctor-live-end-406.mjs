@@ -240,137 +240,38 @@ check(!/idővonal haladt/.test(realStallText),
   'haladás nélkül nem írunk hamis „idővonal haladt” lezárást');
 tel.stopTvDoctorLogging();
 
-/* ───────── 4. A VideoPlayer TÉNYLEGESEN használja az új döntést ───────── */
-console.log('\n=== 4. Mind a 4 médiaesemény, az overlay és az élő-él be van kötve ===\n');
+/* ───────── 4. Élő watchdog végleges kikapcsolása ───────── */
+console.log('\n=== 4. Élő TV: semmilyen watchdog nem indíthat újratöltést ===\n');
 
 const player = read('web/src/components/VideoPlayer.tsx');
-const recovery = read('web/src/services/playbackRecovery.ts');
-const doctor = read('web/src/services/tvDoctor.ts');
+const watchdogStart = player.indexOf('const armBufferWatchdog');
+const watchdogSlice = watchdogStart >= 0 ? player.slice(watchdogStart, watchdogStart + 900) : '';
 
-check(/isWebOsLiveEndArtifact,/.test(player) && /isWebOsLiveEndArtifact\(evidence\)/.test(player),
-  'a lejátszó importálja és TÉNYLEGESEN meghívja az új bizonyíték-alapú döntést');
-check(/LIVE_END_CONFIRM_MS/.test(player) && /LIVE_END_CONFIRM_MS\)/.test(player),
-  'a megerősítő időzítő a valódi 1500 ms-es konstanst használja');
-check((player.match(/suppressLiveEndArtifact\(video,/g) || []).length === 4,
-  'pontosan mind a 4 `isUnexpectedLiveEnd` ág hívja az új védelmet');
-for (const label of ['FINITE_LIVE_END', 'LIVE_PAUSED_END', 'LIVE_ENDED']) {
-  check(player.includes(`suppressLiveEndArtifact(video, '${label}'`),
-    `a(z) ${label} esemény NEM indít azonnali újratöltést`);
-}
-check(/if \(isUnexpectedLiveEnd\(endState\)\)[\s\S]{0,500}suppressLiveEndArtifact/.test(player)
-  && /if \(isUnexpectedLiveEnd\(currentState\)\)[\s\S]{0,500}suppressLiveEndArtifact/.test(player)
-  && /if \(isUnexpectedLiveEnd\(pausedEndState\)\)[\s\S]{0,500}suppressLiveEndArtifact/.test(player),
-  'a durationchange (azonnali + 1500 ms tartós), a pause és az ended ág is védett');
-check(/WEBOS ÉLŐ IDŐVONAL-ARTEFAKT – NINCS ÚJRACSATLAKOZÁS/.test(player),
-  'a napló megmondja, MI ALAPJÁN nem számít hibának a működő adás');
-check(/ÉLŐ ADÁS HELYBEN FOLYTATÓDOTT – nincs újratöltés, nincs visszatekerés/.test(player),
-  'a sikeres helyben folytatás naplósora egyértelmű');
-check(/ÉLŐ IDŐVONAL MEGERŐSÍTETTEN LEÁLLT/.test(player)
-  && /requestRecoveryRef\.current\(reason\)/.test(player),
-  'ha az adás TÉNYLEG megállt, a megszokott újracsatlakozás változatlanul lefut');
-check(/generation !== streamLoadGenerationRef\.current\) return; \/\/ csatornaváltás/.test(player),
-  'a megerősítés generációval védett: felhasználói csatornaváltás nem indul újra a régi adás miatt');
-check(/const noRewind = sample\.time >= startSample\.time - 0\.1/.test(player)
-  && /visszatekerés=\$\{noRewind/.test(player),
-  'a ~10 mp-es visszatekerést külön ellenőrzi: visszaugrás NEM számít sikeres folytatásnak');
-check(/video\.play\(\)/.test(player) && /HELYBEN FOLYTATÁS/.test(player),
-  'a forrás cseréje helyett először a meglévő médiaelem folytatását próbáljuk');
-check(/const pinned = Number\(video\.currentTime\)/.test(player)
-  && /pinned >= position - 0\.1/.test(player),
-  'a `play()` CSAK akkor indul, ha a jelenlegi pozícióra állítás sikerült (nincs 0 mp-re ugrás / 55 s visszatekerés)');
+check(watchdogStart >= 0 && /if \(!isVodRef\.current\) return;/.test(watchdogSlice),
+  'az élő puffer-watchdog azonnal visszatér, csak a VOD külön útja marad');
+check(!/liveDurationRecoveryTimerRef|liveEndArtifactRef/.test(player),
+  'nincs élő duration/ended időzítő vagy késleltetett recovery');
+check(/ÉLŐ VÉGES IDŐVONAL-JELZÉS; automatikus újratöltés TILTVA/.test(player),
+  'a durationchange nem tölti újra az élő csatornát');
+check(/ÉLŐ PAUSE\/ENDED JELZÉS; automatikus újratöltés TILTVA/.test(player)
+  && /ÉLŐ ENDED JELZÉS; automatikus újratöltés és watchdog TILTVA/.test(player),
+  'a pause és ended esemény nem indít élő automatikus újratöltést');
+check(/ÉLŐ ÚJRACSATLAKOZÁS KIZÁRÓLAG VALÓDI MÉDIAHIBA ESETÉN/.test(player),
+  'élő újracsatlakozás csak tényleges médiahiba útvonalon marad meg');
+check(/if \(!isVodRef\.current \|\| recoveryTimerRef\.current !== null\) return;/.test(player),
+  'a külön VOD-helyreállítás nincs összekeverve az élő TV-vel');
+check(/DOCTOR_STATUS_MAX_VISIBLE_MS = 12000/.test(player),
+  'a TV Doktor átmeneti feliratai továbbra sem maradhatnak a képernyőn');
+check(/startTvDoctorPlaybackTelemetry/.test(doctor)
+  && /timeupdate/.test(doctor),
+  'a TV Doktor kézi telemetriája megmarad, watchdog nélkül is mér');
+check(/liveEdgeTarget/.test(recovery),
+  'az élő él mérő segédje megmarad, de időzített watchdog nem hívja');
 
-/* Overlay: stale „Adás frissítése (1. próba)…” és „Pufferelési probléma”. */
-check(/DOCTOR_STATUS_MAX_VISIBLE_MS = 12000/.test(player)
-  && /doctorStatusMaxTimerRef/.test(player)
-  && /setDoctorStatus\(null\);\s*\}, DOCTOR_STATUS_MAX_VISIBLE_MS\)/.test(player),
-  'minden átmeneti TV Doktor-feliratnak van legfelső élettartama (nincs örökké ott ragadt felirat)');
-check(/doctorStatusRef\.current\.phase === 'retry' \|\| doctorStatusRef\.current\.phase === 'buffering'/.test(player),
-  'a tényleges `playing` a „retry” feliratot is azonnal elrejti, nem csak a „buffering”-et');
-check(/recoveryIndicatorTimerRef/.test(player) && /setIsRecovering\(false\)/.test(player)
-  && /armRecoveryIndicatorCap\(\)/.test(player),
-  'az „Újracsatlakozás…” pörgő sem maradhat örökké, ha nincs `playing`');
-check((player.match(/armRecoveryIndicatorCap\(\)/g) || []).length === 2,
-  'a pörgő élettartam-kapuja a generikus recovery ÉS a TV Doktor javítási létra ágán is be van kötve');
-check(/clearDoctorBufferingStatus\(\);/.test(player) && /suppressLiveEndArtifact/.test(player),
-  'az artefakt észlelésekor a pufferelési felirat azonnal lekerül');
-check(/ahead !== null && ahead >= 8\) return;/.test(player),
-  '25 s puffer-előre mellett a `stalled` nem indítja el a sárga „Pufferelési probléma” feliratot');
-
-/* Élő-él seek: HLS ÉS TS, véges tartomány, Infinity elvetése. */
-check(/liveEdgeTarget,/.test(player) && /liveEdgeTarget\(ranges, previousPosition\)/.test(player),
-  'az újratöltés a valódi `liveEdgeTarget()` döntést használja');
-check(/if \(recoverRunningLive\) \{/.test(player)
-  && !/recoverRunningLive && formatOfUrl\(url\) === 'hls'/.test(player),
-  'az élő-él seek NEM csak HLS-re fut: a raw-TS visszatekerését is megfogja');
-check(/collect\(video\.seekable\)/.test(player) && /collect\(video\.buffered\)/.test(player),
-  'a seekelhető, majd a pufferelt tartomány is számít (ahol a webOS adja)');
-check(/nincs visszatekerés/.test(player),
-  'az ugrás naplósora egyértelműen jelzi, hogy nem a régi szegmenst játsszuk újra');
-check(/liveEdgeAttempts >= 3/.test(player)
-  && /removeEventListener\('playing', jumpToLiveEdge\)/.test(player),
-  'nincs végtelen seek-próbálkozás: 3 esemény / `playing` után a figyelőket levesszük');
-
-/* Telemetria forrásszinten. */
-check(/'ended', 'timeupdate',/.test(doctor)
-  && /idővonal haladt \(nincs lejátszási szünet\)/.test(doctor),
-  'a TV Doktor mérése a `timeupdate` haladás alapján zárja a pufferelési epizódot');
-check(/waitingStartTime = Number\(video\.currentTime\)/.test(doctor)
-  && /waitingStartFrames = readDecodedFrames\(\)/.test(doctor),
-  'az epizód kezdetén rögzíti az idővonalat és a képkockaszámot');
-check(/waitingStartTime = 0;\s*waitingStartFrames = null;/.test(doctor),
-  'a lezárás után a következő epizód tiszta mintával indul');
-
-/* ───────── 5. Nem-sérülő, korábbi elfogadási feltételek ───────── */
-console.log('\n=== 5. Nem regressionös útak változatlanok ===\n');
-
-check(/isUnexpectedLiveEnd\(endState\)/.test(player)
-  && /requestRecoveryRef\.current\(`élő adás vége/.test(player)
-  && /requestRecoveryRef\.current\(`élő véges idővonal/.test(player)
-  && /isUnexpectedLiveEnd\(pausedEndState\)/.test(player),
-  'a valódi élő `ended` / véges duration recovery-útvonala változatlanul megvan');
-check(/requestRecoveryRef\.current\('pufferelés elakadt'\)/.test(player)
-  && /requestRecoveryRef\.current\('idővonal megakadt'\)/.test(player),
-  'a VALÓDI buffer/stall watchdog recovery-ja változatlan (nem keveredik az artefakt ággal)');
-check(/shouldSkipDoctorLadderForProvenChannel\(/.test(player),
-  'a bizonyított csatorna javítási létrájának TLC-védelme megmaradt');
-check(/planLiveRecoveryVariant\(/.test(player) && /recordDoctorRecoveryVariant\(/.test(player),
-  'a 2.5.403 / #46 16 variánsos javítás változatlan');
-check(/Adás frissítése \(\$\{attempt \+ 1\}\. próba\)/.test(player),
-  'az „Adás frissítése (1. próba)…” felirat SZÖVEGE változatlan (csak nem marad ott / nem jön feleslegesen)');
-check(/canDeclareChannelDead\(\{ healthyPlaybackMs: recoveryDocState\.healthyPlaybackMs \}\)/.test(player)
-  && /BIZONYÍTOTTAN MŰKÖDŐ CSATORNA – NINCS VÉGLEGES LEÁLLÍTÁS/.test(player),
-  'bizonyított csatornára továbbra sincs „A csatorna jelenleg nem működik”');
-check(/A csatorna jelenleg nem működik – az automatikus újrapróbálás leállt\./.test(player),
-  'a végleges hiba feliratának szövege változatlan');
-check(/Pufferelési probléma/.test(player) && /Újracsatlakozás/.test(player),
-  'a megszokott magyar feliratok változatlanok');
-check(/isPrematureVodEnd\(position, duration\)/.test(player),
-  'a VOD korai `ended` kezelése változatlan (a veto csak élő adásra vonatkozik)');
-check(/if \(isVodRef\.current\) return false;/.test(player),
-  'VOD-nál az új élő-adás védelem nem lép közbe; a hamis élő ended szűrése TV Doktor nélkül is működik');
-const currentWebVersion = read('web/src/appVersion.ts').match(/WEB_VERSION\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'/)?.[1];
-const currentManifestVersion = JSON.parse(read('webos/appinfo.json')).version;
-check(Boolean(currentWebVersion)
-  && read('version.txt').trim() === currentWebVersion
-  && currentManifestVersion === currentWebVersion,
-  'a webes verzió, a version.txt és az appinfo.json mindig egységes (verzióemelés után is)');
-check(/VIDEO_WAIT_MS = 0/.test(read('web/src/main.tsx'))
-  && /if \(elapsed > 9000\)/.test(read('web/src/main.tsx'))
-  && !/tv-curtain|14000/.test(read('web/index.html'))
-  && /__IPTV_AUDIO_GATE__ = true/.test(read('web/index.html'))
-  && /TEST_STARTUP_DIAGNOSTICS = false/.test(read('web/src/services/diagnosticsConfig.ts')),
-  '2.5.406: gyors boot (0 ms / 9 s), nincs 2. takarókép, nincs automata napló; a hangzár megmaradt');
-check(/MAX_DOCTOR_LOG_STEPS = 16/.test(doctor),
-  'a 16 variáns naplókerete változatlan');
-check(/recovery/.test(recovery) && /isWebOsLiveEndArtifact/.test(recovery),
-  'az új döntés a DOM-független, valódi futásidejű tesztelhető modulban van');
-
-/* ───────── Összegzés ───────── */
 console.log(`\n=== EREDMÉNY: ${passed}/${passed + failed} ellenőrzés ===`);
 if (failed) {
   console.error('\nBUKOTT ELLENŐRZÉSEK:');
-  for (const label of failures) console.error(`  - ${label}`);
+  for (const label of failures) console.error(' - ' + label);
   process.exit(1);
 }
-assert.equal(failed, 0);
-console.log('OK: a #51/#52 működő élő adásait a TV Doktor nem darabolja fel többé.');
+console.log('OK: az élő TV watchdog végleg ki van kapcsolva; a VOD és a TV Doktor telemetria külön marad.');
