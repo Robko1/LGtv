@@ -674,9 +674,19 @@ interface VideoPlayerProps {
  * ekkor jön az `iptv-audio-open` esemény, és a hangerő visszaáll.
  */
 function startupAudioGateClosed(): boolean {
-  // Nincs egyedi HTML-es indítóképernyő; a régi audio-gate nem némíthatja
-  // el a lejátszást, mert a hozzá tartozó reveal esemény már nem létezik.
-  return false;
+  /* 2.5.405 / #49 – A HANGZÁR ÚJRA AKTÍV.
+     A takarókép most az első videó-képkockáig (legfeljebb 8 s) fent marad. A
+     #24-es naplóban 3,3 mp-ig szólt a hang a takarókép alatt, ezért ilyenkor
+     a lejátszó NÉMA. A `main.tsx` a felfedés pillanatában false-ra állítja a
+     `__IPTV_AUDIO_GATE__` jelzőt és kiküldi az `iptv-audio-open` eseményt; a
+     lenti effect ekkor állítja vissza a hangerőt. Node/teszt környezetben
+     (nincs window) a zár eleve nyitott marad. */
+  if (typeof window === 'undefined') return false;
+  try {
+    return (window as unknown as { __IPTV_AUDIO_GATE__?: boolean }).__IPTV_AUDIO_GATE__ === true;
+  } catch {
+    return false;
+  }
 }
 /** A néma állapot EGYETLEN helyen dől el: hangerő + indulási hangzár. */
 function applyMuteState(video: HTMLVideoElement, volume: number): void {

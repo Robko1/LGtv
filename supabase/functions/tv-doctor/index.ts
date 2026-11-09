@@ -1049,14 +1049,21 @@ export function createTvDoctorHandler(customEnv = {}) {
     const counts = new Map();
     const removeIds = [];
     for (const row of Array.isArray(rows) ? rows : []) {
-      const category = row && row.details && row.details.category;
+      const outer = row && row.details;
+      const inner = outer && outer.details && typeof outer.details === "object" ? outer.details : {};
+      const category = outer && outer.category;
       if (!["learning", "assistance", "activation", "channel_error"].includes(category)) continue;
       const channelKey = String(row.channel_key || row.channel_id || "");
       if (!channelKey) continue;
-      const key = channelKey + "|" + category;
+      /* 2.5.405 / #50: a 16 különböző formátum/puffer újracsatlakozási
+         variáns KÜLÖN keretet kap; a 8-as korlát a 8 tanulási dobozé, nem a
+         `tv_doctor_events` javítási lépéseié. A #50-ben már volt 3/16 sor. */
+      const isVariant = inner.recoveryVariant === true || (outer && outer.recoveryVariant === true);
+      const key = channelKey + "|" + category + (isVariant ? "|variant" : "");
+      const cap = isVariant ? 16 : 8;
       const count = (counts.get(key) || 0) + 1;
       counts.set(key, count);
-      if (count > 8 && row.event_uid) removeIds.push(String(row.event_uid));
+      if (count > cap && row.event_uid) removeIds.push(String(row.event_uid));
     }
     for (let offset = 0; offset < removeIds.length; offset += 100) {
       const batch = removeIds.slice(offset, offset + 100);
@@ -1142,14 +1149,37 @@ export function createTvDoctorHandler(customEnv = {}) {
       at: Date.parse(row.created_at),
       eventType: row.event_type,
       recovered: row.recovered,
-      details: row.details && row.details.details && typeof row.details.details === "object" ? row.details.details : {},
+      /* 2.5.405 / #50: a kliens a BEÁGYAZOTT `details.details`-be írja a
+         variáns-jelzőt, de régebbi / külső írók a felső `details`-be is
+         tehették. Mindkét alakot egységesítjük, hogy a bootstrap 16-os
+         kerete akkor is éljen, ha csak a külső szinten van jelző. */
+      details: (() => {
+        const outer: Record<string, any> = row.details && typeof row.details === "object" ? row.details : {};
+        const inner: Record<string, any> = outer.details && typeof outer.details === "object" ? outer.details : {};
+        const merged: Record<string, any> = { ...inner };
+        if (inner.recoveryVariant !== true && outer.recoveryVariant === true) merged.recoveryVariant = true;
+        if (inner.maxSteps === undefined && outer.maxSteps !== undefined) merged.maxSteps = outer.maxSteps;
+        if (inner.step === undefined && outer.step !== undefined) merged.step = outer.step;
+        return merged;
+      })(),
     })).filter((event) => ["learning", "assistance", "activation", "channel_error"].includes(event.category));
+    /* 2.5.405 / #50: a 16 variánsos `repair_attempt` sorok nem fértek el a
+       kategóriánkénti 8-as bootstrap-keretben, ezért IPK-újraindítás után csak
+       az első 8 próba jött vissza. A hagyományos eseményeké marad 8, a
+       `recoveryVariant` soroké külön 16. */
     const newestByCategory = {};
     for (const event of events) {
-      if (!newestByCategory[event.category]) newestByCategory[event.category] = [];
-      if (newestByCategory[event.category].length < 8) newestByCategory[event.category].push(event);
+      if (!newestByCategory[event.category]) {
+        newestByCategory[event.category] = { normal: [], variants: [] };
+      }
+      const bucket = newestByCategory[event.category];
+      const isVariant = event.details && event.details.recoveryVariant === true;
+      const target = isVariant ? bucket.variants : bucket.normal;
+      const cap = isVariant ? 16 : 8;
+      if (target.length < cap) target.push(event);
     }
-    const recentEvents = Object.values(newestByCategory).flat();
+    const recentEvents = Object.values(newestByCategory)
+      .flatMap((bucket) => [...bucket.normal, ...bucket.variants]);
     return out(200, attachAuthMeta({
       ok: true,
       paired: true,

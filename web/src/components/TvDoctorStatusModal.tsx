@@ -16,6 +16,7 @@ import {
 import { AppSettings, Channel } from '../types/iptv';
 import { TvDoctorIcon } from './TvDoctorIcon';
 import { appLog, dateTimeText } from '../services/appLog';
+import { formatDeviceClock, formatDeviceDateTime } from '../utils/clock';
 import {
   DoctorEventCategory,
   DoctorLogEntry,
@@ -398,12 +399,32 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
     }
   }
 
+  /*
+   * 2.5.405 / #50 – KÉT KÜLÖN IDŐNÉZET, NE KEVERJÜK:
+   *   • `formatLogClock()` = a kézi SÁRGA / TV DOKTOR NAPLÓ sorai. Ezeknek
+   *     VÁLTOZATLANUL Europe/Dublin faliórát kell mutatniuk (a #33/#34
+   *     visszajelzése miatt), ezért marad a `dateTimeText()`.
+   *   • `formatPanelClock()` = a bal felső 4 kártya `Mikor:` sora és az
+   *     `Utolsó szinkron` felhasználói időpontja. Ezek a TV SAJÁT órájával
+   *     (`getHours()`) egyeznek, nem a napló zónájával – a #50-ben itt volt
+   *     az 1 órás eltérés. A napló NEM változik.
+   */
   const formatLogClock = (ts: number): string => {
     const full = dateTimeText(ts);
     const idx = full.indexOf(' ');
     return idx >= 0 ? full.slice(idx + 1) : full;
   };
 
+  /** A 4 kártya felhasználói időpontja: a TV helyi ideje, nem Dublin. */
+  const formatPanelClock = (ts: number): string => formatDeviceClock(ts);
+
+  /*
+   * 2.5.405 / #50: az `Utolsó szinkron` a Supabase `serverTime` ISO-ját írja ki.
+   * A #50 mérésben `01:05:31Z` volt, miközben a naplósor `00:05:33+00:00` és a
+   * TV órája `01:05` – a Dublin-formázó ezt pontosan a TV órájával egyezően
+   * mutatja. Ha itt TV-helyi formázóra váltanánk, +1 órát tévesztenénk, ezért
+   * SZÁNDÉKOSAN marad `dateTimeText()`. Csak a 4 kártya volt hibás.
+   */
   const lastSyncText = doctorCloud.lastSyncAt
     ? (() => {
         const parsed = Date.parse(doctorCloud.lastSyncAt);
@@ -438,10 +459,13 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
   const displayLogsByCategory: Record<DoctorEventCategory, DoctorLogEntry[]> = {
     learning: logsByCategory.learning.slice(0, 8),
     assistance: [...logsByCategory.assistance].sort((a, b) => {
-      const score = (entry: DoctorLogEntry) => (entry.operationRecovered === true || entry.level === 'verified' ? 1000 : 0)
-        - (entry.operationRecovered === false || entry.level === 'error' ? 500 : 0)
-        + (8 - Math.max(1, Math.min(8, entry.operationStep || 8))) * 10
-        + Math.min(9, entry.at / 1e13);
+      const score = (entry: DoctorLogEntry) => {
+        const maxSteps = Math.max(1, Math.min(16, Number(entry.operationMaxSteps) || 8));
+        return (entry.operationRecovered === true || entry.level === 'verified' ? 1000 : 0)
+          - (entry.operationRecovered === false || entry.level === 'error' ? 500 : 0)
+          + (maxSteps - Math.max(1, Math.min(maxSteps, Number(entry.operationStep) || maxSteps))) * 10
+          + Math.min(9, entry.at / 1e13);
+      };
       return score(b) - score(a);
     }).slice(0, 8),
     activation: logsByCategory.activation.slice(0, 8),
@@ -873,9 +897,12 @@ export const TvDoctorStatusModal: React.FC<TvDoctorStatusModalProps> = ({
           </span>
         </div>
         <div className="mt-1 flex items-center justify-between gap-2 text-sm font-bold text-slate-200">
-          <span className="truncate">
+          <span
+            className="truncate"
+            title={stat.lastAt !== null ? formatDeviceDateTime(stat.lastAt) : undefined}
+          >
             {stat.lastAt !== null
-              ? `Mikor: ${formatLogClock(stat.lastAt)}${stat.lastChannelName ? ` • ${stat.lastChannelName}` : ''}`
+              ? `Mikor: ${formatPanelClock(stat.lastAt)}${stat.lastChannelName ? ` • ${stat.lastChannelName}` : ''}`
               : vis.subtitle}
           </span>
         </div>

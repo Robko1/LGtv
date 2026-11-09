@@ -151,6 +151,15 @@ function finish() {
   })();
   const notifyCount = dom.window.__SMOKE_NOTIFY__ ? dom.window.__SMOKE_NOTIFY__.count : 0;
   const bootAttr = doc.documentElement.getAttribute('data-iptv-boot');
+  /* 2.5.405: a 2.5.392 óta NINCS HTML-es betöltőképernyő, tehát a régi
+     `__IPTV_BOOT__.state()` híd sem létezik. A kész főoldal jelzői most a
+     `main.tsx` `__IPTV_APP_READY__`, az `iptv-revealed` osztály, a kinyitott
+     indulási hangzár és a `data-iptv-boot` attribútum. A régi hídra csak
+     visszafelé kompatibilitás miatt tartjuk meg az ellenőrzést. */
+  const appReady = dom.window.__IPTV_APP_READY__ === true;
+  const audioGateOpen = dom.window.__IPTV_AUDIO_GATE__ === false;
+  const revealedClass = doc.documentElement.classList.contains('iptv-revealed');
+  const modernBootDone = appReady && audioGateOpen && revealedClass && !!bootAttr;
   const errorBox = doc.getElementById('boot-error');
   const rendered = !!root && root.childElementCount > 0 && root.innerHTML.length > 500;
   const text = visibleText(doc);
@@ -165,7 +174,7 @@ function finish() {
   console.log(`#root gyerekei: ${root ? root.childElementCount : 'nincs #root'} (${root ? root.innerHTML.length : 0} karakter)`);
   console.log(`Kezdőképernyő még látható: ${splash ? 'igen' : 'nem (a felület átvette)'}`);
   console.log(`Betöltési állapot: ${bootState ? `${Math.round(bootState.percent)}% – ${bootState.phase || '?'}` : 'nincs híd'}`);
-  console.log(`notifyAppLoaded: ${notifyCount}x, data-iptv-boot=${bootAttr || 'nincs'}`);
+  console.log(`notifyAppLoaded: ${notifyCount}x, data-iptv-boot=${bootAttr || 'nincs'}, appReady=${appReady ? 'igen' : 'nem'}, audioGate=${audioGateOpen ? 'nyitva' : 'zárva'}`);
   if (errorBox && errorBox.textContent) console.log('Kezdőképernyő hibaszövege: ' + errorBox.textContent);
 
   if (errorPageHit.length || boundaryErrors.length) {
@@ -182,7 +191,8 @@ function finish() {
     process.exit(1);
   }
 
-  const bootOk = !splash && notifyCount === 1 && !!bootState && Math.round(bootState.percent) === 100;
+  const bridgeDone = !!bootState && Math.round(bootState.percent) === 100;
+  const bootOk = !splash && notifyCount === 1 && (bridgeDone || modernBootDone);
   if (rendered && bootOk) {
     console.log('\nOK: a webes felület felépült, a betöltőképernyő eltűnt, az APK nem lesz fekete képernyős.');
     process.exit(0);
@@ -192,7 +202,7 @@ function finish() {
     console.log('\nHIBA: a felület felépült, de a betöltőképernyő/indítókép állapota nem megfelelő:');
     if (splash) console.log('  - a takaró réteg még a DOM-ban van');
     if (notifyCount !== 1) console.log(`  - notifyAppLoaded ${notifyCount}x futott (várt: 1)`);
-    if (!bootState || Math.round(bootState.percent) !== 100) console.log('  - a betöltési állapot nem 100%');
+    if (!bridgeDone && !modernBootDone) console.log('  - sem a régi boot híd, sem az új kész-jelzők nem igazolják a felfedést');
     process.exit(1);
   }
 
