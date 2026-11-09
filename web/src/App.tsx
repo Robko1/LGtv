@@ -45,6 +45,7 @@ import {
 import { fsNow, fsPerf, fsStep } from './services/fullscreenPerf';
 import { speedChannelCommit, speedSelect } from './services/speedDiagnostics';
 import { configureTvDoctorCloud } from './services/tvDoctorCloud';
+import { setActiveProviderScope } from './services/providerScope';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
 import { displayChannelPositions } from './utils/displayChannelOrder';
@@ -432,6 +433,8 @@ export function App() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
   const [activeProvider, setActiveProvider] = useState<ProviderRef | null>(() => bootLive.provider);
+  // A TV Doktor és a csatornaemlékezet mindig az éppen aktív szolgáltató névterét használja.
+  setActiveProviderScope(activeProvider?.id || '');
   const [totalCounts, setTotalCounts] = useState(() => bootLive.totals);
   /*
    * 2.5.298 – VALÓS VISSZATÖLTÉSI DARABSZÁM A SAJÁT MENTÉSBŐL.
