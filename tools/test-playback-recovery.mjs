@@ -272,6 +272,11 @@ check(/puffer-előre=/.test(PLAYER)
   && /PUFFERELÉSI ŐR: HELYI FOLYTATÁSI PRÓBA/.test(PLAYER)
   && /video\.play\(\)/.test(PLAYER),
   'a watchdog a lejátszási pont előtti valódi tartalékot méri, és röviden megerősít, ha még van puffer');
+check(/PUFFERELÉSI WATCHDOG: ÚJRATÖLTÉS KIHAGYVA/.test(PLAYER)
+  && /WAITING JELZÉS KIHAGYVA/.test(PLAYER)
+  && /STALLED JELZÉS KIHAGYVA/.test(PLAYER)
+  && /LEJÁTSZÁS-FIGYELŐ: ÚJRATÖLTÉS KIHAGYVA/.test(PLAYER),
+  'elegendő puffer és readyState mellett a normál lejátszó nem indít felesleges újratöltést vagy pufferfeliratot');
 check(/const loadKey = streamUrl;/.test(PLAYER)
   && !/const loadKey = `\$\{streamUrl\}\|\$\{settings\.bufferMode\}`/.test(PLAYER),
   'a pufferprofil váltása nem indítja újra mesterségesen az aktuális forrást');
@@ -352,6 +357,11 @@ check(/'waiting'/.test(SPEED) && /'stalled'/.test(SPEED)
   && /puffer-előre=/.test(SPEED)
   && /requestRecoveryRef\.current\('pufferelés elakadt'\)/.test(PLAYER),
   'a kézi eseménynapló a médiahibát, seeket, várakozást és puffert is rögzíti');
+check(/böngésző stream-kérés elindult/.test(SPEED)
+  && /első stream-metaadat megérkezett/.test(SPEED)
+  && /első lejátszható médiaadat megérkezett/.test(SPEED)
+  && /a puffer először lejátszható/.test(SPEED),
+  'a kézi napló Resource Timing nélkül is méri a kérésindítást, metaadatot, első médiaadatot és lejátszhatóságot');
 check(/isVerbosePlaybackLogging\(\)/.test(PLAYER) && /isVerbosePlaybackLogging\(\)/.test(APPLOG),
   'a részletes diagnosztika csak a hibakeresési ablakban fut');
 check(!/runtimeDiagnosticState\(/.test(PLAYER)
