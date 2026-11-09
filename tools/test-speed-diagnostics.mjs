@@ -39,9 +39,10 @@ test('kézi életciklus, korrelált médiaidővonal és késői callback védelm
   assert.doesNotMatch(state.lines.join('\n'), /média playing/);
   clock += 20; diag.speedLoad('VOD', 'mp4', 'https://host/movie/user/password/1.mp4');
   video.src = 'https://host/movie/user/password/1.mp4';
-  fire('loadstart'); fire('loadedmetadata'); fire('loadeddata'); fire('canplay');
+  fire('loadstart'); fire('progress'); fire('loadedmetadata'); fire('loadeddata'); fire('canplay');
   clock += 20; fire('playing');
   assert.match(state.lines.join('\n'), /böngésző stream-kérés elindult.*src→esemény=0\.0 ms/);
+  assert.match(state.lines.join('\\n'), /első hálózati adatátvitel jelzése megérkezett.*src→esemény=0\\.0 ms/);
   assert.match(state.lines.join('\n'), /első stream-metaadat megérkezett.*src→esemény=0\.0 ms/);
   assert.match(state.lines.join('\n'), /első lejátszható médiaadat megérkezett/);
   assert.match(state.lines.join('\n'), /a puffer először lejátszható/);
