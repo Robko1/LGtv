@@ -55,11 +55,11 @@ try {
  let video=await mount('m3u8',0);
  await wait(1300);
  assert.equal(window.state.plays.length,1,'élő HLS: nincs időzített újrapróbálkozás');
- assert.equal(window.state.loads,1,'élő HLS: nincs watchdog miatti újratöltés');
+ assert.equal(window.state.loads,2,'élő HLS: csak az egyszeri, kétlépéses webOS-forrásreset futott le; nincs watchdog miatti újratöltés');
  video=await mount('ts',0);
  await wait(1300);
  assert.equal(window.state.plays.length,1,'élő TS: nincs időzített újrapróbálkozás');
- assert.equal(window.state.loads,1,'élő TS: nincs watchdog miatti újratöltés');
+ assert.equal(window.state.loads,2,'élő TS: csak az egyszeri, kétlépéses webOS-forrásreset futott le; nincs watchdog miatti újratöltés');
  video=await mount('m3u8',4);
  await wait(700);
  assert.equal(window.state.plays.length,1,'dekódolható médiaadatnál sem történik automatikus váltás');
