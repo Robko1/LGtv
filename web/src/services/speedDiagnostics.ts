@@ -7,7 +7,7 @@ type Trace = {
   playing: boolean; frame: 'untried' | 'pending' | 'reported' | 'unavailable';
   waiting: number | null; firstWaiting: number | null; summaryReported: boolean; mediaReady: boolean; expectedUrl: string;
   position: number | null; positionAt: number; targetId: string; uiFramesScheduled: boolean;
-  loadAt: number; resourceReported: boolean;
+  loadAt: number; resourceReported: boolean; milestones: Set<string>;
 };
 type FrameVideo = HTMLVideoElement & {
   requestVideoFrameCallback?: (callback: (now: number, meta: { mediaTime?: number; presentedFrames?: number }) => void) => number;
@@ -47,7 +47,7 @@ export function speedSelect(mode: 'élő' | 'VOD', title: string, useKey = true,
   cancelFrameRequest();
   const key = useKey && lastKey && /^(OK|csatorna\+|csatorna−)$/.test(lastKey.name) && t - lastKey.at < 500 ? lastKey : null;
   lastKey = null;
-  trace = { id: ++serial, mode, start: key ? key.at : t, last: key ? key.at : t, load: 0, playing: false, frame: 'untried', waiting: null, firstWaiting: null, summaryReported: false, mediaReady: false, expectedUrl: '', position: null, positionAt: 0, targetId, uiFramesScheduled: false, loadAt: 0, resourceReported: false };
+  trace = { id: ++serial, mode, start: key ? key.at : t, last: key ? key.at : t, load: 0, playing: false, frame: 'untried', waiting: null, firstWaiting: null, summaryReported: false, mediaReady: false, expectedUrl: '', position: null, positionAt: 0, targetId, uiFramesScheduled: false, loadAt: 0, resourceReported: false, milestones: new Set() };
   line('kiválasztás kezelése', `cím=${title.slice(0, 80)}; bemenet=${key ? key.name : 'ismeretlen/kattintás'}; kezdet=${key ? 'keydown-kezelés' : 'kiválasztás'}`);
 }
 
@@ -61,6 +61,7 @@ export function speedLoad(mode: 'élő' | 'VOD', detail: string, url = ''): void
   trace.load += 1;
   trace.loadAt = now();
   trace.resourceReported = false;
+  trace.milestones.clear();
   trace.mediaReady = true;
   try { trace.expectedUrl = url ? new URL(url, window.location.href).href : ''; } catch { trace.expectedUrl = url; }
   trace.position = null;
@@ -182,6 +183,21 @@ function mediaEvent(event: Event): void {
   if (trace.expectedUrl && video.currentSrc && trace.expectedUrl !== video.currentSrc) return;
   if (trace.expectedUrl && video.getAttribute('src') && trace.expectedUrl !== video.src) return;
   const t = now();
+  const milestones: Record<string, string> = {
+    loadstart: 'böngésző stream-kérés elindult',
+    loadedmetadata: 'első stream-metaadat megérkezett',
+    loadeddata: 'első lejátszható médiaadat megérkezett',
+    canplay: 'a puffer először lejátszható',
+    playing: 'a lejátszás ténylegesen elindult',
+  };
+  const milestone = milestones[event.type];
+  if (milestone && !trace.milestones.has(event.type)) {
+    trace.milestones.add(event.type);
+    line(milestone, `próba=${trace.load}; src→esemény=${ms(t - trace.loadAt)} ms; ` +
+      `readyState=${video.readyState}; networkState=${video.networkState}; ` +
+      `pufferelt-tartományok=${video.buffered?.length ?? 'nem mérhető'}; ` +
+      `ez a TV által jelzett médiaesemény, nem a szolgáltató szerveroldali TTFB-je`);
+  }
   if (event.type === 'timeupdate') {
     if (t - trace.positionAt < 1000) return;
     const position = Number(video.currentTime || 0);
@@ -242,7 +258,7 @@ export function attachSpeedDiagnostics(): void {
       const video = document.querySelector<HTMLVideoElement>('video[data-iptv-player="true"]');
       if (video && (video.currentSrc || video.getAttribute('src'))) {
         const t = now();
-        trace = { id: ++serial, mode: video.getAttribute('data-iptv-mode') === 'VOD' ? 'VOD' : 'élő', start: t, last: t, load: 0, playing: true, frame: 'reported', waiting: null, firstWaiting: null, summaryReported: true, mediaReady: true, expectedUrl: '', position: null, positionAt: 0, targetId: '', uiFramesScheduled: false, loadAt: 0, resourceReported: false };
+        trace = { id: ++serial, mode: video.getAttribute('data-iptv-mode') === 'VOD' ? 'VOD' : 'élő', start: t, last: t, load: 0, playing: true, frame: 'reported', waiting: null, firstWaiting: null, summaryReported: true, mediaReady: true, expectedUrl: '', position: null, positionAt: 0, targetId: '', uiFramesScheduled: false, loadAt: 0, resourceReported: false, milestones: new Set() };
         line('már futó lejátszás megfigyelése', 'a tényleges indítás a naplózás előtt történt');
       }
     },
