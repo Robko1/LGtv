@@ -428,7 +428,8 @@ function contentChunkStore(): Promise<ChunkStore | null> {
       return store;
     })();
   }
-  return contentStorePromise.then((store) => store ? scopedChunkStore(store, providerScopePrefix()) : null);
+  const providerPrefix = providerScopePrefix();
+  return contentStorePromise.then((store) => store ? scopedChunkStore(store, providerPrefix) : null);
 }
 const LOCAL_PREFIX = 'iptv_rt_';
 const LOCAL_BUDGET = 2000000; // böngészőben ennyi karakterig mentünk
@@ -1116,6 +1117,7 @@ let liveFullSaveQueue: Promise<LiveFullSaveResult> = Promise.resolve('failed');
 
 function saveLiveFullToIdb(content: ImportedContent, channels: Channel[], retryAttempt = 0): Promise<LiveFullSaveResult> {
   const task: Promise<LiveFullSaveResult> = liveFullSaveQueue.then(async (): Promise<LiveFullSaveResult> => {
+    setActiveProviderScope(content.provider.id);
     if (channels.length === 0) return 'failed';
     // Frissebb mentés jön: a korábbi, függő automatikus ismétlés okafogyott.
     if (retryAttempt === 0) cancelSaveRetry(LIVE_FULL_META_KEY);
@@ -1463,6 +1465,7 @@ export function catalogIncompleteSections(state: CatalogState | null): Array<'li
 
 /** A szolgáltató kategóriáinak ujjlenyomata (olcsó változásvizsgálathoz). */
 export function setCatalogFingerprint(fingerprint: string, provider?: ProviderRef | null): void {
+  if (provider?.id) setActiveProviderScope(provider.id);
   updateCatalogState((state) => {
     state.fingerprint = fingerprint;
     if (provider) { state.providerId = provider.id; state.provider = provider; }
@@ -2012,6 +2015,7 @@ function scheduleSaveRetry(metaKey: string, label: string, attempt: number, run:
 }
 
 async function saveChunkedAuto(options: ChunkedSaveOptions, retryAttempt = 0): Promise<void> {
+  if (options.provider?.id) setActiveProviderScope(options.provider.id);
   // Egy frissebb mentés érvényteleníti ugyanennek a szakasznak a függő ismétlését.
   if (retryAttempt === 0) cancelSaveRetry(options.metaKey);
   const section = sectionForMetaKey(options.metaKey);
@@ -2647,6 +2651,7 @@ export async function loadLiveChannelsByIds(
   ids: Set<string>,
 ): Promise<Channel[]> {
   if (!ids.size || !provider) return [];
+  setActiveProviderScope(provider.id);
   const store = await contentChunkStore();
   if (!store) return [];
   const chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
