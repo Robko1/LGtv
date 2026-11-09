@@ -22,6 +22,10 @@ import {
   bufferedAheadSeconds,
   isPrematureVodEnd,
   isUnexpectedLiveEnd,
+  isWebOsLiveEndArtifact,
+  LiveEndEvidence,
+  liveEdgeTarget,
+  LIVE_END_CONFIRM_MS,
   liveRecoveryDelayMs,
   liveRecoveryUrl,
   mediaProgressed,
@@ -246,6 +250,15 @@ function lunaTvIndexFromTrack(track: SubtitleTrack | null | undefined): number |
   const index = Number(id.slice('luna-tv:'.length));
   return Number.isInteger(index) && index >= 0 ? index : null;
 }
+
+/*
+ * 2.5.406 (#51/#52): a TV Doktor HUD-jának egyetlen átmeneti felirata sem
+ * maradhat örökké a képen. Ha a `playing` esemény valamilyen okból nem ér
+ * be (pl. webOS a régi src eseményét küldi), ez a legfelső élettartam akkor
+ * is eltünteti az „Adás frissítése (1. próba)…” / „Pufferelési probléma”
+ * ablakot és az „Újracsatlakozás…” pörgőt.
+ */
+const DOCTOR_STATUS_MAX_VISIBLE_MS = 12000;
 
 /**
  * A beállításokban megadott nyelvhez (alapból Magyar) tartozó sáv megkeresése.
@@ -1761,6 +1774,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const doctorStatusRef = useRef<TvDoctorActiveStatus | null>(null);
   doctorStatusRef.current = doctorStatus;
   const doctorBufferingStatusTimerRef = useRef<number | null>(null);
+  const doctorStatusMaxTimerRef = useRef<number | null>(null);
+  const recoveryIndicatorTimerRef = useRef<number | null>(null);
+  /* 2.5.406 (#51/#52): egyetlen futó „vége” megerősítés generációnként. */
+  const liveEndArtifactRef = useRef<{ timer: number | null; lastLogAt: number }>({
+    timer: null,
+    lastLogAt: 0,
+  });
   const doctorIncidentRef = useRef<{
     lastAt: number;
     lastChannelKey: string;
@@ -1795,9 +1815,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
+  const clearDoctorStatusMaxTimer = useCallback(() => {
+    if (doctorStatusMaxTimerRef.current !== null) {
+      window.clearTimeout(doctorStatusMaxTimerRef.current);
+      doctorStatusMaxTimerRef.current = null;
+    }
+  }, []);
+
   const showDoctorStatus = useCallback((next: TvDoctorActiveStatus | null) => {
     if (!tvDoctorEnabledRef.current || !next) {
       clearDoctorStatusTimer();
+      clearDoctorStatusMaxTimer();
       setDoctorStatus(null);
       return;
     }
@@ -1806,12 +1834,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // javítás, újracsatlakozás vagy hiba kerülhet a képernyőre.
     if (next.phase === 'loading') return;
     clearDoctorStatusTimer();
+    clearDoctorStatusMaxTimer();
     setDoctorStatus((prev) => (
       prev && prev.phase === next.phase && prev.title === next.title && prev.detail === next.detail
         ? prev
         : next
     ));
-  }, [clearDoctorStatusTimer]);
+    /* 2.5.406 (#51/#52): a „retry” felirat eddig SEMMILYEN automatikus
+       rejtést nem kapott – ha a `playing` kimaradt, örökké ott maradt.
+       Most minden átmeneti állapotnak van egy legfelső élettartama. */
+    doctorStatusMaxTimerRef.current = window.setTimeout(() => {
+      doctorStatusMaxTimerRef.current = null;
+      setDoctorStatus(null);
+    }, DOCTOR_STATUS_MAX_VISIBLE_MS);
+  }, [clearDoctorStatusTimer, clearDoctorStatusMaxTimer]);
 
   const scheduleClearDoctorStatus = useCallback((delayMs = 600) => {
     clearDoctorStatusTimer();
@@ -1820,6 +1856,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setDoctorStatus(null);
     }, Math.max(0, delayMs));
   }, [clearDoctorStatusTimer]);
+
+  /* 2.5.406 (#51/#52): az „Újracsatlakozás…” pörgő MINDEN recovery-ágon
+     kap egy legfelső élettartamot, nem csak a generikus visszalépési ágon. */
+  const armRecoveryIndicatorCap = useCallback(() => {
+    if (recoveryIndicatorTimerRef.current !== null) {
+      window.clearTimeout(recoveryIndicatorTimerRef.current);
+    }
+    recoveryIndicatorTimerRef.current = window.setTimeout(() => {
+      recoveryIndicatorTimerRef.current = null;
+      setIsRecovering(false);
+      if (doctorStatusRef.current?.phase === 'retry') showDoctorStatus(null);
+    }, DOCTOR_STATUS_MAX_VISIBLE_MS);
+  }, [showDoctorStatus]);
 
   /*
    * 2.5.381: PUFFERELÉSI FELIRAT CSAK IGAZOLT MEGAKADÁSNÁL.
@@ -1856,6 +1905,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video || !playbackStartedRef.current || !desiredPlayingRef.current || video.ended) return;
     const capturedGeneration = streamLoadGenerationRef.current;
     const capturedVod = isVodRef.current;
+    /* 2.5.406 (#51): a `MEDIA_STALLED` 25,30 s puffer-előre és readyState=4
+       mellett érkezett, közben a currentTime 6,70 → 54,44 s-ig haladt. Ez a
+       LETÖLTÉS pillanatnyi szünete, NEM lejátszási pufferhiány: ilyenkor nem
+       szabad még a késleltetett „Pufferelési probléma” feliratot sem elindítani.
+       A valódi, haladás nélküli fagyást továbbra is a puffer-őr és a
+       `buffer_stall` riasztás jelzi. */
+    if (!capturedVod && video.readyState >= 3) {
+      const ahead = bufferedAheadSeconds(video);
+      if (ahead !== null && ahead >= 8) return;
+    }
     const startSample = readMediaProgress(video, Date.now());
     const delayMs = capturedVod ? DOCTOR_VOD_BUFFERING_STATUS_DELAY_MS : DOCTOR_BUFFERING_STATUS_DELAY_MS;
     doctorBufferingStatusTimerRef.current = window.setTimeout(() => {
@@ -1912,7 +1971,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => () => {
     clearDoctorStatusTimer();
+    clearDoctorStatusMaxTimer();
     clearDoctorBufferingStatusTimer();
+    if (recoveryIndicatorTimerRef.current !== null) {
+      window.clearTimeout(recoveryIndicatorTimerRef.current);
+      recoveryIndicatorTimerRef.current = null;
+    }
+    if (liveEndArtifactRef.current.timer !== null) {
+      window.clearTimeout(liveEndArtifactRef.current.timer);
+      liveEndArtifactRef.current.timer = null;
+    }
     if (doctorIncidentRef.current.pauseConfirmTimer !== null) {
       window.clearTimeout(doctorIncidentRef.current.pauseConfirmTimer);
       doctorIncidentRef.current.pauseConfirmTimer = null;
@@ -1921,7 +1989,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.clearTimeout(doctorIncidentRef.current.repairWatchTimer);
       doctorIncidentRef.current.repairWatchTimer = null;
     }
-  }, [clearDoctorStatusTimer, clearDoctorBufferingStatusTimer]);
+  }, [clearDoctorStatusTimer, clearDoctorStatusMaxTimer, clearDoctorBufferingStatusTimer]);
 
   useEffect(() => {
     if (settings.tvDoctorEnabled !== false) return;
@@ -1930,6 +1998,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // a már előkészített TV Doktor-javítást és az ellenőrző időzítőt is
     // érvénytelenítjük, különben egy korábban ütemezett javítás még lefuthat.
     clearDoctorStatusTimer();
+    clearDoctorStatusMaxTimer();
+    if (recoveryIndicatorTimerRef.current !== null) {
+      window.clearTimeout(recoveryIndicatorTimerRef.current);
+      recoveryIndicatorTimerRef.current = null;
+    }
+    if (liveEndArtifactRef.current.timer !== null) {
+      window.clearTimeout(liveEndArtifactRef.current.timer);
+      liveEndArtifactRef.current.timer = null;
+    }
     setDoctorStatus(null);
     setVodSessionAssisted(false);
 
@@ -1955,7 +2032,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.clearTimeout(doctorIncidentRef.current.repairWatchTimer);
       doctorIncidentRef.current.repairWatchTimer = null;
     }
-  }, [settings.tvDoctorEnabled, clearDoctorStatusTimer, clearDoctorBufferingStatusTimer]);
+  }, [settings.tvDoctorEnabled, clearDoctorStatusTimer, clearDoctorStatusMaxTimer, clearDoctorBufferingStatusTimer]);
 
   // VOD (film / sorozat) lejátszássegítés kizárólag az aktuális munkamenetben,
   // memória- vagy naplómentés nélkül (bezáráskor / forrásváltáskor törlődik).
@@ -2662,6 +2739,144 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       /* Belső hiba esetén csendben visszaáll a meglévő lejátszási mechanizmusra. */
     }
   };
+
+  /* ----------------------------------------------------------------------
+   * 2.5.406 (#51 / #52) – MI ALAPJÁN GONDOLTA HIBÁNAK A MŰKÖDŐ ADÁST?
+   *
+   * `playbackRecovery.ts: isUnexpectedLiveEnd()` eddig PUSZTÁN az `ended`
+   * flagből (illetve a véges `duration`-ból) következtetett adatfolyam-hibára.
+   * A webOS raw-TS demuxer viszont 55 s / 30 s hibátlan lejátszás után is ad
+   * `duration = currentTime; paused = true; ended = true` állapotot úgy, hogy
+   * `media_error = -`, `readyState = 4`, `networkState = 1` és a puffer vége
+   * `Infinity`. A `durationchange` / `pause` / `ended` kezelők EZUTÁN külön,
+   * a TV Doktor döntésétől függetlenül hívták a `requestRecoveryRef`-et: a
+   * naplóban ezért 0 döntés / 0 javítási lépés mellett mégis ~100 ms alatt
+   * `EMPTIED → WAITING → LOADSTART → … → PLAYING` jött, 0 mp-ről induló új
+   * TS-kapcsolattal (≈10 mp visszatekerés) és az „Adás frissítése (1. próba)…”
+   * felirattal, ami ott is maradt.
+   *
+   * Most a véges élő idővonal önmagában NEM elég: kell hozzá igazolt médiahia
+   * VAGY elfogyott forrás / puffer / friss haladás hiánya. Ha a bizonyítékok
+   * szerint a kép megy, NEM töltjük újra a forrást; egy rövid megerősítő
+   * ablakban HELYBEN próbáljuk folytatni, és csak akkor engedjük a megszokott
+   * újracsatlakozást, ha az adás tényleg megállt. A valódi buffer/stall,
+   * `media_error`, felhasználói csatornaváltás és javítási létra útjai
+   * változatlanok.
+   * -------------------------------------------------------------------- */
+  const readLiveEndEvidence = (video: HTMLVideoElement): LiveEndEvidence => {
+    let unboundedBuffer = false;
+    try {
+      const ranges = video.buffered;
+      const position = Number(video.currentTime) || 0;
+      for (let index = 0; index < ranges.length; index += 1) {
+        const start = Number(ranges.start(index));
+        const end = Number(ranges.end(index));
+        if (start <= position + 0.25 && !Number.isFinite(end)) {
+          unboundedBuffer = true;
+          break;
+        }
+      }
+    } catch { /* a webOS nem mindig adja át a puffer-tartományokat */ }
+    const docState = doctorSessionRef.current;
+    const nowMs = Date.now();
+    return {
+      mediaError: Boolean(video.error),
+      networkState: Number(video.networkState || 0),
+      readyState: Number(video.readyState || 0),
+      bufferedAheadSeconds: bufferedAheadSeconds(video),
+      unboundedBuffer,
+      progressAgoMs: docState.lastProgressAt > 0 ? nowMs - docState.lastProgressAt : null,
+      healthyPlaybackMs: docState.healthyPlaybackMs,
+    };
+  };
+
+  /**
+   * Igaz, ha az `unexpected_end` eseményt NEM szabad azonnali újratöltéssel
+   * kezelni. A megerősítő időzítő maga dönt: helyben folytatódott → semmi,
+   * tényleg megállt → a régi `notifyTvDoctorIncident` + `requestRecovery` út.
+   */
+  const suppressLiveEndArtifact = (
+    video: HTMLVideoElement,
+    errorCode: string,
+    errorDetail: string,
+    reason: string,
+  ): boolean => {
+    if (isVodRef.current || !tvDoctorEnabledRef.current) return false;
+    const evidence = readLiveEndEvidence(video);
+    if (!isWebOsLiveEndArtifact(evidence)) return false;
+
+    const nowMs = Date.now();
+    const guard = liveEndArtifactRef.current;
+    if (nowMs - guard.lastLogAt > 800) {
+      guard.lastLogAt = nowMs;
+      const line = `TV DOKTOR: WEBOS ÉLŐ IDŐVONAL-ARTEFAKT – NINCS ÚJRACSATLAKOZÁS; `
+        + `csatorna=${channelRef.current?.name || 'élő adás'}; ok=${errorCode}; `
+        + `bizonyított-lejátszás=${Math.round(evidence.healthyPlaybackMs / 1000)} s; `
+        + `utolsó-haladás=${evidence.progressAgoMs === null ? 'n/a' : Math.round(evidence.progressAgoMs) + 'ms'}; `
+        + `puffer-előre=${evidence.bufferedAheadSeconds === null ? 'végtelen/nem mérhető' : evidence.bufferedAheadSeconds.toFixed(2) + 's'}; `
+        + `readyState=${evidence.readyState}; networkState=${evidence.networkState}; media_error=nincs; `
+        + `döntés=helyben folytatás, ${LIVE_END_CONFIRM_MS} ms megerősítés.`;
+      appLog(line);
+      if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(line);
+    }
+    // Nincs képeltűnés: a pufferelési / újracsatlakozási felirat és a pörgő
+    // azonnal lekerül, nem marad „Adás frissítése (1. próba)…” a képen.
+    setIsLoading(false);
+    setIsRecovering(false);
+    clearDoctorBufferingStatus();
+    const status = doctorStatusRef.current;
+    if (status && (status.phase === 'buffering' || status.phase === 'retry')) {
+      showDoctorStatus(null);
+    }
+    if (guard.timer !== null) return true; // már fut a megerősítés
+    const generation = streamLoadGenerationRef.current;
+    const startSample = readMediaProgress(video, nowMs);
+    // HELYBEN FOLYTATÁS: nem cseréljük a src-et, nem ugrunk vissza 0 mp-re.
+    try {
+      const position = Number(video.currentTime) || 0;
+      const duration = Number(video.duration);
+      const target = Number.isFinite(duration) && duration > 0
+        ? Math.max(0, Math.min(position, duration - 0.05))
+        : position;
+      if (target > 0 && Math.abs(position - target) > 0.01) video.currentTime = target;
+      // A HTML5 `play()` egy még `ended` elemet a 0. másodpercre ugratna
+      // (55 s visszatekerés!). Csak akkor indítjuk, ha a fenti, jelenlegi
+      // pozícióra állítás tényleg sikerült és NEM ugrott vissza.
+      const pinned = Number(video.currentTime) || 0;
+      if (pinned >= position - 0.1) {
+        const playPromise = video.play();
+        if (playPromise && typeof (playPromise as Promise<void>).catch === 'function') {
+          void (playPromise as Promise<void>).catch(() => { /* a megerősítés dönt */ });
+        }
+      }
+    } catch { /* a megerősítés dönt */ }
+    guard.timer = window.setTimeout(() => {
+      guard.timer = null;
+      if (generation !== streamLoadGenerationRef.current) return; // csatornaváltás / új forrás
+      const current = htmlVideoRef.current;
+      if (!current || !desiredPlayingRef.current || !playbackActiveRef.current) return;
+      const sample = readMediaProgress(current, Date.now());
+      // Sikeres folytatás: haladt az idővonal/képkocka ÉS NEM tekert vissza.
+      const noRewind = sample.time >= startSample.time - 0.1;
+      const progressed = noRewind && mediaProgressed(startSample, sample);
+      if (progressed && !current.paused && !current.ended) {
+        const okLine = `TV DOKTOR: ÉLŐ ADÁS HELYBEN FOLYTATÓDOTT – nincs újratöltés, nincs visszatekerés; csatorna=${channelRef.current?.name || 'élő adás'}; t=${sample.time.toFixed(2)} s.`;
+        appLog(okLine);
+        if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(okLine);
+        setIsLoading(false);
+        setIsRecovering(false);
+        clearDoctorBufferingStatus();
+        return;
+      }
+      const failLine = `TV DOKTOR: ÉLŐ IDŐVONAL MEGERŐSÍTETTEN LEÁLLT – az újracsatlakozás most jogos; csatorna=${channelRef.current?.name || 'élő adás'}; ok=${errorCode}; haladás=${progressed ? 'igen' : 'nem'}; visszatekerés=${noRewind ? 'nem' : 'igen'}.`;
+      appLog(failLine);
+      if (isTvDoctorDiagLoggingEnabled()) tvDoctorLog(failLine);
+      notifyTvDoctorIncident('unexpected_end', current, errorCode, errorDetail);
+      requestRecoveryRef.current(reason);
+    }, LIVE_END_CONFIRM_MS);
+    return true;
+  };
+
   // Egyetlen lezáró naplósor minden élő csatornaváltásról.
   const logChannelSwitchSummary = (
     result: 'SIKERES' | 'SIKERTELEN',
@@ -2855,6 +3070,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setHasError(false);
     setIsLoading(false);
     setIsRecovering(true);
+    /* 2.5.406 (#51/#52): ha a webOS nem küld `playing`-et, az
+       „Újracsatlakozás…” pörgő és a retry felirat akkor sem marad örökké. */
+    armRecoveryIndicatorCap();
     showDoctorStatus({
       phase: 'retry',
       title: 'VOD újrapróbálkozás',
@@ -5236,26 +5454,51 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Ez megakadályozza, hogy a webOS a korábbi pufferelt szegmensből
       // játssza újra az utolsó 5–6 másodpercet. MPEG-TS-nél nincs seekelhető
       // idővonal; ott a szerver aktuális élő adatfolyamát folytatjuk.
-      if (recoverRunningLive && formatOfUrl(url) === 'hls') {
+      /* 2.5.406 (#51/#52): a visszatérés NEM játszhatja újra a szolgáltató
+         utolsó ~10 mp-ét. A HLS mellett most a raw-TS VÉGES, seekelhető
+         tartományát is az élő élre állítjuk; ha a webOS `Infinity` véget ad
+         (a #51/#52 naplókban ez volt), nincs érvényes cél, és NEM ugrunk
+         vissza/nullára. A `Infinity` tartományt a `liveEdgeTarget()` elveti. */
+      if (recoverRunningLive) {
         let liveEdgeHandled = false;
-        const jumpToLiveEdge = () => {
+        let liveEdgeAttempts = 0;
+        const jumpToLiveEdge = (event: Event) => {
           if (liveEdgeHandled || !isCurrentLoad() || video !== htmlVideoRef.current) return;
-          const ranges = video.seekable;
-          if (!ranges || ranges.length < 1) return;
-          try {
-            const edge = ranges.end(ranges.length - 1);
-            const previousPosition = video.currentTime;
-            const target = Math.max(ranges.start(ranges.length - 1), edge - 0.75);
-            if (Number.isFinite(target) && target > 0 && previousPosition < target - 1.5) {
-              video.currentTime = target;
-              appLog(`ÉLŐ HELYREÁLLÍTÁS: ugrás a HLS élő ablak végére; régi-pozíció=${previousPosition.toFixed(2)} s; élő-él=${target.toFixed(2)} s.`);
+          const ranges: Array<{ start: number; end: number }> = [];
+          const collect = (source: TimeRanges | null | undefined): void => {
+            if (!source) return;
+            for (let index = 0; index < source.length; index += 1) {
+              ranges.push({ start: Number(source.start(index)), end: Number(source.end(index)) });
             }
+          };
+          try {
+            collect(video.seekable);
+            if (ranges.length === 0) collect(video.buffered);
+            if (ranges.length === 0) return; // az első eseményen még nincs adat
+            liveEdgeAttempts += 1;
+            const previousPosition = Number(video.currentTime) || 0;
+            const target = liveEdgeTarget(ranges, previousPosition);
+            if (target !== null && previousPosition < target - 1.5) {
+              video.currentTime = target;
+              appLog(`ÉLŐ HELYREÁLLÍTÁS: ugrás a friss élő ablak végére (nincs visszatekerés); `
+                + `formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; `
+                + `régi-pozíció=${previousPosition.toFixed(2)} s; élő-él=${target.toFixed(2)} s.`);
+              liveEdgeHandled = true;
+            } else if (event.type === 'playing' || liveEdgeAttempts >= 3) {
+              // Nincs seekelhető él: nem erőltetjük, de a figyelőket levesszük.
+              liveEdgeHandled = true;
+            }
+            if (liveEdgeHandled) {
+              video.removeEventListener('loadedmetadata', jumpToLiveEdge);
+              video.removeEventListener('canplay', jumpToLiveEdge);
+              video.removeEventListener('playing', jumpToLiveEdge);
+            }
+          } catch (error) {
             liveEdgeHandled = true;
+            appLog('ÉLŐ HELYREÁLLÍTÁS: az élő ablak végére állás nem támogatott ezen a webOS lejátszón: ' + String(error));
             video.removeEventListener('loadedmetadata', jumpToLiveEdge);
             video.removeEventListener('canplay', jumpToLiveEdge);
             video.removeEventListener('playing', jumpToLiveEdge);
-          } catch (error) {
-            appLog('ÉLŐ HELYREÁLLÍTÁS: az élő ablak végére állás nem támogatott ezen a webOS lejátszón: ' + String(error));
           }
         };
         video.addEventListener('loadedmetadata', jumpToLiveEdge);
@@ -5578,6 +5821,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setHasError(false);
         setIsLoading(false);
         setIsRecovering(true);
+        armRecoveryIndicatorCap();
         appLog(
           `ÉLŐ ÚJRACSATLAKOZÁS (TV DOKTOR ${proposal.step}/${proposal.maxSteps}); csatorna=${channelRef.current?.name || 'élő adás'}; ` +
           `várakozás=${delayMs} ms; mód=${proposal.nextFormat.toUpperCase()}; puffer=${proposal.nextBufferProfile}; ok=${reason}.`,
@@ -6410,6 +6654,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 duration,
               };
               if (isUnexpectedLiveEnd(endState)) {
+                // 2.5.406 (#51/#52): a webOS véges TS-idővonala NEM hiba.
+                if (suppressLiveEndArtifact(video, 'FINITE_LIVE_END', `durationchange ${duration.toFixed(1)}s`, `élő véges idővonal – durationchange/ended`)) return;
                 appLog(`ÉLŐ VÉGES IDŐVONAL; csatorna=${channelRef.current?.name || 'élő adás'}; ` +
                   `t=${endState.currentTime.toFixed(2)} s; duration=${duration.toFixed(2)} s; ` +
                   `ended=${video.ended}; paused=${video.paused}; ${videoDiagnosticState(video, 'durationchange')}`);
@@ -6434,6 +6680,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     duration: currentDuration,
                   };
                   if (isUnexpectedLiveEnd(currentState)) {
+                    // 2.5.406 (#51/#52): a tartós véges idővonal sem elég bizonyíték.
+                    if (suppressLiveEndArtifact(video, 'FINITE_LIVE_END', `tartós durationchange ${currentDuration.toFixed(1)}s`, `élő véges idővonal – durationchange/ended`)) return;
                     appLog(`ÉLŐ VÉGES IDŐVONAL; csatorna=${channelRef.current?.name || 'élő adás'}; ` +
                       `t=${currentState.currentTime.toFixed(2)} s; duration=${currentDuration.toFixed(2)} s; ` +
                       `ended=${video.ended}; paused=${video.paused}; ${videoDiagnosticState(video, 'tartós durationchange')}`);
@@ -6504,10 +6752,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 recoveryTimerRef.current = null;
               }
               setIsRecovering(false);
+              if (recoveryIndicatorTimerRef.current !== null) {
+                window.clearTimeout(recoveryIndicatorTimerRef.current);
+                recoveryIndicatorTimerRef.current = null;
+              }
               clearBufferWatchdog();
               // 2.5.381: az adás újraindult – a késleltetett/aktuális pufferelési
               // felirat azonnal lekerül, nem marad a képen.
               clearDoctorBufferingStatus();
+              /* 2.5.406 (#51/#52): a tényleges `playing` a „retry” feliratot
+                 is azonnal elrejti, nem csak a „buffering” fázist. */
+              if (doctorStatusRef.current
+                  && (doctorStatusRef.current.phase === 'retry' || doctorStatusRef.current.phase === 'buffering')) {
+                showDoctorStatus(null);
+              }
               /*
                * 2.5.383: a ténylegesen dekódolt kép méretének rögzítése (élő) és
                * a HDR-színmetaadat egyszeri lekérdezése. A mérés csak a kép
@@ -6907,6 +7165,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 duration: Number(video.duration || 0),
               };
               if (isUnexpectedLiveEnd(pausedEndState)) {
+                // 2.5.406 (#51/#52):Pause + ended = demuxer-artefakt, nem csatornahiba.
+                if (suppressLiveEndArtifact(video, 'LIVE_PAUSED_END', `pause/duration=${pausedEndState.duration.toFixed(1)}s`, `élő adás vége – pause/duration=${pausedEndState.duration.toFixed(2)} s`)) return;
                 appLog(`ÉLŐ VÉGE (pause); csatorna=${channelRef.current?.name || 'élő adás'}; ` +
                   `t=${pausedEndState.currentTime.toFixed(2)} s; duration=${pausedEndState.duration.toFixed(2)} s; ` +
                   `${videoDiagnosticState(video, 'pause/ended')}`);
@@ -6969,6 +7229,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 duration: Number(video.duration || 0),
               };
               if (isUnexpectedLiveEnd(endState)) {
+                // 2.5.406 (#51/#52): 55 s / 30 s utáni `ended` még nem adatfolyam-hiba.
+                if (suppressLiveEndArtifact(video, 'LIVE_ENDED', `ended duration=${Number(endState.duration).toFixed(1)}s`, `élő adás vége – duration=${Number(endState.duration).toFixed(2)} s`)) return;
                 appLog(`ÉLŐ VÉGE; csatorna=${channelRef.current?.name || 'élő adás'}; ` +
                   `t=${endState.currentTime.toFixed(2)} s; duration=${Number(endState.duration).toFixed(2)} s; ` +
                   `paused=${video.paused}; ended=${video.ended}; ${videoDiagnosticState(video, 'ended')}`);

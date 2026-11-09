@@ -461,3 +461,104 @@ export function isUnexpectedLiveEnd(state: LiveEndState): boolean {
     && Number.isFinite(currentTime)
     && currentTime >= duration - 0.75;
 }
+
+/* --------------------------------------------------------------------------
+ * 2.5.406 – #51 / #52: a webOS raw-TS „vége” NEM adatfolyam-hiba.
+ *
+ * A két TV Doktor naplóban ([HU] EPIC DRAMA UHD 55 s, HU - DISCOVERY
+ * INVESTIGATION 30 s bizonyított lejátszás után) a médiaelem hirtelen
+ * `duration = currentTime`, `paused = true`, `ended = true` állapotot adott,
+ * miközben `media_error = -`, `readyState = 4`, `networkState = 1` és
+ * `buffered = [0.00-Infinity]` volt. A régi `isUnexpectedLiveEnd()` ilyenkor
+ * PUSZTÁN az `ended` flag miatt azonnal recoveryt kért; a `requestRecovery`
+ * pedig ~100 ms múlva `EMPTIED → LOADSTART → … → PLAYING` újratöltést végzett,
+ * 0 mp-ről indítva az új TS-kapcsolatot (≈10 mp visszatekerés + „Adás
+ * frissítése (1. próba)…” felirat). A Doktor döntései és javítási lépései
+ * a naplóban 0-k maradtak, tehát NEM a javítási létra, hanem a médiaesemény-
+ * kezelők közvetlen újratöltése volt a hiba.
+ *
+ * A döntéshez most TÉNYLEGES bizonyíték kell: nincs médiahia, nincs
+ * NETWORK_NO_SOURCE, van jövőbeli képkocka és puffer, friss idővonal-
+ * haladás, valamint bizonyítottan hosszú lejátszás. Ha ezek közül bármelyik
+ * hiányzik, a hiba VALÓDI és az eddigi recovery változatlanul lefut.
+ * ------------------------------------------------------------------------ */
+export interface LiveEndEvidence {
+  /** Igazolt médiahia (`video.error`). */
+  mediaError: boolean;
+  /** HTMLMediaElement.networkState (3 = NETWORK_NO_SOURCE = valódi forráshiba). */
+  networkState: number;
+  /** HTMLMediaElement.readyState (< 3 = nincs jövőbeli képkocka). */
+  readyState: number;
+  /** Előre pufferelt másodperc; null = nem mérhető. */
+  bufferedAheadSeconds: number | null;
+  /** webOS raw-TS: a puffer vége `Infinity` (a demuxer szerint nincs vége). */
+  unboundedBuffer: boolean;
+  /** Utolsó igazolt idővonal-haladás óta eltelt ms; null = soha nem haladt. */
+  progressAgoMs: number | null;
+  /** Bizonyított lejátszás ebben a nézési szakaszban (ms). */
+  healthyPlaybackMs: number;
+}
+
+export interface LiveEndEvidenceOptions {
+  /** Friss haladás elfogadási ablaka (ms). */
+  progressWindowMs?: number;
+  /** Bizonyított lejátszás küszöbe (ms). */
+  healthyThresholdMs?: number;
+  /** Ekkora puffer-előre még nem számít elfogyott forrásnak (mp). */
+  minBufferAheadSeconds?: number;
+}
+
+/** Ennyi időt kap a webOS, hogy az `ended` után HELYBEN folytassa az adást. */
+export const LIVE_END_CONFIRM_MS = 1500;
+
+export function isWebOsLiveEndArtifact(
+  evidence: LiveEndEvidence,
+  options: LiveEndEvidenceOptions = {},
+): boolean {
+  const progressWindowMs = options.progressWindowMs ?? 2500;
+  const healthyThresholdMs = options.healthyThresholdMs ?? 15000;
+  const minBufferAheadSeconds = options.minBufferAheadSeconds ?? 2;
+  // 1. Igazolt médiahia / eltűnt forrás: VALÓDI hiba, azonnali recovery jogos.
+  if (evidence.mediaError) return false;
+  if (evidence.networkState === 3) return false;
+  // 2. A dekódernek még van jövőbeli képkockája, és a puffer nem fogyott el.
+  if (!Number.isFinite(evidence.readyState) || evidence.readyState < 3) return false;
+  const ahead = evidence.bufferedAheadSeconds;
+  const hasBuffer = evidence.unboundedBuffer
+    || (ahead !== null && Number.isFinite(ahead) && ahead >= minBufferAheadSeconds);
+  if (!hasBuffer) return false;
+  // 3. A kép az elmúlt pillanatban TÉNYLEG haladt (nem 4 mp óta áll).
+  const progressAgoMs = evidence.progressAgoMs;
+  const freshProgress = progressAgoMs !== null
+    && Number.isFinite(progressAgoMs)
+    && progressAgoMs >= 0
+    && progressAgoMs <= Math.max(250, progressWindowMs);
+  if (!freshProgress) return false;
+  // 4. Csak olyan csatornát védünk, amely már bizonyítottan játszott.
+  if (!Number.isFinite(evidence.healthyPlaybackMs)
+      || evidence.healthyPlaybackMs < healthyThresholdMs) return false;
+  return true;
+}
+
+/**
+ * Újracsatlakozás után a friss élő ablak VÉGE, ha a TV egyáltalán adja a
+ * seekelhető tartományt. A webOS raw-TS gyakran `Infinity` véget ad: az NEM
+ * seekelhető, ezért ilyenkor `null` (a forrást nem ugratjuk vissza/nullára).
+ * Csak VÉGES tartományokat fogadunk el, és csak ha a lejátszási pont benne van.
+ */
+export function liveEdgeTarget(
+  ranges: Array<{ start: number; end: number }>,
+  currentTime: number,
+  marginSeconds = 0.75,
+): number | null {
+  let best: number | null = null;
+  for (const range of ranges) {
+    const start = Number(range.start);
+    const end = Number(range.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= 0) continue;
+    if (currentTime < start - 0.25) continue;
+    const target = Math.max(start, end - Math.max(0, marginSeconds));
+    if (best === null || target > best) best = target;
+  }
+  return best;
+}

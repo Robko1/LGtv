@@ -1715,10 +1715,10 @@
      * jelenik meg, ha a felület egyáltalán nem töltődött be.
      *
      * A 15 mp SZÁNDÉKOSAN nagyobb, mint a két másik indulási korlát:
-     *   • a főoldal saját döntése legfeljebb 12 mp után felfedi magát
-     *     (a React belépő, main.tsx – 2.5.405 / #49: az első képkocka +7,8 s),
-     *   • a HTML biztonsági hálója 14 mp után engedi el a #tv-curtain réteget
-     *     (index.html), és a natív splash is ekkor kerül elengedésre.
+     *   • a főoldal saját döntése legfeljebb 9 mp után felfedi magát
+     *     (a React belépő, main.tsx),
+     *   • a HTML biztonsági hálója 12 mp után engedi el a takaróképet
+     *     (index.html).
      *
      * FONTOS: ebbe a fájlba soha ne írj olyan szöveget, ami úgy néz ki, mint
      * egy fejlesztői modul-hivatkozás. A fájl beégetve kerül a csomagolt

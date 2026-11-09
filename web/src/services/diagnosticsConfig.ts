@@ -1,15 +1,16 @@
 /**
- * 2.5.397: a SÁRGA gombos kézi hiba napló az IPK/app indulásakor
- * AUTOMATIKUSAN elkezd gyűjteni – nem kell előtte megnyitni az ablakot.
+ * 2.5.406 – A KÉZI HIBA NAPLÓ CSAK KÉZI INDÍTÁSRA INDUL.
  *
- * A 2026-11-08 18:41-es TV-fotó utáni kérés: „a kézi hiba napló automatikusan
- * kezdje gyűjteni az adatokat miután IPK-t indítom, hogy lássuk mi az ami
- * sokáig fent tartsa a takaró képet, és az LG TV / webOS mit ellenőriz
- * pontosan”. A `diagnosticsBootstrap.ts` ezért már a fő modulok importja ELŐTT
- * elindítja a naplózást; a `startupDiagnostics.ts` és a `main.tsx` ettől
- * kezdve az IPK első milliszekundumaitól írja a lépéseket.
+ * A felhasználó kifejezett kérése: „az automatikus kézi hiba naplózást
+ * állítsd le, csak kézi indítás legyen”. A 2.5.397 óta bekapcsolt
+ * `TEST_STARTUP_DIAGNOSTICS` (IPK-induláskor automatikusan gyűjtő napló)
+ * ezért KI van kapcsolva. A SÁRGA gombos kézi napló, a TV Doktor napló és
+ * minden hibakezelés változatlanul működik; az automata boot-diagnosztikai
+ * figyelők (`startupDiagnostics.ts`) sem futnak, ha a napló nincs kézzel
+ * elindítva – ez az IPK indulását is gyorsítja.
  *
- * A napló továbbra is a SÁRGA ablakból küldhető el; sikeres küldés után az
- * adott munkamenetben nem indul újra magától (`discardSentAppLog`).
+ * A `diagnosticsBootstrap.ts` már NEM is hívja a
+ * `startAutomaticTestLogging()`-ot; csak a passzív crash-handlereket
+ * telepíti, amelyek naplózás nélkül nem írnak semmit.
  */
-export const TEST_STARTUP_DIAGNOSTICS = true;
+export const TEST_STARTUP_DIAGNOSTICS = false;

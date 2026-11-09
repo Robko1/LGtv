@@ -383,8 +383,8 @@ check(/data-vod-card/.test(moviesView) && /focusPosterFromReturn|restorePosterFo
 check(/VOD_RETURN_FOCUS|vodReturnFocus|skipDefaultViewFocus/.test(app),
   'a nézetváltás általános fókusz-hatása nem rántja vissza a kategória gombra VOD-visszatéréskor');
 const main = read('web/src/main.tsx');
-check(/const VIDEO_WAIT_MS = 8000/.test(main) && /const LOGO_WAIT_MS = 0/.test(main),
-  '2.5.405/#49: logóra nem várunk, de az első videókockát legfeljebb 8 s-ig megvárjuk (nem 0 ms)');
+check(/const VIDEO_WAIT_MS = 0/.test(main) && /const LOGO_WAIT_MS = 0/.test(main),
+  '2.5.406: sem logóra, sem az első videókockára nem várunk (gyors IPK-indulás)');
 check(/__IPTV_APP_READY__/.test(main), 'a főoldal kész jelzése továbbra is kimegy (a katalógus-visszatöltés erre indul)');
 
 console.log(`\n=== EREDMÉNY: ${passed} sikeres / ${failed} hibás ===`);

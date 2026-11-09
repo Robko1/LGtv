@@ -60,7 +60,7 @@ import {
 } from './services/providerImport';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
-import { channelNowNext, clearCountryGuideMemory, clearGuide, ensureChannelsEpg, ensureCountryGuide, ensureGuide, guideChannelCoverage, guideStatus, guideUpcoming, restoreHuGuideForBoot, setGuideHuProbe } from './services/epgGuide';
+import { channelNowNext, clearCountryGuideMemory, clearGuide, ensureChannelsEpg, ensureCountryGuide, ensureGuide, guideChannelCoverage, guideStatus, guideUpcoming, setGuideHuProbe } from './services/epgGuide';
 import { xtreamService } from './services/xtreamService';
 import {
   attachVodProviderDiagnostics,
@@ -1910,24 +1910,6 @@ export function App() {
     } catch { /* régi motor */ }
   }, []);
 
-  /*
-   * 2.5.405 / #49 – A FELFEDÉS CSAK A VALÓDI ADATKÉSZSÉG UTÁN.
-   *
-   * A #49 naplóban a `listReady`/`liveListReady` kapuk már +799 ms-nél
-   * engedtek, de a mentett HU EPG csak +14 s-nél, az első videó-képkocka
-   * +7,8 s-nél, a háttérmunka pedig a felfedés UTÁN futott le. A `main.tsx`
-   * most erre a jelzésre is vár: a csatornák, a kedvencek és a mentett HU
-   * műsorújság a takarókép ALATT készül el, így a felfedés után nem épül
-   * össze fokozatosan a főoldal.
-   */
-  const markBootDataReady = useCallback(() => {
-    try {
-      (window as unknown as { __IPTV_BOOT_DATA_READY__?: boolean }).__IPTV_BOOT_DATA_READY__ = true;
-      window.dispatchEvent(new CustomEvent('iptv-boot-data-ready'));
-      appLog('INDULÁS: a főoldal adatai készen vannak (csatornák, kedvencek, mentett HU műsorújság).');
-    } catch { /* régi motor */ }
-  }, []);
-
 
   const startBackgroundWork = useCallback((plan: StoredCatalogPlan | null) => {
     if (!plan) {
@@ -2225,26 +2207,6 @@ export function App() {
          * kurta, 107 csatornás induló készlet elegendő a megjelenéshez, a
          * teljes lista pedig a kész felület fölött, üresjáratban érkezik.
          */
-        /* 2.5.405 / #49: a mentett magyar műsorújságot MÉG A TAKARÓKÉP ALATT
-           visszatöltjük, hogy a felfedés pillanatában a műsorsor is kész
-           legyen. A hálózati HU-frissítés továbbra is késleltetve, a felfedés
-           után indul (startBackgroundWork), és a meglévő műsorokat nem
-           takarja el. */
-        try {
-          const huBootChannels = (plan.bootChannels && plan.bootChannels.length
-            ? plan.bootChannels
-            : bootChannels
-          ).filter((channel) => (channel.countryCode || '').toUpperCase() === 'HU');
-          if (huBootChannels.length) setGuideHuProbe(huBootChannels);
-          const restoredGuide = await restoreHuGuideForBoot();
-          if (restoredGuide && restoredGuide.channels > 0) {
-            setEpgRevision((revision) => revision + 1);
-            appLog(
-              `INDULÁS: a mentett HU műsorújság a takarókép alatt visszatöltve – `
-              + `${restoredGuide.channels} csatorna, ${restoredGuide.programmes} műsor.`,
-            );
-          }
-        } catch { /* a mentett EPG hiánya nem akadályozza a felfedést */ }
         // 2.5.140-es menet: a teljes élő lista AZONNAL, a takarókép alatt.
         backgroundWork = startBackgroundWork(plan);
         /*
@@ -2269,10 +2231,7 @@ export function App() {
         // ne várjon hiába a jelzésre.
         markLiveReady();
       } finally {
-        /* 2.5.405 / #49: a felfedési kapu CSAK akkor enged, ha a boot-adatok
-           (és a mentett HU EPG) tényleg visszatöltődtek. Hiba esetén is
-           jelezzük, hogy a 12 s-es kemény korlát ne várjon hiába. */
-        markBootDataReady();
+        // Ha bármi elakadt, a takarókép akkor sem maradhat fent 9 mp-ig.
         markBootState(decided);
         if (!cancelled) setBootProbeDone(true);
       }
@@ -2314,7 +2273,7 @@ export function App() {
         window.clearInterval(timers.refreshTimer);
       }
     };
-  }, [runRestore, startBackgroundWork, markLiveReady, markBootDataReady]);
+  }, [runRestore, startBackgroundWork, markLiveReady]);
 
   // Kedvencek / sorrend módosítása után mentsük a tartalmat (késleltetve).
   //

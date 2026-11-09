@@ -61,15 +61,12 @@ check(tuning.winnerModelMs < 400 && tuning.maxSyncRowsAllowed === 2500,
 console.log('\n2. IPK gyors indulás');
 const videoWait = Number(main.match(/const VIDEO_WAIT_MS = (\d+);/)?.[1]);
 const logoWait = Number(main.match(/const LOGO_WAIT_MS = (\d+);/)?.[1]);
-/* 2.5.405 / #49: a #49 naplóban a 0 ms-es videó-várakozás miatt a takarókép
-   +805 ms-nél lement, de az első képkocka csak +7,8 s-nél jött meg. Most a
-   felhasználó kérésének megfelelően a takarókép tovább fent marad: a logóra
-   továbbra sem várunk, a videó első KIRAJZOLT képkockáját viszont legfeljebb
-   8 s-ig igen. */
-check(videoWait === 8000, `videó-várakozás ${videoWait} ms (2.5.405/#49: első képkocka, max. 8 s)`);
+/* 2.5.406: a 2.5.405 / #49 8 s-es videó-kapuja megduplázta az IPK indulását,
+   ezért visszaállt a gyors 0 ms. A logóra sem várunk. */
+check(videoWait === 0, `videó-várakozás ${videoWait} ms (2.5.406: gyors indulás, nincs mesterséges videó-kapu)`);
 check(logoWait === 0, `logó-várakozás ${logoWait} ms (változatlan: nincs mesterséges logó-várakozás)`);
 check(/waited >= LOGO_WAIT_MS/.test(main) && /waited >= VIDEO_WAIT_MS/.test(main),
-  'a 0 ms logó-küszöb az első körben enged; a 8 s videó-korlát a felfedést védi');
+  'mindkét 0 ms küszöb az első ellenőrzési körben enged');
 check(/if \(!animatedBridge\) \{\s*afterBootAnimation\(\);/.test(main),
   'HTML-híd hiányában a felfedés AZONNAL megtörténik (nincs 400 ms kényszer-várakozás)');
 check(!/migrateVodStorageIfNeeded/.test(app),

@@ -83,6 +83,13 @@ export function startTvDoctorPlaybackTelemetry(): void {
   let waitingSince = 0;
   let waitingChannel = '';
   let waitingChannelId = '';
+  /* 2.5.406 (#51): a pufferelési epizód NEM a `stalled` eseménytől, hanem a
+     TÉNYLEGES lejátszási szünettől számít. A #51-ben 25,30 s puffer-előre
+     mellett jött `MEDIA_STALLED`, közben a currentTime 6,70 → 54,44 s-ig
+     haladt, mégis 47 746 ms-es „pufferelési epizódot” írtunk, mert nem jött
+     új `playing` esemény. A `timeupdate` most lezárja az ilyen epizódot. */
+  let waitingStartTime = 0;
+  let waitingStartFrames: number | null = null;
   let waitingEpisodes = 0;
   let waitingEvents = 0;
   let stalledEvents = 0;
@@ -109,6 +116,17 @@ export function startTvDoctorPlaybackTelemetry(): void {
     ? { ...activePlaybackSnapshot }
     : null;
 
+  const readDecodedFrames = (): number | null => {
+    try {
+      const element = video as HTMLVideoElement & { webkitDecodedFrameCount?: number };
+      const quality = typeof element.getVideoPlaybackQuality === 'function'
+        ? element.getVideoPlaybackQuality()
+        : null;
+      const frames = Number(quality?.totalVideoFrames ?? element.webkitDecodedFrameCount);
+      return Number.isFinite(frames) && frames >= 0 ? frames : null;
+    } catch { return null; }
+  };
+
   const closeBuffering = (reason: string): void => {
     if (!waitingSince) return;
     const elapsed = Math.max(0, Date.now() - waitingSince);
@@ -122,6 +140,8 @@ export function startTvDoctorPlaybackTelemetry(): void {
     waitingSince = 0;
     waitingChannel = '';
     waitingChannelId = '';
+    waitingStartTime = 0;
+    waitingStartFrames = null;
   };
 
   const writeSample = (reason: string): void => {
@@ -181,12 +201,27 @@ export function startTvDoctorPlaybackTelemetry(): void {
   };
 
   const onMediaEvent = (event: Event): void => {
+    /* A `timeupdate` csak a bizonyíték: ha a `waiting`/`stalled` óta a kép
+       tényleg haladt, akkor NEM volt lejátszási pufferelés. Külön naplósort
+       nem írunk belőle (a 30 s-es rutinminta elég), csak lezárjuk az epizódot. */
+    if (event.type === 'timeupdate') {
+      if (waitingSince) {
+        const position = Number(video.currentTime) || 0;
+        const frames = readDecodedFrames();
+        const progressed = position > waitingStartTime + 0.5
+          || (waitingStartFrames !== null && frames !== null && frames > waitingStartFrames);
+        if (progressed) closeBuffering('idővonal haladt (nincs lejátszási szünet)');
+      }
+      return;
+    }
     const snapshot = active();
     if (event.type === 'waiting' || event.type === 'stalled') {
       if (event.type === 'waiting') waitingEvents += 1;
       else stalledEvents += 1;
       if (!waitingSince) {
         waitingSince = Date.now();
+        waitingStartTime = Number(video.currentTime) || 0;
+        waitingStartFrames = readDecodedFrames();
         waitingChannel = snapshot?.channelName || 'ismeretlen csatorna';
         waitingChannelId = snapshot?.channelId || '';
         waitingEpisodes += 1;
@@ -200,7 +235,7 @@ export function startTvDoctorPlaybackTelemetry(): void {
   const events = [
     'loadstart', 'loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough',
     'waiting', 'stalled', 'playing', 'progress', 'suspend', 'pause',
-    'error', 'emptied', 'abort', 'seeking', 'seeked', 'ended',
+    'error', 'emptied', 'abort', 'seeking', 'seeked', 'ended', 'timeupdate',
   ];
   events.forEach((eventName) => video.addEventListener(eventName, onMediaEvent));
 

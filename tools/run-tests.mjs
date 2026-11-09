@@ -91,6 +91,8 @@ const tasks = [
   { name: 'tv-doctor-recovery-403', args: ['tools/test-tv-doctor-recovery-403.mjs'] },
   // 2.5.405: #49 takarókép utáni fokozatos összeállás + #50 kártyaóra / 16 variáns Supabase-keret.
   { name: 'boot-reveal-and-doctor-clock-405', args: ['tools/test-boot-reveal-and-doctor-clock-405.mjs'] },
+  // 2.5.406: #51/#52 – a működő élő adás nem újracsatlakozás / nincs stale felirat / nincs visszatekerés.
+  { name: 'tv-doctor-live-end-406', args: ['tools/test-tv-doctor-live-end-406.mjs'] },
 ];
 
 const requested = Number(process.env.TEST_CONCURRENCY || '');

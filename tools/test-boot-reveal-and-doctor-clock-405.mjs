@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * 2.5.405 – #49 (takarókép után összeálló főoldal) + #50 (TV Doktor / Supabase).
+ * 2.5.405 / #50 (TV Doktor / Supabase) + 2.5.406 (gyors indulás, nincs 2. takarókép).
  *
- * A #49 RENDSZERNAPLÓ BIZONYÍTÉKA (2.5.404, 505 sor):
- *   `TAKARÓKÉP ÖSSZEGZÉS [+805 ms] … videó-kész=nem; teljes lista=igen;
- *    iptv-app-ready következik`, `HTML JELZÉS +1502 ms REVEAL`, majd
- *   `+7833 ms videó kész=4 (első képkocka megvan)`, `FAST BOOT EPG +13,7 s`,
- *   `EPG-ÁLLAPOT 70/80 +28,7 s`, és 29 képkocka-kihagyás / max 1017 ms az
- *   első 8 s-ben. A felhasználó: „inkább legyen a takaró kép fent tovább de
- *   én nekem villám gyorsan kell aztán működnie mindennek”.
+ * A 2.5.405 / #49 8 s videó-kapuja, 12 s kemény korlátja, 14 s HTML
+ * vészfogója és a MÁSODIK `#tv-curtain` takaróréteg a felhasználó mérése
+ * szerint ~(kétszeresére) LASSÍTOTTA az IPK indulását: „sokkal lassab igy az
+ * indulás … nem eszt kértem … már van takaró kép nem kell még egy!”
+ * A 2.5.406 ezért visszaállítja a bevált gyors indulást (0 ms videó-kapu,
+ * 1,5 s gyors háló, 9 s kemény korlát, natív splash az első React gyermeknél),
+ * és KIKAPCSOLJA az automatikus kézi hiba naplót (csak kézi indítás).
  *
  * A #50 NAPLÓ + ÉLŐ SUPABASE BIZONYÍTÉKA:
  *   a bal felső 4 kártya `Mikor:` 00:xx-et mutatott, a fejléc sárga órája
@@ -52,65 +52,50 @@ const guide = read('web/src/services/epgGuide.ts');
 const appLog = read('web/src/services/appLog.ts');
 const edge = read('supabase/functions/tv-doctor/index.ts');
 
-/* ===================== 1. #49 – HOSSZABB TAKARÓ, EGY VÁLTÁS ===================== */
-console.log('\n=== 1. #49: a takarókép addig fent marad, amíg MINDEN kész ===\n');
+/* ============ 1. 2.5.406 – GYORS INDULÁS, NINCS MÁSODIK TAKARÓKÉP ============ */
+console.log('\n=== 1. 2.5.406: gyors IPK-indulás, nincs extra takaróréteg ===\n');
 
-check(/const VIDEO_WAIT_MS = 8000;/.test(main),
-  'az első KIRAJZOLT videó-képkockát legfeljebb 8 s-ig megvárjuk (#49: +7,8 s)');
-check(/const BOOT_MAX_REVEAL_MS = 12000;/.test(main) && /elapsed > BOOT_MAX_REVEAL_MS/.test(main),
-  'a kemény korlát 9 s → 12 s (a régi 9 s épp az első képkocka előtt vágott)');
+check(/const VIDEO_WAIT_MS = 0;/.test(main),
+  'NINCS 8 s mesterséges videó-képkocka várakozás (vissza a gyors 0 ms-re)');
 check(/const LOGO_WAIT_MS = 0;/.test(main),
   'a logókra továbbra sincs mesterséges várakozás');
-check(/const bootDataReady = \(\)/.test(main) && /bootDataReady: bootDataReady\(\)/.test(main),
-  'a `bootDataReady` kapu is szerepel a 40 ms-os TAKARÓKÉP ELLENŐRZÉS sorban');
-check(/if \(chromeOk && bootDataReady\(\) && \(listOk \|\| onlyDialog\)\)/.test(main),
-  'a fő felfedési kapu NEM enged a boot-adatok (csatornák + mentett HU EPG) nélkül');
-check(/elapsed > BOOT_FAST_REVEAL_MS && chromeOk && bootDataReady\(\)/.test(main)
-  && /&& videoSettled\(\) && logosSettled\(\)/.test(main),
-  'az 1,5 s gyors háló NEM kerülheti meg az első képkockát és a boot-adatokat');
-check(!/window\.setTimeout\(releaseNativeSplash, 0\)/.test(main)
-  && !/window\.setTimeout\(releaseNativeSplash, 16\)/.test(main),
-  'a natív splash NEM az első React gyermeknél megy le (#49: +796 ms, gyermekek=1)');
-check(/let nativeSplashReleased = false;/.test(main) && /if \(nativeSplashReleased\) return;/.test(main),
-  'a `notifyAppLoaded` PONTOSAN EGYSZER, a valódi felfedéskor fut');
-check(/host\.webOSSystem\?\.notifyAppLoaded\?\.\(\)/.test(main)
-  && /host\.PalmSystem\?\.notifyAppLoaded\?\.\(\)/.test(main),
-  'a régi webOS `PalmSystem` hídját is egyszer elengedjük');
-check(/getElementById\('tv-curtain'\)/.test(main)
-  && /curtain\.parentNode\.removeChild\(curtain\)/.test(main),
-  'a felfedés EGY lépésben eltávolítja a saját takaróréteget (nincs fade)');
-check(/\}, 14000\);/.test(indexHtml) && /iptv-revealed/.test(indexHtml),
-  'az index.html 14 s-es vészfogója sem hagyhatja örökké fent a takarót');
-check(/elapsed > 3500 && chromeReady\(\) && bootDataReady\(\)/.test(main)
-  && /&& videoSettled\(\) && logosSettled\(\)\) \{\s*\n\s*revealWhenPainted\("gyors indulás – tároló-próba lassú/.test(main),
-  'a 3,5 s tároló-próba háló SEM kerülheti meg a #49 kész-kapuit');
-check(!/9 másodperc alatt/.test(main) && /12 másodperc alatt/.test(main),
-  'a kemény korlát naplóüzenete is 12 s-re frissült');
-check(/window\.__IPTV_AUDIO_GATE__ = true;/.test(indexHtml),
-  'a hangzár már az app ELŐTTI legelső szkriptben zárva indul');
-check(/__IPTV_AUDIO_GATE__ = false/.test(main) && /'iptv-audio-open'/.test(main),
-  'a hosszabb takaró alatt zárt hangzár a felfedéskor nyílik (#24 3,3 s hang)');
-check(/function startupAudioGateClosed\(\): boolean \{/.test(player)
-  && /__IPTV_AUDIO_GATE__ === true/.test(player)
-  && !/return false;\s*\}\s*\/\*\* A néma állapot/.test(player),
-  'a lejátszó ténylegesen olvassa a HTML hangzár-jelzőt (nem fix `false`)');
-check(/id="tv-curtain"/.test(indexHtml)
-  && /#tv-curtain \{/.test(indexHtml)
-  && /url\('splash-screen\.png'\)/.test(indexHtml),
-  'az index.html saját takarórétege ugyanazt a splash PNG-t használja');
-check(/dispatchAppReady\(\);\s*\n\s*reveal\(reason\);/.test(main),
-  'az `iptv-app-ready` a felfedés ELŐTT, még a takarókép alatt megy ki');
-check(/iptv-app-ready kiment a felfedés ELŐTT/.test(main),
-  'a TAKARÓKÉP ÖSSZEGZÉS is a valódi sorrendet írja');
-check(/restoreHuGuideForBoot/.test(app) && /restoreHuGuideForBoot\(\)/.test(app),
-  'az App a mentett HU műsorújságot a takarókép alatt tölti vissza');
-check(/__IPTV_BOOT_DATA_READY__ = true/.test(app) && /markBootDataReady\(\);/.test(app),
-  'az App a boot-próba VÉGÉN jelzi az adatok készségét (a finally ágban is)');
-check(/export async function restoreHuGuideForBoot/.test(guide)
-  && /await restoreHuGuide\(HU_GUIDE_STORAGE_ID\)/.test(guide),
-  'az EPG-visszatöltés csak a HELYI HU tárolót olvassa, nem indít hálózatot');
-check(/bootDataReady/.test(appLog) && /12 s kemény korlát/.test(appLog),
-  'a kézi napló fejléce a #49 új kapuit és a 12 s korlátot is felsorolja');
+check(!/BOOT_MAX_REVEAL_MS/.test(main) && /if \(elapsed > 9000\)/.test(main),
+  'a kemény korlát vissza 9 s-re (nincs 12 s-es lassú boot)');
+check(!/bootDataReady/.test(main),
+  'a bootDataReady / mentett HU EPG kapu teljesen kikerült a felfedésből');
+check(/if \(chromeOk && \(listOk \|\| onlyDialog\)\)/.test(main),
+  'a fő felfedési kapu újra azonnal enged, ha a fejléc + lista kész');
+check(/elapsed > BOOT_FAST_REVEAL_MS && chromeOk && bootState\(\) !== "checking"\s*\n\s*&& liveListReady\(\) && listOk\)/.test(main),
+  'az 1,5 s gyors háló visszanyerte az eredeti, gyors feltételét');
+check(/if \(elapsed > 3500 && chromeReady\(\) && bootState\(\) === "checking"\)/.test(main),
+  'a 3,5 s tároló-próba háló sem vár extra kapukra');
+check(/window\.setTimeout\(releaseNativeSplash, 0\)/.test(main)
+  && /window\.setTimeout\(releaseNativeSplash, 16\)/.test(main),
+  'a natív splash AZ ELSŐ React gyermeknél, extra várakozás nélkül megy le');
+check(/if \(nativeSplashReleased\) return;/.test(main),
+  'a `notifyAppLoaded` így is PONTOSAN EGYSZER fut');
+check(!/tv-curtain/.test(indexHtml) && !/14000/.test(indexHtml),
+  'az index.html-ben NINCS második takaróréteg és 14 s-es vészfogó');
+check(!/tv-curtain/.test(main),
+  'a felfedés sem keres többé saját takaróréteget');
+check(/window\.__IPTV_AUDIO_GATE__ = true;/.test(indexHtml)
+  && /__IPTV_AUDIO_GATE__ = false/.test(main) && /'iptv-audio-open'/.test(main),
+  'a hangzár változatlan: HTML-ben zár, a gyors felfedéskor NYÍLIK (nincs néma lejátszás)');
+check(/iptv-revealed/.test(main) && /__IPTV_APP_READY__/.test(main),
+  'a kész-jelzők megmaradnak (a smoke teszt és a webos.js UI-őre miatt)');
+check(!/restoreHuGuideForBoot/.test(app) && !/restoreHuGuideForBoot/.test(guide),
+  'a mentett HU EPG NEM töltődik vissza a takaró alatt (nincs extra indulási munka)');
+check(!/__IPTV_BOOT_DATA_READY__/.test(app),
+  'az App nem jelez boot-adatkészséget (nem kell rá várni)');
+check(!/bootDataReady/.test(appLog) && !/12 s kemény korlát/.test(appLog),
+  'a kézi napló fejléce sem hivatkozik a megszüntetett 12 s kapura');
+check(/TEST_STARTUP_DIAGNOSTICS = false/.test(read('web/src/services/diagnosticsConfig.ts')),
+  'az AUTOMATIKUS kézi hiba napló KI van kapcsolva: csak kézi (SÁRGA) indítás van');
+check(!/startAutomaticTestLogging/.test(read('web/src/services/diagnosticsBootstrap.ts'))
+  && /installCrashHandlers\(\)/.test(read('web/src/services/diagnosticsBootstrap.ts')),
+  'a bootstrap NEM indít automatikus naplót, csak passzív crash-handlereket telepít');
+check(/9 másodperc alatt/.test(main) && !/12 másodperc alatt/.test(main),
+  'a kemény korlát naplóüzenete is visszaállt 9 s-re');
 
 /* ===================== 2. #50 – 4 KÁRTYA TV-HELYI IDEJE ===================== */
 console.log('\n=== 2. #50: a bal felső 4 kártya a TV óráját mutatja, a NAPLÓ nem változik ===\n');
@@ -274,4 +259,4 @@ if (failed) {
   for (const label of failures) console.error(`  - ${label}`);
   process.exit(1);
 }
-console.log('OK: #49 felfedés + #50 TV-helyi kártyaóra + 16 variáns Supabase-keret.');
+console.log('OK: gyors 2.5.406 indulás (nincs 2. takarókép) + #50 TV-helyi kártyaóra + 16 variáns Supabase-keret.');

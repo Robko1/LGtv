@@ -132,22 +132,12 @@ while (rootEl && rootEl.childElementCount === 0 && Date.now() < mountDeadline) {
 check(Boolean(rootEl && rootEl.childElementCount > 0),
   'a React felület felépül a naplózás mellett is (nem fekete képernyő)');
 
-/* 2.5.405: a 2.5.397 ÓTA a `TEST_STARTUP_DIAGNOSTICS` tesztidőszaki kapcsoló
-   SZÁNDÉKOSAN elindítja a naplózást már az IPK indulásakor (a #43/#49/#50
-   rendszernaplók így tartalmazzák a legelső milliszekundumokat is). A régi
-   „induláskor üres a napló” elvárás ezért már nem igaz: vagy a kapcsoló KI
-   van (üres napló, kézi indulás), vagy BE van (automatikus napló, a fejlécben
-   a `MIT ELLENŐRIZ A TV` sorral). Mindkét esetben a HÍDNAK működnie kell. */
+/* 2.5.406: a felhasználó kérésére az AUTOMATIKUS kézi hiba napló KI van
+   kapcsolva. Az IPK indulásakor üres a napló és a naplózás inaktív; CSAK a
+   SÁRGA / kézi indítás után kezd gyűjteni. */
 const startupLog = diag.text();
-const startupEnabled = diag.logStatus().enabled === true;
-const autoLogOk = startupEnabled
-  && /AUTOMATIKUS IPK-NAPLÓ/.test(startupLog)
-  && /MIT ELLENŐRIZ A TV/.test(startupLog);
-const manualOnlyOk = !startupEnabled && startupLog === '';
-check(autoLogOk || manualOnlyOk,
-  startupEnabled
-    ? 'a tesztidőszaki automatikus napló az IPK indulásakor elindult, fejléccel'
-    : 'a kézi naplózású kiadásban induláskor üres a napló');
+check(startupLog === '', 'induláskor üres a napló (nincs automata gyűjtés)');
+check(diag.logStatus().enabled === false, 'a naplózás csak kézzel indul');
 check(typeof diag.logStatus().enabled === 'boolean', 'a napló állapota lekérdezhető a hídon');
 check(typeof diag.startLogging === 'function' && typeof diag.logStatus === 'function',
   'a kézi naplózás indítója és állapota elérhető a hídon');
@@ -155,7 +145,8 @@ diag.startLogging();
 
 /* ── 1. Indulási napló ─────────────────────────────────────────────────── */
 let text = diag.text();
-check(/=== IPTV indul; verzió=\d+\.\d+\.\d+/.test(text), 'az indulási sor a valódi verziót tartalmazza');
+check(/=== IPTV \/ IPK indul; verzió=\d+\.\d+\.\d+; kézi hiba napló ===/.test(text),
+  'a KÉZZEL indított napló indulási sora a valódi verziót tartalmazza');
 check(/FIGYELŐ ELINDULT/.test(text), 'a fagyásfigyelő elindult');
 check(/NAPLÓZÁS INDULT/.test(text), 'a kézi indítás bekerül a naplóba');
 check(/Eszköz: /.test(text), 'a böngésző/készülék azonosítója is a naplóban van');

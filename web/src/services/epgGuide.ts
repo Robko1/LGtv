@@ -2123,35 +2123,6 @@ export function guideUpcoming(
 }
 
 /** Van-e egyáltalán betöltött műsorújság (a naplózáshoz és a tesztekhez). */
-/**
- * 2.5.405 / #49 – A MENTETT HU MŰSORÚJSÁG A TAKARÓKÉP ALATT KÉSZÜL EL.
- *
- * A #49 rendszernaplóban a `FAST BOOT EPG` csak `+13,7 s`-nél indult, a saját
- * tárból visszatöltött 30 csatorna / 238 műsor `+14,2 s`-nél, a friss HU EPG
- * pedig `+28,7 s`-nél jelent meg – mind a felfedés (`+1,5 s`) UTÁN, ezért a
- * néző látta, ahogy a műsorsor fokozatosan összeáll. A teljes `ensureGuide()`
- * hálózati frissítést NEM várjuk meg az indulásnál (1,9 MB letöltés + 10 MB
- * feldolgozás), csak a HELYI, mentett HU újságot olvassuk vissza. A hálózati
- * frissítés később, a felfedés után, csendben fut; a már látható műsorok
- * addig is megmaradnak.
- */
-export async function restoreHuGuideForBoot(): Promise<{ channels: number; programmes: number } | null> {
-  if (loading) return null;
-  try {
-    const restored = await restoreHuGuide(HU_GUIDE_STORAGE_ID);
-    if (!restored) return null;
-    loadedAt = restored.savedAt;
-    loadedProviderId = HU_GUIDE_STORAGE_ID;
-    lastProgrammes = restored.programmes;
-    lastBytes = restored.bytes;
-    lastError = '';
-    notifyGuideListeners();
-    return { channels: restored.channels, programmes: statKept || restored.programmes };
-  } catch {
-    return null;
-  }
-}
-
 export function guideStatus(): {
   channels: number;
   loadedAt: number;

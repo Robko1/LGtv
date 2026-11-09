@@ -1,8 +1,9 @@
 /**
  * TELJES KÖRŰ INDULÁSI DIAGNOSZTIKA (csak a tesztelési időszakra).
  *
- * A naplózás automatikus indítását a `diagnosticsConfig.ts` kapcsolója vezérli
- * (`TEST_STARTUP_DIAGNOSTICS`). Ha a naplózás fut, ez a modul a lehető
+ * 2.5.406: az automata napló KI van kapcsolva; ez a modul CSAK a SÁRGA
+ * gombos kézi napló indításakor (registerLoggingLifecycleHooks.onStart) fut.
+ * Ha a naplózás fut, ez a modul a lehető
  * legrészletesebben rögzíti az indulást, hogy a lassulás, a felugrások és a
  * megjelenítési hibák OKA a naplóból kiolvasható legyen:
  *
@@ -23,7 +24,8 @@
  *
  * FONTOS: minden figyelő CSAK akkor él, amikor a naplózás aktív. Kikapcsolt
  * naplózásnál nulla plusz munka és nulla plusz memória (a normál tévézés
- * változatlan). A naplózás a tesztidőszakban csak a napló elküldésekor áll le.
+ * változatlan). Kézi indítás nélkül NINCS figyelő, NINCS naplóírás és NINCS
+ * localStorage-írás – az IPK indulása így gyorsabb.
  */
 import { appLog, manualLogSnapshot } from './appLog';
 

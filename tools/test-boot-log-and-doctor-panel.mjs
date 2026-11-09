@@ -2,9 +2,9 @@
 /**
  * 2.5.397 – A 2026-11-08 18:41-es TV-fotó négy követelményének regressziós tesztje.
  *
- *  1. A SÁRGA/kézi hiba napló az IPK/app indulásakor AUTOMATIKUSAN kezd gyűjteni,
- *     és tételesen (ms-idővel) írja, mit ellenőriz az LG TV / webOS a takarókép
- *     fent tartása alatt.
+ *  1. 2.5.406: a SÁRGA/kézi hiba napló NEM indul automatikusan az IPK/app
+ *     indításakor – CSAK kézi indításra gyűjt. A kézi napló indításakor
+ *     tételesen (ms-idővel) írja, mit ellenőriz az LG TV / webOS.
  *  2. A TV Doktor útvonalpanel a VALÓDI tanult útvonalat mutatja: soha nem
  *     „NINCS ADAT + NINCS ADAT / Nincs mérési adat • ok / hiba”.
  *  3. A bal oldali „Központi profilok / 1-es alap / tanult útvonal” doboz NEM
@@ -43,26 +43,26 @@ const modal = read('web/src/components/TvDoctorStatusModal.tsx');
 const doctor = read('web/src/services/tvDoctor.ts');
 const cloud = read('web/src/services/tvDoctorCloud.ts');
 
-console.log('\n1. A kézi hiba napló AUTOMATIKUSAN indul az IPK/app indításakor');
-check(/export const TEST_STARTUP_DIAGNOSTICS = true;/.test(config),
-  'az automata indulási naplózás BE van kapcsolva (nem kell SÁRGA gomb az induláshoz)');
-check(/startAutomaticTestLogging\(\)/.test(bootstrap) && /installCrashHandlers\(\)/.test(bootstrap),
-  'a diagnosztikai bootstrap import-hibák ELŐTT elindítja a naplót és a crash-handlert');
+console.log('\n1. A kézi hiba napló CSAK KÉZI INDÍTÁSRA indul');
+check(/export const TEST_STARTUP_DIAGNOSTICS = false;/.test(config),
+  '2.5.406: az automata indulási naplózás KI van kapcsolva (csak SÁRGA gomb)');
+check(!/startAutomaticTestLogging/.test(bootstrap) && /installCrashHandlers\(\)/.test(bootstrap),
+  'a bootstrap NEM indít automatikus naplót, csak passzív crash-handlert telepít');
 check(/^import\s+["']\.\/services\/diagnosticsBootstrap["'];/m.test(main)
     && main.indexOf('services/diagnosticsBootstrap') < main.indexOf('from "react"'),
-  'a bootstrap az App/modulok kiértékelése ELŐTT, első importként fut');
+  'a bootstrap továbbra is első importként fut (de naplózás nélkül)');
 check(/TAKARÓKÉP/.test(main) && /chromeReady/.test(main) && /logosSettled/.test(main)
     && /videoSettled/.test(main) && /prepaintSettled/.test(main),
-  'a takarókép alatt ellenőrzött LG/webOS lépések tételesen szerepelnek a forrásban');
+  'a kézi naplóban megmaradnak az LG/webOS indulási lépések');
 check(/TAKARÓKÉP ELLENŐRZÉS/.test(main) && /notifyAppLoaded/.test(main),
   'a napló külön sorokban írja a webOS notifyAppLoaded / felfedés ellenőrzését');
-check(/MIT ELLENŐRIZ A TV/.test(appLogSrc) || /MIT ELLENŐRIZ/.test(main),
-  'a napló fejléce felsorolja, pontosan mit ellenőriz az LG TV / webOS az induláskor');
-check(/AUTOMATIKUSAN/.test(appLogSrc) && /IPK/.test(appLogSrc),
-  'az automatikusan indított munkamenet megkülönböztethető a kézitől (IPK, AUTOMATIKUSAN)');
+check(!/tv-curtain/.test(main) && !/tv-curtain/.test(read('web/index.html')),
+  '2.5.406: NINCS második HTML takaróréteg, csak a natív webOS splash');
+check(/MIT ELLENŐRIZ A TV/.test(appLogSrc),
+  'a KÉZZEL indított napló fejléce továbbra is felsorolja az ellenőrzési lépéseket');
 check(/registerLoggingLifecycleHooks\(\{/.test(main) && /onStart: \(\) => startStartupDiagnostics\(\)/.test(main)
     && /if \(loggingEnabled\)/.test(appLogSrc) && /hooks\.onStart\?\.\(\)/.test(appLogSrc),
-  'a main.tsx később regisztrált indulási diagnosztikája AZONNAL csatlakozik a már futó automata naplóhoz');
+  'az indulási diagnosztika CSAK a kézi napló indításakor csatlakozik');
 
 console.log('\n2. A tanult útvonal VALÓDI adat: nincs többé NINCS ADAT placeholder');
 check(!/NINCS ADAT/.test(modal) && !/Nincs mérési adat/.test(modal),
@@ -92,9 +92,9 @@ check(/Tanulás/.test(modal) && /bejegyzés/.test(modal) && /összevont/.test(mo
   'a tanulási bejegyzések száma és az összevont tanult útvonalak száma együtt látszik');
 
 /* ───────────────────────────────────────────────────────────────────────────
- * FUTÁSIDEI PRÓBA 1: az automata napló tényleg elindul és ír
+ * FUTÁSIDEI PRÓBA 1: az IPK-induláskor NINCS automata napló; kézzel indul
  * ─────────────────────────────────────────────────────────────────────────── */
-console.log('\n5. Futásidei: automata napló + valódi útvonal + 8 doboz (JSDOM)');
+console.log('\n5. Futásidei: nincs automata napló + valódi útvonal + 8 doboz (JSDOM)');
 
 const vc = new VirtualConsole();
 vc.on('jsdomError', () => {});
@@ -126,10 +126,11 @@ const LEGACY_ROW = {
    ugyanabban a modul-példányban él (külön bundle-ök külön állapotot adnának). */
 const bootstrapEntry = `
 import './web/src/services/diagnosticsBootstrap.ts';
-import { startAutomaticTestLogging, manualLogSnapshot, getAppLogText, appLog } from './web/src/services/appLog.ts';
+import { startAutomaticTestLogging, startManualLogging, stopManualLogging, manualLogSnapshot, getAppLogText, appLog } from './web/src/services/appLog.ts';
 import { normalizeDoctorRoutesForDisplay, getTvDoctorChannelSnapshot, restoreTvDoctorCentralProfiles, mergeCloudDoctorLogs, MAX_CHANNEL_ROUTES } from './web/src/services/tvDoctor.ts';
 export {
-  startAutomaticTestLogging, manualLogSnapshot, getAppLogText, appLog,
+  startAutomaticTestLogging, startManualLogging, stopManualLogging,
+  manualLogSnapshot, getAppLogText, appLog,
   normalizeDoctorRoutesForDisplay, getTvDoctorChannelSnapshot,
   restoreTvDoctorCentralProfiles, mergeCloudDoctorLogs, MAX_CHANNEL_ROUTES,
 };
@@ -142,17 +143,24 @@ await esbuild.build({
 });
 const core = await import(pathToFileURL(coreOut).href + '?v=' + Date.now());
 
-/* Az automata napló akkor indul, amikor a bootstrap modul kiértékelődik. */
-check(core.manualLogSnapshot().enabled === true,
-  'a naplózás a modulok betöltésekor MAGÁTÓL bekapcsol (nem kell SÁRGA gomb)');
-const logText = core.getAppLogText();
-check(/AUTOMATIKUSAN/.test(logText) && /IPK/.test(logText),
-  'az automata munkamenet első sora megnevezi az IPK-indulást');
-check(/MIT ELLENŐRIZ/.test(logText),
-  'az automata napló tételesen felsorolja az LG TV / webOS ellenőrzési lépéseit');
+/* 2.5.406: a bootstrap importja után a napló ÜRES és KI van kapcsolva. */
+check(core.manualLogSnapshot().enabled === false,
+  'az IPK/modulok betöltésekor NEM kapcsol be magától a naplózás');
+check(core.getAppLogText() === '',
+  'induláskor NINCS automatikus napló, localStorage-írás sem történik');
+check(core.startAutomaticTestLogging().enabled === false
+  && core.getAppLogText() === '',
+  'a visszafelé kompatibilis automata-indító is no-op marad');
+/* A felhasználó kérése: CSAK a SÁRGA/kézi indítás indítson naplót. */
+const manual = core.startManualLogging();
+check(manual.enabled === true && /NAPLÓZÁS INDULT/.test(core.getAppLogText()),
+  'a kézi indítás után a napló elindul, fejléccel');
+check(!/AUTOMATIKUS IPK-NAPLÓ/.test(core.getAppLogText()),
+  'a kézi naplóban NINCS automata IPK-fejléc');
 core.appLog('TAKARÓKÉP ELLENŐRZÉS [+123 ms] chromeReady=igen; listReady=nem');
 check(/TAKARÓKÉP ELLENŐRZÉS \[\+123 ms\]/.test(core.getAppLogText()),
-  'a takarókép alatti ellenőrzési lépés ms-idővel bekerül a naplóba');
+  'a kézi napló az indulási ellenőrzési lépést ms-idővel rögzíti');
+core.stopManualLogging('teszt vége');
 
 /* A hiányos felhő-sorból VALÓDI útvonal lesz. */
 const normalized = core.normalizeDoctorRoutesForDisplay(LEGACY_ROW);

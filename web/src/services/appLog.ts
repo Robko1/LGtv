@@ -444,15 +444,17 @@ export function stopManualLogging(reason = 'kézi leállítás'): ManualLogSnaps
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
- * AUTOMATIKUS NAPLÓZÁS – CSAK A TESZTELÉSI IDŐSZAKBAN
+ * AUTOMATIKUS NAPLÓZÁS – 2.5.406 ÓTA KIKAPCSOLVA (CSAK KÉZI INDÍTÁS)
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /**
  * A tesztidőszak automatikus naplózásának indítása (az IPK indulásakor fut).
  *
- * A `TEST_STARTUP_DIAGNOSTICS` kapcsoló kikapcsolása után ez a függvény nem
- * csinál semmit: a naplózás a régi módon, csak a SÁRGA ablak gombjára indul.
- * Sikeres kézi elküldés után sem indul újra magától (`autoSuppressed`).
+ * 2.5.406: a `TEST_STARTUP_DIAGNOSTICS` kapcsoló KI van kapcsolva, ezért ez
+ * a függvény NEM csinál semmit: a naplózás csak a SÁRGA ablak gombjára indul.
+ * A függvény csak visszafelé kompatibilitás miatt maradt; az IPK gyors
+ * indulásához a bootstrap már nem is hívja. Sikeres kézi elküldés után sem
+ * indul újra magától (`autoSuppressed`).
  */
 export function startAutomaticTestLogging(): ManualLogSnapshot {
   if (!TEST_STARTUP_DIAGNOSTICS) return manualLogSnapshot();
@@ -470,8 +472,8 @@ export function startAutomaticTestLogging(): ManualLogSnapshot {
      * előtaggal, változásonként ír ki; innen tudható, melyik lépés tartotta
      * fent a képet és mennyi ideig.
      */
-    appLog('MIT ELLENŐRIZ A TV [IPK indulásától]: 1) HTML __IPTV_BOOT_EPOCH__ / 1-7. fázisjelek; 2) webOS Luna-híd, webOSSystem.notifyAppLoaded; 3) bundle betöltés, React mount, #root gyermekek; 4) chromeReady = fejléc + mappasáv a #root-ban; 5) listReady / liveListReady = élő csatornasorok; 6) Logók (logosSettled); 7) első videó-képkocka (videoSettled, requestVideoFrameCallback, legfeljebb 8 s); 8) előfestés két képkockán (prepaintSettled); 9) üres IPK jelzés (data-iptv-boot); 10) tároló-felmérés (IndexedDB / localStorage); 11) FCP / LCP / long task / képkocka-kihagyás; 12) bootScreenComplete + iptv-app-ready a felfedés ELŐTT + natív splash elengedése; 13) #49: bootDataReady (csatornák, kedvencek, mentett HU EPG), saját #tv-curtain takaróréteg és az indulási hangzár nyitása.');
-    appLog('MIT TARTJA FENT A TAKARÓKÉPET: minden fenti kapu IGEN/NEM állapota ms-bélyeggel; ha egy kapu nem teljesül, a 40 ms-os ellenőrző ciklus addig tartja fent a képet, amíg az 1,5 s gyors háló (CSAK kész videóval és kész adatokkal), a 3,5 s tároló-próba háló (szintén minden kapuval) vagy a 12 s kemény korlát fel nem oldja; az index.html 14 s-es vészfogója sem maradhat rajta. A #49 után az első videó-képkocka (legfeljebb 8 s) és a boot-adatok is kötelező kapuk: inkább tovább takar, de a felfedés után egyetlen váltással minden működik.');
+    appLog('MIT ELLENŐRIZ A TV [IPK indulásától]: 1) HTML __IPTV_BOOT_EPOCH__ / 1-7. fázisjelek; 2) webOS Luna-híd, webOSSystem.notifyAppLoaded; 3) bundle betöltés, React mount, #root gyermekek; 4) chromeReady = fejléc + mappasáv a #root-ban; 5) listReady / liveListReady = élő csatornasorok; 6) Logók (logosSettled); 7) első videó-képkocka (videoSettled, requestVideoFrameCallback); 8) előfestés két képkockán (prepaintSettled); 9) üres IPK jelzés (data-iptv-boot); 10) tároló-felmérés (IndexedDB / localStorage); 11) FCP / LCP / long task / képkocka-kihagyás; 12) bootScreenComplete + iptv-app-ready + natív splash elengedése.');
+    appLog('MIT TARTJA FENT A TAKARÓKÉPET: minden fenti kapu IGEN/NEM állapota ms-bélyeggel; ha egy kapu nem teljesül, a 40 ms-os ellenőrző ciklus addig tartja fent a képet, amíg a 3,5 s gyors háló vagy a 9 s kemény korlát fel nem oldja.');
   }
   return snapshot;
 }
