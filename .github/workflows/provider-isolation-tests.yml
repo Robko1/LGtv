@@ -1,4 +1,4 @@
-name: Ideiglenes csatornaváltási diagnosztika javításellenőrzés
+name: Végső teljes regressziós tesztkör (IPK nélkül)
 
 on:
   push:
@@ -26,4 +26,4 @@ jobs:
             web/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm ci --prefix web --no-audit --no-fund
-      - run: node tools/test-channel-switch-diagnostics-runtime.mjs
+      - run: npm test
