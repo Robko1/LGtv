@@ -511,7 +511,7 @@ const backend: Backend = (() => {
     window.localStorage.removeItem('iptv_rt_probe');
     return {
       name: 'local',
-      get: (key) => window.localStorage.getItem(LOCAL_PREFIX + providerScopePrefix() + key) || memory.get(providerScopePrefix() + key) || '',
+      get: (key) => memory.get(providerScopePrefix() + key) || window.localStorage.getItem(LOCAL_PREFIX + providerScopePrefix() + key) || '',
       put: (key, value) => {
         try {
           window.localStorage.setItem(LOCAL_PREFIX + providerScopePrefix() + key, value);
