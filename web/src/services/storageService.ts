@@ -282,18 +282,20 @@ export const storageService = {
     }
   },
 
-  getUiState(): { activeView?: 'live' | 'movies' | 'series'; selectedCategoryId?: string; isOnlyFavorites?: boolean; searchQuery?: string } {
+  getUiState(providerId?: string | null): { activeView?: 'live' | 'movies' | 'series'; selectedCategoryId?: string; isOnlyFavorites?: boolean; searchQuery?: string } {
     try {
-      const data = localStorage.getItem(UI_STATE_KEY);
+      const key = providerScopePrefix(providerId) + UI_STATE_KEY;
+      const data = localStorage.getItem(key);
       return data ? JSON.parse(data) : {};
     } catch {
       return {};
     }
   },
 
-  saveUiState(state: { activeView: 'live' | 'movies' | 'series'; selectedCategoryId: string; isOnlyFavorites: boolean; searchQuery: string }): void {
+  saveUiState(state: { activeView: 'live' | 'movies' | 'series'; selectedCategoryId: string; isOnlyFavorites: boolean; searchQuery: string }, providerId?: string | null): void {
     try {
-      localStorage.setItem(UI_STATE_KEY, JSON.stringify(state));
+      const key = providerScopePrefix(providerId) + UI_STATE_KEY;
+      localStorage.setItem(key, JSON.stringify(state));
     } catch {
       /* nem kritikus */
     }
@@ -346,6 +348,8 @@ export const storageService = {
           || key?.endsWith(`:${FOLDERS_KEY}`)
           || key === HISTORY_KEY
           || key?.endsWith(`:${HISTORY_KEY}`)
+          || key === UI_STATE_KEY
+          || key?.endsWith(`:${UI_STATE_KEY}`)
         ) localStorage.removeItem(key);
       }
     } catch {
