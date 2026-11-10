@@ -178,7 +178,8 @@ await esbuild.build({
       readCatalogStateSync, catalogNeedsCheck, catalogIncompleteSections, markCatalogSectionsComplete,
       saveSyncState, loadSyncState,
     } from './web/src/services/contentStore.ts';
-    export { setActiveProviderScope } from './web/src/services/providerScope.ts';`,
+    export { setActiveProviderScope } from './web/src/services/providerScope.ts';
+    export { storageService } from './web/src/services/storageService.ts';`,
     resolveDir: ROOT,
     sourcefile: 'persistence-harness.ts',
     loader: 'ts',
@@ -236,6 +237,14 @@ try {
   app1.setActiveProviderScope('provider-a');
   check(app1.loadSyncState('provider-a')?.fingerprint === 'fingerprint-a',
     'az A szolgáltató saját szinkronállapotát kapja vissza');
+
+  // A kedvenc mappák (és a bennük lévő csatornaazonosítók) sem öröklődhetnek át.
+  app1.storageService.saveFolders([{ id: 'folder-a', name: 'A kedvencei', channelIds: ['same-channel'] }], 'provider-a');
+  app1.storageService.saveFolders([{ id: 'folder-b', name: 'B kedvencei', channelIds: ['same-channel'] }], 'provider-b');
+  check(app1.storageService.getFolders('provider-a')[0]?.id === 'folder-a',
+    'az A szolgáltató saját kedvenc mappáit kapja vissza');
+  check(app1.storageService.getFolders('provider-b')[0]?.id === 'folder-b',
+    'a B szolgáltató kedvenc mappái nem keverednek az A adataival');
   app1.setActiveProviderScope('provider-b');
   check(app1.loadSyncState('provider-b')?.fingerprint === 'fingerprint-b',
     'a B szolgáltató nem az A szinkronállapotát kapja vissza');
