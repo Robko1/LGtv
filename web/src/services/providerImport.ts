@@ -64,6 +64,7 @@ import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seas
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled, sleep } from './net';
 import { setActiveProviderScope } from './providerScope';
+import { setTvDoctorProviderScope } from './tvDoctor';
 
 /**
  * Részletes filmadatok összeolvasztása az importált alaprekorddal.
@@ -839,8 +840,6 @@ export async function importXtreamProvider(
     username: user,
     password: pass,
   };
-  setActiveProviderScope(provider.id);
-
   /* ---- 1. szakasz: élő csatornák ---------------------------------- */
 
   /* ---------------------------------------------------------------
@@ -2616,6 +2615,9 @@ export async function refreshProviderContent(
   onPartial: PartialFn = () => {},
   options: RefreshOptions = {}
 ): Promise<RefreshOutcome> {
+  // A TV Doktor régi függő mentéseit még a régi névtérbe ürítjük,
+  // mielőtt a katalógus globális névtere szolgáltatót vált.
+  setTvDoctorProviderScope(provider.id);
   setActiveProviderScope(provider.id);
   if (provider.type === 'xtream') {
     if (!provider.serverUrl || !provider.username || !provider.password) {
