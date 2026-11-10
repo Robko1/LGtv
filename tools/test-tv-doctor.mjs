@@ -130,7 +130,8 @@ core.setTvDoctorProviderScope('provider-a');
 const providerAStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
 core.setTvDoctorProviderScope('provider-b');
 const providerBStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
-console.log('DEBUG TV DOCTOR PROVIDER BYTES', { providerAStoredBytes, providerBStoredBytes, keys: Array.from(providerScopeStorage.map.entries()) });
+// A HU-scope beállítása üres B-tárat is létrehoz; a méréshez ezt eltávolítjuk, hogy csak az A mentése maradjon.
+providerScopeStorage.removeItem('provider:provider-b:' + core.TV_DOCTOR_STORAGE_KEY);
 core.setTvDoctorProviderScope('provider-a');
 check(
   providerAStoredBytes > 0 && providerBStoredBytes === 0,
