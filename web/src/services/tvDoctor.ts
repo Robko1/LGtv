@@ -2814,7 +2814,7 @@ export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemory
 
   if (target) {
     try {
-      const rawDoctor = target.getItem(TV_DOCTOR_STORAGE_KEY);
+      const rawDoctor = target.getItem(scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY));
       if (pendingPersistTimer !== null && !storage && hasAnyDoctorData) {
         const liveSerialized = JSON.stringify(store);
         memoryCacheSerializedChars = liveSerialized.length;
