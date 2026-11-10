@@ -338,7 +338,11 @@ export const storageService = {
     try {
       for (let index = localStorage.length - 1; index >= 0; index--) {
         const key = localStorage.key(index);
-        if (key?.startsWith(CHANNEL_ORDER_PREFIX)) localStorage.removeItem(key);
+        if (
+          key?.startsWith(CHANNEL_ORDER_PREFIX)
+          || key === FOLDERS_KEY
+          || key?.endsWith(`:${FOLDERS_KEY}`)
+        ) localStorage.removeItem(key);
       }
     } catch {
       /* nem kritikus */
