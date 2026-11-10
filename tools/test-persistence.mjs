@@ -176,7 +176,9 @@ await esbuild.build({
       clearContent, needsLiveCacheCompaction, describeStoredContent,
       saveVodContentSafely, saveSeriesContentSafely, loadVodAsync, loadSeriesAsync,
       readCatalogStateSync, catalogNeedsCheck, catalogIncompleteSections, markCatalogSectionsComplete,
-    } from './web/src/services/contentStore.ts';`,
+      saveSyncState, loadSyncState,
+    } from './web/src/services/contentStore.ts';
+    export { setActiveProviderScope } from './web/src/services/providerScope.ts';`,
     resolveDir: ROOT,
     sourcefile: 'persistence-harness.ts',
     loader: 'ts',
@@ -225,6 +227,28 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
 try {
   /* ============ 1. MENTÉS: kis localStorage-készlet + teljes lista IDB-ben ==== */
   const app1 = await boot(1);
+
+  // A/B szolgáltatóváltás: a rövid szinkronállapot és a kvótahibás memória-tartalék is külön névtér.
+  app1.setActiveProviderScope('provider-a');
+  app1.saveSyncState({ providerId: 'provider-a', fingerprint: 'fingerprint-a', fullSyncAt: 1 });
+  app1.setActiveProviderScope('provider-b');
+  app1.saveSyncState({ providerId: 'provider-b', fingerprint: 'fingerprint-b', fullSyncAt: 2 });
+  app1.setActiveProviderScope('provider-a');
+  check(app1.loadSyncState('provider-a')?.fingerprint === 'fingerprint-a',
+    'az A szolgáltató saját szinkronállapotát kapja vissza');
+  app1.setActiveProviderScope('provider-b');
+  check(app1.loadSyncState('provider-b')?.fingerprint === 'fingerprint-b',
+    'a B szolgáltató nem az A szinkronállapotát kapja vissza');
+
+  // A localStorage kvótáját lezárjuk: az írás memóriába esik vissza, de onnan is ugyanazzal a provider-prefixszel olvasható.
+  localStorageFake.setQuota(localStorageFake.usage());
+  app1.saveSyncState({ providerId: 'provider-b', fingerprint: 'memory-fallback-b', fullSyncAt: 3 });
+  check(app1.loadSyncState('provider-b')?.fingerprint === 'memory-fallback-b',
+    'kvótahiba után a B szolgáltató memória-tartaléka visszaolvasható');
+  app1.setActiveProviderScope('provider-a');
+  check(app1.loadSyncState('provider-a')?.fingerprint === 'fingerprint-a',
+    'a B szolgáltató memória-tartaléka nem szennyezi az A szolgáltató állapotát');
+
   const content = makeContent();
   await app1.saveLiveContentAsync(content);
   await settle();
