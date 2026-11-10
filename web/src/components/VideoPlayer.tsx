@@ -129,6 +129,7 @@ import {
   recordLiveQualityFailure,
   recordLiveQualityMeasurement,
 } from '../services/liveQualityMemory';
+import { activeProviderScopeId } from '../services/providerScope';
 
 interface NativeApi {
   play?: (url: string, title?: string) => void;
@@ -607,6 +608,7 @@ const BlueClock: React.FC<{ className?: string; offsetHours?: number; accent?: '
 interface VideoPlayerProps {
   liveAccent?: 'yellow' | 'red' | 'blue' | 'pink' | 'green' | 'white';
   channel: Channel | null;
+  providerId?: string;
   customStreamUrl?: string;
   customTitle?: string;
   /**
@@ -720,6 +722,7 @@ const PLAYER_HOME_STYLE: React.CSSProperties = {
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   liveAccent = 'yellow',
   channel,
+  providerId,
   customStreamUrl,
   customTitle,
   prefetchChannels,
@@ -749,6 +752,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   playbackActive = true,
   subtitleSource,
 }) => {
+  const providerScopeId = providerId || activeProviderScopeId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoSurfaceRef = useRef<HTMLDivElement | null>(null);
   const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -999,6 +1003,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     loadCount: number;
     channelId: string;
     channelName: string;
+    streamUrl: string;
     waitingLogged: boolean;
     canPlayLogged: boolean;
     completed: boolean;
@@ -4264,15 +4269,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     if (isVod || customStreamUrl) return;
-    const channelKey = String(channel?.id ?? '').trim();
-    if (!channelKey) return;
+    const channelId = String(channel?.id ?? '').trim();
+    if (!channelId) return;
+    const channelKey = `${providerScopeId}::${channelId}`;
     const state = savedLiveAudioRef.current;
     if (state.channelKey !== channelKey) {
       // Új csatorna: egyszer beolvassuk a mentett hangsávot, majd a következő
       // körben (amikor a sávlista megérkezik) be is állítjuk.
       savedLiveAudioRef.current = {
         channelKey,
-        saved: rememberedAudioFor(channelKey),
+        saved: rememberedAudioFor(channelId),
         applied: false,
         attempts: 0,
         startedAt: Date.now(),
@@ -4305,7 +4311,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try { selectTvAudio(match); } finally { restoringSavedAudioRef.current = false; }
     const timer = window.setTimeout(() => setSavedAudioTick((value) => value + 1), 900);
     return () => window.clearTimeout(timer);
-  }, [channel?.id, isVod, customStreamUrl, tvAudioTracks, selectTvAudio, savedAudioTick]);
+  }, [channel?.id, providerScopeId, isVod, customStreamUrl, tvAudioTracks, selectTvAudio, savedAudioTick]);
 
   /*
    * Az élő feliratválasztás érvényesítése a TV médiaszolgáltatásán. A
@@ -5428,6 +5434,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const isSameSwitch = Boolean(
           previousDiagnostic &&
           previousDiagnostic.channelId === channelId &&
+          previousDiagnostic.streamUrl === url &&
           !previousDiagnostic.completed &&
           !previousDiagnostic.summaryLogged
         );
@@ -5440,6 +5447,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           loadCount: isSameSwitch ? previousDiagnostic!.loadCount + 1 : 1,
           channelId,
           channelName,
+          streamUrl: url,
           waitingLogged: false,
           canPlayLogged: false,
           completed: false,
@@ -6005,7 +6013,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     liveEndRecoveryAttemptRef.current = 0;
     /* 2.5.403 (#46): a 16 beállítás létrája CSAK új csatornánál indul elölről.
      * Egy HLS↔TS újracsatlakozás ugyanazon a csatornán belül NEM nullázza. */
-    const variantChannelId = String(channelRef.current?.id || '');
+    const variantChannelId = `${String(channelRef.current?.id || '')}|${streamUrl}`;
     if (liveRecoveryVariantChannelRef.current !== variantChannelId) {
       liveRecoveryVariantRef.current = 0;
       liveRecoveryVariantLastAtRef.current = 0;
@@ -6037,7 +6045,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
      */
     if (!isVod && playbackActive && channel?.id && lastPlayedRef.current
         && lastPlayedRef.current.channelId === channel.id
-        && formatOfUrl(lastPlayedRef.current.url) === formatOfUrl(directLiveStreamUrl)) {
+        && lastPlayedRef.current.url === directLiveStreamUrl) {
       const playing = htmlVideoRef.current;
       // Csak akkor maradhat minden, ha a forrás TÉNYLEG a videóelemen van
       // (a Mozi/Sorozat nézet eltávolítja a forrást – akkor újra kell tölteni).
