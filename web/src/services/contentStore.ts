@@ -1452,12 +1452,16 @@ function noteSectionSaved(section: 'live' | 'vod' | 'series', count: number, pro
  * teljes lenne, a hiányzó elemek pedig némán elvesztek – vagy jött a teljes
  * újratöltés. Most a jelzés alapján a háttér-ellenőrzés célzottan gyógyít.
  */
-function noteSectionIncomplete(section: 'live' | 'vod' | 'series', reason: string): void {
+function noteSectionIncomplete(
+  section: 'live' | 'vod' | 'series',
+  reason: string,
+  providerId = activeProviderScopeId(),
+): void {
   appLog(`TÁROLÓ FIGYELEM: a(z) ${section} szakasz tartós mentése HIÁNYOS – ${reason}`);
   updateCatalogState((state) => {
     const current = state.sections[section] || { savedAt: 0, count: state.counts[section] || 0 };
     state.sections[section] = { ...current, incomplete: true };
-  });
+  }, providerId);
 }
 
 /**
@@ -2039,14 +2043,20 @@ function scheduleSaveRetry(metaKey: string, label: string, attempt: number, run:
 
 async function saveChunkedAuto(options: ChunkedSaveOptions, retryAttempt = 0): Promise<void> {
   if (options.provider?.id) setActiveProviderScope(options.provider.id);
+  const providerId = options.provider?.id || activeProviderScopeId();
   // Egy frissebb mentés érvényteleníti ugyanennek a szakasznak a függő ismétlését.
   if (retryAttempt === 0) cancelSaveRetry(options.metaKey);
   const section = sectionForMetaKey(options.metaKey);
   const store = await contentChunkStore();
   if (store) {
     if (await saveChunkedToIdb(store, options)) {
-      for (const key of readChunkKeys(options.metaKey, options.legacyPrefix)) backend.remove(key);
-      backend.remove(options.metaKey);
+      // Az IndexedDB-tár már a hívás elején rögzített providerhez tartozik.
+      // Ha közben szolgáltatót váltottunk, a globális localStorage scope-ot
+      // nem írjuk át és nem takarítjuk az új szolgáltató régi adagjait.
+      if (!providerId || activeProviderScopeId() === providerId) {
+        for (const key of readChunkKeys(options.metaKey, options.legacyPrefix)) backend.remove(key);
+        backend.remove(options.metaKey);
+      }
       return;
     }
     /*
@@ -2060,7 +2070,7 @@ async function saveChunkedAuto(options: ChunkedSaveOptions, retryAttempt = 0): P
       `TÁROLÓ FIGYELEM: ${options.label} (${options.total} elem) most nem írható a tartós tárba; `
       + 'a korábbi, ép mentett lista marad. A nagy listát nem írjuk a kis localStorage-ba.'
     );
-    if (section) noteSectionIncomplete(section, `${options.label}: a tartós írás meghiúsult.`);
+    if (section) noteSectionIncomplete(section, `${options.label}: a tartós írás meghiúsult.`, providerId);
     scheduleSaveRetry(options.metaKey, options.label, retryAttempt,
       () => saveChunkedAuto(options, retryAttempt + 1));
     return;
