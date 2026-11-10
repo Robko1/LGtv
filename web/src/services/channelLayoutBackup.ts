@@ -481,7 +481,7 @@ export function persistRestoredLayout(
       localStorage.setItem(`iptv_rt_deleted_channels_v1_${encodeURIComponent(providerId)}`, JSON.stringify(snapshot.deletedChannels));
     } catch {}
     // Mappák
-    storageService.saveFolders(remappedFolders);
+    storageService.saveFolders(remappedFolders, providerId);
     // Csak a kis állapotjelző metaadat kerül helyben tárolásra; a teljes pillanatkép nem.
     const info: LastBackupInfo = {
       at: snapshot.createdAt,
