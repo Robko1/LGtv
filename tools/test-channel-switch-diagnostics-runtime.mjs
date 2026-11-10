@@ -94,7 +94,7 @@ assert.ok(video.getAttribute('src').includes('one.ts'));
 fire('error'); await until(()=>video.getAttribute('src')?.includes('one.m3u8'),'HLS fallback');
 fire('loadeddata'); fire('playing'); await wait(40);
 log=window.diagTest.log();
-console.log('DEBUG SWITCH SUMMARY', log.split('\\n').filter(line => line.includes('CSATORNAVÁLTÁS ÖSSZESÍTÉS') || line.includes('ELSŐ FORMÁTUM') || line.includes('FORMÁTUM-VISSZAESÉS')));
+console.log('DEBUG SWITCH SUMMARY', log.split(String.fromCharCode(10)).filter(line => line.includes('CSATORNAVÁLTÁS ÖSSZESÍTÉS') || line.includes('ELSŐ FORMÁTUM') || line.includes('FORMÁTUM-VISSZAESÉS')));
 assert.match(log,/ELSŐ FORMÁTUM GYORS ÚJRAPRÓBÁJA/);
 assert.match(log,/FORMÁTUM-VISSZAESÉS/);
 assert.match(log,/CSATORNAVÁLTÁS ÖSSZESÍTÉS.*összes-betöltés=3/);
