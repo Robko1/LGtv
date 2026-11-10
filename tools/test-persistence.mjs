@@ -254,6 +254,12 @@ try {
     'az A szolgáltató saját lejátszási előzményeit kapja vissza');
   check(app1.storageService.getHistory('provider-b')[0]?.id === 'history-b',
     'a B szolgáltató lejátszási előzményei nem keverednek az A adataival');
+  app1.storageService.saveUiState({ activeView: 'live', selectedCategoryId: 'country-hu', isOnlyFavorites: true, searchQuery: 'A' }, 'provider-a');
+  app1.storageService.saveUiState({ activeView: 'live', selectedCategoryId: 'country-ie', isOnlyFavorites: false, searchQuery: 'B' }, 'provider-b');
+  check(app1.storageService.getUiState('provider-a').searchQuery === 'A',
+    'az A szolgáltató saját felületi szűrőállapotát kapja vissza');
+  check(app1.storageService.getUiState('provider-b').searchQuery === 'B',
+    'a B szolgáltató felületi szűrőállapota nem keveredik az A adataival');
   app1.setActiveProviderScope('provider-b');
   check(app1.loadSyncState('provider-b')?.fingerprint === 'fingerprint-b',
     'a B szolgáltató nem az A szinkronállapotát kapja vissza');
