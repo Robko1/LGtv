@@ -344,6 +344,7 @@ export const storageService = {
         const key = localStorage.key(index);
         if (
           key?.startsWith(CHANNEL_ORDER_PREFIX)
+          || key?.startsWith(DELETED_CHANNELS_PREFIX)
           || key === FOLDERS_KEY
           || key?.endsWith(`:${FOLDERS_KEY}`)
           || key === HISTORY_KEY
