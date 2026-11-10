@@ -425,7 +425,7 @@ export function App() {
   const [categories, setCategories] = useState<Category[]>(() => bootLive.categories);
   const [vodCategories, setVodCategories] = useState<Category[]>([]);
   const [seriesCategories, setSeriesCategories] = useState<Category[]>([]);
-  const [folders, setFolders] = useState<FavoriteFolder[]>(() => storageService.getFolders(bootLive.provider?.id));
+  const [folders, setFolders] = useState<FavoriteFolder[]>(() => bootLive.provider?.id ? storageService.getFolders(bootLive.provider.id) : []);
   // A mentés csak a főoldali magyar csatornákat és a kedvenc mappákba tett csatornákat tartalmazza.
   // A teljes szolgáltatói lista nem része a személyes elrendezésnek.
   const layoutChannels = useMemo(() => {
@@ -439,7 +439,7 @@ export function App() {
   // Szolgáltatóváltáskor a TV Doktor és a tartós katalógus ugyanarra a névtérre áll át.
   useLayoutEffect(() => {
     setTvDoctorProviderScope(activeProvider?.id || '');
-    setFolders(storageService.getFolders(activeProvider?.id));
+    setFolders(activeProvider?.id ? storageService.getFolders(activeProvider.id) : []);
   }, [activeProvider?.id]);
   const [totalCounts, setTotalCounts] = useState(() => bootLive.totals);
   /*
@@ -623,9 +623,9 @@ export function App() {
     seriesCategories,
     totals: totalCounts,
   };
-  const [history, setHistory] = useState<WatchHistoryItem[]>(() => storageService.getHistory(bootLive.provider?.id));
+  const [history, setHistory] = useState<WatchHistoryItem[]>(() => bootLive.provider?.id ? storageService.getHistory(bootLive.provider.id) : []);
   useLayoutEffect(() => {
-    setHistory(storageService.getHistory(activeProvider?.id));
+    setHistory(activeProvider?.id ? storageService.getHistory(activeProvider.id) : []);
   }, [activeProvider?.id]);
 
   const savedUiState = useRef(storageService.getUiState());
