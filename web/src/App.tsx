@@ -3741,7 +3741,9 @@ export function App() {
       const currentChannels = channelsRef.current;
       if (partial.channels && (partial.authoritative || partial.channels.length > 0 || currentChannels.length === 0)) {
         // A kézzel törölt csatornák a részadagokból sem kerülhetnek vissza.
-        draft.channels = preserveChannelPreferences(dropDeletedChannels(partial.channels, id), currentChannels, true);
+        draft.channels = activeProviderRef.current?.id === id
+          ? preserveChannelPreferences(dropDeletedChannels(partial.channels, id), currentChannels, true)
+          : dropDeletedChannels(partial.channels, id);
         setActiveProvider(draft.provider);
         /*
          * A frissítés részletekben érkezik. A nézett csatornát a betöltés
@@ -4052,7 +4054,9 @@ export function App() {
       // Kézi provider-frissítéskor a csatornák sorrendje a szolgáltató sorrendjére áll vissza.
       // A kedvencjelöléseket és a mappákhoz tartozó stabil csatornaazonosítókat megtartjuk.
       // A kézzel törölt csatornák a frissítés végleges listájába sem kerülhetnek vissza.
-      const refreshedChannels = preserveChannelPreferences(dropDeletedChannels(content.channels, id), previousChannels, true);
+      const refreshedChannels = isSameProvider
+        ? preserveChannelPreferences(dropDeletedChannels(content.channels, id), previousChannels, true)
+        : dropDeletedChannels(content.channels, id);
       const watchedId = activeChannelIdRef.current;
       const currentlyWatched = isSameProvider
         ? previousChannels.find((channel) => channel.id === watchedId)
