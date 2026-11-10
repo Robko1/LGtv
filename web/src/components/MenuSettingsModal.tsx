@@ -218,27 +218,33 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   // 2.5.335 — Elrendezés mentés állapot + felhő ellenőrzés a Listák fül megnyitásakor
   useEffect(() => {
     if (!isOpen || activeTab !== 'lists') return;
-    setLayoutLastBackup(getLastBackupInfo(activeProviderForLayout?.id));
+    let cancelled = false;
+    const providerId = activeProviderForLayout?.id || '';
+    setLayoutLastBackup(providerId ? getLastBackupInfo(providerId) : null);
     setLayoutCloudInfo(getCloudLastFetchInfo());
     setLayoutCloudError(getLastCloudError());
     // Ha párosítva van és van aktív szolgáltató, próbáljuk lekérni a felhő mentést is
     // (hogy a „Nincs felhő mentés” ne maradjon beragva, ha a felhőben már van adat)
-    if (activeProviderForLayout?.id) {
+    if (providerId) {
       try {
         const raw = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1');
         const paired = raw ? JSON.parse(raw) : null;
         if (paired?.deviceToken) {
-          void fetchSnapshotFromCloud(activeProviderForLayout.id).then((snap) => {
+          void fetchSnapshotFromCloud(providerId).then((snap) => {
+            if (cancelled) return;
             setLayoutCloudInfo(getCloudLastFetchInfo());
             setLayoutCloudError(getLastCloudError());
-            if (snap) setLayoutLastBackup({ at: snap.createdAt, providerId: snap.providerId, providerName: snap.providerName, source: 'cloud', totalChannels: snap.totalChannels, deletedCount: snap.deletedChannels.length, folderCount: snap.folders.length });
+            if (snap && snap.providerId === providerId) {
+              setLayoutLastBackup({ at: snap.createdAt, providerId: snap.providerId, providerName: snap.providerName, source: 'cloud', totalChannels: snap.totalChannels, deletedCount: snap.deletedChannels.length, folderCount: snap.folders.length });
+            }
           }).catch(() => {
-            setLayoutCloudError(getLastCloudError());
+            if (!cancelled) setLayoutCloudError(getLastCloudError());
           });
         }
       } catch {}
     }
-  }, [isOpen, activeTab, providers, folders, channels, activeProviderForLayout?.id]);
+    return () => { cancelled = true; };
+  }, [isOpen, activeTab, activeProviderForLayout?.id]);
   // Ha a csatornaelrendezés doboza új üzenettel vagy megerősítő résszel
   // megnő, a belső Listák panel automatikusan görgessen le a teljes dobozig.
   // A fókuszt nem mozgatjuk el a Mentés most gombról.
