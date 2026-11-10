@@ -295,15 +295,15 @@ try {
   const loadedProviderA = app1.loadLive();
   check(loadedProviderA.provider?.id === 'provider-a'
     && loadedProviderA.channels.some((channel) => channel.name === 'Provider A csatorna')
-    && loadedProviderA.channels.some((channel) => channel.id === 'a-fav')
-    && !loadedProviderA.channels.some((channel) => channel.id === 'b-fav'),
+    && loadedProviderA.channels.some((channel) => channel.name === 'A kedvenc külföldi')
+    && !loadedProviderA.channels.some((channel) => channel.name === 'B kedvenc külföldi'),
     'A–B váltás után csak az A szolgáltató saját csatornái és kedvencei töltődnek vissza', JSON.stringify({ provider: loadedProviderA.provider?.id, channels: loadedProviderA.channels.map((channel) => ({ id: channel.id, name: channel.name })) }));
   app1.setActiveProviderScope('provider-b');
   const loadedProviderB = app1.loadLive();
   check(loadedProviderB.provider?.id === 'provider-b'
     && loadedProviderB.channels.some((channel) => channel.name === 'Provider B csatorna')
-    && loadedProviderB.channels.some((channel) => channel.id === 'b-fav')
-    && !loadedProviderB.channels.some((channel) => channel.id === 'a-fav'),
+    && loadedProviderB.channels.some((channel) => channel.name === 'B kedvenc külföldi')
+    && !loadedProviderB.channels.some((channel) => channel.name === 'A kedvenc külföldi'),
     'A–B váltás után csak a B szolgáltató saját csatornái és kedvencei töltődnek vissza', JSON.stringify({ provider: loadedProviderB.provider?.id, channels: loadedProviderB.channels.map((channel) => ({ id: channel.id, name: channel.name })) }));
   app1.setActiveProviderScope('provider-a');
   check(app1.loadLive().channels[0]?.name === 'Provider A csatorna',
