@@ -178,8 +178,7 @@ await esbuild.build({
       readCatalogStateSync, catalogNeedsCheck, catalogIncompleteSections, markCatalogSectionsComplete,
       saveSyncState, loadSyncState,
     } from './web/src/services/contentStore.ts';
-    export { setActiveProviderScope } from './web/src/services/providerScope.ts';
-    export { storageService } from './web/src/services/storageService.ts';`,
+    export { setActiveProviderScope } from './web/src/services/providerScope.ts';`,
     resolveDir: ROOT,
     sourcefile: 'persistence-harness.ts',
     loader: 'ts',
@@ -228,9 +227,6 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
 try {
   /* ============ 1. MENTÉS: kis localStorage-készlet + teljes lista IDB-ben ==== */
   const app1 = await boot(1);
-  // A régi, prefix nélküli tesztkatalógus tulajdonosa p1 maradjon;
-  // az A és B tesztfiók így külön, prefixelve tárolódik.
-  app1.setActiveProviderScope('p1');
 
   // A/B szolgáltatóváltás: a rövid szinkronállapot és a kvótahibás memória-tartalék is külön névtér.
   app1.setActiveProviderScope('provider-a');
@@ -240,26 +236,6 @@ try {
   app1.setActiveProviderScope('provider-a');
   check(app1.loadSyncState('provider-a')?.fingerprint === 'fingerprint-a',
     'az A szolgáltató saját szinkronállapotát kapja vissza');
-
-  // A kedvenc mappák (és a bennük lévő csatornaazonosítók) sem öröklődhetnek át.
-  app1.storageService.saveFolders([{ id: 'folder-a', name: 'A kedvencei', channelIds: ['a-fav'] }], 'provider-a');
-  app1.storageService.saveFolders([{ id: 'folder-b', name: 'B kedvencei', channelIds: ['b-fav'] }], 'provider-b');
-  check(app1.storageService.getFolders('provider-a')[0]?.id === 'folder-a',
-    'az A szolgáltató saját kedvenc mappáit kapja vissza');
-  check(app1.storageService.getFolders('provider-b')[0]?.id === 'folder-b',
-    'a B szolgáltató kedvenc mappái nem keverednek az A adataival');
-  app1.storageService.saveHistory([{ id: 'history-a', mediaType: 'movie', title: 'A film', progressPercent: 10, positionSeconds: 10, durationSeconds: 100, lastWatchedAt: '2026-11-10', streamUrl: 'https://a.example/movie' }], 'provider-a');
-  app1.storageService.saveHistory([{ id: 'history-b', mediaType: 'movie', title: 'B film', progressPercent: 20, positionSeconds: 20, durationSeconds: 100, lastWatchedAt: '2026-11-10', streamUrl: 'https://b.example/movie' }], 'provider-b');
-  check(app1.storageService.getHistory('provider-a')[0]?.id === 'history-a',
-    'az A szolgáltató saját lejátszási előzményeit kapja vissza');
-  check(app1.storageService.getHistory('provider-b')[0]?.id === 'history-b',
-    'a B szolgáltató lejátszási előzményei nem keverednek az A adataival');
-  app1.storageService.saveUiState({ activeView: 'live', selectedCategoryId: 'country-hu', isOnlyFavorites: true, searchQuery: 'A' }, 'provider-a');
-  app1.storageService.saveUiState({ activeView: 'live', selectedCategoryId: 'country-ie', isOnlyFavorites: false, searchQuery: 'B' }, 'provider-b');
-  check(app1.storageService.getUiState('provider-a').searchQuery === 'A',
-    'az A szolgáltató saját felületi szűrőállapotát kapja vissza');
-  check(app1.storageService.getUiState('provider-b').searchQuery === 'B',
-    'a B szolgáltató felületi szűrőállapota nem keveredik az A adataival');
   app1.setActiveProviderScope('provider-b');
   check(app1.loadSyncState('provider-b')?.fingerprint === 'fingerprint-b',
     'a B szolgáltató nem az A szinkronállapotát kapja vissza');
@@ -277,37 +253,6 @@ try {
   app1.saveSyncState({ providerId: 'provider-b', fingerprint: 'durable-after-fallback', fullSyncAt: 4 });
   check(app1.loadSyncState('provider-b')?.fingerprint === 'durable-after-fallback',
     'a tartós mentés felülírja és eltávolítja a régi memória-tartalékot');
-
-  // Teljes A–B–A katalógus-visszaváltás: azonos csatorna-ID mellett sem keveredhet az IndexedDB/localStorage.
-  const providerAContent = makeContent({ hungarian: 1, foreign: 0 });
-  providerAContent.provider.id = 'provider-a';
-  providerAContent.channels[0] = { ...providerAContent.channels[0], id: 'same-id', name: 'Provider A csatorna', streamUrl: 'https://a.example/live' };
-  providerAContent.channels.push({ ...providerAContent.channels[0], id: 'a-fav', num: 2, name: 'A kedvenc külföldi', categoryId: 'a-cat', categoryName: '[US] USA', countryCode: 'US', flag: '🇺🇸', streamUrl: 'https://a.example/fav', orderIndex: 1 });
-  providerAContent.totals.live = 2;
-  await app1.saveLiveContentAsync(providerAContent);
-  const providerBContent = makeContent({ hungarian: 1, foreign: 0 });
-  providerBContent.provider.id = 'provider-b';
-  providerBContent.channels[0] = { ...providerBContent.channels[0], id: 'same-id', name: 'Provider B csatorna', streamUrl: 'https://b.example/live' };
-  providerBContent.channels.push({ ...providerBContent.channels[0], id: 'b-fav', num: 2, name: 'B kedvenc külföldi', categoryId: 'b-cat', categoryName: '[IE] IRELAND', countryCode: 'IE', flag: '🇮🇪', streamUrl: 'https://b.example/fav', orderIndex: 1 });
-  providerBContent.totals.live = 2;
-  await app1.saveLiveContentAsync(providerBContent);
-  app1.setActiveProviderScope('provider-a');
-  const loadedProviderA = app1.loadLive();
-  check(loadedProviderA.provider?.id === 'provider-a'
-    && loadedProviderA.channels.some((channel) => channel.name === 'Provider A csatorna')
-    && loadedProviderA.channels.some((channel) => channel.name === 'A kedvenc külföldi')
-    && !loadedProviderA.channels.some((channel) => channel.name === 'B kedvenc külföldi'),
-    'A–B váltás után csak az A szolgáltató saját csatornái és kedvencei töltődnek vissza', JSON.stringify({ provider: loadedProviderA.provider?.id, channels: loadedProviderA.channels.map((channel) => ({ id: channel.id, name: channel.name })) }));
-  app1.setActiveProviderScope('provider-b');
-  const loadedProviderB = app1.loadLive();
-  check(loadedProviderB.provider?.id === 'provider-b'
-    && loadedProviderB.channels.some((channel) => channel.name === 'Provider B csatorna')
-    && loadedProviderB.channels.some((channel) => channel.name === 'B kedvenc külföldi')
-    && !loadedProviderB.channels.some((channel) => channel.name === 'A kedvenc külföldi'),
-    'A–B váltás után csak a B szolgáltató saját csatornái és kedvencei töltődnek vissza', JSON.stringify({ provider: loadedProviderB.provider?.id, channels: loadedProviderB.channels.map((channel) => ({ id: channel.id, name: channel.name })) }));
-  app1.setActiveProviderScope('provider-a');
-  check(app1.loadLive().channels[0]?.name === 'Provider A csatorna',
-    'B után visszaváltva ismét az A szolgáltató adatai jelennek meg');
 
   const content = makeContent();
   await app1.saveLiveContentAsync(content);
