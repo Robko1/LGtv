@@ -125,8 +125,9 @@ core.setTvDoctorHungarianChannelScope(['b-id'], undefined, [
 ], layoutStore);
 const savedProviderBScope = layoutStore.getItem('provider:provider-b:iptv_rt_tv_doctor_hu_scope_v1');
 // A memóriaméret-mérés sem olvashatja a másik szolgáltató TV Doktor-tárát.
-providerScopeStorage.setItem(core.TV_DOCTOR_STORAGE_KEY, '{}');
+// A tesztadatot az A szolgáltató aktív névterében helyezzük el.
 core.setTvDoctorProviderScope('provider-a');
+providerScopeStorage.setItem(core.TV_DOCTOR_STORAGE_KEY, '{}');
 const providerAStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
 core.setTvDoctorProviderScope('provider-b');
 const providerBStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;

@@ -231,7 +231,7 @@ window.close();
 const player = readFileSync(resolve('web/src/components/VideoPlayer.tsx'), 'utf8');
 assert.match(player, /matchSavedAudioTrack\(tvAudioTracks, saved\)/,
   'a lejátszó megkeresi a csatornához mentett hangsávot');
-assert.match(player, /rememberedAudioFor\(channelKey\)/,
+assert.match(player, /rememberedAudioFor\(channelId\)/,
   'a lejátszó csatornaváltáskor beolvassa a mentést');
 
 const app = readFileSync(resolve('web/src/App.tsx'), 'utf8');

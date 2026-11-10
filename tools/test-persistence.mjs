@@ -69,7 +69,7 @@ function createLocalStorage(quotaChars = 5200000) {
     dump: () => Object.fromEntries(map),
     contentChars: () => {
       let total = 0;
-      for (const [key, value] of map) if (key.startsWith('iptv_rt_content-')) total += value.length;
+      for (const [key, value] of map) if (key.includes('content-')) total += value.length;
       return total;
     },
   };
@@ -214,7 +214,11 @@ globalThis.window = {
 
 const bundleUrl = pathToFileURL(outFile).href;
 /** Új "alkalmazás-indítás": a modul teljes állapota újra létrejön. */
-const boot = (sequence) => import(`${bundleUrl}?boot=${sequence}`);
+const boot = async (sequence) => {
+  const app = await import(bundleUrl + '?boot=' + sequence);
+  if (sequence > 1) app.setActiveProviderScope('p1');
+  return app;
+};
 
 const checks = [];
 let failed = false;
@@ -223,6 +227,8 @@ function check(ok, message, detail = '') {
   if (!ok) failed = true;
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
+const findLocalKey = (suffix) => Object.keys(localStorageFake.dump()).find((key) => key.endsWith(suffix));
+const findIdbKey = (suffix) => indexedDbFake.keys().find((key) => key.endsWith(suffix));
 
 try {
   /* ============ 1. MENTÉS: kis localStorage-készlet + teljes lista IDB-ben ==== */
@@ -260,7 +266,8 @@ try {
 
   const localChars = localStorageFake.contentChars();
   const idbKeys = indexedDbFake.keys();
-  const fullMeta = JSON.parse(indexedDbFake.dump()['content-live-full-meta'] || 'null');
+  const fullMetaKey = findIdbKey('content-live-full-meta');
+  const fullMeta = JSON.parse(fullMetaKey ? indexedDbFake.dump()[fullMetaKey] : 'null');
   check(localChars > 0, 'az induló készlet elmentődött a localStorage-ba', `${localChars} karakter`);
   check(
     localChars < 400000,
@@ -271,7 +278,7 @@ try {
   // 1200 csatorna/adag: a 20 000-es lista ~17 adag (a régi 400-asnál 51 volt).
   check(fullMeta?.chunks >= 2, 'a teljes lista adagokban van az IndexedDB-ben', String(fullMeta?.chunks));
   check(
-    idbKeys.filter((key) => key.startsWith('content-live-full-v1-')).length === fullMeta?.chunks,
+    idbKeys.filter((key) => key.includes('content-live-full-v1-')).length === fullMeta?.chunks,
     'minden adag kiíródott az IndexedDB-be',
   );
   check(!app1.needsLiveCacheCompaction(), 'az új formátum nem igényel átállást');
@@ -332,7 +339,8 @@ try {
   await settle();
 
   const fit = app2.loadLive();
-  const fitMeta = JSON.parse(localStorageFake.dump()['iptv_rt_content-live-meta']);
+  const fitMetaKey = findLocalKey('content-live-meta');
+  const fitMeta = JSON.parse(localStorageFake.dump()[fitMetaKey]);
   check(fit.channels.length > 200, 'kevés helynél kisebb, de használható induló készlet készül',
     String(fit.channels.length));
   check(fit.channels.length < 5000, 'a készlet valóban kisebb a teljes listánál', String(fit.channels.length));
@@ -341,7 +349,7 @@ try {
   check(fit.channels.every((item) => item.countryCode === 'HU'), 'a kisebb készlet is csak magyar csatorna');
   check(fit.totals.live === 5000, 'az összesítés a teljes (5000-es) listáé');
   const fitActiveChunks = Object.keys(localStorageFake.dump())
-    .filter((key) => key.startsWith('iptv_rt_' + fitMeta.chunkPrefix));
+    .filter((key) => key.includes(fitMeta.chunkPrefix));
   check(
     fitActiveChunks.length === fitMeta.chunks,
     'az új generáció minden adagja megvan; a korábbi generáció átmenetileg tartalék maradhat',
@@ -355,8 +363,10 @@ try {
   await app2.saveLiveContentAsync(content);
   await settle();
   const ghost = await boot(3);
-  const meta = JSON.parse(localStorageFake.dump()['iptv_rt_content-live-meta']);
-  localStorageFake.removeItem(`iptv_rt_${meta.chunkPrefix}0`);
+  const metaKey = findLocalKey('content-live-meta');
+  const meta = JSON.parse(localStorageFake.dump()[metaKey]);
+  const missingLocalChunkKey = findLocalKey(meta.chunkPrefix + '0');
+  localStorageFake.removeItem(missingLocalChunkKey);
   const damaged = ghost.loadLive();
   check(damaged.pendingFull === true, 'sérült adagoknál jelzi, hogy a teljes lista tölthető vissza');
   check(damaged.channels.length === 0, 'sérült adagoknál nem ad félkész listát');
@@ -461,8 +471,10 @@ try {
    */
   await app5.saveLiveContentAsync(content);
   await settle();
-  const liveMetaForDamage = JSON.parse(indexedDbFake.dump()['content-live-full-meta']);
-  indexedDbFake.remove(liveMetaForDamage.chunkPrefix + '1');
+  const liveMetaForDamageKey = findIdbKey('content-live-full-meta');
+  const liveMetaForDamage = JSON.parse(indexedDbFake.dump()[liveMetaForDamageKey]);
+  const missingIdbChunkKey = findIdbKey(liveMetaForDamage.chunkPrefix + '1');
+  indexedDbFake.remove(missingIdbChunkKey);
   const damagedFull = await app5.loadLiveFull();
   await settle();
   check(
@@ -495,7 +507,7 @@ try {
    */
   await app5.saveLiveContentAsync(content);
   await settle();
-  indexedDbFake.setDropPrefix('content-live-full-v1-');
+  indexedDbFake.setDropPrefix('provider:p1:content-live-full-v1-');
   await app5.saveLiveContentAsync(makeContent({ hungarian: 3000, foreign: 0 }));
   await settle();
   indexedDbFake.setDropPrefix(null);
@@ -522,18 +534,19 @@ try {
   localStorageFake.setQuota(5200000);
   await app5.saveLiveContentAsync(content);
   await settle();
-  localStorageFake.setItem('iptv_rt_content-live-chunk-v1-0-0-9', JSON.stringify({ rows: [['x']] }));
+  localStorageFake.setItem('iptv_rt_provider:p1:content-live-chunk-v1-0-0-9', JSON.stringify({ rows: [['x']] }));
   const removed = ghost.sweepStorage();
   check(removed >= 1, 'a takarítás törölte az elárvult adagot', String(removed));
   check(
-    !localStorageFake.dump()['iptv_rt_content-live-chunk-v1-0-0-9'],
+    !localStorageFake.dump()['iptv_rt_provider:p1:content-live-chunk-v1-0-0-9'],
     'az elárvult adag tényleg eltűnt',
   );
 
   // Régi (átállás előtti) fejléc: nincs `boot` mező – ilyenkor kell a kicsinyítés.
-  const legacyMeta = JSON.parse(localStorageFake.dump()['iptv_rt_content-live-meta']);
+  const legacyMetaKey = findLocalKey('content-live-meta');
+  const legacyMeta = JSON.parse(localStorageFake.dump()[legacyMetaKey]);
   delete legacyMeta.boot;
-  localStorageFake.setItem('iptv_rt_content-live-meta', JSON.stringify(legacyMeta));
+  localStorageFake.setItem(legacyMetaKey, JSON.stringify(legacyMeta));
   check(ghost.needsLiveCacheCompaction() === true, 'a régi formátumú fejlécet egyszer átállítja');
 
   ghost.clearContent();
