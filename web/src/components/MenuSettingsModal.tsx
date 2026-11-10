@@ -192,7 +192,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   /** Folyamatban lévő teljes törlés – a gomb ezalatt nem nyomható meg újra. */
   const [clearingCache, setClearingCache] = useState(false);
   // Elrendezés mentése és visszaállítása kizárólag Supabase-en keresztül.
-  const [layoutLastBackup, setLayoutLastBackup] = useState(() => getLastBackupInfo());
+  const [layoutLastBackup, setLayoutLastBackup] = useState<ReturnType<typeof getLastBackupInfo>>(() => null);
   const [layoutCloudInfo, setLayoutCloudInfo] = useState(() => getCloudLastFetchInfo());
   const [layoutCloudError, setLayoutCloudError] = useState(() => getLastCloudError());
   const [layoutTesting, setLayoutTesting] = useState(false);
