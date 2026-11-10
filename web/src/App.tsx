@@ -623,7 +623,10 @@ export function App() {
     seriesCategories,
     totals: totalCounts,
   };
-  const [history, setHistory] = useState<WatchHistoryItem[]>(() => storageService.getHistory());
+  const [history, setHistory] = useState<WatchHistoryItem[]>(() => storageService.getHistory(bootLive.provider?.id));
+  useLayoutEffect(() => {
+    setHistory(storageService.getHistory(activeProvider?.id));
+  }, [activeProvider?.id]);
 
   const savedUiState = useRef(storageService.getUiState());
   /*
@@ -3407,6 +3410,8 @@ export function App() {
       catalogSavedCountsRef.current = { vod: 0, series: 0 };
       setFolders([]);
       storageService.saveFolders([], id);
+      setHistory([]);
+      storageService.saveHistory([], id);
       setSelectedFavoriteFolderId(null);
       setSelectedCategoryId('all');
       setIsOnlyFavorites(false);
@@ -4491,7 +4496,7 @@ export function App() {
     };
     setHistory((previous) => {
       const updatedHistory = [historyItem, ...previous.filter((h) => h.title !== movie.title)];
-      storageService.saveHistory(updatedHistory);
+      storageService.saveHistory(updatedHistory, activeProviderRef.current?.id);
       return updatedHistory;
     });
   }, []);
@@ -4534,7 +4539,7 @@ export function App() {
     };
     setHistory((previous) => {
       const updatedHistory = [historyItem, ...previous.filter((h) => h.title !== historyItem.title)];
-      storageService.saveHistory(updatedHistory);
+      storageService.saveHistory(updatedHistory, activeProviderRef.current?.id);
       return updatedHistory;
     });
   }, []);
@@ -4542,7 +4547,7 @@ export function App() {
   const handleRemoveWatchHistoryItem = (id: string) => {
     const updatedHistory = history.filter((item) => item.id !== id);
     setHistory(updatedHistory);
-    storageService.saveHistory(updatedHistory);
+    storageService.saveHistory(updatedHistory, activeProviderRef.current?.id);
   };
 
   /**
@@ -4670,7 +4675,7 @@ export function App() {
       const position = Math.max(0, positionSeconds);
       if (duration > 0 && position >= duration - 5) {
         const updated = previous.filter((item) => item.id !== current.id);
-        storageService.saveHistory(updated);
+        storageService.saveHistory(updated, activeProviderRef.current?.id);
         return updated;
       }
       const progressPercent = duration > 0 ? Math.min(99, Math.max(0, (position / duration) * 100)) : current.progressPercent;
@@ -4685,7 +4690,7 @@ export function App() {
       const now = Date.now();
       if (now - lastHistorySaveAtRef.current >= 5000) {
         lastHistorySaveAtRef.current = now;
-        storageService.saveHistory(updated);
+        storageService.saveHistory(updated, activeProviderRef.current?.id);
       }
       return updated;
     });
@@ -4737,7 +4742,7 @@ export function App() {
   // Clear History
   const handleClearHistory = () => {
     setHistory([]);
-    storageService.saveHistory([]);
+    storageService.saveHistory([], activeProviderRef.current?.id);
   };
 
   // TV-távirányító 0-ás gombja: a teljes TV Doktor állapot- és naplóablak előhívása.
@@ -5323,13 +5328,13 @@ export function App() {
                       : item);
                   historyRef.current = updatedHistory;
                   setHistory(updatedHistory);
-                  storageService.saveHistory(updatedHistory);
+                  storageService.saveHistory(updatedHistory, activeProviderRef.current?.id);
                 } else {
-                  storageService.saveHistory(currentHistory);
+                  storageService.saveHistory(currentHistory, activeProviderRef.current?.id);
                 }
                 pendingProgressRef.current = null;
               } else {
-                storageService.saveHistory(historyRef.current);
+                storageService.saveHistory(historyRef.current, activeProviderRef.current?.id);
               }
               applyVideoFullscreen(false);
               setCustomStreamUrl(undefined);
