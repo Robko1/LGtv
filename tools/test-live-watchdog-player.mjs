@@ -37,8 +37,12 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { VideoPlayer } from './web/src/components/VideoPlayer';
 import { INITIAL_SETTINGS } from './web/src/data/mockData';
-import { getAppLogText, startManualLogging } from './web/src/services/appLog';
+import { appLog, getAppLogText, startManualLogging } from './web/src/services/appLog';
+let markSerial = 0;
 import { LIVE_WATCHDOG_DEFAULTS, resetLiveTimelineTrustForTests } from './web/src/services/liveWatchdog';
+import { resetLiveStreamHealth, readHostHealth, isFormatDistrusted, startCushionPlan, streamHostKey } from './web/src/services/liveStreamHealth';
+import { rememberedFormatFor } from './web/src/services/liveFormatMemory';
+import { recordLiveQualityMeasurement, liveQualityKey } from './web/src/services/liveQualityMemory';
 let root = null;
 let setPlayingExternal = null;
 const state = { playing: true, setPlayingCalls: [] };
@@ -68,6 +72,17 @@ window.testPlayer = {
   setPlayingCalls() { return state.setPlayingCalls.slice(); },
   log() { return getAppLogText(); },
   trust(value) { resetLiveTimelineTrustForTests(value); },
+  health: {
+    reset() { resetLiveStreamHealth(); },
+    read(url) { return readHostHealth(streamHostKey(url)); },
+    distrusted(url, format) { return isFormatDistrusted(streamHostKey(url), format); },
+    cushion(url) { return startCushionPlan(streamHostKey(url)); },
+  },
+  memoryOf(channelId) { return rememberedFormatFor(channelId); },
+  mark() { const token = 'TESZT-JEL-' + (++markSerial) + '-VEGE'; appLog(token); return token; },
+  seedQuality(channel, format, width, height) {
+    return recordLiveQualityMeasurement({ key: liveQualityKey(channel), name: channel.name, format, width, height });
+  },
   unmount() { if (root) root.unmount(); root = null; },
 };`;
 const bundle = await esbuild.build({
@@ -141,6 +156,7 @@ const dom = new JSDOM('<!doctype html><div id="root"></div>', {
         }
         conn.ready = 4;
         conn.started = true;
+        conn.startedAt = clock.now;
         ['loadedmetadata', 'loadeddata', 'canplay', 'playing'].forEach((name) => fire(video, name));
       });
     };
@@ -148,6 +164,33 @@ const dom = new JSDOM('<!doctype html><div id="root"></div>', {
       const conn = sim.conn;
       if (!conn || !alive(conn) || !conn.started || conn.ended || conn.paused || conn.frozen || conn.error) return;
       const script = conn.script;
+      /* #66 napló, 2. szolgáltató: az adat ADAGOKBAN érkezik (10 mp egyben, utána
+         hosszú szünet). A kép csak addig haladhat, ameddig adat érkezett. */
+      if (script.data) {
+        const dataEnd = script.data(clock.now - conn.startedAt);
+        if (conn.pos + 0.25 > dataEnd) {
+          if (!conn.starving) {
+            conn.starving = true;
+            conn.starvedCount = (conn.starvedCount || 0) + 1;
+            conn.ready = 2;
+            if (!script.silentStarve) fire(conn.video, 'waiting');
+          }
+          return;
+        }
+        if (conn.starving) {
+          conn.starving = false;
+          conn.ready = 4;
+          if (!script.silentStarve) fire(conn.video, 'playing');
+        }
+      }
+      /* #66 napló, 1. szolgáltató: a HLS ~50 mp után MEDIA_ERR_DECODE (3) hibával elhal. */
+      if (script.errorAtPos != null && conn.pos >= script.errorAtPos) {
+        conn.error = { code: 3, message: '' };
+        conn.net = 1; conn.ready = 2; conn.paused = true;
+        fire(conn.video, 'error');
+        fire(conn.video, 'pause');
+        return;
+      }
       if (conn.stallUntil) {
         if (clock.now < conn.stallUntil) return;
         conn.stallUntil = 0;
@@ -203,6 +246,10 @@ const dom = new JSDOM('<!doctype html><div id="root"></div>', {
       if (!conn || !conn.started) return { length: 0, start: () => 0, end: () => 0 };
       // A TV-n a raw TS puffer-kijelzése megbízhatatlan: a teszt szándékosan
       // „sok puffert” mutat fagyás közben is – az őr nem dőlhet be neki.
+      if (conn.script.data) {
+        const dataEnd = conn.script.data(clock.now - conn.startedAt);
+        return { length: 1, start: () => 0, end: () => dataEnd };
+      }
       return { length: 1, start: () => 0, end: () => conn.pos + 30 };
     });
     Object.defineProperty(proto, 'currentTime', {
@@ -291,14 +338,18 @@ function makeChannel(provider = 'A', ext = 'ts') {
 }
 const liveUrl = (url) => /\/live\//.test(String(url));
 /** Új nézési szakasz: friss komponens, üres tároló, megadott szimulátor-forgatókönyv. */
-async function start({ provider = 'A', ext = 'ts', settings = {}, scenario = () => ({}), trusted = true } = {}) {
+async function start({ provider = 'A', ext = 'ts', settings = {}, scenario = () => ({}), trusted = true, keep = false, channel: fixedChannel = null, prepare = null } = {}) {
   window.testPlayer.unmount();
   await advance(50);
-  window.localStorage.clear();
+  if (!keep) {
+    window.localStorage.clear();
+    window.testPlayer.health.reset();
+  }
   sim.loads = []; sim.plays = []; sim.requests = []; sim.events = []; sim.conn = null;
   sim.script = scenario;
   window.testPlayer.trust(trusted);
-  const channel = makeChannel(provider, ext);
+  const channel = fixedChannel || makeChannel(provider, ext);
+  if (prepare) prepare(channel);
   const t0 = clock.now;
   window.testPlayer.mount(channel, { tvDoctorEnabled: false, bufferMode: 'balanced', streamFormat: ext === 'm3u8' ? 'hls' : 'ts', ...settings });
   await advance(100);
@@ -505,6 +556,249 @@ try {
     check(sim.loads.length === 1, 'HLS-en a rövid újrapufferelés sem tölt újra');
     await advance(window.testPlayer.defaults.stallReconnectMs + 4000);
     check(sim.loads.length === 2, 'HLS-en a valódi megállást ugyanúgy helyreállítja', JSON.stringify(loadTimes(t0)));
+  }
+
+  /* ───────────────────────── 2.5.419 – #66-os napló ───────────────────────── */
+  const logText = () => window.testPlayer.log();
+  /** A napló a jel UTÁNI része (a napló gyűrűpuffer, ezért nem hossz, hanem jel alapján vágunk). */
+  const since = (mark) => { const text = logText(); const at = text.lastIndexOf(mark); return at >= 0 ? text.slice(at) : text; };
+  const reconnectsSince = (mark) => since(mark).split('\n').filter((line) => /ÉLŐ ŐR: ÚJRACSATLAKOZÁS/.test(line)).length;
+  const urlOf = (channel, ext) => channel.streamUrl.replace(/\.(ts|m3u8)$/, `.${ext}`);
+  const isHls = (url) => /\.m3u8$/.test(url);
+  /** 1. szolgáltató: a HLS ~50 mp után MEDIA_ERR 3-mal elhal, a TS hibátlan. */
+  const dyingHls = (url) => (isHls(url) ? { errorAtPos: 50, startDelayMs: 1700 } : { startDelayMs: 1400 });
+
+  console.log('\n=== 13. #66, 1. szolgáltató: lejátszás közben elhaló HLS → TS, és nem tér vissza a HLS-hez ===\n');
+  for (const doctor of [false, true]) {
+    const label = doctor ? 'TV Doktor BE' : 'TV Doktor KI';
+    // A csatorna formátum-emléke/forrása HLS (a TV-n a „szebb kép” próba ezt hagyta hátra); a kézi beállítás TS.
+    const { t0, channel } = await start({ provider: 'B', ext: 'm3u8', settings: { tvDoctorEnabled: doctor, streamFormat: 'ts' }, scenario: dyingHls });
+    await advance(600);
+    check(sim.loads.length > 0 && isHls(sim.loads[0].url), `${label}: a csatorna a megjegyzett HLS-sel indul (kiinduló állapot)`);
+    await advance(1700 + 50_000 + 1500);
+    check(sim.loads.length === 2 && isHls(sim.loads[1].url),
+      `${label}: az ELSŐ elhalás után ugyanarra a címre csatlakozik vissza (egy kiesés még nem formátumhiba)`,
+      JSON.stringify(sim.loads.map((load) => load.url.slice(-8))));
+    const secondDeathAt = sim.loads[1].at + 1700 + 50_000;
+    await advance(secondDeathAt - clock.now + 1500);
+    check(sim.loads.length === 3 && !isHls(sim.loads[2].url),
+      `${label}: a MÁSODIK ~50 mp-es elhalás után az újracsatlakozás a TS-sel történik (régen a végtelenségig HLS indult újra)`,
+      JSON.stringify(sim.loads.map((load) => load.url.slice(-8))));
+    const gap = sim.loads[2] ? sim.loads[2].at - secondDeathAt : -1;
+    check(gap >= -300 && gap < 1500 && t0 > 0, `${label}: az átállás ${gap} ms alatt megtörtént (nincs hosszú fagyott kép)`);
+    await advance(5 * 60 * 1000);
+    check(sim.loads.length === 3 && sim.conn.pos > 280 && window.testPlayer.isPlaying() === true,
+      `${label}: a TS 5 percig megszakítás nélkül megy tovább, nincs több újratöltés`, `kapcsolatok=${sim.loads.length}`);
+    check(window.testPlayer.memoryOf(channel.id) === 'ts', `${label}: a csatorna formátum-emléke TS-re íródott át`, String(window.testPlayer.memoryOf(channel.id)));
+    check(/FORMÁTUM-EGÉSZSÉG: LEJÁTSZÁS KÖZBEN ELHALT/.test(logText()) && /ÉLŐ ÚJRACSATLAKOZÁS \(FORMÁTUMVÁLTÁS\)/.test(logText()),
+      `${label}: a napló kimondja az elhalást és a formátumváltást`);
+    // Visszatérés ugyanarra a csatornára: már nem HLS-sel indul.
+    await start({ provider: 'B', keep: true, channel, settings: { tvDoctorEnabled: doctor, streamFormat: 'ts' }, scenario: dyingHls });
+    await advance(3 * 60 * 1000);
+    check(sim.loads.length === 1 && !isHls(sim.loads[0].url) && sim.conn.pos > 170,
+      `${label}: visszatéréskor a csatorna rögtön TS-sel indul és 3 percig hibátlan`, JSON.stringify(sim.loads.map((load) => load.url.slice(-8))));
+  }
+
+  console.log('\n=== 14. #66: a szolgáltatón többször elhalt formátumot ÚJ csatornán már el sem indítjuk ===\n');
+  {
+    // Két különböző csatornán hal el a HLS ugyanazon a szolgáltatón.
+    let last = null;
+    for (let round = 0; round < 2; round++) {
+      last = await start({ provider: 'B', ext: 'm3u8', keep: round > 0, settings: { streamFormat: 'ts' }, scenario: dyingHls });
+      await advance(1700 + 50_000 + 4000);
+      if (round === 1) {
+        check(sim.loads.length === 2 && !isHls(sim.loads[1].url),
+          'a szolgáltatón már egyszer elhalt HLS a második csatornán az ELSŐ hiba után TS-re vált', JSON.stringify(sim.loads.map((load) => load.url.slice(-8))));
+      }
+    }
+    check(window.testPlayer.health.distrusted(last.channel.streamUrl, 'hls') === true
+      && window.testPlayer.health.distrusted(last.channel.streamUrl, 'ts') === false,
+      'két elhalás után a HLS ezen a szolgáltatón megbízhatatlan, a TS nem', JSON.stringify(window.testPlayer.health.read(last.channel.streamUrl)));
+    // Harmadik, még soha nem nézett csatorna, amelynek a forrása HLS.
+    const mark = window.testPlayer.mark();
+    const third = await start({ provider: 'B', ext: 'm3u8', keep: true, settings: { streamFormat: 'ts' }, scenario: dyingHls });
+    await advance(4 * 60 * 1000);
+    check(sim.loads.length === 1 && !isHls(sim.loads[0].url) && sim.conn.pos > 230,
+      'a harmadik csatorna EGYBŐL TS-sel indul: nincs ~50 mp utáni megállás, nincs újratöltés', JSON.stringify(sim.loads.map((load) => load.url.slice(-8))));
+    check(/FORMÁTUM-EGÉSZSÉG: INDÍTÁSI FORMÁTUM CSERÉJE/.test(since(mark)), 'a napló megindokolja az indítási formátum cseréjét');
+    check(third.channel.id !== last.channel.id, '(a harmadik csatorna valóban másik csatorna)');
+    // A „szebb kép” kísérlet sem indíthat megbízhatatlan formátumot.
+    const fourth = await start({
+      provider: 'B', ext: 'ts', keep: true, settings: { streamFormat: 'ts' }, scenario: dyingHls,
+      prepare: (channel) => window.testPlayer.seedQuality(channel, 'ts', 1024, 576),
+    });
+    await advance(3 * 60 * 1000);
+    check(sim.loads.length === 1 && !isHls(sim.loads[0].url),
+      'SD+ (1024×576) TS mellett sincs „kipróbálás a jobb képért” HLS-indítás ezen a szolgáltatón', JSON.stringify(sim.loads.map((load) => load.url.slice(-8))));
+    check(fourth.channel.id !== third.channel.id, '(a negyedik csatorna is új csatorna)');
+    // Másik szolgáltatón a HLS-t ez NEM érinti.
+    await start({ provider: 'A', ext: 'm3u8', keep: true, settings: { streamFormat: 'ts' }, scenario: () => ({}) });
+    await advance(60 * 1000);
+    check(sim.loads.length === 1 && isHls(sim.loads[0].url), 'a másik szolgáltatón a HLS továbbra is elindul (a tanulás szolgáltatónkénti)');
+    // A néző kézzel kért HLS-ét nem írjuk felül.
+    await start({ provider: 'B', ext: 'm3u8', keep: true, settings: { streamFormat: 'hls' }, scenario: () => ({}) });
+    await advance(10 * 1000);
+    check(isHls(sim.loads[0].url), 'a Beállításokban KÉZZEL kért HLS-t a tanulás nem írja felül');
+  }
+
+  console.log('\n=== 15. #66: a „szebb kép” kísérlet formátuma csak tartós lejátszás után jegyződik meg ===\n');
+  {
+    // Rövid nézés (30 mp) a kísérleti HLS-en: a formátum-emlék NEM írható át.
+    const first = await start({
+      provider: 'B', ext: 'ts', settings: { streamFormat: 'ts' }, scenario: () => ({}),
+      prepare: (channel) => window.testPlayer.seedQuality(channel, 'ts', 1024, 576),
+    });
+    await advance(600);
+    check(sim.loads.length > 0 && isHls(sim.loads[0].url), 'ismeretlen szolgáltatón az egyszeri „jobb kép” HLS-kísérlet elindul (a 2.5.383-as funkció megmarad)');
+    await advance(30 * 1000);
+    check(window.testPlayer.memoryOf(first.channel.id) !== 'hls',
+      '30 mp nézés után a kísérleti HLS még NINCS a csatorna formátum-emlékében (régen a `playing` pillanatában beíródott)',
+      String(window.testPlayer.memoryOf(first.channel.id)));
+    await advance(75 * 1000);
+    check(window.testPlayer.memoryOf(first.channel.id) === 'hls',
+      '90 mp hibátlan lejátszás után a bevált HLS megjegyződik', String(window.testPlayer.memoryOf(first.channel.id)));
+    // Elhaló kísérlet: a HLS soha nem kerül az emlékezetbe, a csatorna TS-en marad.
+    const second = await start({
+      provider: 'B', ext: 'ts', settings: { streamFormat: 'ts' }, scenario: dyingHls,
+      prepare: (channel) => window.testPlayer.seedQuality(channel, 'ts', 1024, 576),
+    });
+    await advance(2 * (1700 + 50_000 + 3000) + 120_000);
+    check(sim.loads.length === 3 && isHls(sim.loads[0].url) && isHls(sim.loads[1].url) && !isHls(sim.loads[2].url) && window.testPlayer.memoryOf(second.channel.id) === 'ts',
+      'a kétszer elhaló HLS-kísérlet után TS megy tovább, a kísérleti HLS soha nem került a formátum-emlékbe (TS)',
+      `${JSON.stringify(sim.loads.map((load) => load.url.slice(-8)))} emlék=${window.testPlayer.memoryOf(second.channel.id)}`);
+    await start({ provider: 'B', keep: true, channel: second.channel, settings: { streamFormat: 'ts' }, scenario: dyingHls });
+    await advance(2 * 60 * 1000);
+    check(sim.loads.length === 1 && !isHls(sim.loads[0].url), 'ugyanarra a csatornára visszatérve nincs újabb HLS-kísérlet');
+  }
+
+  console.log('\n=== 15/b. #66: az el sem induló kísérleti formátum nem lassítja kétszer a csatornaváltást ===\n');
+  {
+    // HBO 2 UHD / FILM MANIA: HLS „Format error (4)” induláskor; régen KÉT HLS-próba ment el, mielőtt a TS jött.
+    const failingHls = (url) => (isHls(url) ? { startError: true, startDelayMs: 1100 } : { startDelayMs: 1500 });
+    let run = null;
+    for (let round = 0; round < 2; round++) {
+      run = await start({
+        provider: 'B', ext: 'ts', keep: round > 0, settings: { streamFormat: 'ts' }, scenario: failingHls,
+        prepare: (channel) => window.testPlayer.seedQuality(channel, 'ts', 1024, 576),
+      });
+      await advance(8000);
+      const kinds = sim.loads.map((load) => (isHls(load.url) ? 'HLS' : 'TS'));
+      check(JSON.stringify(kinds) === JSON.stringify(['HLS', 'TS']),
+        `${round + 1}. csatorna: a hibás HLS-kísérlet után AZONNAL a TS jön (nincs második HLS-próba)`, JSON.stringify(kinds));
+      const pictureAt = sim.loads[1] ? sim.loads[1].at + 1500 - run.t0 : -1;
+      check(pictureAt > 0 && pictureAt < 3300, `a kép ${pictureAt} ms alatt megjelenik (a naplóban 4265–4376 ms volt)`);
+      check(sim.conn.pos > 3 && window.testPlayer.memoryOf(run.channel.id) === 'ts', 'a TS megy, és a formátum-emlék TS');
+    }
+    // Két sikertelen kísérlet után ezen a szolgáltatón nincs több HLS-kísérlet: a váltás teljes sebességű.
+    const third = await start({
+      provider: 'B', ext: 'ts', keep: true, settings: { streamFormat: 'ts' }, scenario: failingHls,
+      prepare: (channel) => window.testPlayer.seedQuality(channel, 'ts', 1024, 576),
+    });
+    await advance(8000);
+    check(sim.loads.length === 1 && !isHls(sim.loads[0].url) && sim.conn.pos > 5.5,
+      'a harmadik csatornán már nincs HLS-kísérlet: egyetlen TS-kapcsolat, a kép ~1,6 mp alatt megy', JSON.stringify(sim.loads.map((load) => load.url.slice(-8))));
+    check(third.channel.id !== run.channel.id, '(a harmadik csatorna új csatorna)');
+  }
+
+  /** 2. szolgáltató: 10 mp adat egyben, utána `gapEndMs`-ig semmi, majd 10 mp-es adagokban valós időben. */
+  const burstThenGap = (gapEndMs) => () => ({ startDelayMs: 2200, data: (elapsed) => (elapsed < gapEndMs ? 10 : 10 + Math.floor(elapsed / 10_000) * 10) });
+  const holdLines = (text) => text.split('\n').filter((line) => /INDULÁSI PUFFER \(TV Doktor\): TARTÁS/.test(line));
+
+  console.log('\n=== 16. #66, 2. szolgáltató: indulási adathiány – TV Doktor NÉLKÜL nincs beavatkozás, csak mérés ===\n');
+  {
+    let run = null;
+    for (const gapEnd of [18_000, 25_000, 19_000]) {
+      const mark = window.testPlayer.mark();
+      run = await start({ provider: 'A', keep: gapEnd !== 18_000, scenario: burstThenGap(gapEnd) });
+      await advance(3 * 60 * 1000);
+      check(sim.loads.length === 1 && reconnectsSince(mark) === 0 && sim.conn.pos > 140,
+        `${((gapEnd - 10_000) / 1000).toFixed(0)} mp-es indulási adathiány: egyetlen kapcsolat, nincs újratöltés, az adás magától megy tovább`,
+        `kapcsolatok=${sim.loads.length} pos=${sim.conn.pos}`);
+      check(holdLines(since(mark)).length === 0 && /INDULÁSI ADATHIÁNY MÉRVE/.test(since(mark)),
+        'kikapcsolt TV Doktornál nincs indulási tartás (a kép azonnal indul), a megállás csak mérésként kerül a naplóba');
+    }
+    const health = window.testPlayer.health.read(run.channel.streamUrl);
+    check(health.starve === 3 && health.gapMs >= 9000, 'a szolgáltató indulási adathiánya megtanulva (3 megfigyelés)', JSON.stringify(health));
+
+    console.log('\n=== 17. #66, 2. szolgáltató: TV Doktorral az indulási puffer megszünteti a megállást ===\n');
+    for (const gapEnd of [18_000, 21_000]) {
+      const mark = window.testPlayer.mark();
+      const eventsBefore = sim.events.length;
+      const held = await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: true }, scenario: burstThenGap(gapEnd) });
+      await advance(2200 + 3000);
+      check(holdLines(since(mark)).length === 1 && sim.conn.paused === true && sim.conn.pos < 0.6,
+        'az első képkocka megjelenik, a TV Doktor a lejátszást az elején tartja (puffer feltöltése)', `pos=${sim.conn.pos}`);
+      await advance(gapEnd + 3000);
+      check(sim.conn.paused === false && sim.conn.pos > 0.5, 'az adat megérkezése után a lejátszás elindul', `pos=${sim.conn.pos}`);
+      const releaseLine = since(mark).split('\n').find((line) => /INDULÁSI PUFFER \(TV Doktor\): INDÍTÁS/.test(line)) || '';
+      const heldMs = Number((/tartás=(\d+) ms/.exec(releaseLine) || [])[1] || -1);
+      check(heldMs > 0 && heldMs <= 20_000, `a tartás ${heldMs} ms volt (a szigorú 20 mp-es korláton belül)`, releaseLine);
+      await advance(5 * 60 * 1000);
+      check((sim.conn.starvedCount || 0) === 0 && sim.loads.length === 1 && reconnectsSince(mark) === 0,
+        'a tartás után 5 percig EGYETLEN megállás sincs (régen ~8 mp-nél 9–17 mp-re megfagyott a kép)',
+        `megállások=${sim.conn.starvedCount || 0} kapcsolatok=${sim.loads.length}`);
+      check(!/ÉLŐ VÁRATLAN PAUSE|ÉLŐ ŐR: HELYI FOLYTATÁS/.test(since(mark)),
+        'a szándékos tartást az élő őr nem nézi váratlan szünetnek (nincs beavatkozás)');
+      check(window.testPlayer.isPlaying() === true && sim.events.length > eventsBefore && held.channel.id.length > 0,
+        'a lejátszó végig „lejátszás” állapotban marad (a felület nem vált szünet-ikonra)');
+    }
+
+    // Másik szolgáltatón (ahol nem volt adathiány) TV Doktorral sincs tartás.
+    {
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'B', keep: true, settings: { tvDoctorEnabled: true }, scenario: () => ({}) });
+      await advance(40 * 1000);
+      check(holdLines(since(mark)).length === 0 && sim.conn.pos > 36,
+        'jól működő szolgáltatón TV Doktorral sincs indulási tartás: a kép azonnal megy (gyors csatornaváltás)', `pos=${sim.conn.pos}`);
+    }
+
+    // A TV nem közli megbízhatóan a puffert: a tartás a tanult idő után akkor is véget ér.
+    {
+      const mark = window.testPlayer.mark();
+      await start({
+        provider: 'A', keep: true, settings: { tvDoctorEnabled: true },
+        scenario: () => ({ startDelayMs: 2200, data: (elapsed) => (elapsed < 60_000 ? Math.min(12, 10 + elapsed / 30_000) : 1e9) }),
+      });
+      await advance(2200 + 21_000);
+      check(sim.conn.paused === false && /INDÍTÁS; .*ok=a tanult várakozás letelt/.test(since(mark)),
+        'ha a puffer-kijelzés nem nő, a tartás legkésőbb 20 mp után akkor is elengedi a képet (nincs végtelen várakozás)');
+    }
+
+    console.log('\n=== 18. Az indulási puffer önmagát kapcsolja ki, ha nem működik vagy már nem kell ===\n');
+    // (a) A TV a tartás után nem folytatja a lejátszást → letiltás + az élő őr helyreállít.
+    {
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: true }, scenario: (url, index) => (index === 0 ? { ...burstThenGap(18_000)(), resumable: false } : {}) });
+      await advance(2200 + 20_000 + 3500);
+      check(/INDULÁSI PUFFER \(TV Doktor\): LETILTVA/.test(since(mark)), 'ha a TV a tartás után szünetben marad, a funkció ezen a szolgáltatón letiltja magát');
+      await advance(15_000);
+      check(sim.loads.length === 2 && reconnectsSince(mark) >= 1, 'a beragadt adást az élő őr újracsatlakozással helyreállítja', `kapcsolatok=${sim.loads.length}`);
+      await advance(60_000);
+      check(sim.conn.pos > 40 && window.testPlayer.isPlaying() === true, 'az adás az újracsatlakozás után megy');
+      const mark2 = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: true }, scenario: burstThenGap(18_000) });
+      await advance(60_000);
+      check(holdLines(since(mark2)).length === 0 && window.testPlayer.health.cushion(sim.loads[0].url) === null,
+        'a letiltás után a következő csatornán már nincs tartás');
+    }
+    // (b) A szolgáltató megjavult (folyamatos adat): néhány váltás után a tartás megszűnik.
+    {
+      window.testPlayer.health.reset();
+      for (let round = 0; round < 2; round++) {
+        await start({ provider: 'A', keep: true, scenario: burstThenGap(18_000) });
+        await advance(60_000);
+      }
+      check(window.testPlayer.health.cushion(sim.loads[0].url) !== null, '(kiinduló állapot: két megfigyelés után a tartás be van kapcsolva)');
+      let holds = [];
+      for (let round = 0; round < 4; round++) {
+        const mark = window.testPlayer.mark();
+        await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: true }, scenario: () => ({ startDelayMs: 1500 }) });
+        await advance(45_000);
+        holds.push(holdLines(since(mark)).length);
+      }
+      check(holds[0] === 1 && holds[3] === 0 && window.testPlayer.health.cushion(sim.loads[0].url) === null,
+        'folyamatosan adó szolgáltatónál a tartás azonnal elenged, és néhány csatornaváltás után teljesen megszűnik', JSON.stringify(holds));
+    }
   }
 
   check(timerErrors.length === 0, 'a szimuláció közben egyetlen időzítő sem dobott kivételt', timerErrors.map((error) => String(error && error.stack ? error.stack : error)).slice(0, 2).join(' | '));

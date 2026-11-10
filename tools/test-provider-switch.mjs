@@ -79,6 +79,8 @@ function createIndexedDb() {
     },
     keys: () => Array.from(data.keys()),
     seed: (key, value) => data.set(String(key), value),
+    drop: (key) => data.delete(String(key)),
+    raw: (key) => data.get(String(key)),
   };
 }
 
@@ -138,7 +140,7 @@ await esbuild.build({
   stdin: {
     contents: `export {
       saveContent, loadLive, loadLiveFull, loadVodAsync, loadSeriesAsync, inspectStoredCatalogs,
-      restoreStoredContent, readCatalogStateSync, clearContentAsync,
+      restoreStoredContent, readCatalogStateSync, clearContentAsync, clearCatalogStateCacheForTests,
     } from './web/src/services/contentStore.ts';
     export { setActiveProviderScope, activeProviderScopeId, providerScopePrefix, legacyProviderScopeOwner } from './web/src/services/providerScope.ts';
     export { storageService } from './web/src/services/storageService.ts';
@@ -264,6 +266,52 @@ try {
   app.setActiveProviderScope(A);
   check(app.loadLive().provider?.id === A && app.storageService.getLastChannelId() === 'live-7',
     'visszaváltás „A”-ra: saját lista és saját utolsó csatorna, letöltés nélkül');
+
+  console.log('\n4/b. #66-os napló: régi verzió által elvesztett teljes lista és idegen darabszámok felismerése');
+  {
+    const healthyB = await app.inspectStoredCatalogs(B);
+    check(healthyB.liveFullStored === true, 'ép tárnál a teljes élő lista megléte jelezve van („B”)');
+    check((await app.inspectStoredCatalogs(A)).liveFullStored === true, 'ép tárnál a teljes élő lista megléte jelezve van („A”)');
+    // A 2.5.417 előtti állapot utánzása: „B” teljes élő listája eltűnt az
+    // IndexedDB-ből (csak a kis induló készlet maradt), film- és sorozatlistája
+    // nincs, az állapot-fejlécében viszont „A” darabszámai állnak.
+    const prefix = app.providerScopePrefix(B);
+    const snapshot = new Map();
+    for (const key of indexedDbFake.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      if (/content-live-full|content-vod|content-series|catalog-state/.test(key)) {
+        snapshot.set(key, true);
+      }
+    }
+    const idbBackup = new Map();
+    for (const key of snapshot.keys()) { idbBackup.set(key, indexedDbFake.raw(key)); indexedDbFake.drop(key); }
+    const stateKey = 'iptv_rt_' + prefix + 'content-catalog-state';
+    const stateBackup = localStorageFake.getItem(stateKey);
+    const lsBackup = new Map();
+    for (const key of localStorageFake.keys()) {
+      if (key.startsWith('iptv_rt_' + prefix) && /content-vod|content-series/.test(key)) { lsBackup.set(key, localStorageFake.getItem(key)); localStorageFake.removeItem(key); }
+    }
+    localStorageFake.setItem(stateKey, JSON.stringify({
+      v: 2, providerId: A, provider: refA, savedAt: 1, checkedAt: 1, fingerprint: '',
+      counts: { live: 300, vod: 103153, series: 25078 }, sections: {},
+    }));
+    app.clearCatalogStateCacheForTests();
+    const damaged = await app.inspectStoredCatalogs(B);
+    check(Boolean(damaged) && damaged.liveFullStored === false && damaged.bootChannels.length > 0,
+      'a hiányzó teljes élő lista felismerve: csak az induló készlet van meg → a felület automatikus pótlást indíthat',
+      JSON.stringify({ full: damaged?.liveFullStored, boot: damaged?.bootChannels.length }));
+    check(damaged.counts.vod === 0 && damaged.counts.series === 0,
+      'a másik szolgáltató film-/sorozat-darabszámai (103 153 / 25 078) NEM jelennek meg „B”-nél', JSON.stringify(damaged.counts));
+    check(damaged.provider.id === B && damaged.bootChannels.every((channel) => /beta/.test(channel.name)), 'az induló készlet továbbra is „B” sajátja');
+    // Visszaállítás: a teszt további része az ép tárral folytatódik.
+    for (const [key, value] of idbBackup) indexedDbFake.seed(key, value);
+    for (const [key, value] of lsBackup) localStorageFake.setItem(key, value);
+    if (stateBackup === null) localStorageFake.removeItem(stateKey); else localStorageFake.setItem(stateKey, stateBackup);
+    app.clearCatalogStateCacheForTests();
+    const restored = await app.inspectStoredCatalogs(B);
+    check(restored.liveFullStored === true && restored.counts.live === 125 && restored.counts.vod === 9 && restored.counts.series === 4,
+      'ép tárral a saját darabszámok változatlanok (125 / 9 / 4)', JSON.stringify(restored.counts));
+  }
 
   console.log('\n5. NEM aktív szolgáltató („B”) törlése: minden adata eltűnik, „A” érintetlen');
   app.storageService.saveFolders([{ id: 'f1', name: 'B kedvencek', channelIds: ['live-1'] }], B);

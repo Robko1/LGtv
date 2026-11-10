@@ -41,6 +41,22 @@ import {
   liveWatchdogReasonText,
 } from '../services/liveWatchdog';
 import {
+  FORMAT_STABLE_MS,
+  StartFlowObserver,
+  chooseHealthyStartFormat,
+  isEarlyFormatDeath,
+  markStartCushionBroken,
+  recordFormatDeath,
+  recordFormatStable,
+  recordSmoothStart,
+  recordStartStarvation,
+  shouldSwitchFormatAfterDeath,
+  startCushionDecision,
+  startCushionPlan,
+  streamHostKey,
+  type StartCushionPlan,
+} from '../services/liveStreamHealth';
+import {
   DOCTOR_BUFFER_CONFIGS,
   DOCTOR_VERIFY_STABLE_MS,
   DOCTOR_VOD_VERIFY_STABLE_MS,
@@ -933,6 +949,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    */
   const liveWatchdogRef = useRef<LiveWatchdog | null>(null);
   if (!liveWatchdogRef.current) liveWatchdogRef.current = new LiveWatchdog();
+  /*
+   * 2.5.419 – FORMÁTUM-EGÉSZSÉG ÉS INDULÁSI PUFFER (lásd `liveStreamHealth.ts`).
+   *  - `qualityProbeLoadRef`: ez a csatornaindítás a „szebb kép” választó
+   *    KÍSÉRLETE; a formátum-emlék csak tartós, hibátlan lejátszás után íródik.
+   *  - `formatStableNotedRef`: az aktuális betöltés már bizonyította a tartósságát.
+   *  - `formatDeathSwitchRef`: a formátum lejátszás közben korán elhalt → a
+   *    következő újracsatlakozás a MÁSIK formátummal történik.
+   *  - `startCushionRef`: TV Doktor indulási puffer-tartás állapota.
+   */
+  const qualityProbeLoadRef = useRef(false);
+  const qualityProbeFormatRef = useRef<LiveFormat | null>(null);
+  const formatStableNotedRef = useRef(false);
+  const formatDeathSwitchRef = useRef<{ url: string; from: LiveFormat; generation: number } | null>(null);
+  const startFlowRef = useRef<StartFlowObserver | null>(null);
+  if (!startFlowRef.current) startFlowRef.current = new StartFlowObserver();
+  const startCushionRef = useRef<{
+    generation: number;
+    state: 'idle' | 'holding' | 'released';
+    startedAt: number;
+    heldMs: number;
+    releasedBy: string;
+    timer: number | null;
+  }>({ generation: -1, state: 'idle', startedAt: 0, heldMs: 0, releasedBy: '', timer: null });
+  const noteLiveFormatDeathRef = useRef<(cause: string) => void>(() => {});
+  const beginStartCushionRef = useRef<(video: HTMLVideoElement, plan: StartCushionPlan) => void>(() => {});
   const hasErrorRef = useRef(false);
   hasErrorRef.current = hasError;
   /**
@@ -5340,6 +5381,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const isCurrentLoad = () => loadGeneration === streamLoadGenerationRef.current;
     // 2.5.418: minden új betöltés (váltás vagy újracsatlakozás) nulláról méri az élő őrt.
     liveWatchdogRef.current?.reset(Date.now());
+    // 2.5.419: az új betöltés formátum-/indulás-mérése is nulláról indul.
+    formatStableNotedRef.current = false;
+    startFlowRef.current?.reset();
+    if (startCushionRef.current.timer !== null) {
+      window.clearInterval(startCushionRef.current.timer);
+      startCushionRef.current.timer = null;
+    }
+    startCushionRef.current.state = 'idle';
+    startCushionRef.current.generation = loadGeneration;
+    startCushionRef.current.heldMs = 0;
+    startCushionRef.current.releasedBy = '';
     clearZapWatchdog();
     clearBufferWatchdog();
     playbackStartedRef.current = false;
@@ -5694,6 +5746,120 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    * 30 mp alatt el sem induló adás) kér újracsatlakozást. A waiting és a
    * stalled ESEMÉNY önmagában továbbra sem tölthet újra működő csatornát.
    */
+  /*
+   * 2.5.419 – A FORMÁTUM LEJÁTSZÁS KÖZBENI ELHALÁSÁNAK RÖGZÍTÉSE.
+   * Csak a már elindult élő adásra, és csak ha az elhalás korai volt (az
+   * élő őr szerint < 3 perc egészséges lejátszás után).
+   */
+  noteLiveFormatDeathRef.current = (cause: string) => {
+    if (isVodRef.current || !playbackStartedRef.current) return;
+    const url = activeMediaUrlRef.current || '';
+    const format = formatOfUrl(url);
+    const host = streamHostKey(url);
+    if (!format || !host) return;
+    const healthyMs = liveWatchdogRef.current?.healthyPlaybackMs || 0;
+    const alternative = alternativeUrl(url);
+    if (!isEarlyFormatDeath(healthyMs)) return; // hosszú, jó nézés utáni megszakadás: nem a formátum hibája
+    const health = recordFormatDeath(host, format);
+    // Az első kiesés után ugyanarra a címre megyünk vissza; a szolgáltatón
+    // VISSZATÉRŐEN elhaló formátumból viszont azonnal kilépünk.
+    const switchFormat = shouldSwitchFormatAfterDeath({
+      host, format, healthyPlaybackMs: healthyMs, hasAlternative: Boolean(alternative?.url),
+    });
+    const failedKey = liveQualityKey(channelRef.current);
+    if (failedKey) recordLiveQualityFailure({ key: failedKey, format });
+    if (switchFormat && alternative?.url) {
+      formatDeathSwitchRef.current = { url: alternative.url, from: format, generation: streamLoadGenerationRef.current };
+    }
+    appLog(
+      `FORMÁTUM-EGÉSZSÉG: LEJÁTSZÁS KÖZBEN ELHALT; csatorna=${channelRef.current?.name || 'élő adás'}; formátum=${format.toUpperCase()}; `
+      + `egészséges-lejátszás=${Math.round(healthyMs / 1000)} s; ok=${cause}; szolgáltató=${host}; `
+      + `elhalások(HLS/TS)=${health.hlsDeaths}/${health.tsDeaths}; tartós(HLS/TS)=${health.hlsStable}/${health.tsStable}; `
+      + `következő=${switchFormat && alternative?.url ? 'újracsatlakozás a másik formátummal' : 'újracsatlakozás ugyanazzal a formátummal'}.`,
+    );
+  };
+
+  /*
+   * 2.5.419 – TV DOKTOR INDULÁSI PUFFER-TARTÁS (#66 napló, 2. szolgáltató).
+   *
+   * A szolgáltató minden frissen megnyitott csatornánál ~10 mp adatot küld,
+   * majd 15–30 mp-ig semmit: a kép elindul, ~8 mp-nél megáll, és 9–17 mp
+   * múlva megy tovább. A hiányzó adatot nem lehet pótolni; a TV Doktor annyit
+   * tehet, hogy a várakozást a kép ELEJÉRE teszi: az első képkockát megtartja,
+   * amíg a puffer megtelik (vagy a tanult idő letelik), utána megállás nélkül
+   * megy az adás. Csak akkor fut, ha a minta ezen a szolgáltatón legalább
+   * kétszer megismétlődött; kikapcsolt TV Doktornál soha.
+   */
+  beginStartCushionRef.current = (video: HTMLVideoElement, plan: StartCushionPlan) => {
+    const cushion = startCushionRef.current;
+    const generation = streamLoadGenerationRef.current;
+    if (cushion.generation !== generation || cushion.state !== 'idle') return;
+    const host = streamHostKey(activeMediaUrlRef.current || '');
+    const channelName = channelRef.current?.name || 'élő adás';
+    cushion.state = 'holding';
+    cushion.startedAt = Date.now();
+    cushion.heldMs = 0;
+    cushion.releasedBy = '';
+    try { video.pause(); } catch { /* a tartás nélkül is megy az adás */ }
+    appLog(
+      `INDULÁSI PUFFER (TV Doktor): TARTÁS; csatorna=${channelName}; szolgáltató=${host}; legfeljebb=${(plan.holdMs / 1000).toFixed(1)} s; `
+      + `cél=${plan.targetAheadSeconds} s puffer; ok=ezen a szolgáltatón az adás az indulás után ismételten megállt (adathiány).`,
+    );
+    showDoctorStatus({
+      phase: 'buffering',
+      title: 'Puffer feltöltése',
+      detail: 'A szolgáltató lassan indítja az adást – rövid várakozás után megállás nélkül megy.',
+    });
+    const finish = (releasedBy: string, resume: boolean): void => {
+      if (cushion.timer !== null) { window.clearInterval(cushion.timer); cushion.timer = null; }
+      cushion.heldMs = Date.now() - cushion.startedAt;
+      cushion.releasedBy = releasedBy;
+      cushion.state = 'released';
+      clearDoctorBufferingStatus();
+      const ahead = bufferedAheadSeconds(video);
+      appLog(
+        `INDULÁSI PUFFER (TV Doktor): ${resume ? 'INDÍTÁS' : 'VÉGE'}; csatorna=${channelName}; tartás=${cushion.heldMs} ms; `
+        + `ok=${releasedBy === 'release-buffer' ? 'a puffer megtelt' : releasedBy === 'release-time' ? 'a tanult várakozás letelt' : releasedBy}; `
+        + `puffer-előre=${ahead === null ? 'n/a' : ahead.toFixed(1)} s.`,
+      );
+      if (!resume) return;
+      // Az indulás-mérés a tartás végétől számít: így derül ki, elég volt-e.
+      startFlowRef.current?.begin(Date.now(), Number(video.currentTime || 0));
+      const broken = (why: string): void => {
+        markStartCushionBroken(host);
+        appLog(`INDULÁSI PUFFER (TV Doktor): LETILTVA ezen a szolgáltatón; szolgáltató=${host}; ok=${why}; az élő őr veszi át az adást.`);
+      };
+      try {
+        const resumed = video.play();
+        if (resumed && typeof resumed.catch === 'function') {
+          void resumed.catch(() => { if (generation === streamLoadGenerationRef.current) broken('a TV elutasította a folytatást'); });
+        }
+      } catch {
+        broken('a folytatás hibát dobott');
+      }
+      window.setTimeout(() => {
+        if (generation !== streamLoadGenerationRef.current || !desiredPlayingRef.current) return;
+        if (video === htmlVideoRef.current && video.paused && !video.ended && !video.error) {
+          broken('a tartás után 3 mp-cel is szünetben maradt az adás');
+        }
+      }, 3000);
+    };
+    cushion.timer = window.setInterval(() => {
+      if (generation !== streamLoadGenerationRef.current || video !== htmlVideoRef.current) {
+        if (cushion.timer !== null) { window.clearInterval(cushion.timer); cushion.timer = null; }
+        return;
+      }
+      if (video.error || video.ended) { finish('hiba vagy lezárás a tartás alatt', false); return; }
+      if (!desiredPlayingRef.current || !playbackActiveRef.current) { finish('a néző szünetet kért', false); return; }
+      const decision = startCushionDecision({
+        elapsedMs: Date.now() - cushion.startedAt,
+        plan,
+        aheadSeconds: bufferedAheadSeconds(video),
+      });
+      if (decision !== 'hold') finish(decision, true);
+    }, 500);
+  };
+
   requestRecoveryRef.current = (reason: string) => {
     if (isVodRef.current) {
       vodRecoveryRef.current(reason);
@@ -5707,6 +5873,48 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const urls = sequence.urls.length ? sequence.urls : [streamUrl];
     const primaryUrl = urls[0] || streamUrl;
     if (!primaryUrl) return;
+
+    /*
+     * 2.5.419 – LEJÁTSZÁS KÖZBEN KORÁN ELHALT FORMÁTUM → A MÁSIK FORMÁTUM.
+     * A #66 naplóban a ~50 mp után MEDIA_ERR 3-mal elhalt HLS után az
+     * újracsatlakozás (TV Doktorral és anélkül is) mindig megint HLS-t
+     * indított, ami megint elhalt. Az első kiesés után továbbra is ugyanarra
+     * a címre megyünk vissza (egy pillanatnyi zavar nem formátumhiba); ha a
+     * formátum a szolgáltatón már VISSZATÉRŐEN elhal, az újracsatlakozás a
+     * másik formátummal megy, és a csatorna formátum-emléke is átíródik.
+     */
+    const deathSwitch = formatDeathSwitchRef.current;
+    formatDeathSwitchRef.current = null;
+    if (deathSwitch && deathSwitch.generation === streamLoadGenerationRef.current && deathSwitch.url) {
+      const generation = streamLoadGenerationRef.current;
+      const nextFormat: LiveFormat = deathSwitch.from === 'hls' ? 'ts' : 'hls';
+      doctorSessionRef.current.lastProposal = null;
+      clearAutoRetry();
+      clearBufferWatchdog();
+      setHasError(false);
+      setIsLoading(false);
+      setIsRecovering(true);
+      armRecoveryIndicatorCap();
+      const target = channelRef.current;
+      if (target?.id) rememberFormatFor(target.id, nextFormat);
+      appLog(
+        `ÉLŐ ÚJRACSATLAKOZÁS (FORMÁTUMVÁLTÁS); csatorna=${target?.name || 'élő adás'}; várakozás=150 ms; `
+        + `elhalt=${deathSwitch.from.toUpperCase()}; új=${nextFormat.toUpperCase()}; formátum-emlék=${nextFormat.toUpperCase()}; ok=${reason}.`,
+      );
+      recoveryTimerRef.current = window.setTimeout(() => {
+        recoveryTimerRef.current = null;
+        if (generation !== streamLoadGenerationRef.current) return;
+        if (isVodRef.current || !playbackActiveRef.current) return;
+        // Ez már nem „szebb kép” kísérlet: a működő formátum azonnal megjegyezhető.
+        qualityProbeLoadRef.current = false;
+        liveRecoveryOnlyRef.current = true;
+        pendingStreamUrlRef.current = deathSwitch.url;
+        const idx = urls.indexOf(deathSwitch.url);
+        sequence.index = idx >= 0 && idx < urls.length ? idx : 0;
+        loadStreamRef.current(deathSwitch.url, false);
+      }, 150);
+      return;
+    }
 
     // Ha a TV Doktor aktív és készített következő különböző beállítást, azt azonnal alkalmazzuk!
     if (tvDoctorEnabledRef.current && doctorSessionRef.current.lastProposal) {
@@ -5929,7 +6137,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         && !busy
         && !hasErrorRef.current
         && Boolean(activeMediaUrlRef.current)
-        && !doctorSessionRef.current.channelHaltedDead;
+        && !doctorSessionRef.current.channelHaltedDead
+        // 2.5.419: a szándékos indulási puffer-tartás alatt az őr nem mér.
+        && startCushionRef.current.state !== 'holding';
       const started = playbackStartedRef.current;
       const currentTime = Number(video.currentTime || 0);
       // A raw TS „véges idővonal” (paused + currentTime = duration) ugyanaz a
@@ -5959,6 +6169,57 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         recoveryAttemptRef.current = 0;
         liveEndRecoveryAttemptRef.current = 0;
       }
+      /*
+       * 2.5.419 – FORMÁTUM- ÉS INDULÁS-MÉRÉS (csak megfigyelés, nincs beavatkozás).
+       */
+      const healthUrl = activeMediaUrlRef.current || '';
+      const healthHost = streamHostKey(healthUrl);
+      const healthFormat = formatOfUrl(healthUrl);
+      if (active && started && healthHost && healthFormat && !formatStableNotedRef.current
+          && watchdog.healthyPlaybackMs >= FORMAT_STABLE_MS) {
+        formatStableNotedRef.current = true;
+        recordFormatStable(healthHost, healthFormat);
+        if (qualityProbeLoadRef.current && qualityProbeFormatRef.current === healthFormat) {
+          // A kísérleti formátum tartósnak bizonyult: most már megjegyezhető.
+          const target = channelRef.current;
+          const previousFormat = target?.id ? rememberedFormatFor(target.id) : null;
+          rememberGlobalFormat(healthFormat);
+          if (target?.id) rememberFormatFor(target.id, healthFormat);
+          if (previousFormat !== healthFormat) {
+            appLog(
+              `FORMÁTUM-EMLÉK MENTVE; csatorna=${String(target?.name || '').slice(0, 100)}; `
+              + `formátum=${healthFormat.toUpperCase()}; előző=${previousFormat ? previousFormat.toUpperCase() : 'nem volt'}; `
+              + `ok=${Math.round(FORMAT_STABLE_MS / 1000)} mp hibátlan lejátszás igazolta.`
+            );
+          }
+        }
+      }
+      const startFlow = startFlowRef.current;
+      if (active && started && healthHost && startFlow && startFlow.active) {
+        const flowEvent = startFlow.observe({ now, currentTime, paused: video.paused });
+        const cushion = startCushionRef.current;
+        const cushionUsed = cushion.state === 'released' && cushion.generation === streamLoadGenerationRef.current;
+        if (flowEvent.kind === 'starved') {
+          const health = recordStartStarvation(healthHost, flowEvent.stallMs + (cushionUsed ? cushion.heldMs : 0));
+          appLog(
+            `INDULÁSI ADATHIÁNY MÉRVE; csatorna=${channelRef.current?.name || 'élő adás'}; szolgáltató=${healthHost}; `
+            + `megállás=${(flowEvent.stallMs / 1000).toFixed(1)} s (magától megoldódott, nincs újratöltés); `
+            + `indulási tartás=${cushionUsed ? `${(cushion.heldMs / 1000).toFixed(1)} s volt, kevésnek bizonyult` : 'nem volt'}; `
+            + `megfigyelések=${health.starve}; sima indulások=${health.smooth}; `
+            + `TV-Doktor=${tvDoctorEnabledRef.current ? 'be (2 megfigyeléstől indulási puffert tart)' : 'ki (csak mérés)'}.`
+          );
+        } else if (flowEvent.kind === 'smooth') {
+          if (!cushionUsed) {
+            recordSmoothStart(healthHost);
+          } else if (cushion.releasedBy === 'release-buffer' && cushion.heldMs < 3000) {
+            // A puffer azonnal megtelt: a szolgáltató már folyamatosan küld.
+            recordSmoothStart(healthHost);
+          } else if (cushion.releasedBy === 'release-buffer') {
+            // A tartás alatt érkezett meg a hiányzó adat: a minta fennáll.
+            recordStartStarvation(healthHost, cushion.heldMs);
+          }
+        }
+      }
       if (decision.action === 'none' || !decision.reason) return;
       const channelName = channelRef.current?.name || 'élő adás';
       const elapsedMs = decision.elapsedMs || 0;
@@ -5974,6 +6235,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       const reasonText = liveWatchdogReasonText(decision.reason, elapsedMs);
       appLog(`ÉLŐ ŐR: ÚJRACSATLAKOZÁS; csatorna=${channelName}; ok=${reasonText}; egészséges-lejátszás=${Math.round(watchdog.healthyPlaybackMs / 1000)} s; TV-Doktor=${tvDoctorEnabledRef.current ? 'be' : 'ki'} (a döntést nem befolyásolja); ${videoDiagnosticState(video, 'live-watchdog')}`);
+      // 2.5.419: az őr (lezárás / néma megállás / szünet) NEM vált formátumot:
+      // a naplók szerint ugyanarra a címre visszacsatlakozva az adás megy
+      // tovább. Formátum-elhalásnak csak a lejátszás közbeni MÉDIAHIBA számít.
       requestRecoveryRef.current(reasonText);
     }, LIVE_WATCHDOG_DEFAULTS.tickMs);
     return () => window.clearInterval(timer);
@@ -6308,12 +6572,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         panelMaxHeight: panelMaxHeightPx(),
       })
       : null;
-    const primaryFormat: LiveFormat = qualityChoice && qualityChoice.changed ? qualityChoice.format : plannedFormat;
+    const qualityFormat: LiveFormat = qualityChoice && qualityChoice.changed ? qualityChoice.format : plannedFormat;
+    /*
+     * 2.5.419 – FORMÁTUM-EGÉSZSÉG (#66 napló). Az 1. szolgáltatón a HLS minden
+     * hosszabb nézésnél ~50 mp után elhalt (MEDIA_ERR 3), a „szebb kép”
+     * kísérlet és a formátum-emlék mégis újra meg újra HLS-t indított. A
+     * szolgáltatón BIZONYÍTOTTAN elhaló formátum helyett a másik indul – a
+     * döntés nem függ a TV Doktor kapcsolótól.
+     */
+    const healthHost = !isVod ? streamHostKey(tsUrl || hlsUrl || streamUrl) : '';
+    const healthChoice = !isVod
+      ? chooseHealthyStartFormat({
+        host: healthHost,
+        format: qualityFormat,
+        hasAlternative: hlsUrl !== tsUrl,
+        userForced: settings.streamFormat === 'hls' && qualityFormat === 'hls',
+      })
+      : null;
+    const primaryFormat: LiveFormat = healthChoice && healthChoice.changed ? healthChoice.format : qualityFormat;
+    // A „szebb kép” kísérlet csak akkor kísérlet, ha tényleg azzal indulunk.
+    qualityProbeLoadRef.current = Boolean(!isVod && qualityChoice && qualityChoice.changed && primaryFormat === qualityChoice.format);
+    qualityProbeFormatRef.current = qualityProbeLoadRef.current ? primaryFormat : null;
+    formatDeathSwitchRef.current = null;
     if (!isVod && qualityChoice) {
       appLog(
         `KÉPMINŐSÉG-VÁLASZTÁS; csatorna=${String(channel?.name || 'élő adás').slice(0, 100)}; `
         + `tervezett=${plannedFormat.toUpperCase()}; indított=${primaryFormat.toUpperCase()}; `
-        + `döntés=${qualityChoice.changed ? 'VÁLTÁS' : 'marad'}; indok=${qualityChoice.reason}.`,
+        + `döntés=${qualityChoice.changed && primaryFormat === qualityChoice.format ? 'VÁLTÁS' : 'marad'}; indok=${qualityChoice.reason}.`,
+      );
+    }
+    if (!isVod && healthChoice && healthChoice.changed) {
+      appLog(
+        `FORMÁTUM-EGÉSZSÉG: INDÍTÁSI FORMÁTUM CSERÉJE; csatorna=${String(channel?.name || 'élő adás').slice(0, 100)}; `
+        + `kért=${qualityFormat.toUpperCase()}; indított=${primaryFormat.toUpperCase()}; szolgáltató=${healthHost}; ok=${healthChoice.reason}.`,
       );
     }
     const primaryUrl = isVod ? streamUrl : (primaryFormat === 'hls' ? hlsUrl : tsUrl);
@@ -6322,7 +6613,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const alternative = liveFallbackRef.current;
     // Aktív TV Doktornál nem vesztegetünk időt dupla azonos formátumpróbára, mert a
     // TV Doktor 5-lépcsős gyors beállításváltója azonnal átvált a következő beállításra.
-    initialFormatRetryRef.current = Boolean(!isVod && alternative && !doctorPlan?.skipSameFormatRetry);
+    // 2.5.419: a „szebb kép” KÍSÉRLETI formátumát induló hiba után nem próbáljuk
+    // meg még egyszer (#66: HBO 2 UHD, FILM MANIA – két HLS „Format error” egymás
+    // után, 4,3 mp-es csatornaváltás): azonnal a bevált formátum következik.
+    initialFormatRetryRef.current = Boolean(!isVod && alternative && !doctorPlan?.skipSameFormatRetry && !qualityProbeLoadRef.current);
     liveRecoveryOnlyRef.current = false;
     liveRetrySequenceRef.current = isVod
       ? { urls: [], index: 0 }
@@ -6648,8 +6942,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 appLog('CSATORNAVÁLTÁS RÉGI MÉDIAESEMÉNY KIHAGYVA; ok=az előző src playing eseménye nem zárhatja le az új próbát.');
                 return;
               }
+              const firstPlayingOfLoad = !playbackStartedRef.current;
+              const freshChannelStart = !liveRecoveryOnlyRef.current;
               playbackStartedRef.current = true;
               initialFormatRetryRef.current = false;
+              if (!isVod && firstPlayingOfLoad) {
+                // 2.5.419: az indulás utáni adatfolyam mérése (csak megfigyelés).
+                const flowVideo = event.currentTarget;
+                startFlowRef.current?.begin(Date.now(), Number(flowVideo.currentTime || 0));
+                const cushionPlan = tvDoctorEnabledRef.current && freshChannelStart && !customStreamUrl
+                  ? startCushionPlan(streamHostKey(activeMediaUrlRef.current || ''))
+                  : null;
+                if (cushionPlan) {
+                  // A tartás a `playing` feldolgozása UTÁN indul: az indulási
+                  // mérések és a TV Doktor tanulása a valódi indulást látják.
+                  window.setTimeout(() => {
+                    if (flowVideo === htmlVideoRef.current && desiredPlayingRef.current) {
+                      beginStartCushionRef.current(flowVideo, cushionPlan);
+                    }
+                  }, 0);
+                }
+              }
               // 2.5.388: a film BIZONYÍTOTTAN elindult – innentől a
               // megszakadásokat a folyamatos visszaállítás kezeli, és a
               // fejléc-próbák is engedélyezhetők.
@@ -6770,15 +7083,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 if (format) {
                   const target = channelRef.current;
                   const previousFormat = target?.id ? rememberedFormatFor(target.id) : null;
-                  rememberGlobalFormat(format);
-                  if (target?.id) rememberFormatFor(target.id, format);
+                  /*
+                   * 2.5.419: a „szebb kép” KÍSÉRLET formátumát a `playing`
+                   * pillanatában még NEM jegyezzük meg. A #66 naplóban a HLS
+                   * elindult, megjegyződött, majd ~50 mp múlva elhalt – és a
+                   * csatorna legközelebb megint HLS-sel indult. A kísérleti
+                   * formátum csak tartós (90 mp) hibátlan lejátszás után
+                   * kerül az emlékezetbe (lásd az élő őr mintavételét).
+                   */
+                  const deferMemory = qualityProbeLoadRef.current && !formatStableNotedRef.current
+                    && qualityProbeFormatRef.current === format;
+                  if (!deferMemory) {
+                    rememberGlobalFormat(format);
+                    if (target?.id) rememberFormatFor(target.id, format);
+                  } else if (previousFormat !== format) {
+                    appLog(
+                      `FORMÁTUM-EMLÉK: MÉG NEM MENTVE; csatorna=${String(target?.name || '').slice(0, 100)}; `
+                      + `kísérleti formátum=${format.toUpperCase()}; előző=${previousFormat ? previousFormat.toUpperCase() : 'nem volt'}; `
+                      + `ok=csak ${Math.round(FORMAT_STABLE_MS / 1000)} mp hibátlan lejátszás után jegyezzük meg.`
+                    );
+                  }
                   /*
                    * Csak VÁLTOZÁSKOR naplózzuk (nem minden zappolásnál): így a
                    * következő hibajegyből látszik, hogy a csatornánkénti
                    * formátumemlékezet valóban elmentődött, és visszatéréskor
                    * „formátum-emlék=…” jelenik meg a CSATORNAVÁLTÁS START sorban.
                    */
-                  if (target?.id && previousFormat !== format) {
+                  if (!deferMemory && target?.id && previousFormat !== format) {
                     appLog(
                       `FORMÁTUM-EMLÉK MENTVE; csatorna=${String(target.name || '').slice(0, 100)}; ` +
                       `formátum=${format.toUpperCase()}; előző=${previousFormat ? previousFormat.toUpperCase() : 'nem volt'}.`
@@ -7089,8 +7420,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 // Már volt kép: először az eredeti címet próbáljuk újra,
                 // nem kezdjük elölről a formátum-sorozatot.
                 setHasError(false);
+                noteLiveFormatDeathRef.current(mediaErrCode);
                 requestRecoveryRef.current('stream hiba lejátszás közben');
                 return;
+              }
+              if (qualityProbeLoadRef.current) {
+                // 2.5.419: az el sem induló KÍSÉRLETI formátum is a szolgáltató
+                // formátum-egészségét rontja – két ilyen után nincs több kísérlet.
+                const probeUrl = activeMediaUrlRef.current || video.currentSrc || video.src || '';
+                const probeFormat = formatOfUrl(probeUrl);
+                const probeHost = streamHostKey(probeUrl);
+                if (probeFormat && probeHost && probeFormat === qualityProbeFormatRef.current) {
+                  const health = recordFormatDeath(probeHost, probeFormat);
+                  appLog(
+                    `FORMÁTUM-EGÉSZSÉG: A KÍSÉRLETI FORMÁTUM EL SEM INDULT; csatorna=${channelRef.current?.name || 'élő adás'}; `
+                    + `formátum=${probeFormat.toUpperCase()}; hiba=${mediaErrCode}; szolgáltató=${probeHost}; `
+                    + `elhalások(HLS/TS)=${health.hlsDeaths}/${health.tsDeaths}; következő=azonnal a bevált formátum.`,
+                  );
+                }
               }
               scheduleAutoRetry();
             }}
@@ -7099,6 +7446,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (switchInProgressRef.current) return;
               const video = event.currentTarget;
               if (!video.paused || video.ended) return;
+              // 2.5.419: a TV Doktor indulási puffer-tartása SZÁNDÉKOS szünet.
+              if (startCushionRef.current.state === 'holding'
+                  && startCushionRef.current.generation === streamLoadGenerationRef.current) return;
               const pausedEndState = {
                 ended: video.ended,
                 paused: video.paused,
