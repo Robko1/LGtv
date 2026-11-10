@@ -124,6 +124,18 @@ core.setTvDoctorHungarianChannelScope(['b-id'], undefined, [
   { id: 'b-id', nameKey: '[HU] M4 Sport HD|lc-2', channelKey: layoutBKey, name: '[HU] M4 SPORT HD', position: 1 },
 ], layoutStore);
 const savedProviderBScope = layoutStore.getItem('provider:provider-b:iptv_rt_tv_doctor_hu_scope_v1');
+// A memóriaméret-mérés sem olvashatja a másik szolgáltató TV Doktor-tárát.
+providerScopeStorage.setItem(core.TV_DOCTOR_STORAGE_KEY, '{}');
+core.setTvDoctorProviderScope('provider-a');
+const providerAStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+core.setTvDoctorProviderScope('provider-b');
+const providerBStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+core.setTvDoctorProviderScope('provider-a');
+check(
+  providerAStoredBytes > 0 && providerBStoredBytes === 0,
+  'a TV Doktor memória-méret mérése kizárólag az aktív szolgáltató mentését olvassa',
+);
+
 core.setTvDoctorProviderScope('provider-a');
 check(
   providerAChannelKey === 'hu:m4-sport-hd'
