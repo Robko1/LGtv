@@ -261,6 +261,8 @@ try {
     'a tartós mentés felülírja és eltávolítja a régi memória-tartalékot');
 
   const content = makeContent();
+  // A tartalom p1 szolgáltatóhoz tartozik; mentés előtt ezt a névteret kell aktiválni.
+  app1.setActiveProviderScope('p1');
   await app1.saveLiveContentAsync(content);
   await settle();
 
