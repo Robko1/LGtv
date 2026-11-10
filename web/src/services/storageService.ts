@@ -3,7 +3,7 @@ import { clearFormatMemory } from './liveFormatMemory';
 import { clearAudioMemory } from './liveAudioMemory';
 import { clearTvDoctorMemory } from './tvDoctor';
 import { clearTvDoctorCloudQueue } from './tvDoctorCloud';
-import { clearContentAsync } from './contentStore';
+import { clearAllContentAsync } from './contentStore';
 import { INITIAL_SETTINGS } from '../data/mockData';
 import { providerScopePrefix } from './providerScope';
 
@@ -64,17 +64,61 @@ const LEGACY_KEYS = ['iptv_rt_channels_v1', 'iptv_rt_movies_v1', 'iptv_rt_series
 const LAST_CHANNEL_KEY = 'iptv_rt_last_channel_v1';
 let lastChannelTimer: number | null = null;
 let pendingLastChannelId: string | null = null;
+/*
+ * SZOLGÁLTATÓNKÉNT KÜLÖN UTOLSÓ CSATORNA (2.5.417).
+ *
+ * Korábban egyetlen, közös kulcs volt, amit a szolgáltató-váltás ki is
+ * törölt: visszaváltáskor a néző mindig az első magyar adón találta magát,
+ * ráadásul két szolgáltató azonos stream-azonosítója miatt a program a MÁSIK
+ * fiók „utolsó” csatornáját is elindíthatta. A kulcs mostantól a szolgáltató
+ * névterében van (az első szolgáltatónál a régi kulcs marad érvényben), a
+ * függő írás pedig megjegyzi, melyik szolgáltatóhoz tartozik.
+ */
+let pendingLastChannelKey: string | null = null;
+
+function lastChannelKey(providerId?: string | null): string {
+  return providerScopePrefix(providerId) + LAST_CHANNEL_KEY;
+}
 
 function flushLastChannel(): void {
-  lastChannelTimer = null;
+  if (lastChannelTimer !== null) {
+    window.clearTimeout(lastChannelTimer);
+    lastChannelTimer = null;
+  }
   const id = pendingLastChannelId;
+  const key = pendingLastChannelKey;
   pendingLastChannelId = null;
-  if (!id) return;
+  pendingLastChannelKey = null;
+  if (!id || !key) return;
   try {
-    localStorage.setItem(LAST_CHANNEL_KEY, id);
+    localStorage.setItem(key, id);
   } catch {
     /* tároló nélkül is működik */
   }
+}
+
+/*
+ * SZOLGÁLTATÓNKÉNTI LEJÁTSZÁSI / TV DOKTOR BEÁLLÍTÁSOK (2.5.417).
+ *
+ * A puffer-profil, a lejátszómotor, az élő formátum, a betöltési mód és a
+ * TV Doktor kapcsoló szolgáltatófüggő: ami az egyik szolgáltatónál stabil,
+ * a másiknál akadozhat. Ezeket szolgáltatónként külön jegyezzük meg; a többi
+ * (óra, OSD, felirat, elrendezés) a készülékre vonatkozik, közös marad.
+ */
+const PROVIDER_SETTINGS_KEY = 'iptv_rt_provider_settings_v1';
+export const PROVIDER_SCOPED_SETTING_KEYS = [
+  'bufferMode', 'playerEngine', 'streamFormat', 'channelLoadMode', 'tvDoctorEnabled',
+] as const;
+export type ProviderScopedSettings = Partial<Pick<AppSettings, typeof PROVIDER_SCOPED_SETTING_KEYS[number]>>;
+
+function pickProviderSettings(source: Partial<AppSettings> | null | undefined): ProviderScopedSettings {
+  const out: Record<string, unknown> = {};
+  if (!source) return out as ProviderScopedSettings;
+  for (const key of PROVIDER_SCOPED_SETTING_KEYS) {
+    const value = (source as Record<string, unknown>)[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return out as ProviderScopedSettings;
 }
 
 export const storageService = {
@@ -145,10 +189,65 @@ export const storageService = {
     }
   },
 
-  /** Az utolsóként nézett csatorna (újraindításhoz). */
-  getLastChannelId(): string {
+  /**
+   * Egy szolgáltató saját lejátszási / TV Doktor beállításai.
+   * `null`, ha ehhez a szolgáltatóhoz még nem mentettünk semmit.
+   */
+  getProviderSettings(providerId: string | null | undefined): ProviderScopedSettings | null {
+    const id = String(providerId || '').trim();
+    if (!id) return null;
     try {
-      return localStorage.getItem(LAST_CHANNEL_KEY) || '';
+      const raw = localStorage.getItem(providerScopePrefix(id) + PROVIDER_SETTINGS_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return pickProviderSettings(parsed as Partial<AppSettings>);
+    } catch {
+      return null;
+    }
+  },
+
+  /** A szolgáltatófüggő beállítások mentése az adott szolgáltatóhoz. */
+  saveProviderSettings(providerId: string | null | undefined, settings: Partial<AppSettings>): void {
+    const id = String(providerId || '').trim();
+    if (!id) return;
+    try {
+      localStorage.setItem(
+        providerScopePrefix(id) + PROVIDER_SETTINGS_KEY,
+        JSON.stringify(pickProviderSettings(settings)),
+      );
+    } catch {
+      /* tároló nélkül is működik */
+    }
+  },
+
+  /** Szolgáltató törlésekor a saját beállításai is törlődnek. */
+  clearProviderSettings(providerId: string | null | undefined): void {
+    const id = String(providerId || '').trim();
+    if (!id) return;
+    try {
+      localStorage.removeItem(providerScopePrefix(id) + PROVIDER_SETTINGS_KEY);
+    } catch {
+      /* nem kritikus */
+    }
+  },
+
+  /**
+   * A közös beállításokra ráolvassa a szolgáltató saját értékeit.
+   * Ha a szolgáltatónak még nincs saját mentése, a jelenlegi értékek maradnak.
+   */
+  applyProviderSettings(settings: AppSettings, providerId: string | null | undefined): AppSettings {
+    const own = storageService.getProviderSettings(providerId);
+    return own ? { ...settings, ...own } : settings;
+  },
+
+  /** Az utolsóként nézett csatorna (újraindításhoz) – szolgáltatónként külön. */
+  getLastChannelId(providerId?: string | null): string {
+    const key = lastChannelKey(providerId);
+    // A még ki nem írt (függő) váltás is számít, ha ugyanehhez a szolgáltatóhoz tartozik.
+    if (pendingLastChannelId && pendingLastChannelKey === key) return pendingLastChannelId;
+    try {
+      return localStorage.getItem(key) || '';
     } catch {
       return '';
     }
@@ -158,10 +257,19 @@ export const storageService = {
    * Az utolsó csatorna mentése késleltetve, hogy a váltás azonnali legyen.
    * A csatornaváltás útjából kikerült minden szinkron tárolóírás.
    */
-  rememberLastChannel(channelId: string): void {
+  rememberLastChannel(channelId: string, providerId?: string | null): void {
+    const key = lastChannelKey(providerId);
+    // Másik szolgáltató függő írása nem veszhet el és nem íródhat rossz helyre.
+    if (pendingLastChannelKey && pendingLastChannelKey !== key) flushLastChannel();
     pendingLastChannelId = channelId;
+    pendingLastChannelKey = key;
     if (lastChannelTimer !== null) return;
     lastChannelTimer = window.setTimeout(flushLastChannel, 800);
+  },
+
+  /** A függő „utolsó csatorna” írás azonnali kiírása (szolgáltató-váltás, kilépés előtt). */
+  flushLastChannel(): void {
+    flushLastChannel();
   },
 
   /**
@@ -172,14 +280,18 @@ export const storageService = {
    * az azonosító véletlenül létezhet, és a program a régi – akár külföldi –
    * csatornát indítaná el az első magyar adó helyett.
    */
-  clearLastChannel(): void {
-    pendingLastChannelId = null;
-    if (lastChannelTimer !== null) {
-      window.clearTimeout(lastChannelTimer);
-      lastChannelTimer = null;
+  clearLastChannel(providerId?: string | null): void {
+    const key = lastChannelKey(providerId);
+    if (pendingLastChannelKey === key) {
+      pendingLastChannelId = null;
+      pendingLastChannelKey = null;
+      if (lastChannelTimer !== null) {
+        window.clearTimeout(lastChannelTimer);
+        lastChannelTimer = null;
+      }
     }
     try {
-      localStorage.removeItem(LAST_CHANNEL_KEY);
+      localStorage.removeItem(key);
     } catch {
       /* tároló nélkül is működik */
     }
@@ -326,7 +438,10 @@ export const storageService = {
    * TÉNYLEGES végét jelzi – újratöltés előtt meg kell várni (2.5.239).
    */
   async clearCacheAsync(): Promise<void> {
-    const contentCleared = clearContentAsync();
+    // TELJES visszaállítás: MINDEN szolgáltató mentett katalógusa törlődik.
+    const contentCleared = clearAllContentAsync();
+    pendingLastChannelId = null;
+    pendingLastChannelKey = null;
     // A csatornánkénti formátum-emlékezet is a gyorsítótár része: törlés után
     // minden csatorna a beállított alapformátummal indul.
     clearFormatMemory();
@@ -351,6 +466,10 @@ export const storageService = {
           || key?.endsWith(`:${HISTORY_KEY}`)
           || key === UI_STATE_KEY
           || key?.endsWith(`:${UI_STATE_KEY}`)
+          || key === LAST_CHANNEL_KEY
+          || key?.endsWith(`:${LAST_CHANNEL_KEY}`)
+          || key === PROVIDER_SETTINGS_KEY
+          || key?.endsWith(`:${PROVIDER_SETTINGS_KEY}`)
         ) localStorage.removeItem(key);
       }
     } catch {

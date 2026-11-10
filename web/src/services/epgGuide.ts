@@ -2256,6 +2256,47 @@ export function clearGuide(): void {
 }
 
 
+/**
+ * SZOLGÁLTATÓVÁLTÁS: csak a MEMÓRIÁBAN lévő műsorújság ürül.
+ *
+ * A `clearGuide()` a tartós mentést is törli – MINDEN szolgáltatóét. Váltáskor
+ * ez hiba lenne: a másik szolgáltató műsorújsága a saját kulcsa alatt marad,
+ * és visszaváltáskor letöltés nélkül visszatölthető. Itt ezért csak a képernyőn
+ * lévő (az előző szolgáltatóhoz tartozó) index tűnik el, hogy az új
+ * szolgáltató csatornái mellett ne az előző műsora jelenjen meg.
+ */
+export function resetGuideMemoryForProviderSwitch(): void {
+  if (activeCountryEpgTarget) clearCountryGuideMemory();
+  index.clear();
+  nameToId.clear();
+  buffer = '';
+  scannedUpTo = 0;
+  loadedAt = 0;
+  loadedProviderId = '';
+  lastEmptyGuideAt = 0;
+  lastProgrammes = 0;
+  lastSkipped = 0;
+  lastBytes = 0;
+  huChannelIdSet.clear();
+}
+
+/** Egy TÖRÖLT szolgáltató tartósan mentett műsorújságának eltávolítása. */
+export async function clearProviderGuideStorage(providerId: string): Promise<void> {
+  const id = String(providerId || '').trim();
+  if (!id) return;
+  try {
+    const store = await openIdbStore();
+    if (!store) return;
+    const prefix = `${GUIDE_IDB_PREFIX}${id}-`;
+    const keys = await store.keys();
+    for (const key of keys) {
+      if (key.startsWith(prefix)) await store.remove(key);
+    }
+  } catch {
+    // A törlés hibája nem akadály: a kulcsok a következő takarításkor eltűnnek.
+  }
+}
+
 /*
  * 2.5.259 (#9): PER-CSATORNÁS EPG HÁTTÉR (get_simple_data_table).
  *

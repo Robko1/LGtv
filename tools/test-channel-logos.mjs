@@ -123,7 +123,9 @@ for (const [providerId, host, logo] of [['a', 'one.example', 'a'], ['a', 'one.ex
   const content = await importM3UProvider({ name: 'Test', providerId,
     m3uUrl: `https://${host}/list.m3u8`, m3uText: playlist(`"/icons/${logo}.png"`) });
   await saveContent(content);
-  assert.equal(loadLive().channels[0].logo, `https://${host}/icons/${logo}.png`);
+  // Az import már nem állítja át a megjelenített (aktív) szolgáltatót: minden
+  // szolgáltató a SAJÁT tárába ment, és onnan, a saját azonosítójával olvasható.
+  assert.equal(loadLive(providerId).channels[0].logo, `https://${host}/icons/${logo}.png`);
 }
 const root = createRoot(document.getElementById('root'));
 const render = async (url, retryKey) => act(async () => root.render(React.createElement(ChannelLogo, { url, name: 'Test', retryKey })));

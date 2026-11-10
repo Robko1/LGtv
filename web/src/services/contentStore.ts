@@ -22,7 +22,7 @@ import {
   ChunkStore, ChunkEntry, IDB_BATCH_SIZE, ensureDurableStorage,
   onIdbStoreReset, openIdbStore, storageBudgetBytes,
 } from './idbStore';
-import { activeProviderScopeId, providerScopePrefix, setActiveProviderScope } from './providerScope';
+import { activeProviderScopeId, adoptProviderScopeIfUnset, providerScopePrefix } from './providerScope';
 
 
 /* RÉSZLETES TARTÓS VISSZATÖLTÉSI MÉRÉS – csak aktív naplózáskor ír sorokat. */
@@ -380,8 +380,64 @@ function yieldToStorage(): Promise<void> {
 let contentStorePromise: Promise<ChunkStore | null> | null = null;
 let durableStorageLogged = false;
 let resetSubscribed = false;
+/** Minden nem-legacy szolgáltató kulcsa ezzel kezdődik (lásd providerScope.ts). */
+const FOREIGN_SCOPE_PREFIX = 'provider:';
+/** A műsorújság (epgGuide.ts) kulcsai ugyanebben a tartós tárban, névtér nélkül. */
+const SHARED_GUIDE_PREFIX = 'epg-';
+
+/**
+ * RÖGZÍTETT SZOLGÁLTATÓ-NÉVTÉR (2.5.417).
+ *
+ * Korábban a tároló-függvények mellékhatásként átállították a GLOBÁLIS aktív
+ * névteret (`setActiveProviderScope`), és a kulcsok előtagját minden egyes
+ * olvasás/írás pillanatában a globális állapotból számolták. Két szolgáltató
+ * esetén ez adatkeveredést okozott: az „A” szolgáltató sorban álló (akár 60
+ * mp-es) mentése a „B”-re váltás UTÁN futott le, visszabillentette a névteret
+ * „A”-ra, a felület pedig ettől kezdve a rossz szolgáltató tárát olvasta és
+ * írta – innen jött a „váltáskor megint mindent letölt” és az elveszett
+ * mentés.
+ *
+ * Mostantól minden művelet a HÍVÁS ELEJÉN rögzíti, melyik szolgáltató tárába
+ * dolgozik, és azt az `await`-ek után sem cseréli le. A globális (aktív)
+ * névteret kizárólag az alkalmazás állítja, szolgáltató-váltáskor.
+ */
+function pinScope(providerId?: string | null): string {
+  const explicit = String(providerId || '').trim();
+  if (!explicit) return activeProviderScopeId();
+  // Az első szolgáltató marad a régi (előtag nélküli) kulcsok tulajdonosa;
+  // ha még nincs aktív névtér (első import, tesztek), ez lesz az.
+  adoptProviderScopeIfUnset(explicit);
+  return explicit;
+}
+
 function scopedChunkStore(store: ChunkStore, prefix: string): ChunkStore {
-  if (!prefix) return store;
+  if (!prefix) {
+    /*
+     * RÉGI (előtag nélküli) NÉVTÉR: a nyers tárban a többi szolgáltató
+     * `provider:…` kulcsai is benne vannak. A felsorolás és a törlés ezekhez
+     * NEM nyúlhat – korábban az első szolgáltató törlése/újratöltése a
+     * `clear()`-rel MINDEN szolgáltató mentett katalógusát kitörölte.
+     */
+    const legacy: ChunkStore = {
+      name: store.name,
+      put: (key, value) => store.put(key, value),
+      putMany: (entries) => store.putMany(entries),
+      get: (key) => store.get(key),
+      remove: (key) => store.remove(key),
+      removeMany: (keys) => store.removeMany(keys),
+      keys: async () => (await store.keys()).filter((key) => !key.startsWith(FOREIGN_SCOPE_PREFIX)),
+      clear: async () => {
+        // A közös tárban a műsorújság (`epg-…`) is itt van: az nem katalógus,
+        // egy szolgáltató törlése/újratöltése nem dobhatja el.
+        const keys = (await store.keys()).filter((key) =>
+          !key.startsWith(FOREIGN_SCOPE_PREFIX) && !key.startsWith(SHARED_GUIDE_PREFIX));
+        if (keys.length) await store.removeMany(keys);
+      },
+    };
+    if (store.getMany) legacy.getMany = (keys) => store.getMany!(keys);
+    if (store.getRaw) legacy.getRaw = (key) => store.getRaw!(key);
+    return legacy;
+  }
   const scoped: ChunkStore = {
     name: `${store.name} [${prefix}]`,
     put: (key, value) => store.put(prefix + key, value),
@@ -400,7 +456,7 @@ function scopedChunkStore(store: ChunkStore, prefix: string): ChunkStore {
   return scoped;
 }
 
-function contentChunkStore(): Promise<ChunkStore | null> {
+function contentChunkStore(scopeId: string = activeProviderScopeId()): Promise<ChunkStore | null> {
   if (!resetSubscribed) {
     resetSubscribed = true;
     // Ha a webOS bezárta az adatbázis-kapcsolatot, a következő hívás egy
@@ -428,7 +484,7 @@ function contentChunkStore(): Promise<ChunkStore | null> {
       return store;
     })();
   }
-  const providerPrefix = providerScopePrefix();
+  const providerPrefix = providerScopePrefix(scopeId);
   return contentStorePromise.then((store) => store ? scopedChunkStore(store, providerPrefix) : null);
 }
 const LOCAL_PREFIX = 'iptv_rt_';
@@ -505,62 +561,83 @@ interface Backend {
 
 const memory = new Map<string, string>();
 
-const backend: Backend = (() => {
+let localStorageUsable: boolean | null = null;
+function canUseLocalStorage(): boolean {
+  if (localStorageUsable !== null) return localStorageUsable;
   try {
     window.localStorage.setItem('iptv_rt_probe', '1');
     window.localStorage.removeItem('iptv_rt_probe');
+    localStorageUsable = true;
+  } catch {
+    localStorageUsable = false;
+  }
+  return localStorageUsable;
+}
+
+/**
+ * Egy szolgáltató helyi (localStorage) tára. Az előtag a létrehozáskor
+ * RÖGZÜL: a visszakapott objektum később sem ír másik szolgáltató kulcsaiba,
+ * akkor sem, ha közben a néző szolgáltatót váltott.
+ */
+function backendFor(scopeId: string = activeProviderScopeId()): Backend {
+  const prefix = providerScopePrefix(scopeId);
+  // A régi (előtag nélküli) névtér felsorolása nem láthatja a többi szolgáltató kulcsait.
+  const visible = (key: string): boolean => prefix !== '' || !key.startsWith(FOREIGN_SCOPE_PREFIX);
+  const memoryKeys = (): string[] => {
+    const keys: string[] = [];
+    for (const key of memory.keys()) {
+      if (key.startsWith(prefix) && visible(key)) keys.push(key.slice(prefix.length));
+    }
+    return keys;
+  };
+  if (canUseLocalStorage()) {
+    const scopedPrefix = LOCAL_PREFIX + prefix;
     return {
       name: 'local',
-      get: (key) => memory.get(providerScopePrefix() + key) || window.localStorage.getItem(LOCAL_PREFIX + providerScopePrefix() + key) || '',
+      get: (key) => memory.get(prefix + key) || window.localStorage.getItem(scopedPrefix + key) || '',
       put: (key, value) => {
         try {
-          window.localStorage.setItem(LOCAL_PREFIX + providerScopePrefix() + key, value);
-          memory.delete(providerScopePrefix() + key);
+          window.localStorage.setItem(scopedPrefix + key, value);
+          memory.delete(prefix + key);
           return true;
         } catch {
           return false;
         }
       },
       remove: (key) => {
-        window.localStorage.removeItem(LOCAL_PREFIX + providerScopePrefix() + key);
-        memory.delete(providerScopePrefix() + key);
+        window.localStorage.removeItem(scopedPrefix + key);
+        memory.delete(prefix + key);
       },
       keys: () => {
         const keys = new Set<string>();
-        const prefix = providerScopePrefix();
-        const scopedPrefix = LOCAL_PREFIX + prefix;
         try {
           for (let index = 0; index < window.localStorage.length; index++) {
             const key = window.localStorage.key(index);
-            if (key && key.startsWith(scopedPrefix)) keys.add(key.slice(scopedPrefix.length));
+            if (!key || !key.startsWith(scopedPrefix)) continue;
+            const bare = key.slice(scopedPrefix.length);
+            if (visible(bare)) keys.add(bare);
           }
         } catch {
           /* a felsorolás hibája nem akadályozhatja a mentést */
         }
-        for (const key of memory.keys()) {
-          if (key.startsWith(prefix)) keys.add(key.slice(prefix.length));
-        }
+        for (const key of memoryKeys()) keys.add(key);
         return Array.from(keys);
       },
     };
-  } catch {
-    return {
-      name: 'memory',
-      get: (key) => memory.get(providerScopePrefix() + key) || '',
-      put: (key, value) => {
-        memory.set(providerScopePrefix() + key, value);
-        return true;
-      },
-      remove: (key) => {
-        memory.delete(providerScopePrefix() + key);
-      },
-      keys: () => {
-        const prefix = providerScopePrefix();
-        return Array.from(memory.keys()).filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));
-      },
-    };
   }
-})();
+  return {
+    name: 'memory',
+    get: (key) => memory.get(prefix + key) || '',
+    put: (key, value) => {
+      memory.set(prefix + key, value);
+      return true;
+    },
+    remove: (key) => {
+      memory.delete(prefix + key);
+    },
+    keys: memoryKeys,
+  };
+}
 
 /* ---------------------------------------------------------------- kódolás */
 
@@ -863,8 +940,10 @@ interface WriteOutcome {
   chars: number;
 }
 
-function write(key: string, payload: unknown, options?: { allowShrink?: boolean }): boolean {
-  return writeMeasured(key, payload, options).ok;
+function write(
+  key: string, payload: unknown, options?: { allowShrink?: boolean }, scope: string = activeProviderScopeId(),
+): boolean {
+  return writeMeasured(key, payload, options, scope).ok;
 }
 
 /**
@@ -872,7 +951,10 @@ function write(key: string, payload: unknown, options?: { allowShrink?: boolean 
  * szabadíthasson. Az élő listánál ez kell: a csendes csonkítás miatt a
  * helyfelszabadítás soha nem futott le, és a lista némán megfeleződött.
  */
-function writeMeasured(key: string, payload: unknown, options?: { allowShrink?: boolean }): WriteOutcome {
+function writeMeasured(
+  key: string, payload: unknown, options?: { allowShrink?: boolean }, scope: string = activeProviderScopeId(),
+): WriteOutcome {
+  const backend = backendFor(scope);
   const allowShrink = options?.allowShrink !== false;
   let text = JSON.stringify(payload);
   let storedRows = Array.isArray((payload as { rows?: Row[] })?.rows)
@@ -915,7 +997,7 @@ function writeMeasured(key: string, payload: unknown, options?: { allowShrink?: 
   if (!ok) {
     // Utolsó próba: az elárvult adagok törlése után újra próbáljuk.
     try {
-      sweptKeys = sweepStorage();
+      sweptKeys = sweepStorage(scope);
       if (sweptKeys > 0) ok = backend.put(key, text);
       appLog(`TÁROLÓ DIAG: takarítási próba; kulcs=${key}; törölt kulcsok=${sweptKeys}; újrapróbálás=${ok ? 'sikerült' : 'sikertelen'}.`);
     } catch (error) {
@@ -924,11 +1006,11 @@ function writeMeasured(key: string, payload: unknown, options?: { allowShrink?: 
   }
   if (!ok) {
     // Végső tartalék: memória, így csak az aktuális munkamenetben marad meg.
-    memory.set(providerScopePrefix() + key, text);
+    memory.set(providerScopePrefix(scope) + key, text);
     appLog(
       `TÁROLÓ HIBA: ${key} mentése végleg sikertelen (${backend.name}); méret=${text.length} karakter; ` +
       `csökkentések=${retries}; takarított kulcsok=${sweptKeys}; ` +
-      `foglaltság=${describeStorageUsage()}; memória-tartalék aktív, újraindítás után elveszhet.`
+      `foglaltság=${describeStorageUsage(scope)}; memória-tartalék aktív, újraindítás után elveszhet.`
     );
   }
   return { ok, rows: storedRows, chars: text.length };
@@ -942,7 +1024,8 @@ function writeMeasured(key: string, payload: unknown, options?: { allowShrink?: 
  * foglaltságot: a naplóból így látszik, hogy a lista egyszerűen NEM FÉR EL,
  * nem pedig valami titokzatos írási hiba történt.
  */
-function describeStorageUsage(): string {
+function describeStorageUsage(scope: string = activeProviderScopeId()): string {
+  const backend = backendFor(scope);
   try {
     let keys = 0;
     let chars = 0;
@@ -965,9 +1048,9 @@ function isHungarianForSave(channel: Channel): boolean {
 }
 
 /** Mentésnél a magyar csatornák kerülnek előre, utánuk a kedvenc nem-magyar csatornák. */
-function getFavoriteIdsFromStorage(): Set<string> {
+function getFavoriteIdsFromStorage(scope: string = activeProviderScopeId()): Set<string> {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(providerScopePrefix() + 'iptv_rt_folders_v1') : null;
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(providerScopePrefix(scope) + 'iptv_rt_folders_v1') : null;
     if (!raw) return new Set();
     const folders = JSON.parse(raw);
     if (!Array.isArray(folders)) return new Set();
@@ -1059,6 +1142,8 @@ function liveBootSubset(
  * csak ezután töröljük a régit. Bármi megszakad, a korábbi lista érintetlen.
  */
 function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
+  const scope = pinScope(content.provider.id);
+  const backend = backendFor(scope);
   const chunkCount = Math.ceil(boot.length / CHUNK_SIZE);
   const generationPrefix = LIVE_GENERATION_PREFIX + Date.now() + '-' + (++writeSequence) + '-';
   for (let index = 0; index < chunkCount; index++) activeGenerations.add(generationPrefix + index);
@@ -1075,7 +1160,7 @@ function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
   for (let index = 0; index < chunkCount; index++) {
     const rows = encodeChannels(boot.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE));
     const chunkKey = generationPrefix + index;
-    let ok = write(chunkKey, { rows }, { allowShrink: false });
+    let ok = write(chunkKey, { rows }, { allowShrink: false }, scope);
     if (!ok) {
       // Helyfelszabadítás: a film/sorozat adagok eldobhatók, az élő lista nem.
       // Nem törlünk más katalógusadatot azért, hogy az induló készlet beférjen.
@@ -1101,7 +1186,7 @@ function saveLiveBootCache(content: ImportedContent, boot: Channel[]): boolean {
     full: content.channels.length,
   };
   // Ha a fejléc nem fér el, a mentés meghiúsul; más adatot nem törlünk.
-  if (!write(LIVE_META_KEY, meta)) return abort('a fejléc nem fért be');
+  if (!write(LIVE_META_KEY, meta, undefined, scope)) return abort('a fejléc nem fért be');
   for (let index = 0; index < chunkCount; index++) activeGenerations.delete(generationPrefix + index);
 
   // Sikeres mentés után nem törlünk korábbi adatokat.
@@ -1124,12 +1209,15 @@ type LiveFullSaveResult = 'saved' | 'unavailable' | 'failed';
 let liveFullSaveQueue: Promise<LiveFullSaveResult> = Promise.resolve('failed');
 
 function saveLiveFullToIdb(content: ImportedContent, channels: Channel[], retryAttempt = 0): Promise<LiveFullSaveResult> {
+  const epoch = scopeEpoch(pinScope(content.provider.id));
   const task: Promise<LiveFullSaveResult> = liveFullSaveQueue.then(async (): Promise<LiveFullSaveResult> => {
-    setActiveProviderScope(content.provider.id);
+    const scope = pinScope(content.provider.id);
     if (channels.length === 0) return 'failed';
+    // Közben törölték a szolgáltatót: a régi lista nem íródhat vissza.
+    if (scopeEpoch(scope) !== epoch) return 'failed';
     // Frissebb mentés jön: a korábbi, függő automatikus ismétlés okafogyott.
-    if (retryAttempt === 0) cancelSaveRetry(LIVE_FULL_META_KEY);
-    const store = await contentChunkStore();
+    if (retryAttempt === 0) cancelSaveRetry(retryKey(scope, LIVE_FULL_META_KEY));
+    const store = await contentChunkStore(scope);
     if (!store) return 'unavailable';
     const ok = await saveChunkedToIdb(store, {
       metaKey: LIVE_FULL_META_KEY,
@@ -1145,6 +1233,11 @@ function saveLiveFullToIdb(content: ImportedContent, channels: Channel[], retryA
       savedAt: content.savedAt,
       liveTotal: content.totals.live || channels.length,
     });
+    if (ok && scopeEpoch(scope) !== epoch) {
+      // A mentés ALATT törölték a szolgáltatót: a frissen írt lista nem maradhat a tárban.
+      try { await store.clear(); } catch { /* a következő törlés pótolja */ }
+      return 'failed';
+    }
     appLog(ok
       ? `Teljes élő csatornalista elmentve (IndexedDB): ${channels.length} csatorna.`
       : `Teljes élő csatornalista: az IndexedDB-mentés nem sikerült (${channels.length} csatorna); `
@@ -1153,7 +1246,7 @@ function saveLiveFullToIdb(content: ImportedContent, channels: Channel[], retryA
       // A lista hiánytalanul a memóriában van: rövid késleltetéssel, friss
       // kapcsolattal automatikusan újrapróbáljuk – letöltés nélkül.
       noteSectionIncomplete('live', 'a teljes élő lista tartós írása meghiúsult.', content.provider.id);
-      scheduleSaveRetry(LIVE_FULL_META_KEY, 'Teljes élő csatornalista', retryAttempt,
+      scheduleSaveRetry(retryKey(scope, LIVE_FULL_META_KEY), 'Teljes élő csatornalista', retryAttempt,
         async () => { await saveLiveFullToIdb(content, channels, retryAttempt + 1); });
     }
     return ok ? 'saved' : 'failed';
@@ -1185,7 +1278,7 @@ function saveLiveBootWithRetry(
   favoriteIds?: Set<string>,
 ): Channel[] {
   let budget = startBudget;
-  const fav = favoriteIds ?? getFavoriteIdsFromStorage();
+  const fav = favoriteIds ?? getFavoriteIdsFromStorage(pinScope(content.provider.id));
   // Legfeljebb 5 próba: 500k → 250k → 125k → 62k → 40k karakter. A ciklus
   // akkor is leáll, ha a készlet már nem csökkenthető tovább (nincs végtelen
   // újrapróbálkozás, ami a TV-t lefoglalná).
@@ -1211,8 +1304,8 @@ function saveLiveBootWithRetry(
  * a teljes lista a régi úton, a localStorage-ba megy – ott nem veszik el semmi.
  */
 export async function saveLiveContentAsync(content: ImportedContent): Promise<void> {
-  setActiveProviderScope(content.provider.id);
-  const fav = getFavoriteIdsFromStorage();
+  const scope = pinScope(content.provider.id);
+  const fav = getFavoriteIdsFromStorage(scope);
   const channels = hungarianFirstForSave(content.channels, fav);
   const boot = saveLiveBootWithRetry(content, channels, LIVE_BOOT_BUDGET, true, fav);
   try {
@@ -1251,10 +1344,10 @@ export function saveLiveContent(content: ImportedContent): void {
  * teljes lista az IndexedDB-ből tényleg hiányzik.
  */
 export async function compactLiveCacheIfNeeded(content: ImportedContent): Promise<void> {
-  setActiveProviderScope(content.provider.id);
+  const scope = pinScope(content.provider.id);
   try {
-    if (!needsLiveCacheCompaction() || content.channels.length === 0) return;
-    const store = await contentChunkStore();
+    if (!needsLiveCacheCompaction(scope) || content.channels.length === 0) return;
+    const store = await contentChunkStore(scope);
     let idbHasFull = false;
     if (store) {
       try {
@@ -1302,6 +1395,7 @@ export interface SyncState {
 }
 
 export function loadSyncState(providerId: string): SyncState | null {
+  const backend = backendFor(pinScope(providerId));
   try {
     const raw = backend.get(SYNC_KEY);
     if (!raw) return null;
@@ -1314,7 +1408,7 @@ export function loadSyncState(providerId: string): SyncState | null {
 }
 
 export function saveSyncState(state: SyncState): void {
-  write(SYNC_KEY, state);
+  write(SYNC_KEY, state, undefined, pinScope(state.providerId));
 }
 
 /* ------------------------------------------------ KATALÓGUS-ÁLLAPOT (TTL) */
@@ -1369,8 +1463,9 @@ function emptyCatalogState(): CatalogState {
 }
 
 /** Szinkron olvasat (induláskor, a takarókép alatt). */
-export function readCatalogStateSync(): CatalogState | null {
-  const providerId = activeProviderScopeId();
+export function readCatalogStateSync(scopeId: string = activeProviderScopeId()): CatalogState | null {
+  const providerId = scopeId;
+  const backend = backendFor(providerId);
   if (cachedCatalogState && cachedCatalogStateProviderId === providerId) return cachedCatalogState;
   cachedCatalogState = null;
   cachedCatalogStateProviderId = providerId;
@@ -1388,23 +1483,21 @@ export function readCatalogStateSync(): CatalogState | null {
 }
 
 /** Teljes olvasat: localStorage, majd (ha még nincs) a tartós tár. */
-export async function readCatalogState(): Promise<CatalogState | null> {
-  const providerId = activeProviderScopeId();
-  const local = readCatalogStateSync();
+export async function readCatalogState(scopeId: string = activeProviderScopeId()): Promise<CatalogState | null> {
+  const providerId = scopeId;
+  const local = readCatalogStateSync(providerId);
   if (local) return local;
   try {
-    const store = await contentChunkStore();
+    const store = await contentChunkStore(providerId);
     if (!store) return null;
     const raw = await store.get(IDB_STATE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CatalogState;
     if (!parsed || parsed.v !== 2 || !parsed.counts) return null;
-    if (activeProviderScopeId() === providerId) {
-      cachedCatalogState = parsed;
-      cachedCatalogStateProviderId = providerId;
-      // A gyors szinkron útra is visszatesszük.
-      write(CONTENT_STATE_KEY, parsed);
-    }
+    cachedCatalogState = parsed;
+    cachedCatalogStateProviderId = providerId;
+    // A gyors szinkron útra is visszatesszük – UGYANANNAK a szolgáltatónak a tárába.
+    write(CONTENT_STATE_KEY, parsed, undefined, providerId);
     return parsed;
   } catch {
     return null;
@@ -1413,23 +1506,21 @@ export async function readCatalogState(): Promise<CatalogState | null> {
 
 let catalogStateQueue: Promise<void> = Promise.resolve();
 function updateCatalogState(mutate: (state: CatalogState) => void, providerId = activeProviderScopeId()): void {
+  const epoch = scopeEpoch(providerId);
   catalogStateQueue = catalogStateQueue.then(async () => {
-    const previousScope = activeProviderScopeId();
-    if (providerId) setActiveProviderScope(providerId);
-    const state = readCatalogStateSync() || emptyCatalogState();
+    // Közben törölték a szolgáltatót: a régi állapot nem íródhat vissza.
+    if (scopeEpoch(providerId) !== epoch) return;
+    const state = readCatalogStateSync(providerId) || emptyCatalogState();
     mutate(state);
     state.savedAt = Math.max(state.savedAt, state.sections.live?.savedAt || 0,
       state.sections.vod?.savedAt || 0, state.sections.series?.savedAt || 0);
     cachedCatalogState = state;
-    cachedCatalogStateProviderId = providerId || activeProviderScopeId();
-    try { write(CONTENT_STATE_KEY, state); } catch { /* kis kulcs, nem kritikus */ }
+    cachedCatalogStateProviderId = providerId;
+    try { write(CONTENT_STATE_KEY, state, undefined, providerId); } catch { /* kis kulcs, nem kritikus */ }
     try {
-      const store = await contentChunkStore();
+      const store = await contentChunkStore(providerId);
       if (store) await store.put(IDB_STATE_KEY, JSON.stringify(state));
     } catch { /* a tartós másolat hiánya nem akadály */ }
-    if (providerId && activeProviderScopeId() === providerId && previousScope && previousScope !== providerId) {
-      setActiveProviderScope(previousScope);
-    }
   });
 }
 
@@ -1440,7 +1531,7 @@ function noteSectionSaved(section: 'live' | 'vod' | 'series', count: number, pro
     // Új, teljes mentés: a korábbi „hiányos” jelölés is törlődik.
     state.sections[section] = { savedAt: at, count };
     state.checkedAt = Math.max(state.checkedAt, at);
-  }, provider?.id || activeProviderScopeId());
+  }, pinScope(provider?.id));
 }
 
 /**
@@ -1495,11 +1586,10 @@ export function catalogIncompleteSections(state: CatalogState | null): Array<'li
 
 /** A szolgáltató kategóriáinak ujjlenyomata (olcsó változásvizsgálathoz). */
 export function setCatalogFingerprint(fingerprint: string, provider?: ProviderRef | null): void {
-  if (provider?.id) setActiveProviderScope(provider.id);
   updateCatalogState((state) => {
     state.fingerprint = fingerprint;
     if (provider) { state.providerId = provider.id; state.provider = provider; }
-  }, provider?.id || activeProviderScopeId());
+  }, pinScope(provider?.id));
 }
 
 /** Csak a frissességi bélyeget írjuk újra – a nagy listához nem nyúlunk. */
@@ -1528,10 +1618,11 @@ type Extras = { movies: Movie[]; series: Series[] };
 const extrasCache = new Map<string, Extras>();
 
 export async function saveCatalogExtras(providerId: string, movies: Movie[], series: Series[]): Promise<void> {
-  setActiveProviderScope(providerId);
+  const scope = pinScope(providerId);
+  const epoch = scopeEpoch(scope);
   try {
     if (!movies.length && !series.length) return;
-    const store = await contentChunkStore();
+    const store = await contentChunkStore(scope);
     if (!store) return;
     // A böngészés közben előreolvasott részletek NEM írhatják felül egymást:
     // minden mentés a korábbi tételekhez fűz, azonos címnél frissít.
@@ -1545,6 +1636,7 @@ export async function saveCatalogExtras(providerId: string, movies: Movie[], ser
       movies: merge(previous.movies, movies),
       series: merge(previous.series, series),
     };
+    if (scopeEpoch(scope) !== epoch) return; // közben törölték a szolgáltatót
     await store.put(EXTRAS_PREFIX + providerId, JSON.stringify(extras));
     extrasCache.set(providerId, extras);
   } catch { /* a részletes metaadat nem kritikus */ }
@@ -1664,11 +1756,11 @@ export async function prefetchContentImages(
 }
 
 export async function loadCatalogExtras(providerId: string): Promise<Extras> {
-  setActiveProviderScope(providerId);
+  const scope = pinScope(providerId);
   const cached = extrasCache.get(providerId);
   if (cached) return cached;
   try {
-    const store = await contentChunkStore();
+    const store = await contentChunkStore(scope);
     if (!store) return { movies: [], series: [] };
     const raw = await store.get(EXTRAS_PREFIX + providerId);
     if (!raw) return { movies: [], series: [] };
@@ -1735,7 +1827,8 @@ interface ChunkedSaveOptions {
 }
 
 /** A korábbi adagok kulcsainak összegyűjtése (törléshez). */
-function readChunkKeys(metaKey: string, legacyPrefix: string): string[] {
+function readChunkKeys(metaKey: string, legacyPrefix: string, scope: string = activeProviderScopeId()): string[] {
+  const backend = backendFor(scope);
   const keys: string[] = [];
   try {
     const raw = backend.get(metaKey);
@@ -1760,7 +1853,8 @@ function readChunkKeys(metaKey: string, legacyPrefix: string): string[] {
  * és minden más, tartalomhoz tartozó kulcsot törlünk. Csak a saját
  * `content-*` kulcsainkhoz nyúlunk, a beállításokhoz és a kedvencekhez nem.
  */
-export function sweepStorage(): number {
+export function sweepStorage(scope: string = activeProviderScopeId()): number {
+  const backend = backendFor(scope);
   const keep = new Set<string>();
   const metas: Array<[string, string]> = [
     [LIVE_META_KEY, LIVE_CHUNK_PREFIX],
@@ -1768,7 +1862,7 @@ export function sweepStorage(): number {
     [SERIES_META_KEY, SERIES_CHUNK_PREFIX],
   ];
   for (const [metaKey, legacyPrefix] of metas) {
-    for (const key of readChunkKeys(metaKey, legacyPrefix)) keep.add(key);
+    for (const key of readChunkKeys(metaKey, legacyPrefix, scope)) keep.add(key);
   }
   const prefixes = [
     LIVE_GENERATION_PREFIX, VOD_GENERATION_PREFIX, SERIES_GENERATION_PREFIX,
@@ -2018,6 +2112,29 @@ function sectionForMetaKey(metaKey: string): 'live' | 'vod' | 'series' | null {
 const SAVE_RETRY_DELAYS_MS = [15000, 60000];
 const saveRetries = new Map<string, { timer: ReturnType<typeof setTimeout>; attempt: number }>();
 
+/** Az ismétlés kulcsa szolgáltatónként külön: két fiók mentése nem törölheti egymás ismétlését. */
+function retryKey(scope: string, metaKey: string): string {
+  return `${scope}|${metaKey}`;
+}
+
+/*
+ * TÖRLÉSI KORSZAK szolgáltatónként: a törlés megnöveli. A törlés ELŐTT sorba
+ * állított mentés ebből veszi észre, hogy a szolgáltatót közben eltávolították,
+ * és nem írja vissza a már törölt katalógust.
+ */
+const scopeEpochs = new Map<string, number>();
+function scopeEpoch(scope: string): number {
+  return scopeEpochs.get(scope) || 0;
+}
+function bumpScopeEpoch(scope: string): void {
+  scopeEpochs.set(scope, scopeEpoch(scope) + 1);
+  for (const [key, pending] of Array.from(saveRetries.entries())) {
+    if (!key.startsWith(scope + '|')) continue;
+    clearTimeout(pending.timer);
+    saveRetries.delete(key);
+  }
+}
+
 function cancelSaveRetry(metaKey: string): number {
   const pending = saveRetries.get(metaKey);
   if (!pending) return 0;
@@ -2044,22 +2161,28 @@ function scheduleSaveRetry(metaKey: string, label: string, attempt: number, run:
   saveRetries.set(metaKey, { timer, attempt: attempt + 1 });
 }
 
-async function saveChunkedAuto(options: ChunkedSaveOptions, retryAttempt = 0): Promise<void> {
-  if (options.provider?.id) setActiveProviderScope(options.provider.id);
-  const providerId = options.provider?.id || activeProviderScopeId();
+async function saveChunkedAuto(options: ChunkedSaveOptions, retryAttempt = 0, queuedEpoch?: number): Promise<void> {
+  // A mentés a SAJÁT szolgáltatója tárába megy – akkor is, ha közben a néző
+  // másik szolgáltatóra váltott. A globális névtérhez nem nyúlunk.
+  const providerId = pinScope(options.provider?.id);
+  const epoch = queuedEpoch === undefined ? scopeEpoch(providerId) : queuedEpoch;
+  if (scopeEpoch(providerId) !== epoch) return; // közben törölték a szolgáltatót
+  const backend = backendFor(providerId);
+  const saveRetryKey = retryKey(providerId, options.metaKey);
   // Egy frissebb mentés érvényteleníti ugyanennek a szakasznak a függő ismétlését.
-  if (retryAttempt === 0) cancelSaveRetry(options.metaKey);
+  if (retryAttempt === 0) cancelSaveRetry(saveRetryKey);
   const section = sectionForMetaKey(options.metaKey);
-  const store = await contentChunkStore();
+  const store = await contentChunkStore(providerId);
   if (store) {
     if (await saveChunkedToIdb(store, options)) {
-      // Az IndexedDB-tár már a hívás elején rögzített providerhez tartozik.
-      // Ha közben szolgáltatót váltottunk, a globális localStorage scope-ot
-      // nem írjuk át és nem takarítjuk az új szolgáltató régi adagjait.
-      if (!providerId || activeProviderScopeId() === providerId) {
-        for (const key of readChunkKeys(options.metaKey, options.legacyPrefix)) backend.remove(key);
-        backend.remove(options.metaKey);
+      if (scopeEpoch(providerId) !== epoch) {
+        // A mentés ALATT törölték a szolgáltatót: a frissen írt lista nem maradhat a tárban.
+        try { await store.clear(); } catch { /* a következő törlés pótolja */ }
+        return;
       }
+      // A régi, localStorage-os adagok UGYANENNEK a szolgáltatónak a tárából törlődnek.
+      for (const key of readChunkKeys(options.metaKey, options.legacyPrefix, providerId)) backend.remove(key);
+      backend.remove(options.metaKey);
       return;
     }
     /*
@@ -2074,8 +2197,8 @@ async function saveChunkedAuto(options: ChunkedSaveOptions, retryAttempt = 0): P
       + 'a korábbi, ép mentett lista marad. A nagy listát nem írjuk a kis localStorage-ba.'
     );
     if (section) noteSectionIncomplete(section, `${options.label}: a tartós írás meghiúsult.`, providerId);
-    scheduleSaveRetry(options.metaKey, options.label, retryAttempt,
-      () => saveChunkedAuto(options, retryAttempt + 1));
+    scheduleSaveRetry(saveRetryKey, options.label, retryAttempt,
+      () => saveChunkedAuto(options, retryAttempt + 1, epoch));
     return;
   }
   // Film- és sorozatlista soha nem kerülhet localStorage-ba.
@@ -2199,8 +2322,8 @@ function sortVodByYearDesc<T extends { year?: number; title?: string }>(items: r
 export function saveSeriesContent(content: ImportedContent): Promise<void> {
   // 2.5.319: mentés előtt év szerint csökkenő, stabil sorrend — az első adag (500) így már a legfrissebb 2026-os sorozatokat tartalmazza
   const sortedSeries = sortVodByYearDesc(content.series) as Series[];
+  const queuedEpoch = scopeEpoch(pinScope(content.provider.id));
   const task = seriesSaveQueue.then(() => {
-    setActiveProviderScope(content.provider.id);
     return saveChunkedAuto({
     metaKey: SERIES_META_KEY,
     legacyKey: SERIES_KEY,
@@ -2213,7 +2336,7 @@ export function saveSeriesContent(content: ImportedContent): Promise<void> {
     cats: encodeCategories(content.seriesCategories),
     label: 'Sorozatlista',
     provider: content.provider,
-    });
+    }, 0, queuedEpoch);
   }).catch((error) => {
     appLogError('Sorozatlista mentése', error);
     throw error;
@@ -2226,8 +2349,8 @@ export function saveSeriesContent(content: ImportedContent): Promise<void> {
 export function saveVodContent(content: ImportedContent): Promise<void> {
   // 2.5.319: mentés előtt év szerint csökkenő, stabil sorrend — az első adag (500) így már a legfrissebb 2026-os filmeket tartalmazza, nem 2024-et
   const sortedMovies = sortVodByYearDesc(content.movies) as Movie[];
+  const queuedEpoch = scopeEpoch(pinScope(content.provider.id));
   const task = vodSaveQueue.then(() => {
-    setActiveProviderScope(content.provider.id);
     return saveChunkedAuto({
     metaKey: VOD_META_KEY,
     legacyKey: VOD_KEY,
@@ -2240,7 +2363,7 @@ export function saveVodContent(content: ImportedContent): Promise<void> {
     cats: encodeCategories(content.vodCategories),
     label: 'Filmlista',
     provider: content.provider,
-    });
+    }, 0, queuedEpoch);
   }).catch((error) => {
     appLogError('Filmlista mentése', error);
     throw error;
@@ -2256,9 +2379,9 @@ export function saveVodContent(content: ImportedContent): Promise<void> {
  * is 2026-ossá (eddig 2024 volt), mint a Sorozaté. Csak egyszer fut, nem blokkol.
  */
 export async function migrateVodStorageIfNeeded(provider: ProviderRef): Promise<void> {
-  setActiveProviderScope(provider.id);
+  const scope = pinScope(provider.id);
   try {
-    const idb = await contentChunkStore();
+    const idb = await contentChunkStore(scope);
     if (!idb) return;
     const stored = await readIdbChunks(idb, VOD_META_KEY);
     if (!stored || !stored.meta.provider || stored.meta.provider.id !== provider.id) return;
@@ -2297,7 +2420,7 @@ export async function migrateVodStorageIfNeeded(provider: ProviderRef): Promise<
 }
 
 export async function saveContent(content: ImportedContent): Promise<void> {
-  setActiveProviderScope(content.provider.id);
+  pinScope(content.provider.id);
   // Előbb engedjük kirajzolódni a felületet, csak utána induljon a mentés.
   await yieldToStorage();
   logMemory('mentés előtt');
@@ -2339,7 +2462,8 @@ interface ChunkedReadResult {
   readChunk: (index: number) => Row[];
 }
 
-function openChunked(metaKey: string, legacyPrefix: string): ChunkedReadResult | null {
+function openChunked(metaKey: string, legacyPrefix: string, scope: string = activeProviderScopeId()): ChunkedReadResult | null {
+  const backend = backendFor(scope);
   const raw = backend.get(metaKey);
   if (!raw) return null;
   try {
@@ -2369,7 +2493,8 @@ function openChunked(metaKey: string, legacyPrefix: string): ChunkedReadResult |
 }
 
 /** A metaadat kategóriái (a hívó a saját típusára alakítja). */
-function readChunkedCategories(metaKey: string, type: 'movie' | 'series'): Category[] {
+function readChunkedCategories(metaKey: string, type: 'movie' | 'series', scope: string = activeProviderScopeId()): Category[] {
+  const backend = backendFor(scope);
   try {
     const raw = backend.get(metaKey);
     if (!raw) return [];
@@ -2389,12 +2514,19 @@ const RAW_PREFIX = 'm3u-raw-';
  * „Frissítés” ugyanezt a listát dolgozza fel újra, link nélkül is.
  */
 export function saveRawPlaylist(providerId: string, text: string): boolean {
-  setActiveProviderScope(providerId);
+  const backend = backendFor(pinScope(providerId));
   return backend.put(RAW_PREFIX + providerId, text);
 }
 
+/** Szolgáltató törlésekor a nyers M3U-szöveg is törlődik (a gyorsítótár-ürítés NEM törli). */
+export function removeRawPlaylist(providerId: string): void {
+  const id = String(providerId || '').trim();
+  if (!id) return;
+  try { backendFor(id).remove(RAW_PREFIX + id); } catch { /* nem kritikus */ }
+}
+
 export function loadRawPlaylist(providerId: string): string {
-  setActiveProviderScope(providerId);
+  const backend = backendFor(pinScope(providerId));
   return backend.get(RAW_PREFIX + providerId) || '';
 }
 
@@ -2404,7 +2536,8 @@ export interface StoredSummary {
   totals: { live: number; vod: number; series: number };
 }
 
-export function readSummary(): StoredSummary | null {
+export function readSummary(scope: string = activeProviderScopeId()): StoredSummary | null {
+  const backend = backendFor(scope);
   const metaRaw = backend.get(LIVE_META_KEY);
   const raw = metaRaw || backend.get(LIVE_KEY);
   if (!raw) return null;
@@ -2437,7 +2570,8 @@ export interface LoadedLive {
   pendingFull?: boolean;
 }
 
-export function loadLive(): LoadedLive {
+export function loadLive(scope: string = activeProviderScopeId()): LoadedLive {
+  const backend = backendFor(scope);
   const empty: LoadedLive = {
     channels: [],
     categories: [],
@@ -2538,8 +2672,8 @@ export async function loadLiveFull(
   onProgress?: (loaded: number) => void,
   shouldAbort?: () => boolean,
 ): Promise<LoadedLiveFull | null> {
-  if (provider?.id) setActiveProviderScope(provider.id);
-  const store = await contentChunkStore();
+  const scope = pinScope(provider?.id);
+  const store = await contentChunkStore(scope);
   if (!store) return null;
   const chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
   if (!chunked) return null;
@@ -2625,13 +2759,13 @@ export async function loadLiveFull(
  * gyors; a hívó a takarókép alatt várja meg, így a főoldal már kész listával
  * jelenik meg, hálózat nélkül.
  */
-export async function loadLiveBoot(): Promise<LoadedLive> {
-  const local = loadLive();
+export async function loadLiveBoot(scope: string = activeProviderScopeId()): Promise<LoadedLive> {
+  const local = loadLive(scope);
   if (local.provider && local.channels.length > 0) return local;
 
   let store: ChunkStore | null = null;
   try {
-    store = await contentChunkStore();
+    store = await contentChunkStore(scope);
   } catch {
     store = null;
   }
@@ -2687,8 +2821,8 @@ export async function loadLiveChannelsByIds(
   ids: Set<string>,
 ): Promise<Channel[]> {
   if (!ids.size || !provider) return [];
-  setActiveProviderScope(provider.id);
-  const store = await contentChunkStore();
+  const scope = pinScope(provider.id);
+  const store = await contentChunkStore(scope);
   if (!store) return [];
   const chunked = await readIdbChunks(store, LIVE_FULL_META_KEY);
   if (!chunked || !chunked.meta.provider) return [];
@@ -2753,7 +2887,10 @@ export function lastStoredContentReport(): StorageReport | null {
   return lastStorageReport;
 }
 
-export async function describeStoredContent(options: { quick?: boolean } = {}): Promise<StorageReport> {
+export async function describeStoredContent(
+  options: { quick?: boolean } = {}, scope: string = activeProviderScopeId(),
+): Promise<StorageReport> {
+  const backend = backendFor(scope);
   const report: StorageReport = {
     localKeys: 0, localChars: 0, liveLocal: 0, liveIdb: 0, vodIdb: 0, seriesIdb: 0, bootChars: 0,
   };
@@ -2780,13 +2917,13 @@ export async function describeStoredContent(options: { quick?: boolean } = {}): 
     /* a felsorolás hibája nem akadályozhatja az indulást */
   }
   try {
-    const live = loadLive();
+    const live = loadLive(scope);
     report.liveLocal = live.channels.length;
   } catch {
     /* sérült fejléc */
   }
   try {
-    const store = await contentChunkStore();
+    const store = await contentChunkStore(scope);
     if (store) {
       const live = await readIdbChunks(store, LIVE_FULL_META_KEY);
       if (live) report.liveIdb = live.meta.liveTotal || live.meta.chunks * metaChunkSize(live.meta);
@@ -2813,7 +2950,8 @@ export async function describeStoredContent(options: { quick?: boolean } = {}): 
  * egyszer újramentjük: magyar készlet a localStorage-ba, teljes lista az
  * IndexedDB-be – és ezzel a ~3,9 MB felszabadul a kvótából.
  */
-export function needsLiveCacheCompaction(): boolean {
+export function needsLiveCacheCompaction(scope: string = activeProviderScopeId()): boolean {
+  const backend = backendFor(scope);
   const raw = backend.get(LIVE_META_KEY);
   if (!raw) return false;
   try {
@@ -2833,6 +2971,7 @@ export function needsLiveCacheCompaction(): boolean {
  */
 
 function loadLegacyVod(provider: ProviderRef): { movies: Movie[]; categories: Category[] } {
+  const backend = backendFor(pinScope(provider.id));
   const raw = backend.get(VOD_KEY);
   if (!raw) return { movies: [], categories: [] };
   try {
@@ -2848,6 +2987,7 @@ function loadLegacyVod(provider: ProviderRef): { movies: Movie[]; categories: Ca
 }
 
 function loadLegacySeries(provider: ProviderRef): { series: Series[]; categories: Category[] } {
+  const backend = backendFor(pinScope(provider.id));
   const raw = backend.get(SERIES_KEY);
   if (!raw) return { series: [], categories: [] };
   try {
@@ -2864,8 +3004,8 @@ function loadLegacySeries(provider: ProviderRef): { series: Series[]; categories
 
 /** Filmlista betöltése szinkron (kis listákhoz, tesztekhez). */
 export function loadVod(provider: ProviderRef): { movies: Movie[]; categories: Category[] } {
-  setActiveProviderScope(provider.id);
-  const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX);
+  const scope = pinScope(provider.id);
+  const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX, scope);
   if (!meta) return loadLegacyVod(provider);
   const movies: Movie[] = [];
   let offset = 0;
@@ -2874,7 +3014,7 @@ export function loadVod(provider: ProviderRef): { movies: Movie[]; categories: C
     for (const movie of decodeMovies(rows, provider, offset)) movies.push(movie);
     offset += rows.length;
   }
-  const categories = readChunkedCategories(VOD_META_KEY, 'movie');
+  const categories = readChunkedCategories(VOD_META_KEY, 'movie', scope);
   if (movies.length === 0) {
     const legacy = loadLegacyVod(provider);
     if (legacy.movies.length > 0) return legacy;
@@ -2898,19 +3038,19 @@ export async function loadVodAsync(
   /* 2.5.281 (#24/#26): ha közben true lesz, a visszatöltés az adaghatáron leáll. */
   shouldAbort?: () => boolean,
 ): Promise<{ movies: Movie[]; categories: Category[] }> {
-  setActiveProviderScope(provider.id);
+  const scope = pinScope(provider.id);
   /*
    * EGYSZERI VISSZAFEJTÉS. A korábbi kód ugyanazt a 100 ezres listát az
    * indulásnál akár háromszor is végigdekódolta (tároló-próba, 1,2 mp-es
    * idle, majd a Mozi nézet megnyitása). A gyorsítótár-kulcs a tároló
    * generációja: egy új mentés után automatikusan újraolvassuk.
    */
-  const idb = await contentChunkStore();
-  if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { movies: [], categories: [] };
+  const idb = await contentChunkStore(scope);
+  if (shouldAbort?.()) return { movies: [], categories: [] };
   let cacheKey = `vod|${provider.id}|legacy`;
   if (idb) {
     const stored = await readIdbChunks(idb, VOD_META_KEY);
-    if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { movies: [], categories: [] };
+    if (shouldAbort?.()) return { movies: [], categories: [] };
     // Két szolgáltató listája nem keveredhet: idegen fejlécű listát nem
     // szolgálunk ki (a folyam-URL-ek is a rossz fiókkal épülnének fel).
     const chunked = stored && stored.meta.provider && stored.meta.provider.id !== provider.id ? null : stored;
@@ -3034,8 +3174,8 @@ export async function loadVodAsync(
       restoreMetrics.finish('üres – helyi tár ellenőrzése következik');
     }
   }
-  if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { movies: [], categories: [] };
-  const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX);
+  if (shouldAbort?.()) return { movies: [], categories: [] };
+  const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX, scope);
   if (!meta) {
     const legacy = loadLegacyVod(provider);
     const legacyHungarian = legacy.movies.filter((movie) =>
@@ -3049,7 +3189,7 @@ export async function loadVodAsync(
   const cached = decodedCache.get(cacheKey) as { movies: Movie[]; categories: Category[] } | undefined;
   if (cached) return cached;
   const movies: Movie[] = [];
-  const categories = readChunkedCategories(VOD_META_KEY, 'movie');
+  const categories = readChunkedCategories(VOD_META_KEY, 'movie', scope);
   const categoryNameById = new Map<string, string>(categories.map((category) => [category.id, category.name] as const));
   const hungarianMovies: Movie[] = [];
   let offset = 0;
@@ -3109,8 +3249,8 @@ export async function loadVodAsync(
 
 /** Sorozatok betöltése (szinkron, kis listához és tesztekhez). */
 export function loadSeries(provider: ProviderRef): { series: Series[]; categories: Category[] } {
-  setActiveProviderScope(provider.id);
-  const meta = openChunked(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
+  const scope = pinScope(provider.id);
+  const meta = openChunked(SERIES_META_KEY, SERIES_CHUNK_PREFIX, scope);
   if (!meta) return loadLegacySeries(provider);
   const series: Series[] = [];
   let offset = 0;
@@ -3124,7 +3264,7 @@ export function loadSeries(provider: ProviderRef): { series: Series[]; categorie
   if (missing) {
     appLog(`Sorozatlista: ${missing}/${meta.chunks} adag hiányzott.`);
   }
-  const categories = readChunkedCategories(SERIES_META_KEY, 'series');
+  const categories = readChunkedCategories(SERIES_META_KEY, 'series', scope);
   if (series.length === 0) return loadLegacySeries(provider);
   return { series, categories };
 }
@@ -3138,14 +3278,14 @@ export async function loadSeriesAsync(
   /* 2.5.281 (#24/#26): megszakítható visszatöltés – lásd loadVodAsync. */
   shouldAbort?: () => boolean,
 ): Promise<{ series: Series[]; categories: Category[] }> {
-  setActiveProviderScope(provider.id);
+  const scope = pinScope(provider.id);
   // Ugyanaz, mint a filmeknél: a teljes sorozatlista a tartós tárban van.
-  const idb = await contentChunkStore();
-  if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { series: [], categories: [] };
+  const idb = await contentChunkStore(scope);
+  if (shouldAbort?.()) return { series: [], categories: [] };
   let cacheKey = `series|${provider.id}|legacy`;
   if (idb) {
     const stored = await readIdbChunks(idb, SERIES_META_KEY);
-    if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { series: [], categories: [] };
+    if (shouldAbort?.()) return { series: [], categories: [] };
     // Idegen szolgáltató mentett listáját nem keverjük a mostani fiókkal.
     const chunked = stored && stored.meta.provider && stored.meta.provider.id !== provider.id ? null : stored;
     if (stored && !chunked) appLog('Tároló: a mentett sorozatlista másik szolgáltatóhoz tartozik – nem keverjük.');
@@ -3244,8 +3384,8 @@ export async function loadSeriesAsync(
       restoreMetrics.finish('üres – helyi tár ellenőrzése következik');
     }
   }
-  if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { series: [], categories: [] };
-  const meta = openChunked(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
+  if (shouldAbort?.()) return { series: [], categories: [] };
+  const meta = openChunked(SERIES_META_KEY, SERIES_CHUNK_PREFIX, scope);
   if (!meta) {
     const legacy = loadLegacySeries(provider);
     await applyCatalogExtras(provider.id, [], legacy.series);
@@ -3277,7 +3417,7 @@ export async function loadSeriesAsync(
     restoreMetrics.record(index, rows.length, readMs, 0, processMs,
       restoreMeasureNow() - batchStartedAt, yieldMs, memoryBefore, memorySnapshot());
   }
-  const categories = readChunkedCategories(SERIES_META_KEY, 'series');
+  const categories = readChunkedCategories(SERIES_META_KEY, 'series', scope);
   appLog(`Sorozatlista betöltve: ${series.length} sorozat, ${meta.chunks} adag`
     + (missing ? `, ${missing} hiányzó adag` : ''));
   if (series.length === 0) {
@@ -3320,24 +3460,35 @@ export async function loadSeriesAsync(
  * takaríthat – jelző nélkül a mentett tartalomhoz nem nyúl.
  */
 const DELETE_PENDING_KEY = 'iptv-rt-torles-folyamatban';
-const currentDeletePendingKey = (): string => providerScopePrefix() + DELETE_PENDING_KEY;
+const currentDeletePendingKey = (scope: string = activeProviderScopeId()): string =>
+  providerScopePrefix(scope) + DELETE_PENDING_KEY;
 
 /** Igaz, ha egy korábbi teljes törlés elindult, de nem fejeződött be. */
-export function hasPendingDeleteMarker(): boolean {
+export function hasPendingDeleteMarker(scope: string = activeProviderScopeId()): boolean {
   try {
-    return localStorage.getItem(currentDeletePendingKey()) !== null;
+    return localStorage.getItem(currentDeletePendingKey(scope)) !== null;
   } catch {
     return false;
   }
 }
 
-export async function clearContentAsync(): Promise<void> {
+/**
+ * @param providerId Melyik szolgáltató mentett katalógusa törlődjön. Elhagyva
+ *   az aktív szolgáltatóé. MINDIG csak az adott szolgáltató névtere törlődik:
+ *   a többi szolgáltató letöltött csatornái, filmjei és sorozatai megmaradnak.
+ */
+export async function clearContentAsync(providerId?: string | null): Promise<void> {
+  const explicit = String(providerId || '').trim();
+  const scope = explicit || activeProviderScopeId();
+  const backend = backendFor(scope);
+  // A törlés előtt sorba állított mentések és ismétlések nem írhatják vissza a listát.
+  bumpScopeEpoch(scope);
   try {
-    localStorage.setItem(currentDeletePendingKey(), String(Date.now()));
+    localStorage.setItem(currentDeletePendingKey(scope), String(Date.now()));
   } catch { /* jelző nélkül is törlünk; az őr ilyenkor óvatos marad */ }
-  const liveKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
-  const vodKeys = readChunkKeys(VOD_META_KEY, VOD_CHUNK_PREFIX);
-  const seriesKeys = readChunkKeys(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
+  const liveKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX, scope);
+  const vodKeys = readChunkKeys(VOD_META_KEY, VOD_CHUNK_PREFIX, scope);
+  const seriesKeys = readChunkKeys(SERIES_META_KEY, SERIES_CHUNK_PREFIX, scope);
   backend.remove(LIVE_KEY);
   backend.remove(LIVE_META_KEY);
   for (const key of liveKeys) backend.remove(key);
@@ -3350,26 +3501,56 @@ export async function clearContentAsync(): Promise<void> {
   backend.remove(SYNC_KEY);
   backend.remove(CONTENT_STATE_KEY);
   backend.remove(LIVE_FULL_META_KEY);
+  // A félbemaradt generációk adagjai is ehhez a szolgáltatóhoz tartoznak.
+  try { sweepStorage(scope); } catch { /* a takarítás hibája nem akadály */ }
   cachedCatalogState = null;
   cachedCatalogStateProviderId = '';
   extrasCache.clear();
   decodedCache.clear();
   // A film- és sorozatlista az IndexedDB-ben van: azt is törölni kell – MEGVÁRVA.
+  // A `clear()` névtérhez kötött: másik szolgáltató adataihoz nem nyúl.
   try {
-    const store = await contentChunkStore();
+    const store = await contentChunkStore(scope);
     if (store) await store.clear();
   } catch {
     /* ha a tár nem nyitható meg, nincs mit törölni benne */
   }
   // A törlés TÉNYLEGESEN végigfutott: a jelző csak most tűnhet el.
   try {
-    localStorage.removeItem(currentDeletePendingKey());
+    localStorage.removeItem(currentDeletePendingKey(scope));
   } catch { /* nem kritikus */ }
 }
 
-export function clearContent(): void {
+/**
+ * TELJES visszaállítás (Menü → gyorsítótár és beállítások törlése): MINDEN
+ * szolgáltató mentett katalógusa törlődik – a helyi kulcsok és a teljes
+ * tartós tár is. A szolgáltatónkénti törléshez a `clearContentAsync(id)` való.
+ */
+export async function clearAllContentAsync(): Promise<void> {
+  await clearContentAsync();
+  for (const scope of Array.from(scopeEpochs.keys())) bumpScopeEpoch(scope);
+  // A többi szolgáltató helyi (localStorage) tartalom-kulcsai.
+  try {
+    const foreign = LOCAL_PREFIX + FOREIGN_SCOPE_PREFIX;
+    for (let index = window.localStorage.length - 1; index >= 0; index--) {
+      const key = window.localStorage.key(index);
+      if (key && key.startsWith(foreign)) window.localStorage.removeItem(key);
+    }
+  } catch { /* tároló nélkül nincs mit törölni */ }
+  for (const key of Array.from(memory.keys())) {
+    if (key.startsWith(FOREIGN_SCOPE_PREFIX)) memory.delete(key);
+  }
+  // A tartós tár egésze (a nyers tár `clear()`-je minden névteret töröl).
+  try {
+    await contentChunkStore('');
+    const raw = contentStorePromise ? await contentStorePromise : null;
+    if (raw) await raw.clear();
+  } catch { /* ha a tár nem nyitható meg, nincs mit törölni benne */ }
+}
+
+export function clearContent(providerId?: string | null): void {
   // Régi hívók: a gyors kulcsok azonnal törlődnek, az IndexedDB a háttérben.
-  void clearContentAsync();
+  void clearContentAsync(providerId);
 }
 
 /* ------------------------------------------- EGYETLEN INDÍTÁSI VISSZATÖLTÉS */
@@ -3432,7 +3613,11 @@ export interface RestoreHandlers {
   onLiveProgress?: (loaded: number, total: number) => void;
 }
 
-async function hasStoredList(store: ChunkStore | null, metaKey: string, localMetaKey: string, legacyKey: string): Promise<boolean> {
+async function hasStoredList(
+  store: ChunkStore | null, metaKey: string, localMetaKey: string, legacyKey: string,
+  scope: string = activeProviderScopeId(),
+): Promise<boolean> {
+  const backend = backendFor(scope);
   if (backend.get(localMetaKey) || backend.get(legacyKey)) return true;
   if (!store) return false;
   try { return Boolean(await readIdbChunks(store, metaKey)); } catch { return false; }
@@ -3454,12 +3639,13 @@ export interface StoredCatalogPresence {
 }
 
 export async function storedCatalogPresence(providerId: string): Promise<StoredCatalogPresence> {
-  setActiveProviderScope(providerId);
+  const scope = pinScope(providerId);
+  const backend = backendFor(scope);
   const empty: StoredCatalogPresence = { live: false, vod: false, series: false };
   const read = async (idbKey: string, localKey: string, legacyKey: string): Promise<boolean> => {
     if (backend.get(localKey) || backend.get(legacyKey)) return true;
     try {
-      const store = await contentChunkStore();
+      const store = await contentChunkStore(scope);
       if (!store) return false;
       const chunked = await readIdbChunks(store, idbKey);
       return Boolean(chunked && chunked.meta.chunks > 0 && (!chunked.meta.provider || chunked.meta.provider.id === providerId));
@@ -3508,9 +3694,9 @@ export async function storedSectionFill(
   section: 'vod' | 'series',
   providerId?: string,
 ): Promise<StoredSectionFill | null> {
-  if (providerId) setActiveProviderScope(providerId);
+  const scope = pinScope(providerId);
   try {
-    const store = await contentChunkStore();
+    const store = await contentChunkStore(scope);
     if (!store) return null;
     const metaKey = section === 'vod' ? VOD_META_KEY : SERIES_META_KEY;
     const chunked = await readIdbChunks(store, metaKey);
@@ -3563,7 +3749,8 @@ export async function readStoredCategories(providerId: string): Promise<{
   vodCategories: Category[];
   seriesCategories: Category[];
 }> {
-  setActiveProviderScope(providerId);
+  const scope = pinScope(providerId);
+  const backend = backendFor(scope);
   const readCats = async (idbKey: string, localKey: string, type: 'live' | 'movie' | 'series'): Promise<Category[]> => {
     const localRaw = backend.get(localKey);
     if (localRaw) {
@@ -3575,7 +3762,7 @@ export async function readStoredCategories(providerId: string): Promise<{
       } catch { /* sérült fejléc → IndexedDB felé */ }
     }
     try {
-      const store = await contentChunkStore();
+      const store = await contentChunkStore(scope);
       if (!store) return [];
       const chunked = await readIdbChunks(store, idbKey);
       if (chunked && Array.isArray(chunked.meta.cats) && chunked.meta.cats.length
@@ -3598,32 +3785,38 @@ export async function readStoredCategories(providerId: string): Promise<{
 }
 
 /** Egyetlen, gyors tároló-felmérés: mi van meg, és mennyi. */
-export async function inspectStoredCatalogs(): Promise<StoredCatalogPlan | null> {
-  const state = await readCatalogState();
-  const report = await describeStoredContent({ quick: true });
+export async function inspectStoredCatalogs(providerId?: string | null): Promise<StoredCatalogPlan | null> {
+  /*
+   * A felmérés a kért (alapból az aktív) szolgáltató SAJÁT tárát olvassa, és a
+   * névteret a hívás elején rögzíti: szolgáltató-váltáskor így a másik fiók
+   * már letöltött katalógusa hálózat nélkül, azonnal megtalálható.
+   */
+  const scope = String(providerId || '').trim() || activeProviderScopeId();
+  const state = await readCatalogState(scope);
+  const report = await describeStoredContent({ quick: true }, scope);
   lastStorageReport = report;
   /* A pontos tároló-jelentés NEM tartozik az indulás kritikus útjára. */
   try {
     if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
       window.setTimeout(() => {
-        void describeStoredContent().then((exact) => {
+        void describeStoredContent({}, scope).then((exact) => {
           lastStorageReport = exact;
           appLog(`TÁROLÓ-JELENTÉS (pontos, a felfedés után): localStorage=${exact.localKeys} kulcs / ${exact.localChars} karakter.`);
         }).catch(() => { /* a diagnosztika hibája nem akadály */ });
       }, 4000);
     }
   } catch { /* SSR / régi motor */ }
-  let boot: LoadedLive = loadLive();
+  let boot: LoadedLive = loadLive(scope);
   if (!boot.provider || boot.channels.length === 0) {
-    try { boot = await loadLiveBoot(); } catch { /* a helyi próba eredménye marad */ }
+    try { boot = await loadLiveBoot(scope); } catch { /* a helyi próba eredménye marad */ }
   }
   const provider = boot.provider || state?.provider || null;
   if (!provider) return null;
-  const store = await contentChunkStore();
+  const store = await contentChunkStore(scope);
   const [hasLive, hasVod, hasSeries] = await Promise.all([
-    hasStoredList(store, LIVE_FULL_META_KEY, LIVE_META_KEY, LIVE_KEY),
-    hasStoredList(store, VOD_META_KEY, VOD_META_KEY, VOD_KEY),
-    hasStoredList(store, SERIES_META_KEY, SERIES_META_KEY, SERIES_KEY),
+    hasStoredList(store, LIVE_FULL_META_KEY, LIVE_META_KEY, LIVE_KEY, scope),
+    hasStoredList(store, VOD_META_KEY, VOD_META_KEY, VOD_KEY, scope),
+    hasStoredList(store, SERIES_META_KEY, SERIES_META_KEY, SERIES_KEY, scope),
   ]);
   const counts = {
     live: Math.max(state?.counts.live || 0, boot.totals.live || 0, report.liveIdb),
@@ -3735,7 +3928,7 @@ export function restoreStoredContent(
     restoreDone = { live: false, movies: false, series: false };
     restoreProviderId = providerId;
   }
-  setActiveProviderScope(providerId);
+  pinScope(providerId);
   const scope = options.scope || 'all';
   const wantLive = scope === 'all' || scope === 'live';
   const wantMovies = scope === 'all' || scope === 'vod' || scope === 'movies';
@@ -3747,14 +3940,21 @@ export function restoreStoredContent(
   const startedAt = Date.now();
   const run = async (): Promise<void> => {
     // 2.5.281: a külső leállítási jel is ugyanúgy működik, mint a cancel.
-    const aborted = () => restoreCancelled || activeProviderScopeId() !== providerId || Boolean(options.shouldAbort?.());
+    /*
+     * Szolgáltató-váltás után a régi szolgáltató futó visszatöltése azonnal
+     * leáll: a felületre már nem kerülhet a másik fiók listája. (A betöltők
+     * a saját, rögzített névterükből olvasnak – a váltást itt figyeljük.)
+     */
+    const switchedAway = () => activeProviderScopeId() !== providerId;
+    const loaderAbort = () => switchedAway() || Boolean(options.shouldAbort?.());
+    const aborted = () => restoreCancelled || loaderAbort();
     if (aborted()) return;
     const provider = plan.provider;
     let loaded = '';
     if (wantLive && !restoreDone.live && plan.hasLive && !aborted()) {
       // Két különböző szolgáltató listája NEM keveredhet: ha a tartós tár
       // fejléce másik fiókhoz tartozik, azt a listát nem fogadjuk el.
-      const store = await contentChunkStore();
+      const store = await contentChunkStore(providerId);
       const liveMeta = store ? await readIdbChunks(store, LIVE_FULL_META_KEY) : null;
       const sameProvider = !liveMeta?.meta.provider
         || liveMeta.meta.provider.id === plan.provider.id;
@@ -3764,7 +3964,7 @@ export function restoreStoredContent(
         // 2.5.318: Országok kör — adagonként jelentjük a haladást, hogy a CategoriesModal köre mozogjon
         const full = await loadLiveFull(provider, (loaded) => {
           try { handlers.onLiveProgress?.(loaded, liveTotal); } catch { /* ne akadályozza */ }
-        }, options.shouldAbort);
+        }, loaderAbort);
         if (full && full.channels.length && !aborted()) {
           handlers.onLive?.(full);
           loaded += ` élő=${full.channels.length}`;
@@ -3781,7 +3981,7 @@ export function restoreStoredContent(
         provider,
         (loaded, total) => handlers.onVodProgress?.(loaded, total),
         (partial) => handlers.onVodPartial?.(partial),
-        options.shouldAbort,
+        loaderAbort,
       );
       if (vod.movies.length && !aborted()) {
         /*
@@ -3804,7 +4004,7 @@ export function restoreStoredContent(
         provider,
         (loaded, total) => handlers.onSeriesProgress?.(loaded, total),
         (partial) => handlers.onSeriesPartial?.(partial),
-        options.shouldAbort,
+        loaderAbort,
       );
       if (ser.series.length && !aborted()) {
         // 2.5.294: lásd a filmeknél – csak átvett lista számít késznek.
