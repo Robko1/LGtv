@@ -1,4 +1,4 @@
-name: Ideiglenes csatornaváltási diagnosztika
+name: Ideiglenes csatornaváltási diagnosztika (részletes napló)
 
 on:
   push:
