@@ -134,6 +134,12 @@ core.recordDoctorChannelSuccess({
 const providerAStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
 core.setTvDoctorProviderScope('provider-b');
 const providerBStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+console.log('TV Doktor memória-névtér mérés:', JSON.stringify({
+  providerAStoredBytes,
+  providerBStoredBytes,
+  keys: Array.from(providerScopeStorage.map.keys()).filter((key) => key.includes('tv_doctor_v2')),
+  activeProvider: core.getTvDoctorProviderScope?.(),
+}));
 core.setTvDoctorProviderScope('provider-a');
 check(
   providerAStoredBytes > 0 && providerBStoredBytes === 0,
