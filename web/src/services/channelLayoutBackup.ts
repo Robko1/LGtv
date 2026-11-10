@@ -106,7 +106,7 @@ function removeLegacyLocalLayoutSnapshots(): void {
 }
 removeLegacyLocalLayoutSnapshots();
 
-export function getLastBackupInfo(): LastBackupInfo | null {
+export function getLastBackupInfo(providerId?: string | null): LastBackupInfo | null {
   try {
     const raw = localStorage.getItem(LAST_BACKUP_KEY);
     if (!raw) return null;
@@ -115,6 +115,7 @@ export function getLastBackupInfo(): LastBackupInfo | null {
       localStorage.removeItem(LAST_BACKUP_KEY);
       return null;
     }
+    if (providerId && parsed.providerId !== providerId) return null;
     return parsed;
   } catch {
     return null;
