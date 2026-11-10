@@ -218,7 +218,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
   // 2.5.335 — Elrendezés mentés állapot + felhő ellenőrzés a Listák fül megnyitásakor
   useEffect(() => {
     if (!isOpen || activeTab !== 'lists') return;
-    setLayoutLastBackup(getLastBackupInfo());
+    setLayoutLastBackup(getLastBackupInfo(activeProviderForLayout?.id));
     setLayoutCloudInfo(getCloudLastFetchInfo());
     setLayoutCloudError(getLastCloudError());
     // Ha párosítva van és van aktív szolgáltató, próbáljuk lekérni a felhő mentést is
@@ -1000,7 +1000,7 @@ export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
       } catch (e: any) {
         cloudErr = String(e?.message || e).slice(0, 160);
       }
-      setLayoutLastBackup(getLastBackupInfo());
+      setLayoutLastBackup(getLastBackupInfo(activeProviderForLayout?.id));
       setLayoutCloudInfo(getCloudLastFetchInfo());
       setLayoutCloudError(getLastCloudError());
       const t = formatLayoutTime(snap.createdAt);
