@@ -1455,6 +1455,12 @@ export interface CatalogState {
 let cachedCatalogState: CatalogState | null = null;
 let cachedCatalogStateProviderId = '';
 
+/** Teszteknek: a tár közvetlen módosítása után a memóriabeli állapot eldobása. */
+export function clearCatalogStateCacheForTests(): void {
+  cachedCatalogState = null;
+  cachedCatalogStateProviderId = '';
+}
+
 function emptyCatalogState(): CatalogState {
   return {
     v: 2, providerId: '', provider: null, savedAt: 0, checkedAt: 0, fingerprint: '',
@@ -3574,6 +3580,13 @@ export interface StoredCatalogPlan {
   hasLive: boolean;
   hasVod: boolean;
   hasSeries: boolean;
+  /**
+   * 2.5.419: megvan-e a TELJES élő lista a szolgáltató saját tartós tárában.
+   * `false` csak akkor, ha a tartós tár elérhető, és a fejléc bizonyítottan
+   * hiányzik (régi verzió által elvesztett mentés): ilyenkor csak a kis
+   * induló készlet van meg, a többi csatorna letöltés nélkül nem pótolható.
+   */
+  liveFullStored: boolean;
   /** A helyi (gyors) induló készlet – már az első képkockánál látszik. */
   bootChannels: Channel[];
   bootCategories: Category[];
@@ -3818,10 +3831,29 @@ export async function inspectStoredCatalogs(providerId?: string | null): Promise
     hasStoredList(store, VOD_META_KEY, VOD_META_KEY, VOD_KEY, scope),
     hasStoredList(store, SERIES_META_KEY, SERIES_META_KEY, SERIES_KEY, scope),
   ]);
+  /*
+   * 2.5.419 (#66 napló): a 2. szolgáltató (0 film, 0 sorozat) számlálója az
+   * 1. szolgáltató 103 153 filmjét és 25 078 sorozatát mutatta. A 2.5.417
+   * előtti verziók a szolgáltatók tárait összekeverték; az akkor írt
+   * állapot-fejléc és induló készlet idegen darabszámokat hordozhat. Ezért:
+   *  - a más szolgáltatóhoz tartozó állapot-fejléc darabszámait nem használjuk;
+   *  - film/sorozat darabszám csak akkor érvényes, ha a szolgáltató SAJÁT
+   *    tárában tényleg van film-/sorozatlista.
+   */
+  const ownState = state && (!state.providerId || state.providerId === provider.id || state.providerId === scope)
+    ? state
+    : null;
+  if (state && !ownState) {
+    appLog(`Tároló: a(z) ${scope} állapot-fejléce másik szolgáltatóé (${state.providerId}) – a darabszámait nem használjuk.`);
+  }
+  let liveFullStored = true;
+  if (store) {
+    try { liveFullStored = Boolean(await readIdbChunks(store, LIVE_FULL_META_KEY)); } catch { liveFullStored = true; }
+  }
   const counts = {
-    live: Math.max(state?.counts.live || 0, boot.totals.live || 0, report.liveIdb),
-    vod: Math.max(state?.counts.vod || 0, boot.totals.vod || 0, report.vodIdb),
-    series: Math.max(state?.counts.series || 0, boot.totals.series || 0, report.seriesIdb),
+    live: Math.max(ownState?.counts.live || 0, boot.totals.live || 0, report.liveIdb),
+    vod: hasVod ? Math.max(ownState?.counts.vod || 0, boot.totals.vod || 0, report.vodIdb) : 0,
+    series: hasSeries ? Math.max(ownState?.counts.series || 0, boot.totals.series || 0, report.seriesIdb) : 0,
   };
   return {
     provider,
@@ -3830,6 +3862,7 @@ export async function inspectStoredCatalogs(providerId?: string | null): Promise
     hasLive,
     hasVod,
     hasSeries,
+    liveFullStored,
     bootChannels: boot.channels,
     bootCategories: boot.categories,
     bootTotals: boot.totals,

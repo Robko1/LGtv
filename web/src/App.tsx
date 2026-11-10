@@ -3696,7 +3696,7 @@ export function App() {
   const showStoredProviderCatalog = async (
     target: ProviderRef,
     generation: number,
-  ): Promise<'shown' | 'empty' | 'superseded'> => {
+  ): Promise<'shown' | 'partial' | 'empty' | 'superseded'> => {
     let plan: StoredCatalogPlan | null = null;
     try {
       plan = await inspectStoredCatalogs(target.id);
@@ -3796,6 +3796,19 @@ export function App() {
         }
       } catch { /* a pótlás nem kritikus */ }
     }
+    /*
+     * 2.5.419 (#66 napló): a szolgáltató tárában csak a kis induló készlet
+     * van meg, a TELJES élő lista hiányzik (a 2.5.417 előtti verziók a
+     * szolgáltatók tárait összekeverték / egymásét törölték). Ilyenkor az
+     * Ország menü üres maradna – a hívó a hiányzó listát magától pótolja.
+     */
+    if (!effectivePlan.liveFullStored && prepared.length > 0) {
+      appLog(
+        `AKTÍV SZOLGÁLTATÓ VÁLTÁSA: a teljes élő lista HIÁNYZIK a tartós tárból `
+        + `(csak az induló készlet van meg: ${prepared.length} csatorna; nyilvántartott=${effectivePlan.counts.live}) – régi verzió által elvesztett mentés.`,
+      );
+      return 'partial';
+    }
     return 'shown';
   };
 
@@ -3803,6 +3816,7 @@ export function App() {
    * Helyi váltás a megadott szolgáltatóra.
    * @returns igaz, ha a váltás érvényben maradt (nem előzte meg egy újabb).
    */
+  const healedProviderListsRef = useRef<Set<string>>(new Set());
   const switchToProviderLocally = async (
     provider: ProviderAccount,
     options: { refreshWhenEmpty: boolean; list?: ProviderAccount[] },
@@ -3812,6 +3826,13 @@ export function App() {
     persistActiveProviderChoice(provider.id, { list: options.list, ensure: provider });
     const outcome = await showStoredProviderCatalog(target, generation);
     if (outcome === 'superseded') return false;
+    if (outcome === 'partial' && options.refreshWhenEmpty && !healedProviderListsRef.current.has(provider.id)) {
+      // Munkamenetenként legfeljebb EGYSZER: a pótlás után a lista a saját
+      // tárában van, a következő váltás már letöltés nélkül megy.
+      healedProviderListsRef.current.add(provider.id);
+      appLog(`AKTÍV SZOLGÁLTATÓ VÁLTÁSA: „${provider.name}” hiányzó csatornalistájának automatikus pótlása indul (egyszeri letöltés).`);
+      void handleRefreshProvider({ ...provider, isActive: true, status: 'loading' }, true);
+    }
     if (outcome === 'empty') {
       appLog(`AKTÍV SZOLGÁLTATÓ VÁLTÁSA: „${provider.name}” még nem rendelkezik mentett listával.`);
       if (options.refreshWhenEmpty) {
