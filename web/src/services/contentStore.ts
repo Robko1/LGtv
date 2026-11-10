@@ -1152,7 +1152,7 @@ function saveLiveFullToIdb(content: ImportedContent, channels: Channel[], retryA
     if (!ok) {
       // A lista hiánytalanul a memóriában van: rövid késleltetéssel, friss
       // kapcsolattal automatikusan újrapróbáljuk – letöltés nélkül.
-      noteSectionIncomplete('live', 'a teljes élő lista tartós írása meghiúsult.');
+      noteSectionIncomplete('live', 'a teljes élő lista tartós írása meghiúsult.', content.provider.id);
       scheduleSaveRetry(LIVE_FULL_META_KEY, 'Teljes élő csatornalista', retryAttempt,
         async () => { await saveLiveFullToIdb(content, channels, retryAttempt + 1); });
     }
@@ -2568,7 +2568,7 @@ export async function loadLiveFull(
   const expectedLive = Number(chunked.meta.liveTotal) || 0;
   if (missingChunks > 0 || (expectedLive > 0 && channels.length + 5 < expectedLive)) {
     noteSectionIncomplete('live',
-      `visszatöltéskor ${missingChunks} hiányzó adag, ${channels.length}/${expectedLive || '?'} csatorna.`);
+      `visszatöltéskor ${missingChunks} hiányzó adag, ${channels.length}/${expectedLive || '?'} csatorna.`, storedProvider.id);
   }
   if (channels.length === 0) return null;
   const totals = {
@@ -3015,7 +3015,7 @@ export async function loadVodAsync(
       const expectedVod = Number(chunked.meta.totals?.vod) || 0;
       if (missingChunks > 0 || (expectedVod > 0 && movies.length + 5 < expectedVod)) {
         noteSectionIncomplete('vod',
-          `visszatöltéskor ${missingChunks} hiányzó adag, ${movies.length}/${expectedVod || '?'} film.`);
+          `visszatöltéskor ${missingChunks} hiányzó adag, ${movies.length}/${expectedVod || '?'} film.`, provider.id);
       }
       if (movies.length > 0) {
         await applyCatalogExtras(provider.id, movies, []);
@@ -3221,7 +3221,7 @@ export async function loadSeriesAsync(
       const expectedSeries = Number(chunked.meta.totals?.series) || 0;
       if (missingChunks > 0 || (expectedSeries > 0 && series.length + 5 < expectedSeries)) {
         noteSectionIncomplete('series',
-          `visszatöltéskor ${missingChunks} hiányzó adag, ${series.length}/${expectedSeries || '?'} sorozat.`);
+          `visszatöltéskor ${missingChunks} hiányzó adag, ${series.length}/${expectedSeries || '?'} sorozat.`, provider.id);
       }
       if (series.length > 0) {
         const categories = decodeCategories(chunked.meta.cats, 'series');
