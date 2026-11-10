@@ -5,6 +5,7 @@ import { clearTvDoctorMemory } from './tvDoctor';
 import { clearTvDoctorCloudQueue } from './tvDoctorCloud';
 import { clearContentAsync } from './contentStore';
 import { INITIAL_SETTINGS } from '../data/mockData';
+import { providerScopePrefix } from './providerScope';
 
 /*
  * Kis méretű, felhasználói beállítások tárolása (localStorage).
@@ -262,18 +263,20 @@ export const storageService = {
     }
   },
 
-  getFolders(): FavoriteFolder[] {
+  getFolders(providerId?: string | null): FavoriteFolder[] {
     try {
-      const data = localStorage.getItem(FOLDERS_KEY);
+      const key = providerScopePrefix(providerId) + FOLDERS_KEY;
+      const data = localStorage.getItem(key);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
     }
   },
 
-  saveFolders(folders: FavoriteFolder[]): void {
+  saveFolders(folders: FavoriteFolder[], providerId?: string | null): void {
     try {
-      localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
+      const key = providerScopePrefix(providerId) + FOLDERS_KEY;
+      localStorage.setItem(key, JSON.stringify(folders));
     } catch (e) {
       console.error('Failed to save folders:', e);
     }
