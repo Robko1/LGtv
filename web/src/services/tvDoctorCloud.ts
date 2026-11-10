@@ -2034,7 +2034,7 @@ export function clearTvDoctorCloudQueue(): void {
   }
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(SYNC_STATE_KEY);
+      localStorage.removeItem(syncStateStorageKey());
     }
   } catch {
     /* ignore */
