@@ -90,7 +90,7 @@ if (resetMigration) {
 
 /* ───────────────────── 4. TELJES MEMÓRIA-NULLÁZÁS ─────────────────────────── */
 console.log('\n4. Teljes nullázás: az 1-es alap is törlődik (10. pont – korábbi döntés visszavonva)');
-check(/removeItem\(scopedDoctorStorageKey\(TV_DOCTOR_BASELINE_STORAGE_KEY\)\)/.test(doctor),
+check(/removeItem\(TV_DOCTOR_BASELINE_STORAGE_KEY\)/.test(doctor),
   'a clearTvDoctorMemory() a slot-1 alap tárolóját is törli');
 check(/postTvDoctorRpc\(\s*['"]tv_doctor_baselines_clear['"]/.test(cloud) && /resetTvDoctorAllToZero/.test(cloud),
   'a Memória: 0 a Supabase 1-es alapjait is törli');
