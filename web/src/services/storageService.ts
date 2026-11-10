@@ -299,18 +299,20 @@ export const storageService = {
     }
   },
 
-  getHistory(): WatchHistoryItem[] {
+  getHistory(providerId?: string | null): WatchHistoryItem[] {
     try {
-      const data = localStorage.getItem(HISTORY_KEY);
+      const key = providerScopePrefix(providerId) + HISTORY_KEY;
+      const data = localStorage.getItem(key);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
     }
   },
 
-  saveHistory(history: WatchHistoryItem[]): void {
+  saveHistory(history: WatchHistoryItem[], providerId?: string | null): void {
     try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+      const key = providerScopePrefix(providerId) + HISTORY_KEY;
+      localStorage.setItem(key, JSON.stringify(history));
     } catch (e) {
       console.error('Failed to save history:', e);
     }
@@ -342,6 +344,8 @@ export const storageService = {
           key?.startsWith(CHANNEL_ORDER_PREFIX)
           || key === FOLDERS_KEY
           || key?.endsWith(`:${FOLDERS_KEY}`)
+          || key === HISTORY_KEY
+          || key?.endsWith(`:${HISTORY_KEY}`)
         ) localStorage.removeItem(key);
       }
     } catch {
