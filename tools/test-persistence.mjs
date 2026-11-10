@@ -248,6 +248,7 @@ try {
   app1.setActiveProviderScope('provider-a');
   check(app1.loadSyncState('provider-a')?.fingerprint === 'fingerprint-a',
     'a B szolgáltató memória-tartaléka nem szennyezi az A szolgáltató állapotát');
+  localStorageFake.setQuota(5200000);
 
   const content = makeContent();
   await app1.saveLiveContentAsync(content);
