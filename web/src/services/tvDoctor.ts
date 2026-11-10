@@ -16,6 +16,8 @@ import {
 import { appLog, isVerbosePlaybackLogging, isTvDoctorLogEnabled, startTvDoctorLogging, stopTvDoctorLogging, tvDoctorLog } from './appLog';
 import { providerScopePrefix, setActiveProviderScope } from './providerScope';
 
+const scopedDoctorStorageKey = (key: string): string => providerScopePrefix() + key;
+
 /**
  * TV Doktor – intelligens, önfejlesztő diagnosztikai és csatornaváltás-gyorsító rendszer.
  *
@@ -410,8 +412,18 @@ function restoreTvDoctorProviderScopeFromStorage(): void {
 }
 
 export function setTvDoctorProviderScope(providerId: string | null | undefined): void {
+  // A szolgáltatóváltás előtt az előző szolgáltató függő írásait még a régi
+  // névtérbe ürítjük, majd a memóriabeli gyorsítótárakat is lecseréljük.
+  flushPendingPersist();
+  flushRecentDoctorLogs();
   setActiveProviderScope(providerId);
+  memoryCache = createEmptyStore();
+  memoryCacheSerializedChars = 0;
+  interventionTimestampsByChannel.clear();
+  recentDoctorLogs.length = 0;
   restoreTvDoctorProviderScopeFromStorage();
+  restoreRecentDoctorLogs();
+  notifyTvDoctorListeners();
 }
 
 restoreTvDoctorProviderScopeFromStorage();
@@ -1153,7 +1165,7 @@ export function flushRecentDoctorLogs(): void {
   }
   try {
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(RECENT_DOCTOR_LOGS_STORAGE_KEY, JSON.stringify(recentDoctorLogs));
+    localStorage.setItem(scopedDoctorStorageKey(RECENT_DOCTOR_LOGS_STORAGE_KEY), JSON.stringify(recentDoctorLogs));
   } catch {
     // A TV Doktor napló mentése nem akadályozhatja a lejátszást.
   }
@@ -1182,7 +1194,7 @@ function persistRecentDoctorLogs(): void {
 function restoreRecentDoctorLogs(): void {
   try {
     if (typeof localStorage === 'undefined') return;
-    const raw = localStorage.getItem(RECENT_DOCTOR_LOGS_STORAGE_KEY);
+    const raw = localStorage.getItem(scopedDoctorStorageKey(RECENT_DOCTOR_LOGS_STORAGE_KEY));
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return;
@@ -1713,7 +1725,7 @@ function readDoctorBaselineStore(storage?: Storage | null): Record<string, Docto
   const target = getStorage(storage);
   if (!target) return {};
   try {
-    const raw = target.getItem(TV_DOCTOR_BASELINE_STORAGE_KEY);
+    const raw = target.getItem(scopedDoctorStorageKey(TV_DOCTOR_BASELINE_STORAGE_KEY));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
@@ -1785,7 +1797,7 @@ export function recordDoctorBaseline(params: {
   };
   store[key] = baseline;
   try {
-    target.setItem(TV_DOCTOR_BASELINE_STORAGE_KEY, JSON.stringify(store));
+    target.setItem(scopedDoctorStorageKey(TV_DOCTOR_BASELINE_STORAGE_KEY), JSON.stringify(store));
     baselineCloudHook?.();
     return baseline;
   } catch {
@@ -2391,7 +2403,7 @@ function readStore(storage?: Storage | null): DoctorStoreData {
     return memoryCache;
   }
   try {
-    const raw = target.getItem(TV_DOCTOR_STORAGE_KEY);
+    const raw = target.getItem(scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY));
     if (!raw) {
       const empty = createEmptyStore();
       if (!storage) {
@@ -2513,7 +2525,7 @@ function readStore(storage?: Storage | null): DoctorStoreData {
     if (hadLegacyVod || hadForeign) {
       try {
         const cleanedJson = JSON.stringify(loaded);
-        target.setItem(TV_DOCTOR_STORAGE_KEY, cleanedJson);
+        target.setItem(scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY), cleanedJson);
         if (!storage) memoryCacheSerializedChars = cleanedJson.length;
       } catch {
         /* ignore */
@@ -2574,7 +2586,7 @@ function persistStoreNow(store: DoctorStoreData, target: Storage): void {
       }
       serialized = JSON.stringify(persistedSnapshot(store));
     }
-    target.setItem(TV_DOCTOR_STORAGE_KEY, serialized);
+    target.setItem(scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY), serialized);
     if (store === memoryCache) {
       memoryCacheSerializedChars = serialized.length;
     }
@@ -2601,7 +2613,7 @@ function persistStoreNow(store: DoctorStoreData, target: Storage): void {
         if (!keep.has(k)) delete store.byKey[k];
       }
       const fallbackJson = JSON.stringify(persistedSnapshot(store));
-      target.setItem(TV_DOCTOR_STORAGE_KEY, fallbackJson);
+      target.setItem(scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY), fallbackJson);
       if (store === memoryCache) {
         memoryCacheSerializedChars = fallbackJson.length;
       }
@@ -2743,7 +2755,7 @@ export function clearTvDoctorMemory(storage?: Storage | null): void {
   memoryCacheSerializedChars = 0;
   interventionTimestampsByChannel.clear();
   recentDoctorLogs.length = 0;
-  try { if (typeof localStorage !== 'undefined') localStorage.removeItem(RECENT_DOCTOR_LOGS_STORAGE_KEY); } catch { /* ignore */ }
+  try { if (typeof localStorage !== 'undefined') localStorage.removeItem(scopedDoctorStorageKey(RECENT_DOCTOR_LOGS_STORAGE_KEY)); } catch { /* ignore */ }
   opHealth.lastStorageError = null;
   resetTvDoctorOperationCounters();
   const target = getStorage(storage);
@@ -2756,8 +2768,8 @@ export function clearTvDoctorMemory(storage?: Storage | null): void {
    * a tanulás.” Ezért a slot-1 alap HELYI tárolója is törlődik.
    */
   try {
-    target?.removeItem(TV_DOCTOR_STORAGE_KEY);
-    target?.removeItem(TV_DOCTOR_BASELINE_STORAGE_KEY);
+    target?.removeItem(scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY));
+    target?.removeItem(scopedDoctorStorageKey(TV_DOCTOR_BASELINE_STORAGE_KEY));
   } catch {
     /* ignore */
   }
@@ -2806,12 +2818,12 @@ export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemory
       if (pendingPersistTimer !== null && !storage && hasAnyDoctorData) {
         const liveSerialized = JSON.stringify(store);
         memoryCacheSerializedChars = liveSerialized.length;
-        doctorStoreBytes = (TV_DOCTOR_STORAGE_KEY.length + liveSerialized.length) * 2;
+        doctorStoreBytes = (scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY).length + liveSerialized.length) * 2;
       } else if (rawDoctor) {
-        doctorStoreBytes = (TV_DOCTOR_STORAGE_KEY.length + rawDoctor.length) * 2;
+        doctorStoreBytes = (scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY).length + rawDoctor.length) * 2;
       } else if (hasAnyDoctorData) {
         const serializedChars = memoryCacheSerializedChars || JSON.stringify(store).length;
-        doctorStoreBytes = (TV_DOCTOR_STORAGE_KEY.length + serializedChars) * 2;
+        doctorStoreBytes = (scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY).length + serializedChars) * 2;
       }
       const rawSync = target.getItem(TV_DOCTOR_SYNC_STORAGE_KEY);
       if (rawSync) {
