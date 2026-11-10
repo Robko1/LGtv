@@ -127,8 +127,26 @@ const savedProviderBScope = layoutStore.getItem('provider:provider-b:iptv_rt_tv_
 // A memóriaméret-mérés sem olvashatja a másik szolgáltató TV Doktor-tárát.
 // A tesztadatot az A szolgáltató aktív névterében helyezzük el.
 core.setTvDoctorProviderScope('provider-a');
+// A persistálási szűrő aktív magyar csatornaelrendezés esetén csak a mentett
+// 80-as körben szereplő csatornákat engedi át. A mérőcsatornát ezért a teszt
+// saját A szolgáltatói névterében is felvesszük a magyar körbe.
+const memorySizeChannel = {
+  id: 'memory-size-check',
+  name: '[HU] Memóriaméret ellenőrzés',
+  countryCode: 'HU',
+};
+const memorySizeChannelKey = core.normalizeSavedLayoutChannelKey(
+  '[HU] Memóriaméret ellenőrzés|memory-size-check',
+);
+core.setTvDoctorHungarianChannelScope(['memory-size-check'], undefined, [{
+  id: 'memory-size-check',
+  nameKey: '[HU] Memóriaméret ellenőrzés|memory-size-check',
+  channelKey: memorySizeChannelKey,
+  name: '[HU] Memóriaméret ellenőrzés',
+  position: 1,
+}], providerScopeStorage);
 core.recordDoctorChannelSuccess({
-  channel: { id: 'memory-size-check', name: '[HU] Memóriaméret ellenőrzés', countryCode: 'HU' },
+  channel: memorySizeChannel,
   format: 'ts', bufferProfile: 'balanced', startupMs: 900, storage: providerScopeStorage,
 });
 // A memóriaméret-mérés explicit ugyanazt a tárat olvassa, amelybe a rekordot
