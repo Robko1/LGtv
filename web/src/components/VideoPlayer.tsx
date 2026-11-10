@@ -1002,6 +1002,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     attemptNumber: number;
     loadCount: number;
     channelId: string;
+    providerId: string;
     channelName: string;
     streamUrl: string;
     waitingLogged: boolean;
@@ -5431,20 +5432,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const channelName = String(channel?.name || 'Ismeretlen csatorna');
         const channelId = String(channel?.id ?? channelName);
         const previousDiagnostic = channelSwitchDiagnosticRef.current;
-        const isSameSwitch = Boolean(
+        const isSameProviderChannelSwitch = Boolean(
           previousDiagnostic &&
+          previousDiagnostic.providerId === providerScopeId &&
           previousDiagnostic.channelId === channelId &&
           !previousDiagnostic.completed &&
           !previousDiagnostic.summaryLogged
         );
+        const isSameSwitch = Boolean(
+          isSameProviderChannelSwitch &&
+          previousDiagnostic!.streamUrl === url
+        );
         const now = Date.now();
         const diagnostic = {
           generation: loadGeneration,
-          startedAt: isSameSwitch ? previousDiagnostic!.startedAt : now,
+          startedAt: isSameProviderChannelSwitch ? previousDiagnostic!.startedAt : now,
           attemptStartedAt: now,
-          attemptNumber: Math.max(1, liveRetrySequenceRef.current.index + 1),
-          loadCount: isSameSwitch ? previousDiagnostic!.loadCount + 1 : 1,
+          attemptNumber: isSameSwitch
+            ? previousDiagnostic!.attemptNumber
+            : Math.max(1, liveRetrySequenceRef.current.index + 1),
+          loadCount: isSameProviderChannelSwitch ? previousDiagnostic!.loadCount + 1 : 1,
           channelId,
+          providerId: providerScopeId,
           channelName,
           streamUrl: url,
           waitingLogged: false,
