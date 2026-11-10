@@ -916,7 +916,7 @@ function writeMeasured(key: string, payload: unknown, options?: { allowShrink?: 
   }
   if (!ok) {
     // Végső tartalék: memória, így csak az aktuális munkamenetben marad meg.
-    memory.set(key, text);
+    memory.set(providerScopePrefix() + key, text);
     appLog(
       `TÁROLÓ HIBA: ${key} mentése végleg sikertelen (${backend.name}); méret=${text.length} karakter; ` +
       `csökkentések=${retries}; takarított kulcsok=${sweptKeys}; ` +
