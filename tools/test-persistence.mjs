@@ -228,6 +228,9 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
 try {
   /* ============ 1. MENTÉS: kis localStorage-készlet + teljes lista IDB-ben ==== */
   const app1 = await boot(1);
+  // A régi, prefix nélküli tesztkatalógus tulajdonosa p1 maradjon;
+  // az A és B tesztfiók így külön, prefixelve tárolódik.
+  app1.setActiveProviderScope('p1');
 
   // A/B szolgáltatóváltás: a rövid szinkronállapot és a kvótahibás memória-tartalék is külön névtér.
   app1.setActiveProviderScope('provider-a');
