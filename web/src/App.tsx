@@ -629,6 +629,7 @@ export function App() {
   }, [activeProvider?.id]);
 
   const savedUiState = useRef(storageService.getUiState(bootLive.provider?.id));
+  const uiStateProviderIdRef = useRef(bootLive.provider?.id || '');
   /*
    * AZ ALKALMAZÁS MINDIG ÉLŐ TV NÉZETTEL INDUL (2.5.228).
    *
@@ -693,7 +694,9 @@ export function App() {
   const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [selectedFavoriteFolderId, setSelectedFavoriteFolderId] = useState<string | null>(null);
   useLayoutEffect(() => {
-    const nextUiState = activeProvider?.id ? storageService.getUiState(activeProvider.id) : {};
+    const providerId = activeProvider?.id || '';
+    const nextUiState = providerId ? storageService.getUiState(providerId) : {};
+    uiStateProviderIdRef.current = providerId;
     savedUiState.current = nextUiState;
     setIsOnlyFavorites(Boolean(nextUiState.isOnlyFavorites));
     setSearchQuery(nextUiState.searchQuery || '');
@@ -725,7 +728,8 @@ export function App() {
   }, [selectedFavoriteFolderId, selectedCategoryId]);
 
   useEffect(() => {
-    storageService.saveUiState({ activeView, selectedCategoryId, isOnlyFavorites, searchQuery }, activeProvider?.id);
+    if (!activeProvider?.id || uiStateProviderIdRef.current !== activeProvider.id) return;
+    storageService.saveUiState({ activeView, selectedCategoryId, isOnlyFavorites, searchQuery }, activeProvider.id);
   }, [activeView, selectedCategoryId, isOnlyFavorites, searchQuery, activeProvider?.id]);
 
   /**
