@@ -129,17 +129,13 @@ const savedProviderBScope = layoutStore.getItem('provider:provider-b:iptv_rt_tv_
 core.setTvDoctorProviderScope('provider-a');
 core.recordDoctorChannelSuccess({
   channel: { id: 'memory-size-check', name: '[HU] Memóriaméret ellenőrzés', countryCode: 'HU' },
-  format: 'ts', bufferProfile: 'balanced', startupMs: 900, storage: providerScopeStorage,
+  format: 'ts', bufferProfile: 'balanced', startupMs: 900,
 });
-const providerAStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+// Az éles alkalmazás útját teszteljük: a rekord először a TV Doktor memóriájába
+// kerül, majd a szolgáltatóváltás üríti a függő mentést az előző névtérbe.
+const providerAStoredBytes = core.getTvDoctorMemoryStats().doctorStoreBytes;
 core.setTvDoctorProviderScope('provider-b');
-const providerBStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
-console.log('TV Doktor memória-névtér mérés:', JSON.stringify({
-  providerAStoredBytes,
-  providerBStoredBytes,
-  keys: Array.from(providerScopeStorage.map.keys()).filter((key) => key.includes('tv_doctor_v2')),
-  activeProvider: core.getTvDoctorProviderScope?.(),
-}));
+const providerBStoredBytes = core.getTvDoctorMemoryStats().doctorStoreBytes;
 core.setTvDoctorProviderScope('provider-a');
 check(
   providerAStoredBytes > 0 && providerBStoredBytes === 0,
