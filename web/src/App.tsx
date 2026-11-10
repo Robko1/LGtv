@@ -425,7 +425,7 @@ export function App() {
   const [categories, setCategories] = useState<Category[]>(() => bootLive.categories);
   const [vodCategories, setVodCategories] = useState<Category[]>([]);
   const [seriesCategories, setSeriesCategories] = useState<Category[]>([]);
-  const [folders, setFolders] = useState<FavoriteFolder[]>(() => storageService.getFolders());
+  const [folders, setFolders] = useState<FavoriteFolder[]>(() => storageService.getFolders(bootLive.provider?.id));
   // A mentés csak a főoldali magyar csatornákat és a kedvenc mappákba tett csatornákat tartalmazza.
   // A teljes szolgáltatói lista nem része a személyes elrendezésnek.
   const layoutChannels = useMemo(() => {
@@ -437,7 +437,10 @@ export function App() {
   const [series, setSeries] = useState<Series[]>([]);
   const [activeProvider, setActiveProvider] = useState<ProviderRef | null>(() => bootLive.provider);
   // Szolgáltatóváltáskor a TV Doktor és a tartós katalógus ugyanarra a névtérre áll át.
-  useLayoutEffect(() => { setTvDoctorProviderScope(activeProvider?.id || ''); }, [activeProvider?.id]);
+  useLayoutEffect(() => {
+    setTvDoctorProviderScope(activeProvider?.id || '');
+    setFolders(storageService.getFolders(activeProvider?.id));
+  }, [activeProvider?.id]);
   const [totalCounts, setTotalCounts] = useState(() => bootLive.totals);
   /*
    * 2.5.298 – VALÓS VISSZATÖLTÉSI DARABSZÁM A SAJÁT MENTÉSBŐL.
@@ -2195,7 +2198,7 @@ export function App() {
           // Kedvencek pótlása HÁTTÉRBEN (nem blokkolja a boot-ot) — 2.5.318
           try {
             const favIds = new Set<string>();
-            for (const f of storageService.getFolders()) for (const id of (f.channelIds || [])) favIds.add(id);
+            for (const f of storageService.getFolders(plan.provider.id)) for (const id of (f.channelIds || [])) favIds.add(id);
             const missingFavIds = new Set<string>();
             for (const id of favIds) if (!prepared.some((c) => c.id === id)) missingFavIds.add(id);
             if (missingFavIds.size) {
@@ -2225,7 +2228,7 @@ export function App() {
           try { markLiveReady(); } catch {}
           try {
             const favIds = new Set<string>();
-            for (const f of storageService.getFolders()) for (const id of (f.channelIds || [])) favIds.add(id);
+            for (const f of storageService.getFolders(catalogPlanRef.current?.provider.id)) for (const id of (f.channelIds || [])) favIds.add(id);
             const missingFavIds = new Set<string>();
             for (const id of favIds) if (!bootChannels.some((c) => c.id === id)) missingFavIds.add(id);
             if (missingFavIds.size && catalogPlanRef.current) {
@@ -2840,7 +2843,7 @@ export function App() {
    */
   const handleSaveFolders = useCallback((updatedFolders: FavoriteFolder[]) => {
     setFolders(updatedFolders);
-    storageService.saveFolders(updatedFolders);
+    storageService.saveFolders(updatedFolders, activeProvider?.id);
     const favoriteChannelIds = new Set(updatedFolders.flatMap((folder) => folder.channelIds));
     setChannels((previous) => {
       let changed = false;
@@ -2853,7 +2856,7 @@ export function App() {
       if (changed) dirtyRef.current = true;
       return changed ? next : previous;
     });
-  }, []);
+  }, [activeProvider?.id]);
 
   // A csillag valódi kapcsoló: ha már kedvenc, egy újabb nyomás kiveszi minden kedvenc mappából.
   const handleToggleFavorite = useCallback((channelId: string) => {
@@ -3403,7 +3406,7 @@ export function App() {
       setCatalogSavedCounts({ vod: 0, series: 0 });
       catalogSavedCountsRef.current = { vod: 0, series: 0 };
       setFolders([]);
-      storageService.saveFolders([]);
+      storageService.saveFolders([], id);
       setSelectedFavoriteFolderId(null);
       setSelectedCategoryId('all');
       setIsOnlyFavorites(false);
