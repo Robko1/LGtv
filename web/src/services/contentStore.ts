@@ -1469,7 +1469,10 @@ function noteSectionIncomplete(
  * lista elemről elemre megegyezik a szolgáltatóéval): a „hiányos” jelölés
  * törlődik, hogy ne induljon újra és újra gyógyító frissítés.
  */
-export function markCatalogSectionsComplete(sections: Array<'live' | 'vod' | 'series'>): void {
+export function markCatalogSectionsComplete(
+  sections: Array<'live' | 'vod' | 'series'>,
+  providerId = activeProviderScopeId(),
+): void {
   if (!sections.length) return;
   updateCatalogState((state) => {
     for (const section of sections) {
@@ -1477,7 +1480,7 @@ export function markCatalogSectionsComplete(sections: Array<'live' | 'vod' | 'se
       if (current?.incomplete) state.sections[section] = { savedAt: current.savedAt, count: current.count };
     }
     state.checkedAt = Math.max(state.checkedAt, Date.now());
-  });
+  }, providerId);
 }
 
 /** Mely szakaszok tartós mentése hiányos (ha van ilyen, gyógyító frissítés kell). */
