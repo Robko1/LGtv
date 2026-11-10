@@ -628,7 +628,7 @@ export function App() {
     setHistory(activeProvider?.id ? storageService.getHistory(activeProvider.id) : []);
   }, [activeProvider?.id]);
 
-  const savedUiState = useRef(storageService.getUiState());
+  const savedUiState = useRef(storageService.getUiState(bootLive.provider?.id));
   /*
    * AZ ALKALMAZÁS MINDIG ÉLŐ TV NÉZETTEL INDUL (2.5.228).
    *
@@ -689,7 +689,13 @@ export function App() {
   );
   const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string | null>(null);
   const [isOnlyFavorites, setIsOnlyFavorites] = useState<boolean>(savedUiState.current.isOnlyFavorites || false);
-  const [searchQuery] = useState<string>(savedUiState.current.searchQuery || '');
+  const [searchQuery, setSearchQuery] = useState<string>(savedUiState.current.searchQuery || '');
+  useLayoutEffect(() => {
+    const nextUiState = activeProvider?.id ? storageService.getUiState(activeProvider.id) : {};
+    savedUiState.current = nextUiState;
+    setIsOnlyFavorites(Boolean(nextUiState.isOnlyFavorites));
+    setSearchQuery(nextUiState.searchQuery || '');
+  }, [activeProvider?.id]);
   const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [selectedFavoriteFolderId, setSelectedFavoriteFolderId] = useState<string | null>(null);
   const [displayedChannelOrder, setDisplayedChannelOrder] = useState<string[]>([]);
@@ -718,8 +724,8 @@ export function App() {
   }, [selectedFavoriteFolderId, selectedCategoryId]);
 
   useEffect(() => {
-    storageService.saveUiState({ activeView, selectedCategoryId, isOnlyFavorites, searchQuery });
-  }, [activeView, selectedCategoryId, isOnlyFavorites, searchQuery]);
+    storageService.saveUiState({ activeView, selectedCategoryId, isOnlyFavorites, searchQuery }, activeProvider?.id);
+  }, [activeView, selectedCategoryId, isOnlyFavorites, searchQuery, activeProvider?.id]);
 
   /**
    * A NÉZETT csatorna műsora (most/elkövetkező) külön, kis állapotban.
