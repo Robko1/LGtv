@@ -1186,7 +1186,7 @@ function persistRecentDoctorLogs(): void {
     pendingRecentLogsTimer = null;
     try {
       if (typeof localStorage === 'undefined') return;
-      localStorage.setItem(RECENT_DOCTOR_LOGS_STORAGE_KEY, JSON.stringify(recentDoctorLogs));
+      localStorage.setItem(scopedDoctorStorageKey(RECENT_DOCTOR_LOGS_STORAGE_KEY), JSON.stringify(recentDoctorLogs));
     } catch { /* nincs tárhely: a memóriabeli napló így is él */ }
   }, 350);
 }
@@ -1837,7 +1837,7 @@ export function restoreDoctorBaselinesFromCloud(items: Array<{ channelKey: strin
     restored += 1;
   }
   if (restored > 0) {
-    try { target.setItem(TV_DOCTOR_BASELINE_STORAGE_KEY, JSON.stringify(store)); }
+    try { target.setItem(scopedDoctorStorageKey(TV_DOCTOR_BASELINE_STORAGE_KEY), JSON.stringify(store)); }
     catch { return 0; }
   }
   return restored;
@@ -2825,9 +2825,9 @@ export function getTvDoctorMemoryStats(storage?: Storage | null): TvDoctorMemory
         const serializedChars = memoryCacheSerializedChars || JSON.stringify(store).length;
         doctorStoreBytes = (scopedDoctorStorageKey(TV_DOCTOR_STORAGE_KEY).length + serializedChars) * 2;
       }
-      const rawSync = target.getItem(TV_DOCTOR_SYNC_STORAGE_KEY);
+      const rawSync = target.getItem(scopedDoctorStorageKey(TV_DOCTOR_SYNC_STORAGE_KEY));
       if (rawSync) {
-        cloudQueueBytes = (TV_DOCTOR_SYNC_STORAGE_KEY.length + rawSync.length) * 2;
+        cloudQueueBytes = (scopedDoctorStorageKey(TV_DOCTOR_SYNC_STORAGE_KEY).length + rawSync.length) * 2;
       }
       const len = Number((target as Storage).length) || 0;
       for (let i = 0; i < len; i += 1) {
