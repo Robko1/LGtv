@@ -130,6 +130,7 @@ core.setTvDoctorProviderScope('provider-a');
 const providerAStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
 core.setTvDoctorProviderScope('provider-b');
 const providerBStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+console.log('DEBUG TV DOCTOR PROVIDER BYTES', { providerAStoredBytes, providerBStoredBytes, keys: Array.from(providerScopeStorage.map.entries()) });
 core.setTvDoctorProviderScope('provider-a');
 check(
   providerAStoredBytes > 0 && providerBStoredBytes === 0,
