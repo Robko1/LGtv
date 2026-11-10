@@ -4188,7 +4188,7 @@ export function App() {
         ? result.fingerprint
         : providerFingerprint(contentForStorage);
       setCatalogFingerprint(fingerprint, draft.provider);
-      markCatalogChecked();
+      markCatalogChecked(id);
       dirtyRef.current = false;
 
       const finishedAt = performance.now();
