@@ -336,7 +336,7 @@ const clearBody = doctorSrcForBaseline.slice(
   doctorSrcForBaseline.indexOf('export function clearTvDoctorMemory'),
   doctorSrcForBaseline.indexOf('export function getTvDoctorCategoryStats'),
 );
-check(/removeItem\(TV_DOCTOR_BASELINE_STORAGE_KEY\)/.test(clearBody),
+check(/removeItem\(scopedDoctorStorageKey\(TV_DOCTOR_BASELINE_STORAGE_KEY\)\)/.test(clearBody),
   'a helyi Memória: 0 törli az 1-es alap tárolóját');
 const migrationDir = path.join(ROOT, 'supabase/migrations');
 const resetFiles = fs.readdirSync(migrationDir).filter((f) => /full_reset_true_upsert/.test(f));
