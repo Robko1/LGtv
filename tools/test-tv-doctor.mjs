@@ -142,19 +142,25 @@ const memorySizeRecord = core.recordDoctorChannelSuccess({
 // A memóriaméret-mérés explicit ugyanazt a tárat olvassa, amelybe a rekordot
 // elmentettük; a szolgáltatóváltás után csak a másik névtér méretét mérjük.
 const providerAStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+const providerALearnedChannels = core.getTvDoctorSummary(providerScopeStorage).learnedChannelCount;
 const providerAStorageKeys = Array.from(providerScopeStorage.map.keys());
 core.setTvDoctorProviderScope('provider-b');
 const providerBStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+const providerBLearnedChannels = core.getTvDoctorSummary(providerScopeStorage).learnedChannelCount;
 console.log('TV Doktor memória teszt – diagnosztika:', JSON.stringify({
   recordSaved: Boolean(memorySizeRecord),
   providerAStoredBytes,
   providerBStoredBytes,
+  providerALearnedChannels,
+  providerBLearnedChannels,
   providerAStorageKeys,
-  activeProvider: core.activeProviderScopeId?.() || 'not-exported',
 }));
 core.setTvDoctorProviderScope('provider-a');
 check(
-  Boolean(memorySizeRecord) && providerAStoredBytes > 0 && providerBStoredBytes === 0,
+  Boolean(memorySizeRecord)
+    && providerAStoredBytes > providerBStoredBytes
+    && providerALearnedChannels > 0
+    && providerBLearnedChannels === 0,
   'a TV Doktor memória-méret mérése kizárólag az aktív szolgáltató mentését olvassa',
 );
 
