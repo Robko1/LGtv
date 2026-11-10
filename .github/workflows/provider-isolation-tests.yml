@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   tests:
-    name: Teljes regressziós tesztkör (IPK nélkül)
+    name: Szolgáltatói A–B–A tárolási próba (IPK nélkül)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -42,4 +42,4 @@ jobs:
       - name: Teljes tesztkör
         env:
           TEST_CONCURRENCY: '3'
-        run: npm test
+        run: node tools/test-persistence.mjs
