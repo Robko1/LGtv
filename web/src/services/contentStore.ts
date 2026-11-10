@@ -511,7 +511,7 @@ const backend: Backend = (() => {
     window.localStorage.removeItem('iptv_rt_probe');
     return {
       name: 'local',
-      get: (key) => window.localStorage.getItem(LOCAL_PREFIX + providerScopePrefix() + key) || '',
+      get: (key) => window.localStorage.getItem(LOCAL_PREFIX + providerScopePrefix() + key) || memory.get(providerScopePrefix() + key) || '',
       put: (key, value) => {
         try {
           window.localStorage.setItem(LOCAL_PREFIX + providerScopePrefix() + key, value);
@@ -520,19 +520,26 @@ const backend: Backend = (() => {
           return false;
         }
       },
-      remove: (key) => window.localStorage.removeItem(LOCAL_PREFIX + providerScopePrefix() + key),
+      remove: (key) => {
+        window.localStorage.removeItem(LOCAL_PREFIX + providerScopePrefix() + key);
+        memory.delete(providerScopePrefix() + key);
+      },
       keys: () => {
-        const keys: string[] = [];
-        const scopedPrefix = LOCAL_PREFIX + providerScopePrefix();
+        const keys = new Set<string>();
+        const prefix = providerScopePrefix();
+        const scopedPrefix = LOCAL_PREFIX + prefix;
         try {
           for (let index = 0; index < window.localStorage.length; index++) {
             const key = window.localStorage.key(index);
-            if (key && key.startsWith(scopedPrefix)) keys.push(key.slice(scopedPrefix.length));
+            if (key && key.startsWith(scopedPrefix)) keys.add(key.slice(scopedPrefix.length));
           }
         } catch {
           /* a felsorolás hibája nem akadályozhatja a mentést */
         }
-        return keys;
+        for (const key of memory.keys()) {
+          if (key.startsWith(prefix)) keys.add(key.slice(prefix.length));
+        }
+        return Array.from(keys);
       },
     };
   } catch {
