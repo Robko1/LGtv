@@ -245,6 +245,12 @@ try {
     'az A szolgáltató saját kedvenc mappáit kapja vissza');
   check(app1.storageService.getFolders('provider-b')[0]?.id === 'folder-b',
     'a B szolgáltató kedvenc mappái nem keverednek az A adataival');
+  app1.storageService.saveHistory([{ id: 'history-a', mediaType: 'movie', title: 'A film', progressPercent: 10, positionSeconds: 10, durationSeconds: 100, lastWatchedAt: '2026-11-10', streamUrl: 'https://a.example/movie' }], 'provider-a');
+  app1.storageService.saveHistory([{ id: 'history-b', mediaType: 'movie', title: 'B film', progressPercent: 20, positionSeconds: 20, durationSeconds: 100, lastWatchedAt: '2026-11-10', streamUrl: 'https://b.example/movie' }], 'provider-b');
+  check(app1.storageService.getHistory('provider-a')[0]?.id === 'history-a',
+    'az A szolgáltató saját lejátszási előzményeit kapja vissza');
+  check(app1.storageService.getHistory('provider-b')[0]?.id === 'history-b',
+    'a B szolgáltató lejátszási előzményei nem keverednek az A adataival');
   app1.setActiveProviderScope('provider-b');
   check(app1.loadSyncState('provider-b')?.fingerprint === 'fingerprint-b',
     'a B szolgáltató nem az A szinkronállapotát kapja vissza');
