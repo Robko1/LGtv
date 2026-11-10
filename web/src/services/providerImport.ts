@@ -63,8 +63,6 @@ import { ParsedVodMetadata, parseSeriesMetadata, UNKNOWN_LANGUAGE } from './vodM
 import { categoryCounts, liveRowFromRaw, movieRowFromRaw, rawItemSignature, seasonsFromSeriesInfo, seriesRowFromRaw } from './catalogRows';
 import { storageService } from './storageService';
 import { isNetworkRequestCancelled, sleep } from './net';
-import { setActiveProviderScope } from './providerScope';
-import { setTvDoctorProviderScope } from './tvDoctor';
 
 /**
  * Részletes filmadatok összeolvasztása az importált alaprekorddal.
@@ -715,7 +713,15 @@ export async function loadAllLiveChannels(provider: ProviderRef): Promise<Channe
 }
 
 export async function importXtreamProvider(
-  input: { name: string; serverUrl: string; username: string; password: string },
+  /*
+   * `providerId`: meglévő szolgáltató frissítésekor/szerkesztésekor a letöltés
+   * elejétől a VÉGLEGES azonosítóval dolgozunk. Korábban minden import új,
+   * ideiglenes `prov-<idő>` azonosítót kapott, és csak a végén írtuk át: a
+   * közben elmentett részleges listák és részletek így egy soha nem használt,
+   * árva névtérbe kerültek – két szolgáltatónál ez mentett adat elvesztését
+   * és felesleges újratöltést okozott.
+   */
+  input: { name: string; serverUrl: string; username: string; password: string; providerId?: string },
   onProgress: ProgressFn = () => {},
   onPartial: PartialFn = () => {}
 ): Promise<ImportedProvider> {
@@ -834,7 +840,7 @@ export async function importXtreamProvider(
   onProgress({ phase: 'Csatornák letöltése…', percent: 6 });
 
   const provider: ProviderRef = {
-    id: `prov-${Date.now()}`,
+    id: String(input.providerId || '').trim() || `prov-${Date.now()}`,
     type: 'xtream',
     serverUrl: server,
     username: user,
@@ -1870,7 +1876,6 @@ export async function importM3UProvider(
   }
 
   const provider: ProviderRef = { id: input.providerId || `prov-${Date.now()}`, type: 'm3u' };
-  setActiveProviderScope(provider.id);
 
   const live: Channel[] = [];
   const movies: Movie[] = [];
@@ -2211,8 +2216,9 @@ async function refreshXtreamIncremental(
   // az indulás és az import között, mert a SZOLGÁLTató-sorok kiszűrődtek.
   const checkStartedAt = performance.now();
   appLog('BETÖLTÉS [ellenőrzés] mentett katalógus keresése indul…');
-  const localLive = loadLive();
-  const catalogState = readCatalogStateSync();
+  // A SAJÁT szolgáltató tárát nézzük, nem az éppen aktívét.
+  const localLive = loadLive(provider.id);
+  const catalogState = readCatalogStateSync(provider.id);
   const presence = await storedCatalogPresence(provider.id);
   const hasStoredCatalog = Boolean(
     presence.live || presence.vod || presence.series
@@ -2223,7 +2229,7 @@ async function refreshXtreamIncremental(
     logProviderEvent('Nincs mentett katalógus: az első teljes import azonnal elindul, előzetes frissítési lekérések nélkül.');
     appLog(`BETÖLTÉS [első import] nincs mentett katalógus (ellenőrzés: ${Math.round(performance.now() - checkStartedAt)} ms) – teljes import indul.`);
     const result = await importXtreamProvider(
-      { name: provider.name, serverUrl: server, username: user, password: pass },
+      { name: provider.name, serverUrl: server, username: user, password: pass, providerId: provider.id },
       onProgress,
       onPartial,
     );
@@ -2615,10 +2621,13 @@ export async function refreshProviderContent(
   onPartial: PartialFn = () => {},
   options: RefreshOptions = {}
 ): Promise<RefreshOutcome> {
-  // A TV Doktor régi függő mentéseit még a régi névtérbe ürítjük,
-  // mielőtt a katalógus globális névtere szolgáltatót vált.
-  setTvDoctorProviderScope(provider.id);
-  setActiveProviderScope(provider.id);
+  /*
+   * A frissítés NEM vált szolgáltatót: sem a katalógus, sem a TV Doktor
+   * globális névterét nem állítja át. A katalógus-műveletek a `provider.id`
+   * rögzített névterébe dolgoznak; az aktív szolgáltatót kizárólag az
+   * alkalmazás váltja. (Korábban egy háttérben futó frissítés a nézett
+   * szolgáltató névterét is átbillentette.)
+   */
   if (provider.type === 'xtream') {
     if (!provider.serverUrl || !provider.username || !provider.password) {
       throw new Error('A szolgáltatóhoz nincs eltárolva szerver, felhasználó vagy jelszó.');
@@ -2643,6 +2652,7 @@ export async function refreshProviderContent(
         serverUrl: provider.serverUrl,
         username: provider.username,
         password: provider.password,
+        providerId: provider.id,
       },
       onProgress,
       onPartial

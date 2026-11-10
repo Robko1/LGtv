@@ -201,36 +201,64 @@ async function main(): Promise<void> {
 
   /* ── 0. A két szolgáltató katalógusa és lejátszási emlékezete külön marad ── */
   console.log('\nSzolgáltatói névterek: egyik katalógus és tanult beállítás sem írja felül a másikat:');
+  /*
+   * 2.5.417: ezek az ellenőrzések korábban FORDÍTOTT paraméterekkel hívták a
+   * `check`-et (a feltétel került a név helyére), ezért mindig „sikeresek”
+   * voltak – akkor is, amikor a feltétel hamis volt. Most valódi feltételek.
+   */
   check(
-    /LOCAL_PREFIX \+ providerScopePrefix\(\)/.test(contentStoreSource)
+    'a localStorage- és IndexedDB-katalógus kulcsai szolgáltatónként különülnek el',
+    /const prefix = providerScopePrefix\(scopeId\)/.test(contentStoreSource)
       && /function scopedChunkStore/.test(contentStoreSource)
       && /prefix \+ key/.test(contentStoreSource),
-    'a localStorage- és IndexedDB-katalógus kulcsai szolgáltatónként különülnek el',
   );
   check(
+    'újraindításkor a kiválasztott szolgáltató tárhelye már a csatornalista beolvasása előtt aktív',
     /setActiveProviderScope\(storageService\.getSettings\(\)\.activeProviderId/.test(appSource)
       && appSource.indexOf('setActiveProviderScope(storageService.getSettings().activeProviderId') < appSource.indexOf('const bootLive = loadLive()'),
-    'újraindításkor a kiválasztott szolgáltató tárhelye már a csatornalista beolvasása előtt aktív',
   );
-  const xtreamImportStart = importSource.indexOf('export async function importXtreamProvider(');
-  const m3uImportStart = importSource.indexOf('export async function importM3UProvider(');
-  const refreshImportStart = importSource.indexOf('export async function refreshProviderContent(');
+  /*
+   * A háttérben futó import/frissítés NEM állíthatja át a megjelenített
+   * szolgáltató névterét: minden olvasás és írás a SAJÁT azonosítójával megy.
+   * (Korábban az import átállította a közös névteret, és a képernyőn lévő
+   * szolgáltató késleltetett mentései a másik fiók tárába íródtak.)
+   */
   check(
-    xtreamImportStart >= 0 && m3uImportStart > xtreamImportStart && refreshImportStart > m3uImportStart
-      && /setActiveProviderScope\(provider\.id\)/.test(importSource.slice(xtreamImportStart, m3uImportStart))
-      && /setActiveProviderScope\(provider\.id\)/.test(importSource.slice(m3uImportStart, refreshImportStart))
-      && /setActiveProviderScope\(provider\.id\)/.test(importSource.slice(refreshImportStart)),
-    'az Xtream-, M3U-import és a frissítés is a saját szolgáltatóazonosítója alá ment',
+    'az import és a frissítés nem állítja át a megjelenített szolgáltató névterét',
+    !/setActiveProviderScope\(/.test(importSource) && !/setTvDoctorProviderScope\(/.test(importSource),
   );
   check(
+    'a frissítés a szolgáltató SAJÁT azonosítójával olvas és ír',
+    /loadLive\(provider\.id\)/.test(importSource) && /providerId: provider\.id/.test(importSource),
+  );
+  check(
+    'a katalógustár nem vált közös névteret, hanem hívásonként rögzíti',
+    !/[^`]setActiveProviderScope\(/.test(contentStoreSource) && /function pinScope\(/.test(contentStoreSource),
+  );
+  check(
+    'a szolgáltatóváltás helyben, a saját mentett katalógusból történik (nem hálózati újratöltéssel)',
+    /const switchToProviderLocally = async/.test(appSource)
+      && /inspectStoredCatalogs\(target\.id\)/.test(appSource)
+      && /void switchToProviderLocally\(provider, \{ refreshWhenEmpty: true \}\)/.test(appSource),
+  );
+  check(
+    'másik szolgáltató frissítése előtt teljes helyi váltás történik',
+    /if \(activeProviderRef\.current\?\.id !== id\) \{\s*const stillCurrent = await switchToProviderLocally\(provider, \{ refreshWhenEmpty: false \}\);/.test(appSource),
+  );
+  check(
+    'a visszatöltés eredménye szolgáltatóváltás után nem kerül a felületre',
+    /const restoreIsStale = \(\): boolean =>/.test(appSource)
+      && (appSource.match(/restoreIsStale\(\)/g) || []).length >= 9,
+  );
+  check(
+    'a TS/HLS-, képminőség- és hangsávemlékezet is szolgáltatónként különül el',
     /providerScopePrefix\(\)/.test(formatMemorySource)
       && /providerScopePrefix\(\)/.test(qualityMemorySource)
       && /providerScopePrefix\(\)/.test(audioMemorySource),
-    'a TS/HLS-, képminőség- és hangsávemlékezet is szolgáltatónként különül el',
   );
   check(
-    /LEGACY_OWNER_KEY/.test(providerScopeSource),
     'a már meglévő első szolgáltatói mentések megőrzik a régi kulcsaikat',
+    /LEGACY_OWNER_KEY/.test(providerScopeSource),
   );
 
   /* ── 1. A nagy lista-végpont megkapja a kért időkeretet ─────────────── */

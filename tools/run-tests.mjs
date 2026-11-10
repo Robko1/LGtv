@@ -62,6 +62,9 @@ const tasks = [
   { name: 'channel-selection', args: ['tools/test-channel-selection.mjs'] },
   { name: 'provider-delete', args: ['tools/test-provider-delete.mjs'] },
   { name: 'provider-load', args: ['tools/test-provider-load.mjs'] },
+  // 2.5.417: két szolgáltató – helyi váltás, elkülönített adatok, célzott törlés.
+  { name: 'provider-switch', args: ['tools/test-provider-switch.mjs'] },
+  { name: 'provider-switch-app', args: ['tools/test-provider-switch-app.mjs'] },
   { name: 'epg-guide', args: ['tools/test-epg-guide.mjs'] },
   { name: 'broadcast-time', args: ['tools/test-broadcast-time.mjs'] },
   // A régi próba a megszüntetett localStorage-os VOD-mentést várja.

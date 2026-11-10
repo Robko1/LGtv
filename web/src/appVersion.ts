@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.416';
+export const WEB_VERSION = '2.5.417';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,20 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.417',
+    date: '2026-11-10',
+    changes: [
+      'TÖBB SZOLGÁLTATÓ: A VÁLTÁS HELYBEN, LETÖLTÉS ÉS ÚJRAINDÍTÁS NÉLKÜL TÖRTÉNIK — Eddig az „Aktiválás” gomb a teljes csatorna-/film-/sorozatlistát újra letöltötte a szolgáltatótól. Ha a letöltés „nincs változás” eredménnyel vagy megszakítással ért véget, a képernyőn az ELŐZŐ szolgáltató csatornái maradtak az új szolgáltató neve alatt. Mostantól minden szolgáltató a SAJÁT, készüléken tárolt listájából jelenik meg (`App.tsx: switchToProviderLocally()` → `showStoredProviderCatalog()`), hálózati lista-letöltés nélkül; letöltés csak akkor indul, ha az adott szolgáltatónak még egyáltalán nincs mentett listája. A felület, a lejátszó és a menük kinézete nem változott.',
+      'A SZOLGÁLTATÓK ADATAI NEM KEVEREDNEK — A tároló (`contentStore.ts`), az import (`providerImport.ts`) és a műsorújság (`epgGuide.ts`) többé nem állítja át menet közben a „melyik szolgáltató látszik” jelzőt: minden olvasás és írás kifejezetten megkapja a szolgáltató azonosítóját. Az előző szolgáltató háttérmunkája (visszatöltés, késleltetett mentés, műsorújság, frissítés) a váltás pillanatában leáll (`detachFromCurrentProvider()`, generációs védelem a `runRestore` / indulás / teljes lista visszatöltés útvonalain), a még függő módosításai pedig a SAJÁT tárába kerülnek, nem az új szolgáltatóéba. Egy nem aktív szolgáltató frissítése már nem a képernyőn lévő másik szolgáltató listájához hasonlít.',
+      'SZOLGÁLTATÓNKÉNT KÜLÖN UTOLSÓ CSATORNA ÉS LEJÁTSZÁSI BEÁLLÍTÁS — Az utoljára nézett csatorna eddig közös volt, és váltáskor törlődött. Most szolgáltatónként külön jegyzi meg a program, visszaváltáskor ott folytatódik az adás, ahol abbamaradt. A puffer mód, a lejátszómotor, az élő formátum, a betöltési mód és a TV Doktor kapcsoló is szolgáltatónként külön él (`storageService.ts: getProviderSettings()` / `saveProviderSettings()`); az óra, az OSD, a felirat és az elrendezés a készülékre vonatkozik, közös maradt. A TV Doktor tanult memóriája és a csatornánkénti formátum-/hang-emlékek a szolgáltatóhoz kötve maradnak.',
+      'TÖRLÉS: CSAK A TÖRÖLT SZOLGÁLTATÓ ADATAI TŰNNEK EL — Egy nem aktív szolgáltató törlése eddig a készüléken hagyta a teljes listáját. Az aktív törlése után pedig üres képernyő maradt akkor is, ha volt másik szolgáltató. Az új `providerCleanup.ts: purgeProviderData()` a törölt szolgáltató listáit, nyers lejátszási listáját, műsorújságát, utolsó csatornáját, beállítás-profilját, csatornasorrendjét, törölt csatornáit és TV Doktor memóriáját távolítja el – a többi szolgáltatóhoz nem nyúl. Ha az aktív szolgáltató törlődik és van másik, a program azonnal arra vált. A TV Doktor párosítás készülékszintű, az megmarad.',
+      'A VÁLTÁS A KÉZI NAPLÓBAN IS LÁTSZIK — Az új sorok „AKTÍV SZOLGÁLTATÓ VÁLTÁSA: …” és „TÖRÖLT SZOLGÁLTATÓ: …” kezdettel kerülnek a SÁRGA gombos kézi naplóba (a „SZOLGÁLTATÓ…” kezdetű sorokat a napló szűrője eldobja, ezért kaptak más kezdetet).',
+      'ÉLŐ TV WATCHDOG: SZÁNDÉKOSAN VÁLTOZATLAN — A 2.5.406 óta érvényes döntés (élő adáson időzítő soha nem tölthet újra működő vagy éppen induló csatornát) ebben a kiadásban nem változott, és a puffer-profilok időértékei sem. Élő adást továbbra is csak valódi médiahiba vagy megerősített adásleállás csatlakoztat újra.',
+      'TESZTEK — Új `tools/test-provider-switch.mjs` (42 ellenőrzés: a tároló két, azonos csatornaazonosítójú szolgáltatóval) és `tools/test-provider-switch-app.mjs` (29 ellenőrzés: a VALÓDI alkalmazás fut, a Menü → Listák „Aktiválás” és „Törlés” gombjaival; a váltás egyetlen lista-letöltést sem indít, a régi szolgáltató felé nem megy több kérés). A `tools/provider-load.spec.ts` névtér-szakaszának ellenőrzései eddig felcserélt paraméterek miatt mindig sikeresnek látszottak; ezek most valóban ellenőriznek.',
+    ],
+  },
+
   {
     version: '2.5.416',
     date: '2026-11-09',

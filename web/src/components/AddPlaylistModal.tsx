@@ -143,7 +143,9 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
 
     try {
       const result = await importXtreamProvider(
-        { name: providerName, serverUrl, username, password },
+        // Szerkesztéskor a MEGLÉVŐ szolgáltató azonosítójával töltünk: a saját
+        // mentett adatai (kedvencek, TV Doktor, katalógus) így a helyükön maradnak.
+        { name: providerName, serverUrl, username, password, providerId: editProvider?.id },
         (update) => {
           if (!diagnosticFinishedRef.current && update.percent < 100) {
             setProgress(update);
@@ -266,7 +268,7 @@ export const AddPlaylistModal: React.FC<AddPlaylistModalProps> = ({
 
     try {
       const content = await importM3UProvider(
-        { name: providerName, m3uUrl },
+        { name: providerName, m3uUrl, providerId: editProvider?.id },
         (update) => {
           if (!diagnosticFinishedRef.current && update.percent < 100) {
             setProgress(update);

@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, startTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { AppSettings, AudioTrack, SubtitleTrack, Category, Channel, Episode, FavoriteFolder, Movie, ProviderAccount, Series, WatchHistoryItem } from './types/iptv';
-import { storageService } from './services/storageService';
+import { PROVIDER_SCOPED_SETTING_KEYS, storageService } from './services/storageService';
 import {
   cancelStoredContentRestore,
-  clearContent,
   clearContentAsync,
   describeStoredContent,
   lastStoredContentReport,
@@ -30,7 +29,7 @@ import {
   hasPendingDeleteMarker,
   storedRestorePending,
 } from './services/contentStore';
-import { clearRemovedVod, filterRemovedVod, getRemovedVodIds, removeVodFromMemory } from './services/vodRemovals';
+import { filterRemovedVod, getRemovedVodIds, removeVodFromMemory } from './services/vodRemovals';
 import { rememberAudioFor } from './services/liveAudioMemory';
 import { appLog, appLogError, logPhase } from './services/appLog';
 import { enrichMovieDurationsInBackground } from './services/vodEnrich';
@@ -45,7 +44,8 @@ import {
 import { fsNow, fsPerf, fsStep } from './services/fullscreenPerf';
 import { speedChannelCommit, speedSelect } from './services/speedDiagnostics';
 import { configureTvDoctorCloud } from './services/tvDoctorCloud';
-import { setActiveProviderScope } from './services/providerScope';
+import { activeProviderScopeId, setActiveProviderScope } from './services/providerScope';
+import { purgeProviderData } from './services/providerCleanup';
 import { setTvDoctorProviderScope } from './services/tvDoctor';
 import { normalizeTvKey, isTvArrowKey } from './utils/tvKeys';
 import { firstPlayableHungarianChannel, isHungarianChannel } from './utils/channelSelection';
@@ -62,7 +62,7 @@ import {
 } from './services/providerImport';
 import { flagFor } from './utils/flags';
 import { clearEpgCache, formatTime24, getCachedShortEpg, loadShortEpg, nowNextFromEpg, streamIdFor } from './services/epgService';
-import { channelNowNext, clearCountryGuideMemory, clearGuide, ensureChannelsEpg, ensureCountryGuide, ensureGuide, guideChannelCoverage, guideStatus, guideUpcoming, setGuideHuProbe } from './services/epgGuide';
+import { channelNowNext, clearCountryGuideMemory, clearGuide, ensureChannelsEpg, ensureCountryGuide, ensureGuide, guideChannelCoverage, guideStatus, guideUpcoming, resetGuideMemoryForProviderSwitch, setGuideHuProbe } from './services/epgGuide';
 import { xtreamService } from './services/xtreamService';
 import {
   attachVodProviderDiagnostics,
@@ -75,7 +75,13 @@ import {
 // helyett üres listát mutatunk, és a felület felhívja a figyelmet a lista
 // hozzáadására (Menü → Listák).
 // Újraindításkor a legutóbb aktív szolgáltató saját mentett katalógusából indulunk.
-setActiveProviderScope(storageService.getSettings().activeProviderId || '');
+// Régebbi telepítésnél a beállításokban még nincs aktív azonosító: ilyenkor a
+// szolgáltatólista aktív (vagy egyetlen) eleme adja a névteret – különben a
+// program az előtag nélküli tárat olvasná, és egy másik fiók listája jelenne meg.
+setActiveProviderScope(storageService.getSettings().activeProviderId || (() => {
+  const saved = storageService.getProviders();
+  return (saved.find((provider) => provider.isActive) || saved[0])?.id || '';
+})());
 const bootLive = loadLive();
 logPhase('mentett élő lista beolvasva (App modul)');
 // A betöltött tár régi vagy sérült adatait már az állapot létrehozásakor normalizáljuk.
@@ -418,7 +424,10 @@ import { TvDoctorStatusModal } from './components/TvDoctorStatusModal';
 
 export function App() {
   // Persistent state
-  const [settings, setSettings] = useState<AppSettings>(() => storageService.getSettings());
+  const [settings, setSettings] = useState<AppSettings>(
+    // A lejátszási és TV Doktor beállítások szolgáltatónként külön élnek.
+    () => storageService.applyProviderSettings(storageService.getSettings(), activeProviderScopeId()),
+  );
   const [providers, setProviders] = useState<ProviderAccount[]>(() => storageService.getProviders());
   const [channels, setChannels] = useState<Channel[]>(() =>
     restoreSavedChannelOrder(hungaryFirst(dropDeletedChannels(bootChannels, bootLive.provider?.id)), bootLive.provider?.id));
@@ -438,7 +447,20 @@ export function App() {
   const [activeProvider, setActiveProvider] = useState<ProviderRef | null>(() => bootLive.provider);
   // Szolgáltatóváltáskor a TV Doktor és a tartós katalógus ugyanarra a névtérre áll át.
   useLayoutEffect(() => {
-    setTvDoctorProviderScope(activeProvider?.id || '');
+    /*
+     * A NÉVTÉR SOHA NEM ESHET VISSZA ÜRESRE, HA VAN AKTÍV SZOLGÁLTATÓ.
+     *
+     * Korábban itt `activeProvider?.id || ''` állt. Induláskor, amíg a helyi
+     * induló készlet üres (a lista csak a tartós tárban van), az
+     * `activeProvider` még `null` – a névtér ezért üresre váltott, és a
+     * tároló-felmérés az ELŐTAG NÉLKÜLI (a legelső szolgáltatóhoz tartozó)
+     * tárat olvasta. Második szolgáltatónál ez a rossz fiók listáját hozta
+     * fel, vagy „nincs mentett lista” állapotot. Most a beállításokban
+     * mentett aktív azonosító a tartalék.
+     */
+    const scopeId = activeProvider?.id || storageService.getSettings().activeProviderId || '';
+    // A váltás már szinkron átállította a névteret: nem ürítjük és töltjük újra kétszer.
+    if (activeProviderScopeId() !== scopeId) setTvDoctorProviderScope(scopeId);
     setFolders(activeProvider?.id ? storageService.getFolders(activeProvider.id) : []);
   }, [activeProvider?.id]);
   const [totalCounts, setTotalCounts] = useState(() => bootLive.totals);
@@ -847,13 +869,13 @@ export function App() {
        */
       if (holdLivePlaybackRef.current) {
         pendingImportChannelIdRef.current = fallback.id;
-        if (remember) storageService.rememberLastChannel(fallback.id);
+        if (remember) storageService.rememberLastChannel(fallback.id, activeProviderRef.current?.id);
         appLog(`A nézett csatorna (${watchedId || 'nincs'}) nincs az új listában; átállás félretéve a betöltés végéig: ${fallback.name}.`);
         return;
       }
       activeChannelIdRef.current = fallback.id;
       setActiveChannelId(fallback.id);
-      if (remember) storageService.rememberLastChannel(fallback.id);
+      if (remember) storageService.rememberLastChannel(fallback.id, activeProviderRef.current?.id);
       appLog(`A nézett csatorna (${watchedId || 'nincs'}) nincs az új listában; átállás: ${fallback.name}.`);
     },
     []
@@ -1531,6 +1553,13 @@ export function App() {
   const catalogPlanRef = useRef<StoredCatalogPlan | null>(null);
   const bootProbeStartedRef = useRef(false);
   const restoreRunningRef = useRef(false);
+  /*
+   * SZOLGÁLTATÓVÁLTÁS SORSZÁMA. Minden váltás lépteti; a váltás ELŐTT indított
+   * aszinkron munka (tároló-felmérés, visszatöltés, kedvenc-pótlás) ebből
+   * látja, hogy az eredménye már egy másik szolgáltató felületére kerülne –
+   * és eldobja.
+   */
+  const switchGenerationRef = useRef(0);
 
   /*
    * A VISSZATÖLTÉS SORBA ÁLL, NEM VESZIK EL (2.5.165).
@@ -1574,6 +1603,19 @@ export function App() {
       if (!alreadyQueued) restoreQueuedRef.current.push({ plan: target, scope });
       return;
     }
+    /*
+     * SZOLGÁLTATÓVÁLTÁS-ŐR: a visszatöltés a `target` szolgáltató tárát
+     * olvassa. Ha a néző közben másik szolgáltatóra váltott, az eredmény
+     * (csatornák, filmek, sorozatok, folyamatjelző) már nem ehhez a
+     * felülethez tartozik – nem kerülhet ki rá.
+     */
+    const restoreSwitchGeneration = switchGenerationRef.current;
+    const restoreIsStale = (): boolean => {
+      if (switchGenerationRef.current !== restoreSwitchGeneration) return true;
+      const shown = activeProviderRef.current?.id;
+      return Boolean(shown) && shown !== target.provider.id;
+    };
+    if (restoreIsStale()) return;
     restoreRunningRef.current = true;
     appLog(`Mentett katalógus visszatöltése indul (tároló: ${target.provider.id}, szakasz: ${scope}).`);
     // Az első film- és sorozatadag azonnal megjelenik a rácsban.
@@ -1597,18 +1639,21 @@ export function App() {
       await restoreStoredContent(target, {
         onStage: (stage) => logPhase(stage),
         onLiveProgress: (loaded: number, total: number) => {
+          if (restoreIsStale()) return;
           const expected = total > 0 ? total : (liveRestoreTotalRef.current || totalCountsRef.current.live || 1);
           if (total > 0) liveRestoreTotalRef.current = total;
           const pct = Math.min(100, Math.max(0, Math.round((loaded / expected) * 100)));
           setLiveRestoreProgress((prev) => (pct <= prev ? prev : pct));
         },
         onVodProgress: (loaded: number, total: number) => {
+          if (restoreIsStale()) return;
           const expected = total > 0 ? total : (catalogSavedCountsRef.current.vod || 1);
           setVodRestoreCounts((prev) => ({ ...prev, movies: { loaded, total: expected } }));
           const pct = loaded > 0 ? Math.min(100, Math.max(1, Math.round((loaded / expected) * 100))) : 0;
           setVodRestoreProgress((prev: { movies: number; series: number }) => (pct <= prev.movies ? prev : { ...prev, movies: pct }));
         },
         onSeriesProgress: (loaded: number, total: number) => {
+          if (restoreIsStale()) return;
           const expected = total > 0 ? total : (catalogSavedCountsRef.current.series || 1);
           setVodRestoreCounts((prev) => ({ ...prev, series: { loaded, total: expected } }));
           const pct = Math.min(100, Math.max(0, Math.round((loaded / expected) * 100)));
@@ -1616,6 +1661,8 @@ export function App() {
         },
         onLive: (full) => {
           if (providerRefreshActiveRef.current) return;
+          // Szolgáltatóváltás után a régi szolgáltató listája nem írhatja felül az újat.
+          if (restoreIsStale()) return;
           // A teljes élő lista már beolvasásra került; visszatéréskor nem kell újra IDB-ből olvasni.
           fullLiveRestoreCompletedRef.current = true;
           /*
@@ -1669,7 +1716,7 @@ export function App() {
            * akkor, ha a néző az indulás óta nem váltott kézzel csatornát.
            */
           if (!userZappedRef.current) {
-            const savedLastId = storageService.getLastChannelId();
+            const savedLastId = storageService.getLastChannelId(target.provider.id);
             if (savedLastId && savedLastId !== activeChannelIdRef.current
               && prepared.some((channel) => channel.id === savedLastId)) {
               activeChannelIdRef.current = savedLastId;
@@ -1685,7 +1732,7 @@ export function App() {
          * a teljes listába. A belső tárolóadag nem jelent megjelenítési limitet.
          */
         onVodPartial: (partial) => {
-          if (providerRefreshActiveRef.current) return;
+          if (providerRefreshActiveRef.current || restoreIsStale()) return;
           if (partial.categories.length) {
             startTransition(() => setVodCategories(partial.categories));
           }
@@ -1700,7 +1747,7 @@ export function App() {
           }
         },
         onSeriesPartial: (partial) => {
-          if (providerRefreshActiveRef.current) return;
+          if (providerRefreshActiveRef.current || restoreIsStale()) return;
           if (!partial.series.length) return;
           // 2.5.294: lásd a filmeknél – a részleges adag nem csökkentheti a listát.
           if (partial.series.length <= seriesRef.current.length) {
@@ -1721,6 +1768,7 @@ export function App() {
           appLog(`Sorozat visszatöltés folyamatban: ${partial.series.length} az első adagból (a teljes lista egyben jelenik meg a végén).`);
         },
         onVod: (vod) => {
+          if (restoreIsStale()) return false;
           if (providerRefreshActiveRef.current) {
             // 2.5.294: nem vettük át – a szakasz NEM lesz kész, később újra jön.
             appLog(`Filmlista visszatöltve (${vod.movies.length}), de szolgáltatói frissítés fut – később újra visszatöltjük.`);
@@ -1758,6 +1806,7 @@ export function App() {
           return true;
         },
         onSeries: (ser) => {
+          if (restoreIsStale()) return false;
           if (providerRefreshActiveRef.current) {
             appLog(`Sorozatlista visszatöltve (${ser.series.length}), de szolgáltatói frissítés fut – később újra visszatöltjük.`);
             return false;
@@ -1796,6 +1845,7 @@ export function App() {
          * (LEÁLLÁS 2,5-2,6 mp), mert a nézet már rég élő volt.
          */
         shouldAbort: () => {
+          if (restoreIsStale()) return true;
           if (scope === 'live') return activeViewRef.current !== 'live';
           if (scope === 'movies') return activeViewRef.current !== 'movies';
           if (scope === 'series') return activeViewRef.current !== 'series';
@@ -1805,6 +1855,11 @@ export function App() {
       });
     } finally {
       restoreRunningRef.current = false;
+      // A sorban csak a JELENLEGI szolgáltató kérései maradhatnak.
+      const shownProviderId = activeProviderRef.current?.id;
+      if (shownProviderId) {
+        restoreQueuedRef.current = restoreQueuedRef.current.filter((item) => item.plan.provider.id === shownProviderId);
+      }
       const queued = restoreQueuedRef.current.shift();
       if (queued) {
         void runRestoreRef.current?.(queued.plan, queued.scope);
@@ -1857,9 +1912,12 @@ export function App() {
      * tárolót, és abból töltünk vissza – különben a Mozi/Sorozat nézet a
      * „betöltés folyamatban” képen ragadna (0 / 103020).
      */
-    void inspectStoredCatalogs()
+    // A terv a KÉRÉS pillanatában látható szolgáltatóé; ha közben váltás
+    // történt, a régi szolgáltató terve nem kerülhet az új mellé.
+    const requestedFor = switchGenerationRef.current;
+    void inspectStoredCatalogs(activeProviderRef.current?.id)
       .then((freshPlan) => {
-        if (!freshPlan) return;
+        if (!freshPlan || switchGenerationRef.current !== requestedFor) return;
         catalogPlanRef.current = freshPlan;
         void runRestore(freshPlan, view);
       })
@@ -2037,12 +2095,16 @@ export function App() {
     void runRestore(plan, 'live')
       .catch(() => { /* a naplóban már ott a valódi ok */ })
       .finally(() => {
+        const guideSwitchGeneration = switchGenerationRef.current;
+        if (activeProviderRef.current?.id && activeProviderRef.current.id !== plan.provider.id) return;
         if (activeViewRef.current === 'live' && !providerRefreshActiveRef.current) {
           // A teljes lista után is várunk 30 mp-et, hogy az EPG ne a csatornaváltással versenyezzen.
           const runGuideOnlyWhenIdle = () => {
             const activity = liveEpgActivityRef.current;
             const idleFor = Date.now() - activity.lastAt;
             const remaining = Math.max(1000, 30_000 - idleFor);
+            // Közben szolgáltatót váltott a néző: ez az ütemezés már nem érvényes.
+            if (switchGenerationRef.current !== guideSwitchGeneration) return;
             if (activeViewRef.current !== 'live') return;
             if (providerRefreshActiveRef.current || activity.switching
                 || idleFor < 30_000
@@ -2094,6 +2156,10 @@ export function App() {
     let cancelled = false;
     let decided: BootState = 'empty';
     let backgroundWork: ReturnType<typeof startBackgroundWork> = undefined;
+    // Ha a néző még az indulási felmérés alatt szolgáltatót vált, az indulás
+    // eredménye (a régi szolgáltató listája) nem kerülhet a felületre.
+    const bootSwitchGeneration = switchGenerationRef.current;
+    const bootSuperseded = (): boolean => cancelled || switchGenerationRef.current !== bootSwitchGeneration;
     void (async () => {
       try {
         // 2.5.318 VILLÁM-INDÍTÁS: ha van helyi HU készlet (localStorage), a splash AZONNAL mehet — nem vár az IDB felmérésre
@@ -2116,7 +2182,7 @@ export function App() {
           + `induló készlet=${report.liveLocal} csatorna; tartós tár: `
           + `élő=${report.liveIdb}, film=${report.vodIdb}, sorozat=${report.seriesIdb}.`
         );
-        if (cancelled) return;
+        if (bootSuperseded()) return;
         catalogPlanRef.current = plan;
         /*
          * ÁRVA KATALÓGUS (2.5.239, SZIGORÍTVA 2.5.241): van mentett
@@ -2195,7 +2261,7 @@ export function App() {
           setChannels(prepared);
           lastSavedRef.current = { ...lastSavedRef.current, channels: prepared };
           if (plan.bootCategories.length) setCategories(plan.bootCategories);
-          const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
+          const savedLastId = storageService.getLastChannelId(plan.provider.id) || settings.lastPlayedChannelId;
           const recoveredActiveId = savedLastId && prepared.some((channel) => channel.id === savedLastId)
             ? savedLastId
             : firstPlayableHungarianChannel(prepared)?.id;
@@ -2217,7 +2283,7 @@ export function App() {
             for (const id of favIds) if (!prepared.some((c) => c.id === id)) missingFavIds.add(id);
             if (missingFavIds.size) {
               void loadLiveChannelsByIds(plan.provider, missingFavIds).then((favChannels) => {
-                if (cancelled || !favChannels.length) return;
+                if (bootSuperseded() || !favChannels.length) return;
                 const seen = new Set(prepared.map((c) => c.id));
                 for (const ch of favChannels) if (!seen.has(ch.id)) { seen.add(ch.id); prepared.push(ch); }
                 const merged = restoreSavedChannelOrder(
@@ -2247,7 +2313,7 @@ export function App() {
             for (const id of favIds) if (!bootChannels.some((c) => c.id === id)) missingFavIds.add(id);
             if (missingFavIds.size && catalogPlanRef.current) {
               void loadLiveChannelsByIds(catalogPlanRef.current.provider, missingFavIds).then((favChannels) => {
-                if (cancelled || !favChannels.length) return;
+                if (bootSuperseded() || !favChannels.length) return;
                 const merged = [...bootChannels];
                 const seen = new Set(merged.map((c) => c.id));
                 for (const ch of favChannels) if (!seen.has(ch.id)) { seen.add(ch.id); merged.push(ch); }
@@ -2468,6 +2534,16 @@ export function App() {
     setSettings((current) => {
       const updated = { ...current, ...newSettings };
       storageService.saveSettings(updated);
+      /*
+       * A lejátszási mód (puffer, lejátszómotor, formátum, csatornabetöltés)
+       * és a TV Doktor kapcsolója SZOLGÁLTATÓNKÉNT külön mentődik: ami az
+       * egyik szolgáltatónál stabil, a másiknál akadhat. Az aktív szolgáltató
+       * profilja itt frissül, a többié érintetlen marad.
+       */
+      if (PROVIDER_SCOPED_SETTING_KEYS.some((key) => key in newSettings)) {
+        const ownerId = activeProviderRef.current?.id || activeProviderScopeId();
+        if (ownerId) storageService.saveProviderSettings(ownerId, updated);
+      }
       return updated;
     });
   }, []);
@@ -2784,7 +2860,7 @@ export function App() {
     setIsPlaying(true);
     // Csak ezt az egy azonosítót mentjük, késleltetve - a beállítás-objektum
     // állapotát NEM írjuk, így a váltás egyetlen újrarajzolással megvan.
-    storageService.rememberLastChannel(channel.id);
+    storageService.rememberLastChannel(channel.id, activeProviderRef.current?.id);
     if (activeView !== 'live') {
       setActiveView('live');
     }
@@ -3178,7 +3254,7 @@ export function App() {
   }, [folders, handleSaveFolders, selectedFavoriteFolderId]);
 
   // Add New Provider (a letöltött csatorna/film/sorozat listával együtt)
-  const handleAddProvider = (newProvider: ProviderAccount, content?: ImportedContent) => {
+  const handleAddProvider = (newProvider: ProviderAccount, content?: ImportedContent): string => {
     const replacingId = editingProvider?.id;
 
     if (replacingId) {
@@ -3199,11 +3275,23 @@ export function App() {
       storageService.saveProviders(finalProviders);
     }
 
-    if (!content) return;
-
     // Az import által létrehozott ideiglenes provider ID-t mindig
     // összehangoljuk a ténylegesen mentett szolgáltató ID-jával.
     const providerId = replacingId || newProvider.id;
+    if (!content) return providerId;
+
+    /*
+     * Új (vagy eddig nem aktív) szolgáltató kerül a képernyőre: az előző
+     * szolgáltatóról ugyanúgy le kell válni, mint kézi váltáskor – különben
+     * a futó háttérmunkája és a késleltetett mentése az új szolgáltató
+     * felületére / tárába írna, az új lista első csatornája pedig az előző
+     * szolgáltató „utoljára nézett csatornájaként” mentődne.
+     */
+    const isEditOfActiveProvider = Boolean(replacingId) && activeProviderRef.current?.id === providerId;
+    if (activeProviderRef.current?.id !== providerId) {
+      detachFromCurrentProvider({ ...content.provider, id: providerId });
+      persistActiveProviderChoice(providerId);
+    }
     storageService.clearChannelOrder(providerId);
     // A lista ÚJBÓLI hozzáadása tiszta lapot ad: a korábbi törlések jegyzéke
     // is ürül – így lehet egy véletlenül törölt csatornát visszakapni.
@@ -3265,7 +3353,7 @@ export function App() {
     setIsOnlyFavorites(false);
     // A korábban nézett csatornát NEM írjuk felül: ha az új listában is
     // megvan, azon maradunk; csak ha eltűnt, választunk magyar csatornát.
-    const savedLastId = storageService.getLastChannelId() || settings.lastPlayedChannelId;
+    const savedLastId = storageService.getLastChannelId(providerId);
     const savedStillExists = Boolean(savedLastId && normalizedContent.channels.some((channel) => channel.id === savedLastId));
     /*
      * ELSŐ BETÖLTÉS: a beolvasás után a főoldalon az ELSŐ MAGYAR csatorna
@@ -3276,7 +3364,6 @@ export function App() {
      * szerkesztésekor (újratöltésekor) folytatjuk – egy új szolgáltatónál a
      * régi listából megjegyzett azonosító nem öröklődhet át.
      */
-    const isEditOfActiveProvider = Boolean(replacingId) && activeProviderRef.current?.id === providerId;
     const firstDefaultChannel = firstPlayableHungarianChannel(normalizedContent.channels)
       || normalizedContent.channels.find((channel) => (channel.countryCode || 'INT').toUpperCase() === defaultCountryCode)
       || normalizedContent.channels[0];
@@ -3288,11 +3375,12 @@ export function App() {
     } else if (firstDefaultChannel) {
       if (holdLivePlaybackRef.current) pendingImportChannelIdRef.current = firstDefaultChannel.id;
       else setActiveChannelId(firstDefaultChannel.id);
-      storageService.rememberLastChannel(firstDefaultChannel.id);
+      storageService.rememberLastChannel(firstDefaultChannel.id, providerId);
       handleUpdateSettings({ activeProviderId: providerId });
     } else {
       handleUpdateSettings({ activeProviderId: providerId });
     }
+    return providerId;
   };
 
   // QR telefonos beállítás – provider fogadása telefonról (TV-n nem kell pötyögni)
@@ -3337,11 +3425,11 @@ export function App() {
           expireDate: 'N/A',
           maxConnections: 0
         };
-        handleAddProvider(newProvider);
+        const savedId = handleAddProvider(newProvider);
         // A provider mentése után automatikusan induljon a teljes listaimport.
         // 2.5.137: az első, felhasználó által kezdeményezett import NEM csendes:
         // megjelenik a betöltési diagnosztika ÉS a kérdéses ablak is.
-        void handleRefreshProvider(newProvider, true, false, payload.type === 'xtream');
+        void handleRefreshProvider({ ...newProvider, id: savedId }, true, false, payload.type === 'xtream');
       } else if (payload.type === 'm3u') {
         const newProvider = {
           id: 'qr_' + Date.now(),
@@ -3359,37 +3447,387 @@ export function App() {
           expireDate: 'N/A',
           maxConnections: 0
         };
-        handleAddProvider(newProvider);
+        const savedId = handleAddProvider(newProvider);
         // M3U esetén is automatikusan induljon a beolvasás a mentés után.
         // 2.5.137: az első, felhasználó által kezdeményezett import NEM csendes:
         // megjelenik a betöltési diagnosztika ÉS a kérdéses ablak is.
-        void handleRefreshProvider(newProvider, true);
+        void handleRefreshProvider({ ...newProvider, id: savedId }, true);
       }
     } catch (e) {
       console.error('[QR] handle error', e);
     }
   };
 
-  // Szolgáltatóváltás: a kiválasztott fiók lesz az egyetlen aktív,
-  // majd a saját azonosítójával frissítjük/visszatöltjük a tartalmát.
-  // A másik szolgáltató mentett adatait és személyes beállításait nem töröljük.
+  /*
+   * ======================= SZOLGÁLTATÓVÁLTÁS (2.5.417) =======================
+   *
+   * MI VOLT A HIBA:
+   *   • A váltás minden alkalommal a HÁLÓZATRÓL töltötte újra a teljes
+   *     katalógust (`handleRefreshProvider`), holott a másik szolgáltató
+   *     listája már a TV tárolójában volt. Ha a frissítés „nincs változás”
+   *     eredménnyel vagy megszakítva ért véget, a képernyőn az ELŐZŐ
+   *     szolgáltató csatornái maradtak – az új szolgáltató neve alatt.
+   *   • Az előző szolgáltató futó háttérmunkája (visszatöltés, műsorújság,
+   *     késleltetett mentés) a váltás után is dolgozott, és az eredményét az
+   *     új szolgáltató felületére / tárába írta.
+   *   • Az „utoljára nézett csatorna” közös volt: váltáskor törlődött, a
+   *     visszaváltás ezért mindig az első csatornáról indult.
+   *
+   * MOST: a váltás HELYBEN, hálózat nélkül történik. Az előző szolgáltató
+   * minden függő írása a SAJÁT tárába kerül, minden futó munkája leáll, a
+   * felület kiürül, majd az új szolgáltató SAJÁT mentett katalógusa, saját
+   * kedvencei, sorrendje, utolsó csatornája és lejátszási profilja töltődik
+   * be. Letöltés csak akkor indul, ha az új szolgáltatónak még nincs mentett
+   * listája (első használat).
+   */
+
+  /** A megjelenített szolgáltató még ki nem írt módosításai – a SAJÁT tárába. */
+  const flushPendingProviderSave = (provider: ProviderRef | null): void => {
+    storageService.flushLastChannel();
+    const wasDirty = dirtyRef.current;
+    dirtyRef.current = false;
+    if (!provider || !wasDirty) return;
+    const channelList = channelsRef.current;
+    const movieList = moviesRef.current;
+    const seriesList = seriesRef.current;
+    const totals = totalCountsRef.current;
+    const previous = lastSavedRef.current;
+    const changedChannels = previous.channels !== channelList && channelList.length > 0;
+    // Részleges vagy üres lista soha nem írhatja felül a teljes mentést.
+    const changedMovies = previous.movies !== movieList && movieList.length > 0
+      && (totals.vod === 0 || movieList.length >= totals.vod);
+    const changedSeries = previous.series !== seriesList && seriesList.length > 0
+      && (totals.series === 0 || seriesList.length >= totals.series);
+    if (!changedChannels && !changedMovies && !changedSeries) return;
+    const content: ImportedContent = {
+      provider,
+      savedAt: new Date().toISOString(),
+      channels: channelList,
+      movies: movieList,
+      series: seriesList,
+      liveCategories: categoriesRef.current,
+      vodCategories: vodCategoriesRef.current,
+      seriesCategories: seriesCategoriesRef.current,
+      totals,
+    };
+    appLog(`AKTÍV SZOLGÁLTATÓ VÁLTÁSA: a függő módosítások mentése a(z) ${provider.id} saját tárába `
+      + `(csatorna=${changedChannels}, film=${changedMovies}, sorozat=${changedSeries}).`);
+    void (async () => {
+      try {
+        if (changedChannels) saveLiveContentSafely(content);
+        if (changedMovies) await saveVodContentSafely(content);
+        if (changedSeries) await saveSeriesContentSafely(content);
+      } catch (error) {
+        appLogError('Szolgáltatóváltás előtti mentés', error);
+      }
+    })();
+  };
+
+  /**
+   * LEVÁLÁS A JELENLEGI SZOLGÁLTATÓRÓL – teljes egészében SZINKRON.
+   *
+   * A hívás végére: az előző szolgáltató írásai kimentek, minden futó
+   * munkája leállt, a névtér az új szolgáltatóé, a felület pedig üres. A
+   * React 18+ az összes állapotfrissítést egyetlen kirajzolásba vonja, így a
+   * néző egy pillanatra sem lát kevert (régi lista + új szolgáltató) állapotot.
+   *
+   * @returns a váltás sorszáma – a folytatások ezzel ellenőrzik, érvényesek-e még.
+   */
+  const detachFromCurrentProvider = (
+    next: ProviderRef | null,
+    /* `keepNetwork`: az ÚJ szolgáltató importja éppen fut – azt nem szakíthatjuk meg. */
+    options: { keepNetwork?: boolean } = {},
+  ): number => {
+    const previous = activeProviderRef.current;
+    // 1) Az előző szolgáltató függő írásai – még a SAJÁT névterébe.
+    flushPendingProviderSave(previous);
+    if (previous?.id && previous.id !== next?.id) {
+      // A most érvényes lejátszási profil az övé marad.
+      storageService.saveProviderSettings(previous.id, settingsRef.current);
+    }
+
+    // 2) Minden futó munka leáll.
+    const generation = switchGenerationRef.current + 1;
+    switchGenerationRef.current = generation;
+    const refreshWasRunning = providerRefreshActiveRef.current;
+    refreshGenerationRef.current += 1;
+    providerRefreshActiveRef.current = false;
+    if (!options.keepNetwork) cancelNetworkRequests();
+    cancelAutoRetry();
+    retryAttemptsRef.current = 0;
+    if (refreshWasRunning) closeRefreshDiagnostic();
+    else answerRefreshChangePrompt(false);
+    const timers = backgroundWorkTimersRef.current;
+    if (timers) {
+      timers.cleanup?.();
+      window.clearTimeout(timers.guideTimer);
+      window.clearTimeout(timers.safetyTimer);
+      window.clearTimeout(timers.restoreTimer);
+      window.clearInterval(timers.refreshTimer);
+    }
+    backgroundWorkTimersRef.current = undefined;
+
+    // 3) Névtér: a TV Doktor az előző memóriáját kiüríti, az újét betölti;
+    //    a katalógus, a kedvencek és az előzmények kulcsai is átállnak.
+    setTvDoctorProviderScope(next?.id || '');
+    // A névtér-váltás UTÁN: a kész-jelzők már az új szolgáltatóhoz tartoznak.
+    cancelStoredContentRestore();
+
+    // 4) A szolgáltatóhoz kötött futási állapot.
+    catalogPlanRef.current = null;
+    pendingFullLivePlanRef.current = null;
+    fullLiveRestoreStartedRef.current = false;
+    fullLiveRestoreCompletedRef.current = false;
+    restoreQueuedRef.current = [];
+    bootBackgroundStartedRef.current = false;
+    userZappedRef.current = false;
+    liveRestoreTotalRef.current = 0;
+    // Az előző szolgáltató félretett csatornája az újnál nem indulhat el.
+    pendingImportChannelIdRef.current = null;
+    attemptedCountryRef.current.clear();
+    attemptedCountryEpgRef.current.clear();
+    const emptyChannels: Channel[] = [];
+    const emptyMovies: Movie[] = [];
+    const emptySeries: Series[] = [];
+    lastSavedRef.current = { channels: emptyChannels, movies: emptyMovies, series: emptySeries };
+    channelsRef.current = emptyChannels;
+    moviesRef.current = emptyMovies;
+    seriesRef.current = emptySeries;
+    categoriesRef.current = [];
+    vodCategoriesRef.current = [];
+    seriesCategoriesRef.current = [];
+    totalCountsRef.current = { live: 0, vod: 0, series: 0 };
+    catalogSavedCountsRef.current = { vod: 0, series: 0 };
+    activeChannelIdRef.current = '';
+    activeProviderRef.current = next;
+    activeViewRef.current = 'live';
+
+    // 5) A felület: az előző szolgáltatóból semmi nem maradhat a képernyőn.
+    clearEpgCache();
+    resetGuideMemoryForProviderSwitch();
+    setEpgRevision((revision) => revision + 1);
+    setActiveEpg(null);
+    setNextEpisodeToPlay(null);
+    setCustomStreamUrl(undefined);
+    setCustomStreamTitle(undefined);
+    setActiveView('live');
+    // A Mozi/Sorozat nézet belső állapota (keresés, kategória) is az előző
+    // szolgáltatóé volt: az első megnyitáskor frissen épül fel.
+    setVisitedViews({ live: true });
+    setActiveChannelId('');
+    setActiveProvider(next);
+    setChannels(emptyChannels);
+    setCategories([]);
+    setMovies(emptyMovies);
+    setVodCategories([]);
+    setSeries(emptySeries);
+    setSeriesCategories([]);
+    setTotalCounts({ live: 0, vod: 0, series: 0 });
+    setCatalogSavedCounts({ vod: 0, series: 0 });
+    setVodRestoreProgress({ movies: 0, series: 0 });
+    setVodRestoreCounts({ movies: { loaded: 0, total: 0 }, series: { loaded: 0, total: 0 } });
+    setLiveRestoreProgress(0);
+    setLiveListComplete(true);
+    setProviderContentReady(false);
+    setLiveRecoveryNeeded(false);
+    setSelectedCategoryId('all');
+    setSelectedSubCategoryId(null);
+    setSelectedFavoriteFolderId(null);
+    setIsOnlyFavorites(false);
+    return generation;
+  };
+
+  /** Az aktív jelző és a szolgáltatónkénti lejátszási profil átállítása. */
+  const persistActiveProviderChoice = (
+    nextId: string | null,
+    source: { list?: ProviderAccount[]; ensure?: ProviderAccount } = {},
+  ): void => {
+    /*
+     * A lista a LEGFRISSEBB állapotból számolódik (funkcionális frissítés):
+     * egy ugyanebben a pillanatban hozzáadott vagy szerkesztett szolgáltató
+     * adatait a korábbi renderből lezárt lista nem írhatja vissza.
+     */
+    setProviders((current) => {
+      let base = source.list || current;
+      if (source.ensure && !base.some((item) => item.id === source.ensure!.id)) base = [source.ensure, ...base];
+      const nextProviders = base.map((item) => (
+        item.isActive === (item.id === nextId) ? item : { ...item, isActive: item.id === nextId }
+      ));
+      storageService.saveProviders(nextProviders);
+      return nextProviders;
+    });
+    const base = settingsRef.current;
+    let nextSettings: AppSettings;
+    if (nextId) {
+      // Első használatkor az új szolgáltató a jelenlegi értékekkel indul,
+      // és ettől kezdve a sajátjaként őrzi őket.
+      if (!storageService.getProviderSettings(nextId)) storageService.saveProviderSettings(nextId, base);
+      nextSettings = {
+        ...storageService.applyProviderSettings(base, nextId),
+        activeProviderId: nextId,
+        // A csatornaazonosítók szolgáltatónként ütközhetnek: csak a SAJÁT
+        // megjegyzett csatorna folytatható.
+        lastPlayedChannelId: storageService.getLastChannelId(nextId) || undefined,
+      };
+    } else {
+      nextSettings = { ...base, activeProviderId: '', lastPlayedChannelId: undefined };
+    }
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    storageService.saveSettings(nextSettings);
+  };
+
+  const providerRefOf = (provider: ProviderAccount): ProviderRef => ({
+    id: provider.id,
+    type: provider.type,
+    serverUrl: provider.serverUrl,
+    username: provider.username,
+    password: provider.password,
+  });
+
+  /**
+   * AZ ÚJ SZOLGÁLTATÓ MENTETT KATALÓGUSA A FELÜLETRE – hálózat nélkül.
+   *
+   * Ugyanazt a menetrendet követi, mint a hideg indulás: előbb a kis induló
+   * készlet (magyar + kedvenc csatornák) jelenik meg, a teljes lista az
+   * Ország menü megnyitásakor, a film- és sorozatlista a Mozi/Sorozat nézet
+   * megnyitásakor töltődik be a tartós tárból.
+   */
+  const showStoredProviderCatalog = async (
+    target: ProviderRef,
+    generation: number,
+  ): Promise<'shown' | 'empty' | 'superseded'> => {
+    let plan: StoredCatalogPlan | null = null;
+    try {
+      plan = await inspectStoredCatalogs(target.id);
+    } catch (error) {
+      appLogError('Szolgáltatóváltás – a tároló felmérése', error);
+    }
+    if (switchGenerationRef.current !== generation) return 'superseded';
+    if (!plan || (!plan.bootChannels.length && !plan.hasLive && !plan.hasVod && !plan.hasSeries)) {
+      return 'empty';
+    }
+    // A tárban lévő fejléc helyett a szolgáltatólista FRISS belépési adatai érvényesek.
+    const effectivePlan: StoredCatalogPlan = { ...plan, provider: { ...plan.provider, ...target } };
+    catalogPlanRef.current = effectivePlan;
+    const prepared = restoreSavedChannelOrder(
+      hungaryFirst(dropDeletedChannels(effectivePlan.bootChannels, target.id)),
+      target.id,
+    );
+    channelsRef.current = prepared;
+    lastSavedRef.current = { ...lastSavedRef.current, channels: prepared };
+    setChannels(prepared);
+    setCategories(effectivePlan.bootCategories);
+    const totals = {
+      live: Math.max(effectivePlan.counts.live, effectivePlan.bootTotals.live, prepared.length),
+      vod: Math.max(effectivePlan.counts.vod, effectivePlan.bootTotals.vod),
+      series: Math.max(effectivePlan.counts.series, effectivePlan.bootTotals.series),
+    };
+    totalCountsRef.current = totals;
+    setTotalCounts(totals);
+    const savedCounts = {
+      vod: Math.max(effectivePlan.state?.sections?.vod?.count ?? 0, effectivePlan.counts.vod),
+      series: Math.max(effectivePlan.state?.sections?.series?.count ?? 0, effectivePlan.counts.series),
+    };
+    catalogSavedCountsRef.current = savedCounts;
+    setCatalogSavedCounts(savedCounts);
+    setVodRestoreCounts({
+      movies: { loaded: 0, total: savedCounts.vod },
+      series: { loaded: 0, total: savedCounts.series },
+    });
+    const countries = buildCountryCategories(prepared, effectivePlan.bootCategories);
+    setSelectedCategoryId(findHungaryCategoryId(countries) || 'all');
+    // A szolgáltató SAJÁT utoljára nézett csatornája; ha az nincs az induló
+    // készletben, az első magyar adó – a teljes lista megérkezésekor a
+    // megjegyzett csatorna visszaáll (lásd a visszatöltés `onLive` ágát).
+    const savedLastId = storageService.getLastChannelId(target.id);
+    const nextChannelId = savedLastId && prepared.some((channel) => channel.id === savedLastId)
+      ? savedLastId
+      : (firstPlayableHungarianChannel(prepared)?.id || prepared[0]?.id || '');
+    activeChannelIdRef.current = nextChannelId;
+    setActiveChannelId(nextChannelId);
+    setIsPlaying(true);
+    setProviderContentReady(true);
+    setLiveRecoveryNeeded(false);
+    bootBackgroundStartedRef.current = true;
+    backgroundWorkTimersRef.current = startBackgroundWork(effectivePlan);
+    appLog(`AKTÍV SZOLGÁLTATÓ VÁLTÁSA: ${prepared.length} csatorna a saját tárból, letöltés nélkül `
+      + `(tárolt: élő=${totals.live}, film=${totals.vod}, sorozat=${totals.series}).`);
+    if (!prepared.length && effectivePlan.hasLive) {
+      // Nincs külön induló készlet (régi mentés): a teljes élő lista azonnal jön a tartós tárból.
+      fullLiveRestoreStartedRef.current = true;
+      void runRestore(effectivePlan, 'live').catch(() => { /* a naplóban ott a valódi ok */ });
+    } else if (prepared.length) {
+      /*
+       * AZ INDULÓ KÉSZLETBŐL HIÁNYZÓ SAJÁT CSATORNÁK PÓTLÁSA (mint hideg
+       * induláskor): a kedvenc mappák nem magyar csatornái és a szolgáltató
+       * utoljára nézett – esetleg külföldi – adója a háttérben, a tartós
+       * tárból érkezik meg. A lista addig is azonnal használható.
+       */
+      try {
+        const wantedIds = new Set<string>();
+        for (const folder of storageService.getFolders(target.id)) {
+          for (const channelId of (folder.channelIds || [])) wantedIds.add(channelId);
+        }
+        const resumeId = savedLastId && savedLastId !== nextChannelId ? savedLastId : '';
+        if (resumeId) wantedIds.add(resumeId);
+        for (const channel of prepared) wantedIds.delete(channel.id);
+        if (wantedIds.size) {
+          void loadLiveChannelsByIds(effectivePlan.provider, wantedIds).then((extra) => {
+            if (switchGenerationRef.current !== generation || !extra.length) return;
+            const usable = dropDeletedChannels(extra, target.id);
+            if (!usable.length) return;
+            setChannels((current) => {
+              const known = new Set(current.map((channel) => channel.id));
+              const toAdd = usable.filter((channel) => !known.has(channel.id));
+              if (!toAdd.length) return current;
+              const merged = [...current, ...toAdd];
+              channelsRef.current = merged;
+              return merged;
+            });
+            // A néző közben nem váltott: az adás a SAJÁT utolsó csatornáján folytatódik.
+            if (resumeId && activeChannelIdRef.current === nextChannelId
+                && usable.some((channel) => channel.id === resumeId)) {
+              activeChannelIdRef.current = resumeId;
+              setActiveChannelId(resumeId);
+            }
+            appLog(`AKTÍV SZOLGÁLTATÓ VÁLTÁSA: ${usable.length} kedvenc/utolsó csatorna pótolva az induló készlethez.`);
+          }).catch(() => { /* a pótlás nem kritikus: a teljes lista az Ország menüből is betölthető */ });
+        }
+      } catch { /* a pótlás nem kritikus */ }
+    }
+    return 'shown';
+  };
+
+  /**
+   * Helyi váltás a megadott szolgáltatóra.
+   * @returns igaz, ha a váltás érvényben maradt (nem előzte meg egy újabb).
+   */
+  const switchToProviderLocally = async (
+    provider: ProviderAccount,
+    options: { refreshWhenEmpty: boolean; list?: ProviderAccount[] },
+  ): Promise<boolean> => {
+    const target = providerRefOf(provider);
+    const generation = detachFromCurrentProvider(target);
+    persistActiveProviderChoice(provider.id, { list: options.list, ensure: provider });
+    const outcome = await showStoredProviderCatalog(target, generation);
+    if (outcome === 'superseded') return false;
+    if (outcome === 'empty') {
+      appLog(`AKTÍV SZOLGÁLTATÓ VÁLTÁSA: „${provider.name}” még nem rendelkezik mentett listával.`);
+      if (options.refreshWhenEmpty) {
+        // Első használat: a lista egyszer letöltődik, utána a váltás már helyi.
+        void handleRefreshProvider({ ...provider, isActive: true, status: 'loading' }, true);
+      }
+    }
+    return true;
+  };
+
+  // Szolgáltatóváltás: a kiválasztott fiók lesz az egyetlen aktív. A másik
+  // szolgáltató mentett adatai és személyes beállításai érintetlenek maradnak.
   const handleActivateProvider = (provider: ProviderAccount) => {
     if (!provider?.id || activeProviderRef.current?.id === provider.id) return;
-    const nextProviders = providers.map((item) => ({
-      ...item,
-      isActive: item.id === provider.id,
-    }));
-    setProviders(nextProviders);
-    storageService.saveProviders(nextProviders);
-    storageService.clearLastChannel();
-    handleUpdateSettings({
-      activeProviderId: provider.id,
-      lastPlayedChannelId: undefined,
-    });
-    appLog(`Szolgáltatóváltás: „${provider.name}” aktiválása.`);
-    // A meglévő frissítési útvonal szolgáltatói ID alapján választja ki
-    // a megfelelő katalógust; nem használja fel az előző szolgáltató listáját.
-    void handleRefreshProvider({ ...provider, isActive: true, status: 'loading' }, true);
+    appLog(`AKTÍV SZOLGÁLTATÓ VÁLTÁSA: „${provider.name}” aktiválása (helyben, a saját mentett listájából).`);
+    void switchToProviderLocally(provider, { refreshWhenEmpty: true });
   };
 
   // Delete Provider
@@ -3400,37 +3838,38 @@ export function App() {
    * eddig hatástalan volt.
    */
   const handleDeleteProvider = (id: string) => {
+    const removed = providers.find((p) => p.id === id);
     const updated = providers.filter((p) => p.id !== id);
-    setProviders(updated);
-    storageService.saveProviders(updated);
-    // 2.5.298: a szolgáltatóhoz tartozó „törölt filmek” jegyzékét is dobjuk.
-    try { clearRemovedVod(id); } catch {}
-
-    if (activeProvider?.id === id) {
-      // A felhasználói kedvencek és sorrendek csak a szolgáltató törlésekor törlődnek.
-      clearContent();
-      setActiveProvider(null);
-      setChannels([]);
-      setCategories([]);
-      setMovies([]);
-      setVodCategories([]);
-      setSeries([]);
-      setSeriesCategories([]);
-      setTotalCounts({ live: 0, vod: 0, series: 0 });
-      setCatalogSavedCounts({ vod: 0, series: 0 });
-      catalogSavedCountsRef.current = { vod: 0, series: 0 };
-      setFolders([]);
-      storageService.saveFolders([], id);
-      setHistory([]);
-      storageService.saveHistory([], id);
-      setSelectedFavoriteFolderId(null);
-      setSelectedCategoryId('all');
-      setIsOnlyFavorites(false);
-      // A megjegyzett csatorna sem öröklődhet át a következő szolgáltatóra.
-      storageService.clearLastChannel();
-      setActiveChannelId('');
-      handleUpdateSettings({ activeProviderId: undefined, lastPlayedChannelId: undefined });
+    const shownId = activeProviderRef.current?.id || settingsRef.current.activeProviderId || '';
+    const wasActive = shownId === id || Boolean(removed?.isActive);
+    appLog(`TÖRÖLT SZOLGÁLTATÓ: „${removed?.name || id}” (${wasActive ? 'aktív' : 'nem aktív'}); megmarad: ${updated.length}.`);
+    /*
+     * BÁRMELYIK szolgáltató törlése a SAJÁT adatait törli – és csak azokat.
+     * Korábban egy nem aktív szolgáltató törlése után a teljes katalógusa a
+     * készüléken maradt; az aktív törlése után pedig a program szolgáltató
+     * nélkül, üres képernyővel állt, miközben volt másik beállított fiók.
+     */
+    if (!wasActive) {
+      setProviders(updated);
+      storageService.saveProviders(updated);
+      void purgeProviderData(id).then(() => appLog(`A törölt szolgáltató (${id}) adatai eltávolítva.`));
+      return;
     }
+    const successor = updated[0] || null;
+    if (successor) {
+      // Előbb átváltunk (az előző függő írásai kimennek), a törlés csak utána jön.
+      dirtyRef.current = false; // a törölt szolgáltató listáját már nem mentjük
+      void switchToProviderLocally(successor, { refreshWhenEmpty: false, list: updated })
+        .finally(() => purgeProviderData(id).then(() => appLog(`A törölt szolgáltató (${id}) adatai eltávolítva.`)));
+      return;
+    }
+    // Ez volt az utolsó szolgáltató: az alkalmazás üres állapotba kerül.
+    dirtyRef.current = false; // a törölt szolgáltató listáját már nem mentjük
+    detachFromCurrentProvider(null);
+    persistActiveProviderChoice(null, { list: updated });
+    setHistory([]);
+    setFolders([]);
+    void purgeProviderData(id).then(() => appLog(`A törölt szolgáltató (${id}) adatai eltávolítva.`));
   };
 
   /**
@@ -3579,6 +4018,23 @@ export function App() {
       appLog('Frissítés gomb: már fut ennek a szolgáltatónak a frissítése – új futam nem indul, az ablak újra megnyílik.');
       setDiagnosticOpen(true);
       return;
+    }
+    /*
+     * MÁSIK SZOLGÁLTATÓ FRISSÍTÉSE = ELŐBB VÁLTÁS (2.5.417).
+     *
+     * A frissítés a képernyőn lévő listát tekinti „előző állapotnak”: ahhoz
+     * hasonlítja az újat, abból őrzi meg a sorrendet és a nézett csatornát.
+     * Ha a frissített szolgáltató nem az, amelyik a képernyőn van, ez a
+     * két szolgáltató adatait keverte össze: „nincs változás” eredménynél
+     * az előző szolgáltató csatornái maradtak kint az új neve alatt, a
+     * sorrend és az utolsó csatorna pedig a rossz fiókhoz mentődött.
+     * Ezért előbb teljes, helyi váltás történik a frissítendő szolgáltatóra
+     * (a saját mentett listájával), és a frissítés ezután már a SAJÁT
+     * adataihoz viszonyít.
+     */
+    if (activeProviderRef.current?.id !== id) {
+      const stillCurrent = await switchToProviderLocally(provider, { refreshWhenEmpty: false });
+      if (!stillCurrent) return;
     }
     const refreshStartedAt = performance.now();
     /*
@@ -4255,9 +4711,11 @@ export function App() {
        */
       if (!bootBackgroundStartedRef.current) {
         bootBackgroundStartedRef.current = true;
-        void inspectStoredCatalogs()
+        const requestedFor = switchGenerationRef.current;
+        void inspectStoredCatalogs(id)
           .then((freshPlan) => {
-            if (!freshPlan) return;
+            // Közben szolgáltatóváltás történt: a régi terv nem indíthat háttérmunkát.
+            if (!freshPlan || switchGenerationRef.current !== requestedFor) return;
             catalogPlanRef.current = freshPlan;
             backgroundWorkTimersRef.current = startBackgroundWork(freshPlan);
           })
@@ -5838,6 +6296,11 @@ export function App() {
               expireDate: 'Korlátlan',
               maxConnections: 0,
             };
+            // Új szolgáltató első adagja: előbb teljes leválás az előzőről,
+            // hogy a két szolgáltató listája, mentése és névtere ne keveredjen.
+            if (activeProviderRef.current?.id !== provisionalProvider.id) {
+              detachFromCurrentProvider(partial.provider, { keepNetwork: true });
+            }
             activeProviderRef.current = provisionalProvider;
             setActiveProvider(provisionalProvider);
             setProviderContentReady(true);

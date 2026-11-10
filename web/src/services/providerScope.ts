@@ -36,6 +36,33 @@ export function setActiveProviderScope(providerId: string | null | undefined): v
   }
 }
 
+/**
+ * Rögzített (explicit) szolgáltatóhoz tartozó művelet előkészítése.
+ *
+ * A tároló-függvények NEM állíthatják át a globális aktív névteret: az akkor
+ * is az éppen nézett szolgáltatóé marad, ha a háttérben egy másik szolgáltató
+ * mentése fut. Egyetlen kivétel az első használat: ha még nincs aktív névtér
+ * (első szolgáltató importja), akkor ez a szolgáltató lesz az – és vele a
+ * régi, előtag nélküli kulcsok tulajdonosa.
+ */
+export function adoptProviderScopeIfUnset(providerId: string | null | undefined): void {
+  const id = String(providerId || '').trim();
+  if (!id) return;
+  if (!activeProviderId) {
+    setActiveProviderScope(id);
+    return;
+  }
+  if (readLegacyOwner()) return;
+  // Van aktív névtér, de még nincs régi tulajdonos (nem írható tárhely után):
+  // a tulajdonos az AKTÍV szolgáltató, nem a háttérben dolgozó.
+  setActiveProviderScope(activeProviderId);
+}
+
+/** A régi (előtag nélküli) kulcsok tulajdonosa, ha már van. */
+export function legacyProviderScopeOwner(): string | null {
+  return readLegacyOwner();
+}
+
 /** Az aktív szolgáltató prefixe; a régi tulajdonos prefix nélkül marad. */
 export function providerScopePrefix(providerId?: string | null): string {
   const id = String(providerId === undefined ? activeProviderId : providerId || '').trim();

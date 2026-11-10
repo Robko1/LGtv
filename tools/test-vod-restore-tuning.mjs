@@ -71,7 +71,7 @@ check(/if \(!animatedBridge\) \{\s*afterBootAnimation\(\);/.test(main),
   'HTML-híd hiányában a felfedés AZONNAL megtörténik (nincs 400 ms kényszer-várakozás)');
 check(!/migrateVodStorageIfNeeded/.test(app),
   'a boot utáni rejtett 103 ezres Mozi-visszatöltés/átírás eltávolítva');
-check(/describeStoredContent\(\{ quick: true \}\)/.test(store),
+check(/describeStoredContent\(\{ quick: true \}, scope\)/.test(store),
   'a teljes localStorage-bejárás nem fut az indulás kritikus útján');
 
 console.log('\n3. TV Doktor 0-ablak: 8 doboz, nincs alsó instrukciós sor, egy igazságforrás');
