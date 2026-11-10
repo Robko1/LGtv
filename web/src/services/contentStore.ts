@@ -967,7 +967,7 @@ function isHungarianForSave(channel: Channel): boolean {
 /** Mentésnél a magyar csatornák kerülnek előre, utánuk a kedvenc nem-magyar csatornák. */
 function getFavoriteIdsFromStorage(): Set<string> {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('iptv_rt_folders_v1') : null;
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(providerScopePrefix() + 'iptv_rt_folders_v1') : null;
     if (!raw) return new Set();
     const folders = JSON.parse(raw);
     if (!Array.isArray(folders)) return new Set();
