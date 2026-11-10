@@ -690,14 +690,15 @@ export function App() {
   const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string | null>(null);
   const [isOnlyFavorites, setIsOnlyFavorites] = useState<boolean>(savedUiState.current.isOnlyFavorites || false);
   const [searchQuery, setSearchQuery] = useState<string>(savedUiState.current.searchQuery || '');
+  const [categorySearchQuery, setCategorySearchQuery] = useState('');
+  const [selectedFavoriteFolderId, setSelectedFavoriteFolderId] = useState<string | null>(null);
   useLayoutEffect(() => {
     const nextUiState = activeProvider?.id ? storageService.getUiState(activeProvider.id) : {};
     savedUiState.current = nextUiState;
     setIsOnlyFavorites(Boolean(nextUiState.isOnlyFavorites));
     setSearchQuery(nextUiState.searchQuery || '');
+    setSelectedFavoriteFolderId(null);
   }, [activeProvider?.id]);
-  const [categorySearchQuery, setCategorySearchQuery] = useState('');
-  const [selectedFavoriteFolderId, setSelectedFavoriteFolderId] = useState<string | null>(null);
   const [displayedChannelOrder, setDisplayedChannelOrder] = useState<string[]>([]);
   const handleDisplayOrderChange = useCallback((orderedChannelIds: string[]) => {
     setDisplayedChannelOrder((previous) =>
