@@ -1503,8 +1503,8 @@ export function setCatalogFingerprint(fingerprint: string, provider?: ProviderRe
 }
 
 /** Csak a frissességi bélyeget írjuk újra – a nagy listához nem nyúlunk. */
-export function markCatalogChecked(): void {
-  updateCatalogState((state) => { state.checkedAt = Date.now(); });
+export function markCatalogChecked(providerId = activeProviderScopeId()): void {
+  updateCatalogState((state) => { state.checkedAt = Date.now(); }, providerId);
 }
 
 export function catalogNeedsCheck(state: CatalogState | null): boolean {
