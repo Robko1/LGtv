@@ -269,6 +269,27 @@ try {
   check(app1.loadSyncState('provider-b')?.fingerprint === 'durable-after-fallback',
     'a tartós mentés felülírja és eltávolítja a régi memória-tartalékot');
 
+  // Teljes A–B–A katalógus-visszaváltás: azonos csatorna-ID mellett sem keveredhet az IndexedDB/localStorage.
+  const providerAContent = makeContent({ hungarian: 1, foreign: 0 });
+  providerAContent.provider.id = 'provider-a';
+  providerAContent.channels[0] = { ...providerAContent.channels[0], id: 'same-id', name: 'Provider A csatorna', streamUrl: 'https://a.example/live' };
+  providerAContent.totals.live = 1;
+  await app1.saveLiveContentAsync(providerAContent);
+  const providerBContent = makeContent({ hungarian: 1, foreign: 0 });
+  providerBContent.provider.id = 'provider-b';
+  providerBContent.channels[0] = { ...providerBContent.channels[0], id: 'same-id', name: 'Provider B csatorna', streamUrl: 'https://b.example/live' };
+  providerBContent.totals.live = 1;
+  await app1.saveLiveContentAsync(providerBContent);
+  app1.setActiveProviderScope('provider-a');
+  check(app1.loadLive().provider?.id === 'provider-a' && app1.loadLive().channels[0]?.name === 'Provider A csatorna',
+    'A–B váltás után az A szolgáltató saját csatornája töltődik vissza');
+  app1.setActiveProviderScope('provider-b');
+  check(app1.loadLive().provider?.id === 'provider-b' && app1.loadLive().channels[0]?.name === 'Provider B csatorna',
+    'A–B váltás után a B szolgáltató saját csatornája töltődik vissza');
+  app1.setActiveProviderScope('provider-a');
+  check(app1.loadLive().channels[0]?.name === 'Provider A csatorna',
+    'B után visszaváltva ismét az A szolgáltató adatai jelennek meg');
+
   const content = makeContent();
   await app1.saveLiveContentAsync(content);
   await settle();
