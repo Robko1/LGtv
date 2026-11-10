@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   tests:
-    name: TV Doktor szolgáltatói tárhelymérés ellenőrzés 2
+    name: Végső teljes regressziós ellenőrzés (IPK nélkül)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -42,4 +42,4 @@ jobs:
       - name: Teljes tesztkör
         env:
           TEST_CONCURRENCY: '3'
-        run: node tools/test-tv-doctor.mjs
+        run: npm test
