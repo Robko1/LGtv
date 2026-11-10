@@ -2906,9 +2906,11 @@ export async function loadVodAsync(
    * generációja: egy új mentés után automatikusan újraolvassuk.
    */
   const idb = await contentChunkStore();
+  if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { movies: [], categories: [] };
   let cacheKey = `vod|${provider.id}|legacy`;
   if (idb) {
     const stored = await readIdbChunks(idb, VOD_META_KEY);
+    if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { movies: [], categories: [] };
     // Két szolgáltató listája nem keveredhet: idegen fejlécű listát nem
     // szolgálunk ki (a folyam-URL-ek is a rossz fiókkal épülnének fel).
     const chunked = stored && stored.meta.provider && stored.meta.provider.id !== provider.id ? null : stored;
@@ -3032,6 +3034,7 @@ export async function loadVodAsync(
       restoreMetrics.finish('üres – helyi tár ellenőrzése következik');
     }
   }
+  if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { movies: [], categories: [] };
   const meta = openChunked(VOD_META_KEY, VOD_CHUNK_PREFIX);
   if (!meta) {
     const legacy = loadLegacyVod(provider);
@@ -3138,9 +3141,11 @@ export async function loadSeriesAsync(
   setActiveProviderScope(provider.id);
   // Ugyanaz, mint a filmeknél: a teljes sorozatlista a tartós tárban van.
   const idb = await contentChunkStore();
+  if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { series: [], categories: [] };
   let cacheKey = `series|${provider.id}|legacy`;
   if (idb) {
     const stored = await readIdbChunks(idb, SERIES_META_KEY);
+    if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { series: [], categories: [] };
     // Idegen szolgáltató mentett listáját nem keverjük a mostani fiókkal.
     const chunked = stored && stored.meta.provider && stored.meta.provider.id !== provider.id ? null : stored;
     if (stored && !chunked) appLog('Tároló: a mentett sorozatlista másik szolgáltatóhoz tartozik – nem keverjük.');
@@ -3239,6 +3244,7 @@ export async function loadSeriesAsync(
       restoreMetrics.finish('üres – helyi tár ellenőrzése következik');
     }
   }
+  if (shouldAbort?.() || activeProviderScopeId() !== provider.id) return { series: [], categories: [] };
   const meta = openChunked(SERIES_META_KEY, SERIES_CHUNK_PREFIX);
   if (!meta) {
     const legacy = loadLegacySeries(provider);
