@@ -386,7 +386,13 @@ try {
   const app4 = await boot(4);
   await app4.saveLiveContentAsync(content);
   await settle();
+  // A tartalom-cache ürül, de a szolgáltató-névtér tulajdonosjelölője megmarad.
+  // Enélkül a friss modulindítás más legacy tulajdonost választana, és nem találná
+  // meg az IndexedDB-ben a korábban provider:p1: prefixszel mentett teljes listát.
+  const legacyOwnerKey = 'iptv_rt_provider_scope_legacy_owner_v1';
+  const legacyOwnerValue = localStorageFake.getItem(legacyOwnerKey);
   localStorageFake.clear();
+  if (legacyOwnerValue) localStorageFake.setItem(legacyOwnerKey, legacyOwnerValue);
   const app5 = await boot(5);
   const lostLocal = app5.loadLive();
   check(lostLocal.channels.length === 0, 'a localStorage elvesztése után a szinkron betöltő üres (ez volt a hiba)');
