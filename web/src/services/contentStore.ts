@@ -3293,11 +3293,12 @@ export async function loadSeriesAsync(
  * takaríthat – jelző nélkül a mentett tartalomhoz nem nyúl.
  */
 const DELETE_PENDING_KEY = 'iptv-rt-torles-folyamatban';
+const currentDeletePendingKey = (): string => providerScopePrefix() + DELETE_PENDING_KEY;
 
 /** Igaz, ha egy korábbi teljes törlés elindult, de nem fejeződött be. */
 export function hasPendingDeleteMarker(): boolean {
   try {
-    return localStorage.getItem(DELETE_PENDING_KEY) !== null;
+    return localStorage.getItem(currentDeletePendingKey()) !== null;
   } catch {
     return false;
   }
@@ -3305,7 +3306,7 @@ export function hasPendingDeleteMarker(): boolean {
 
 export async function clearContentAsync(): Promise<void> {
   try {
-    localStorage.setItem(DELETE_PENDING_KEY, String(Date.now()));
+    localStorage.setItem(currentDeletePendingKey(), String(Date.now()));
   } catch { /* jelző nélkül is törlünk; az őr ilyenkor óvatos marad */ }
   const liveKeys = readChunkKeys(LIVE_META_KEY, LIVE_CHUNK_PREFIX);
   const vodKeys = readChunkKeys(VOD_META_KEY, VOD_CHUNK_PREFIX);
@@ -3335,7 +3336,7 @@ export async function clearContentAsync(): Promise<void> {
   }
   // A törlés TÉNYLEGESEN végigfutott: a jelző csak most tűnhet el.
   try {
-    localStorage.removeItem(DELETE_PENDING_KEY);
+    localStorage.removeItem(currentDeletePendingKey());
   } catch { /* nem kritikus */ }
 }
 
