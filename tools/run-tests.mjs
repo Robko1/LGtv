@@ -40,6 +40,9 @@ const tasks = [
   { name: 'playback-recovery', args: ['tools/test-playback-recovery.mjs'] },
   { name: 'player-runtime', args: ['tools/test-player-runtime.mjs'] },
   { name: 'startup-watchdog-runtime', args: ['tools/test-startup-watchdog-runtime.mjs'] },
+  // 2.5.418: élő őr – döntési logika a valódi TV-naplók idővonalain + a valódi lejátszóban.
+  { name: 'live-watchdog', args: ['tools/test-live-watchdog.mjs'] },
+  { name: 'live-watchdog-player', args: ['tools/test-live-watchdog-player.mjs'] },
   { name: 'channel-switch-diagnostics-runtime', args: ['tools/test-channel-switch-diagnostics-runtime.mjs'] },
   { name: 'channel-navigation-runtime', args: ['tools/test-channel-navigation-runtime.mjs'] },
   { name: 'live-switch-performance', args: ['tools/test-live-switch-performance.mjs'] },

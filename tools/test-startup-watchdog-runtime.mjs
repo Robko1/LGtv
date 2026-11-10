@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Élő TV watchdog-regresszió: a timer soha nem tölthet újra működő vagy induló csatornát.
+// Élő TV watchdog-regresszió: rövid időn belül (az élő őr 30 mp-es indulási határa előtt)
+// semmilyen timer nem tölthet újra működő vagy induló csatornát.
+// A 2.5.418-as élő őr teljes futásidejű tesztje: tools/test-live-watchdog-player.mjs.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
@@ -71,7 +73,7 @@ try {
  video=await mount('m3u8',0,'http://example.invalid/movie/example.mkv');
  await wait(600);
  assert.match(window.state.plays[0],/example\.mkv$/,'a VOD továbbra is a saját címét használja');
- console.log('OK – élő TV: nincs startup/buffer/stall watchdog vagy időzített újratöltés; kézi váltás és VOD megmarad');
+ console.log('OK – élő TV: induláskor nincs elhamarkodott (másodperceken belüli) időzített újratöltés; kézi váltás és VOD megmarad');
 } finally {window.testPlayer.unmount();window.close();}
 
 function fire(video,name){video.dispatchEvent(new window.Event(name,{bubbles:true}));}
