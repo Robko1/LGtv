@@ -135,18 +135,26 @@ const memorySizeChannel = {
   name: '[HU] M4 Sport HD',
   countryCode: 'HU',
 };
-core.recordDoctorChannelSuccess({
+const memorySizeRecord = core.recordDoctorChannelSuccess({
   channel: memorySizeChannel, format: 'ts', bufferProfile: 'balanced',
   startupMs: 900, storage: providerScopeStorage,
 });
 // A memóriaméret-mérés explicit ugyanazt a tárat olvassa, amelybe a rekordot
 // elmentettük; a szolgáltatóváltás után csak a másik névtér méretét mérjük.
 const providerAStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+const providerAStorageKeys = Array.from(providerScopeStorage.map.keys());
 core.setTvDoctorProviderScope('provider-b');
 const providerBStoredBytes = core.getTvDoctorMemoryStats(providerScopeStorage).doctorStoreBytes;
+console.log('TV Doktor memória teszt – diagnosztika:', JSON.stringify({
+  recordSaved: Boolean(memorySizeRecord),
+  providerAStoredBytes,
+  providerBStoredBytes,
+  providerAStorageKeys,
+  activeProvider: core.activeProviderScopeId?.() || 'not-exported',
+}));
 core.setTvDoctorProviderScope('provider-a');
 check(
-  providerAStoredBytes > 0 && providerBStoredBytes === 0,
+  Boolean(memorySizeRecord) && providerAStoredBytes > 0 && providerBStoredBytes === 0,
   'a TV Doktor memória-méret mérése kizárólag az aktív szolgáltató mentését olvassa',
 );
 
