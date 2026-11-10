@@ -313,6 +313,16 @@ check(/addEventListener\('durationchange'/.test(audioTrackEffect)
 check(!/liveDurationRecoveryTimerRef/.test(PLAYER)
   && !/liveEndArtifactRef/.test(PLAYER),
   'az élő duration/ended időzített recovery teljesen megszűnt');
+check(/lastPlayedRef\.current\.url === directLiveStreamUrl/.test(PLAYER)
+  && !/formatOfUrl\(lastPlayedRef\.current\.url\) === formatOfUrl\(directLiveStreamUrl\)/.test(PLAYER),
+  'azonos csatornaazonosító és TS/HLS forma mellett is újratölt, ha a másik szolgáltató stream URL-je eltér');
+check(/previousDiagnostic\.streamUrl === url/.test(PLAYER) && /streamUrl: url,/.test(PLAYER),
+  'a csatornaváltási mérés sem olvasztja össze a két szolgáltató azonos nevű/ID-jű streamjét');
+check(PLAYER.includes("const variantChannelId = `${String(channelRef.current?.id || '')}|${streamUrl}`;"),
+  'a helyreállítási próbálkozási létra szolgáltatóváltáskor új csatornaként indul');
+check(/const channelKey = `\$\{providerScopeId\}::\$\{channelId\}`/.test(PLAYER)
+  && /\[channel\?\.id, providerScopeId, isVod/.test(PLAYER),
+  'az azonos ID-jű csatornák mentett hangsávja szolgáltatónként külön töltődik be');
 check(/name === 'AbortError'/.test(PLAYER),
   'a gyors forrásváltás AbortError-ja NEM számít lejátszási hibának');
 check(/switchInProgressRef\.current\) return;/.test(PLAYER),
