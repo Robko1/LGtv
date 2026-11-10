@@ -240,8 +240,12 @@ check(!/idővonal haladt/.test(realStallText),
   'haladás nélkül nem írunk hamis „idővonal haladt” lezárást');
 tel.stopTvDoctorLogging();
 
-/* ───────── 4. Élő watchdog végleges kikapcsolása ───────── */
-console.log('\n=== 4. Élő TV: semmilyen watchdog nem indíthat újratöltést ===\n');
+/* ───────── 4. Élő TV: nincs esemény-alapú újratöltés, csak a 2.5.418-as élő őr ─────────
+ * A 2.5.413–417 minden élő őrt kikapcsolt: az `ended` / váratlan pause után
+ * a kép végleg megfagyott. A 2.5.418 visszahoz EGY őrt, amely kizárólag a
+ * `currentTime` haladását nézi (részletes futásidejű teszt:
+ * tools/test-live-watchdog.mjs és tools/test-live-watchdog-player.mjs). */
+console.log('\n=== 4. Élő TV: esemény nem tölt újra, a döntés a haladás-alapú élő őré ===\n');
 
 const player = read('web/src/components/VideoPlayer.tsx');
 const recovery = read('web/src/services/playbackRecovery.ts');
@@ -253,13 +257,31 @@ check(watchdogStart >= 0 && /if \(!isVodRef\.current\) return;/.test(watchdogSli
   'az élő puffer-watchdog azonnal visszatér, csak a VOD külön útja marad');
 check(!/liveDurationRecoveryTimerRef|liveEndArtifactRef/.test(player),
   'nincs élő duration/ended időzítő vagy késleltetett recovery');
-check(/ÉLŐ VÉGES IDŐVONAL-JELZÉS; automatikus újratöltés TILTVA/.test(player),
-  'a durationchange nem tölti újra az élő csatornát');
-check(/ÉLŐ PAUSE\/ENDED JELZÉS; automatikus újratöltés TILTVA/.test(player)
-  && /ÉLŐ ENDED JELZÉS; automatikus újratöltés és watchdog TILTVA/.test(player),
-  'a pause és ended esemény nem indít élő automatikus újratöltést');
-check(/ÉLŐ ÚJRACSATLAKOZÁS KIZÁRÓLAG VALÓDI MÉDIAHIBA ESETÉN/.test(player),
-  'élő újracsatlakozás csak tényleges médiahiba útvonalon marad meg');
+const handlerSlice = (name) => {
+  const start = player.indexOf(`            ${name}={(event) => {`);
+  const end = start >= 0 ? player.indexOf('\n            }}', start) : -1;
+  return start >= 0 && end > start ? player.slice(start, end) : '';
+};
+check(/ÉLŐ VÉGES IDŐVONAL-JELZÉS; az élő őr megerősítés után újracsatlakozik/.test(player)
+  && handlerSlice('onDurationChange').length > 0
+  && !/requestRecoveryRef|loadStream/.test(handlerSlice('onDurationChange')),
+  'a durationchange ESEMÉNY maga nem tölti újra az élő csatornát (az élő őr dönt)');
+check(/ÉLŐ PAUSE\/ENDED JELZÉS; az élő őr megerősítés után újracsatlakozik/.test(player)
+  && /ÉLŐ ENDED JELZÉS; \$\{liveEndWillRecover \? 'az élő őr megerősítés után újracsatlakozik'/.test(player)
+  && handlerSlice('onPause').length > 0 && handlerSlice('onEnded').length > 0
+  && !/requestRecoveryRef|loadStream/.test(handlerSlice('onPause'))
+  && !/requestRecoveryRef\.current|loadStream/.test(handlerSlice('onEnded')),
+  'a pause és ended ESEMÉNY maga nem indít azonnali élő újratöltést (nincs 100 ms-os reload)');
+check(/const liveUnexpectedStop = !isVod/.test(handlerSlice('onPause'))
+  && /const liveEndWillRecover = desiredPlayingRef\.current/.test(handlerSlice('onEnded'))
+  && /if \(!liveEndWillRecover\) \{\s*setIsRecovering\(false\);\s*setIsPlaying\(false\);/.test(handlerSlice('onEnded')),
+  'váratlan élő pause/ended után a kért állapot „lejátszás” marad – nem ragad szünetben a lejátszó');
+check(/liveWatchdogRef\.current\?\.reset\(Date\.now\(\)\)/.test(player)
+  && /watchdog\.observe\(\{/.test(player)
+  && /requestRecoveryRef\.current\(reasonText\)/.test(player)
+  && /ÉLŐ ŐR: ÚJRACSATLAKOZÁS/.test(player)
+  && /ÉLŐ ŐR: HELYI FOLYTATÁS/.test(player),
+  'az élő újracsatlakozást a médiahiba mellett csak a haladás-alapú élő őr kérheti');
 check(/if \(!isVodRef\.current \|\| recoveryTimerRef\.current !== null\) return;/.test(player),
   'a külön VOD-helyreállítás nincs összekeverve az élő TV-vel');
 check(/DOCTOR_STATUS_MAX_VISIBLE_MS = 12000/.test(player),
@@ -268,7 +290,7 @@ check(/startTvDoctorPlaybackTelemetry/.test(doctor)
   && /timeupdate/.test(doctor),
   'a TV Doktor kézi telemetriája megmarad, watchdog nélkül is mér');
 check(/liveEdgeTarget/.test(recovery),
-  'az élő él mérő segédje megmarad, de időzített watchdog nem hívja');
+  'az élő él mérő segédje megmarad');
 
 console.log(`\n=== EREDMÉNY: ${passed}/${passed + failed} ellenőrzés ===`);
 if (failed) {
@@ -276,4 +298,4 @@ if (failed) {
   for (const label of failures) console.error(' - ' + label);
   process.exit(1);
 }
-console.log('OK: az élő TV watchdog végleg ki van kapcsolva; a VOD és a TV Doktor telemetria külön marad.');
+console.log('OK: élő TV-n esemény nem tölt újra; a haladás-alapú élő őr dönt; a VOD és a TV Doktor telemetria külön marad.');

@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.417';
+export const WEB_VERSION = '2.5.418';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,19 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.418',
+    date: '2026-11-10',
+    changes: [
+      'ÉLŐ TV: A LEFAGYOTT ADÁS MAGÁTÓL HELYREÁLL (ÚJ ÉLŐ ŐR) — A TV-ről feltöltött naplók szerint a végleges lefagyás oka az volt, hogy a szolgáltató 30–70 másodperc után lezárta a kapcsolatot, a TV pedig ezt hiba helyett „az adás véget ért” (`ended`, `paused=true`) jelzéssel közölte. A 2.5.413 óta az élő `ended` és `pause` csak naplózott, ezért a kép örökre állva maradt. Az új `liveWatchdog.ts` másodpercenként mintát vesz a videóelemből, és négy esetben avatkozik be: (1) `ended` → kb. 1 mp megerősítés után újracsatlakozás; (2) váratlan szünet → 1,5 mp után helyi `play()`, 10 mp után újracsatlakozás; (3) a kép 25 mp-ig egyáltalán nem halad → újracsatlakozás; (4) az adás 30 mp alatt el sem indul → újrapróba.',
+      'NINCS HAMIS RIASZTÁS: MŰKÖDŐ CSATORNÁT AZ ŐR NEM TÖLT ÚJRA — A naplókban a frissen indított csatorna 7–10 mp-nél rendszeresen megáll, majd 4,7–16,8 mp múlva UGYANOTT magától folytatódik. A 2.5.410–2.5.412 őre 4,5 mp-es határral pont ebbe töltött bele, ezért kellett kikapcsolni. Az új határ 25 mp (a mért maximum fölött), rövidebbre beállítani sem lehet. Az őr nem figyeli a megbízhatatlannak bizonyult jeleket (`stalled` esemény, puffer-kijelzés, képkockaszámláló), csak azt, hogy halad-e a lejátszási idő. A néző által kért szünetet, a háttérbe tett alkalmazást és a már folyamatban lévő újracsatlakozást békén hagyja.',
+      'A CSATORNA INDULÁSA UTÁNI MEGÁLLÁS VALÓSZÍNŰ OKA MEGSZŰNT — A lejátszó 3,5 mp-cel minden csatornaváltás után (kézi naplózás mellett később még kétszer) egy MÁSODIK kérést nyitott ugyanarra az élő `.ts` címre, hogy a feliratsávokat és a kodeket kiolvassa. Egykapcsolatos előfizetésnél a szolgáltató ilyenkor megakaszthatja vagy lezárhatja a már futó adást. Folyamatos (nem `.m3u8`) élő címre a program többé nem nyit második kérést. Ára: az ilyen csatornákon a felirat-/hangsávok listája csak a TV saját jelentéséből áll össze, és a képminőség-napló nem tudja a fejlécből kiolvasni a kodeket. A HLS (`.m3u8`) csatornákon nincs változás.',
+      'UGYANAZ A VISELKEDÉS MINDEN SZOLGÁLTATÓNÁL ÉS TV DOKTOR NÉLKÜL IS — Az őr döntése nem függ a TV Doktor kapcsolótól, a puffer-profiltól és a szolgáltatótól. Az a szabály, hogy „egy legalább 15 mp-ig hibátlanul játszott csatornát nem nyilvánítunk halottnak, hanem ritkuló (legfeljebb 30 mp-es) szünetekkel tovább próbáljuk”, eddig csak bekapcsolt TV Doktorral élt – mostantól mindig. A TV Doktor továbbra is tanul és naplóz, de a helyreállítás nem rajta múlik.',
+      'NAPLÓ — Minden beavatkozás egy sorban, okkal látszik a kézi naplóban: „ÉLŐ ŐR: ÚJRACSATLAKOZÁS; csatorna=…; ok=…; egészséges-lejátszás=… s; TV-Doktor=be|ki (a döntést nem befolyásolja)”, illetve „ÉLŐ ŐR: HELYI FOLYTATÁS”. A csatornaindítási sor az élő őr tényleges határait mutatja.',
+      'TESZTEK — Új `tools/test-live-watchdog.mjs` (56 ellenőrzés: az őr döntései a TV-naplókból kimért idővonalakon) és `tools/test-live-watchdog-player.mjs` (61 ellenőrzés: a VALÓDI lejátszó fut szimulált TV-videóelemmel és virtuális órával; 2 óra hibátlan adás = 0 újratöltés, `ended` után 3 mp-en belül új kapcsolat, azonos lefutás TV Doktor be/ki × három puffer-profil × két szolgáltató mellett). A 2.5.406–2.5.414 rögzített tesztjei az új szerződést ellenőrzik.',
+      'KORLÁTOK — A javítás valódi LG TV-n még nem futott, a feltöltött naplók és a szimulált videóelem alapján készült. Ha egy TV az élő adás lejátszási idejét egyáltalán nem lépteti, ott a 25 mp-es megakadás-figyelés szándékosan nem él (az `ended`, a szünet és az indulás figyelése igen).',
+    ],
+  },
   {
     version: '2.5.417',
     date: '2026-11-10',

@@ -35,6 +35,12 @@ import {
   shouldAllowDiagnosticProbe,
 } from '../services/playbackRecovery';
 import {
+  LiveWatchdog,
+  LIVE_WATCHDOG_DEFAULTS,
+  isContinuousLiveStreamUrl,
+  liveWatchdogReasonText,
+} from '../services/liveWatchdog';
+import {
   DOCTOR_BUFFER_CONFIGS,
   DOCTOR_VERIFY_STABLE_MS,
   DOCTOR_VOD_VERIFY_STABLE_MS,
@@ -920,6 +926,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   /** A webOS által véges VOD-ként lezárt live TS után két azonos újrapróba,
    * majd a másik formátum következhet – így nem ragadunk ugyanazon a címen. */
   const liveEndRecoveryAttemptRef = useRef(0);
+  /**
+   * 2.5.418 – ÉLŐ ŐR. Egyetlen, türelmes, kizárólag a `currentTime`
+   * haladását néző figyelő (lásd `services/liveWatchdog.ts`). Nem függ a TV
+   * Doktor kapcsolótól, a pufferprofiltól és a szolgáltatótól.
+   */
+  const liveWatchdogRef = useRef<LiveWatchdog | null>(null);
+  if (!liveWatchdogRef.current) liveWatchdogRef.current = new LiveWatchdog();
+  const hasErrorRef = useRef(false);
+  hasErrorRef.current = hasError;
   /**
    * 2.5.403 (#46): a 16 beállításos újracsatlakozás SAJÁT számlálója.
    * A `recoveryAttemptRef`-et minden rövid `playing` esemény nullázza,
@@ -2997,8 +3012,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = htmlVideoRef.current;
     // Csak aktív TV Doktor mellett figyeljük a már elindult VOD pufferelését.
     if (!video || !playbackStartedRef.current || video.paused) return;
-    // Élő TV-n a puffer-watchdog végleg ki van kapcsolva; sem waiting,
-    // sem stalled esemény nem indíthat automatikus src-újratöltést.
+    // Élő TV-n ez az ESEMÉNY-alapú puffer-watchdog nem fut: sem waiting,
+    // sem stalled esemény nem indíthat automatikus src-újratöltést (a
+    // `stalled` tökéletes adásnál is percenként többször jön). Az élő adást
+    // a 2.5.418-as, haladás-alapú ÉLŐ ŐR figyeli (`liveWatchdogRef`).
     // A VOD külön, TV Doktor által vezérelt útvonala változatlan marad.
     if (!isVodRef.current) return;
     if (!tvDoctorEnabledRef.current) return;
@@ -5187,6 +5204,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Csak akkor indítjuk el a hálózati sávfejléc-beolvasást, ha a lejátszás elindult,
       // így a probe kérés nem verseng az első videószegmensek letöltésével.
       if (!playbackStartedRef.current) return;
+      /*
+       * 2.5.418 – RAW ÉLŐ STREAMRE NINCS MÁSODIK KAPCSOLAT.
+       * A #60–#64 naplókban minden csatornaindítás után megjelent egy XHR
+       * ugyanarra a `.ts` élő címre: ez a próba volt. A raw élő stream
+       * végtelen válasz, a kérés tehát a szolgáltatónál VALÓDI második
+       * kapcsolat, amely a videóelem kapcsolatát megfojthatja vagy
+       * lezárathatja. A TÉNYLEGESEN játszott cím dönt (a Doktor / a
+       * formátumemlék a `streamUrl`-től eltérő formátumot is indíthat).
+       */
+      if (isContinuousLiveStreamUrl(activeMediaUrlRef.current || streamUrl)
+          || isContinuousLiveStreamUrl(streamUrl)) return;
       setLunaTvSubtitleTracks((previous) => {
         if (previous.length === 0) {
           void probeLiveSubtitles(streamUrl).then((tracks) => {
@@ -5310,6 +5338,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // a webOS-en, ezért a gyors zap útvonalból kihagyjuk.
     const loadGeneration = ++streamLoadGenerationRef.current;
     const isCurrentLoad = () => loadGeneration === streamLoadGenerationRef.current;
+    // 2.5.418: minden új betöltés (váltás vagy újracsatlakozás) nulláról méri az élő őrt.
+    liveWatchdogRef.current?.reset(Date.now());
     clearZapWatchdog();
     clearBufferWatchdog();
     playbackStartedRef.current = false;
@@ -5528,7 +5558,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const timing = bufferTiming();
         const startLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA' : 'CSATORNAVÁLTÁS START';
         const verboseStartLabel = isRecoveryAttempt ? 'ÉLŐ ÚJRACSATLAKOZÁSI PRÓBA START' : 'CSATORNAVÁLTÁS PRÓBA START';
-        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming ? doctorSessionRef.current.activeBufferProfile : bufferModeRef.current}; indulási-őr=${isVodRef.current && tvDoctorEnabledRef.current ? effectiveStartupWatchdogMs(timing.startupWatchdogMs) + ' ms' : 'KI'}; lejátszás-őr=${isVodRef.current && tvDoctorEnabledRef.current ? timing.bufferWatchdogMs + ' ms' : 'KI'}; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
+        appLog(`${startLabel}; csatorna=${channelName.slice(0, 100)}; stream=${/\.m3u8(?=([?#]|$))/i.test(url) ? 'HLS' : /\.ts(?=([?#]|$))/i.test(url) ? 'MPEG-TS' : 'egyéb'}; beállított-lejátszó=${playerEngine}; tényleges-lejátszó=${api?.play ? 'natív híd' : 'HTML5 video (natív híd nem elérhető)'}; pufferprofil=${tvDoctorEnabledRef.current && doctorSessionRef.current.activeBufferTiming ? doctorSessionRef.current.activeBufferProfile : bufferModeRef.current}; indulási-őr=${isVodRef.current ? (tvDoctorEnabledRef.current ? effectiveStartupWatchdogMs(timing.startupWatchdogMs) + ' ms' : 'KI') : LIVE_WATCHDOG_DEFAULTS.startupReconnectMs + ' ms (élő őr)'}; lejátszás-őr=${isVodRef.current ? (tvDoctorEnabledRef.current ? timing.bufferWatchdogMs + ' ms' : 'KI') : LIVE_WATCHDOG_DEFAULTS.stallReconnectMs + ' ms haladás nélkül (élő őr)'}; puffer-cél=${timing.minBufferAheadSeconds.toFixed(1)} s; formátum-emlék=${channelMemory || 'nincs'}; kézi-formátum=${settings.streamFormat || 'ts'}; tartalék=${liveFallbackRef.current ? liveFallbackRef.current.format.toUpperCase() : 'nincs'}; ${videoDiagnosticState(video, 'betöltés után')}`);
         if (diagnostic && isVerbosePlaybackLogging()) {
           appLog(`${verboseStartLabel}; csatorna=${channelName.slice(0, 100)}; próba=${diagnostic.attemptNumber}/${Math.max(1, sequence.urls.length)}; formátum=${formatOfUrl(url)?.toUpperCase() || 'ismeretlen'}; teljes-eltelt=${Date.now() - diagnostic.startedAt} ms; ${videoDiagnosticState(video, 'próba betöltés után')}`);
         }
@@ -5658,9 +5688,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   loadStreamRef.current = loadStream;
 
   /*
-   * ÉLŐ ÚJRACSATLAKOZÁS KIZÁRÓLAG VALÓDI MÉDIAHIBA ESETÉN.
-   * A waiting/stalled/ended/pause időzített watchdog útvonalai le vannak
-   * tiltva; egy működő csatornát pusztán időzítő nem tölthet újra.
+   * ÉLŐ ÚJRACSATLAKOZÁS. Két hívója van: a valódi médiahiba (`error`
+   * esemény) és a 2.5.418-as ÉLŐ ŐR, amely csak bizonyított, tartós
+   * megállásnál (ended / tartós váratlan pause / ≥ 25 mp haladás nélkül /
+   * 30 mp alatt el sem induló adás) kér újracsatlakozást. A waiting és a
+   * stalled ESEMÉNY önmagában továbbra sem tölthet újra működő csatornát.
    */
   requestRecoveryRef.current = (reason: string) => {
     if (isVodRef.current) {
@@ -5722,8 +5754,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
      * „A csatorna jelenleg nem működik – az automatikus újrapróbálás leállt.”
      * A `canDeclareChannelDead()` védelme eddig csak a javítási létra
      * kimerülésénél volt bekötve, az újracsatlakozási backoffnál NEM. */
-    const provenWorkingChannel = tvDoctorEnabledRef.current
-      && !canDeclareChannelDead({ healthyPlaybackMs: recoveryDocState.healthyPlaybackMs });
+    // 2.5.418: a „bizonyítottan működött” védelem NEM függ a TV Doktor
+    // kapcsolótól – kikapcsolt Doktornál sem írunk ki „nem működik” hibát
+    // olyan csatornára, amely ebben a nézési szakaszban ténylegesen játszott.
+    const provenWorkingChannel = !canDeclareChannelDead({ healthyPlaybackMs: recoveryDocState.healthyPlaybackMs });
 
     // Kikapcsolt TV Doktornál / soha nem játszott csatornánál a végtelen ciklust így fogjuk meg.
     if (attempt >= 5 && !provenWorkingChannel) {
@@ -5750,7 +5784,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         + `bizonyított-lejátszás=${Math.round(recoveryDocState.healthyPlaybackMs / 1000)} s; `
         + `ok=${reason}; a 16 különböző formátum/puffer beállítás tovább próbálkozik.`,
       );
-      if (isTvDoctorDiagLoggingEnabled()) {
+      if (tvDoctorEnabledRef.current && isTvDoctorDiagLoggingEnabled()) {
         tvDoctorLog(
           `TV DOKTOR: BIZONYÍTOTTAN MŰKÖDŐ CSATORNA – NINCS VÉGLEGES LEÁLLÍTÁS; `
           + `csatorna=${channelRef.current?.name || 'élő adás'}; próba=${attempt + 1}; `
@@ -5770,6 +5804,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const doctorFallbackOverride = tvDoctorEnabledRef.current ? doctorSessionRef.current.fallbackUrlOverride : null;
     let nextUrl = attempt >= 3 && doctorFallbackOverride ? doctorFallbackOverride : baseRecoveryUrl;
     let delayMs = liveRecoveryDelayMs(attempt, Math.max(50, bufferTiming().retryMs));
+    // 2.5.418: tartós szolgáltatói kiesésnél nem ostromoljuk a szervert
+    // 6 mp-enként a végtelenségig – a szünet fokozatosan 30 mp-ig nő.
+    if (attempt >= 6) delayMs = Math.min(30000, 6000 + (attempt - 5) * 4000);
     /* ------------------------------------------------------------------
      * 2.5.403 (#46) – A 16 KÜLÖNBÖZŐ BEÁLLÍTÁS TÉNYLEGES HASZNÁLATA.
      *
@@ -5857,6 +5894,90 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       loadStreamRef.current(nextUrl, true);
     }, delayMs);
   };
+
+  /*
+   * 2.5.418 – ÉLŐ ŐR (mintavétel másodpercenként).
+   *
+   * A TV-naplók két ellentétes hibát mutattak:
+   *   - a régi 4,5 mp-es őr a frissen indított adás TERMÉSZETES, magától
+   *     megoldódó (4,7–17 mp-es) újrapufferelésébe töltött bele → „minden új
+   *     csatornánál megállítja és újraindítja”;
+   *   - őr nélkül az `ended` / váratlan pause / tartós megállás után a kép
+   *     végleg megfagyott, mert ilyenkor NINCS `error` esemény.
+   *
+   * Ez az őr csak a `currentTime` tényleges haladását nézi, és NEM olvassa
+   * sem a TV Doktor kapcsolót, sem a pufferprofilt, sem a szolgáltatót:
+   * mindenhol ugyanúgy viselkedik. Amíg a kép halad, soha nem avatkozik be.
+   */
+  useEffect(() => {
+    if (isVod || !playbackActive || nativeHandoff) return undefined;
+    const watchdog = liveWatchdogRef.current;
+    if (!watchdog) return undefined;
+    const timer = window.setInterval(() => {
+      const video = htmlVideoRef.current;
+      if (!video || isVodRef.current) return;
+      const now = Date.now();
+      let hidden = false;
+      try { hidden = document.visibilityState === 'hidden'; } catch { /* régi motor */ }
+      // Már ütemezett újracsatlakozás / újrapróba alatt az őr nem indít másodikat.
+      const busy = recoveryTimerRef.current !== null
+        || autoRetryTimerRef.current !== null
+        || pendingLiveLoadTimerRef.current !== null;
+      const active = desiredPlayingRef.current
+        && playbackActiveRef.current
+        && !hidden
+        && !busy
+        && !hasErrorRef.current
+        && Boolean(activeMediaUrlRef.current)
+        && !doctorSessionRef.current.channelHaltedDead;
+      const started = playbackStartedRef.current;
+      const currentTime = Number(video.currentTime || 0);
+      // A raw TS „véges idővonal” (paused + currentTime = duration) ugyanaz a
+      // végállapot, mint az `ended`: helyben nem folytatható.
+      const finiteEnd = started
+        && isContinuousLiveStreamUrl(activeMediaUrlRef.current)
+        && isUnexpectedLiveEnd({
+          ended: video.ended,
+          paused: video.paused,
+          desiredPlaying: desiredPlayingRef.current,
+          playbackStarted: started,
+          currentTime,
+          duration: Number(video.duration || 0),
+        });
+      const decision = watchdog.observe({
+        now,
+        currentTime,
+        paused: video.paused,
+        ended: video.ended || finiteEnd,
+        hasError: Boolean(video.error),
+        seeking: video.seeking,
+      }, { active, playbackStarted: started });
+      if (decision.becameStable) {
+        // Tartósan egészséges adás: a korábbi megszakadások számlálói
+        // nullázódnak, így egy óránként lezáró szolgáltatónál sem nő a
+        // visszalépés és nem vált formátumot a recovery.
+        recoveryAttemptRef.current = 0;
+        liveEndRecoveryAttemptRef.current = 0;
+      }
+      if (decision.action === 'none' || !decision.reason) return;
+      const channelName = channelRef.current?.name || 'élő adás';
+      const elapsedMs = decision.elapsedMs || 0;
+      if (decision.action === 'resume') {
+        appLog(`ÉLŐ ŐR: HELYI FOLYTATÁS; csatorna=${channelName}; ok=váratlan szünet ${(elapsedMs / 1000).toFixed(1)} mp óta; nincs újratöltés; ${videoDiagnosticState(video, 'live-watchdog-resume')}`);
+        try {
+          const resumePromise = video.play();
+          if (resumePromise && typeof resumePromise.catch === 'function') {
+            void resumePromise.catch(() => { /* a következő minta dönt */ });
+          }
+        } catch { /* a következő minta dönt */ }
+        return;
+      }
+      const reasonText = liveWatchdogReasonText(decision.reason, elapsedMs);
+      appLog(`ÉLŐ ŐR: ÚJRACSATLAKOZÁS; csatorna=${channelName}; ok=${reasonText}; egészséges-lejátszás=${Math.round(watchdog.healthyPlaybackMs / 1000)} s; TV-Doktor=${tvDoctorEnabledRef.current ? 'be' : 'ki'} (a döntést nem befolyásolja); ${videoDiagnosticState(video, 'live-watchdog')}`);
+      requestRecoveryRef.current(reasonText);
+    }, LIVE_WATCHDOG_DEFAULTS.tickMs);
+    return () => window.clearInterval(timer);
+  }, [isVod, playbackActive, nativeHandoff]);
 
   /*
    * FILM / SOROZAT VISSZAÁLLÍTÁSA.
@@ -6513,9 +6634,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 duration,
               };
               if (isUnexpectedLiveEnd(endState)) {
-                appLog(`ÉLŐ VÉGES IDŐVONAL-JELZÉS; automatikus újratöltés TILTVA; csatorna=${channelRef.current?.name || 'élő adás'}; t=${endState.currentTime.toFixed(2)} s; duration=${duration.toFixed(2)} s; ${videoDiagnosticState(video, 'durationchange')}`);
+                appLog(`ÉLŐ VÉGES IDŐVONAL-JELZÉS; az élő őr megerősítés után újracsatlakozik; csatorna=${channelRef.current?.name || 'élő adás'}; t=${endState.currentTime.toFixed(2)} s; duration=${duration.toFixed(2)} s; ${videoDiagnosticState(video, 'durationchange')}`);
                 setIsLoading(false);
-                setIsRecovering(false);
               }
             }}
 
@@ -6987,10 +7107,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 currentTime: Number(video.currentTime || 0),
                 duration: Number(video.duration || 0),
               };
-              if (isUnexpectedLiveEnd(pausedEndState)) {
-                appLog(`ÉLŐ PAUSE/ENDED JELZÉS; automatikus újratöltés TILTVA; csatorna=${channelRef.current?.name || 'élő adás'}; t=${pausedEndState.currentTime.toFixed(2)} s; duration=${pausedEndState.duration.toFixed(2)} s; ${videoDiagnosticState(video, 'pause/ended')}`);
-              } else if (desiredPlayingRef.current && playbackActiveRef.current && playbackStartedRef.current) {
-                appLog(`ÉLŐ VÁRATLAN PAUSE; watchdog és automatikus újraindítás TILTVA; csatorna=${channelRef.current?.name || 'élő adás'}; ${videoDiagnosticState(video, 'unexpected-pause')}`);
+              /*
+               * 2.5.418 – ÉLŐ VÁRATLAN PAUSE / VÉGES IDŐVONAL.
+               * A néző NEM kért szünetet (`desiredPlaying`), mégis megállt az
+               * adás. Régen itt `setIsPlaying(false)` futott: a lejátszó
+               * „szüneteltetve” állapotba került és ÖRÖKRE úgy maradt. Most a
+               * kért állapot „lejátszás” marad, és az élő őr dönt: előbb
+               * helyben folytatást kér, tartós szünetnél újracsatlakozik.
+               */
+              const liveUnexpectedStop = !isVod
+                && desiredPlayingRef.current
+                && playbackActiveRef.current
+                && playbackStartedRef.current;
+              if (liveUnexpectedStop) {
+                if (isUnexpectedLiveEnd(pausedEndState)) {
+                  appLog(`ÉLŐ PAUSE/ENDED JELZÉS; az élő őr megerősítés után újracsatlakozik; csatorna=${channelRef.current?.name || 'élő adás'}; t=${pausedEndState.currentTime.toFixed(2)} s; duration=${pausedEndState.duration.toFixed(2)} s; ${videoDiagnosticState(video, 'live-finite-end')}`);
+                } else {
+                  appLog(`ÉLŐ VÁRATLAN PAUSE; az élő őr helyben folytatást kér, tartós szünetnél újracsatlakozik; csatorna=${channelRef.current?.name || 'élő adás'}; ${videoDiagnosticState(video, 'unexpected-pause')}`);
+                }
+                setIsLoading(false);
+                return;
               }
               setIsLoading(false);
               setIsRecovering(false);
@@ -7022,10 +7158,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 onEndedRef.current?.();
                 return;
               }
-              appLog(`ÉLŐ ENDED JELZÉS; automatikus újratöltés és watchdog TILTVA; csatorna=${channelRef.current?.name || 'élő adás'}; t=${Number(video.currentTime || 0).toFixed(2)} s; duration=${Number(video.duration || 0).toFixed(2)} s; paused=${video.paused}; ended=${video.ended}; ${videoDiagnosticState(video, 'ended')}`);
+              /*
+               * 2.5.418 – ÉLŐ ENDED. A raw TS kapcsolat lezárásakor a webOS
+               * HIBA NÉLKÜL `ended` állapotot ad; a lejátszó innen magától
+               * soha nem megy tovább. Régen itt `setIsPlaying(false)` futott
+               * és a kép végleg megfagyott. Most a kért állapot „lejátszás”
+               * marad, az élő őr ~1 mp megerősítés után újracsatlakozik.
+               */
+              const liveEndWillRecover = desiredPlayingRef.current
+                && playbackActiveRef.current
+                && playbackStartedRef.current;
+              appLog(`ÉLŐ ENDED JELZÉS; ${liveEndWillRecover ? 'az élő őr megerősítés után újracsatlakozik' : 'nincs teendő (a néző nem kér lejátszást)'}; csatorna=${channelRef.current?.name || 'élő adás'}; t=${Number(video.currentTime || 0).toFixed(2)} s; duration=${Number(video.duration || 0).toFixed(2)} s; paused=${video.paused}; ended=${video.ended}; readyState=${video.readyState}; networkState=${video.networkState}.`);
               setIsLoading(false);
-              setIsRecovering(false);
-              setIsPlaying(false);
+              if (!liveEndWillRecover) {
+                setIsRecovering(false);
+                setIsPlaying(false);
+              }
             }}
             onTimeUpdate={(event) => {
               const video = event.currentTarget as HTMLVideoElement;

@@ -295,16 +295,18 @@ check(/const isActiveMediaEvent = \(video: HTMLVideoElement\): boolean =>/.test(
   && /RÉGI MÉDIAESEMÉNY KIHAGYVA/.test(PLAYER),
   'a későn érkező régi src médiaeseménye nem írhatja át az új csatorna állapotát');
 check(!/const attemptTimeoutMs = effectiveStartupWatchdogMs\(startupWatchdogMs\)/.test(PLAYER)
-  && /indulási-őr=\$\{isVodRef\.current && tvDoctorEnabledRef\.current \?/.test(PLAYER)
-  && /if \(!isVodRef\.current\) return;/.test(PLAYER.slice(PLAYER.indexOf('const armBufferWatchdog'), PLAYER.indexOf('const armBufferWatchdog') + 700)),
-  'az élő ZAP-ŐR és puffer-watchdog végleg KI van kapcsolva; a VOD külön marad');
+  && /indulási-őr=\$\{isVodRef\.current \? \(tvDoctorEnabledRef\.current \?/.test(PLAYER)
+  && /LIVE_WATCHDOG_DEFAULTS\.stallReconnectMs \+ ' ms haladás nélkül \(élő őr\)'/.test(PLAYER)
+  && /if \(!isVodRef\.current\) return;/.test(PLAYER.slice(PLAYER.indexOf('const armBufferWatchdog'), PLAYER.indexOf('const armBufferWatchdog') + 900)),
+  'az élő ZAP-ŐR és az esemény-alapú puffer-watchdog KI van kapcsolva; élőn csak a haladás-alapú élő őr fut; a VOD külön marad');
 check(/vodRecoveryRef\.current\('korai ended esemény'\)/.test(PLAYER)
   && /isPrematureVodEnd\(position, duration\)/.test(PLAYER),
   'a VOD korai ended eseménye visszaállítást indít, nem következő részt');
-check(/ÉLŐ ENDED JELZÉS; automatikus újratöltés és watchdog TILTVA/.test(PLAYER)
-  && /ÉLŐ PAUSE\/ENDED JELZÉS; automatikus újratöltés TILTVA/.test(PLAYER)
-  && /ÉLŐ VÉGES IDŐVONAL-JELZÉS; automatikus újratöltés TILTVA/.test(PLAYER),
-  'az élő ended, pause és durationchange nem indít automatikus újratöltést');
+check(/ÉLŐ ENDED JELZÉS; \$\{liveEndWillRecover \? 'az élő őr megerősítés után újracsatlakozik'/.test(PLAYER)
+  && /ÉLŐ PAUSE\/ENDED JELZÉS; az élő őr megerősítés után újracsatlakozik/.test(PLAYER)
+  && /ÉLŐ VÉGES IDŐVONAL-JELZÉS; az élő őr megerősítés után újracsatlakozik/.test(PLAYER)
+  && !/automatikus újratöltés és watchdog TILTVA/.test(PLAYER),
+  '2.5.418: az élő ended, pause és durationchange után nem fagy be végleg a kép – az élő őr megerősítés után újracsatlakozik');
 const audioTrackEffect = PLAYER.slice(PLAYER.indexOf('const refreshHtmlAudioTracks'), PLAYER.indexOf('const refreshHtmlAudioTracks') + 5000);
 check(/addEventListener\('durationchange'/.test(audioTrackEffect)
   && /setTimeout\(refreshHtmlAudioTracks/.test(audioTrackEffect)

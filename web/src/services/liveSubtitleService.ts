@@ -1,5 +1,6 @@
 import { appLog } from './appLog';
 import { EmbeddedSubtitle, getWebosMediaId } from './embeddedSubtitleService';
+import { isContinuousLiveStreamUrl } from './liveWatchdog';
 
 /**
  * ÉLŐ TV FELIRAT (CC) – a VOD (film/sorozat) felirattól KÜLÖN szolgáltatás.
@@ -963,6 +964,17 @@ function fetchLiveHead(url: string): Promise<ProbeOutcome> {
 export async function probeLiveSubtitles(streamUrl: string): Promise<LiveSubtitleTrack[]> {
   const url = String(streamUrl || '');
   if (!url) return [];
+  /*
+   * 2.5.418 – EGYKAPCSOLATOS SZOLGÁLTATÓ VÉDELME.
+   * A TV-naplók (#60–#64) minden csatornaindítás után egy XHR-t mutattak
+   * ugyanarra a raw `.ts` élő címre: ez a próba volt, 3,5 mp-cel a váltás
+   * után. A raw élő stream végtelen válasz, a kérés tehát VALÓDI második
+   * kapcsolat; a szolgáltató ilyenkor a videóelem kapcsolatát fojtja vagy
+   * zárja le (megálló, majd folytatódó vagy végleg lefagyó kép). Raw élő
+   * streamre ezért nem nyitunk fejléc-próbát; a feliratlistát a TV saját
+   * médiaszolgáltatása adja. A HLS lista rövid, lezáruló kérés – az marad.
+   */
+  if (isContinuousLiveStreamUrl(url)) return [];
   const cached = probeCache.get(url);
   if (cached) return cached;
 
@@ -1089,6 +1101,9 @@ const codecProbeCache = new Map<string, LiveStreamCodecs | null>();
 export async function probeLiveStreamCodecs(streamUrl: string): Promise<LiveStreamCodecs | null> {
   const url = String(streamUrl || '');
   if (!url) return null;
+  // 2.5.418: raw élő streamre kézi naplózás alatt sem nyitunk második
+  // kapcsolatot (lásd `probeLiveSubtitles`); a kodeket a TV sourceInfo adja.
+  if (isContinuousLiveStreamUrl(url)) return null;
   if (codecProbeCache.has(url)) return codecProbeCache.get(url) ?? null;
 
   let outcome = await fetchLiveProgram(url);

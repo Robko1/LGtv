@@ -126,8 +126,10 @@ check(d.shouldSkipDoctorLadderForProvenChannel({
   '4 mp lejátszás után a létra változatlanul jogos (nem bizonyított csatorna)');
 
 /* A generic backoff attempt>=5 ágának bekötése a forrásban. */
-check(/const provenWorkingChannel = tvDoctorEnabledRef\.current\s*\n\s*&& !canDeclareChannelDead\(\{ healthyPlaybackMs: recoveryDocState\.healthyPlaybackMs \}\)/.test(player),
-  'az újracsatlakozási backoff is megvizsgálja a bizonyított lejátszást');
+// 2.5.418: a védelem már NEM függ a TV Doktor kapcsolótól (kikapcsolt
+// Doktornál is érvényes), ezért a feltételben nincs `tvDoctorEnabledRef`.
+check(/const provenWorkingChannel = !canDeclareChannelDead\(\{ healthyPlaybackMs: recoveryDocState\.healthyPlaybackMs \}\)/.test(player),
+  'az újracsatlakozási backoff is megvizsgálja a bizonyított lejátszást (TV Doktor kapcsolótól függetlenül)');
 check(/if \(attempt >= 5 && !provenWorkingChannel\)/.test(player),
   'a végleges „nem működik” felirat CSAK nem bizonyított csatornánál fut le');
 check(/if \(attempt >= 5 && provenWorkingChannel\)/.test(player),
