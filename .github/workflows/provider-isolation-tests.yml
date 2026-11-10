@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   tests:
-    name: Szolgáltatói A–B–A tárolási próba (IPK nélkül)
+    name: Szolgáltatói A–B–A tárolási próba (IPK nélkül, 2. kör)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
