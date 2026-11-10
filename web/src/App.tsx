@@ -5282,6 +5282,7 @@ export function App() {
           <VideoPlayer
             liveAccent={liveAccent}
             channel={activeChannel}
+            providerId={activeProvider?.id || ''}
             prefetchChannels={prefetchChannels}
             customStreamUrl={customStreamUrl}
             customTitle={customStreamTitle}
