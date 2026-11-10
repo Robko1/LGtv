@@ -249,6 +249,10 @@ try {
   check(app1.loadSyncState('provider-a')?.fingerprint === 'fingerprint-a',
     'a B szolgáltató memória-tartaléka nem szennyezi az A szolgáltató állapotát');
   localStorageFake.setQuota(5200000);
+  app1.setActiveProviderScope('provider-b');
+  app1.saveSyncState({ providerId: 'provider-b', fingerprint: 'durable-after-fallback', fullSyncAt: 4 });
+  check(app1.loadSyncState('provider-b')?.fingerprint === 'durable-after-fallback',
+    'a tartós mentés felülírja és eltávolítja a régi memória-tartalékot');
 
   const content = makeContent();
   await app1.saveLiveContentAsync(content);
