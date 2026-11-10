@@ -242,8 +242,8 @@ try {
     'az A szolgáltató saját szinkronállapotát kapja vissza');
 
   // A kedvenc mappák (és a bennük lévő csatornaazonosítók) sem öröklődhetnek át.
-  app1.storageService.saveFolders([{ id: 'folder-a', name: 'A kedvencei', channelIds: ['same-channel'] }], 'provider-a');
-  app1.storageService.saveFolders([{ id: 'folder-b', name: 'B kedvencei', channelIds: ['same-channel'] }], 'provider-b');
+  app1.storageService.saveFolders([{ id: 'folder-a', name: 'A kedvencei', channelIds: ['a-fav'] }], 'provider-a');
+  app1.storageService.saveFolders([{ id: 'folder-b', name: 'B kedvencei', channelIds: ['b-fav'] }], 'provider-b');
   check(app1.storageService.getFolders('provider-a')[0]?.id === 'folder-a',
     'az A szolgáltató saját kedvenc mappáit kapja vissza');
   check(app1.storageService.getFolders('provider-b')[0]?.id === 'folder-b',
@@ -282,19 +282,29 @@ try {
   const providerAContent = makeContent({ hungarian: 1, foreign: 0 });
   providerAContent.provider.id = 'provider-a';
   providerAContent.channels[0] = { ...providerAContent.channels[0], id: 'same-id', name: 'Provider A csatorna', streamUrl: 'https://a.example/live' };
-  providerAContent.totals.live = 1;
+  providerAContent.channels.push({ ...providerAContent.channels[0], id: 'a-fav', num: 2, name: 'A kedvenc külföldi', categoryId: 'a-cat', categoryName: '[US] USA', countryCode: 'US', flag: '🇺🇸', streamUrl: 'https://a.example/fav', orderIndex: 1 });
+  providerAContent.totals.live = 2;
   await app1.saveLiveContentAsync(providerAContent);
   const providerBContent = makeContent({ hungarian: 1, foreign: 0 });
   providerBContent.provider.id = 'provider-b';
   providerBContent.channels[0] = { ...providerBContent.channels[0], id: 'same-id', name: 'Provider B csatorna', streamUrl: 'https://b.example/live' };
-  providerBContent.totals.live = 1;
+  providerBContent.channels.push({ ...providerBContent.channels[0], id: 'b-fav', num: 2, name: 'B kedvenc külföldi', categoryId: 'b-cat', categoryName: '[IE] IRELAND', countryCode: 'IE', flag: '🇮🇪', streamUrl: 'https://b.example/fav', orderIndex: 1 });
+  providerBContent.totals.live = 2;
   await app1.saveLiveContentAsync(providerBContent);
   app1.setActiveProviderScope('provider-a');
-  check(app1.loadLive().provider?.id === 'provider-a' && app1.loadLive().channels[0]?.name === 'Provider A csatorna',
-    'A–B váltás után az A szolgáltató saját csatornája töltődik vissza');
+  const loadedProviderA = app1.loadLive();
+  check(loadedProviderA.provider?.id === 'provider-a'
+    && loadedProviderA.channels.some((channel) => channel.name === 'Provider A csatorna')
+    && loadedProviderA.channels.some((channel) => channel.id === 'a-fav')
+    && !loadedProviderA.channels.some((channel) => channel.id === 'b-fav'),
+    'A–B váltás után csak az A szolgáltató saját csatornái és kedvencei töltődnek vissza');
   app1.setActiveProviderScope('provider-b');
-  check(app1.loadLive().provider?.id === 'provider-b' && app1.loadLive().channels[0]?.name === 'Provider B csatorna',
-    'A–B váltás után a B szolgáltató saját csatornája töltődik vissza');
+  const loadedProviderB = app1.loadLive();
+  check(loadedProviderB.provider?.id === 'provider-b'
+    && loadedProviderB.channels.some((channel) => channel.name === 'Provider B csatorna')
+    && loadedProviderB.channels.some((channel) => channel.id === 'b-fav')
+    && !loadedProviderB.channels.some((channel) => channel.id === 'a-fav'),
+    'A–B váltás után csak a B szolgáltató saját csatornái és kedvencei töltődnek vissza');
   app1.setActiveProviderScope('provider-a');
   check(app1.loadLive().channels[0]?.name === 'Provider A csatorna',
     'B után visszaváltva ismét az A szolgáltató adatai jelennek meg');
