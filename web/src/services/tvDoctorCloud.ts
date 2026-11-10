@@ -2,6 +2,7 @@ import { WEB_VERSION } from '../appVersion';
 import { appLog, isVerbosePlaybackLogging, registerLoggingLifecycleHooks, tvDoctorLog } from './appLog';
 import { tvDeviceInfo } from './tvDevice';
 import { fetchSnapshotFromCloud } from './channelLayoutBackup';
+import { providerScopePrefix } from './providerScope';
 import {
   ChannelDoctorRecord,
   CloudChannelProfileInput,
@@ -45,6 +46,7 @@ import {
 const DEFAULT_API_URL = 'https://hlklmcujvqsatwvdygqp.supabase.co/functions/v1/tv-doctor';
 const API_KEY = 'sb_publishable_JschCWGjgSE_b0NyINwxqA_7zAnS56C';
 const SYNC_STATE_KEY = TV_DOCTOR_SYNC_STORAGE_KEY;
+const syncStateStorageKey = (): string => providerScopePrefix() + SYNC_STATE_KEY;
 export const TV_DOCTOR_PAIRING_STORAGE_KEY = 'iptv_rt_tv_doctor_pairing_v1';
 
 const IDB_NAME = 'iptv_tv_doctor_pairing_db_v1';
@@ -270,6 +272,7 @@ let idbHydrationStarted = false;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let bootstrapTimer: ReturnType<typeof setTimeout> | null = null;
 let cachedState: PersistedSyncState | null = null;
+let cachedStateStorageKey = '';
 let cachedPairing: PersistedPairingState | null = null;
 
 let pairingUiOverride: {
@@ -593,10 +596,13 @@ export function getTvDoctorPairingInfo(): TvDoctorPairingInfo {
 }
 
 function readSyncState(): PersistedSyncState {
-  if (cachedState) return cachedState;
+  const storageKey = syncStateStorageKey();
+  if (cachedState && cachedStateStorageKey === storageKey) return cachedState;
+  cachedState = null;
+  cachedStateStorageKey = storageKey;
   const pairing = readPairingState();
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SYNC_STATE_KEY) : null;
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
@@ -648,7 +654,7 @@ function saveSyncState(): void {
   if (!cachedState.lastSyncAt && cachedState.cloudProfileCount === 0 && pendingCount === 0 && !cachedState.pendingCloudReset) {
     try {
       if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(SYNC_STATE_KEY);
+        localStorage.removeItem(cachedStateStorageKey || syncStateStorageKey());
       }
     } catch {
       /* ignore */
@@ -658,7 +664,7 @@ function saveSyncState(): void {
   }
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(cachedState));
+      localStorage.setItem(cachedStateStorageKey || syncStateStorageKey(), JSON.stringify(cachedState));
     }
   } catch (err) {
     recordCloudError(
@@ -2033,6 +2039,7 @@ export function clearTvDoctorCloudQueue(): void {
   } catch {
     /* ignore */
   }
+  cachedStateStorageKey = '';
   notifyTvDoctorListeners();
 }
 
