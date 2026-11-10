@@ -43,7 +43,7 @@ const tasks = [
   // 2.5.418: élő őr – döntési logika a valódi TV-naplók idővonalain + a valódi lejátszóban.
   { name: 'live-watchdog', args: ['tools/test-live-watchdog.mjs'] },
   { name: 'live-watchdog-player', args: ['tools/test-live-watchdog-player.mjs'] },
-  // 2.5.419: formátum-egészség és indulási puffer a #66-os napló idővonalain.
+  // 2.5.419/2.5.420: formátum-egészség és késleltetés-tartalék a #66-os és #67-es napló idővonalain.
   { name: 'live-stream-health', args: ['tools/test-live-stream-health.mjs'] },
   { name: 'channel-switch-diagnostics-runtime', args: ['tools/test-channel-switch-diagnostics-runtime.mjs'] },
   { name: 'channel-navigation-runtime', args: ['tools/test-channel-navigation-runtime.mjs'] },

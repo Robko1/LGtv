@@ -1,4 +1,4 @@
-export const WEB_VERSION = '2.5.419';
+export const WEB_VERSION = '2.5.420';
 
 // A webOS kezelő (webos.js) innen olvassa a verziót a SÁRGA gombos
 // kézi diagnosztikához - így az mindig a valóban futó kiadást mutatja.
@@ -6,6 +6,19 @@ try { (window as unknown as { IPTV_RT_WEB_VERSION?: string }).IPTV_RT_WEB_VERSIO
 
 // A build a legfrissebb bejegyzés verzióját is szinkronizálja. A régi történet a Gitben marad.
 export const WEB_VERSION_HISTORY = [
+  {
+    version: '2.5.420',
+    date: '2026-11-10',
+    changes: [
+      'ÉLŐ TV: A SZAKASZOSAN KÜLDŐ SZOLGÁLTATÓ MŰSOR KÖZBENI MEGAKADÁSAI (#67-es TV-napló, 2. szolgáltató) — A napló másodpercre megmutatta az okot: ez a szolgáltató az adást kb. 10 mp-es adagokban küldi, és MINDEN adag késik. Az első adag után 17–18 mp-ig semmi nem jön (ebből lesz a 10–12 mp-es megállás a csatorna indulásakor), a későbbi adagok késése pedig hullámzik (+1 mp adagonként, majd 5–6 adagonként visszaesik). A TV a megállás után azonnal újraindult, ezért a puffer a következő késő adagnál megint kifogyott: a TV2 HD-n 3 perc alatt 5 megállás volt. A TV Doktor be- és kikapcsolt állapotában, soha nem nézett csatornán is ugyanez történt – tehát nem tárolt beállítás, hanem a szolgáltató adatküldése az ok.',
+      'KÉSLELTETÉS-TARTALÉK, A TV DOKTORTÓL FÜGGETLENÜL — Ha egy szolgáltatónál a csatornák indulása ismételten (legalább 2-szer) adathiány miatt megállt, a lejátszó az indulási megállás VÉGÉN nem indul újra azonnal, hanem egyszer még kb. 6 mp-et vár („Puffer töltése…”). Ennyivel hátrébb kerül az élő adáshoz képest, és ez a tartalék fedezi a későbbi késő adagokat. A kép a csatornaváltáskor ugyanúgy azonnal megjelenik, mint eddig. Ha műsor közben mégis megakad, a megállás végén 2 mp ráhagyás jön, és a szolgáltató tartaléka megnő (legfeljebb 12 mp-re); ha a puffer 2 percig bőséges (legalább 10 mp), a tartalék 1 mp-cel csökken. A megállások és tartások összege betöltésenként legfeljebb 25 mp. Ahol a csatornák megállás nélkül indulnak (1. szolgáltató), ott ez a rész semmit nem csinál; ha a szolgáltató megjavul, a sima indulások kikapcsolják.',
+      'A TV DOKTOR KÜLÖN „INDULÁSI PUFFERE” MEGSZŰNT — A 2.5.419-es megoldás csak bekapcsolt TV Doktorral működött, az első képkockát fagyasztotta ki, a megállás hosszából méretezett, és a műsor közbeni megakadásokon nem segített. Helyette egyetlen közös út van, amely TV Doktor nélkül és TV Doktorral pontosan ugyanúgy viselkedik (a teszt mindkét állapotban ugyanazt az eredményt követeli meg).',
+      'PONTOSABB MEGÁLLÁS-MÉRÉS — Az adatfolyam-megfigyelő a megállás kezdetét a `waiting` eseményből (csak valódi adathiánynál, readyState < 3), a végét a `playing` eseményből veszi, a néma megállást az idővonalból. A néző szünete, a háttérbe kerülés, az újracsatlakozás és a szándékos tartás nem számít megállásnak. Fejlesztés közben a teszt megfogott egy hibát is: az 1 mp körüli megakadások elvesztek, ha a kép a mintavétel és a megállás között még haladt.',
+      'NAPLÓ — Új sorok a kézi naplóban: „KÉSLELTETÉS-TARTALÉK: TARTÁS / INDÍTÁS / VÉGE / ÚJABB MEGÁLLÁS / CSÖKKENTVE / LETILTVA”; az „INDULÁSI ADATHIÁNY MÉRVE” sor mostantól azt is kiírja, mi következik (tartás hossza vagy „első megfigyelés”). Az „INDULÁSI PUFFER (TV Doktor)” sor megszűnt.',
+      'TESZTEK — A valódi lejátszót szimulált TV-vel futtató `tools/test-live-watchdog-player.mjs` (140 ellenőrzés) mostantól a #67-es naplóban MÉRT adag-érkezéseket játssza vissza, a TV-n mért 2,7 mp-es megállási küszöbbel: beavatkozás nélkül a szimulátor a naplót adja vissza (11–12 mp-es indulási megállás, utána több rövid), tartalékkal egy megállás és egy 6 mp-es tartás után 10 percig nincs több megakadás. A `tools/test-live-stream-health.mjs` (61 ellenőrzés) 300–300 véletlen adag-időzítést is lefuttat: a naplóhoz hasonló ingadozásnál 300 nézésből 300 helyett 1-ben maradt műsor közbeni megakadás, a naplónál rosszabb (elvándorló késésű) modellben 300 helyett 38-ban.',
+      'KORLÁTOK — Valódi LG TV-n ez a kiadás még nem futott. Bizonyított (a naplóból): az adagolt, késő adatküldés és az, hogy a szünet → lejátszás tartás a webOS-en működik (Duna, 2.5.419). Feltevés: hogy a késés hosszabb távon is a mért sávban marad (a napló csatornánként legfeljebb 3 percet mutat) – ha nem, a tartalék tanul, de addig előfordulhat megakadás. Amin az alkalmazás NEM tud segíteni: a csatorna indulása utáni 10–12 mp-es megállás a 2. szolgáltatón megmarad (a szerver ennyi ideig nem küld adatot), és ehhez egyszer kb. 6 mp tartás adódik. A szolgáltató törlése és újbóli felvétele ezen nem változtat.',
+    ],
+  },
   {
     version: '2.5.419',
     date: '2026-11-10',

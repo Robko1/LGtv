@@ -37,10 +37,10 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { VideoPlayer } from './web/src/components/VideoPlayer';
 import { INITIAL_SETTINGS } from './web/src/data/mockData';
-import { appLog, getAppLogText, startManualLogging } from './web/src/services/appLog';
+import { appLog, clearAppLog, getAppLogText, startManualLogging } from './web/src/services/appLog';
 let markSerial = 0;
 import { LIVE_WATCHDOG_DEFAULTS, resetLiveTimelineTrustForTests } from './web/src/services/liveWatchdog';
-import { resetLiveStreamHealth, readHostHealth, isFormatDistrusted, startCushionPlan, streamHostKey } from './web/src/services/liveStreamHealth';
+import { resetLiveStreamHealth, readHostHealth, isFormatDistrusted, isBurstyHost, recordStartStarvation, recordLiveHoldExtra, liveHoldExtraMs, streamHostKey } from './web/src/services/liveStreamHealth';
 import { rememberedFormatFor } from './web/src/services/liveFormatMemory';
 import { recordLiveQualityMeasurement, liveQualityKey } from './web/src/services/liveQualityMemory';
 let root = null;
@@ -76,9 +76,14 @@ window.testPlayer = {
     reset() { resetLiveStreamHealth(); },
     read(url) { return readHostHealth(streamHostKey(url)); },
     distrusted(url, format) { return isFormatDistrusted(streamHostKey(url), format); },
-    cushion(url) { return startCushionPlan(streamHostKey(url)); },
+    bursty(url) { return isBurstyHost(streamHostKey(url)); },
+    learnExtra(url, ms) { recordLiveHoldExtra(streamHostKey(url), ms); },
+    seedStarve(url, count, stallMs = 11500) { for (let index = 0; index < count; index++) recordStartStarvation(streamHostKey(url), stallMs); },
+    extra(url) { return liveHoldExtraMs(streamHostKey(url)); },
   },
   memoryOf(channelId) { return rememberedFormatFor(channelId); },
+  /** A napló 1 MB-nál újrakezdődik: a hosszú szakaszok előtt üresről indulunk, hogy a jelek megmaradjanak. */
+  clearLog() { try { clearAppLog(); startManualLogging(); } catch { /* napló nélkül is fut */ } },
   mark() { const token = 'TESZT-JEL-' + (++markSerial) + '-VEGE'; appLog(token); return token; },
   seedQuality(channel, format, width, height) {
     return recordLiveQualityMeasurement({ key: liveQualityKey(channel), name: channel.name, format, width, height });
@@ -138,7 +143,8 @@ const dom = new JSDOM('<!doctype html><div id="root"></div>', {
     const open = (video, url) => {
       const script = Object.assign({ startDelayMs: 1800 }, sim.script ? sim.script(url, sim.loads.length) : {});
       const conn = {
-        video, url, script, openedAt: clock.now, pos: 0, started: false, paused: false, ended: false,
+        video, url, script, openedAt: clock.now, pos: Number(script.startPos) || 0, started: false, paused: false, ended: false,
+        stallLog: [], starveFrom: 0,
         ready: 0, duration: Infinity, error: null, net: 2, stallUntil: 0, stallIndex: 0, frozen: false, pausedOnce: false,
       };
       sim.loads.push({ url, at: clock.now });
@@ -168,9 +174,11 @@ const dom = new JSDOM('<!doctype html><div id="root"></div>', {
          hosszú szünet). A kép csak addig haladhat, ameddig adat érkezett. */
       if (script.data) {
         const dataEnd = script.data(clock.now - conn.startedAt);
-        if (conn.pos + 0.25 > dataEnd) {
+        /* #67 napló: a TV már ~2,7 mp-nyi pufferrel megáll (`waiting`, readyState=2). */
+        if (conn.pos + 0.25 > dataEnd - (Number(script.reserveSeconds) || 0)) {
           if (!conn.starving) {
             conn.starving = true;
+            conn.starveFrom = clock.now;
             conn.starvedCount = (conn.starvedCount || 0) + 1;
             conn.ready = 2;
             if (!script.silentStarve) fire(conn.video, 'waiting');
@@ -179,6 +187,7 @@ const dom = new JSDOM('<!doctype html><div id="root"></div>', {
         }
         if (conn.starving) {
           conn.starving = false;
+          conn.stallLog.push(clock.now - conn.starveFrom);
           conn.ready = 4;
           if (!script.silentStarve) fire(conn.video, 'playing');
         }
@@ -700,104 +709,248 @@ try {
     check(third.channel.id !== run.channel.id, '(a harmadik csatorna új csatorna)');
   }
 
-  /** 2. szolgáltató: 10 mp adat egyben, utána `gapEndMs`-ig semmi, majd 10 mp-es adagokban valós időben. */
-  const burstThenGap = (gapEndMs) => () => ({ startDelayMs: 2200, data: (elapsed) => (elapsed < gapEndMs ? 10 : 10 + Math.floor(elapsed / 10_000) * 10) });
-  const holdLines = (text) => text.split('\n').filter((line) => /INDULÁSI PUFFER \(TV Doktor\): TARTÁS/.test(line));
+  /*
+   * 2.5.420 – #67-es TV-napló (2.5.419, valódi LG TV), 2. szolgáltató.
+   * Az adat 10 mp-es ADAGOKBAN érkezik; `arrivals` az adagok érkezése mp-ben
+   * az első képkockától mérve. A TV ~2,7 mp-nyi pufferrel már megáll, a
+   * pozíció ~1,0 mp-ről indul – mindkettő a naplóból mért érték.
+   */
+  const chunked = (arrivals, extra = {}) => () => ({
+    startDelayMs: 1600, startPos: 1.0, reserveSeconds: 2.7,
+    data: (elapsedMs) => { let count = 0; for (const at of arrivals) if (at * 1000 <= elapsedMs) count += 1; return count * 10; },
+    ...extra,
+  });
+  /** `lateness[k-1]` = a k. adag (k ≥ 1) érkezése − 10·k mp; a mért értékek után a ciklus ismétlődik. */
+  const fromLateness = (measured, cycle, count = 64) => {
+    const arrivals = [0];
+    for (let k = 1; k < count; k++) {
+      const late = k - 1 < measured.length ? measured[k - 1] : cycle[(k - 1 - measured.length) % cycle.length];
+      arrivals.push(10 * k + late);
+    }
+    return arrivals;
+  };
+  // TV2 HD (185 mp a naplóban): az adagok 19,4 / 31,4 / 42,4 / 48,7 / 59,5 / 71,0 / 82,6 / 93,0 / 103,8 / 109,9 / … mp-nél érkeztek.
+  const TV2 = fromLateness(
+    [7.8, 9.8, 10.8, 7.1, 7.9, 9.4, 11.0, 11.4, 12.2, 8.3, 9.4, 10.2, 11.4, 12.0, 8.3, 9.1, 9.2],
+    [10.2, 11.4, 12.0, 8.3, 9.1, 9.4],
+  );
+  // Film Cafe (72 mp a naplóban): 18,9 / 30,0 / 41,1 / 47,4 / 58,2 / 69,0 mp.
+  const FILM_CAFE = fromLateness([6.9, 8.0, 9.1, 5.4, 6.2, 7.0], [8.0, 9.1, 5.4, 6.2, 7.0, 6.9]);
+  const holdLines = (text) => text.split('\n').filter((line) => /KÉSLELTETÉS-TARTALÉK: TARTÁS/.test(line));
+  const heldMsOf = (text) => text.split('\n').filter((line) => /KÉSLELTETÉS-TARTALÉK: (INDÍTÁS|VÉGE)/.test(line))
+    .map((line) => Number((/tartás=(\d+) ms/.exec(line) || [])[1] || -1));
+  const seconds = (list) => list.map((ms) => Math.round(ms / 100) / 10);
+  const noGuardNoise = (text) => !/ÉLŐ VÁRATLAN PAUSE|ÉLŐ ŐR: HELYI FOLYTATÁS|ÉLŐ ŐR: ÚJRACSATLAKOZÁS/.test(text);
 
-  console.log('\n=== 16. #66, 2. szolgáltató: indulási adathiány – TV Doktor NÉLKÜL nincs beavatkozás, csak mérés ===\n');
+  console.log('\n=== 16. #67, 2. szolgáltató: a szimulátor a naplót adja vissza; első megfigyelésnél nincs beavatkozás ===\n');
   {
-    let run = null;
-    for (const gapEnd of [18_000, 25_000, 19_000]) {
-      const mark = window.testPlayer.mark();
-      run = await start({ provider: 'A', keep: gapEnd !== 18_000, scenario: burstThenGap(gapEnd) });
-      await advance(3 * 60 * 1000);
-      check(sim.loads.length === 1 && reconnectsSince(mark) === 0 && sim.conn.pos > 140,
-        `${((gapEnd - 10_000) / 1000).toFixed(0)} mp-es indulási adathiány: egyetlen kapcsolat, nincs újratöltés, az adás magától megy tovább`,
-        `kapcsolatok=${sim.loads.length} pos=${sim.conn.pos}`);
-      check(holdLines(since(mark)).length === 0 && /INDULÁSI ADATHIÁNY MÉRVE/.test(since(mark)),
-        'kikapcsolt TV Doktornál nincs indulási tartás (a kép azonnal indul), a megállás csak mérésként kerül a naplóba');
-    }
-    const health = window.testPlayer.health.read(run.channel.streamUrl);
-    check(health.starve === 3 && health.gapMs >= 9000, 'a szolgáltató indulási adathiánya megtanulva (3 megfigyelés)', JSON.stringify(health));
+    window.testPlayer.clearLog();
+    const mark = window.testPlayer.mark();
+    const run = await start({ provider: 'A', scenario: chunked(TV2) });
+    await advance(1600 + 185_000);
+    const stalls = seconds(sim.conn.stallLog);
+    check(stalls.length >= 4 && Math.abs(stalls[0] - 11.5) <= 0.6 && stalls.slice(1).every((value) => value <= 3.5),
+      'beavatkozás nélkül a napló képe: ~11,5 mp-es indulási megállás, utána 3 percen belül még több megakadás (napló: 11,5 + 2,6 + 0,3 + 0,5 + 1,4 mp)',
+      JSON.stringify(stalls));
+    check(sim.loads.length === 1 && noGuardNoise(since(mark)) && holdLines(since(mark)).length === 0,
+      'első megfigyelés ezen a szolgáltatón: nincs tartás, nincs újratöltés (egyetlen megfigyelésből nem következtetünk)');
+    check(/INDULÁSI ADATHIÁNY MÉRVE; .*megfigyelések=1; .*első megfigyelés ezen a szolgáltatón/.test(since(mark)),
+      'az indulási adathiány mérése a naplóba kerül');
+    check(window.testPlayer.health.read(run.channel.streamUrl).starve === 1 && window.testPlayer.health.bursty(run.channel.streamUrl) === false,
+      'a szolgáltató egy megfigyelés után még nem számít szakaszosan küldőnek');
+  }
 
-    console.log('\n=== 17. #66, 2. szolgáltató: TV Doktorral az indulási puffer megszünteti a megállást ===\n');
-    for (const gapEnd of [18_000, 21_000]) {
+  console.log('\n=== 17. #67: a késleltetés-tartalék megszünteti a műsor közbeni megakadást – TV Doktor NÉLKÜL és TV Doktorral ugyanúgy ===\n');
+  {
+    const outcome = [];
+    for (const doctor of [false, true]) {
+      const label = doctor ? 'TV Doktor BE' : 'TV Doktor KI';
+      window.testPlayer.clearLog();
       const mark = window.testPlayer.mark();
-      const eventsBefore = sim.events.length;
-      const held = await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: true }, scenario: burstThenGap(gapEnd) });
-      await advance(2200 + 3000);
-      check(holdLines(since(mark)).length === 1 && sim.conn.paused === true && sim.conn.pos < 0.6,
-        'az első képkocka megjelenik, a TV Doktor a lejátszást az elején tartja (puffer feltöltése)', `pos=${sim.conn.pos}`);
-      await advance(gapEnd + 3000);
-      check(sim.conn.paused === false && sim.conn.pos > 0.5, 'az adat megérkezése után a lejátszás elindul', `pos=${sim.conn.pos}`);
-      const releaseLine = since(mark).split('\n').find((line) => /INDULÁSI PUFFER \(TV Doktor\): INDÍTÁS/.test(line)) || '';
-      const heldMs = Number((/tartás=(\d+) ms/.exec(releaseLine) || [])[1] || -1);
-      check(heldMs > 0 && heldMs <= 20_000, `a tartás ${heldMs} ms volt (a szigorú 20 mp-es korláton belül)`, releaseLine);
+      const run = await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: doctor }, scenario: chunked(TV2) });
+      await advance(1600 + 5000);
+      check(sim.conn.pos > 5 && sim.conn.paused === false && holdLines(since(mark)).length === 0,
+        `${label}: csatornaváltás után a kép azonnal megy (az elején nincs állókép-tartás)`, `pos=${sim.conn.pos}`);
+      await advance(10 * 60 * 1000);
+      const stalls = seconds(sim.conn.stallLog);
+      const held = heldMsOf(since(mark));
+      check(stalls.length === 1 && Math.abs(stalls[0] - 11.5) <= 0.6,
+        `${label}: az (elkerülhetetlen) indulási megállás után 10 percig EGYETLEN megakadás sincs`, JSON.stringify(stalls));
+      check(holdLines(since(mark)).length === 1 && held.length === 1 && held[0] >= 6000 && held[0] <= 6600,
+        `${label}: a megállás végén egyszer, ${held[0]} ms-ig tartja a képet (alap-tartalék 6 mp)`, JSON.stringify(held));
+      check(sim.loads.length === 1 && noGuardNoise(since(mark)) && window.testPlayer.isPlaying() === true && sim.conn.paused === false,
+        `${label}: egyetlen kapcsolat, az élő őr nem avatkozik be, a felület végig „lejátszás” állapotban marad`);
+      check(sim.conn.pos > 580, `${label}: 10 perc alatt ${sim.conn.pos.toFixed(0)} mp műsor ment le (a teljes várakozás ~18 mp)`);
+      outcome.push({ stalls: stalls.length, held: Math.round(held[0] / 500), id: run.channel.id });
+    }
+    check(outcome[0].stalls === outcome[1].stalls && outcome[0].held === outcome[1].held,
+      'a viselkedés TV Doktorral és anélkül AZONOS (a sima tévénézés része, nem TV Doktor-funkció)', JSON.stringify(outcome));
+    {
+      window.testPlayer.clearLog();
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, scenario: chunked(FILM_CAFE) });
+      await advance(1600 + 10 * 60 * 1000);
+      check(sim.conn.stallLog.length === 1 && holdLines(since(mark)).length === 1 && sim.loads.length === 1,
+        'a napló másik csatornáján (Film Cafe, más adag-időzítés) is: egy megállás, egy tartás, utána nincs megakadás',
+        JSON.stringify(seconds(sim.conn.stallLog)));
+    }
+    // Esemény nélküli megállás (a naplókban volt `waiting` nélküli megállás is): a másodpercenkénti minta veszi észre.
+    {
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, scenario: chunked(TV2, { silentStarve: true }) });
+      await advance(1600 + 5 * 60 * 1000);
+      check(holdLines(since(mark)).length === 1 && sim.conn.stallLog.length === 1,
+        '`waiting` / `playing` esemény nélküli megállás után is van tartás, és utána nincs megakadás', JSON.stringify(seconds(sim.conn.stallLog)));
+    }
+  }
+
+  console.log('\n=== 18. Ahol nincs rá szükség, ott nincs beavatkozás (az 1. szolgáltató változatlan) ===\n');
+  {
+    // (a) Jól működő szolgáltató: műsor közbeni rövid és hosszabb megakadás után sincs tartás.
+    {
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'B', keep: true, scenario: () => ({ stalls: [{ atPos: 20, forMs: 1200 }, { atPos: 60, forMs: 5000 }, { atPos: 200, forMs: 9000 }] }) });
       await advance(5 * 60 * 1000);
-      check((sim.conn.starvedCount || 0) === 0 && sim.loads.length === 1 && reconnectsSince(mark) === 0,
-        'a tartás után 5 percig EGYETLEN megállás sincs (régen ~8 mp-nél 9–17 mp-re megfagyott a kép)',
-        `megállások=${sim.conn.starvedCount || 0} kapcsolatok=${sim.loads.length}`);
-      check(!/ÉLŐ VÁRATLAN PAUSE|ÉLŐ ŐR: HELYI FOLYTATÁS/.test(since(mark)),
-        'a szándékos tartást az élő őr nem nézi váratlan szünetnek (nincs beavatkozás)');
-      check(window.testPlayer.isPlaying() === true && sim.events.length > eventsBefore && held.channel.id.length > 0,
-        'a lejátszó végig „lejátszás” állapotban marad (a felület nem vált szünet-ikonra)');
+      check(holdLines(since(mark)).length === 0 && sim.loads.length === 1 && sim.conn.pos > 270,
+        'nem szakaszosan küldő szolgáltatón a megakadások után sincs tartás: a kép azonnal megy tovább', `pos=${sim.conn.pos}`);
     }
-
-    // Másik szolgáltatón (ahol nem volt adathiány) TV Doktorral sincs tartás.
+    // (b) Szakaszosan küldő szolgáltatón megállás nélküli indulás: semmilyen várakozás.
     {
-      const mark = window.testPlayer.mark();
-      await start({ provider: 'B', keep: true, settings: { tvDoctorEnabled: true }, scenario: () => ({}) });
-      await advance(40 * 1000);
-      check(holdLines(since(mark)).length === 0 && sim.conn.pos > 36,
-        'jól működő szolgáltatón TV Doktorral sincs indulási tartás: a kép azonnal megy (gyors csatornaváltás)', `pos=${sim.conn.pos}`);
+      check(window.testPlayer.health.bursty(`${PROVIDERS.A.host}/live/u/p/1.ts`) === true, '(kiinduló állapot: a 2. szolgáltató szakaszosan küldőként ismert)');
+      const holds = [];
+      for (let round = 0; round < 4; round++) {
+        const mark = window.testPlayer.mark();
+        await start({ provider: 'A', keep: true, scenario: () => ({ startDelayMs: 1500 }) });
+        await advance(45_000);
+        holds.push(holdLines(since(mark)).length);
+        check(sim.conn.pos > 42, `megállás nélküli indulás (${round + 1}.): a kép várakozás nélkül megy`, `pos=${sim.conn.pos}`);
+      }
+      check(holds.every((count) => count === 0) && window.testPlayer.health.bursty(sim.loads[0].url) === false,
+        'ha a szolgáltató megjavul (folyamatosan küld), a megfigyelés néhány csatornaváltás alatt elévül', JSON.stringify(holds));
     }
-
-    // A TV nem közli megbízhatóan a puffert: a tartás a tanult idő után akkor is véget ér.
+    // (c) A néző szünete nem megállás.
     {
+      window.testPlayer.clearLog();
+      window.testPlayer.health.reset();
+      window.testPlayer.health.seedStarve(`${PROVIDERS.A.host}/live/u/p/1.ts`, 3);
       const mark = window.testPlayer.mark();
-      await start({
-        provider: 'A', keep: true, settings: { tvDoctorEnabled: true },
-        scenario: () => ({ startDelayMs: 2200, data: (elapsed) => (elapsed < 60_000 ? Math.min(12, 10 + elapsed / 30_000) : 1e9) }),
-      });
-      await advance(2200 + 21_000);
-      check(sim.conn.paused === false && /INDÍTÁS; .*ok=a tanult várakozás letelt/.test(since(mark)),
-        'ha a puffer-kijelzés nem nő, a tartás legkésőbb 20 mp után akkor is elengedi a képet (nincs végtelen várakozás)');
+      await start({ provider: 'A', keep: true, scenario: () => ({ startDelayMs: 1500 }) });
+      await advance(40_000);
+      window.testPlayer.setPlaying(false);
+      await advance(12_000);
+      window.testPlayer.setPlaying(true);
+      await advance(20_000);
+      check(holdLines(since(mark)).length === 0 && !/INDULÁSI ADATHIÁNY MÉRVE|ÚJABB MEGÁLLÁS/.test(since(mark)) && sim.conn.paused === false,
+        'a néző 12 mp-es szünete után nincs tartás és nincs hamis adathiány-megfigyelés');
     }
+  }
 
-    console.log('\n=== 18. Az indulási puffer önmagát kapcsolja ki, ha nem működik vagy már nem kell ===\n');
-    // (a) A TV a tartás után nem folytatja a lejátszást → letiltás + az élő őr helyreállít.
+  console.log('\n=== 19. A tartalék tanul, korlátos, és kikapcsolja magát, ha a TV-n nem működik ===\n');
+  {
+    const hostUrl = `${PROVIDERS.A.host}/live/u/p/1.ts`;
+    // (a) Az alap-tartalék kevés: egy későbbi megakadás → rövid ráhagyás + tanulás → a következő csatornán egyben.
     {
+      window.testPlayer.clearLog();
+      window.testPlayer.health.reset();
+      window.testPlayer.health.seedStarve(hostUrl, 2);
+      const WILD = fromLateness([8, 9, 10, 11, 12, 13, 15, 15.5], [9, 10, 11, 12, 13, 15, 15.5]);
       const mark = window.testPlayer.mark();
-      await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: true }, scenario: (url, index) => (index === 0 ? { ...burstThenGap(18_000)(), resumable: false } : {}) });
-      await advance(2200 + 20_000 + 3500);
-      check(/INDULÁSI PUFFER \(TV Doktor\): LETILTVA/.test(since(mark)), 'ha a TV a tartás után szünetben marad, a funkció ezen a szolgáltatón letiltja magát');
+      await start({ provider: 'A', keep: true, scenario: chunked(WILD) });
+      await advance(1600 + 10 * 60 * 1000);
+      const stalls = seconds(sim.conn.stallLog);
+      const held = heldMsOf(since(mark));
+      check(stalls.length === 2 && stalls[1] <= 2 && held.length === 2 && held[1] >= 2000 && held[1] <= 2600 && /KÉSLELTETÉS-TARTALÉK: ÚJABB MEGÁLLÁS/.test(since(mark)),
+        'nagyobb ingadozásnál egyetlen későbbi megakadás jön, utána 2 mp ráhagyás – és 10 percig nincs több', `megállások=${JSON.stringify(stalls)} tartások=${JSON.stringify(held)}`);
+      const learned = window.testPlayer.health.extra(hostUrl);
+      check(learned >= 8500 && learned <= 10_000, `a szolgáltató tartaléka megtanulva: ${learned} ms (6 mp + a megakadás + 2 mp)`);
+      window.testPlayer.clearLog();
+      const mark2 = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, scenario: chunked(WILD) });
+      await advance(1600 + 10 * 60 * 1000);
+      check(sim.conn.stallLog.length === 1 && holdLines(since(mark2)).length === 1 && heldMsOf(since(mark2))[0] >= 8500,
+        'a következő csatornán a tanult tartalék EGYBEN telik le, és utána egyetlen megakadás sincs',
+        `megállások=${JSON.stringify(seconds(sim.conn.stallLog))} tartások=${JSON.stringify(heldMsOf(since(mark2)))}`);
+    }
+    // (b) Egyenletesen küldő (csak az indulásnál késő) szolgáltatón a tartalék magától csökken.
+    {
+      window.testPlayer.clearLog();
+      window.testPlayer.health.reset();
+      window.testPlayer.health.seedStarve(hostUrl, 2);
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, scenario: chunked(fromLateness([], [8])) });
+      await advance(1600 + 4 * 60 * 1000);
+      check(sim.conn.stallLog.length === 1 && !/KÉSLELTETÉS-TARTALÉK: CSÖKKENTVE/.test(since(mark)) && window.testPlayer.health.extra(hostUrl) === 6000,
+        'az alap-tartalék (6 mp) mellett a puffer nem „bőséges” (< 10 mp): a tartalék NEM csökken', `tartalék=${window.testPlayer.health.extra(hostUrl)}`);
+      window.testPlayer.health.learnExtra(hostUrl, 9000);
+      const mark2 = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, scenario: chunked(fromLateness([], [8])) });
+      await advance(1600 + 4 * 60 * 1000);
+      check(sim.conn.stallLog.length === 1 && /KÉSLELTETÉS-TARTALÉK: CSÖKKENTVE/.test(since(mark2)) && window.testPlayer.health.extra(hostUrl) === 8000,
+        'túl nagyra tanult tartaléknál (9 mp), ha a puffer 2 percig végig ≥ 10 mp, a tartalék 1 mp-cel csökken (9 → 8 mp)', `tartalék=${window.testPlayer.health.extra(hostUrl)}`);
+    }
+    // (c) A megállás és a tartás együtt legfeljebb 25 mp.
+    {
+      window.testPlayer.clearLog();
+      window.testPlayer.health.reset();
+      window.testPlayer.health.seedStarve(hostUrl, 2);
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, scenario: chunked(fromLateness([18.3], [12])) });
+      await advance(1600 + 60_000);
+      const held = heldMsOf(since(mark));
+      check(seconds(sim.conn.stallLog)[0] >= 21.5 && held.length === 1 && held[0] >= 2500 && held[0] <= 3600 && noGuardNoise(since(mark)),
+        '22 mp-es indulási megállás után a tartás már csak ~3 mp (összesen legfeljebb 25 mp), az élő őr nem tölt újra',
+        `megállás=${JSON.stringify(seconds(sim.conn.stallLog))} tartás=${JSON.stringify(held)}`);
+    }
+    // (d) A néző a tartás alatt szünetet kér, majd folytat.
+    {
+      window.testPlayer.clearLog();
+      window.testPlayer.health.reset();
+      window.testPlayer.health.seedStarve(hostUrl, 2);
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, scenario: chunked(TV2) });
+      await advance(1600 + 6300 + 11_500 + 2000);
+      check(holdLines(since(mark)).length === 1 && sim.conn.paused === true, '(a tartás folyamatban van)');
+      window.testPlayer.setPlaying(false);
+      await advance(8000);
+      check(/KÉSLELTETÉS-TARTALÉK: VÉGE; .*ok=a néző szünetet kért/.test(since(mark)) && sim.conn.paused === true,
+        'a tartás alatti szünet-kérés érvényesül: a tartás véget ér, a kép szünetben marad');
+      window.testPlayer.setPlaying(true);
+      await advance(5000);
+      check(sim.conn.paused === false && holdLines(since(mark)).length === 1, 'folytatáskor az adás megy tovább, új tartás nélkül');
+    }
+    // (e) Csatornaváltás a tartás alatt: az új csatorna rendesen indul.
+    {
+      window.testPlayer.clearLog();
+      window.testPlayer.health.reset();
+      window.testPlayer.health.seedStarve(hostUrl, 2);
+      await start({ provider: 'A', keep: true, scenario: (url, index) => (index === 0 ? chunked(TV2)() : { startDelayMs: 1500 }) });
+      await advance(1600 + 6300 + 11_500 + 2000);
+      check(sim.conn.paused === true, '(a tartás folyamatban van)');
+      const next = makeChannel('A', 'ts');
+      window.testPlayer.update(next, { tvDoctorEnabled: false, bufferMode: 'balanced', streamFormat: 'ts' });
+      await advance(12_000);
+      check(sim.loads.length === 2 && sim.conn.url === next.streamUrl && sim.conn.paused === false && sim.conn.pos > 8,
+        'tartás közbeni csatornaváltás után az új csatorna azonnal, szünet nélkül megy', `pos=${sim.conn.pos} paused=${sim.conn.paused}`);
+      check(!doc.body.textContent.includes('Puffer töltése'), 'a „Puffer töltése…” jelző nem marad a képernyőn');
+    }
+    // (f) A TV a tartás után nem folytatja a lejátszást → letiltás, az élő őr helyreállít, többé nincs tartás.
+    {
+      window.testPlayer.clearLog();
+      window.testPlayer.health.reset();
+      window.testPlayer.health.seedStarve(hostUrl, 2);
+      const mark = window.testPlayer.mark();
+      await start({ provider: 'A', keep: true, scenario: (url, index) => (index === 0 ? chunked(TV2, { resumable: false })() : {}) });
+      await advance(1600 + 6300 + 11_500 + 6500 + 4000);
+      check(/KÉSLELTETÉS-TARTALÉK: LETILTVA/.test(since(mark)), 'ha a TV a tartás után szünetben marad, a tartás ezen a szolgáltatón letiltja magát');
       await advance(15_000);
       check(sim.loads.length === 2 && reconnectsSince(mark) >= 1, 'a beragadt adást az élő őr újracsatlakozással helyreállítja', `kapcsolatok=${sim.loads.length}`);
       await advance(60_000);
       check(sim.conn.pos > 40 && window.testPlayer.isPlaying() === true, 'az adás az újracsatlakozás után megy');
       const mark2 = window.testPlayer.mark();
-      await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: true }, scenario: burstThenGap(18_000) });
-      await advance(60_000);
-      check(holdLines(since(mark2)).length === 0 && window.testPlayer.health.cushion(sim.loads[0].url) === null,
+      await start({ provider: 'A', keep: true, scenario: chunked(TV2) });
+      await advance(1600 + 60_000);
+      check(holdLines(since(mark2)).length === 0 && window.testPlayer.health.bursty(hostUrl) === false,
         'a letiltás után a következő csatornán már nincs tartás');
-    }
-    // (b) A szolgáltató megjavult (folyamatos adat): néhány váltás után a tartás megszűnik.
-    {
-      window.testPlayer.health.reset();
-      for (let round = 0; round < 2; round++) {
-        await start({ provider: 'A', keep: true, scenario: burstThenGap(18_000) });
-        await advance(60_000);
-      }
-      check(window.testPlayer.health.cushion(sim.loads[0].url) !== null, '(kiinduló állapot: két megfigyelés után a tartás be van kapcsolva)');
-      let holds = [];
-      for (let round = 0; round < 4; round++) {
-        const mark = window.testPlayer.mark();
-        await start({ provider: 'A', keep: true, settings: { tvDoctorEnabled: true }, scenario: () => ({ startDelayMs: 1500 }) });
-        await advance(45_000);
-        holds.push(holdLines(since(mark)).length);
-      }
-      check(holds[0] === 1 && holds[3] === 0 && window.testPlayer.health.cushion(sim.loads[0].url) === null,
-        'folyamatosan adó szolgáltatónál a tartás azonnal elenged, és néhány csatornaváltás után teljesen megszűnik', JSON.stringify(holds));
     }
   }
 

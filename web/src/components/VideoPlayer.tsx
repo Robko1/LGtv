@@ -42,19 +42,24 @@ import {
 } from '../services/liveWatchdog';
 import {
   FORMAT_STABLE_MS,
-  StartFlowObserver,
+  LIVE_SPARE_AHEAD_SECONDS,
+  LiveFlowTracker,
   chooseHealthyStartFormat,
+  isBurstyHost,
   isEarlyFormatDeath,
-  markStartCushionBroken,
+  liveHoldExtraMs,
+  liveStallHoldMs,
+  markLiveHoldBroken,
+  readHostHealth,
   recordFormatDeath,
   recordFormatStable,
+  recordLiveHoldExtra,
   recordSmoothStart,
   recordStartStarvation,
+  reduceLiveHoldExtra,
   shouldSwitchFormatAfterDeath,
-  startCushionDecision,
-  startCushionPlan,
   streamHostKey,
-  type StartCushionPlan,
+  type LiveFlowEvent,
 } from '../services/liveStreamHealth';
 import {
   DOCTOR_BUFFER_CONFIGS,
@@ -950,20 +955,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const liveWatchdogRef = useRef<LiveWatchdog | null>(null);
   if (!liveWatchdogRef.current) liveWatchdogRef.current = new LiveWatchdog();
   /*
-   * 2.5.419 – FORMÁTUM-EGÉSZSÉG ÉS INDULÁSI PUFFER (lásd `liveStreamHealth.ts`).
+   * 2.5.419 – FORMÁTUM-EGÉSZSÉG ÉS KÉSLELTETÉS-TARTALÉK (lásd `liveStreamHealth.ts`).
    *  - `qualityProbeLoadRef`: ez a csatornaindítás a „szebb kép” választó
    *    KÍSÉRLETE; a formátum-emlék csak tartós, hibátlan lejátszás után íródik.
    *  - `formatStableNotedRef`: az aktuális betöltés már bizonyította a tartósságát.
    *  - `formatDeathSwitchRef`: a formátum lejátszás közben korán elhalt → a
    *    következő újracsatlakozás a MÁSIK formátummal történik.
-   *  - `startCushionRef`: TV Doktor indulási puffer-tartás állapota.
+   *  - `startCushionRef`: a szándékos tartás (késleltetés-tartalék) állapota.
+   *    2.5.420: a TV Doktortól független; csak egy ténylegesen bekövetkezett
+   *    megállás VÉGÉT hosszabbítja meg szakaszosan küldő szolgáltatón.
    */
   const qualityProbeLoadRef = useRef(false);
   const qualityProbeFormatRef = useRef<LiveFormat | null>(null);
   const formatStableNotedRef = useRef(false);
   const formatDeathSwitchRef = useRef<{ url: string; from: LiveFormat; generation: number } | null>(null);
-  const startFlowRef = useRef<StartFlowObserver | null>(null);
-  if (!startFlowRef.current) startFlowRef.current = new StartFlowObserver();
+  const startFlowRef = useRef<LiveFlowTracker | null>(null);
+  if (!startFlowRef.current) startFlowRef.current = new LiveFlowTracker();
   const startCushionRef = useRef<{
     generation: number;
     state: 'idle' | 'holding' | 'released';
@@ -973,7 +980,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     timer: number | null;
   }>({ generation: -1, state: 'idle', startedAt: 0, heldMs: 0, releasedBy: '', timer: null });
   const noteLiveFormatDeathRef = useRef<(cause: string) => void>(() => {});
-  const beginStartCushionRef = useRef<(video: HTMLVideoElement, plan: StartCushionPlan) => void>(() => {});
+  const beginStartCushionRef = useRef<(video: HTMLVideoElement, holdMs: number, why: string) => void>(() => {});
+  const handleLiveFlowEventRef = useRef<(video: HTMLVideoElement, event: LiveFlowEvent) => void>(() => {});
+  /** A kis „Pufferelés…” jelző felirata a szándékos tartás alatt. */
+  const [liveHoldActive, setLiveHoldActive] = useState(false);
   const hasErrorRef = useRef(false);
   hasErrorRef.current = hasError;
   /**
@@ -5388,6 +5398,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.clearInterval(startCushionRef.current.timer);
       startCushionRef.current.timer = null;
     }
+    if (startCushionRef.current.state === 'holding') setLiveHoldActive(false);
     startCushionRef.current.state = 'idle';
     startCushionRef.current.generation = loadGeneration;
     startCushionRef.current.heldMs = 0;
@@ -5780,20 +5791,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   /*
-   * 2.5.419 – TV DOKTOR INDULÁSI PUFFER-TARTÁS (#66 napló, 2. szolgáltató).
+   * 2.5.420 – KÉSLELTETÉS-TARTALÉK SZAKASZOSAN KÜLDŐ SZOLGÁLTATÓN
+   * (#67 napló, 2. szolgáltató; a döntések: `liveStreamHealth.ts`).
    *
-   * A szolgáltató minden frissen megnyitott csatornánál ~10 mp adatot küld,
-   * majd 15–30 mp-ig semmit: a kép elindul, ~8 mp-nél megáll, és 9–17 mp
-   * múlva megy tovább. A hiányzó adatot nem lehet pótolni; a TV Doktor annyit
-   * tehet, hogy a várakozást a kép ELEJÉRE teszi: az első képkockát megtartja,
-   * amíg a puffer megtelik (vagy a tanult idő letelik), utána megállás nélkül
-   * megy az adás. Csak akkor fut, ha a minta ezen a szolgáltatón legalább
-   * kétszer megismétlődött; kikapcsolt TV Doktornál soha.
+   * A szerver 10 mp-es adagokban, egyenetlenül küld; a kép az első megállás
+   * után is alig az adagok mögött jár, ezért minden kicsit későbbi adagnál
+   * újra megakad. Egy ÉPPEN VÉGET ÉRT megállás után ezért a képet még
+   * néhány másodpercig állva tartjuk: a várakozás egyben telik le, és utána
+   * a késő adag sem éri utol a lejátszást.
+   *
+   * Nem függ a TV Doktortól. Megállás nélkül soha nem indul; jól működő
+   * szolgáltatón (ahol nem volt ismételt indulási adathiány) soha nem fut.
+   * A 2.5.419 „első képkocka tartása” megszűnt.
    */
-  beginStartCushionRef.current = (video: HTMLVideoElement, plan: StartCushionPlan) => {
+  beginStartCushionRef.current = (video: HTMLVideoElement, holdMs: number, why: string) => {
     const cushion = startCushionRef.current;
     const generation = streamLoadGenerationRef.current;
-    if (cushion.generation !== generation || cushion.state !== 'idle') return;
+    if (cushion.generation !== generation || cushion.state === 'holding') return;
+    if (video !== htmlVideoRef.current || video.paused || video.ended || video.error) return;
     const host = streamHostKey(activeMediaUrlRef.current || '');
     const channelName = channelRef.current?.name || 'élő adás';
     cushion.state = 'holding';
@@ -5802,32 +5817,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     cushion.releasedBy = '';
     try { video.pause(); } catch { /* a tartás nélkül is megy az adás */ }
     appLog(
-      `INDULÁSI PUFFER (TV Doktor): TARTÁS; csatorna=${channelName}; szolgáltató=${host}; legfeljebb=${(plan.holdMs / 1000).toFixed(1)} s; `
-      + `cél=${plan.targetAheadSeconds} s puffer; ok=ezen a szolgáltatón az adás az indulás után ismételten megállt (adathiány).`,
+      `KÉSLELTETÉS-TARTALÉK: TARTÁS; csatorna=${channelName}; szolgáltató=${host}; tartás=${(holdMs / 1000).toFixed(1)} s; `
+      + `ok=${why}; TV-Doktor=${tvDoctorEnabledRef.current ? 'be' : 'ki'} (a döntést nem befolyásolja).`,
     );
+    setIsLoading(true);
+    setLiveHoldActive(true);
     showDoctorStatus({
       phase: 'buffering',
       title: 'Puffer feltöltése',
-      detail: 'A szolgáltató lassan indítja az adást – rövid várakozás után megállás nélkül megy.',
+      detail: 'A szolgáltató szakaszosan küldi az adást – rövid várakozás után megakadás nélkül megy.',
     });
     const finish = (releasedBy: string, resume: boolean): void => {
       if (cushion.timer !== null) { window.clearInterval(cushion.timer); cushion.timer = null; }
       cushion.heldMs = Date.now() - cushion.startedAt;
       cushion.releasedBy = releasedBy;
       cushion.state = 'released';
+      startFlowRef.current?.noteHold(cushion.heldMs, Date.now());
+      setLiveHoldActive(false);
       clearDoctorBufferingStatus();
       const ahead = bufferedAheadSeconds(video);
       appLog(
-        `INDULÁSI PUFFER (TV Doktor): ${resume ? 'INDÍTÁS' : 'VÉGE'}; csatorna=${channelName}; tartás=${cushion.heldMs} ms; `
-        + `ok=${releasedBy === 'release-buffer' ? 'a puffer megtelt' : releasedBy === 'release-time' ? 'a tanult várakozás letelt' : releasedBy}; `
-        + `puffer-előre=${ahead === null ? 'n/a' : ahead.toFixed(1)} s.`,
+        `KÉSLELTETÉS-TARTALÉK: ${resume ? 'INDÍTÁS' : 'VÉGE'}; csatorna=${channelName}; tartás=${cushion.heldMs} ms; `
+        + `ok=${releasedBy}; puffer-előre=${ahead === null ? 'n/a' : ahead.toFixed(1)} s; `
+        + `összes megállás+tartás=${((startFlowRef.current?.lagMs || 0) / 1000).toFixed(1)} s.`,
       );
       if (!resume) return;
-      // Az indulás-mérés a tartás végétől számít: így derül ki, elég volt-e.
-      startFlowRef.current?.begin(Date.now(), Number(video.currentTime || 0));
-      const broken = (why: string): void => {
-        markStartCushionBroken(host);
-        appLog(`INDULÁSI PUFFER (TV Doktor): LETILTVA ezen a szolgáltatón; szolgáltató=${host}; ok=${why}; az élő őr veszi át az adást.`);
+      const broken = (reason: string): void => {
+        markLiveHoldBroken(host);
+        appLog(`KÉSLELTETÉS-TARTALÉK: LETILTVA ezen a szolgáltatón; szolgáltató=${host}; ok=${reason}; az élő őr veszi át az adást.`);
       };
       try {
         const resumed = video.play();
@@ -5847,17 +5864,72 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     cushion.timer = window.setInterval(() => {
       if (generation !== streamLoadGenerationRef.current || video !== htmlVideoRef.current) {
         if (cushion.timer !== null) { window.clearInterval(cushion.timer); cushion.timer = null; }
+        setLiveHoldActive(false);
         return;
       }
       if (video.error || video.ended) { finish('hiba vagy lezárás a tartás alatt', false); return; }
       if (!desiredPlayingRef.current || !playbackActiveRef.current) { finish('a néző szünetet kért', false); return; }
-      const decision = startCushionDecision({
-        elapsedMs: Date.now() - cushion.startedAt,
-        plan,
-        aheadSeconds: bufferedAheadSeconds(video),
-      });
-      if (decision !== 'hold') finish(decision, true);
-    }, 500);
+      if (Date.now() - cushion.startedAt >= holdMs) finish('a tartalék letelt', true);
+    }, 250);
+  };
+
+  /*
+   * 2.5.420 – az adatfolyam-megfigyelő eseményeinek feldolgozása (élő adás).
+   * A `playing` eseményből és a másodpercenkénti mintából is hívódik; a
+   * megfigyelő gondoskodik róla, hogy egy megállás csak egyszer számítson.
+   */
+  handleLiveFlowEventRef.current = (video: HTMLVideoElement, event: LiveFlowEvent) => {
+    if (event.kind === 'none' || isVodRef.current) return;
+    const host = streamHostKey(activeMediaUrlRef.current || '');
+    if (!host) return;
+    const channelName = channelRef.current?.name || 'élő adás';
+    const flow = startFlowRef.current;
+    if (event.kind === 'smooth') {
+      recordSmoothStart(host);
+      return;
+    }
+    if (event.kind === 'spare') {
+      if (event.minAheadSeconds !== null && event.minAheadSeconds >= LIVE_SPARE_AHEAD_SECONDS && isBurstyHost(host)) {
+        const health = reduceLiveHoldExtra(host);
+        appLog(
+          `KÉSLELTETÉS-TARTALÉK: CSÖKKENTVE; szolgáltató=${host}; ok=2 perc megakadás nélkül, a puffer végig legalább `
+          + `${event.minAheadSeconds.toFixed(1)} s volt; új tartalék=${(health.extraMs / 1000).toFixed(1)} s.`,
+        );
+      }
+      return;
+    }
+    const health = event.start ? recordStartStarvation(host, event.stallMs) : readHostHealth(host);
+    const holdMs = desiredPlayingRef.current && playbackActiveRef.current
+      ? liveStallHoldMs({ host, start: event.start, lagSoFarMs: flow?.lagMs || 0 })
+      : 0;
+    if (event.start) {
+      appLog(
+        `INDULÁSI ADATHIÁNY MÉRVE; csatorna=${channelName}; szolgáltató=${host}; `
+        + `megállás=${(event.stallMs / 1000).toFixed(1)} s (magától megoldódott, nincs újratöltés); `
+        + `megfigyelések=${health.starve}; sima indulások=${health.smooth}; `
+        + `következő=${holdMs > 0
+          ? `késleltetés-tartalék ${(holdMs / 1000).toFixed(1)} s (hogy a műsor közben ne akadjon meg)`
+          : (health.cushionBroken ? 'nincs tartás (ezen a TV-n le van tiltva)' : 'nincs tartás (első megfigyelés ezen a szolgáltatón)')}; `
+        + `TV-Doktor=${tvDoctorEnabledRef.current ? 'be' : 'ki'} (a döntést nem befolyásolja).`
+      );
+    } else if (isBurstyHost(host)) {
+      // Műsor közbeni megállás szakaszosan küldő szolgáltatón: a tartalék kevés volt.
+      const learned = flow?.starved ? recordLiveHoldExtra(host, event.extraLagMs + holdMs) : health;
+      appLog(
+        `KÉSLELTETÉS-TARTALÉK: ÚJABB MEGÁLLÁS; csatorna=${channelName}; szolgáltató=${host}; megállás=${(event.stallMs / 1000).toFixed(1)} s; `
+        + `ráhagyás most=${(holdMs / 1000).toFixed(1)} s; a szolgáltató tanult tartaléka=${(liveHoldExtraMs(host) / 1000).toFixed(1)} s`
+        + `${flow?.starved ? '' : ' (változatlan: ebben a betöltésben nem volt indulási adathiány)'}; megfigyelések=${learned.starve}.`
+      );
+    }
+    if (holdMs > 0) {
+      beginStartCushionRef.current(
+        video,
+        holdMs,
+        event.start
+          ? 'a szolgáltató szakaszosan küldi az adást; az indulási megállás végén egyben telik le a szükséges késleltetés'
+          : 'műsor közbeni megállás szakaszosan küldő szolgáltatón; rövid ráhagyás, hogy a következő késő adag ne állítsa meg újra',
+      );
+    }
   };
 
   requestRecoveryRef.current = (reason: string) => {
@@ -6195,30 +6267,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }
       const startFlow = startFlowRef.current;
-      if (active && started && healthHost && startFlow && startFlow.active) {
-        const flowEvent = startFlow.observe({ now, currentTime, paused: video.paused });
-        const cushion = startCushionRef.current;
-        const cushionUsed = cushion.state === 'released' && cushion.generation === streamLoadGenerationRef.current;
-        if (flowEvent.kind === 'starved') {
-          const health = recordStartStarvation(healthHost, flowEvent.stallMs + (cushionUsed ? cushion.heldMs : 0));
-          appLog(
-            `INDULÁSI ADATHIÁNY MÉRVE; csatorna=${channelRef.current?.name || 'élő adás'}; szolgáltató=${healthHost}; `
-            + `megállás=${(flowEvent.stallMs / 1000).toFixed(1)} s (magától megoldódott, nincs újratöltés); `
-            + `indulási tartás=${cushionUsed ? `${(cushion.heldMs / 1000).toFixed(1)} s volt, kevésnek bizonyult` : 'nem volt'}; `
-            + `megfigyelések=${health.starve}; sima indulások=${health.smooth}; `
-            + `TV-Doktor=${tvDoctorEnabledRef.current ? 'be (2 megfigyeléstől indulási puffert tart)' : 'ki (csak mérés)'}.`
-          );
-        } else if (flowEvent.kind === 'smooth') {
-          if (!cushionUsed) {
-            recordSmoothStart(healthHost);
-          } else if (cushion.releasedBy === 'release-buffer' && cushion.heldMs < 3000) {
-            // A puffer azonnal megtelt: a szolgáltató már folyamatosan küld.
-            recordSmoothStart(healthHost);
-          } else if (cushion.releasedBy === 'release-buffer') {
-            // A tartás alatt érkezett meg a hiányzó adat: a minta fennáll.
-            recordStartStarvation(healthHost, cushion.heldMs);
-          }
-        }
+      if (started && healthHost && startFlow && startFlow.active) {
+        // Szünet, tartás, háttérbe kerülés vagy folyamatban lévő újracsatlakozás
+        // alatt a megfigyelő órája áll: ezek nem a szolgáltató megállásai.
+        const flowEvent = startFlow.observe({
+          now,
+          currentTime,
+          paused: video.paused || !active,
+          aheadSeconds: bufferedAheadSeconds(video),
+        });
+        if (active) handleLiveFlowEventRef.current(video, flowEvent);
       }
       if (decision.action === 'none' || !decision.reason) return;
       const channelName = channelRef.current?.name || 'élő adás';
@@ -6943,24 +7001,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 return;
               }
               const firstPlayingOfLoad = !playbackStartedRef.current;
-              const freshChannelStart = !liveRecoveryOnlyRef.current;
               playbackStartedRef.current = true;
               initialFormatRetryRef.current = false;
-              if (!isVod && firstPlayingOfLoad) {
-                // 2.5.419: az indulás utáni adatfolyam mérése (csak megfigyelés).
+              if (!isVod) {
                 const flowVideo = event.currentTarget;
-                startFlowRef.current?.begin(Date.now(), Number(flowVideo.currentTime || 0));
-                const cushionPlan = tvDoctorEnabledRef.current && freshChannelStart && !customStreamUrl
-                  ? startCushionPlan(streamHostKey(activeMediaUrlRef.current || ''))
-                  : null;
-                if (cushionPlan) {
-                  // A tartás a `playing` feldolgozása UTÁN indul: az indulási
-                  // mérések és a TV Doktor tanulása a valódi indulást látják.
-                  window.setTimeout(() => {
-                    if (flowVideo === htmlVideoRef.current && desiredPlayingRef.current) {
-                      beginStartCushionRef.current(flowVideo, cushionPlan);
-                    }
-                  }, 0);
+                if (firstPlayingOfLoad) {
+                  // 2.5.419: az indulás utáni adatfolyam mérése.
+                  startFlowRef.current?.begin(Date.now(), Number(flowVideo.currentTime || 0));
+                } else if (startCushionRef.current.state !== 'holding') {
+                  // 2.5.420: egy megállás most ért véget – a kép még nem indult
+                  // újra. Szakaszosan küldő szolgáltatón itt telik le egyben a
+                  // késleltetés-tartalék (a `playing` feldolgozása UTÁN).
+                  const flowEvent = startFlowRef.current?.resumed(Date.now(), Number(flowVideo.currentTime || 0));
+                  if (flowEvent && flowEvent.kind !== 'none') {
+                    const flowGeneration = streamLoadGenerationRef.current;
+                    window.setTimeout(() => {
+                      if (flowVideo === htmlVideoRef.current && flowGeneration === streamLoadGenerationRef.current) {
+                        handleLiveFlowEventRef.current(flowVideo, flowEvent);
+                      }
+                    }, 0);
+                  }
                 }
               }
               // 2.5.388: a film BIZONYÍTOTTAN elindult – innentől a
@@ -7324,6 +7384,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 const ahead = bufferedAheadSeconds(video);
                 const healthy = !video.error && video.readyState >= 3 && ahead !== null
                   && ahead >= bufferTiming().minBufferAheadSeconds;
+                // 2.5.420: valódi adathiány (readyState < 3) – a megállás pontos kezdete.
+                if (!isVod && !video.error && video.readyState < 3) startFlowRef.current?.noteWaiting(Date.now(), Number(video.currentTime || 0));
                 if (healthy) {
                   setIsLoading(false);
                   doctorSessionRef.current.waitingOrStalledFlag = false;
@@ -7446,7 +7508,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (switchInProgressRef.current) return;
               const video = event.currentTarget;
               if (!video.paused || video.ended) return;
-              // 2.5.419: a TV Doktor indulási puffer-tartása SZÁNDÉKOS szünet.
+              // 2.5.419/2.5.420: a késleltetés-tartalék tartása SZÁNDÉKOS szünet.
               if (startCushionRef.current.state === 'holding'
                   && startCushionRef.current.generation === streamLoadGenerationRef.current) return;
               const pausedEndState = {
@@ -7681,7 +7743,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         >
           <div className="h-4 w-4 shrink-0 rounded-full border-2 border-cyan-400/40 border-t-cyan-300 animate-spin" />
           <span className="text-[11px] font-semibold text-cyan-100 tracking-wide">
-            {isRecovering ? 'Újracsatlakozás…' : 'Pufferelés…'}
+            {isRecovering ? 'Újracsatlakozás…' : (liveHoldActive ? 'Puffer töltése…' : 'Pufferelés…')}
           </span>
         </div>
       ) : (
