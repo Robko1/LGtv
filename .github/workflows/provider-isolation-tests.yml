@@ -1,4 +1,4 @@
-name: Végső teljes regressziós tesztkör (IPK nélkül)
+name: Végső teljes regressziós tesztkör (provider-aware számláló javítás)
 
 on:
   push:
