@@ -515,6 +515,7 @@ const backend: Backend = (() => {
       put: (key, value) => {
         try {
           window.localStorage.setItem(LOCAL_PREFIX + providerScopePrefix() + key, value);
+          memory.delete(providerScopePrefix() + key);
           return true;
         } catch {
           return false;
