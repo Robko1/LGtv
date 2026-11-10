@@ -414,7 +414,7 @@ function restoreTvDoctorProviderScopeFromStorage(): void {
 export function setTvDoctorProviderScope(providerId: string | null | undefined): void {
   // A szolgáltatóváltás előtt az előző szolgáltató függő írásait még a régi
   // névtérbe ürítjük, majd a memóriabeli gyorsítótárakat is lecseréljük.
-  flushPendingPersist();
+  flushTvDoctorStore();
   flushRecentDoctorLogs();
   setActiveProviderScope(providerId);
   memoryCache = createEmptyStore();
