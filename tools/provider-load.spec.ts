@@ -212,10 +212,15 @@ async function main(): Promise<void> {
       && appSource.indexOf('setActiveProviderScope(storageService.getSettings().activeProviderId') < appSource.indexOf('const bootLive = loadLive()'),
     'újraindításkor a kiválasztott szolgáltató tárhelye már a csatornalista beolvasása előtt aktív',
   );
+  const xtreamImportStart = importSource.indexOf('export async function importXtreamProvider(');
+  const m3uImportStart = importSource.indexOf('export async function importM3UProvider(');
+  const refreshImportStart = importSource.indexOf('export async function refreshProviderContent(');
   check(
-    /setActiveProviderScope\(provider\.id\)/.test(importSource)
-      && /setActiveProviderScope\(provider\.id\)/.test(importSource),
-    'az import és a frissítés a saját szolgáltatóazonosítója alá ment',
+    xtreamImportStart >= 0 && m3uImportStart > xtreamImportStart && refreshImportStart > m3uImportStart
+      && /setActiveProviderScope\(provider\.id\)/.test(importSource.slice(xtreamImportStart, m3uImportStart))
+      && /setActiveProviderScope\(provider\.id\)/.test(importSource.slice(m3uImportStart, refreshImportStart))
+      && /setActiveProviderScope\(provider\.id\)/.test(importSource.slice(refreshImportStart)),
+    'az Xtream-, M3U-import és a frissítés is a saját szolgáltatóazonosítója alá ment',
   );
   check(
     /providerScopePrefix\(\)/.test(formatMemorySource)
