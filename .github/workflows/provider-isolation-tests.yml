@@ -1,0 +1,45 @@
+name: Ideiglenes szolgáltató-elkülönítési teszt
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/provider-isolation-tests.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-isolation-tests
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Teljes regressziós tesztkör (IPK nélkül)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Forrás letöltése
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: Alapfüggőségek telepítése
+        run: npm ci --no-audit --no-fund
+
+      - name: Webfüggőségek telepítése
+        run: npm ci --prefix web --no-audit --no-fund
+
+      - name: Teljes tesztkör
+        env:
+          TEST_CONCURRENCY: '3'
+        run: npm test
