@@ -5441,7 +5441,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         );
         const isSameSwitch = Boolean(
           isSameProviderChannelSwitch &&
-          previousDiagnostic!.streamUrl === url
+          previousDiagnostic &&
+          previousDiagnostic.streamUrl === url
         );
         const now = Date.now();
         const diagnostic = {
