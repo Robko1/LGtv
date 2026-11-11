@@ -1,0 +1,2279 @@
+import { ChannelLogo } from './ChannelLogo';
+import { APP_ICON_DATA_URL } from '../generatedIcon';
+// A Beállítások füleinek nagy ikonjai: fogaskerék a takaróképről,
+// szív és jel-pajzs a felhasználó által beküldött képekből (2.5.230).
+import { KEDVENCEK_ICON_DATA_URL, LISTAK_ICON_DATA_URL, MENU_GEAR_ICON_DATA_URL } from '../generatedMenuIcons';
+// Kép alapú kedvencmappa-ikonok (Mr Bean, HBO Max) megjelenítése a mappalistában.
+import { getFolderImageIcon } from '../folderImageIcons';
+import { TvDoctorIcon } from './TvDoctorIcon';
+import { SupabasePairingModal } from './SupabasePairingModal';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AppSettings, Channel, FavoriteFolder, ProviderAccount, SubtitleSize, WatchHistoryItem } from '../types/iptv';
+import {
+  SlidersHorizontal,
+  Tv,
+  FolderPlus,
+  Play,
+  RefreshCw,
+  Plus,
+  Film,
+  Trash2,
+  Check,
+  Edit3,
+  Smartphone,
+  Star,
+  PanelsTopLeft,
+  Clock,
+  KeyRound,
+  ShieldCheck,
+  ShieldAlert,
+  Save,
+  Upload,
+  Cloud,
+} from 'lucide-react';
+import { storageService } from '../services/storageService';
+import { loadLiveChannelsByIds } from '../services/contentStore';
+import {
+  createLayoutSnapshot,
+  getLastBackupInfo,
+  getCloudLastFetchInfo,
+  getLastCloudError,
+  clearLastCloudError,
+  saveSnapshotToCloud,
+  fetchSnapshotFromCloud,
+  applySnapshotToChannels,
+  persistRestoredLayout,
+  type LayoutSnapshot,
+} from '../services/channelLayoutBackup';
+import {
+  getTvDoctorMemoryStats,
+  subscribeTvDoctorUpdates,
+} from '../services/tvDoctor';
+import {
+  getTvDoctorCloudStatus,
+  getTvDoctorPairingInfo,
+} from '../services/tvDoctorCloud';
+import { normalizeTvKey } from '../utils/tvKeys';
+import { WEB_VERSION } from '../appVersion';
+import { checkLatestWebOSRelease, type WebOSReleaseInfo } from '../services/webosUpdateService';
+
+/**
+ * 2.5.266 (#13-as napló): a Listák fül látható provider-dobozai DOM-sorrendben.
+ * A fel/le nyilak innen járják be az összes szolgáltatói listát, és csak az
+ * utolsó után ugranak a „teljes törlés” gombra.
+ */
+function visibleListBoxes(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  // A layout mentés doboza (data-layout-backup) nem provider-doboz, külön kezeljük.
+  return Array.from(root.querySelectorAll<HTMLElement>('[data-tv-box]:not([data-layout-backup])'))
+    .filter((el) => el.getClientRects().length > 0 && el.offsetParent !== null);
+}
+
+
+/**
+ * A Listák fül görgetése webOS-en: a scrollIntoView önmagában nem mindig
+ * görgeti vissza a belső panelt felfelé, noha a fókuszt már áthelyezte.
+ * A panel scrollTop értékét közvetlenül igazítjuk a fókuszált elemhez.
+ */
+function focusListElement(root: HTMLElement | null, element?: HTMLElement | null, alignTop = false): void {
+  if (!element) return;
+  element.focus({ preventScroll: true } as any);
+  if (!root) return;
+
+  // Mindig a fókuszált elem tényleges görgethető ősét keressük meg.
+  // Ne feltételezzük, hogy a görgető közvetlenül a modal gyereke:
+  // a webOS böngészőben a közvetlen gyerekekre épülő keresés könnyen
+  // rossz panelt választ, vagy nem találja meg a megfelelő scroll-területet.
+  let scroller: HTMLElement | null = element.parentElement;
+  while (scroller && scroller !== root && !scroller.classList.contains('overflow-y-auto')) {
+    scroller = scroller.parentElement;
+  }
+  if (!scroller || scroller === root) {
+    scroller = Array.from(root.querySelectorAll<HTMLElement>('.overflow-y-auto')).find(
+      (candidate) => candidate.contains(element),
+    ) || null;
+  }
+  if (!scroller) {
+    element.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    return;
+  }
+
+  if (alignTop) scroller.scrollTop = 0;
+  const viewport = scroller.getBoundingClientRect();
+  const target = element.getBoundingClientRect();
+  const inset = 10;
+  if (target.top < viewport.top + inset) {
+    scroller.scrollTop = Math.max(0, scroller.scrollTop - (viewport.top + inset - target.top));
+  } else if (target.bottom > viewport.bottom - inset) {
+    scroller.scrollTop += target.bottom - (viewport.bottom - inset);
+  }
+}
+
+interface MenuSettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  activeTab: 'lists' | 'favorites' | 'system';
+  setActiveTab: (tab: 'lists' | 'favorites' | 'system') => void;
+  channels: Channel[];
+  /** Csak a főoldali magyar készlet + kedvenc mappák csatornái, mentéshez. */
+  layoutChannels: Channel[];
+  settings: AppSettings;
+  onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
+  providers: ProviderAccount[];
+  onOpenAddProvider: () => void;
+  onEditProvider: (provider: ProviderAccount) => void;
+  onDeleteProvider: (id: string) => void;
+  onRefreshProvider: (id: string) => void;
+  onActivateProvider: (provider: ProviderAccount) => void;
+  onOpenImportDiagnostic: (provider: ProviderAccount) => void;
+  folders: FavoriteFolder[];
+  onOpenAddFolder: () => void;
+  onDeleteFolder: (folderId: string) => void;
+  onToggleFavorite: (channelId: string) => void;
+  onRemoveChannelFromFolder: (folderId: string, channelId: string) => void;
+  onOpenEpgModal: () => void;
+  onOpenQrProvision: () => void;
+  /** A meglévő általános diagnosztikai megosztási útvonal bekötése megmarad. */
+  onOpenDiagnosticShare?: () => void;
+  watchHistory: WatchHistoryItem[];
+  onContinueWatching: (item: WatchHistoryItem) => void;
+  onRemoveWatchHistoryItem: (id: string) => void;
+}
+
+export const MenuSettingsModal: React.FC<MenuSettingsModalProps> = ({
+  isOpen,
+  onClose,
+  activeTab,
+  setActiveTab,
+  channels,
+  layoutChannels,
+  settings,
+  onUpdateSettings,
+  providers,
+  onOpenAddProvider,
+  onEditProvider,
+  onDeleteProvider,
+  onRefreshProvider,
+  onActivateProvider,
+  onOpenImportDiagnostic,
+  onOpenQrProvision,
+  folders,
+  onOpenAddFolder,
+  onDeleteFolder,
+  onRemoveChannelFromFolder,
+  watchHistory,
+  onContinueWatching,
+  onRemoveWatchHistoryItem,
+}) => {
+  const [releaseInfo, setReleaseInfo] = useState<WebOSReleaseInfo | null>(null);
+  const [releaseCheckLoading, setReleaseCheckLoading] = useState(false);
+  const [releaseCheckStatus, setReleaseCheckStatus] = useState('');
+  const [showReleaseDetails, setShowReleaseDetails] = useState(false);
+  const showApplicationBox = true; // állandó rész, nem csukható
+  const [expandedFavoriteFolderId, setExpandedFavoriteFolderId] = useState<string | null>(null);
+  /*
+   * TV-n a window.confirm() NEM működik: a webOS böngészője nem jelenít meg
+   * natív párbeszédablakot (a hívás azonnal false-szal tér vissza), ezért a
+   * kedvenc mappa TÖRLÉSE és a gyorsítótár törlése hatástalan volt.
+   * Helyette a felületen belüli, távirányítóval is elérhető kérdés jelenik meg.
+   */
+  const [pendingDeleteFolderId, setPendingDeleteFolderId] = useState<string | null>(null);
+  /*
+   * SZOLGÁLTATÓ TÖRLÉSE – saját megerősítés.
+   *
+   * A piros kuka eddig `window.confirm`-ot hívott, ami a webOS TV
+   * böngészőjében nem jelenik meg (azonnal `false`-t ad), ezért a törlés
+   * hatástalan volt. A megerősítés most ugyanaz a sáv, mint a mappáknál:
+   * távirányítóval is elérhető, és nem hagyja el a felületet.
+   */
+  const [pendingDeleteProviderId, setPendingDeleteProviderId] = useState<string | null>(null);
+  const [pendingClearCache, setPendingClearCache] = useState(false);
+  /** Folyamatban lévő teljes törlés – a gomb ezalatt nem nyomható meg újra. */
+  const [clearingCache, setClearingCache] = useState(false);
+  // Elrendezés mentése és visszaállítása kizárólag Supabase-en keresztül.
+  const [layoutLastBackup, setLayoutLastBackup] = useState<ReturnType<typeof getLastBackupInfo>>(() => null);
+  const [layoutCloudInfo, setLayoutCloudInfo] = useState(() => getCloudLastFetchInfo());
+  const [layoutCloudError, setLayoutCloudError] = useState(() => getLastCloudError());
+  const [layoutTesting, setLayoutTesting] = useState(false);
+  const [layoutSaving, setLayoutSaving] = useState(false);
+  const [layoutRestoring, setLayoutRestoring] = useState(false);
+  const [layoutMessage, setLayoutMessage] = useState('');
+  const [pendingLayoutRestore, setPendingLayoutRestore] = useState(false);
+  const [isSupabasePairingOpen, setIsSupabasePairingOpen] = useState(false);
+  const pairingBoxRef = useRef<HTMLDivElement | null>(null);
+  const [, setDoctorUiTick] = useState(0);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'system') return undefined;
+    return subscribeTvDoctorUpdates(() => {
+      setDoctorUiTick((n) => n + 1);
+    });
+  }, [isOpen, activeTab]);
+  // Elrendezés mentése / visszaállítása kizárólag Supabase-en keresztül.
+  const activeProviderForLayout = useMemo(() => {
+    const list = Array.isArray(providers) ? providers : [];
+    return list.find((p) => p.isActive) || list[0] || null;
+  }, [providers]);
+  // 2.5.335 — Elrendezés mentés állapot + felhő ellenőrzés a Listák fül megnyitásakor
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'lists') return;
+    let cancelled = false;
+    const providerId = activeProviderForLayout?.id || '';
+    setLayoutLastBackup(providerId ? getLastBackupInfo(providerId) : null);
+    setLayoutCloudInfo(getCloudLastFetchInfo());
+    setLayoutCloudError(getLastCloudError());
+    // Ha párosítva van és van aktív szolgáltató, próbáljuk lekérni a felhő mentést is
+    // (hogy a „Nincs felhő mentés” ne maradjon beragva, ha a felhőben már van adat)
+    if (providerId) {
+      try {
+        const raw = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1');
+        const paired = raw ? JSON.parse(raw) : null;
+        if (paired?.deviceToken) {
+          void fetchSnapshotFromCloud(providerId).then((snap) => {
+            if (cancelled) return;
+            setLayoutCloudInfo(getCloudLastFetchInfo());
+            setLayoutCloudError(getLastCloudError());
+            if (snap && snap.providerId === providerId) {
+              setLayoutLastBackup({ at: snap.createdAt, providerId: snap.providerId, providerName: snap.providerName, source: 'cloud', totalChannels: snap.totalChannels, deletedCount: snap.deletedChannels.length, folderCount: snap.folders.length });
+            }
+          }).catch(() => {
+            if (!cancelled) setLayoutCloudError(getLastCloudError());
+          });
+        }
+      } catch {}
+    }
+    return () => { cancelled = true; };
+  }, [isOpen, activeTab, activeProviderForLayout?.id]);
+  // Ha a csatornaelrendezés doboza új üzenettel vagy megerősítő résszel
+  // megnő, a belső Listák panel automatikusan görgessen le a teljes dobozig.
+  // A fókuszt nem mozgatjuk el a Mentés most gombról.
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'lists' || (!layoutMessage && !pendingLayoutRestore)) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const scroller = contentScrollRef.current;
+        const box = layoutBackupRef.current;
+        if (!scroller || !box) return;
+        const viewport = scroller.getBoundingClientRect();
+        const target = box.getBoundingClientRect();
+        const bottomLimit = viewport.bottom - 12;
+        if (target.bottom > bottomLimit) {
+          scroller.scrollTop += target.bottom - bottomLimit;
+        }
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [isOpen, activeTab, layoutMessage, pendingLayoutRestore]);
+
+  // A kék teletextgomb a Kedvencek fülön nem indíthat csatornamozgatást.
+  // A globális távirányító-kezelés más nézetekben változatlan marad.
+
+  const checkWebOSUpdate = async () => {
+    setReleaseCheckLoading(true);
+    setReleaseCheckStatus('A nyilvános webOS kiadás ellenőrzése…');
+    try {
+      const result = await checkLatestWebOSRelease();
+      setReleaseInfo(result);
+      setReleaseCheckStatus(result.updateAvailable
+        ? `Új verzió érhető el: ${result.latestVersion}. Az IPK telepítését webOS fejlesztői eszközzel kell elvégezni.`
+        : result.latestVersion === result.currentVersion
+          ? `Naprakész: ${result.currentVersion}.`
+          : `A legfrissebb kiadás (${result.latestVersion}) nem újabb a telepített ${result.currentVersion} verziónál.`);
+    } catch (error) {
+      setReleaseCheckStatus(error instanceof Error ? error.message : 'A frissítés ellenőrzése sikertelen.');
+    } finally {
+      setReleaseCheckLoading(false);
+    }
+  };
+
+  // Csatorna-kereső térkép: a kedvenc mappák listája korábban minden egyes
+  // csatornánál végigfutott a teljes (akár 20-60 ezer elemes) listán
+  // (`f.channelIds.map(id => channels.find(...))`), ami a menü minden
+  // kirajzolásakor több százezer összehasonlítást jelentett.
+  const channelById = useMemo(() => {
+    const map = new Map<string, Channel>();
+    for (const channel of channels) map.set(channel.id, channel);
+    return map;
+  }, [channels]);
+
+  const resumableHistory = useMemo(
+    () => watchHistory.filter((item) => item.mediaType === 'movie' || item.mediaType === 'series'),
+    [watchHistory],
+  );
+
+  // TV / stick / egér: D-pad + egér támogatás a beállítások modalban
+  const modalRef = useRef<HTMLDivElement | null>(null);
+  const contentScrollRef = useRef<HTMLDivElement | null>(null);
+  const layoutBackupRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const focusModal = () => {
+      try {
+        const container = modalRef.current;
+        if (!container) return;
+        // FÓKUSZRABLÁS TILTVA: ha a fókusz már a modalBAN van (a néző épp a
+        // füleken vagy egy dobozban navigál), NEM nyúlunk hozzá. Korábban az
+        // első gombra – a bezáró X-re! – rántotta vissza az időzítő, ezért
+        // ugrált a kijelölés "magától" az X-re.
+        const ae = document.activeElement as HTMLElement | null;
+        // Ha a fókusz egy MÁSIK (felettünk nyitott) ablakban van – pl. QR
+        // vagy Új mappa –, SOHA nem rabolhatjuk el. Korábban ez okozta,
+        // hogy a kijelölés "kiugrott a háttérbe".
+        const aeDlg = (ae && ae.closest ? ae.closest('[role="dialog"]') : null) as HTMLElement | null;
+        const myDlg = (container.closest('[role="dialog"]') || container.querySelector('[role="dialog"]') || container) as HTMLElement;
+        if (aeDlg && aeDlg !== myDlg && !myDlg.contains(aeDlg)) return;
+        const def = container.querySelector<HTMLElement>('[data-tv-default]');
+        const tab = container.querySelector<HTMLElement>(`[data-tv-tabid="${activeTab}"]`)
+          || container.querySelector<HTMLElement>('[data-tv-open-focus]');
+        if (ae && container.contains(ae) && ae !== container) {
+          // Fülváltás után a fókusz a fül tartalmára kerül; nyitáskor viszont
+          // először maga az aktív fül (Kedvencek) kapja a sárga kijelölést.
+          const onTab = !!(ae.closest && ae.closest('[data-tv-tabs]'));
+          if (!onTab) return;
+          const jump = def || container.querySelector<HTMLElement>('[data-tv-box]');
+          if (jump) focusListElement(container, jump, true);
+          return;
+        }
+        tab?.focus({ preventScroll: true } as any);
+      } catch {}
+    };
+    const timer = window.setTimeout(focusModal, 100);
+    return () => clearTimeout(timer);
+  }, [isOpen, activeTab]);
+
+  const handleTabDpad = (event: React.KeyboardEvent<HTMLButtonElement>, current: 'lists' | 'favorites' | 'system') => {
+    const key = normalizeTvKey(event);
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight') return;
+    const order: Array<'lists' | 'favorites' | 'system'> = ['lists', 'favorites', 'system'];
+    const index = order.indexOf(current);
+    const next = order[index + (key === 'ArrowRight' ? 1 : -1)];
+    if (!next) return;
+    event.preventDefault();
+    event.stopPropagation();
+    // A nyílgomb csak a fül fókuszát mozgatja; OK aktiválja a fület.
+    modalRef.current?.querySelector<HTMLElement>(`[data-tv-tabid="${next}"]`)?.focus({ preventScroll: true } as any);
+  };
+
+  // A Kedvencek fül minden távirányítós nyílkezelése itt van központosítva.
+  // A kártyákon és gombokon nincs külön nyílkezelő, így nem írhatják felül egymást.
+  const handleFavoritesNavigation = (e: React.KeyboardEvent): boolean => {
+    const key = normalizeTvKey(e);
+    const root = modalRef.current;
+    if (!root) return false;
+    const target = e.target as HTMLElement;
+    const folder = target.closest<HTMLElement>('[data-favorite-folder]');
+    const channel = target.closest<HTMLElement>('[data-favorite-channel]');
+    const resumeSection = target.closest<HTMLElement>('[data-resume-section]');
+    const resumeItem = target.closest<HTMLElement>('[data-resume-item]');
+    const isNewFolder = !!target.closest('[data-tv-default]');
+    const onTabs = !!target.closest('[data-tv-tabs]');
+    if (onTabs && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      if (key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopPropagation();
+        root.querySelector<HTMLElement>('[data-tv-default]')?.focus({ preventScroll: true } as any);
+      } else {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return true;
+    }
+    // Enter a mappakártyán a mappa műveleteire visz; a Folytatás szekción
+    // Enter az első Folytatás gombra visz. A tényleges gombok kattintása natív marad.
+    if ((key === 'Enter' || key === ' ') && folder && target === folder) {
+      e.preventDefault();
+      e.stopPropagation();
+      folder.querySelector<HTMLElement>('button[title="Mappa törlése"]')?.focus({ preventScroll: true } as any);
+      return true;
+    }
+    if ((key === 'Enter' || key === ' ') && resumeSection && target === resumeSection) {
+      e.preventDefault();
+      e.stopPropagation();
+      resumeSection.querySelector<HTMLElement>('[data-resume-continue]')?.focus({ preventScroll: true } as any);
+      return true;
+    }
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return false;
+    const focus = (el?: HTMLElement | null) => {
+      if (!el) return;
+      e.preventDefault();
+      e.stopPropagation();
+      focusListElement(root, el);
+    };
+    const block = () => { e.preventDefault(); e.stopPropagation(); };
+    const folders = Array.from(root.querySelectorAll<HTMLElement>('[data-favorite-folder]')).filter(el => el.offsetParent !== null);
+    const channels = folder ? Array.from(folder.querySelectorAll<HTMLElement>('[data-favorite-channel]')) : [];
+    const resumeItems = Array.from(root.querySelectorAll<HTMLElement>('[data-resume-item]'));
+    const continueButton = (row: HTMLElement) => row.querySelector<HTMLElement>('[data-resume-continue]');
+    const removeButton = (row: HTMLElement) => row.querySelector<HTMLElement>('[data-resume-remove]');
+    const currentResumeButton = target.closest<HTMLElement>('[data-resume-continue], [data-resume-remove]');
+
+    if (isNewFolder) {
+      if (key === 'ArrowUp') focus(root.querySelector<HTMLElement>('[data-tv-tabid="favorites"]'));
+      else if (key === 'ArrowDown') focus(folders[0] || root.querySelector<HTMLElement>('[data-resume-section]'));
+      else block();
+      return true;
+    }
+    if (channel) {
+      const index = channels.indexOf(channel);
+      if (target.closest('[title="Eltávolítás a kedvenc mappából"]')) {
+        if (key === 'ArrowLeft') focus(channel);
+        else if (key === 'ArrowUp') {
+          if (index > 0) focus(channels[index - 1].querySelector<HTMLElement>('[title="Eltávolítás a kedvenc mappából"]'));
+          else focus(folder);
+        } else if (key === 'ArrowDown') {
+          if (index < channels.length - 1) focus(channels[index + 1].querySelector<HTMLElement>('[title="Eltávolítás a kedvenc mappából"]'));
+          else focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+        } else block();
+        return true;
+      }
+      if (key === 'ArrowUp') {
+        if (index === 0) { setExpandedFavoriteFolderId(null); focus(folder); }
+        else focus(channels[index - 1]);
+      } else if (key === 'ArrowDown') {
+        if (index < channels.length - 1) focus(channels[index + 1]);
+        else focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+      } else if (key === 'ArrowRight') focus(channel.querySelector<HTMLElement>('[title="Eltávolítás a kedvenc mappából"]'));
+      else if (key === 'ArrowLeft') focus(folder);
+      return true;
+    }
+    if (folder) {
+      if (target.closest('button[title="Mappa törlése"]')) {
+        if (key === 'ArrowLeft' || key === 'ArrowUp') focus(folder);
+        else block(); // Jobbra és lefelé a Törlés gombon maradunk: nem léphet ki a mappából.
+        return true;
+      }
+      const folderIndex = folders.indexOf(folder);
+      const isExpanded = expandedFavoriteFolderId === folder.dataset.favoriteFolder;
+      const folderChannels = Array.from(folder.querySelectorAll<HTMLElement>('[data-favorite-channel]'));
+      if (key === 'ArrowUp') {
+        focus(folderIndex > 0 ? folders[folderIndex - 1] : root.querySelector<HTMLElement>('[data-tv-default]'));
+      } else if (key === 'ArrowDown') {
+        // Az utolsó mappáról lefelé a Folytatás teljes dobozára kell lépni.
+        if (isExpanded && folderChannels.length) focus(folderChannels[0]);
+        else if (folderIndex < folders.length - 1) focus(folders[folderIndex + 1]);
+        else focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+      } else if (key === 'ArrowRight' || key === 'ArrowLeft') {
+        // A teljes mappadoboz vízszintesen nem vált másik szekcióra,
+        // és nem nyit/zár mappát. OK-val külön a Törlés gomb érhető el.
+        block();
+      } else block();
+      return true;
+    }
+    if (currentResumeButton && resumeItem) {
+      const index = resumeItems.indexOf(resumeItem);
+      const isRemove = currentResumeButton.hasAttribute('data-resume-remove');
+      if (key === 'ArrowLeft') {
+        if (isRemove) focus(continueButton(resumeItem)); else block();
+      } else if (key === 'ArrowRight') {
+        if (!isRemove) focus(removeButton(resumeItem)); else block();
+      } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+        const next = index + (key === 'ArrowDown' ? 1 : -1);
+        if (next >= 0 && next < resumeItems.length) focus(isRemove ? removeButton(resumeItems[next]) : continueButton(resumeItems[next]));
+        else if (key === 'ArrowUp') focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+        else block();
+      }
+      return true;
+    }
+    if (resumeItem) {
+      if (key === 'ArrowUp' || key === 'ArrowDown') {
+        const index = resumeItems.indexOf(resumeItem);
+        const next = index + (key === 'ArrowDown' ? 1 : -1);
+        if (next >= 0 && next < resumeItems.length) focus(continueButton(resumeItems[next]));
+        else if (key === 'ArrowUp') focus(root.querySelector<HTMLElement>('[data-resume-section]'));
+        else block();
+      } else block();
+      return true;
+    }
+    if (resumeSection) {
+      // A Folytatás teljes dobozáról lefelé nincs továbblépés.
+      if (key === 'ArrowDown') block();
+      else if (key === 'ArrowUp') focus(folders[folders.length - 1] || root.querySelector<HTMLElement>('[data-tv-default]'));
+      else block();
+      return true;
+    }
+    return false;
+  };
+
+  const handleModalKeyDown = (e: React.KeyboardEvent) => {
+    /*
+     * 2.5.296 – FÓKUSZCSAPDA JAVÍTÁSA (Rendszer fül):
+     * A TV Doktor dobozon a LEFELÉ nyíl eddig a doboz saját Ki/Be kapcsolójára
+     * vitte a fókuszt, onnan pedig vissza a doboz keretére – így a menüben
+     * felfelé/lefelé haladva a fókusz örökre a doboz és a kapcsoló között
+     * pattogott, és a többi beállítás elérhetetlenné vált.
+     * Mostantól MINDEN doboz egységesen egy fókuszlépés:
+     *   • fel/le  → az előző / következő doboz (a legfelső dobozról fel a fülre),
+     *   • balra/jobbra vagy OK → a doboz belső vezérlői (kapcsoló, gombok),
+     *   • a belső vezérlők sorának végén fel/le → a szomszéd doboz (nem pattanás
+     *     vissza a saját keretre).
+     */
+    if (activeTab === 'system') {
+      const key = normalizeTvKey(e);
+      const target = e.target as HTMLElement;
+      const box = target.closest<HTMLElement>('[data-tv-box]');
+      const active = document.activeElement as HTMLElement | null;
+      // A látható dobozok sorrendje a képernyőn (a rejtett fülök dobozai nélkül).
+      const visibleSystemBoxes = (): HTMLElement[] => {
+        const root = modalRef.current;
+        if (!root) return [];
+        // A láthatóságot a rajzolt területtel is ellenőrizzük: a TV böngészője
+        // mellett így a tesztkörnyezet (jsdom) is ugyanazt a sorrendet látja.
+        return Array.from(root.querySelectorAll<HTMLElement>('[data-tv-box]')).filter(
+          (el) =>
+            (el.offsetParent !== null || el.getClientRects().length > 0) &&
+            !el.closest('[data-view-hidden]'),
+        );
+      };
+      const focusSystemElement = (el?: HTMLElement | null): void => {
+        if (!el) return;
+        // A Listák füllel azonos, webOS-biztos görgetés: ne csak a fókuszt
+        // mozgassuk, hanem a modal belső görgetőpaneljét is igazítsuk.
+        focusListElement(modalRef.current, el);
+      };
+      // Egy doboz belső vezérlőiről fel/le a szomszéd dobozra lépünk tovább.
+      const stepToNeighbourBox = (direction: 'up' | 'down'): boolean => {
+        if (!box) return false;
+        const boxes = visibleSystemBoxes();
+        const index = boxes.indexOf(box);
+        if (index < 0) return false;
+        const neighbour = boxes[direction === 'down' ? index + 1 : index - 1];
+        if (neighbour) {
+          focusSystemElement(neighbour);
+          return true;
+        }
+        if (direction === 'up') {
+          // A legfelső dobozról felfelé a saját fül kapja a fókuszt.
+          focusSystemElement(modalRef.current?.querySelector<HTMLElement>('[data-tv-tabid="system"]'));
+          return true;
+        }
+        return false;
+      };
+      // Az LG webOS alkalmazás teljes kockáján a JOBBRA nyíl nem végez műveletet.
+      // Az OK-val történő belépést és a többi nyíl működését változatlanul hagyjuk.
+      if (box?.hasAttribute('data-system-app-container') && active === box && key === 'ArrowRight') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (box && (
+        ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) ||
+        (key === 'Enter' && active === box)
+      )) {
+        const controls = Array.from(box.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), [role="button"]:not([aria-disabled="true"])'
+        )).filter((el) => el.getClientRects().length > 0);
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === 'Enter' && active === box) {
+          // A TV Doktor dobozra OK-val belépve először a kapcsoló kapjon
+          // valódi fókuszt. Így a felhasználó látja a kijelölést, és csak a
+          // következő OK kapcsolja át; nem aktiváljuk rejtetten a kapcsolót.
+          if (box.hasAttribute('data-tv-doctor-box')) {
+            const toggle = box.querySelector<HTMLElement>('[data-tv-doctor-toggle]');
+            focusSystemElement(toggle || controls[0]);
+            return;
+          }
+          if (controls.length === 1) {
+            controls[0].click();
+            return;
+          }
+          const boxDef = box.querySelector<HTMLElement>('[data-tv-box-default]');
+          const enterTarget = boxDef && controls.includes(boxDef) ? boxDef : controls[0];
+          enterTarget?.focus({ preventScroll: true } as any);
+          enterTarget?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          return;
+        }
+        /*
+         * 2.5.298 – A TV DOKTOR KI/BE KAPCSOLÓJÁRÓL MINDEN NYÍL A DOBOZRA TÉR.
+         *
+         * A kért távirányítós menet: a dobozon OK → a fókusz a kapcsolóra
+         * ugrik → OK átváltja → a négy nyíl bármelyike VISSZAVISZI a fókuszt
+         * a saját dobozára → onnan a fel/le már a következő beállításra lép.
+         * Korábban a fel/le a kapcsolóról egyenesen a szomszéd dobozra
+         * ugrott, ezért a kijelölés „eltűnt” a dobozról.
+         */
+        if (active !== box && active && box.contains(active) && box.hasAttribute('data-tv-doctor-box')) {
+          focusSystemElement(box);
+          return;
+        }
+        if (key === 'ArrowUp' || key === 'ArrowDown') {
+          /* A doboz belső vezérlőin fel/le lépkedünk, a sor végén viszont
+           * NEM pattanunk vissza a doboz keretére (ez okozta a csapdát),
+           * hanem a szomszéd dobozra lépünk tovább. */
+          const index = controls.indexOf(active as HTMLElement);
+          if (index >= 0) {
+            const next = index + (key === 'ArrowDown' ? 1 : -1);
+            if (next >= 0 && next < controls.length) {
+              focusSystemElement(controls[next]);
+              return;
+            }
+          }
+          if (!stepToNeighbourBox(key === 'ArrowDown' ? 'down' : 'up')) {
+            focusSystemElement(box);
+          }
+          return;
+        }
+        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          const index = controls.indexOf(active as HTMLElement);
+          if (index < 0) {
+            if (key === 'ArrowRight') focusSystemElement(controls[0]);
+            return;
+          } else {
+            const next = index + (key === 'ArrowRight' ? 1 : -1);
+            if (next >= 0 && next < controls.length) {
+              focusSystemElement(controls[next]);
+            } else {
+              box.focus({ preventScroll: true } as any);
+            }
+          }
+          return;
+        }
+      }
+    }
+    // A Listák fül fejlécének helyi D-pad útvonala. Megállítjuk az eseményt,
+    // hogy az általános fel/le navigáció ne írja felül a kijelölést.
+    if (activeTab === 'lists') {
+      const key = normalizeTvKey(e);
+      const target = e.target as HTMLElement;
+      const headerAction = target.closest<HTMLElement>('[data-tv-list-action]');
+      if (headerAction && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const action = headerAction.dataset.tvListAction;
+        const root = modalRef.current;
+        if (key === 'ArrowDown') {
+          focusListElement(root || null, root?.querySelector<HTMLElement>('[data-tv-box]'));
+          return;
+        }
+        if (key === 'ArrowUp') {
+          if (action === 'phone') {
+            // A Listák fejlécére visszalépéskor a teljes lista-panelt is
+            // vissza kell állítani a tetejére; a fókusz önmagában nem
+            // görgeti vissza a webOS belső overflow-paneljét.
+            const listScroller = root?.querySelector<HTMLElement>('.overflow-y-auto');
+            if (listScroller) listScroller.scrollTop = 0;
+            root?.querySelector<HTMLElement>('[data-tv-tabid="lists"]')?.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+        if (key === 'ArrowRight') {
+          if (action === 'phone') {
+            root?.querySelector<HTMLElement>('[data-tv-list-action="new"]')?.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+        if (key === 'ArrowLeft') {
+          if (action === 'new') {
+            root?.querySelector<HTMLElement>('[data-tv-list-action="phone"]')?.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+      }
+
+      // A teljes törlés gomb külön fókuszpont: fel vissza a Provider dobozára,
+      // le nem mozdul; a jobbra nyíl jelenlegi működését nem módosítjuk.
+      const clearAll = target.closest<HTMLElement>('[data-tv-clear-all]');
+      if (clearAll && (key === 'ArrowUp' || key === 'ArrowDown')) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === 'ArrowUp') {
+          // 2.5.266 (#13): több szolgáltató esetén a törlés gombról felfelé az
+          // UTOLSÓ provider-doboz kapja a fókuszt (nem az első).
+          const boxes = visibleListBoxes(modalRef.current);
+          const lastBox = boxes[boxes.length - 1];
+          focusListElement(modalRef.current, lastBox || modalRef.current?.querySelector<HTMLElement>('[data-tv-box]'));
+        } else if (key === 'ArrowDown') {
+          const backupBox = modalRef.current?.querySelector<HTMLElement>('[data-layout-backup]');
+          if (backupBox) {
+            focusListElement(modalRef.current, backupBox);
+          }
+        }
+        return;
+      }
+
+      // A Provider doboz és a belső műveleti gombok külön fókuszterületet alkotnak.
+      const box = target.closest<HTMLElement>('[data-tv-box]');
+      const active = document.activeElement as HTMLElement | null;
+      // 2.5.329 — Layout mentés doboz külön 2×2 rács: ne keveredjen a provider dobozok fel/le járásával.
+      if (box && box.hasAttribute('data-layout-backup')) {
+        const controls = Array.from(box.querySelectorAll<HTMLElement>('button:not(:disabled):not([data-layout-test])')).filter((el) => el.getClientRects().length > 0);
+        const isLayoutTestButton = Boolean(target.closest('[data-layout-test]'));
+        const isBoxNavKey = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) || (key === 'Enter' && active === box);
+        if (isLayoutTestButton && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
+          // A tesztgomb nincs a műveleti rácsban. Ha mégis ezen áll a fókusz
+          // (például a régebbi IPK-kból továbbvitt fókusz miatt), lefelé lépve
+          // közvetlenül az első műveletre kell jutni, nem a dobozra visszaugrani.
+          e.preventDefault();
+          e.stopPropagation();
+          if (key === 'ArrowDown') {
+            const firstAction = box.querySelector<HTMLElement>('[data-layout-grid] button:not(:disabled)');
+            firstAction?.focus({ preventScroll: true } as any);
+            firstAction?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          } else if (key === 'ArrowUp') {
+            box.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+        if (isBoxNavKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (key === 'Enter' && active === box) {
+            controls[0]?.focus({ preventScroll: true } as any);
+            controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            return;
+          }
+          if (active === box) {
+            if (key === 'ArrowUp') {
+              modalRef.current?.querySelector<HTMLElement>('[data-tv-clear-all]')?.focus({ preventScroll: true } as any);
+            }
+            return;
+          }
+          const idx = controls.indexOf(active as HTMLElement);
+          if (idx < 0) {
+            focusListElement(modalRef.current, box);
+            return;
+          }
+          if (key === 'ArrowLeft') {
+            if (idx === 1) controls[0]?.focus({ preventScroll: true } as any);
+            else if (idx === 3) controls[2]?.focus({ preventScroll: true } as any);
+            else if (idx === 5) controls[4]?.focus({ preventScroll: true } as any);
+            else box.focus({ preventScroll: true } as any);
+          } else if (key === 'ArrowRight') {
+            if (idx === 0) controls[1]?.focus({ preventScroll: true } as any);
+            else if (idx === 2) controls[3]?.focus({ preventScroll: true } as any);
+            else if (idx === 4) controls[5]?.focus({ preventScroll: true } as any);
+            else box.focus({ preventScroll: true } as any);
+          } else if (key === 'ArrowUp') {
+            if (idx === 2) controls[0]?.focus({ preventScroll: true } as any);
+            else if (idx === 3) controls[1]?.focus({ preventScroll: true } as any);
+            else if (idx === 4) controls[2]?.focus({ preventScroll: true } as any);
+            else if (idx === 5) controls[3]?.focus({ preventScroll: true } as any);
+            else box.focus({ preventScroll: true } as any);
+          } else if (key === 'ArrowDown') {
+            if (idx === 0) controls[2]?.focus({ preventScroll: true } as any);
+            else if (idx === 1) controls[3]?.focus({ preventScroll: true } as any);
+            else if (idx === 4 || idx === 5) box.focus({ preventScroll: true } as any);
+            else box.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+      }
+      if (box && (
+        ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) ||
+        (key === 'Enter' && active === box)
+      )) {
+        const controls = Array.from(box.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), [role="button"]:not([aria-disabled="true"])'
+        )).filter((el) => el.getClientRects().length > 0);
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === 'Enter' && active === box) {
+          controls[0]?.focus({ preventScroll: true } as any);
+          controls[0]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+          return;
+        }
+        if (active !== box) {
+          // A belső műveletek csak balra/jobbra járhatók; minden más nyíl
+          // visszaadja a fókuszt a Provider teljes dobozának.
+          if (key === 'ArrowLeft' || key === 'ArrowRight') {
+            const index = controls.indexOf(active as HTMLElement);
+            if (index >= 0) {
+              const next = index + (key === 'ArrowRight' ? 1 : -1);
+              if (next >= 0 && next < controls.length) {
+                controls[next]?.focus({ preventScroll: true } as any);
+                controls[next]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+              } else {
+                box.focus({ preventScroll: true } as any);
+              }
+            } else {
+              box.focus({ preventScroll: true } as any);
+            }
+          } else {
+            box.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+        if (key === 'ArrowUp') {
+          // 2.5.266 (#13-as napló): több szolgáltató esetén felfelé az ELŐZŐ
+          // provider-doboz kapja a fókuszt; csak az első dobozról megy tovább
+          // a fejléc „Telefonról” gombjára.
+          const boxes = visibleListBoxes(modalRef.current);
+          const boxIndex = boxes.indexOf(box);
+          const prevBox = boxIndex > 0 ? boxes[boxIndex - 1] : null;
+          if (prevBox) {
+            focusListElement(modalRef.current, prevBox);
+          } else {
+            const phoneAction = modalRef.current?.querySelector<HTMLElement>('[data-tv-list-action="phone"]');
+            if (phoneAction) {
+              // Az első szolgáltatói dobozról a fejléc tetejére lépünk:
+              // ne csak a Telefon gomb kapjon fókuszt, hanem a teljes
+              // fejléc (cím + gombok) váljon ismét láthatóvá.
+              const listScroller = modalRef.current?.querySelector<HTMLElement>('.overflow-y-auto');
+              if (listScroller) listScroller.scrollTop = 0;
+              phoneAction.focus({ preventScroll: true } as any);
+            }
+          }
+          return;
+        }
+        if (key === 'ArrowDown') {
+          // 2.5.266 (#13-as napló): lefelé a KÖVETKEZŐ provider-doboz kapja a
+          // fókuszt (korábban az elsőről rögtön a „teljes törlés” gombra ugrott,
+          // így a köztes szolgáltatói listákat átugorta); csak az utolsó doboz
+          // után ugrik a törlés gombra.
+          const boxes = visibleListBoxes(modalRef.current);
+          const boxIndex = boxes.indexOf(box);
+          const nextBox = boxIndex >= 0 && boxIndex < boxes.length - 1 ? boxes[boxIndex + 1] : null;
+          if (nextBox) {
+            focusListElement(modalRef.current, nextBox);
+          } else {
+            modalRef.current?.querySelector<HTMLElement>('[data-tv-clear-all]')?.focus({ preventScroll: true } as any);
+          }
+          return;
+        }
+        // A teljes Provider dobozon balra/jobbra nem történik semmi.
+        return;
+      }
+    }
+    if (activeTab === 'favorites') {
+      if (handleFavoritesNavigation(e)) return;
+      const key = normalizeTvKey(e);
+      if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+        // A Kedvencek fülön egyetlen hely dönt a nyilakról; az általános
+        // modal-navigáció nem veheti át a kezelést.
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+    // A fel/le navigáció mindig az éppen aktív fülön belül marad.
+    // Csak az adott fül legfelső dobozáról lehet visszalépni a saját fülére.
+    const key = normalizeTvKey(e);
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
+      try {
+        const container = modalRef.current;
+        if (!container) return;
+
+        const activeElement = document.activeElement as HTMLElement | null;
+        const onTabs = !!activeElement?.closest('[data-tv-tabs]');
+        const activeTabButton = container.querySelector<HTMLElement>(`[data-tv-tabid="${activeTab}"]`);
+        const selector = activeTab === 'system'
+          ? '[data-tv-box]'
+          : activeTab === 'favorites'
+            ? '[data-tv-default], [data-favorite-folder], [data-favorite-channel], [data-tv-box]'
+            : '[data-tv-default], [data-tv-box], [data-resume-item]';
+        const focusable = Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((el) => {
+          if (el.hasAttribute('disabled') || el.offsetParent === null) return false;
+          if (el.closest('[data-view-hidden]')) return false;
+          return true;
+        });
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (onTabs) {
+          if (key === 'ArrowDown') {
+            focusListElement(container, focusable[0]);
+          }
+          return;
+        }
+
+        // Ha egy gomb fókuszban van a dobozon belül, fel/le esetén a teljes
+        // dobozt tekintjük kijelöltnek.
+        const logicalCurrent = activeElement?.closest<HTMLElement>(
+          activeTab === 'system' ? '[data-tv-box]'
+            : activeTab === 'favorites' ? '[data-tv-default], [data-favorite-folder], [data-favorite-channel], [data-tv-box]'
+              : '[data-tv-default], [data-tv-box], [data-resume-item]'
+        ) || activeElement;
+        let currentIndex = focusable.indexOf(logicalCurrent as HTMLElement);
+        if (currentIndex < 0 && activeElement) {
+          currentIndex = focusable.findIndex((el) => el.contains(activeElement));
+        }
+
+        if (key === 'ArrowUp' && currentIndex <= 0) {
+          focusListElement(container, activeTabButton);
+          return;
+        }
+
+        const nextIndex = key === 'ArrowDown'
+          ? Math.min(focusable.length - 1, currentIndex < 0 ? 0 : currentIndex + 1)
+          : Math.max(0, currentIndex - 1);
+        const target = focusable[nextIndex];
+        focusListElement(container, target);
+      } catch {}
+    } else if (key === 'Escape' || key === 'Backspace') {
+      // TV Back / Esc: először a függő törlés-megerősítést vonja vissza,
+      // csak utána zárja be a teljes ablakot.
+      if (pendingDeleteProviderId) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPendingDeleteProviderId(null);
+        return;
+      }
+      if (pendingDeleteFolderId) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPendingDeleteFolderId(null);
+        return;
+      }
+      if (pendingClearCache) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPendingClearCache(false);
+        return;
+      }
+      // TV Back / Esc: modal bezárás
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    } else if (key === 'Enter' && (e.target as HTMLElement)?.tagName !== 'INPUT' && (e.target as HTMLElement)?.tagName !== 'TEXTAREA') {
+      /*
+       * 2.5.297 – AZ OK GOMB MINDIG MŰKÖDJÖN.
+       *
+       * A webOS távirányítójának OK gombja gyakran `key = "Unidentified"`
+       * (vagy "Accept"/"Select") néven érkezik, csak a keyCode 13 utal rá, hogy
+       * Enter volt. Ilyenkor a böngésző NEM váltja ki a fókuszált gomb natív
+       * kattintását, ezért a TV Doktor Ki/Be kapcsolója (és más gombok) nem
+       * reagáltak. A normalizált Enter esetén ezért magunk végezzük el a
+       * műveletet; a preventDefault megakadályozza az esetleges dupla tüzelést.
+       */
+      const focused = document.activeElement as HTMLElement | null;
+      const inModal = Boolean(focused && modalRef.current && modalRef.current.contains(focused));
+      const clickable = Boolean(
+        focused &&
+          (focused.tagName === 'BUTTON' || focused.getAttribute('role') === 'button' || focused.tagName === 'A'),
+      );
+      if (inModal && clickable && !e.defaultPrevented && !focused!.hasAttribute('disabled')) {
+        e.preventDefault();
+        e.stopPropagation();
+        focused!.click();
+      }
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const handleClearCache = () => {
+    /*
+     * TELJES TÖRLÉS – MEGVÁRVA (2.5.239). Korábban a törlés csak ELINDULT,
+     * és az azonnali újratöltés a lassú TV-n megszakította: a csatornák a
+     * „törlés” után is visszajöttek a tartós tárból, miközben a szolgáltató
+     * már eltűnt. Most az újratöltés CSAK a tényleges kiürülés után fut
+     * (biztonsági felső korlát: 30 mp, hogy beragadt tárnál se álljon meg).
+     */
+    if (clearingCache) return;
+    setClearingCache(true);
+    const safetyCap = new Promise<void>((resolve) => { window.setTimeout(resolve, 30000); });
+    void Promise.race([storageService.clearCacheAsync(), safetyCap])
+      .catch(() => { /* a törlés hibája nem akadályozhatja az újratöltést */ })
+      .then(() => window.location.reload());
+  };
+
+  const formatLayoutTime = (iso?: string | null): string => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString('hu-HU', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return String(iso).slice(0, 16).replace('T', ' ');
+    }
+  };
+
+  const handleSaveLayout = async (): Promise<void> => {
+    if (!activeProviderForLayout) {
+      setLayoutMessage('Nincs aktív szolgáltató — előbb adj hozzá egy listát.');
+      return;
+    }
+    if (layoutSaving || layoutRestoring) return;
+    setLayoutSaving(true);
+    setLayoutMessage('');
+    try {
+      const snap = createLayoutSnapshot(activeProviderForLayout.id, activeProviderForLayout.name || activeProviderForLayout.serverUrl || 'Szolgáltató', layoutChannels, folders);
+      let cloudOk = false;
+      let cloudErr: string | null = null;
+      try {
+        cloudOk = await saveSnapshotToCloud(snap);
+        if (!cloudOk) {
+          const last = getLastCloudError();
+          cloudErr = last?.error || null;
+        } else {
+          clearLastCloudError();
+        }
+      } catch (e: any) {
+        cloudErr = String(e?.message || e).slice(0, 160);
+      }
+      setLayoutLastBackup(getLastBackupInfo(activeProviderForLayout?.id));
+      setLayoutCloudInfo(getCloudLastFetchInfo());
+      setLayoutCloudError(getLastCloudError());
+      const t = formatLayoutTime(snap.createdAt);
+      if (cloudOk) {
+        setLayoutMessage(`✓ Supabase-be mentve — ${t} • ${snap.totalChannels} csatorna, ${snap.deletedChannels.length} törölt, ${snap.folders.length} mappa`);
+      } else {
+        const paired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+        if (!paired) {
+          setLayoutMessage('Nincs helyi mentés. A Supabase-mentéshez előbb párosítsd a TV-t a Rendszer → Supabase-párosításban.');
+        } else if (cloudErr) {
+          setLayoutMessage(`Supabase-mentés sikertelen: ${cloudErr.slice(0, 140)} — ellenőrizd a kapcsolatot, majd próbáld újra.`);
+        } else {
+          setLayoutMessage('A Supabase-mentés nem igazolható. Helyi másolat nem készült. Ellenőrizd a kapcsolatot, majd próbáld újra.');
+        }
+      }
+    } finally {
+      setLayoutSaving(false);
+    }
+  };
+
+  const handleTestCloud = async (): Promise<void> => {
+    if (!activeProviderForLayout?.id || layoutTesting) return;
+    setLayoutTesting(true);
+    setLayoutMessage('Felhő kapcsolat tesztelése…');
+    try {
+      const snap = await fetchSnapshotFromCloud(activeProviderForLayout.id);
+      setLayoutCloudInfo(getCloudLastFetchInfo());
+      setLayoutCloudError(getLastCloudError());
+      if (snap) {
+        setLayoutLastBackup({ at: snap.createdAt, providerId: snap.providerId, providerName: snap.providerName, source: 'cloud', totalChannels: snap.totalChannels, deletedCount: snap.deletedChannels.length, folderCount: snap.folders.length });
+        setLayoutMessage(`✓ Supabase kapcsolat OK — mentés van: ${formatLayoutTime(snap.createdAt)} • ${snap.totalChannels} csatorna`);
+      } else {
+        const err = getLastCloudError();
+        if (err?.error) setLayoutMessage(`Felhő teszt: ${err.error.slice(0, 140)}`);
+        else setLayoutMessage('Felhő teszt: nincs mentés a felhőben — nyomd meg a Mentés mostot.');
+      }
+    } catch (e: any) {
+      setLayoutMessage(`Felhő teszt hiba: ${String(e?.message || e).slice(0, 120)}`);
+    } finally {
+      setLayoutTesting(false);
+    }
+  };
+
+  const doRestoreFromSnapshot = async (snap: LayoutSnapshot): Promise<void> => {
+    if (!activeProviderForLayout) return;
+    setLayoutRestoring(true);
+    try {
+      // A gyors induló lista csak a magyar csatornákat tartalmazza.
+      // A mentett mappatagokat ezért előbb az IndexedDB teljes katalógusából
+      // kérjük le, különben a Mr Bean / HBO Max külföldi csatornái elvesznek.
+      const savedIds = new Set<string>([
+        ...(snap.channelOrder || []),
+        ...(snap.fingerprintOrder || []).map((item) => item.id),
+      ]);
+      const currentIds = new Set(channels.map((channel) => channel.id));
+      const missingIds = new Set(Array.from(savedIds).filter((id) => !currentIds.has(id)));
+      const storedChannels = missingIds.size
+        ? await loadLiveChannelsByIds(activeProviderForLayout, missingIds)
+        : [];
+      const sourceById = new Map<string, Channel>();
+      for (const channel of channels) sourceById.set(channel.id, channel);
+      for (const channel of storedChannels) sourceById.set(channel.id, channel);
+      const restoreSource = Array.from(sourceById.values());
+
+      const { orderedChannels, remappedFolders } = applySnapshotToChannels(snap, restoreSource);
+      persistRestoredLayout(snap, orderedChannels, remappedFolders, activeProviderForLayout.id);
+      setLayoutMessage(`↺ Visszaállítva: ${formatLayoutTime(snap.createdAt)} — ${orderedChannels.length} csatorna, ${remappedFolders.length} mappa. Újratöltés...`);
+      setTimeout(() => window.location.reload(), 900);
+    } finally {
+      setLayoutRestoring(false);
+      setPendingLayoutRestore(false);
+    }
+  };
+
+  const handleRestoreLayout = async (): Promise<void> => {
+    if (!activeProviderForLayout) {
+      setLayoutMessage('Nincs aktív szolgáltató.');
+      return;
+    }
+    if (layoutSaving || layoutRestoring) return;
+    // A visszaállítás kizárólag a Supabase-ben tárolt pillanatképből történik.
+    let cloudSnap: LayoutSnapshot | null = null;
+    try { cloudSnap = await fetchSnapshotFromCloud(activeProviderForLayout.id); } catch {}
+    if (!cloudSnap) {
+      const err = getLastCloudError();
+      setLayoutMessage(err?.error ? `Supabase-visszaállítás sikertelen: ${err.error.slice(0, 140)}` : 'Nincs elérhető elrendezésmentés a Supabase-ben.');
+      return;
+    }
+    const newest = { snap: cloudSnap, source: 'Supabase' as const };
+    setLayoutLastBackup({ at: cloudSnap.createdAt, providerId: cloudSnap.providerId, providerName: cloudSnap.providerName, source: 'cloud', totalChannels: cloudSnap.totalChannels, deletedCount: cloudSnap.deletedChannels.length, folderCount: cloudSnap.folders.length });
+    // Ha nincs megerősítés, kérjük meg
+    if (!pendingLayoutRestore) {
+      setPendingLayoutRestore(true);
+      setLayoutMessage(`Visszaállítás innen: ${newest.source} — ${formatLayoutTime(newest.snap.createdAt)} • ${newest.snap.totalChannels} csatorna. Nyomj újra a megerősítéshez.`);
+      return;
+    }
+    await doRestoreFromSnapshot(newest.snap);
+  };
+
+  /**
+   * A PANEL MÉRETE MINDKÉT OLDALON AZONOS.
+   *
+   * Korábban a tükrözött (bal oldali) menü „szétcsúszott”: a panel a
+   * tükrözött soron belüli ősöktől örökölt geometriát kapott. A megoldás:
+   *  • a menü PORTÁLBAN, közvetlenül a <body> alá kerül (nincs örökölt
+   *    flex/transform beállítás),
+   *  • a szélesség egyetlen, mindkét oldalon UGYANAZOKKAL az osztályokkal
+   *    megadott érték, `shrink-0`-val, hogy a flex ne nyújtsa/nyomja össze.
+   */
+  const panelSizeClass = 'w-full max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl h-full shrink-0 min-w-0 bg-[#071124] flex flex-col shadow-2xl overflow-hidden focus:outline-none';
+
+  const modal = (
+    <div
+      data-menu-surface=""
+      data-mirror-menu={settings.mirrorLayout ? '1' : undefined}
+      className={`fixed inset-0 z-50 flex bg-black/75 backdrop-blur-xs select-none lg:select-auto ${settings.mirrorLayout ? 'justify-start' : 'justify-end'}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Menü és beállítások"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {/*
+        TÜKRÖZÖTT ELRENDEZÉS: a menü a BAL oldalon nyílik ki (a csatornalista
+        oldalán), nem a jobbon – a panel MÉRETE viszont pontosan ugyanaz,
+        mint a jobb oldalon (lásd a panelSizeClass magyarázatát).
+      */}
+      <div
+        ref={modalRef}
+        data-tv-navigation-owner="settings"
+        tabIndex={-1}
+        onKeyDown={handleModalKeyDown}
+        data-mirror-panel={settings.mirrorLayout ? '1' : undefined}
+        className={`${panelSizeClass} ${
+          settings.mirrorLayout ? 'border-r border-cyan-900/40' : 'border-l border-cyan-900/40'
+        }`}
+      >
+        
+        {/* Header Modal Bar (Exact match to screenshot 1/2/3/4/5) */}
+        <div className="p-4 bg-[#0a1835] border-b border-cyan-950 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <SlidersHorizontal className="w-5 h-5 text-amber-400 stroke-[2.5]" />
+            <h2 className="text-lg font-black text-amber-400 tracking-wider">
+              MENÜ & BEÁLLÍTÁSOK
+            </h2>
+          </div>
+          {/* Az X gombot a TV-s kérés alapján eltávolítottuk – bezárás a
+              VISSZA gombbal vagy a háttérre kattintva. */}
+        </div>
+
+        {/* 3 fül – nagy, egyforma ikonokkal (a felhasználó képeiből), alattuk a felirat (2.5.230) */}
+        <div data-tv-tabs="" className="px-3 py-2 bg-[#081329] border-b border-cyan-950/60 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+
+
+          <button
+            data-tv-tabid="lists"
+            onKeyDown={(event) => handleTabDpad(event, 'lists')}
+            onClick={() => setActiveTab('lists')}
+            className={`flex-1 min-w-[96px] h-24 px-2.5 pt-1 pb-1.5 rounded-xl text-sm font-black transition-all flex flex-col items-center ${
+              activeTab === 'lists'
+                ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
+            }`}
+          >
+            {/* 2.5.236: nagyobb ikon (a doboz mérete rögzítve változatlan),
+                a felirat a doboz legaljára került. Háttér itt nem kell. */}
+            <span aria-hidden="true" className="flex-1 min-h-0 w-full flex items-center justify-center pointer-events-none select-none">
+              <img src={LISTAK_ICON_DATA_URL} alt="" className="h-full w-auto max-w-full object-contain" />
+            </span>
+            <span className="truncate leading-tight">Listák</span>
+          </button>
+
+          <button
+            data-tv-open-focus=""
+            data-tv-tabid="favorites"
+            onKeyDown={(event) => handleTabDpad(event, 'favorites')}
+            onClick={() => setActiveTab('favorites')}
+            className={`flex-1 min-w-[96px] h-24 px-2.5 pt-1 pb-1.5 rounded-xl text-sm font-black transition-all flex flex-col items-center ${
+              activeTab === 'favorites'
+                ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
+            }`}
+          >
+            <span aria-hidden="true" className="flex-1 min-h-0 w-full flex items-center justify-center pointer-events-none select-none">
+              <img src={KEDVENCEK_ICON_DATA_URL} alt="" className="h-full w-auto max-w-full object-contain" />
+            </span>
+            <span className="truncate leading-tight">Kedvencek</span>
+          </button>
+
+          <button
+            data-tv-tabid="system"
+            onKeyDown={(event) => handleTabDpad(event, 'system')}
+            onClick={() => setActiveTab('system')}
+            className={`flex-1 min-w-[96px] h-24 px-2.5 pt-1 pb-1.5 rounded-xl text-sm font-black transition-all flex flex-col items-center ${
+              activeTab === 'system'
+                ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                : 'bg-[#0f2144] text-slate-300 hover:bg-[#152e5c]'
+            }`}
+          >
+            <span aria-hidden="true" className="flex-1 min-h-0 w-full flex items-center justify-center pointer-events-none select-none">
+              <img src={MENU_GEAR_ICON_DATA_URL} alt="" className="h-full w-auto max-w-full object-contain" />
+            </span>
+            <span className="truncate leading-tight">Rendszer</span>
+          </button>
+        </div>
+
+        {/* Tab Content Body */}
+        <div ref={contentScrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+          
+          {/* ================= TAB 2: LISTÁK ================= */}
+          {activeTab === 'lists' && (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Header with [+ Új lista] button (Screenshot 4) */}
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-black text-slate-100 tracking-wider uppercase">
+                  M3U / Xtream Listák
+                </h3>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <button
+                    data-tv-default=""
+                    data-tv-list-action="phone"
+                    onClick={onOpenQrProvision}
+                    className="flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
+                    title="Telefonnal beállítás QR kóddal – nem kell TV-n pötyögni"
+                  >
+                    <Smartphone className="w-6 h-6 shrink-0" />
+                    <span>📱 Telefon</span>
+                  </button>
+                  <button
+                    data-tv-list-action="new"
+                    onClick={onOpenAddProvider}
+                    className="flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-cyan-400/25"
+                  >
+                    <Plus className="w-4 h-4 stroke-[3]" />
+                    <span>Új lista</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Providers List Cards (Screenshot 4) */}
+              <div className="space-y-2.5">
+                {providers.map((p, providerIndex) => {
+                  return (
+                    <div
+                      key={p.id}
+                      data-tv-box=""
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        const key = normalizeTvKey(event);
+                        if (key === 'Enter' || key === ' ') {
+                          const firstAction = event.currentTarget.querySelector<HTMLElement>('button');
+                          if (firstAction) {
+                            event.preventDefault();
+                            firstAction.focus({ preventScroll: true } as any);
+                          }
+                        }
+                      }}
+                      className={`p-3.5 rounded-2xl border transition-all ${
+                        p.isActive
+                          ? 'bg-[#0d1d3d] border-cyan-500/60 shadow-lg shadow-cyan-950/50 ring-1 ring-cyan-500/20'
+                          : 'bg-[#09152b] border-slate-800 opacity-80'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300 font-bold">
+                            <Tv className="w-4 h-4 text-amber-400" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              {p.isActive ? (
+                                <span className="px-2 py-0.5 rounded-md bg-cyan-400 text-slate-950 text-[10px] font-black tracking-wide">
+                                  AKTÍV
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-md bg-slate-700 text-slate-300 text-[10px] font-black tracking-wide">
+                                  INAKTÍV
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Counts in Bright Cyan */}
+                      <div className="mt-2 text-sm font-black text-cyan-300 tracking-tight">
+                        {p.channelsCount.toLocaleString()} csatorna • {p.moviesCount.toLocaleString()} film • {p.seriesCount.toLocaleString()} sorozat
+                      </div>
+
+                      {/* Type & Date */}
+                      <div className="mt-1 text-base text-slate-300 font-medium">
+                        {p.type === 'xtream' ? 'Xtream Codes' : 'M3U Lista'} • frissítve {p.lastUpdated}
+                      </div>
+
+                      {/* Provider Expiry in Yellow */}
+                      <div className="mt-1 text-sm font-bold text-amber-400">
+                        Provider lejárata: {p.expireDate} • {p.maxConnections} kapcsolat
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="mt-3 pt-2.5 border-t border-cyan-900/40 flex flex-wrap items-center gap-2">
+                        {!p.isActive && (
+                          <button
+                            onClick={() => onActivateProvider(p)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 border border-cyan-300 text-xs font-black active:scale-95 transition-all"
+                            title="Szolgáltató aktiválása"
+                          >
+                            <Tv className="w-3.5 h-3.5" />
+                            <span>Aktiválás</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => onRefreshProvider(p.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#112347] hover:bg-[#172e5c] text-cyan-300 border border-cyan-600/30 text-xs font-bold active:scale-95 transition-all"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Frissítés</span>
+                        </button>
+
+                        <button
+                          onClick={() => onOpenImportDiagnostic(p)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-600/40 text-xs font-bold active:scale-95 transition-all"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Betöltés diagnosztikája</span>
+                        </button>
+                        <button
+                          onClick={() => onEditProvider(p)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#112347] hover:bg-[#172e5c] text-slate-200 border border-slate-700 text-xs font-bold active:scale-95 transition-all"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Szerkesztés</span>
+                        </button>
+
+                        <button
+                          onClick={() => setPendingDeleteProviderId(
+                            pendingDeleteProviderId === p.id ? null : p.id
+                          )}
+                          aria-expanded={pendingDeleteProviderId === p.id}
+                          className="p-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 ml-auto active:scale-95 transition-all"
+                          title="Törlés"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {/* Törlés megerősítése – a távirányítóval is működik (nincs window.confirm). */}
+                      {pendingDeleteProviderId === p.id && (
+                        <div className="mt-2.5 rounded-xl border border-rose-800/50 bg-rose-950/30 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-xs font-bold text-rose-200">
+                            Biztosan törlöd ezt a listát: „{p.name}”?
+                          </p>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              autoFocus
+                              onClick={() => {
+                                onDeleteProvider(p.id);
+                                setPendingDeleteProviderId(null);
+                                /*
+                                 * Törlés után a fókusz ne a semmibe kerüljön:
+                                 * a következő lista doboza (ha nincs, az
+                                 * „Új lista” gomb) kapja a kijelölést.
+                                 */
+                                window.setTimeout(() => {
+                                  const remaining = Array.from(
+                                    modalRef.current?.querySelectorAll<HTMLElement>('[data-tv-box]') || []
+                                  );
+                                  const nextBox = remaining[Math.min(providerIndex, remaining.length - 1)]
+                                    || modalRef.current?.querySelector<HTMLElement>('[data-tv-list-action="new"]');
+                                  nextBox?.focus({ preventScroll: true } as any);
+                                }, 0);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Igen, törlés</span>
+                            </button>
+                            <button
+                              onClick={(event) => {
+                                const card = event.currentTarget.closest('[data-tv-box]');
+                                setPendingDeleteProviderId(null);
+                                // A megerősítés bezárása után a kuka maradjon kijelölve.
+                                window.setTimeout(() => {
+                                  card?.querySelector<HTMLElement>('button[title="Törlés"]')
+                                    ?.focus({ preventScroll: true } as any);
+                                }, 0);
+                              }}
+                              className="px-3 py-2 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95"
+                            >
+                              Mégse
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Danger Zone: Clear all lists */}
+              {!pendingClearCache ? (
+                <button
+                  data-tv-clear-all=""
+                  onClick={() => setPendingClearCache(true)}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-rose-950/30 hover:bg-rose-950/60 text-rose-300 border border-rose-800/40 text-xs font-bold active:scale-95 transition-all"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Összes lista és tesztcsatorna törlése</span>
+                </button>
+              ) : (
+                <div className="rounded-xl border border-rose-800/50 bg-rose-950/25 p-3 space-y-2">
+                  <p className="text-xs font-bold text-rose-200">
+                    Biztosan törlöd a gyorsítótárat és visszaállítod az alapértelmezett állapotot?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      autoFocus
+                      onClick={handleClearCache}
+                      disabled={clearingCache}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95 disabled:opacity-60"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>{clearingCache ? 'Törlés folyamatban… (a tár kiürítése)' : 'Igen, törlés'}</span>
+                    </button>
+                    <button
+                      onClick={() => setPendingClearCache(false)}
+                      disabled={clearingCache}
+                      className="flex-1 py-2.5 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95 disabled:opacity-60"
+                    >
+                      Mégse
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 2.5.326 — Elrendezés mentése: Magyarok + Kedvencek, helyi + felhő szinkronban, nincs eltérés */}
+              <div
+                data-tv-box=""
+                data-layout-backup=""
+                ref={layoutBackupRef}
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  const key = normalizeTvKey(event);
+                  if (key === 'Enter' || key === ' ') {
+                    // 2.5.339: a "Kapcsolat teszt" gomb (data-layout-test) ne
+                    // tűnjön be a navigációba – a 2×2 rács első elemére
+                    // kerüljön a fókusz.
+                    const firstAction = event.currentTarget.querySelector<HTMLElement>('button:not(:disabled):not([data-layout-test])');
+                    if (firstAction) {
+                      event.preventDefault();
+                      firstAction.focus({ preventScroll: true } as any);
+                    }
+                  }
+                }}
+                className="p-4 rounded-2xl bg-[#0a1630] border-2 border-emerald-800/50 shadow-md space-y-3 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                    <Save className="w-5 h-5 text-emerald-300" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-black text-emerald-300 tracking-wide uppercase flex items-center gap-2">
+                      Csatorna elrendezés mentése
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-200">
+                        <Cloud className="w-3 h-3" /> Supabase
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-300 leading-relaxed mt-1">
+                      A csatornasorrend, törölt csatornák és kedvenc mappák mentése kizárólag a Supabase-be történik.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Állapot: mikor mentve, melyik áll vissza */}
+                <div className="rounded-xl bg-[#0e1d3b]/80 border border-emerald-900/30 p-3 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1.5 text-slate-400">
+                      <Clock className="w-3.5 h-3.5" /> Utolsó mentés:
+                    </span>
+                    <span className={`font-bold ${layoutLastBackup ? 'text-emerald-300' : 'text-slate-500'}`}>
+                      {layoutLastBackup ? `${formatLayoutTime(layoutLastBackup.at)} • ${layoutLastBackup.totalChannels} csatorna, ${layoutLastBackup.deletedCount} törölt, ${layoutLastBackup.folderCount} mappa` : 'még nincs Supabase-mentés'}
+                    </span>
+                  </div>
+                  {layoutLastBackup && (
+                    <div className="text-[11px] text-slate-400">
+                      Forrás: Supabase • Szolgáltató: {layoutLastBackup.providerName} • Visszaállításkor innen töltődik vissza
+                    </div>
+                  )}
+                  {layoutCloudInfo && layoutLastBackup ? (
+                    <div className={`flex items-center gap-2 text-xs font-black px-3 py-2 rounded-xl border ${layoutCloudInfo.at === layoutLastBackup.at ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-200' : 'bg-amber-500/15 border-amber-500/30 text-amber-200'}`}>
+                      <Cloud className="w-4 h-4 shrink-0" />
+                      <span>
+                        {layoutCloudInfo.at === layoutLastBackup.at
+                          ? `✓ Supabase felhőbe mentve — bármely készüléken visszaállítható • ${formatLayoutTime(layoutCloudInfo.at)}`
+                          : `⚠ Felhő eltér: ${formatLayoutTime(layoutCloudInfo.at)} — következő mentés szinkronizál`}
+                      </span>
+                    </div>
+                  ) : layoutCloudInfo && !layoutLastBackup ? (
+                    <div className="flex items-center gap-2 text-xs font-black px-3 py-2 rounded-xl border bg-emerald-500/15 border-emerald-500/30 text-emerald-200">
+                      <Cloud className="w-4 h-4 shrink-0" />
+                      <span>✓ Felhőben van mentés — visszaállítható • {formatLayoutTime(layoutCloudInfo.at)} • Nyomd meg a Visszaállítást</span>
+                    </div>
+                  ) : layoutLastBackup && !layoutCloudInfo ? (
+                    (() => {
+                      const isPaired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+                      const err = layoutCloudError?.error;
+                      return (
+                        <div className="space-y-2">
+                          <div className={`flex items-center gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border ${isPaired ? 'bg-amber-500/15 border-amber-500/30 text-amber-200' : 'bg-slate-800/60 border-slate-700/50 text-slate-400'}`}>
+                            <Cloud className="w-4 h-4 shrink-0 opacity-60" />
+                            <span>{isPaired ? 'Nincs felhő mentés — nyomd meg a „Mentés most” gombot a felhőbe mentéshez' : 'Nincs felhő mentés — párosítsd a Rendszer → Supabase-párosítás menüben, majd ments újra'}</span>
+                          </div>
+                          {isPaired && err && (
+                            <div className="flex items-start gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border bg-red-900/30 border-red-700/40 text-red-200">
+                              <span>⚠ Felhő hiba: {err.slice(0, 160)}</span>
+                            </div>
+                          )}
+                          {isPaired && (
+                            <button data-layout-test="" onClick={handleTestCloud} disabled={layoutTesting} className="w-full py-1.5 rounded-lg bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-[11px] font-bold disabled:opacity-50">
+                              {layoutTesting ? 'Tesztelés…' : 'Kapcsolat teszt'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : null}
+                  {!layoutLastBackup && !layoutCloudInfo && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-slate-500">A mentés a Supabase-ben marad, és onnan állítható vissza újratöltés vagy új IPK telepítése után.</p>
+                      {(() => {
+                        const isPaired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+                        const err = layoutCloudError?.error;
+                        return isPaired && err ? (
+                          <div className="flex items-start gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border bg-red-900/30 border-red-700/40 text-red-200">
+                            <span>⚠ Felhő hiba: {err.slice(0, 160)}</span>
+                          </div>
+                        ) : null;
+                      })()}
+                      {(() => {
+                        const isPaired = (() => { try { const r = localStorage.getItem('iptv_rt_tv_doctor_pairing_v1'); const p = r ? JSON.parse(r) : null; return Boolean(p?.deviceToken); } catch { return false; } })();
+                        return isPaired ? (
+                          <button data-layout-test="" onClick={handleTestCloud} disabled={layoutTesting} className="w-full py-1.5 rounded-lg bg-[#0e1f3f] hover:bg-[#132a52] text-cyan-200 border border-cyan-700/40 text-[11px] font-bold disabled:opacity-50">
+                            {layoutTesting ? 'Tesztelés…' : 'Kapcsolat teszt'}
+                          </button>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
+                  {layoutCloudInfo && layoutCloudError?.error && layoutCloudInfo.at !== layoutLastBackup?.at && (
+                    <div className="flex items-start gap-2 text-[11px] font-bold px-3 py-2 rounded-xl border bg-red-900/30 border-red-700/40 text-red-200">
+                      <span>⚠ Utolsó felhő hiba: {layoutCloudError.error.slice(0, 160)}</span>
+                    </div>
+                  )}
+                  {activeProviderForLayout && (
+                    <p className="text-[11px] text-slate-500">Aktív szolgáltató: <span className="text-slate-300 font-bold">{activeProviderForLayout.name || activeProviderForLayout.serverUrl}</span></p>
+                  )}
+                </div>
+
+                {/* Műveletek — kizárólag Supabase mentés és visszaállítás */}
+                <div data-layout-grid="" className="grid grid-cols-2 gap-2">
+                  <button
+                    data-tv-layout-save=""
+                    onClick={handleSaveLayout}
+                    disabled={layoutRestoring || !activeProviderForLayout}
+                    aria-busy={layoutSaving}
+                    className="flex items-center justify-center gap-1.5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black active:scale-95 transition-all disabled:opacity-60 shadow-md shadow-emerald-900/20"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{layoutSaving ? 'Mentés...' : 'Mentés most'}</span>
+                  </button>
+                  <button
+                    onClick={handleRestoreLayout}
+                    disabled={layoutSaving || layoutRestoring || !layoutLastBackup}
+                    className={`flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-black active:scale-95 transition-all disabled:opacity-60 border ${
+                      pendingLayoutRestore
+                        ? 'bg-amber-400 text-slate-950 border-amber-300 ring-2 ring-amber-400/60'
+                        : 'bg-[#0e1f3f] text-emerald-200 border-emerald-700/50 hover:bg-[#132a52]'
+                    }`}
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{pendingLayoutRestore ? 'Megerősít?' : layoutRestoring ? 'Visszaállítás...' : 'Visszaállítás'}</span>
+                  </button>
+                </div>
+
+                {pendingLayoutRestore && (
+                  <div className="rounded-xl border border-amber-700/50 bg-amber-950/20 p-3 flex flex-col gap-2">
+                    <p className="text-xs font-bold text-amber-200">Biztosan visszaállítod? A jelenlegi sorrend és mappák felülíródnak a legfrissebb mentésre.</p>
+                    <div className="flex gap-2">
+                      <button autoFocus onClick={handleRestoreLayout} disabled={layoutRestoring} className="flex-1 py-2 rounded-xl bg-amber-500 text-slate-950 text-xs font-black active:scale-95 disabled:opacity-60">
+                        Igen, visszaállítás
+                      </button>
+                      <button onClick={() => { setPendingLayoutRestore(false); setLayoutMessage('Mégse — visszaállítás megszakítva.'); }} className="flex-1 py-2 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95">
+                        Mégse
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {layoutMessage && (
+                  <div className={`rounded-xl border p-2.5 text-xs font-bold leading-relaxed ${layoutMessage.startsWith('✓') || layoutMessage.startsWith('↺') ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-200' : layoutMessage.startsWith('⬇') ? 'bg-cyan-950/20 border-cyan-800/40 text-cyan-200' : 'bg-amber-950/20 border-amber-800/40 text-amber-200'}`}>
+                    {layoutMessage}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+
+          {/* ================= TAB 3: KEDVENCEK ================= */}
+          {activeTab === 'favorites' && (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Header with [Új mappa] button (Screenshot 3) */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-black text-slate-100 tracking-wider uppercase">
+                  Kedvenc Mappák
+                </h3>
+                <button
+                  data-tv-default=""
+                  data-tv-favorite-action="new-folder"
+                  onClick={onOpenAddFolder}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-base font-black active:scale-95 transition-all shadow-md shadow-amber-400/25"
+                >
+                  <FolderPlus className="w-4 h-4 stroke-[3]" />
+                  <span>Új mappa</span>
+                </button>
+              </div>
+
+              {/* A mappák kinyithatók; a bennük lévő csatornák sorrendje és tagsága itt is kezelhető. */}
+              <div className="space-y-2.5">
+                {folders.length === 0 ? (
+                  <div className="rounded-2xl border-2 border-dashed border-cyan-500/60 p-6 text-center">
+                    <FolderPlus className="w-8 h-8 text-slate-500 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-slate-300">Még nincs kedvenc mappád</p>
+                    <p className="text-xs text-slate-500 mt-1">Az „Új mappa” gombbal létrehozhatod az elsőt.</p>
+                  </div>
+                ) : folders.map((f, folderIndex) => {
+                  const folderChannels = f.channelIds
+                    .map((id) => channelById.get(id))
+                    .filter((channel): channel is Channel => Boolean(channel));
+                  const expanded = expandedFavoriteFolderId === f.id;
+                  return (
+                    <div key={f.id} data-favorite-folder={f.id} tabIndex={0}
+                      className={`rounded-2xl bg-[#0d1d3d] border-2 shadow-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber-400 focus-within:ring-2 focus-within:ring-amber-400 ${folderIndex % 2 === 0 ? 'border-cyan-500/80' : 'border-amber-400/80'}`}>
+                      <div className="p-3.5 flex items-center justify-between gap-3">
+                        <div
+                          aria-hidden="true"
+                          className="flex items-center gap-3 min-w-0 flex-1 text-left pointer-events-none"
+                        >
+                          {(() => {
+                            // Kép ikonos mappánál (Mr Bean, HBO Max) a kép jelenik meg, nagyobb méretben.
+                            const imageIcon = getFolderImageIcon(f.icon);
+                            return imageIcon ? (
+                              <img src={imageIcon.dataUrl} alt={imageIcon.name} className="w-14 h-14 rounded-xl object-cover shrink-0 pointer-events-none select-none border border-amber-400/40" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-xl shrink-0">{f.icon || '📁'}</div>
+                            );
+                          })()}
+                          <div className="min-w-0">
+                            <h4 className="text-white font-bold text-sm truncate">{f.name}</h4>
+                            <p className="text-xs text-slate-400 font-medium">{folderChannels.length} csatorna</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            onDeleteFolder(f.id);
+                            setPendingDeleteFolderId(null);
+                            if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
+                            // Törlés után a következő mappa maradjon fókuszban; ha nincs,
+                            // az Új mappa gomb legyen a következő célpont.
+                            window.setTimeout(() => {
+                              const remaining = Array.from(modalRef.current?.querySelectorAll<HTMLElement>('[data-favorite-folder]') || []);
+                              (remaining[Math.min(folderIndex, remaining.length - 1)] || modalRef.current?.querySelector<HTMLElement>('[data-tv-default]'))?.focus({ preventScroll: true } as any);
+                            }, 0);
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/30 border border-rose-800/50 text-rose-300 hover:bg-rose-900/50 text-xs font-bold shrink-0"
+                          title="Mappa törlése"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Törlés</span>
+                        </button>
+                      </div>
+                      {/* Törlés megerősítése – a távirányítóval is működik (nincs window.confirm). */}
+                      {pendingDeleteFolderId === f.id && (
+                        <div className="border-t border-rose-800/50 bg-rose-950/25 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-xs font-bold text-rose-200">
+                            Biztosan törlöd ezt a mappát: „{f.name}”?
+                          </p>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              autoFocus
+                              onClick={() => {
+                                onDeleteFolder(f.id);
+                                setPendingDeleteFolderId(null);
+                                if (expandedFavoriteFolderId === f.id) setExpandedFavoriteFolderId(null);
+                                  }}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-black active:scale-95"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Igen, törlés</span>
+                            </button>
+                            <button
+                              onClick={() => setPendingDeleteFolderId(null)}
+                              className="px-3 py-2 rounded-xl bg-[#0f2042] border border-slate-600 text-slate-200 text-xs font-bold active:scale-95"
+                            >
+                              Mégse
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {expanded && (
+                        <div className={`border-t p-2 space-y-1.5 ${folderIndex % 2 === 0 ? 'border-cyan-500/50' : 'border-amber-400/50'}`}>
+                          {folderChannels.length === 0 ? (
+                            <p className="p-4 text-center text-xs text-slate-400">Ez a kedvenc mappa üres.</p>
+                          ) : folderChannels.map((channel) => {
+                            return (
+                              <div
+                                key={channel.id}
+                                data-favorite-channel={channel.id}
+                                tabIndex={0}
+                                onContextMenu={(event) => event.preventDefault()}
+                                className="flex items-center gap-2 rounded-xl p-2 border transition-colors bg-[#09152b] border-slate-700"
+                              >
+                                <div className="w-9 h-7 rounded-md bg-black/20 border border-slate-700 p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
+                                  <ChannelLogo url={channel.logo} name={channel.name} retryKey={channel.id} countryCode={channel.countryCode} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-xs font-bold text-slate-100 truncate">{channel.name}</div>
+                                  <div className="text-[10px] text-slate-400 truncate">{channel.num ? `#${channel.num}` : 'Csatorna'}</div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    const folderElement = event.currentTarget.closest<HTMLElement>('[data-favorite-folder]');
+                                    onRemoveChannelFromFolder(f.id, channel.id);
+                                    setExpandedFavoriteFolderId(null);
+                                            window.setTimeout(() => folderElement?.focus({ preventScroll: true } as any), 0);
+                                  }}
+                                  className="shrink-0 flex items-center justify-center w-8 h-8 rounded-xl border transition-all bg-amber-400/20 text-amber-300 border-amber-400/50 active:scale-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300"
+                                  title="Eltávolítás a kedvenc mappából"
+                                  aria-label={`${channel.name} eltávolítása a kedvenc mappából`}
+                                ><Star className="w-4 h-4 fill-amber-400" /></button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Folytatás: a félbehagyott filmek és sorozatrészek listája */}
+              <section data-tv-box="" data-resume-section="" tabIndex={0}
+                className="rounded-2xl border border-cyan-500/70 bg-[#0d1c3a] p-4 space-y-3 shadow-lg shadow-cyan-950/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 shrink-0 rounded-xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center">
+                    <Play className="w-5 h-5 text-cyan-300 fill-cyan-300" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-black text-white tracking-wide">Folytasd ott, ahol abbahagytad</h3>
+                    <p className="text-xs text-slate-300 leading-relaxed mt-1">
+                      Itt találod a félbehagyott filmeket és sorozatrészeket. A Folytatás gombbal onnan nézheted tovább, ahol megálltál.
+                    </p>
+                  </div>
+                </div>
+
+                {resumableHistory.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-cyan-800/70 bg-black/10 px-3 py-5 text-center">
+                    <Film className="w-7 h-7 text-slate-500 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-slate-200">Még nincs mit folytatni</p>
+                    <p className="text-xs text-slate-400 mt-1">Kezdj el nézni egy filmet vagy sorozatot, és itt megjelenik.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {resumableHistory.map((item) => (
+                        <div
+                          key={item.id}
+                          role="group"
+                          data-resume-item={item.id}
+                          className="rounded-xl border border-cyan-900/60 bg-[#071329]/80 p-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-14 h-[72px] shrink-0 rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
+                              {item.poster ? (
+                                <img src={item.poster} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center"><Film className="w-6 h-6 text-slate-500" /></div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="text-[10px] uppercase tracking-wider font-black text-cyan-300">
+                                {item.mediaType === 'movie' ? 'Film' : 'Sorozat'}
+                              </span>
+                              <p className="text-sm font-bold text-white leading-snug break-words">{item.title}</p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                {Math.max(0, Math.min(100, Math.round(item.progressPercent || 0)))}% megnézve
+                              </p>
+                              <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden mt-1.5">
+                                <div className="h-full rounded-full bg-cyan-400" style={{ width: `${Math.max(0, Math.min(100, item.progressPercent || 0))}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto] gap-2 mt-3">
+                            <button
+                              data-resume-continue=""
+                              onClick={() => { onContinueWatching(item); onClose(); }}
+                              className="min-h-11 flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black shadow-md shadow-blue-950/40 active:scale-[0.99] transition-all"
+                            >
+                              <Play className="w-4 h-4 fill-current" />
+                              Folytatás
+                            </button>
+                            <button
+                              data-resume-remove=""
+                              onClick={() => {
+                                onRemoveWatchHistoryItem(item.id);
+                                // Törlés után ne ugorjon át automatikusan egy másik filmre.
+                                // A Folytatás szekció maradjon kijelölve.
+                                window.setTimeout(() => {
+                                  modalRef.current?.querySelector<HTMLElement>('[data-resume-section]')?.focus({ preventScroll: true } as any);
+                                }, 0);
+                              }}
+                              className="min-h-11 px-3 flex items-center justify-center gap-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-rose-300 text-xs font-bold transition-all"
+                              title="Eltávolítás a folytatandók közül"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Eltávolítás
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {/* ================= TAB 4: RENDSZER ================= */}
+          {activeTab === 'system' && (
+            <div data-system-settings="" className="space-y-5 animate-fadeIn">
+
+              {/* 1. SECTION: TV DOKTOR (legelső a Rendszer felsorolásban) */}
+              {(() => {
+                const tvDoctorEnabled = settings.tvDoctorEnabled !== false;
+                const doctorMem = getTvDoctorMemoryStats();
+                const doctorCloud = getTvDoctorCloudStatus();
+                const pairingInfo = getTvDoctorPairingInfo();
+
+                const hasStorageError = Boolean(doctorMem.lastStorageError);
+
+                let overallBadgeText = 'Kikapcsolva';
+                let overallBadgeClass = 'bg-slate-800 text-slate-300 border-slate-600/60';
+                if (tvDoctorEnabled) {
+                  if (hasStorageError || doctorCloud.connectionState === 'error') {
+                    overallBadgeText = 'Hiba észlelve';
+                    overallBadgeClass = 'bg-rose-500/20 text-rose-200 border-rose-400/60';
+                  } else if (doctorCloud.connectionState === 'offline') {
+                    overallBadgeText = 'Offline gyorsítótár';
+                    overallBadgeClass = 'bg-amber-500/20 text-amber-200 border-amber-400/60';
+                  } else {
+                    overallBadgeText = 'Minden rendben';
+                    overallBadgeClass = 'bg-emerald-500/20 text-emerald-200 border-emerald-400/55';
+                  }
+                }
+
+                return (
+                  <div
+                    data-tv-doctor-section=""
+                    className="p-4 rounded-2xl bg-[#0a1630] border border-cyan-900/50 space-y-3.5 shadow-md"
+                  >
+                    <h3 className="text-base font-black text-amber-400 flex items-center gap-2.5 uppercase tracking-wider">
+                      <TvDoctorIcon handled={true} className="h-7 w-7 shrink-0" />
+                      <span>TV Doktor</span>
+                    </h3>
+
+                    {/* Fő TV Doktor doboz: kizárólag a Ki/Be kapcsoló és a feliratok (az állapot, napló és Memória: 0 a 0-ás gombon érhető el) */}
+                    <div
+                      data-tv-default=""
+                      data-tv-box=""
+                      data-tv-doctor-box=""
+                      tabIndex={0}
+                      className="p-4 rounded-xl bg-[#0e1d3b]/95 border-2 border-cyan-500/65 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    >
+                      <div data-tv-doctor-header="" className="flex items-center justify-between gap-4">
+                        <div className="flex min-w-0 flex-1 items-start gap-3.5">
+                          <span data-tv-doctor-menu-icon="" className="shrink-0">
+                            <TvDoctorIcon
+                              handled={tvDoctorEnabled}
+                              disabled={!tvDoctorEnabled}
+                              className="h-14 w-14 mt-0.5"
+                            />
+                          </span>
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <span className="text-base sm:text-lg font-black text-white leading-tight">
+                                Intelligens hibajavítás
+                              </span>
+                              <span
+                                data-tv-doctor-status-badge=""
+                                className={`inline-flex items-center rounded-lg border px-2.5 py-0.5 text-xs sm:text-sm font-black uppercase tracking-wide ${overallBadgeClass}`}
+                              >
+                                {overallBadgeText}
+                              </span>
+                            </div>
+                            <p
+                              data-tv-doctor-short-desc=""
+                              className="line-clamp-2 text-xs sm:text-sm text-slate-300 font-medium leading-snug"
+                            >
+                              A TV Doktor figyeli a lejátszást, és segít a csatornaváltási hibák felismerésében és javításában.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div data-tv-doctor-controls="" className="shrink-0">
+                          <button
+                            type="button"
+                            role="switch"
+                            data-tv-doctor-toggle=""
+                            data-tv-box-default=""
+                            aria-checked={tvDoctorEnabled}
+                            aria-label="TV Doktor be- és kikapcsolása"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onUpdateSettings({ tvDoctorEnabled: !tvDoctorEnabled });
+                            }}
+                            className={`w-14 h-7 rounded-full transition-colors relative shrink-0 p-0.5 focus:outline-none focus:ring-2 focus:ring-amber-400 ${
+                              tvDoctorEnabled ? 'bg-cyan-400' : 'bg-slate-700'
+                            }`}
+                          >
+                            <div
+                              className={`w-6 h-6 rounded-full bg-slate-950 shadow-md transition-transform ${
+                                tvDoctorEnabled ? 'translate-x-7' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Különálló Supabase-párosítás menüpont a TV Doktor alatt */}
+                    <div
+                      ref={pairingBoxRef}
+                      data-tv-box=""
+                      data-tv-doctor-pairing-box=""
+                      tabIndex={0}
+                      className="p-4 rounded-xl bg-[#0e1d3b]/95 border-2 border-cyan-500/65 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    >
+                      <button
+                        type="button"
+                        data-tv-doctor-pairing-menu=""
+                        onClick={() => setIsSupabasePairingOpen(true)}
+                        className="w-full flex flex-wrap items-center justify-between gap-3 text-left focus:outline-none rounded-lg"
+                      >
+                        <div className="flex min-w-0 items-center gap-3.5">
+                          <span
+                            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 ${
+                              pairingInfo.paired
+                                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-300'
+                                : 'border-amber-400/55 bg-amber-500/15 text-amber-300'
+                            }`}
+                          >
+                            {pairingInfo.paired ? (
+                              <ShieldCheck className="h-6 w-6" />
+                            ) : (
+                              <KeyRound className="h-6 w-6" />
+                            )}
+                          </span>
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <span className="text-base sm:text-lg font-black text-white">
+                                Supabase-párosítás
+                              </span>
+                              <span
+                                data-tv-doctor-pairing-badge=""
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-0.5 text-xs sm:text-sm font-black uppercase tracking-wide ${
+                                  pairingInfo.paired
+                                    ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
+                                    : 'border-amber-400/55 bg-amber-500/20 text-amber-200'
+                                }`}
+                              >
+                                {pairingInfo.paired ? (
+                                  <>
+                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                    <span>Párosítva</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ShieldAlert className="h-3.5 w-3.5" />
+                                    <span>Nincs párosítva</span>
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                            <span className="block text-sm text-slate-200 font-medium leading-snug">
+                              {pairingInfo.paired
+                                ? `Eszköz azonosítója: ${pairingInfo.deviceId} • Védett Supabase szinkron aktív`
+                                : `Egyszeri 6 jegyű számkód megadása ehhez a TV-hez (${pairingInfo.deviceId})`}
+                            </span>
+                          </div>
+                        </div>
+
+                        <span className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-400/60 bg-cyan-500/20 px-4 py-2 text-sm sm:text-base font-black text-cyan-100 shrink-0">
+                          <KeyRound className="h-4 w-4" />
+                          <span>Megnyitás</span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 2. OSD ÉS ÓRA BEÁLLÍTÁSOK (a sárga Lejátszó felirat és a Pufferelés doboz vizuálisan eltávolítva) */}
+              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
+                {/* OSD automatikus elrejtése */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="flex items-center gap-2 text-base sm:text-lg font-black text-white leading-tight">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><PanelsTopLeft className="h-4 w-4 text-cyan-300" /></span>
+                    <span>OSD automatikus elrejtése</span>
+                  </label>
+                  <p className="text-sm sm:text-base text-slate-200 font-medium leading-snug">
+                    Az OSD ennyi idő után eltűnik.
+                  </p>
+                  <div className="grid grid-cols-4 gap-1.5 pt-1">
+                    {/* Kérés szerint: 6 / 8 / 10 / 12 másodperc választható. */}
+                    {[6, 8, 10, 12].map((seconds) => (
+                      <button
+                        key={seconds}
+                        onClick={() => onUpdateSettings({ osdHideDelay: seconds })}
+                        className={`py-2 rounded-xl text-xs font-black transition-all ${
+                          settings.osdHideDelay === seconds
+                            ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                            : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
+                        }`}
+                      >
+                        {seconds} mp
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Toggle: Kék óra mindig látszódjon */}
+                <div data-tv-box="" tabIndex={0} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <div className="flex min-w-0 items-start gap-2.5 pr-3">
+                    <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-sky-400/50 bg-sky-500/15 px-1.5 shadow-sm shadow-sky-950/40">
+                      <Clock className="h-3.5 w-3.5 text-sky-300" />
+                      <span className="font-mono text-[10px] font-black tracking-tight text-sky-200">00:00</span>
+                    </span>
+                    <div className="min-w-0">
+                      <span className="text-base sm:text-lg font-black text-white leading-tight block">Kék óra mindig látszódjon</span>
+                      <span className="block text-sm sm:text-base text-slate-200 font-medium leading-snug">Teljes képernyőn az OSD után is látható.</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onUpdateSettings({ alwaysShowBlueClock: !settings.alwaysShowBlueClock })}
+                    className={`w-12 h-6 rounded-full transition-colors relative shrink-0 p-0.5 ${settings.alwaysShowBlueClock ? 'bg-cyan-400' : 'bg-slate-700'}`}
+                  >
+                    <div className={`w-5 h-5 rounded-full bg-slate-950 shadow-md transition-transform ${settings.alwaysShowBlueClock ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* SECTION: MOZI & SOROZAT (Screenshot 2) */}
+              <div className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md">
+                <h3 className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
+                  <Film className="w-3.5 h-3.5" />
+                  <span>Mozi & Sorozat</span>
+                </h3>
+
+                {/* Tekerési lépés */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="text-base sm:text-lg font-black text-white leading-tight block">
+                    Tekerési lépés
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[5, 10, 15, 30].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => onUpdateSettings({ seekStep: s })}
+                        className={`py-2 rounded-xl text-xs font-black transition-all ${
+                          settings.seekStep === s
+                            ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                            : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
+                        }`}
+                      >
+                        {s} mp
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Következő rész automatikusan */}
+                <div data-tv-box="" tabIndex={0} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <div>
+                    <span className="text-base sm:text-lg font-black text-white leading-tight block">
+                      Következő rész automatikusan
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => onUpdateSettings({ autoNextEpisode: !settings.autoNextEpisode })}
+                    className={`w-12 h-6 rounded-full transition-colors relative shrink-0 p-0.5 ${
+                      settings.autoNextEpisode ? 'bg-cyan-400' : 'bg-slate-700'
+                    }`}
+                  >
+                    <div
+                      className={`w-5 h-5 rounded-full bg-slate-950 shadow-md transition-transform ${
+                        settings.autoNextEpisode ? 'translate-x-6' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Preferált hangsáv nyelve */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="text-base sm:text-lg font-black text-white leading-tight block">
+                    Alap hangsáv (film / sorozat)
+                  </label>
+                  <p className="text-sm sm:text-base text-slate-200 font-medium leading-snug">
+                    Indításkor ezt a hangsávot választja, ha elérhető.
+                  </p>
+                  <select
+                    value={settings.preferredAudioLang}
+                    onChange={(e) => onUpdateSettings({ preferredAudioLang: e.target.value })}
+                    className="w-full bg-[#0e1f3f] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-cyan-400"
+                  >
+                    <option value="Magyar">Magyar</option>
+                    <option value="Angol">Angol (Original)</option>
+                    <option value="Német">Német</option>
+                    <option value="Francia">Francia</option>
+                    <option value="Olasz">Olasz</option>
+                    <option value="Spanyol">Spanyol</option>
+                  </select>
+                </div>
+
+                {/* Preferált felirat */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="text-base sm:text-lg font-black text-white leading-tight block">
+                    Alap felirat (film / sorozat)
+                  </label>
+                  <p className="text-sm sm:text-base text-slate-200 font-medium leading-snug">
+                    Indításkor ezt a feliratot választja, ha elérhető.
+                  </p>
+                  <select
+                    value={settings.preferredSubtitle}
+                    onChange={(e) => onUpdateSettings({ preferredSubtitle: e.target.value })}
+                    className="w-full bg-[#0e1f3f] border border-cyan-900/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-cyan-400"
+                  >
+                    <option value="Kikapcsolva">Kikapcsolva</option>
+                    <option value="Magyar">Magyar</option>
+                    <option value="Angol">Angol</option>
+                  </select>
+                </div>
+
+                {/* Felirat mérete */}
+                <div data-tv-box="" tabIndex={0} className="p-3 rounded-xl bg-[#0e1d3b]/90 border-2 border-cyan-500/60 shadow-sm space-y-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <label className="text-xs font-bold text-white block">
+                    Felirat mérete
+                  </label>
+                  <div className="grid grid-cols-5 gap-1">
+                    {(['75%', '100%', '125%', '150%', '200%'] as SubtitleSize[]).map((sz) => (
+                      <button
+                        key={sz}
+                        onClick={() => onUpdateSettings({ subtitleSize: sz })}
+                        className={`py-2 rounded-xl text-xs font-black transition-all ${
+                          settings.subtitleSize === sz
+                            ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                            : 'bg-[#0e1f3f] text-slate-300 border border-slate-700/60 hover:bg-[#142b56]'
+                        }`}
+                      >
+                        {sz === '100%' ? '10...' : (sz === '125%' ? '12...' : (sz === '150%' ? '15...' : (sz === '200%' ? '20...' : sz)))}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* A CORS proxy beállítás kérésre eltávolítva. */}
+              </div>
+
+              {/* SECTION: LG WEBOS ALKALMAZÁS */}
+              <div data-tv-box="" data-system-app-container="" tabIndex={0} className="p-3.5 rounded-2xl bg-[#0a1630] border border-cyan-900/40 space-y-3.5 shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400">
+                <div className="w-full flex items-center justify-between text-left rounded-xl py-1.5">
+                  <span className="text-xs font-black text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Smartphone className="w-5 h-5 shrink-0" />
+                    <span>LG webOS alkalmazás</span>
+                  </span>
+                </div>
+
+                {/* webOS kiadás ellenőrzése */}
+                {showApplicationBox && (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-xl bg-[#081329] border border-cyan-900/30 space-y-2.5">
+                      <p className="text-sm sm:text-base text-slate-200 font-medium leading-snug">
+                        A nyilvános webOS Release ellenőrzése. Az új IPK telepítéséhez webOS fejlesztői eszköz szükséges.
+                      </p>
+                      <button type="button" data-system-refresh="" disabled={releaseCheckLoading} onKeyDown={(event) => {
+                        const key = normalizeTvKey(event);
+                        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          modalRef.current?.querySelector<HTMLElement>('[data-system-app-container]')?.focus({ preventScroll: true } as any);
+                        }
+                      }} onClick={() => {
+                        if (showReleaseDetails) {
+                          setShowReleaseDetails(false);
+                        } else {
+                          setShowReleaseDetails(true);
+                          void checkWebOSUpdate();
+                        }
+                      }} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-bold active:scale-95 transition-all disabled:opacity-60">
+                        <RefreshCw className={releaseCheckLoading ? "w-3.5 h-3.5 animate-spin" : "w-3.5 h-3.5"} />
+                        {showReleaseDetails ? 'Ellenőrzés bezárása' : releaseCheckLoading ? 'Ellenőrzés…' : 'Frissítés ellenőrzése'}
+                      </button>
+                      {showReleaseDetails && releaseInfo && (
+                        <div className="rounded-lg border border-cyan-900/40 bg-slate-950/50 p-3 space-y-1">
+                          <p className="text-sm sm:text-base text-slate-200 font-medium leading-snug">Telepített verzió: <strong className="text-white font-bold">{releaseInfo.currentVersion}</strong></p>
+                          <p className="text-sm sm:text-base text-slate-200 font-medium leading-snug">Legfrissebb kiadás: <strong className="text-white font-bold">{releaseInfo.latestVersion}</strong></p>
+                          {releaseInfo.ipkUrl ? <p className="text-sm sm:text-base text-slate-200 font-medium leading-snug">A kiadás tartalmaz IPK-csomagot.</p> : <p className="text-base sm:text-lg text-slate-200 font-medium leading-snug">A kiadásban nem található IPK-fájl.</p>}
+                        </div>
+                      )}
+                      {showReleaseDetails && releaseCheckStatus && <p role="status" className="text-sm sm:text-base text-slate-200 font-medium leading-snug">{releaseCheckStatus}</p>}
+                    </div>
+                  </div>
+                )}
+
+                {/* App Brand Badge */}
+                <div data-system-app-box="" className="flex items-center gap-3 p-3 rounded-xl bg-[#0e1e3e] border border-cyan-800/40">
+                  <div className="w-12 h-12 rounded-xl bg-[#071124] border border-cyan-800/40 flex items-center justify-center overflow-hidden shadow-lg shadow-blue-500/20">
+                    <img
+                      src={APP_ICON_DATA_URL}
+                      width={48}
+                      height={48}
+                      alt="TV"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <div className="flex items-center">
+                    <h4 className="text-white font-black text-xl sm:text-2xl flex items-center gap-2 leading-none">
+                      <span>TV</span>
+                      <span data-system-version="" className="text-xl sm:text-2xl text-white font-black leading-none">
+                        v{WEB_VERSION}
+                      </span>
+                    </h4>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
+        </div>
+      </div>
+      <SupabasePairingModal
+        isOpen={isSupabasePairingOpen}
+        onClose={() => {
+          setIsSupabasePairingOpen(false);
+          window.setTimeout(() => {
+            pairingBoxRef.current?.focus({ preventScroll: true } as any);
+          }, 40);
+        }}
+      />
+    </div>
+  );
+
+  // A portál a <body>-ba teszi a menüt: így a Mozi/Sorozat tükrözött
+  // elrendezése (flex-row-reverse) nem tudja eltorzítani a panel méretét.
+  return typeof document !== 'undefined' ? createPortal(modal, document.body) : modal;
+};

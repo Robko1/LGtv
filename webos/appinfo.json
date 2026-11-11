@@ -1,0 +1,28 @@
+{
+  "id": "hu.rt.iptv.webos",
+  "version": "2.5.422",
+  "vendor": "TV",
+  "type": "web",
+  "main": "index.html",
+  "title": "TV",
+  "icon": "icon-rt2.png",
+  "largeIcon": "largeIcon-rt2.png",
+  "iconColor": "#00BFFF",
+  "bgColor": "#04141a",
+  "resolution": "1920x1080",
+  "appDescription": "TV – Élő TV, Mozi és Sorozat",
+  "disableBackHistoryAPI": true,
+  "requiredPermissions": [
+    "com.webos.media",
+    "com.webos.service.networkinput.getPointerInputSocket"
+  ],
+  "handlesRelaunch": false,
+  "closeOnRotation": false,
+  "supportTouchMode": "none",
+  "transparent": false,
+  "uiRevision": 2,
+  "requiredMemory": 100,
+  "supportPortraitMode": false,
+  "splashBackground": "splash-screen.png",
+  "spinnerOnLaunch": false
+}

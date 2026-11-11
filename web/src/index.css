@@ -1,0 +1,727 @@
+@import "tailwindcss";
+
+/* A TV felületi szövege ne legyen véletlenül kijelölhető; a beviteli mezők igen. */
+@layer base {
+  *, *::before, *::after {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* TV képernyőméretekhez igazodó alap. */
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+
+html {
+  min-height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+#root,
+#root > div {
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+}
+
+#root > div {
+  box-sizing: border-box;
+}
+
+#root [class~="flex-1"],
+#root [class*="overflow-y-auto"],
+#root [class*="overflow-x-auto"] {
+  min-width: 0;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+img,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Az oldalsó kategória- és beállítási panelek mindkét oldalon
+   azonos szélességűek legyenek, és a tényleges látható magassághoz
+   igazodjanak. */
+[class*="fixed"][class*="inset-0"][class*="justify-end"] > [class*="h-full"],
+[class*="fixed"][class*="inset-0"][class*="justify-start"] > [class*="h-full"] {
+  width: min(100%, 34rem);
+  max-width: 100%;
+  height: 100%;
+  max-height: 100dvh;
+  min-height: 0;
+}
+
+/* A párbeszédablakok a rendelkezésre álló magassághoz igazodnak. */
+[class*="max-h-[90vh]"],
+[class*="max-h-[92vh]"] {
+  max-height: min(92dvh, 900px);
+}
+
+@media (max-width: 480px) {
+  [class*="fixed"][class*="inset-0"][class*="items-center"] {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+  }
+
+  [class*="fixed"][class*="inset-0"][class*="justify-end"] > [class*="h-full"] {
+    width: 100%;
+  }
+
+  #root [class*="grid-cols-2"] {
+    min-width: 0;
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  [class*="max-h-[90vh]"],
+  [class*="max-h-[92vh]"] {
+    max-height: 96dvh;
+  }
+
+  [class*="fixed"][class*="inset-0"][class*="justify-end"] > [class*="h-full"] {
+    max-height: 100dvh;
+  }
+}
+
+/* A TV-k különböző viewportméreteire alkalmazott skálázás. */
+@media (min-width: 768px) {
+  #root {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 1024px) {
+  #root {
+    font-size: 16px;
+  }
+  button:hover {
+    filter: brightness(1.08);
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(6, 182, 212, 0.4);
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+  }
+}
+
+@media (min-width: 1280px) {
+  #root {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 1920px) {
+  #root {
+    font-size: 18px;
+  }
+  button, [role="button"], [role="option"] {
+    min-height: 44px;
+  }
+}
+
+@media (pointer: fine) {
+  *, *::before, *::after {
+    -webkit-user-select: auto;
+    user-select: auto;
+  }
+  input, textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .group:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (pointer: coarse) {
+  button {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid #facc15;
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+  box-shadow: none;
+  background: transparent;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+[role="option"]:focus-visible {
+  outline: 2px solid #facc15;
+  outline-offset: 2px;
+  box-shadow: none;
+  background: transparent;
+}
+
+@media (min-width: 1920px) {
+  :focus-visible {
+    outline-width: 3px;
+    outline-offset: 3px;
+  }
+}
+
+@media (pointer: fine) {
+  button, a {
+    cursor: pointer;
+  }
+}
+
+/* Magic Remote mutatójának vizuális visszajelzése. */
+@media (hover: hover) and (pointer: fine) {
+  .hover\:bg-\[\#112347\]:hover {
+    background-color: #112347;
+  }
+}
+
+/* LG webOS TV – a lista konténerén nincs külső keret; a sor fókusza látható marad. */
+[role="listbox"]:focus,
+[role="listbox"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+/* TV fókusz gyűrű erősebb – a teljes csatornasoron */
+@media (min-width: 1280px) {
+  [role="option"]:focus,
+  [role="option"]:focus-visible {
+    outline: 3px solid #facc15;
+    outline-offset: 2px;
+    box-shadow: none;
+    background: transparent;
+    z-index: 10;
+  }
+}
+/* Egér kurzor láthatóság – ha egér van, mutassuk */
+body.has-mouse [role="option"],
+body.has-mouse button {
+  cursor: pointer;
+}
+body.has-mouse [role="option"]:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+/* TV-n a csatorna sorok nagyobbak, könnyebb távirányítóval */
+@media (min-width: 1920px) and (pointer: coarse) {
+  [role="option"] {
+    min-height: 72px;
+  }
+}
+/* LG webOS TV – biztosítsuk, hogy a távirányítós fókusz látható legyen */
+@media (hover: none) and (pointer: coarse) {
+  [role="listbox"] {
+    -webkit-tap-highlight-color: rgba(6, 182, 212, 0.3);
+  }
+  [role="option"]:focus {
+    outline: 3px solid #facc15 !important;
+    outline-offset: 2px !important;
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+}
+
+
+/* Élő TV kiemelőszín: kizárólag a csatornalista, kedvencek és élő OSD-k elemeit színezi.
+   A választók mindig konkrét színosztályú GYERMEKELEMEKRE céloznak, nem a teljes panelre. */
+[data-live-accent="red"] {
+  --live-accent-solid: #ef4444;
+  --live-accent-text: #f87171;
+  --live-accent-soft: #fca5a5;
+  --live-accent-tint: rgb(239 68 68 / 20%);
+}
+[data-live-accent="blue"] {
+  --live-accent-solid: #3b82f6;
+  --live-accent-text: #60a5fa;
+  --live-accent-soft: #93c5fd;
+  --live-accent-tint: rgb(59 130 246 / 20%);
+}
+[data-live-accent="pink"] {
+  --live-accent-solid: #ec4899;
+  --live-accent-text: #f472b6;
+  --live-accent-soft: #f9a8d4;
+  --live-accent-tint: rgb(236 72 153 / 20%);
+}
+[data-live-accent="green"] {
+  --live-accent-solid: #22c55e;
+  --live-accent-text: #4ade80;
+  --live-accent-soft: #86efac;
+  --live-accent-tint: rgb(34 197 94 / 20%);
+}
+[data-live-accent="white"] {
+  --live-accent-solid: #f8fafc;
+  --live-accent-text: #ffffff;
+  --live-accent-soft: #e2e8f0;
+  --live-accent-tint: rgb(255 255 255 / 20%);
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-yellow-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-yellow-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-yellow-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-yellow-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-amber-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="text-yellow-"] {
+  color: var(--live-accent-text) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"] {
+  background-color: var(--live-accent-solid) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"][class*="/"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"][class*="/"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"][class*="/"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"][class*="/"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"][class*="/"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"][class*="/"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"][class*="/"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"][class*="/"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-amber-"][class*="/"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="bg-yellow-"][class*="/"] {
+  background-color: var(--live-accent-tint) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-amber-"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-yellow-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-yellow-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-yellow-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-amber-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-yellow-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-amber-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="border-yellow-"] {
+  border-color: var(--live-accent-text) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-amber-"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-yellow-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-yellow-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-yellow-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-amber-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-yellow-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-amber-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="fill-yellow-"] {
+  fill: var(--live-accent-text) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-yellow-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-yellow-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-yellow-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-yellow-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-amber-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="ring-yellow-"] {
+  --tw-ring-color: var(--live-accent-text) !important;
+}
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-amber-"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-yellow-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-amber-"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-yellow-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-amber-"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-yellow-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-amber-"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-yellow-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-amber-"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="shadow-yellow-"] {
+  --tw-shadow-color: var(--live-accent-text) !important;
+  --tw-shadow: var(--tw-shadow-colored) !important;
+}
+/* Csak a sárga/borostyán EPG-haladássáv színátmenete változik. */
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="from-amber-400"],
+[data-live-accent="red"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="to-yellow-300"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="from-amber-400"],
+[data-live-accent="blue"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="to-yellow-300"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="from-amber-400"],
+[data-live-accent="pink"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="to-yellow-300"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="from-amber-400"],
+[data-live-accent="green"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="to-yellow-300"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="from-amber-400"],
+[data-live-accent="white"] :is([data-live-sidebar], [data-live-osd], [data-fullscreen-osd]) [class*="to-yellow-300"] {
+  --tw-gradient-from: var(--live-accent-solid) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: var(--live-accent-soft) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+  background-image: linear-gradient(to right, var(--live-accent-solid), var(--live-accent-soft)) !important;
+}
+
+/* Kért, a mozi/sorozat könyvtárra szűkített TV-s olvashatóság. */
+@media (min-width: 1280px) {
+  [data-view-pane="movies"] [data-category-trigger],
+  [data-view-pane="series"] [data-category-trigger] { min-height: 48px; }
+  [data-view-pane="movies"] [data-poster-index] h3,
+  [data-view-pane="series"] [data-poster-index] h3 { line-height: 1.25; }
+  [data-view-pane="movies"] [data-poster-index] > div:last-child,
+  [data-view-pane="series"] [data-poster-index] > div:last-child { min-width: 0; overflow: hidden; }
+}
+
+/* Az éppen nézett csatorna dobozának állandó, világoskék széle.
+   Ez nem távirányító-fókusz: a fókusz sárga marad. */
+body [data-selected-channel="true"] {
+  border-color: #7dd3fc !important;
+}
+
+/* A csatornalista kedvenc-csillagai mindig sárgák maradnak a kiemelőszíntől függetlenül. */
+[data-live-accent="red"] [data-live-sidebar] [data-favorite-star] svg,
+[data-live-accent="blue"] [data-live-sidebar] [data-favorite-star] svg,
+[data-live-accent="pink"] [data-live-sidebar] [data-favorite-star] svg,
+[data-live-accent="green"] [data-live-sidebar] [data-favorite-star] svg,
+[data-live-accent="white"] [data-live-sidebar] [data-favorite-star] svg {
+  color: #fbbf24 !important;
+}
+[data-live-accent="red"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
+[data-live-accent="blue"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
+[data-live-accent="pink"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
+[data-live-accent="green"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"],
+[data-live-accent="white"] [data-live-sidebar] [data-favorite-star] svg[class*="fill-amber-"] {
+  fill: #fbbf24 !important;
+}
+
+/*
+ * ============================================================================
+ * TELJES KÉPERNYŐ ⇄ FŐOLDAL – A LEJÁTSZÓ GEOMETRIÁJA CSS-OSZTÁLYBÓL
+ * ============================================================================
+ *
+ * MIÉRT: korábban a belépés JavaScripttel írt ~18 inline stílust a lejátszó
+ * dobozára, majd egy `void container.offsetHeight` kényszerített
+ * újrarendezéssel várta meg a hatást. A főoldali 16:9-es keret mérése
+ * (`syncMainPageLayout`) ugyanezt tette visszafelé – egyetlen váltás így
+ * 3–6 szinkron, teljes oldalas újrarendezést indított a TV lassú processzorán,
+ * és ez látszott akadásként/újrarajzolásként.
+ *
+ * MOST: a teljes képernyő geometriája KIZÁRÓLAG ebből az osztályból jön.
+ * A React csak az osztálynevet teszi fel/le (egy attribútum-írás), a böngésző
+ * egyetlen elrendezéssel festi ki a képkockát. Visszatéréskor az osztály
+ * eltávolítása MAGÁTÓL visszaadja a főoldali keretet, mert az inline
+ * stílusokat a teljes képernyő alatt már nem írja felül semmi.
+ * Az `!important` a főoldali mérés inline stílusai ellen kell.
+ */
+/* A lejátszó saját helye állandó flex-elem. Teljes képernyőn a fixed
+   lejátszó ezen kívülre kerül, de a helye NEM cserélődik pszeudoelemre:
+   az alatta lévő OSD geometriája a két állapotban ugyanabból adódik.
+   Az OSD-t a teljes képernyős kép takarja, külön elrejteni nem kell;
+   a fókuszt a data-view-hidden szűri. Az OSD saját elrejtése változatlan. */
+[data-live-player-slot] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+}
+
+/* A teljes képernyős élő OSD az App később frissülő állapotához tartozik,
+   de a lejátszó már előbb visszatérhet. A lejátszó useLayoutEffectje még
+   festés előtt leveszi ezt a body-osztályt: ekkor az OSD szövege ÉS árnyéka
+   azonnal eltűnik, akkor is, ha a React még nem bontotta le az OSD-t.
+   Kizárólag a fullscreen OSD-t érinti, a főoldali OSD és VOD változatlan. */
+body:not(.iptv-tv-fullscreen) [data-fullscreen-osd] {
+  display: none !important;
+}
+
+body:not(.iptv-tv-fullscreen) [data-fullscreen-top-right] {
+  display: none !important;
+}
+
+[data-tv-player].iptv-fs {
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  transform: none !important;
+  aspect-ratio: auto !important;
+  z-index: 2147483000 !important;
+  box-shadow: none !important;
+}
+
+/* A kép töltse ki a teljes kijelzőt, a forrás képarányát megtartva. */
+[data-tv-player].iptv-fs video {
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  image-rendering: auto !important;
+  filter: none !important;
+}
+
+/* Mozi/sorozat teljes képernyőn: a natív lejátszóhoz igazodó kitöltés. */
+[data-tv-player].iptv-fs[data-vod-active] video {
+  object-fit: fill !important;
+}
+
+/* A teljes képernyős doboz fókusza ne rajzoljon kék keretet a TV-n. */
+body.iptv-tv-fullscreen [data-tv-player].iptv-fs:focus {
+  outline: none !important;
+}
+
+/* Élő és VOD sávválasztók: arányos panel, olvasható, középre zárt sorok.
+   A hosszú szolgáltatói címkék új sorba törnek, nem nyúlnak ki a gombból. */
+[data-track-panel] {
+  max-width: 480px;
+  max-height: 70vh;
+  min-height: 0;
+}
+[data-track-panel="live"] { max-width: 720px; }
+/* A webOS általános 92vh-s dialógus-szabályánál ez célzottabb. */
+html body.webos-tv [role="dialog"][data-track-panel],
+html body.webos-tv [data-vod-menu] > [data-track-panel] { max-height: 70vh !important; }
+html body.webos-tv [data-track-panel] [data-track-list] { padding-bottom: 12px !important; }
+[data-track-option] {
+  position: relative;
+  min-width: 0;
+  padding: 6px 40px;
+  text-align: center;
+}
+[data-track-content] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+[data-track-title] {
+  display: block;
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+/* TV-n jól olvasható sávnevek, kis képernyőn is tördelhető sorok. */
+@media (min-width: 1024px) { [data-track-title] { font-size: 32px; } }
+@media (max-width: 520px) { [data-track-title] { font-size: 24px; } }
+[data-track-list] [data-track-option] + [data-track-option] { margin-top: 4px; }
+[data-track-columns] { gap: 8px; padding: 10px; }
+[data-track-column] { padding: 8px; gap: 6px; }
+[data-track-check] {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+[data-track-panel] p,
+[data-track-panel] h2,
+[data-track-panel] h3,
+[data-track-help] {
+  text-align: center;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+[data-track-panel] h3 { flex-wrap: wrap; }
+[data-track-help] { max-height: 20vh; overflow-y: auto; font-size: 14px; line-height: 1.3; }
+
+
+/* Teljes alkalmazás: keret nélküli alapmegjelenés; a fókusz kizárólag sárga. */
+body,
+body * {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+body :focus,
+body :focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+body :is(button, a, input, select, textarea, [role="button"], [role="option"], [tabindex]):focus,
+body :is(button, a, input, select, textarea, [role="button"], [role="option"], [tabindex]):focus-visible {
+  outline: 3px solid #facc15 !important;
+  outline-offset: 2px !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+
+/* Menü és beállítások: a fókusz nem írhatja felül a menü saját gombszíneit.
+   Szándékosan csak a data-menu-surface területre érvényes. */
+[data-menu-surface] [data-tv-tabid="lists"]:focus,
+[data-menu-surface] [data-tv-tabid="lists"]:focus-visible,
+[data-menu-surface] [data-tv-tabid="favorites"]:focus,
+[data-menu-surface] [data-tv-tabid="favorites"]:focus-visible,
+[data-menu-surface] [data-tv-tabid="system"]:focus,
+[data-menu-surface] [data-tv-tabid="system"]:focus-visible {
+  background-color: #0f2144;
+}
+[data-menu-surface] [data-tv-tabid="lists"].bg-cyan-400:focus,
+[data-menu-surface] [data-tv-tabid="lists"].bg-cyan-400:focus-visible,
+[data-menu-surface] [data-tv-tabid="favorites"].bg-cyan-400:focus,
+[data-menu-surface] [data-tv-tabid="favorites"].bg-cyan-400:focus-visible,
+[data-menu-surface] [data-tv-tabid="system"].bg-cyan-400:focus,
+[data-menu-surface] [data-tv-tabid="system"].bg-cyan-400:focus-visible {
+  background-color: #22d3ee;
+}
+[data-menu-surface] [data-tv-list-action="phone"]:focus,
+[data-menu-surface] [data-tv-list-action="phone"]:focus-visible {
+  background-color: #fbbf24;
+}
+[data-menu-surface] [data-tv-list-action="new"]:focus,
+[data-menu-surface] [data-tv-list-action="new"]:focus-visible {
+  background-color: #22d3ee;
+}
+[data-menu-surface] [data-tv-layout-save]:focus,
+[data-menu-surface] [data-tv-layout-save]:focus-visible {
+  background-color: #10b981;
+}
+
+
+
+/* Kedvenc mappán belüli Vissza gomb: a zöld kitöltés maradjon meg,
+   a távirányító fókusza pedig kizárólag sárga keret legyen.
+   Felülírja a globális :focus-visible átlátszó hátterét és a keret-eltüntetést. */
+body [data-tv-folder="back"]:focus,
+body [data-tv-folder="back"]:focus-visible {
+  background-color: #34d399 !important;
+  color: #0f172a !important;
+  border: 2px solid #facc15 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* A Kedvencek „Új mappa” gombja fókuszban is őrizze meg a sárga kitöltést. */
+[data-menu-surface] [data-tv-favorite-action="new-folder"]:focus,
+[data-menu-surface] [data-tv-favorite-action="new-folder"]:focus-visible {
+  background-color: #fbbf24 !important;
+  color: #0f172a !important;
+}
+
+/* A VOD adatlap lejátszás- és évadgombjain a globális átlátszó fókuszháttér
+   nem írhatja felül a kék kijelölést (webOS távirányító). */
+[role="dialog"] [data-vod-detail-action]:focus,
+[role="dialog"] [data-vod-detail-action]:focus-visible {
+  background-color: #22d3ee !important;
+  border-color: #67e8f9 !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+}
+
+
+
+/* Kizárólag a Mozi/Sorozat hangsáv- és CC-listáján:
+   a fókusz a gomb keretét jelöli, nem kerül a felirat fölé. */
+body [data-track-panel="vod"] button[data-track-option] {
+  position: relative !important;
+  isolation: isolate !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+  border: 1px solid #1e293b !important;
+  background-color: #0a152d !important;
+  color: #cbd5e1 !important;
+  opacity: 1 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+body [data-track-panel="vod"] button[data-track-option] [data-track-content],
+body [data-track-panel="vod"] button[data-track-option] [data-track-title],
+body [data-track-panel="vod"] button[data-track-option] [data-track-check] {
+  position: relative !important;
+  z-index: 2 !important;
+  color: inherit !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+body [data-track-panel="vod"] button[data-track-option]:focus,
+body [data-track-panel="vod"] button[data-track-option]:focus-visible,
+body [data-track-panel="vod"] button[data-track-option][data-track-focused="1"] {
+  border: 2px solid #facc15 !important;
+  background-color: #0f244a !important;
+  color: #ffffff !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+body [data-track-panel="vod"] button[data-track-option][data-vod-menu-selected="1"]:not(:focus):not(:focus-visible):not([data-track-focused="1"]) {
+  background-color: #0f244a !important;
+  border-color: #22d3ee !important;
+  color: #ffffff !important;
+}
+
+
+/* Rendszer menü fókusz: a kijelölt doboz és a belső vezérlők eredeti
+   kék/szürke kitöltése maradjon látható; a fókuszt csak a sárga körvonal jelzi. */
+[data-system-settings] [data-tv-box]:focus,
+[data-system-settings] [data-tv-box]:focus-visible {
+  background-color: #0e1d3b !important;
+}
+[data-system-settings] [data-system-app-container]:focus,
+[data-system-settings] [data-system-app-container]:focus-visible {
+  background-color: #0a1630 !important;
+}
+[data-system-settings] button[class*="bg-cyan-400"]:focus,
+[data-system-settings] button[class*="bg-cyan-400"]:focus-visible,
+[data-system-settings] [role="switch"][aria-checked="true"]:focus,
+[data-system-settings] [role="switch"][aria-checked="true"]:focus-visible {
+  background-color: #22d3ee !important;
+}
+[data-system-settings] button[class*="bg-slate-700"]:focus,
+[data-system-settings] button[class*="bg-slate-700"]:focus-visible,
+[data-system-settings] [role="switch"][aria-checked="false"]:focus,
+[data-system-settings] [role="switch"][aria-checked="false"]:focus-visible {
+  background-color: #334155 !important;
+}
+[data-system-settings] button[class*="bg-[#0e1f3f]"]:focus,
+[data-system-settings] button[class*="bg-[#0e1f3f]"]:focus-visible {
+  background-color: #0e1f3f !important;
+}

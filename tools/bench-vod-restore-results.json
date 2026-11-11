@@ -1,0 +1,768 @@
+{
+  "movieCount": 103092,
+  "seriesCount": 0,
+  "chunkRows": 500,
+  "readLatencyMs": 8,
+  "repeats": 3,
+  "metric": "min of 3 (least GC-interrupted run)",
+  "maxSyncRowsAllowed": 2500,
+  "model": {
+    "idbTxMs": 8,
+    "yieldMs": 0.5,
+    "decodeCpuMs": 150
+  },
+  "baseline": {
+    "group": 4,
+    "batch": 2500,
+    "totalMs": 757,
+    "medianMs": 910,
+    "maxSyncRows": 2000,
+    "batches": 52,
+    "idbTransactions": 54,
+    "eventLoopYields": 104,
+    "samples": [
+      757,
+      1022,
+      910
+    ],
+    "modelMs": 634
+  },
+  "twelveReadBatches": {
+    "group": 12,
+    "batch": 2500,
+    "totalMs": 582,
+    "medianMs": 586,
+    "maxSyncRows": 2500,
+    "batches": 54,
+    "idbTransactions": 20,
+    "eventLoopYields": 138,
+    "samples": [
+      582,
+      586,
+      597
+    ],
+    "finalSamples": [
+      605,
+      637,
+      727,
+      589,
+      610
+    ],
+    "lastTx": 20,
+    "lastYields": 138,
+    "finalMs": 610,
+    "modelMs": 379
+  },
+  "winner": {
+    "group": 16,
+    "batch": 2500,
+    "totalMs": 573,
+    "medianMs": 616,
+    "maxSyncRows": 2500,
+    "batches": 52,
+    "idbTransactions": 15,
+    "eventLoopYields": 142,
+    "samples": [
+      727,
+      573,
+      616
+    ],
+    "finalSamples": [
+      545,
+      613,
+      642,
+      640,
+      600
+    ],
+    "lastTx": 15,
+    "lastYields": 142,
+    "finalMs": 613,
+    "modelMs": 341
+  },
+  "finalists": [
+    {
+      "group": 12,
+      "batch": 1500,
+      "finalMs": 632,
+      "finalSamples": [
+        632,
+        530,
+        687,
+        573,
+        721
+      ]
+    },
+    {
+      "group": 16,
+      "batch": 2500,
+      "finalMs": 613,
+      "finalSamples": [
+        545,
+        613,
+        642,
+        640,
+        600
+      ]
+    },
+    {
+      "group": 12,
+      "batch": 2500,
+      "finalMs": 610,
+      "finalSamples": [
+        605,
+        637,
+        727,
+        589,
+        610
+      ]
+    },
+    {
+      "group": 8,
+      "batch": 1500,
+      "finalMs": 622,
+      "finalSamples": [
+        561,
+        637,
+        679,
+        622,
+        606
+      ]
+    },
+    {
+      "group": 12,
+      "batch": 1000,
+      "finalMs": 601,
+      "finalSamples": [
+        696,
+        600,
+        631,
+        601,
+        598
+      ]
+    }
+  ],
+  "modelRanked": [
+    {
+      "group": 16,
+      "batch": 2500,
+      "modelMs": 341
+    },
+    {
+      "group": 16,
+      "batch": 1500,
+      "modelMs": 354
+    },
+    {
+      "group": 16,
+      "batch": 1000,
+      "modelMs": 368
+    },
+    {
+      "group": 12,
+      "batch": 2500,
+      "modelMs": 379
+    },
+    {
+      "group": 12,
+      "batch": 1500,
+      "modelMs": 388
+    },
+    {
+      "group": 12,
+      "batch": 1000,
+      "modelMs": 405
+    },
+    {
+      "group": 8,
+      "batch": 2500,
+      "modelMs": 439
+    },
+    {
+      "group": 8,
+      "batch": 1500,
+      "modelMs": 452
+    },
+    {
+      "group": 8,
+      "batch": 1000,
+      "modelMs": 465
+    },
+    {
+      "group": 6,
+      "batch": 1500,
+      "modelMs": 515
+    },
+    {
+      "group": 6,
+      "batch": 2500,
+      "modelMs": 515
+    },
+    {
+      "group": 6,
+      "batch": 1000,
+      "modelMs": 533
+    },
+    {
+      "group": 4,
+      "batch": 2500,
+      "modelMs": 634
+    },
+    {
+      "group": 4,
+      "batch": 4000,
+      "modelMs": 634
+    },
+    {
+      "group": 4,
+      "batch": 6000,
+      "modelMs": 634
+    },
+    {
+      "group": 4,
+      "batch": 12000,
+      "modelMs": 634
+    },
+    {
+      "group": 4,
+      "batch": 1000,
+      "modelMs": 660
+    },
+    {
+      "group": 4,
+      "batch": 1500,
+      "modelMs": 660
+    }
+  ],
+  "results": [
+    {
+      "group": 4,
+      "batch": 1000,
+      "totalMs": 774,
+      "medianMs": 807,
+      "maxSyncRows": 1000,
+      "batches": 104,
+      "idbTransactions": 54,
+      "eventLoopYields": 156,
+      "samples": [
+        774,
+        943,
+        807
+      ],
+      "modelMs": 660
+    },
+    {
+      "group": 4,
+      "batch": 1500,
+      "totalMs": 815,
+      "medianMs": 877,
+      "maxSyncRows": 1500,
+      "batches": 104,
+      "idbTransactions": 54,
+      "eventLoopYields": 155,
+      "samples": [
+        815,
+        912,
+        877
+      ],
+      "modelMs": 660
+    },
+    {
+      "group": 4,
+      "batch": 2500,
+      "totalMs": 757,
+      "medianMs": 910,
+      "maxSyncRows": 2000,
+      "batches": 52,
+      "idbTransactions": 54,
+      "eventLoopYields": 104,
+      "samples": [
+        757,
+        1022,
+        910
+      ],
+      "modelMs": 634
+    },
+    {
+      "group": 4,
+      "batch": 4000,
+      "totalMs": 767,
+      "medianMs": 964,
+      "maxSyncRows": 2000,
+      "batches": 52,
+      "idbTransactions": 54,
+      "eventLoopYields": 104,
+      "samples": [
+        767,
+        1014,
+        964
+      ],
+      "modelMs": 634
+    },
+    {
+      "group": 4,
+      "batch": 6000,
+      "totalMs": 776,
+      "medianMs": 930,
+      "maxSyncRows": 2000,
+      "batches": 52,
+      "idbTransactions": 54,
+      "eventLoopYields": 104,
+      "samples": [
+        776,
+        930,
+        966
+      ],
+      "modelMs": 634
+    },
+    {
+      "group": 4,
+      "batch": 12000,
+      "totalMs": 820,
+      "medianMs": 918,
+      "maxSyncRows": 2000,
+      "batches": 52,
+      "idbTransactions": 54,
+      "eventLoopYields": 104,
+      "samples": [
+        820,
+        958,
+        918
+      ],
+      "modelMs": 634
+    },
+    {
+      "group": 6,
+      "batch": 1000,
+      "totalMs": 600,
+      "medianMs": 645,
+      "maxSyncRows": 1000,
+      "batches": 105,
+      "idbTransactions": 37,
+      "eventLoopYields": 173,
+      "samples": [
+        600,
+        703,
+        645
+      ],
+      "modelMs": 533
+    },
+    {
+      "group": 6,
+      "batch": 1500,
+      "totalMs": 671,
+      "medianMs": 685,
+      "maxSyncRows": 1500,
+      "batches": 70,
+      "idbTransactions": 37,
+      "eventLoopYields": 138,
+      "samples": [
+        685,
+        727,
+        671
+      ],
+      "modelMs": 515
+    },
+    {
+      "group": 6,
+      "batch": 2500,
+      "totalMs": 686,
+      "medianMs": 716,
+      "maxSyncRows": 2500,
+      "batches": 70,
+      "idbTransactions": 37,
+      "eventLoopYields": 138,
+      "samples": [
+        716,
+        844,
+        686
+      ],
+      "modelMs": 515
+    },
+    {
+      "group": 6,
+      "batch": 4000,
+      "totalMs": 800,
+      "medianMs": 854,
+      "maxSyncRows": 3000,
+      "batches": 35,
+      "idbTransactions": 37,
+      "eventLoopYields": 104,
+      "samples": [
+        854,
+        910,
+        800
+      ],
+      "modelMs": 498
+    },
+    {
+      "group": 6,
+      "batch": 6000,
+      "totalMs": 755,
+      "medianMs": 778,
+      "maxSyncRows": 3000,
+      "batches": 35,
+      "idbTransactions": 37,
+      "eventLoopYields": 104,
+      "samples": [
+        755,
+        795,
+        778
+      ],
+      "modelMs": 498
+    },
+    {
+      "group": 6,
+      "batch": 12000,
+      "totalMs": 813,
+      "medianMs": 821,
+      "maxSyncRows": 3000,
+      "batches": 35,
+      "idbTransactions": 37,
+      "eventLoopYields": 104,
+      "samples": [
+        858,
+        813,
+        821
+      ],
+      "modelMs": 498
+    },
+    {
+      "group": 8,
+      "batch": 1000,
+      "totalMs": 603,
+      "medianMs": 652,
+      "maxSyncRows": 1000,
+      "batches": 104,
+      "idbTransactions": 28,
+      "eventLoopYields": 182,
+      "samples": [
+        652,
+        721,
+        603
+      ],
+      "modelMs": 465
+    },
+    {
+      "group": 8,
+      "batch": 1500,
+      "totalMs": 583,
+      "medianMs": 642,
+      "maxSyncRows": 1500,
+      "batches": 78,
+      "idbTransactions": 28,
+      "eventLoopYields": 156,
+      "samples": [
+        694,
+        642,
+        583
+      ],
+      "finalSamples": [
+        561,
+        637,
+        679,
+        622,
+        606
+      ],
+      "lastTx": 28,
+      "lastYields": 156,
+      "finalMs": 622,
+      "modelMs": 452
+    },
+    {
+      "group": 8,
+      "batch": 2500,
+      "totalMs": 653,
+      "medianMs": 675,
+      "maxSyncRows": 2500,
+      "batches": 52,
+      "idbTransactions": 28,
+      "eventLoopYields": 130,
+      "samples": [
+        705,
+        653,
+        675
+      ],
+      "modelMs": 439
+    },
+    {
+      "group": 8,
+      "batch": 4000,
+      "totalMs": 709,
+      "medianMs": 731,
+      "maxSyncRows": 4000,
+      "batches": 26,
+      "idbTransactions": 28,
+      "eventLoopYields": 104,
+      "samples": [
+        731,
+        736,
+        709
+      ],
+      "modelMs": 426
+    },
+    {
+      "group": 8,
+      "batch": 6000,
+      "totalMs": 735,
+      "medianMs": 763,
+      "maxSyncRows": 4000,
+      "batches": 26,
+      "idbTransactions": 28,
+      "eventLoopYields": 104,
+      "samples": [
+        735,
+        764,
+        763
+      ],
+      "modelMs": 426
+    },
+    {
+      "group": 8,
+      "batch": 12000,
+      "totalMs": 707,
+      "medianMs": 715,
+      "maxSyncRows": 4000,
+      "batches": 26,
+      "idbTransactions": 28,
+      "eventLoopYields": 104,
+      "samples": [
+        719,
+        715,
+        707
+      ],
+      "modelMs": 426
+    },
+    {
+      "group": 12,
+      "batch": 1000,
+      "totalMs": 587,
+      "medianMs": 594,
+      "maxSyncRows": 1000,
+      "batches": 108,
+      "idbTransactions": 20,
+      "eventLoopYields": 190,
+      "samples": [
+        594,
+        639,
+        587
+      ],
+      "finalSamples": [
+        696,
+        600,
+        631,
+        601,
+        598
+      ],
+      "lastTx": 20,
+      "lastYields": 190,
+      "finalMs": 601,
+      "modelMs": 405
+    },
+    {
+      "group": 12,
+      "batch": 1500,
+      "totalMs": 528,
+      "medianMs": 557,
+      "maxSyncRows": 1500,
+      "batches": 72,
+      "idbTransactions": 20,
+      "eventLoopYields": 155,
+      "samples": [
+        528,
+        574,
+        557
+      ],
+      "finalSamples": [
+        632,
+        530,
+        687,
+        573,
+        721
+      ],
+      "lastTx": 20,
+      "lastYields": 155,
+      "finalMs": 632,
+      "modelMs": 388
+    },
+    {
+      "group": 12,
+      "batch": 2500,
+      "totalMs": 582,
+      "medianMs": 586,
+      "maxSyncRows": 2500,
+      "batches": 54,
+      "idbTransactions": 20,
+      "eventLoopYields": 138,
+      "samples": [
+        582,
+        586,
+        597
+      ],
+      "finalSamples": [
+        605,
+        637,
+        727,
+        589,
+        610
+      ],
+      "lastTx": 20,
+      "lastYields": 138,
+      "finalMs": 610,
+      "modelMs": 379
+    },
+    {
+      "group": 12,
+      "batch": 4000,
+      "totalMs": 581,
+      "medianMs": 594,
+      "maxSyncRows": 4000,
+      "batches": 36,
+      "idbTransactions": 20,
+      "eventLoopYields": 121,
+      "samples": [
+        594,
+        581,
+        761
+      ],
+      "modelMs": 371
+    },
+    {
+      "group": 12,
+      "batch": 6000,
+      "totalMs": 603,
+      "medianMs": 654,
+      "maxSyncRows": 6000,
+      "batches": 18,
+      "idbTransactions": 20,
+      "eventLoopYields": 104,
+      "samples": [
+        654,
+        603,
+        655
+      ],
+      "modelMs": 362
+    },
+    {
+      "group": 12,
+      "batch": 12000,
+      "totalMs": 709,
+      "medianMs": 739,
+      "maxSyncRows": 6000,
+      "batches": 18,
+      "idbTransactions": 20,
+      "eventLoopYields": 104,
+      "samples": [
+        739,
+        785,
+        709
+      ],
+      "modelMs": 362
+    },
+    {
+      "group": 16,
+      "batch": 1000,
+      "totalMs": 599,
+      "medianMs": 603,
+      "maxSyncRows": 1000,
+      "batches": 104,
+      "idbTransactions": 15,
+      "eventLoopYields": 195,
+      "samples": [
+        641,
+        603,
+        599
+      ],
+      "modelMs": 368
+    },
+    {
+      "group": 16,
+      "batch": 1500,
+      "totalMs": 602,
+      "medianMs": 675,
+      "maxSyncRows": 1500,
+      "batches": 78,
+      "idbTransactions": 15,
+      "eventLoopYields": 168,
+      "samples": [
+        778,
+        602,
+        675
+      ],
+      "modelMs": 354
+    },
+    {
+      "group": 16,
+      "batch": 2500,
+      "totalMs": 573,
+      "medianMs": 616,
+      "maxSyncRows": 2500,
+      "batches": 52,
+      "idbTransactions": 15,
+      "eventLoopYields": 142,
+      "samples": [
+        727,
+        573,
+        616
+      ],
+      "finalSamples": [
+        545,
+        613,
+        642,
+        640,
+        600
+      ],
+      "lastTx": 15,
+      "lastYields": 142,
+      "finalMs": 613,
+      "modelMs": 341
+    },
+    {
+      "group": 16,
+      "batch": 4000,
+      "totalMs": 562,
+      "medianMs": 621,
+      "maxSyncRows": 4000,
+      "batches": 26,
+      "idbTransactions": 15,
+      "eventLoopYields": 117,
+      "samples": [
+        781,
+        562,
+        621
+      ],
+      "modelMs": 329
+    },
+    {
+      "group": 16,
+      "batch": 6000,
+      "totalMs": 603,
+      "medianMs": 635,
+      "maxSyncRows": 6000,
+      "batches": 26,
+      "idbTransactions": 15,
+      "eventLoopYields": 117,
+      "samples": [
+        843,
+        603,
+        635
+      ],
+      "modelMs": 329
+    },
+    {
+      "group": 16,
+      "batch": 12000,
+      "totalMs": 684,
+      "medianMs": 715,
+      "maxSyncRows": 8000,
+      "batches": 13,
+      "idbTransactions": 15,
+      "eventLoopYields": 104,
+      "samples": [
+        793,
+        715,
+        684
+      ],
+      "modelMs": 322
+    }
+  ]
+}
